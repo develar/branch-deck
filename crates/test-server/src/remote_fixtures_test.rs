@@ -214,7 +214,7 @@ async fn the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_
   assert_eq!(patronus().await, (json!(0), json!([])), "no window shows the details");
   let show = |robots: serde_json::Value| {
     let demand = json!({
-      "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [], "previewed": [], "reviewWindows": [],
+      "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [],
       "robotDetails": robots, "watchedRobots": [],
     });
     post_as(

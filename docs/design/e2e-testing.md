@@ -171,7 +171,7 @@ Mock implementation:
   `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
   `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
   and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (128) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (117) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
@@ -186,8 +186,10 @@ Mock implementation:
   (`MUTATING`: the Patronus, GitHub and YouTrack writes, the sign-ins, the git writes, the app's settings) has no page
   answer: the test server runs it behind the fake of its service and the test asserts the fake's log
   ([Remote services](#remote-services)); its failure stays `routeCommandError`, the one page answer that is no route
-  count. The page answers of the read commands are pinned per command (`ROUTED_IN_PAGE`, ten commands: a robot a
-  `/patronus` comment started, the build progress of a running robot's details, a refused landing gate, …), and the pushes
+  count. The page answers of the read commands are pinned per command (`ROUTED_IN_PAGE`, five commands: a refused landing
+  gate, a conflict of the target, the repository config, the status of the agent CLI and the read ahead of a branch
+  review, states that neither the fixtures of the fakes nor the templates make yet; no fact of a session is among them),
+  and the pushes
   (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`/`routeHeldPush`: the templates name the repository itself as
   `origin`, so a rejected or moved remote has nowhere to come from) are the one exception among the writes. Only the
   remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the end of
@@ -253,7 +255,10 @@ Mock implementation:
   session of a test goes away by itself until the test moves it, `repo.advanceBackendClock`): `get_snapshot`, `sync`, `set_window_focus`,
   `set_demand` (what the window of a subscription shows, `src/model/demand.ts`), `refresh_facts` and
   `unsubscribe_view` answer JSON; the scheduler of the facts runs on the same clocks and reads the fakes of each
-  repository (`TestFactSources`: the lists and polls of the robots, counted in `listCalls` and `pollCalls`);
+  repository (`TestFactSources`, which counts every read of a family: the lists, polls and details of the robots in
+  `listCalls`, `pollCalls` and `detailCalls` of `getPatronusLog`, the listings of the pull requests in `calls` of
+  `getGitHubLog`, the review requests in `getReviewRequestCalls`, the readiness asked in `getReviewReadinessCalls`; a
+  test of the cadence asserts these after it moved the clock, as the policy tests of `domain_policy::refresh` do);
   `subscribe_view` is a long-lived event stream of its channel (`X-Progress-Channel`, the `patches` of the command):
   `{ result }` with the subscription and its view first, then each `ViewPatch` as `{ progress }`, until
   `unsubscribe_view` or the deletion of the repository, which closes its sessions first, so the stream ends and the
@@ -490,9 +495,10 @@ log of the fake). No test answers a remote write in the page: the registry test 
   then a start offers only the default checks. The default profile is the real service's: the profile of the branch's
   last robot, which a fixture robot names in `profile`; so are the profiles that skip the review (`skipsReview` of a
   regular profile comes only from that robot's options, an emergency profile always skips it)
-- **Log**: `GET /repositories/{id}/patronus` (`getPatronusLog`) answers `listCalls` and `pollCalls`, the lists and
-  polls of the session, `detailCalls`, the commands of the page (the caches of the service answer some of them: a test
-  of the ask policy counts these), `robots`, the robots the lists and polls answered by id (a fixture robot's empty
+- **Log**: `GET /repositories/{id}/patronus` (`getPatronusLog`) answers `listCalls`, `pollCalls` and `detailCalls`,
+  the lists, the polls and the reads of the details of the session (`TestFactSources`; the caches of the service answer
+  some of them: a test of the ask policy counts these, and a poll a test waits for comes when it moves the clock of its
+  repository, `repo.advanceBackendClock`), `robots`, the robots the lists and polls answered by id (a fixture robot's empty
   revision as the fake resolved it: `mergeRunningRobots` pins it in the next fixture),
   `requests`, what reached the fake: `list`, `updates`, `details` and `startOptions` counts, and the robot ids of
   `problems` and `progress` in order; and the actions in order: `starts`, the bodies of the start requests as Patronus
@@ -515,8 +521,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `GET rules/branches/<b>`; a write changes what the next read answers. Its Patronus bot answers a `/patronus` comment
   at once: 👍, or 👎 and a `⚠️` comment of the reason, as `patronus_replies` says (accepted by default). A branch
   is on GitHub when the test repository has it (its `origin` is itself). The service is replaced on each fixture.
-- **GitHub bridge**: the reads of the session's pull requests and of the rules of their bases (`TestFactSources`:
-  `list_pull_requests_of`, counted, and `branch_rules_of` of the bridge, each holding the repository as a command does),
+- **GitHub bridge**: the reads of the session's pull requests, of the rules of their bases and of the review requests
+  of others (`TestFactSources`: `list_pull_requests_of`, counted, `branch_rules_of` of the bridge, each holding the
+  repository as a command does, and `review_requests_of`, counted, which answers the fixture of the review requests),
   `create_pull_request`, `retarget_pull_request`, `close_pull_request` and `request_pull_request_reviewers` (which
   give what they wrote to the session of the repository and answer the version of its patch, as the app's commands
   do), `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request` (the text of the real core, the
@@ -627,8 +634,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
 - **Measurement** (2026-10-24, 672 tests, 16 workers on the 20 cores of the Mac Studio, load 7-30 from other work):
   ~150 s, ~2075 s of test time, a mean test 3.1 s (p50 2.8 s, p99 12 s). A test spends 17% in `setupRepo` (the
   repository 177 ms, the page ~300 ms until Sync is enabled), 31% in its syncs (~1 s each, of which `sync_branches`
-  takes 519 ms on the server), 5% in the browser fixtures, the rest in its body; the landing needs (384 ms, then
-  `wait_landing_needs`; the session computes them since s7-4) and the readiness of the shown rows (the session's reads since s7-6) follow most syncs. The run is CPU-bound: the test server and its git processes used
+  takes 519 ms on the server), 5% in the browser fixtures, the rest in its body; the landing needs (384 ms; the page
+  waited for them with `wait_landing_needs`, which s7-4 deleted: the session computes them) and the readiness of the shown rows (the session's reads since s7-6) follow most syncs. The run is CPU-bound: the test server and its git processes used
   374 s user and 817 s system time (about 136 git processes per test: `rev-parse` 25, `config` 23, `cat-file` 16,
   `unpack-objects` after each small `fast-import` 8), the browsers and the workers 1084 s, so the wall time follows
   the CPU work, not the waits. Measured and left as they are: Playwright's retry backoff of an expect (500 ms steps,
@@ -657,7 +664,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`safe-push-helpers.ts`) gives each fact an assertion's time of its own before the step is asserted. The steps
   measured in the traces of the failed waits (2026-10-24):
   `fetch_baseline` 2-4 s, `check_landing_gate` 2-3.5 s (a start runs the gate again in `start_patronus_robot`, 2-2.7 s:
-  the test server has no object cache), the landing needs 2-5 s (then `wait_landing_needs`), the readiness 1-5 s
+  the test server has no object cache), the landing needs 2-5 s (then the page's `wait_landing_needs`, the session's since s7-4), the readiness 1-5 s
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,
   which is until the toast times out (5 s, 10 s with an action). A test closes a toast it has read with its close

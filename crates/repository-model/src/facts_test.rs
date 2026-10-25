@@ -1,3 +1,4 @@
+use crate::branch_table::RemoteFact;
 use crate::facts::{
   Applied, AskedRobots, FactRecord, FactResult, FactStore, Needs, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence, robots_digest,
   session_remote,
@@ -14,7 +15,7 @@ use domain_types::patronus::{
   KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
   REVIEW_APPROVAL_SUBSYSTEM,
 };
-use domain_types::repository_view::{BranchPatronus, LandedByView, LandingNeeds, PatronusView, RemoteFact};
+use domain_types::repository_view::{BranchPatronus, LandedByView, LandingNeeds, PatronusView};
 use domain_types::session::{FactState, NewsEvent, RobotsHead};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use pretty_assertions::assert_eq;

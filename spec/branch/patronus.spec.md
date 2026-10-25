@@ -1311,7 +1311,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   `formatLandedWholeReason`). Push with Children leaves it then, and its push alone (`pushWholeStack`: the restart of its
   robot, Request Review… and the creation of its pull request) is refused with that reason.
 - The app and `bd` decide what the robots land, landed and hold with one rule over the branch table of the last sync
-  (`repository_model::facts::derive_patronus`, [Repository view](../../docs/design/git-operations.md#repository-view)):
+  (`repository_model::facts::derive_patronus`, [Session facts](../../docs/design/git-operations.md#session-facts)):
   the session of the repository derives it again when its table committed, its robots changed or a push moved a
   remote branch, in the blocking pool, and sends it as the part `patronus` of its view; until Patronus answered and
   the first view is derived it is `loading` (the rows wait for it), while a newer one is derived `stale` (no row waits),

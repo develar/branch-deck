@@ -1,10 +1,10 @@
 //! The view by content on real repositories: which robots need git (only those the hashes don't answer), how many
 //! processes, and that the memo answers a view of the same state without any
 
-use crate::branch_table::BranchTable;
+use crate::branch_table::{BranchTable, RemoteFacts};
 use crate::patronus_view::{ContentMemo, match_robots, patronus_view};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use domain_types::repository_view::{HoldKind, PatronusView, RemoteFacts};
+use domain_types::repository_view::{HoldKind, PatronusView};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};

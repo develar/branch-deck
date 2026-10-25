@@ -1,5 +1,5 @@
 //! The branch table a sync left (or a grouping read without one, `bd status`), what the repository view derives from
-//! (docs/design/git-operations.md, "Repository view"): the grouped branches in the order of the table, their virtual
+//! (docs/design/git-operations.md, "Session facts"): the grouped branches in the order of the table, their virtual
 //! tips, the copies the sync wrote, the stack branches and the parked branches. The app keeps the one of its last sync
 //! per repository; `bd` builds it from the report of its sync.
 
@@ -7,7 +7,6 @@ use domain_types::GroupedBranchInfo;
 use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
-use domain_types::repository_view::{RemoteFact, RemoteFacts};
 use domain_types::stack::{BlockReason, StackBranchUpdate};
 use std::collections::{BTreeMap, HashMap};
 use sync_core::remote_status::has_work_for_remote;
@@ -82,6 +81,24 @@ impl BranchTable {
   pub fn stack(&self, root: &str) -> Option<&StackBranchUpdate> {
     self.stack_branches.iter().find(|stack| stack.root == root && !stack.members.is_empty())
   }
+}
+
+/// What a remote branch is now, as the deriver of the Patronus view knows it: the session from its table, which a push
+/// moves without a sync (`facts::session_remote`), `bd` from its sync
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct RemoteFact {
+  /// The tip of the remote branch; `None` without one
+  pub remote_tip: Option<String>,
+  /// The remote branch has what the branch has by content: nothing to push (a remote rebuilt on an older baseline
+  /// included)
+  pub up_to_date: bool,
+}
+
+/// The remote facts of the branches and of the stack branches (by root)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct RemoteFacts {
+  pub branches: BTreeMap<String, RemoteFact>,
+  pub stacks: BTreeMap<String, RemoteFact>,
 }
 
 /// What a sync knows of the remote branches, for the app and `bd` alike: of each branch of the table the remote tip

@@ -1,31 +1,11 @@
 //! What Rust derives of the branch table for the page and for `bd`, so both read one rule (docs/design/git-operations.md,
-//! "Repository view"): the Patronus section, which robot is of each branch and what the robots land, landed and hold of
+//! "Session facts"): the Patronus section, which robot is of each branch and what the robots land, landed and hold of
 //! the branches as they are now (`repository_model::patronus_view`). The session of a repository derives it and sends
 //! it to its windows as a part of its view (`domain_types::session::PatronusPart`); the page reads it by branch.
 
 use crate::landing::{LandingRefusal, Subject};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-
-/// What a remote branch is now, as the deriver knows it: the session from its table, which a push moves without a sync,
-/// `bd` from its sync
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteFact {
-  /// The tip of the remote branch; null without one
-  pub remote_tip: Option<String>,
-  /// The remote branch has what the branch has by content: nothing to push (a remote rebuilt on an older baseline
-  /// included)
-  pub up_to_date: bool,
-}
-
-/// The remote facts of the branches and of the stack branches (by root)
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteFacts {
-  pub branches: BTreeMap<String, RemoteFact>,
-  pub stacks: BTreeMap<String, RemoteFact>,
-}
 
 /// The commits of a branch a running robot's commit has (`BranchSpan`): ids of the checked-out branch, newest first,
 /// and those of them it has in an earlier version

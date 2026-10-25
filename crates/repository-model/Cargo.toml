@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 # The model of a repository, grown from what Rust derives of the branch table for the page and for `bd`
-# (docs/design/git-operations.md, "Repository view"): the sessions with their table and facts, the Patronus section and
+# (docs/design/git-operations.md, "Session facts"): the sessions with their table and facts, the Patronus section and
 # the guards of the app's actions, one rule over the content walks of sync-core; it runs no trial check (the hosts
 # answer the landing needs and the landing gate)
 [dependencies]

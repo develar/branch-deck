@@ -331,7 +331,9 @@ flowchart TD
 | Доступность каждого действия (disabled с причиной) | `domain-policy/src/actions.rs` | предметная половина `useBranchContextActions.ts` (860 строк), `getRobotActions`; палитра ⌘K получит действия веток отсюда, по `BranchView.actions` (`spec/repository/command-palette.spec.md`) |
 | Допуск операции (join, wait, side by side) | `domain-policy/src/admission.rs` | `getOperationBlocker` (`src/stores/operations.ts:87`) |
 | Когда обновлять факт (каденция, demand, батчи) | `domain-policy/src/refresh.rs` | константы и таймеры `patronus.ts:56-72`, `pull-requests.ts`, `review-readiness.ts`, `review-requests.ts` |
-| Новости (approvals пришли, робот слился или упал, запрошен review) | `domain-policy/src/news.rs` | `findApprovalNews`, новости роботов в stores |
+| PR, с которого стартует Safe Push; пришли ли approvals; ждёт ли subject approvals | `domain-policy/src/readiness.rs` (s7) | `findApprovalNews`, правило `getPullRequestStart` для readiness сессии (страница держит своё до s8) |
+| Какой работающий Safe Push несёт недостающее объявление | `domain-policy/src/landing_needs.rs` (s7) | `name_landing_robots` в `sync-core` |
+| Новости (approvals пришли, робот слился или упал, запрошен review) | `domain-policy/src/news.rs` | переходы аппликаторов фактов сессии (s7: `News` вида, `readiness::approval_news`) |
 | Порядок эффектов каждого действия | `operations/src/<family>.rs` | `safe-push-start.ts`, `git/push.ts`, `git/stack-push.ts`, `landed-stack.ts`, `create-pull-request-context.ts`, `patronus-actions.ts`; `safe_push()`, `push_locked` |
 | Коды ошибок | `domain-types/src/error.rs` | `command_error.rs`, `bd-core/src/error.rs` |
 | Настройки, которые читает Rust: схема и defaults | `domain-types/src/settings.rs` (создаёт s5) | `appSettings.ts` (для этих ключей), ручные читатели |
@@ -411,10 +413,15 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
 
 ### Demand
 
-`Demand { focused, visible_branches, visible_stacks, previewed, review_windows, robot_details, issues }` — единственное,
-что страница сообщает о себе. Он управляет readiness, деталями роботов (вместо интервала на поповер в
-`usePatronusRobotDetails.ts`), issue YouTrack и каденцией опроса. Вид Landing добавит член `robot_stats`: пока он
-виден, `remote-facts` читает статистику (`remote_facts::robot_stats`, сейчас это `get_robot_stats` при показе и фокусе окна). `set_demand` — debounce ≤ 4 в секунду, без ожидания.
+`Demand { focused, online, visible_branches, visible_stacks, needed, robot_details, watched_robots }`
+(`domain_types::session`, s7) — единственное, что страница сообщает о себе. Он управляет readiness (`needed` сразу
+отдельным вызовом, показанные раньше скрытых), деталями роботов (`robot_details`: читаются, пока их показывает
+поверхность, вместо интервала на поповер), опросом роботов без ветки (`watched_robots`) и каденцией опроса (фокус,
+offline); сессия держит demand каждой подписки и спрашивает по объединению. Части приходят со своими потребителями:
+`issues` (YouTrack) и `robot_stats` (вид Landing: пока он виден, `remote-facts` читает статистику, сейчас это
+`get_robot_stats` при показе и фокусе окна); `previewed` и `review_windows` плана s7 удалены в s7-8, их не читал ни
+один факт. `set_demand` — ≤ 4 в секунду и только изменение, без ожидания ([Session
+facts](git-operations.md#session-facts)).
 
 ## Планирование и исполнение операций
 
@@ -1745,8 +1752,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `INSUFFICIENT_SCOPES` запомнен: два обновления — 3 GraphQL, не 4; C4 (из s6): отпечаток входов по частям — хэш
   остального и remote-ветки префикса списком, в котором сессия заменяет то, что записал её push, без процесса git.
 - **Критерий выхода:** страница не отправляет Rust ни одного вывода; `GetRepositoryViewParams` не существует.
-- **Уточнения планировщика (2026-10-25, по коду master `259ca45f`; шаги s7-1…s7-8 в `notes.local/s7-session-facts.md`
-  lease):**
+- **Уточнения планировщика (2026-10-25, по коду master `259ca45f`; шаги s7-1…s7-8, каждый с итогом по коду):**
   - Ребро `repository-model → trial-check` снимает этот этап (запись `ALLOWED` в `architecture_test.rs`): landing needs
     считает хост через `SessionEnvironment::landing_needs` (`trial_check::landing_gate::landing_needs_of` в blocking pool),
     актор хранит их фактом с `inputs` (baseline, tips, landed) и применяет по `seq`; landing check поповера и старта идёт
@@ -1857,6 +1863,29 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `get_branch_review_readiness`, `GetBranchReviewReadinessParams`, маршрут и ответ в странице
     (`routeReviewRequirement`; Space merge request — фикстура `mergeRequest` fake), `scan`, батч в 8, `findApprovalNews`;
     `COMMAND_COUNT` 119.
+  - s7-7 (по коду): детали робота — факт сессии по demand (`facts.robotDetails` по id, `FactStore::robot_details`):
+    `Loading` с demand, снимаются вместе с ним, поздний ответ отбрасывается; планировщик (`scheduler_details.rs`)
+    читает их сразу, при смене статуса и раз в 61 с у работающего робота (`robot_details_due`,
+    `RUNNING_DETAILS_REFRESH`), ответ деталей кладёт на робота то, чего не называет список
+    (`RobotsFact::details_answer`: профиль, failing у работающего). Гонку нашёл e2e: ответ, применённый до смены demand,
+    нёс старый digest и перетирал новый — `SessionEventKind::Robots { digest, version }`, digest ответа берётся только
+    из более новой версии. Общий `TestClock` делал e2e нестабильными (`advanceBackendClock` одного теста двигал опросы
+    всех), поэтому часы — у каждой сессии свои (`SessionClocks`: `OneClock` приложения, `WorktreeClocks` test-server),
+    маршрут `POST /repositories/{id}/clock/advance` и хелпер `repo.advanceBackendClock(ms)`; глобальный
+    `/clock/advance` и хелпер `wait-helpers.ts` удалены; таймеры планировщика молчат, пока сессию никто не смотрит.
+    Review requests — факт сессии (`facts.reviewRequests`, `review_request_facts::ReviewRequestsFact`: сортировка,
+    отказ после ответа — `Stale`, без токена и вне GitHub — сброс, `NewsEvent::ReviewRequested` по `(number,
+    requestedAt)`, первый ответ после подписки без news); планировщик (`scheduler_review_requests.rs`):
+    `review_requests_due`, опрос через `review_requests_poll_delay` после ответа, rate limit, offline из demand,
+    «открыт на GitHub» — `AfterWrite`, за ним фокус; пока subject ждёт approvals (`domain_policy::readiness::
+    awaits_approval`), каждый опрос спрашивает и PR. Страница: `src/stores/robot-details.ts` (`readRobotDetails` —
+    demand до ответа), `useRobotDetails`, `applyReviewRequestsFacts`; ограда `poll-timer` в `scripts/lint-arch.mjs` (15
+    записей ALLOWLIST с причинами: `useNow`, циклы старта `stores/patronus.ts` до s9, чтение CLI `setup.ts`, задержки
+    UI); B6 — e2e `patronus.spec.ts` (hover — один `prefetch_branch_review`, меню — ничего, поповер — один
+    `set_demand`). Удалены IPC `get_review_requests`, `get_patronus_robot_details`, `GetReviewRequestsParams`,
+    `usePatronusRobotDetails.ts`, `robot-progress.ts`, `markRobotFailing`, `rememberRobotProfile`, `refresh-gate.ts`,
+    таймеры и ворота `review-requests.ts` (`pollTimer`, `retryAt`, `refreshOnFocus`, `MIN_SYNC_GAP_MS`, …),
+    `findNewRequests`, `sortReviewRequests`; `COMMAND_COUNT` 117.
   - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
     requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
     `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):
@@ -1864,6 +1893,24 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `Demand` появляются с их потребителями, не здесь. `profiles` — факт на target (список профилей); выбор default по
     последнему роботу и правило «чей шаг ждёт readiness» (`wantedOf`) остаются странице до s8 (страница шлёт такие строки
     в `Demand.visible_branches`).
+  - Итог (s7-8, по коду): критерий выхода выполнен: `GetRepositoryViewParams`, `getRepositoryView`, `askRepositoryView`,
+    `robotMatchIn`, `remoteFactsIn`, `keptView`, `RobotMatch`, `get_repository_view` и `wait_landing_needs` не
+    встречаются в `src`, `src-tauri` и `crates`; страница не отправляет Rust ни одного вывода (только `Demand`, нажатия
+    и `refresh_facts`), `setTimeout`/`setInterval` в `src/stores` и `src/hooks` — только записи ALLOWLIST `poll-timer`.
+    Последние остатки удалены: `RemoteFact`/`RemoteFacts` больше не пересекают границу процесса и переехали из
+    `domain_types::repository_view` в `repository_model::branch_table` без serde; части `previewed` и `review_windows`
+    у `Demand` (их не читал ни один факт: они придут со своими потребителями, как `issues` и `robot_stats`);
+    `isPushingRobot` и экспорт четырёх внутренних помощников `src/lib/patronus.ts`; имена удалённых команд в doc
+    comments. «Repository view» в `git-operations.md` стал «Session facts» (семейства, кто читает и пишет, `seq`,
+    планировщик и его часы, demand, landing needs через хост, guards на таблице сессии). Остаётся странице до s8:
+    правило «чей шаг ждёт readiness» (`wantedOf`: страница шлёт такие строки в `Demand.visible_branches` и
+    `visible_stacks`), default профиля по последнему роботу (`withLastRobotProfile`), правило news
+    (`domain-policy::news`), `structureOf`/`branchTableRowsIn`/`stackDescendantsIn` и реле `items`/`menus` (из s6). s9:
+    ожидание ответа `/patronus` и позднего робота старта (циклы `stores/patronus.ts`, `pending_start`), закрытие PR
+    слившегося стека (`landed-stack.ts`), факты `bd` через `needs(intent)` (сегодня `bd status` и `bd safe-push` читают
+    свои: `robot_list.rs`, `PatronusFacts::read`). s11: семейство `auth` и C9 «0 `rev-parse` на lock» (каталоги
+    операции из сессии; сегодня rewrites и Update Project идут командами мимо сессии, `with_dirs_of` читает каталоги
+    один раз на операцию).
 
 ### s8-policy
 
@@ -2313,10 +2360,11 @@ B3 (перерисованные строки) не измеряется: в pro
 | --- | --- |
 | `operations.md` | live («Очередь в TS до s11»): «Conflicts», «Items», «Rewrites» — ожидающий rewrite встаёт в очередь со step на поверхности вместо отключённого пункта и info toast, Undo выполнен после `Ok`; s9: реестр в Rust, «Outside the registry» удалён (push и старт — операции, процент в своём канале), индикатор — только TS; s10: `busy` с держателем между процессами; s11: решение 3 (операция кончается с запуском своего sync), rewrite во время sync допускается сразу (`getRewriteBlocker` уходит, C14), решение 4 (`bd` регистрируется), допуск rewrite между процессами |
 | `landing.md` | s8: D8 правило родителя, D3b другая база, D11 retarget как шаг плана, D13 слитый PR — приземление; s9: `bd` и приложение идентичны по порядку эффектов, retarget до push, request review пушит с `--push`, закрытие PR (`bd` перечисляет `closes`, не закрывает); s10: реестр landing между процессами |
-| `git-operations.md` | s1: push приложения под lock; live: push приложения отпускает lock до сети (инвариант 8); s9 и s11: lock только на критическую секцию; s6: «Repository view» → сессия; s9: «Agent push»/«Agent Safe Push»/«App stack push» → «Push and land», HTTP вне lock; s10: «Operations registry», stamp, журнал, `fetch.lock` (join fetch baseline между процессами); s11: rewrites через движок |
-| `rendering-performance.md` | s6: поток патчей вместо `SyncEvent`; s8: части строки и презентеры, числа B3–B5 |
+| `git-operations.md` | s1: push приложения под lock; live: push приложения отпускает lock до сети (инвариант 8); s9 и s11: lock только на критическую секцию; s6: «Repository view» → сессия; s7: «Repository view» → «Session facts» (семейства, `seq`, планировщик и часы, demand); s9: «Agent push»/«Agent Safe Push»/«App stack push» → «Push and land», HTTP вне lock; s10: «Operations registry», stamp, журнал, `fetch.lock` (join fetch baseline между процессами); s11: rewrites через движок |
+| `rendering-performance.md` | s6: поток патчей вместо `SyncEvent`; s7: факты патчами, IPC строки (B6); s8: части строки и презентеры, числа B3–B5 |
+| `remote-status.md` | s7: remote status в сессии (`seq`, исход push, `session_remote` вида Patronus) |
 | `distributed-settings.md` | s5: переписан — один писатель в Rust, версии, `origin` |
-| `e2e-testing.md` | s0a: счётчики IPC (`__ipcStats`); s0b: fakes за реальными сервисами, lint `routeCommand`; s4: `ApiError`; s6/s7: сессии, `data-view-version`, `advanceBackendClock`; s12: реестр |
+| `e2e-testing.md` | s0a: счётчики IPC (`__ipcStats`); s0b: fakes за реальными сервисами, lint `routeCommand`; s4: `ApiError`; s6/s7: сессии, `data-view-version`, чтения фактов через fakes со счётчиками, часы на репозиторий (`repo.advanceBackendClock`); s12: реестр |
 | `async-patterns.md` | s0a: span `operation{operation_id}` на тело каждой команды (`operation.rs`), span вызывающего в потоках (`in_current_span`); s10: id из допуска; s6: actor сессии |
 | `symbol-dependencies.md` «The gate» | s9: gate как `Reason::LandingRefused` в плане |
 | `agent-cli.md`, `spec/cli/agent-cli.spec.md` | s1: код D1; s9: retarget до push, `pushed_over`, `needs_push`/`--push`, `pull_request_other_base`, HTTP вне lock, `operation_id`, `plan_changed`; s10: `busy`, `bd operation forget` |
@@ -2421,8 +2469,8 @@ B3 (перерисованные строки) не измеряется: в pro
 | s3-crates | приземлён |
 | s4-errors | приземлён |
 | s5-settings | приземлён: один писатель `SettingsService` (`app-settings`) для `settings.json` и `repository-state.json`, окна шлют патчи через `set_setting` и применяют версии, снимок в init script каждого окна, `restart_app` и выход через писателя, `bd` читает через `app-settings`; префикс разрешает Rust на каждую команду (`BranchPrefixes`, `PrefixInputs`) у семейств sync, Patronus, push, pull request, обзора ветки, независимости стека, unapply, reapply и поиска исправления конфликта; `lastFetchTime` и `landedHiddenUntil` — в `repositoryState`; defaults Rust-полей `appSettings` страница берёт из bindings. Осталось: Real App Check первого кадра ждёт владельца (агенты его не выполняли) |
-| s6-session-table | приземлён: `TableState` (`repository-model::table`, `state`, `patch`) сворачивает события sync в части вида (`TableView`: у ветки head, commits, sync, copies, remote; стеки по корню; секции) и шлёт `ViewPatch { base, next, changes }` только изменившихся частей не чаще раза в 16 мс, `Version { epoch, seq }`, чужая эпоха или пропуск — снимок; сессии процесса (`session.rs`, актор `runtime.rs`, `SyncScheduler`) по `SessionKey` (worktree и префикс, разрешённый Rust): билеты `sync(reason)`, повтор по `SyncReport.retry`, отложенный и неудачный sync сохраняют таблицу, без подписчиков ничего не запускается, удаление через 2 мин по `Clock`; хосты — команды `get_snapshot`, `subscribe_view` (она же открывает сессию; отдельный `open_session` удалён: страница его не звала), `unsubscribe_view`, `set_window_focus`, `sync` приложения и маршруты test-server (патчи через SSE); страница — `src/model/store.ts` применяет вид и патчи за прежними селекторами, `data-view-version`; `sync_branches`, `Channel<SyncEvent>`, очередь, flush и applier TS, глобальный `AtomicU32`, `GetRepositoryViewParams.revision` и `batchTimer` удалены; фикстура `sync-overrides` вместо перезаписи потока в странице; outcome push и удаление archived и unapplied ветки — патч сессии без sync после (C3, C12); фокус — `set_window_focus`, `autoSyncOnFocus` читает Rust; окно review подписано на сессию своего репозитория (tips, baseline, stack commits); `bd sync` сворачивает события тем же `TableState`, JSON `bd sync` и `bd status` прежний. Остаётся: s7 — факты (remote tips как `Fact` с `seq`, роботы, PR, readiness; `get_repository_view` с `remote` и `matched` страницы), факты `one_shot` у `bd`, `Demand` и C4 (отпечаток входов по частям); s8 — `structureOf`, `branchTableRowsIn`, `stackDescendantsIn` и `items`/`menus` реле под-окон (их строят правила TS) |
-| s7-session-facts | в работе: роботы, matching, вид Patronus и landing needs, pull requests, правила и профили — факты сессии (s7-1…s7-5) |
+| s6-session-table | приземлён: `TableState` (`repository-model::table`, `state`, `patch`) сворачивает события sync в части вида (`TableView`: у ветки head, commits, sync, copies, remote; стеки по корню; секции) и шлёт `ViewPatch { base, next, changes }` только изменившихся частей не чаще раза в 16 мс, `Version { epoch, seq }`, чужая эпоха или пропуск — снимок; сессии процесса (`session.rs`, актор `runtime.rs`, `SyncScheduler`) по `SessionKey` (worktree и префикс, разрешённый Rust): билеты `sync(reason)`, повтор по `SyncReport.retry`, отложенный и неудачный sync сохраняют таблицу, без подписчиков ничего не запускается, удаление через 2 мин по `Clock`; хосты — команды `get_snapshot`, `subscribe_view` (она же открывает сессию; отдельный `open_session` удалён: страница его не звала), `unsubscribe_view`, `set_window_focus`, `sync` приложения и маршруты test-server (патчи через SSE); страница — `src/model/store.ts` применяет вид и патчи за прежними селекторами, `data-view-version`; `sync_branches`, `Channel<SyncEvent>`, очередь, flush и applier TS, глобальный `AtomicU32`, `GetRepositoryViewParams.revision` и `batchTimer` удалены; фикстура `sync-overrides` вместо перезаписи потока в странице; outcome push и удаление archived и unapplied ветки — патч сессии без sync после (C3, C12); фокус — `set_window_focus`, `autoSyncOnFocus` читает Rust; окно review подписано на сессию своего репозитория (tips, baseline, stack commits); `bd sync` сворачивает события тем же `TableState`, JSON `bd sync` и `bd status` прежний. Остаётся: s8 — `structureOf`, `branchTableRowsIn`, `stackDescendantsIn` и `items`/`menus` реле под-окон (их строят правила TS); s9 — факты `one_shot` у `bd` (`needs(intent)` движка). Факты сессии, `Demand` и C4 приземлил s7 |
+| s7-session-facts | приземлён: факты remote — факты сессии (`Fact<T>` с `seq` и состоянием факта без ответа, `FactStore`, патчи `facts` по ключам): роботы (список, опрос, failing, problems, детали по demand), вид Patronus и landing needs, которые выводит сессия (matching — `domain_policy::robot_match`, landing needs считает хост), pull requests с правилами баз и профилями, readiness (очередь по demand, ≤ 4), review requests; переходы — `News` вида; один счётчик `seq` упорядочивает чтения и записи команд (старт, retarget, reviewers, push); планировщик `remote_facts::scheduler` по `domain_policy::refresh` на часах сессии (`Clock::until` без tokio, `TestClock` на worktree в test-server, `POST /repositories/{id}/clock/advance`); `set_demand` и `refresh_facts`; C4 (входы sync по частям, push пишет свою remote-ветку); страница — аппликаторы патчей без таймера опроса (`poll-timer` в `lint:arch`) и без единого вывода для Rust; удалены `get_repository_view`, `wait_landing_needs`, десять IPC чтения фактов, `RobotMatch`, `GetRepositoryViewParams`, `askRepositoryView`, `views.rs`, `refresh-gate.ts`, `useDismissesStaleReviews.ts`, `usePatronusRobotDetails.ts`, matching и таймеры страницы; ребро `repository-model → trial-check` снято; `COMMAND_COUNT` 117. Остаётся: s8 — правило «чей шаг ждёт readiness» (`wantedOf`), default профиля по последнему роботу, `domain-policy::news`; s9 — ожидание ответа `/patronus` и позднего робота старта (циклы `stores/patronus.ts`), закрытие PR слившегося стека (`landed-stack.ts`), факты `bd` через `needs(intent)`; s11 — семейство `auth`, C9 «0 на lock» |
 | s8-policy | не начат |
 | s9-engine-remote | не начат |
 | s10-registry-journal | не начат |

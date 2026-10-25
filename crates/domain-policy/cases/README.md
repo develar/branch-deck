@@ -23,7 +23,7 @@ writes to `facts/<id>.json`, one file per exercised case (`assert_facts_kept`; t
 finish times settled by rank, the robot pages under `https://patronus`). The TS side seeds those files. What it still
 models itself, in the shape of the stores, is the input the app would have read from the sync and the baseline check,
 not a rule of a decision: the table of the sync (`Branch` with its status, its count and its `remoteStatus`, the
-`StackBranch`), the landing report of `landed`, the `PullRequest`s and the answer of `get_branch_rules`; a rule that
+`StackBranch`), the landing report of `landed`, the `PullRequest`s and the rules of the target the session read (`facts.rules`); a rule that
 starts reading more of them (the commits of the landing report, `commitsRestacked`) moves that part into the facts
 first. The rule of the start lives only in the app (`getPullRequestStart`): the facts record the tip and the pull
 request Rust asked with, and `seedReadiness` refuses an answer whose input the app computes otherwise (`the readiness
@@ -156,7 +156,7 @@ request of a whole stack #12.
 | `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below | the answer of the facts (Rust asked as the app's scan asks, `readinessInputOf`) in the review-readiness store under the key of the branch's input, the availability of the pull requests |
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | `--profile`; the last robot's options | `ask.profileId`; `options` |
 | `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` | the flags of the same names | `withoutApprovals` = `ask.bypassReview`; the others have no input of the decision |
-| `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none (`fake_github`), `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500; `loading` is `keep` (bd waits for its own read) | what `get_branch_rules` answered `readDismissesStaleReviews` of the target: `unknown` a failed answer (the start confirms `rulesUnknown`), `loading` no answer yet |
+| `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none (`fake_github`), `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500; `loading` is `keep` (bd waits for its own read) | the rules of the target as the session read them (`facts.rules`, `seedRules` of `scenario-facts.ts`): `unknown` a failed answer (the start confirms `rulesUnknown`), `loading` no answer yet |
 | `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named | `parked`; of the whole stack `wholeStackParkedState` |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) | the stack branch `Blocked` by it |
 | `landed` | `inBaseline` · `byContent` | `origin/master` at HEAD; `land_auth_by_content` after `bd push` (`LANDED_SUBJECTS` only) | the landing report of the baseline check (`inBaseline`); one commit left (`byContent`) |

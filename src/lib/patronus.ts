@@ -45,7 +45,7 @@ export interface PatronusChipState {
 export type RobotSubject = { readonly kind: "branch"; readonly name: string } | { readonly kind: "stack"; readonly root: string }
 
 /** The subject of a robot started on a virtual branch or on a stack branch; null for one of a temporary ref */
-export function robotSubjectOf(robot: Pick<PatronusRobot, "branchName" | "stackRoot">): RobotSubject | null {
+function robotSubjectOf(robot: Pick<PatronusRobot, "branchName" | "stackRoot">): RobotSubject | null {
   if (robot.branchName !== null) {
     return { kind: "branch", name: robot.branchName }
   }
@@ -68,7 +68,7 @@ export function formatRobotSubject(robot: Pick<PatronusRobot, "branchName" | "st
 }
 
 /** `formatRobotSubject` at the start of a sentence: "Whole air stack merged into master" */
-export function formatRobotSubjectStart(robot: Pick<PatronusRobot, "branchName" | "stackRoot" | "name">, label?: string): string {
+function formatRobotSubjectStart(robot: Pick<PatronusRobot, "branchName" | "stackRoot" | "name">, label?: string): string {
   return label === undefined && robot.branchName === null && robot.stackRoot != null ? formatWholeStackStart(robot.stackRoot) : formatRobotSubject(robot, label)
 }
 
@@ -173,11 +173,6 @@ export function formatPushMode(mode: PatronusPushMode): string {
   return pushModeNames[mode]
 }
 
-/** Not a dry run: a success pushes the changes into the target branch */
-export function isPushingRobot(robot: PatronusRobot): boolean {
-  return robot.pushMode !== "dryRun"
-}
-
 /**
  * "IJPL-1 merged into master", "Whole air stack merged into master": the virtual branch, the whole stack, or the
  * subject of a Safe Push of a temporary ref; `label` names a watched robot of no branch ("#101 Rework the session store")
@@ -231,7 +226,7 @@ export function openRobotUrl(url: string): void {
 }
 
 /** A robot started on this very branch (not on a temporary ref): Patronus can restart it on the newest commit */
-export function isRobotOnBranch(robot: PatronusRobot, branchName: string): boolean {
+function isRobotOnBranch(robot: PatronusRobot, branchName: string): boolean {
   return robot.branchName === branchName
 }
 
@@ -239,7 +234,7 @@ export function isRobotOnBranch(robot: PatronusRobot, branchName: string): boole
  * A robot started on the branch or on the stack branch of the whole stack `on` names (a branch name is a branch), not on
  * a temporary ref: Patronus can restart it on the newest commit of that branch
  */
-export function isRobotOn(robot: PatronusRobot, on: string | RobotSubject): boolean {
+function isRobotOn(robot: PatronusRobot, on: string | RobotSubject): boolean {
   if (typeof on === "string") {
     return isRobotOnBranch(robot, on)
   }

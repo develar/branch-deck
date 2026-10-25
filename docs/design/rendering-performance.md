@@ -67,7 +67,7 @@ flowchart LR
   - Updates of other stores run in the same pass: the issue links (`updateProject`), the archived names (marked new
     only for what this patch archived), the landed status, the unapplied branches.
   - Nothing depends on the moment of arrival in the page: the session orders a push against the syncs
-    (`TableState::end_push`, [Repository view](git-operations.md#repository-view)), so the applier shows every remote
+    (`TableState::end_push`, [Session facts](git-operations.md#session-facts)), so the applier shows every remote
     status a patch brings. The outcome of a push (or of the deletion of an archived or unapplied branch) is one patch
     of the parts it changed, whose version the command answers (`whenSessionViewAt`); no sync follows it.
   - `isSyncing` is true from the request (`sync`, `requestSessionSync`) until the store holds the version its answer
@@ -159,7 +159,7 @@ Mac with other work beside it, master and the change measured in turns:
 The rule was three maps (`landingSpansIn`, `landedByIn`, `pushHoldsIn`) memoized in one slot on the identity of the
 branches, which every 16 ms batch of a sync copies: each batch computed them again. Then the backend decided it for the
 table the last sync of the session kept, asked by the page (`get_repository_view`, the table above); since s7-4 the
-session derives it itself and sends it as the part `patronus` of its view ([Git Operations](git-operations.md#repository-view)),
+session derives it itself and sends it as the part `patronus` of its view ([Git Operations](git-operations.md#session-facts)),
 and the page indexes the part (`factsOf` in `src/stores/patronus.ts`):
 - the session derives it only when an input changed (the table it committed, the robots, the remote branches a push
   moved: `patronus_inputs`), one derivation at a time, and the patch carries only the branches and stacks whose facts
@@ -221,7 +221,7 @@ without the page, prints an ignored test of the mock server (`patch_bytes_test.r
 
 A sync on the `SyncEvent` channel sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
 `remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
-carries only the parts of a branch that changed (`TableState`, [Git Operations](git-operations.md#repository-view)):
+carries only the parts of a branch that changed (`TableState`, [Git Operations](git-operations.md#session-facts)):
 a sync that changes nothing sends the state of the run and the build and copies of each branch, no commit, 24 KB in
 5 patches by the mock server's own count (`patch_bytes_test.rs`: the first sync 46 patches, 195 KB, the snapshot
 177 KB). The facts of the remote services come in the patches of the session too (`facts`: the robots, the pull

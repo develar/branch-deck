@@ -53,7 +53,7 @@
 //! The review requests of others (`review_request_facts::ReviewRequestsFact`, the part `facts.reviewRequests`) with
 //! the news of the new ones.
 
-use crate::branch_table::{BranchTable, remote_fact};
+use crate::branch_table::{BranchTable, RemoteFacts, remote_fact};
 use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
@@ -68,7 +68,7 @@ use domain_types::patronus::{
   REVIEW_APPROVAL_SUBSYSTEM,
 };
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
-use domain_types::repository_view::{PatronusView, RemoteFacts};
+use domain_types::repository_view::PatronusView;
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::Version;
 use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView};

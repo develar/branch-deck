@@ -98,7 +98,7 @@ export function reviewer(login: string, state: ReviewerState, requested = state 
   return { login, state, requested }
 }
 
-/** The GitHub of these pull requests, keyed by their branch as `get_pull_requests` answers them */
+/** The GitHub of these pull requests, keyed by their branch as the session's listing keeps them (`facts.pullRequests`) */
 export function availablePullRequests(...pullRequests: PullRequest[]): GitHubFixture {
   return {
     availability: { status: "available", ...GITHUB_REPOSITORY },

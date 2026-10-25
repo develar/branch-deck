@@ -264,8 +264,8 @@ The whole stack is an object of its own in the app, beside its branches, named "
 - **Landed by content.** A change below the commit the robot took (a new commit or an amend of a branch it is built
   on, a reword; for the whole stack any change of a branch of it, which rebuilds the stack branch) makes new copies, so
   the hashes no longer tell. Then the content does: the commits the robot tested against each branch as the table has
-  it (`robot_landings_of_grouped`, `crates/sync-core/src/robot_landing.rs`, asked by the repository view for the app and
-  `bd`), the same
+  it (`robot_landings_of_grouped`, `crates/sync-core/src/robot_landing.rs`, asked by the Patronus view that the session
+  derives for the app and `bd` for itself, [Session facts](git-operations.md#session-facts)), the same
   comparison as the robot commit map of a failure prompt (the same commit, a patch-equivalent copy, or a copy with the
   same changes on a newer base). A branch whose oldest commits the robot tested landed, and commits added after them
   are the only work left of it ("Landed with oauth · 1 commit after it"): its push and its Safe Push send those. An

@@ -1,6 +1,6 @@
 //! What the robots land, landed and hold of the branch table: the one rule of the app (the session derives it,
 //! `facts::derive_patronus`) and of `bd` (`bd push`, `bd safe-push`, `bd status`), spec/branch/patronus.spec.md and
-//! docs/design/git-operations.md, "Repository view".
+//! docs/design/git-operations.md, "Session facts".
 //!
 //! - A merged robot landed the branch it ran on and those it is built on (for the whole stack every branch of it), the
 //!   commits added after the ones it took the work left; of several, the one that left the fewest, of equals the first
@@ -13,13 +13,13 @@
 //!   it the branch built new ones on (its copy is a commit of the branch): no git. Otherwise the content does
 //!   (`robot_landing`), once per state of the branches (`ContentMemo`).
 
-use crate::branch_table::BranchTable;
+use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::robot_match::{RobotIndex, RobotMatches, Tips, match_table};
 use domain_types::landing::{LandingRefusal, Subject};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::{
-  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RemoteFact, RemoteFacts, RobotLandedBranch, RobotOf, SpanView, StackPatronus, StartRefusal,
+  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RobotLandedBranch, RobotOf, SpanView, StackPatronus, StartRefusal,
 };
 use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use git_executor::git_command_executor::GitCommandExecutor;

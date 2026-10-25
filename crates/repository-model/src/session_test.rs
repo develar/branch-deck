@@ -1,4 +1,4 @@
-use crate::branch_table::BranchTable;
+use crate::branch_table::{BranchTable, RemoteFacts};
 use crate::facts::{FactResult, Needs, RobotsDigest, RobotsRead, derive_patronus};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::PullRequestWrite;
@@ -13,7 +13,7 @@ use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit};
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState};
-use domain_types::repository_view::{LandingNeeds, PatronusView, RemoteFacts};
+use domain_types::repository_view::{LandingNeeds, PatronusView};
 use domain_types::session::{
   BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, ViewPatch,
 };
@@ -892,7 +892,7 @@ async fn the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each(
   let reviewed = Demand {
     online: true,
     visible_branches: names(&["api", "auth"]),
-    review_windows: names(&["auth"]),
+    watched_robots: names(&["robot-7"]),
     ..Demand::default()
   };
   sessions.set_demand(review, &reviewed);
@@ -906,7 +906,7 @@ async fn the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each(
     online: true,
     visible_branches: names(&["api", "auth", "ui"]),
     needed: names(&["auth"]),
-    review_windows: names(&["auth"]),
+    watched_robots: names(&["robot-7"]),
     ..Demand::default()
   };
   assert_eq!(sessions.demand(&repo).await, Some(both));

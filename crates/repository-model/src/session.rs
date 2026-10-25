@@ -14,7 +14,7 @@
 //! again) go to the one consumer that takes `events`, the scheduler of the remote facts (`remote_facts::scheduler`); its
 //! reads number themselves with `begin` and apply with `apply_facts`. Without a consumer nothing is sent.
 
-use crate::branch_table::BranchTable;
+use crate::branch_table::{BranchTable, RemoteFacts};
 use crate::facts::{AppliedFacts, FactResult, FactTicket, Needs, RobotsDigest, TableFacts};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestWrite, PushedHead};
@@ -25,7 +25,7 @@ use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::ApiError;
 use domain_types::patronus::PatronusRobot;
-use domain_types::repository_view::{PatronusView, RemoteFacts};
+use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewAnswer, ViewPatch};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;

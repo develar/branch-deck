@@ -31,7 +31,7 @@
 //!   failure restores the table with `Failed { error }`. A run whose report asks for a retry (`SyncReport::retry`) runs
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
-use crate::branch_table::BranchTable;
+use crate::branch_table::{BranchTable, RemoteFacts};
 use crate::facts::{
   AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, RobotsDigest, Seq, TableFacts, derive_patronus, listed_robots, patronus_inputs, robots_digest,
   session_remote,
@@ -45,7 +45,7 @@ use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
-use domain_types::repository_view::{PatronusView, RemoteFacts};
+use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncReason, SyncState, SyncStep, Version};
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
@@ -495,8 +495,6 @@ impl Actor {
       visible_branches: union(demands().map(|demand| &demand.visible_branches)),
       visible_stacks: union(demands().map(|demand| &demand.visible_stacks)),
       needed: union(demands().map(|demand| &demand.needed)),
-      previewed: union(demands().map(|demand| &demand.previewed)),
-      review_windows: union(demands().map(|demand| &demand.review_windows)),
       robot_details: union(demands().map(|demand| &demand.robot_details)),
       watched_robots: union(demands().map(|demand| &demand.watched_robots)),
     }

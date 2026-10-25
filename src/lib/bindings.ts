@@ -1337,10 +1337,6 @@ export type Demand = {
 	 *  (`stack_readiness_key`)
 	 */
 	needed: string[],
-	/**  The branches whose preview the window shows */
-	previewed: string[],
-	/**  The branches a review window shows (that window's own demand) */
-	reviewWindows: string[],
 	/**  The robots whose details a surface shows (the robot popover, the preview, a row of the landing overview) */
 	robotDetails: string[],
 	/**

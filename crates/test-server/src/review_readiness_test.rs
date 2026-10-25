@@ -179,8 +179,8 @@ async fn the_session_asks_the_readiness_a_window_needs_from_the_fake_patronus() 
   let snapshot = view_when(&client, addr, &path, |view| view["facts"]["robots"]["head"]["state"]["kind"] == "fresh").await;
   let branch = snapshot["order"][0].as_str().unwrap().to_owned();
   let demand = json!({
-    "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [branch], "previewed": [],
-    "reviewWindows": [], "robotDetails": [], "watchedRobots": [],
+    "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [branch],
+    "robotDetails": [], "watchedRobots": [],
   });
   post_as(
     &client,

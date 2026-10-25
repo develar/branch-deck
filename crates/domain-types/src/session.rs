@@ -121,10 +121,6 @@ pub struct Demand {
   /// its click, the "Create pull request" dialog): a branch by name, the whole stack of a root as `stack:<root>`
   /// (`stack_readiness_key`)
   pub needed: Vec<String>,
-  /// The branches whose preview the window shows
-  pub previewed: Vec<String>,
-  /// The branches a review window shows (that window's own demand)
-  pub review_windows: Vec<String>,
   /// The robots whose details a surface shows (the robot popover, the preview, a row of the landing overview)
   pub robot_details: Vec<String>,
   /// The robots of no branch the window started and follows until they finish (the Safe Push of a reviewed pull

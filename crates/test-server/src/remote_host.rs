@@ -111,7 +111,7 @@ pub enum HeldAnswer {
   PullRequests,
   /// The review requests (`review_requests_of`, which the session reads from the fixture: held there)
   ReviewRequests,
-  /// The list of the robots (`get_patronus_robots`, `GET /app/rest/v1/robots`)
+  /// The list of the robots (the session's list, `GET /app/rest/v1/robots`)
   Robots,
   /// The pre-check of the code-owner review (the readiness reads of the sessions, `readiness_of`)
   Readiness,

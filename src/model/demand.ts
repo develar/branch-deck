@@ -23,9 +23,9 @@ import { commands } from "@/lib/bindings"
 /** The least time between two sends of the demand */
 export const DEMAND_SEND_INTERVAL_MS = 250
 
-type Part = "visibleBranches" | "visibleStacks" | "needed" | "previewed" | "reviewWindows" | "robotDetails" | "watchedRobots"
+type Part = "visibleBranches" | "visibleStacks" | "needed" | "robotDetails" | "watchedRobots"
 
-const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "previewed", "reviewWindows", "robotDetails", "watchedRobots"]
+const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "robotDetails", "watchedRobots"]
 
 /** By part, each name with the number of surfaces that hold it */
 const held = new Map<Part, Map<string, number>>(PARTS.map(part => [part, new Map()]))
@@ -76,16 +76,6 @@ export function showStack(root: string): () => void {
 /** A surface needs the facts of the branch now (the Safe Push popover, the "Create pull request" dialog) until the returned function is called */
 export function needBranch(branchName: string): () => void {
   return hold("needed", branchName)
-}
-
-/** The preview of the branch is open until the returned function is called */
-export function previewBranch(branchName: string): () => void {
-  return hold("previewed", branchName)
-}
-
-/** This window is the review window of the branch until the returned function is called */
-export function showReviewWindow(branchName: string): () => void {
-  return hold("reviewWindows", branchName)
 }
 
 /** A surface shows the details of the robot until the returned function is called */
@@ -187,8 +177,6 @@ export function currentDemand(): Demand {
     visibleBranches: names("visibleBranches", readinessShown.branches),
     visibleStacks: names("visibleStacks", readinessShown.stacks),
     needed: names("needed"),
-    previewed: names("previewed"),
-    reviewWindows: names("reviewWindows"),
     robotDetails: names("robotDetails"),
     watchedRobots: names("watchedRobots"),
   }

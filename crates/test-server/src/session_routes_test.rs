@@ -291,8 +291,6 @@ async fn the_clock_of_the_sessions_moves_only_by_a_test_and_sweeps_the_idle_ones
     "visibleBranches": ["test-branch"],
     "visibleStacks": [],
     "needed": [],
-    "previewed": [],
-    "reviewWindows": [],
     "robotDetails": [],
     "watchedRobots": [],
   });

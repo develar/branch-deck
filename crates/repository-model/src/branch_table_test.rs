@@ -1,5 +1,4 @@
-use crate::branch_table::{BranchTable, stack_ancestors};
-use domain_types::repository_view::{RemoteFact, RemoteFacts};
+use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, stack_ancestors};
 use domain_types::{GroupedBranchInfo, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;

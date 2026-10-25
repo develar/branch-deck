@@ -609,7 +609,7 @@ directory its context resolved, and a wait for it makes `bd` read the config aga
 never waits for it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
 repository would make every writer fail with `locked`; only its drop of store lines takes it, while it is free (see
 "Regroup"). Within a session one sync
-runs at a time (`SyncScheduler`, [Repository view](#repository-view)): a request while one runs asks for one follow-up
+runs at a time (`SyncScheduler`, [Session facts](#session-facts)): a request while one runs asks for one follow-up
 after it, the events of a run that is not in flight are dropped, and a focus during a sync checks the inputs once after
 it. A `bd` write during an app sync changes
 the inputs (the fingerprint is taken when the sync starts), so the next focus syncs again and corrects what the sync
@@ -1895,7 +1895,7 @@ The inputs (`SyncInputs`) are the remote branches of the prefix by name with the
 of the rest and the prefix: the prefix of the session (`SessionKey`, which Rust resolves for the repository; the git
 prefix from the memo of `BranchPrefixes`, no process), so a changed prefix, the app's or the repository's own, changes
 them (`changes_with_the_prefix_alone`), and is another session anyway. The session's scheduler reads them
-(`repository_model::sync_scheduler`, [Repository view](#repository-view)): a run reads them first, so a commit made
+(`repository_model::sync_scheduler`, [Session facts](#session-facts)): a run reads them first, so a commit made
 while the sync runs is a change, or takes the ones its focus check just read, and a successful run keeps them; a focus
 compares them. The session's own push moves the remote-tracking refs of what it sent (`refs/remotes/origin/<full
 name>`, set by the push or by its fetch of a moved remote), and the table has its outcome already: the end of the push
@@ -2101,7 +2101,8 @@ under `Default` (`file_diffs::blocks`).
   on every call (`crates/bd-remote/src/robot_list.rs`): the reader decides how long it holds, a minute while a robot of it
   runs, five while none does, then a list of the robots started since and a poll of the running ones are merged into
   it ("Load on Patronus" in [Patronus](../../spec/branch/patronus.spec.md#load-on-patronus)). `bd push`, `bd
-  safe-push` and `bd robot` list fresh and write it; the app keeps its robots in memory.
+  safe-push` and `bd robot` list fresh and write it; the app's sessions keep their robots in memory, a fact of
+  each session ([Session facts](#session-facts)).
 - `build_result` ((key version, a hash of the command, `BD_BRANCH` and the sorted `(path, object id)` pairs of what the
   build extracts: one `("", tree id)` without `--build-paths`) → it passed) is the second: `bd check --build` reads it
   in one transaction before the builds and writes the new passes in one after them, so a build that passed on a tree
@@ -2703,7 +2704,7 @@ core without the object cache, and keeps the checks the same way. The wire types
 `LandingCheck`, `LandingRefused`) are of `domain_types::landing`.
 
 The same rule answers before any start, for every branch (`landing_needs`, the landing needs of the
-[repository view](#repository-view)): one trial check of every branch (`CheckSession::check`, the dangling references
+[session](#session-facts)): one trial check of every branch (`CheckSession::check`, the dangling references
 of all of them), one search of the missing declarations, and per branch the refusals its start would get, filtered by
 the one predicate of the gate (`refuses`: a use by a commit of what lands of a name a commit outside it adds, which
 no merged Safe Push landed). The types are of `domain_types::landing` (`LandingRefusal`, `LandingFix`, `StackCommit`); a
@@ -2711,7 +2712,7 @@ dangling reference carries its fix too (the restack onto the branch of the commi
 and a missing declaration the running Safe Push that lands the branch adding the name (`landing_in`,
 `domain_policy::landing_needs::name_landing_robots`, from the holds and spans of the view). The session of the
 repository computes it as a fact after a sync (`landing_needs_of` through its host, a session of the current grouping
-through the object cache, [Repository view](#repository-view)), keyed by its inputs: the baseline, the tips of the
+through the object cache, [Session facts](#session-facts)), keyed by its inputs: the baseline, the tips of the
 table and the landed commits; while they stay, nothing is computed again. On the synced
 `util`/`flow`/`flow/ui` fixture it costs what a `bd check` of the synced branches costs, no `merge-tree` and no
 `fast-import` (the copies of the sync are reused): `cat-file` 4, `config` 2, `for-each-ref` 2, `log` 5, `remote` 1,
@@ -2727,7 +2728,7 @@ Code: `crates/trial-check/src/landing_gate.rs`, `crates/domain-types/src/landing
 
 The page decides a start, a restart and a cancel of a robot before it asks, but the IPC of each is a command anyone can
 call (another window, a start raced by the IDE or `bd`). So each command checks in Rust before it asks Patronus, by the
-rules of `bd safe-push`, on the table of the last sync the session keeps ([Repository view](#repository-view)) and the
+rules of `bd safe-push`, on the table of the last sync the session keeps ([Session facts](#session-facts)) and the
 user's robots it lists itself, never the page's (`repository_model::start_guard`; both hosts run the same sequence, the
 methods of `repository_model::actions::RemoteActions`: `start_robot`, `restart_robot`, `cancel_robot`, and the landing
 check of the popover, `check_landing`):
@@ -2958,12 +2959,12 @@ lacks, and its pull request showing the parent's commits.
    canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
 2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one sequence,
    `repository_model::actions::RemoteActions` (`push_branches`, `push_branch`, the flow in `push_guard`): first the
-   user's robots (one full list of Patronus asked now, `robots_for_checks`, never the list kept for the page's windows
-   (`FULL_LIST_REUSE`): a robot the IDE or `bd` started since that list holds too; a background request: none off
+   user's robots (one full list of Patronus asked now, `robots_for_checks`, never the list the service keeps for the lists of the
+   sessions (`FULL_LIST_REUSE`): a robot the IDE or `bd` started since that list holds too; a background request: none off
    Space, without a token, without an answer or while the requests back off after a failure, logged: best effort, as
    `bd push` reads its holds, and a Patronus that is down holds no push up), read before the lock, as no network
-   request runs under it. The kept list serves only the page: a start, a restart, a cancel or a poll that saw a change
-   makes the page's next list ask Patronus and drops a list in flight (`forget_full_lists`, a generation). Then, in a
+   request runs under it. The kept list serves only the sessions: a start, a restart, a cancel or a poll that saw a change
+   makes the next list of a session ask Patronus and drops a list in flight (`forget_full_lists`, a generation). Then, in a
    blocking step (`push_guarded`), the refs of the push claimed in the process (`PushingRefs`: a push of a ref
    another push of the app writes, the same branch twice or two whole stacks of one stack branch, waits for it without
    a bound, since both lease on the head the user saw and the second would find the lease broken; the pushes of other
@@ -3007,7 +3008,7 @@ lacks, and its pull request showing the parent's commits.
    push, no git process): the statuses go into the rows, the stack branch and the unapplied branch they are of as one
    patch, and the answer names its version (`ViewAnswer`), which the page waits for. Then it records an Activity entry
    per branch, refreshes the pull requests once and shows one toast; no sync follows, an unapplied branch's push
-   neither ([Repository view](#repository-view): how a push is ordered against a sync).
+   neither ([Session facts](#session-facts): how a push is ordered against a sync).
 5. Refused: nothing was pushed. Every branch is fetched, their statuses computed the same way, and the first branch
    (parents first) whose fetched head is not its lease is named (`PushBranchesOutcome::RemoteMoved`): the session gets
    those statuses as it gets a push's, so every row shows what its remote has now. When that remote has no commits its branch lacks (`pushesOverMovedRemote`), the page pushes
@@ -3172,17 +3173,25 @@ commits and the amended ones among them. A parent a restack placed below the rob
 a gone ref) has no span (`branches: null`): the stack as it is now holds. Not looked for: a commit moved out of the
 robot's branch into a branch that is no ancestor of it, as the robot landing doesn't look for it either.
 
-### Repository view
+### Session facts
 
-What Rust derives of the branch table for the page and for `bd`, so both read one rule, and the checks of the app's
-actions on it: the crate `repository-model`, which grows into the model of a repository
-([Rust as the Domain Authority](rust-domain-authority.md)). It reaches no remote reader, no Update Project and no lease pool
-(`crates/bd-cli/src/architecture_test.rs`) and no trial check (its hosts answer the landing needs and the landing
-gate); its edge to `patronus` (the client `RemoteActions` carries) is allowed until the stage that removes it. Its views are read-only; its guards (`push_guard`, the app's push, and
+What the session of a repository holds for its windows, and `bd` for its command, so both read one rule: the table of
+the last sync, the facts of the remote services with their order, what the session derives of them (the Patronus view,
+the landing needs), and the checks of the app's actions on them. The crate `repository-model` holds it, the model of a
+repository ([Rust as the Domain Authority](rust-domain-authority.md)); the scheduler that reads the facts is
+`remote-facts`', the rules it asks by and the matching of the robots are `domain-policy`'s. `repository-model` reaches
+no remote reader, no Update Project and no lease pool (`crates/bd-cli/src/architecture_test.rs`) and no trial check
+(its hosts answer the landing needs and the landing gate); its edge to `patronus` (the client `RemoteActions` carries)
+is allowed until the stage that removes it. Its views are read-only. Its guards (`push_guard`, the app's push, and
 `start_guard`, the start, restart and cancel of a robot and the landing check of the popover) are the whole sequence of
-the Tauri command and of the E2E server's route, the robots read by `PatronusService`, the table of the last sync of
-the repository's session (`Sessions::table`, with the memo of its content walks), the landing gate of the host
-(`landing::LandingGate`) and the git work in a blocking step. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
+the Tauri command and of the E2E server's route: the user's robots as `PatronusService` reads them for the action
+(never the page's, never a list kept before), the table of the last sync of the repository's session
+(`Sessions::table`, with the memo of its content walks and the remote branches as the session knows them), the landing
+gate of the host (`landing::LandingGate`) and the git work in a blocking step.
+
+#### The table of a session
+
+`BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
 table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, recorded from its `CommitSynced` events: a
 mapping note read at the sync's start names the copy of before), the stack branches, the parked branches and the remote
 facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the remote tip of each branch from
@@ -3245,6 +3254,8 @@ Authority](rust-domain-authority.md#бюджеты-конкурентности)
 have no remote) reaches the session through `POST /sessions/pushed-in-page`, the same `Sessions::push` with the
 statuses of the page's answer.
 
+#### The sessions and their hosts
+
 The sessions of the process (`session.rs`, `runtime.rs`, `sync_scheduler.rs`) run that state: one per worktree and
 branch prefix the caller resolved (`SessionKey`; two worktrees of one repository are two sessions), each an actor on
 the runtime whose mailbox takes every call (subscribe with the snapshot at that moment, snapshot, focus, sync, `apply`)
@@ -3281,9 +3292,7 @@ an open session (null for one that is not: the window subscribes again), `unsubs
 syncs on focus (`SessionHost::syncs_on_focus`: Auto-sync on Focus as the app's `SettingsService` has it, the settings
 of the test repository on the E2E server), answers the `Focus` check or the run it started (null for a lost focus,
 the setting off or a session that is not open), `set_demand` tells what the window of a subscription shows and needs
-(`Demand`: its focus, online, the visible branches and stacks, the needed, previewed and reviewed branches, the robots
-whose details it shows; the session keeps one per subscription, gone with it, and asks for the facts of their union;
-the page sends it at most four times a second, `src/model/demand.ts`), and `sync` with a `SyncReason` answers when the
+([Demand](#demand)), `refresh_facts` asks a fact again (the same section), and `sync` with a `SyncReason` answers when the
 run that serves it ended (`SyncAnswer`: the outcome and the version of the view after its last patch, which the window
 waits for, since the patch and the answer travel apart); a failure is the run's `ApiError`. The app's host
 (`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
@@ -3315,43 +3324,134 @@ remote statuses of branches and stack branches, the issue links), through the re
 around the run's (`SessionEnvironment::reporter`, the run's own by default), so the session, its patches and the views
 hold what such a sync makes.
 
-The facts of the remote services are read for the sessions by one scheduler (`remote_facts::scheduler`), which each
-host starts beside its `Sessions` on the same clock: `Sessions::events` gives it what the facts are asked by (a window
-watches a session or no longer does, its focus from `set_window_focus` and its demand, a committed table, the robots
-the poll asks about, a refresh a window asks with `refresh_facts`); it decides by `domain_policy::refresh`, reads
-through the host's `FactSources` (the app's `AppFactSources` over `PatronusState`, the E2E server's `TestFactSources`
-over the fakes of each test repository) and applies each answer to its session (`Sessions::begin`, the number of the
-read with the epoch of the session, then `Sessions::apply_facts`); it starts no git process. The robots of Patronus are
-the first such fact (`FactStore::robots`, `facts.robots` of the view, by robot id): a list after the first committed
-table of a watched session, then by the rules of
-[Load on Patronus](../../spec/branch/patronus.spec.md#load-on-patronus), and a poll of the running robots the
-session matches to the tips of its table and of the watched robots of the demand (`facts::robots_digest`); each robot
-keeps the number of the read or the write that wrote it, so a list started before a start's robot
-(`Sessions::write_robot`, which the start, the restart and the cancel of both hosts call) or a poll never rolls it back,
-and a failed answer keeps the robots `Stale`. After each answer it asks which running robots of the poll a failed
-required check dooms (one read) and the problems of the failed robots of the table not known (one read per robot), and
-an answer that shows a robot known running merged or failed is news of the session (`News`, with growing ids, the last
-32 in the view): a failure once its problems say whether for missing approvals. The page stores what the patches bring
-(`applyRobotsFacts`), tells each news once (`tellRobotNews`) and asks no list, poll or problems of its own.
+#### The facts of a session
 
-The GitHub pull requests are the next (`FactStore::pull_requests`, `facts.pullRequests` by branch and by the root of a
-whole stack, `repository_model::pull_request_facts`): one GraphQL search per listing (`list_pull_requests`, in the
-GitHub repository the host resolves, the `RepositoryStateCache` of the app, so a listing runs no git), by the rules of
-[Refreshing](../../spec/branch/pull-requests.spec.md#refreshing): a committed table at most once a minute, a focus
-after two minutes, a push of the app that pushed (`SessionEventKind::PushEnded` with the tips it left, and once more
-five seconds later while GitHub shows an old head), a write of the app and the refresh button. The writes of the
-commands (`retarget_pull_request`, `close_pull_request`, `request_pull_request_reviewers`, `create_pull_request` of
-both hosts) go into the session (`Sessions::write_pull_request`), numbered when they apply, so a listing that started
-before one keeps what it wrote. After a listing, the rules of the bases of the open pull requests someone approved are
-read once per session (`read_branch_rules`, one `GET rules/branches/<base>`); the merge profiles of the target of the
-baseline when a start or its popover asks (`refresh_facts { profiles }`: `GET /robot-start-supported`, cached by the
-Patronus service). The page stores the patches (`applyPullRequestsFacts`, the profiles in the Patronus store) and asks
-GitHub nothing for them; it asks the session (`refreshPullRequests`, `askBranchRulesAgain`, `askStartProfiles`).
+The facts of the remote services are facts of the session too (`facts.rs`, the wire types in `domain_types::session`):
+each is a `Fact<T> { value, state, seq, observedAt }` in the part `facts` of the view (`FactsView`) and reaches the
+windows in its patches (`FactsChanges`: a part keyed by branch, subject or robot carries only the keys that changed and
+those removed, so the page keeps every other record as the same object). One rule of the state holds for every family
+([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer)): `Loading` from the open of the
+session and a change of what the fact is of until the first answer; `Fresh` with the answer of the newest observation;
+`Unavailable` with why when a read failed before any answer (a failed listing is never an empty one); `Stale` over an
+earlier answer, with why when the newest read failed, without a reason while what the fact is of changed and it is read
+again (`FactRecord::expect`, set before each patch from the inputs it is of, so the patch that moves a tip carries the
+stale readiness of that tip); `Unknown` while no window demands it. Nothing waits for a `Stale` fact.
+
+The facts and the table are ordered by one counter of the session (`facts::Sequence`, in `TableState`): a sync run, a
+listing, a poll, a read of the readiness take their number when they start (`Sessions::begin`, with the epoch of the
+session), a write of the app's commands when it applies (`Sessions::write_robot` of a start, a restart and a cancel;
+`Sessions::write_pull_request` of a retarget, a close, the reviewers asked, a pull request created; the outcome of a
+push), because a read that started while a write ran may have read before it. An answer applies only over a record of
+an older number (`Sessions::apply_facts`), so a list started before a start's robot or a listing started before a
+retarget never rolls the write back; an answer of a closed session or of another epoch applies to nothing. A transition
+an answer shows is news of the session (`News { id, event }`: a robot merged or failed, approvals arrived, review
+requests came; the last 32 in the view, with growing ids), which the page tells once (a toast, an OS notification).
+
+| Family | Part of the view | Read through `FactSources` | Asked by `domain_policy::refresh` | Written by the commands |
+|---|---|---|---|---|
+| robots | `facts.robots`, by id | `robots` (a list, `since` its window), `poll` (the running ones) | `robots_list_due`, `robots_poll_at` | `write_robot` |
+| failing and problems | on each robot | `failing` (one read), `problems` (one per robot) | `robot_failing_due`, `robot_problems_due`, after each list or poll | — |
+| robot details | `facts.robotDetails`, by id | `robot_details` | `robot_details_due`, only while demanded | — |
+| pull requests | `facts.pullRequests`, by branch and stack root | `pull_requests` (one GraphQL search) | `pull_requests_due`, `pull_requests_push_recheck_at` | `write_pull_request` |
+| branch rules | `facts.rules`, by base | `branch_rules` | `branch_rules_due`, once per base | — |
+| merge profiles | `facts.profiles` | `profiles` (of the target of the baseline) | `profiles_due` | — |
+| review readiness | `facts.readiness`, by subject | `readiness`, `cached_readiness` (the object cache) | `readiness_due`, `readiness_priority` | — |
+| review requests | `facts.reviewRequests` | `review_requests` | `review_requests_due`, `review_requests_poll_delay` | — |
+| landing needs | `patronus.landingNeeds`, by branch | the host (`SessionEnvironment::landing_needs`) | when their inputs change | — |
+| the Patronus view | `patronus.view`, by branch and stack root | derived by the session (`facts::derive_patronus`) | when its inputs change | — |
+
+#### The scheduler and its clock
+
+One scheduler reads the remote facts for every session of the process (`remote_facts::scheduler`, whose `//!` lists
+the rules of each family), started by each host beside its `Sessions`: one task per session, fed by `Sessions::events`
+(`SessionEvent`: a window watches the session or no longer does, the focus of its windows, their demand, a committed
+table with its baseline, a push of the app that pushed with the tips it left, a write of a pull request, what the poll
+of the robots and the readiness ask about now, a refresh a window asks), deciding by the pure rules of
+`domain_policy::refresh` (the constants of the page's stores before, by their names), reading through the host's
+`FactSources` (the app's `AppFactSources` over `PatronusState`, `GitHubState` and the `RepositoryStateCache` that names
+the GitHub repository, so a read runs no git; the E2E server's `TestFactSources` over the fakes of each test repository,
+which count the reads, [E2E Testing](e2e-testing.md#remote-services)) and applying each answer through `FactsPort`
+(`begin`, then `apply_facts`). A list is in flight once per family and session (the readiness asks up to four subjects
+side by side, the problems and the details one read per robot); a reason the rules let follow up asks once more after
+it. It starts no git process, asks nothing of a session no window watches and keeps no timer of one, and
+drops the task of a closed session.
+
+The scheduler and the sessions wait on the clock of the session (`SessionClocks::of`): one `SystemClock` for every
+session of the app (`OneClock`), a `TestClock` per worktree in the E2E server (`WorktreeClocks`), which stands still
+until its test moves it (`POST /repositories/{id}/clock/advance`, `repo.advanceBackendClock(ms)`), so the time of one
+test moves no session of another. `Clock::until(at)` answers `Elapsed`, a wall wait, or a signal that `advance` of the
+test clock wakes (`sync_utils::clock::Wait`, a std `Waker`: `sync-utils` stays free of tokio, which `app-settings` and
+`cli-tools` must not reach), and `runtime::sleep_until` waits on it with tokio. `scheduler_test.rs` drives every rule
+on a test clock with scripted sources; `session_test.rs` pins the order of the answers and the writes.
+
+#### Demand
+
+A window tells its session what it shows and needs (`set_demand { subscription, demand }`, at most four times a second
+and only a change, `src/model/demand.ts`): `Demand { focused, online, visibleBranches, visibleStacks, needed,
+robotDetails, watchedRobots }`, each list held by the surfaces that show it (`needBranch`, `showRobotDetails`, the rows
+whose step waits for the readiness). The session keeps the demand of each subscription, gone with it, and asks by their
+union (`SessionEventKind::Demand`): the focus sets the cadence of the polls, offline polls nothing, `needed` (the Safe
+Push popover and its click, the "Create pull request" dialog) is asked at once in a call of its own, the visible rows
+and stacks are asked before the hidden ones, `robotDetails` are read only while demanded and dropped after, and
+`watchedRobots` (the robots of no branch a window started, a Safe Push of a reviewed pull request) are polled with the
+robots of the table. A press that must read a fact again asks the session, never the service: `refresh_facts {
+repositoryPath, family, reason: manual | afterWrite, subject }` (the refresh buttons, Check Approvals Again, the rules
+and the profiles a start reads, the robots after a `/patronus` comment, the review requests after one was opened on
+GitHub) answers the version of the view after the patch of its read, which the page waits for.
+
+#### The families
+
+The robots of Patronus (`FactStore::robots`, `RobotsFact`): a list after the first committed table of a watched session,
+then by the rules of [Load on Patronus](../../spec/branch/patronus.spec.md#load-on-patronus), and a poll of the running
+robots the session matches to the tips of its table and of the watched robots of the demand (`facts::robots_digest`);
+each robot keeps the number of the read or the write that wrote it, and a failed answer keeps the robots `Stale`. After
+each answer the scheduler asks which running robots of the poll a failed required check dooms and the problems of the
+failed robots of the table not known yet, and a robot known running that an answer shows merged or failed is news: a
+failure once its problems say whether for missing approvals. The details of a robot (`facts.robotDetails`: its checks,
+the build progress of the running ones, its profile) are read while a surface of a window demands them, again when its
+status changes and every 61 s while it runs, and dropped when no window demands them; a details answer puts on the
+robot what a list doesn't name (`RobotsFact::details_answer`: the profile, failing while it runs). The page stores what
+the patches bring (`applyRobotsFacts`, `src/stores/robot-details.ts`), tells each news once (`tellRobotNews`) and asks
+no list, poll, problems or details of its own.
+
+The GitHub pull requests (`facts.pullRequests` by branch and by the root of a whole stack,
+`repository_model::pull_request_facts`): one GraphQL search per listing (`list_pull_requests`, in the GitHub
+repository the host resolves), by the rules of [Refreshing](../../spec/branch/pull-requests.spec.md#refreshing): a
+committed table at most once a minute, a focus after two minutes, a push of the app that pushed
+(`SessionEventKind::PushEnded`, and once more five seconds later while GitHub shows an old head), a write of the app that
+the next step reads and the refresh button. A listing that started before a write keeps what the write wrote; a created
+pull request stays until a listing shows it, five minutes at most. After a listing, the rules of the bases of the open
+pull requests someone approved are read once per session (`read_branch_rules`, one `GET rules/branches/<base>`); the
+merge profiles of the target of the baseline when a start or its popover asks (`refresh_facts { profiles }`: `GET
+/robot-start-supported`, cached by the Patronus service). The page stores the patches (`applyPullRequestsFacts`, the
+profiles in the Patronus store) and asks the session (`refreshPullRequests`, `askBranchRulesAgain`, `askStartProfiles`).
+
+The review readiness (`facts.readiness` by subject, a branch or `stack:<root>`; `repository_model::readiness_facts`):
+the actor builds the ask of each subject from the view as the page sees it (the tip is the copy of its newest commit, a
+whole stack only once its stack branch is `Built`; the pull request it starts from by
+`domain_policy::readiness::start_pull_request`, in the GitHub repository Patronus named) and expects its inputs before
+each patch. The scheduler (`scheduler_readiness.rs`) asks what a surface needs and Check Approvals Again (`refresh_facts
+{ readiness, manual, subject }`, new inputs) at once, each in a call of its own, then the shown subjects and after them
+the hidden ones that wait for approvals of the same tip and start, at most four at a time, after one read of the answers
+the object cache keeps (`kept_review_readiness`, on the blocking pool); a subject Patronus did not answer is asked again
+five minutes later, and while Patronus does not answer the repository nothing is asked and a needed subject is
+`Unavailable`. An answer that shows approvals arrived is news (`domain_policy::readiness::approval_news`).
+
+The review requests of others (`facts.reviewRequests`, `repository_model::review_request_facts`): the pull requests that
+wait for the user's review, sorted, listed by `review_requests_due` (a committed table at most once a minute, a focus
+after two minutes, the refresh button, a poll five minutes after each answer and later after failures, none offline or
+without a token GitHub accepts); a failure keeps the last list `Stale` (no token and a repository off GitHub drop it),
+and the requests a listing adds are news (`NewsEvent::ReviewRequested`), none in the first answer after a window began
+to watch the session (`watched_anew`). While a subject waits for approvals, each
+poll lists the pull requests too.
+
+#### The Patronus view
 
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table
-are the robots, the robot of each branch and whole stack (`match_robots`, which the page does itself) and what the asker
-knows of the remote branches (`RemoteFacts`: the remote tip, and whether the remote has the branch by content). No
+are the robots, the robot of each branch and whole stack (`match_robots`, by the rule of `domain_policy::robot_match`)
+and what the deriver knows of the remote branches (`branch_table::RemoteFacts`: the remote tip, and whether the remote
+has the branch by content). No
 process when the hashes tell:
 - the robot took its subject as it is: its tip, or its remote branch while that is up to date by content (a remote
   rebuilt on an older baseline included);

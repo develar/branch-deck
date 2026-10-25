@@ -21,8 +21,8 @@
 //!   server)
 //! - `scheduler`: when the facts of each session are read, by the rules of `domain_policy::refresh` on the clock of the
 //!   sessions, and their answers applied to the session (the robots of Patronus: the list, the poll, the failing robots
-//!   and the problems of the failed ones; the pull requests, the rules of their bases, the merge profiles; the review
-//!   readiness of the subjects the session tells, by demand)
+//!   and the problems of the failed ones, the details a window demands; the pull requests, the rules of their bases, the
+//!   merge profiles, the review requests of others; the review readiness of the subjects the session tells, by demand)
 //!
 //! Patronus:
 //! - `patronus_command`: the `/patronus` comment of a pull request

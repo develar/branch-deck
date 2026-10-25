@@ -151,8 +151,9 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   remote branch exists and returns the commit it points to (`remote_tip`) and the branch's commit, in the one process
   the existence check needs anyway; a ref name holds no glob character, so each pattern matches its ref only. The sync
   reads the remote tips of all its branches with the local ones, in its one `for-each-ref` of `refs/heads/<prefix>/`
-  and `refs/remotes/origin/<prefix>/`, and the baseline's commit with one `rev-parse` (`RemoteStatusMemo`). The
-  [Patronus](../../spec/branch/patronus.spec.md) chip matches a Safe Push of the IDE or the CLI to the branch by it.
+  and `refs/remotes/origin/<prefix>/`, and the baseline's commit with one `rev-parse` (`RemoteStatusMemo`). The session
+  matches a Safe Push of the IDE or the CLI to the branch by it (`domain_policy::robot_match`, the robot of the
+  [Patronus](../../spec/branch/patronus.spec.md) chip).
   The walks below use these commits, not the ref names, so a fetch or a sync meanwhile can't make the counts disagree
   with it.
 - **Remote at the tip**: a remote tip equal to the branch's tip is up to date and a fast-forward without a walk; only
@@ -226,6 +227,20 @@ Key components:
 - **Branch processor**: `BranchSyncContext` carries the baseline branch and `RemoteStatusMemo` the baseline commit and the
   remote tips, read once per sync (`crates/sync-core/src/branch_processor.rs`)
 - **Sync orchestration**: Propagates baseline through entire pipeline
+
+### The remote status in the session
+
+The statuses a sync computes reach the windows as a part of the view of the repository's session (`TableState`,
+[Session facts](git-operations.md#session-facts)), ordered by the one counter of the session (`facts::Sequence`): a
+sync takes its number when it starts, the outcome of a push when it applies (`TableState::end_push`), so a sync that
+started before a push never puts back the status it computed before it. While a push of a branch runs, the sync's
+status of that branch waits aside: the outcome of the push replaces it, a push that fails leaves it. The outcome also
+goes into the sync inputs the session knows (`SyncScheduler::pushed`: the remote-tracking ref the push moved), so the
+focus after the app's own push syncs nothing, and no sync follows a push. The Patronus view reads the remote branches
+as the session knows them (`facts::session_remote`: the status the table state holds over the table of the last sync;
+a robot on a remote branch up to date by content took the branch as it is), `bd` the same from its own sync
+(`branch_table::remote_facts`). The page writes no remote status and sends none to Rust: it waits for the version the
+push's command answers.
 
 ## UI Display Considerations
 
