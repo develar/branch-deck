@@ -5,7 +5,17 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow, pushFromRowMenu } from "../helpers/branch-helpers"
 import { expectPushedToast } from "../helpers/push-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
-import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, focusWindow, syncBranches, syncOnWindowFocus, viewEpoch } from "../helpers/sync-helpers"
+import {
+  emitTauriEvent,
+  expectTeamSessionSyncedOnOpen,
+  finishedSyncCount,
+  focusWindow,
+  focusWindowRefused,
+  syncBranches,
+  syncOnWindowFocus,
+  viewEpoch,
+  waitForSyncComplete,
+} from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { holdCommand, holdNextAnswer, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -156,6 +166,7 @@ test.describe("Onboarding", () => {
     await expect(card).toBeVisible()
     await expect(card).toContainText("user-name/virtual/<name>")
     await expect(card).toContainText("Your working tree and the checked-out branch stay as they are.")
+    await expect(card.getByTestId("agents-hint")).toBeVisible()
     await captureHtmlSnapshot(card, "ready-to-sync-first-time")
 
     await card.getByTestId("ready-to-sync-button").click()
@@ -220,6 +231,30 @@ test.describe("Onboarding", () => {
     await expect(page.getByTestId("ready-to-sync-card")).toHaveCount(0)
   })
 
+  test("shows the loading table in the body during the first sync of another session of a repository synced before", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("simple")
+    await syncAndWaitForBranches()
+    const synced = await viewEpoch(page)
+    expect(synced).toBeDefined()
+
+    // Auto-sync on Focus off: the focus only resolves the prefix again, and the sync of the new session is the held open
+    await emitTauriEvent(page, "auto_sync_on_focus_toggled", false)
+    await waitForStorePersistence(page, "appSettings", settings => (settings as { autoSyncOnFocus?: boolean } | undefined)?.autoSyncOnFocus === false)
+    // a prefix set in a terminal is another session, which has no table yet; the window saw a sync end already
+    await repo.setBranchPrefixInTerminal("team")
+    const release = await holdCommand(page, "sync")
+    await emitTauriEvent(page, "tauri://focus")
+    await expect.poll(() => viewEpoch(page)).not.toBe(synced)
+    const loading = page.getByTestId("branch-table-loading")
+    await expect(loading).toContainText("Syncing branches…")
+    await expect(page.getByTestId("branch-row")).toHaveCount(0)
+    await expect(page.getByTestId("error-alert")).toHaveCount(0)
+
+    release()
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
+    await expect(loading).toHaveCount(0)
+  })
+
   test("explains the grouping in the unassigned commits while there is no branch", async ({ page, setupRepo }) => {
     await setupRepo("unassigned", { prepopulateStore: true })
     await syncBranches(page)
@@ -238,6 +273,35 @@ test.describe("Onboarding", () => {
       "Coding agents find bd through the skills in /Users/test/.claude/skills/branch-deck/SKILL.md, /Users/test/.agents/skills/branch-deck/SKILL.md. In a terminal, run bd. Agents work in their own worktree and land each commit on your branch; commit subjects stay as written.",
     )
     await toast.getByRole("button", { name: "Open Agent Settings" }).click()
+    await expectSettingsOpened(page, { page: "agents" })
+  })
+
+  test("says in Ready to Sync where coding agents work, installs the Agent CLI there and opens Agent Settings", async ({ page, setupRepo }) => {
+    await setupRepo("simple", { prepopulateStore: true })
+    const hint = page.getByTestId("ready-to-sync-card").getByTestId("agents-hint")
+    await expect(hint).toContainText(
+      "You work in this checkout. With the Agent CLI, coding agents such as Claude Code lease worktrees of their own and land each commit on your branch.",
+    )
+    await captureHtmlSnapshot(page.getByTestId("ready-to-sync-card"), "ready-to-sync-agents")
+
+    await hint.getByRole("button", { name: "Install Agent CLI" }).click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })).toBeVisible()
+    await expect(hint).toContainText("You work in this checkout. Coding agents such as Claude Code lease worktrees of their own through bd and land each commit on your branch.")
+    await expect(hint.getByRole("button", { name: "Install Agent CLI" })).toHaveCount(0)
+    await hint.getByRole("button", { name: "Open Agent Settings" }).click()
+    await expectSettingsOpened(page, { page: "agents" })
+  })
+
+  test("names the baseline and where coding agents work in the empty state, and installs the Agent CLI there", async ({ page, setupRepo }) => {
+    await setupRepo("archived_branches")
+    await syncBranches(page, ['[data-testid="archived-branches-card"]'])
+    const emptyState = page.getByTestId("empty-state-alert")
+    await expect(emptyState.getByTestId("empty-state-baseline")).toHaveText(/^No commits ahead of \S+\.\s*$/)
+    await expect(emptyState).toContainText("Commit to your branch using prefixes like:")
+    const hint = emptyState.getByTestId("agents-hint")
+    await hint.getByRole("button", { name: "Install Agent CLI" }).click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })).toBeVisible()
+    await hint.getByRole("button", { name: "Open Agent Settings" }).click()
     await expectSettingsOpened(page, { page: "agents" })
   })
 
@@ -283,6 +347,44 @@ test.describe("Deferred sync", () => {
     await expect(page.getByTestId("sync-button")).toBeEnabled()
     await expect(page.getByTestId("sync-tooltip")).toHaveCount(0)
     await expect(page.getByTestId("branch-row")).toHaveCount(rows)
+  })
+})
+
+test.describe("A sync without a table", () => {
+  test("says in the body that a sync waits for git while there is no table, and syncs once git finished", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO, rebaseInProgress: true })
+    const alert = page.getByTestId("sync-deferred-alert")
+    await expect(alert).toContainText("Not synced: a rebase is in progress")
+    await expect(alert).toContainText("The branches sync once git finished it")
+    await expect(page.getByTestId("branch-table-loading")).toHaveCount(0)
+    await expect(page.getByTestId("error-alert")).toHaveCount(0)
+
+    // a focus while git is still at it finds what the deferred sync read: no run
+    const syncs = await finishedSyncCount(page)
+    expect(await focusWindowRefused(page)).toMatchObject({ code: "operation_in_progress" })
+    expect(await finishedSyncCount(page)).toBe(syncs)
+    await expect(alert).toBeVisible()
+
+    // the rebase aborted moves no ref, and still is a change
+    await repo.setRebaseInProgress(false)
+    await syncOnWindowFocus(page)
+    await expect(findBranchRow(page, "test-branch")).toBeVisible()
+    await expect(alert).toHaveCount(0)
+  })
+
+  test("does not sync again on a focus after a failed sync while nothing changed, and syncs again on Sync", async ({ page, setupRepo }) => {
+    await setupRepo("empty_git", { prepopulateStore: true, syncedAgoMs: SYNCED_AN_HOUR_AGO })
+    const alert = page.getByTestId("error-alert")
+    await expect(alert).toContainText("The repository has no commits yet")
+    const syncs = await finishedSyncCount(page)
+
+    expect(await focusWindowRefused(page)).toMatchObject({ message: expect.stringContaining("The repository has no commits yet") })
+    expect(await finishedSyncCount(page)).toBe(syncs)
+    await expect(alert).toBeVisible()
+
+    await page.getByTestId("sync-button").click()
+    await waitForSyncComplete(page, syncs)
+    await expect(alert).toContainText("The repository has no commits yet")
   })
 })
 

@@ -1,14 +1,16 @@
 import { useEffect } from "react"
-import { CircleXIcon, GitBranchIcon } from "lucide-react"
+import { CircleXIcon, GitBranchIcon, HourglassIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
 import { UnappliedBranchTableCard } from "@/components/branch/UnappliedBranchTableCard"
+import { AgentsHint } from "@/components/repository/AgentsHint"
 import { GitSetupAlert } from "@/components/repository/GitSetupAlert"
 import { LandedCard } from "@/components/repository/LandedCard"
 import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
 import { WelcomeCard } from "@/components/repository/WelcomeCard"
 import { YourTurnSlot } from "@/components/repository/YourTurnCard"
+import { InlineCode } from "@/components/shared/InlineCode"
 import { UnassignedCommitListCard } from "@/components/unassigned/UnassignedCommitListCard"
 import { markWindowContentReady } from "@/lib/sub-window"
 import { useArchivedBranchCount } from "@/stores/archived-branches"
@@ -23,6 +25,8 @@ import { useRecentProjects } from "@/stores/settings/repositorySettings"
 export function BranchCreator() {
   const isSyncing = useBranchSync(state => state.isSyncing)
   const syncError = useBranchSync(state => state.syncError)
+  const syncDeferred = useBranchSync(state => state.syncDeferred)
+  const baselineBranch = useBranchSync(state => state.baselineBranch)
   const syncedRepositoryPath = useBranchSync(state => state.syncedRepositoryPath)
   // a sync of the window ended: also one that git deferred (a rebase in progress), which leaves no rows
   const hasSyncEnded = useBranchSync(state => state.syncCount > 0)
@@ -63,8 +67,12 @@ export function BranchCreator() {
       markWindowContentReady()
     }
   }, [hasContent])
-  // a repository synced before syncs when the window opens it: until its rows come, the table loads where it will be
-  const isLoadingRows = hasRepository && !neverSynced && !hasContent
+  // a sync git refused (a rebase in progress, a detached HEAD) says why where there is no table to show
+  const showDeferred = syncDeferred !== null && !isSyncing && !hasError && branchCount === 0 && unassignedCommitCount === 0
+  // a repository synced before syncs when the window opens it: until its rows come, the table loads where it will be,
+  // also during a sync after one that failed or waited for git, and during the first one of another session (a prefix
+  // changed in a terminal) after the window saw a sync end
+  const isLoadingRows = hasRepository && !neverSynced && !hasSynced && !hasError && (isSyncing || !hasContent) && branchCount === 0 && unassignedCommitCount === 0
 
   // a message of several lines (git with its install hint) is a title and its details
   const [errorTitle, ...errorLines] = error?.split("\n") ?? []
@@ -78,6 +86,14 @@ export function BranchCreator() {
       {showReadyToSync && <ReadyToSyncCard />}
 
       <LandedCard />
+
+      {showDeferred && (
+        <Alert variant="info" data-testid="sync-deferred-alert">
+          <HourglassIcon />
+          <AlertTitle>{syncDeferred.title}</AlertTitle>
+          <AlertDescription>{syncDeferred.description}</AlertDescription>
+        </Alert>
+      )}
 
       {errorTitle ? (
         <Alert variant="destructive" data-testid="error-alert">
@@ -94,12 +110,22 @@ export function BranchCreator() {
             <GitBranchIcon />
             <AlertTitle>No active branches</AlertTitle>
             <AlertDescription className="flex flex-col gap-3">
-              <p>Commit to your main branch using prefixes like:</p>
+              <p>
+                {baselineBranch !== null && (
+                  <span data-testid="empty-state-baseline">
+                    {"No commits ahead of "}
+                    <InlineCode>{baselineBranch}</InlineCode>
+                    {". "}
+                  </span>
+                )}
+                Commit to your branch using prefixes like:
+              </p>
               <ul className="list-inside list-disc font-mono">
                 <li>(auth) Add login form</li>
                 <li>ABC-123 Fix login bug</li>
               </ul>
               <p>Branch Deck will automatically group your commits into virtual branches.</p>
+              <AgentsHint />
               {archivedBranchCount > 0 && <p className="text-sm text-muted-foreground">Your archived branches are shown below.</p>}
             </AlertDescription>
           </Alert>

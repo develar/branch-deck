@@ -295,6 +295,12 @@ pub enum SyncState {
   Failed {
     error: ApiError,
   },
+  /// Git refused the last sync before it built anything: a rebase, merge, cherry-pick or revert in progress
+  /// (`operation_in_progress`), or a detached HEAD (`detached_head`). Nothing failed; the table is the one of the sync
+  /// before, and the next sync starts once git finished (a focus sees the change)
+  Deferred {
+    error: ApiError,
+  },
 }
 
 /// The step of a running sync, as its events tell it

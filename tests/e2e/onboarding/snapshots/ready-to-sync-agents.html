@@ -1,0 +1,51 @@
+<div class="group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)]" data-size="default" data-slot="card" data-testid="ready-to-sync-card">
+  <div class="group/card-header @container/card-header grid auto-rows-min items-start gap-1.5 rounded-t-[min(var(--radius-4xl),24px)] px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-(--card-spacing)" data-slot="card-header">
+    <div class="font-heading text-base font-medium" data-slot="card-title">
+      Ready to Sync
+    </div>
+  </div>
+  <div class="px-(--card-spacing) flex flex-col gap-3 text-sm text-muted-foreground" data-slot="card-content">
+    <p>
+      Sync groups the commits of your branch by the prefix of their subject, like
+      <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+        (auth) Add login form
+      </code>
+      or
+      <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+        ABC-123 Fix login bug
+      </code>
+      , and creates a local branch
+      <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
+        user-name/virtual/<name>
+      </code>
+      for each group. Commits without a prefix are listed as unassigned.
+    </p>
+    <p>
+      Your working tree and the checked-out branch stay as they are.
+    </p>
+    <p>
+      After this first sync, Branch Deck syncs whenever it opens the repository, after each change it makes, and when you come back to the window after a commit, a fetch or a push elsewhere (Auto-sync on Focus, in the sync settings next to Sync).
+    </p>
+    <div class="flex items-center gap-2">
+      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 bg-primary text-primary-foreground hover:bg-primary/80 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-slot="button" data-testid="ready-to-sync-button" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-refresh-cw" data-icon="inline-start" />
+        Sync
+      </button>
+      <span class="flex items-center gap-1.5 text-xs">
+        or press
+        <kbd class="pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-lg bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none in-data-[slot=input-group]:bg-input in-data-[slot=tooltip-content]:bg-background/20 in-data-[slot=tooltip-content]:text-background dark:in-data-[slot=tooltip-content]:bg-background/10 [&_svg:not([class*='size-'])]:size-3" data-slot="kbd">
+          Ctrl+R
+        </kbd>
+      </span>
+    </div>
+    <div class="flex flex-col items-start gap-1.5" data-testid="agents-hint">
+      <div>
+        You work in this checkout. With the Agent CLI, coding agents such as Claude Code lease worktrees of their own and land each commit on your branch.
+      </div>
+      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-terminal" data-icon="inline-start" />
+        Install Agent CLI
+      </button>
+    </div>
+  </div>
+</div>

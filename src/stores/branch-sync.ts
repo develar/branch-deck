@@ -16,6 +16,7 @@ import type {
   StackBranchState,
   StackMemberBlock,
   SyncReason,
+  SyncStep,
   UpdateCheck,
   Version,
   WordResolutionSummary,
@@ -25,6 +26,7 @@ import { collectParkedStates } from "@/lib/parked"
 import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
+import type { SyncDeferral } from "@/lib/sync-deferred"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { nextRunNumber, requestSessionSync } from "@/model/store"
@@ -149,6 +151,10 @@ export interface BranchSyncState {
    */
   syncCount: number
   syncError: string | null
+  /** The last sync git refused before it built anything (a rebase in progress, a detached HEAD); null otherwise */
+  syncDeferred: SyncDeferral | null
+  /** What the running sync of the session does; null while none runs */
+  syncStep: SyncStep | null
   /** The repository whose branches the store holds, set by the first request of a sync that ended; null before it */
   syncedRepositoryPath: string | null
   /** The version of the session's view the store holds (`data-view-version`); null without one */
@@ -217,6 +223,8 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   isSyncing: false,
   syncCount: 0,
   syncError: null,
+  syncDeferred: null,
+  syncStep: null,
   syncedRepositoryPath: null,
   viewVersion: null,
   tableRevision: 0,

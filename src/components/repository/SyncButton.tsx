@@ -7,6 +7,7 @@ import { ShortcutHint } from "@/components/shared/ShortcutHint"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { isMac } from "@/lib/platform"
+import { describeSyncStep } from "@/lib/sync-step"
 import { viewVersionKey } from "@/model/store"
 import { branchSyncStore, syncBranches, syncIfChanged, useBranchSync } from "@/stores/branch-sync"
 
@@ -23,6 +24,7 @@ export function SyncButton() {
   const syncCount = useBranchSync(state => state.syncCount)
   const viewVersion = useBranchSync(state => viewVersionKey(state.viewVersion))
   const syncError = useBranchSync(state => state.syncError)
+  const syncStep = useBranchSync(state => state.syncStep)
   const { canSync, reason } = useSyncAvailability()
 
   // "Sync" menu item (⌘R); the store, not the render: the handler is replaced after a render
@@ -67,7 +69,7 @@ export function SyncButton() {
           reason
         ) : isSyncing ? (
           // the shortcut does nothing while it runs
-          "Syncing branches…"
+          describeSyncStep(syncStep)
         ) : syncError ? (
           <div className="flex flex-col gap-0.5">
             <span>{syncError}</span>

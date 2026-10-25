@@ -6,6 +6,7 @@
 use crate::issue_navigation::issue_navigation_config_path;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::rewrite_guard::OPERATION_MARKERS;
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
 use history_rewrite::parked::PARKED_REF;
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
@@ -34,7 +35,7 @@ impl SyncInputs {
   }
 }
 
-/// The inputs of a sync of `branch_prefix`; two git processes and three file stats, no object read, and a third
+/// The inputs of a sync of `branch_prefix`; two git processes and the stats of nine files, no object read, and a third
 /// process when HEAD's branch tracks another remote branch:
 /// - the local branches with the one HEAD is on (`%(HEAD)`): a commit, an amend, a switch, a rebase finished, but not
 ///   the virtual branches of the prefix, which the sync writes itself;
@@ -43,7 +44,9 @@ impl SyncInputs {
 ///   virtual branches, the stack branches (`bd safe-push` of a whole stack) and the unapplied ones (`bd push --unapplied`);
 /// - the issue groups, the stack parents and the parked branches;
 /// - the size and the time of `config` and `config.worktree` (descriptions, `branchdeck.stacks`) and of `.idea/vcs.xml`
-///   (issue links).
+///   (issue links);
+/// - which of the files of an operation in progress exist (`OPERATION_MARKERS`): a sync git deferred while a rebase or
+///   a merge was in progress syncs once it ended, also by an abort, which moves no ref.
 ///
 /// The working tree is not in it: the blocking paths of an update are read by the next sync.
 #[instrument(skip(git_executor))]
@@ -92,6 +95,9 @@ pub fn read_sync_inputs(git_executor: &GitCommandExecutor, repository_path: &str
     issue_navigation_config_path(repository_path),
   ] {
     file_stamp(&file).hash(&mut hasher);
+  }
+  for (marker, _) in OPERATION_MARKERS {
+    Path::new(&git_dir).join(marker).exists().hash(&mut hasher);
   }
   Ok(SyncInputs {
     rest: hasher.finish(),

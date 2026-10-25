@@ -214,13 +214,28 @@ export interface FocusAnswer {
  * Focus and only when what a sync reads changed, a reword behind the app's back) and for its last patch in the page
  */
 export async function focusWindow(page: Page): Promise<FocusAnswer | null> {
-  const focusResponse = page.waitForResponse(response => response.url().endsWith("/invoke/set_window_focus") && (response.request().postDataJSON() as { focused: boolean }).focused)
-  await emitTauriEvent(page, "tauri://focus")
-  const answer = (await (await focusResponse).json()) as FocusAnswer | null
+  const answer = (await focusWindowAnswer(page)) as FocusAnswer | null
   if (answer !== null) {
     await waitForViewVersion(page, answer.version)
   }
   return answer
+}
+
+/**
+ * Gives the window the focus and answers the error the session refused it with: a focus after a sync that failed or
+ * waited for git, which finds what that sync read, answers its error without a run
+ */
+export async function focusWindowRefused(page: Page): Promise<{ code: string; message: string }> {
+  const answer = (await focusWindowAnswer(page)) as { status?: string; error?: { code: string; message: string } } | null
+  expect(answer?.status).toBe("error")
+  return answer!.error!
+}
+
+/** Gives the window the focus and answers the body of the session's answer to it (`set_window_focus`) */
+async function focusWindowAnswer(page: Page): Promise<unknown> {
+  const focusResponse = page.waitForResponse(response => response.url().endsWith("/invoke/set_window_focus") && (response.request().postDataJSON() as { focused: boolean }).focused)
+  await emitTauriEvent(page, "tauri://focus")
+  return (await focusResponse).json()
 }
 
 /** Waits until the page holds the view of its session at `version` or past it (`data-view-version` of Sync) */

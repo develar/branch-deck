@@ -92,6 +92,8 @@ test.describe("Archived Branches Table", () => {
     // Verify empty state appears and capture its HTML structure
     const emptyState = page.locator('[data-testid="empty-state-alert"]')
     await expect(emptyState).toBeVisible()
+    // where coding agents work comes with the Agent CLI status and the repository's rule
+    await expect(emptyState.getByTestId("agents-hint")).toBeVisible()
 
     // Capture HTML snapshot of the empty state alert
     await captureHtmlSnapshot(emptyState, "empty-state-with-archived-branches")

@@ -36,6 +36,8 @@ targets:
   - ../../src/components/settings/AppearancePage.tsx
   - ../../src/components/settings/DiffsPage.tsx
   - ../../src/components/settings/AgentsPage.tsx
+  - ../../src/components/shared/InstallAgentCliButton.tsx
+  - ../../src/hooks/useAgentCliStatus.ts
   - ../../src/components/settings/ToolsPage.tsx
   - ../../src/hooks/useConfigWrite.ts
   - ../../src/components/shared/DiffViewToggle.tsx
@@ -457,7 +459,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   installed (`agent_cli_status`, asked on each open of the window and when it gets the focus): "Installed: agents find
   bd (<bd>) through <the skill files>" with a copy button of the path of bd, paths under the home directory as `~`; or
   "The agent skill is not installed" with "Install Agent CLI", the install of Help → Install Agent CLI…, whose toast
-  has no action here.
+  has no action here. The same status and button tell the main window where agents work on the way to the first
+  branches ([Onboarding](onboarding.spec.md#agents)).
   [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should install the agent skill from the page, and then name it`)
 - Two rules, each a switch with what it does and its git key: "Work in their own worktree" ("Each agent leases a
   worktree and lands each commit on your branch", `branchdeck.agentLease`, on by default) and "Name the branch in each

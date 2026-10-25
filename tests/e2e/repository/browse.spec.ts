@@ -40,8 +40,9 @@ async function testBrowseRepository(
 
     // The template configures a branch prefix: once it is loaded, the welcome card is gone
     await expect(page.getByTestId("welcome-card")).toHaveCount(0)
-    // Sync is enabled while the branch prefix still loads; the card the snapshot shows comes once it is loaded
-    await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
+    // Sync is enabled while the branch prefix still loads; the card the snapshot shows comes once it is loaded, its line
+    // about coding agents once the status of the Agent CLI and the rule of the repository answered
+    await expect(page.getByTestId("ready-to-sync-card").getByTestId("agents-hint")).toBeVisible()
 
     // Capture final state (valid repository selected)
     await captureHtmlSnapshot(page.locator("body"), `browse-repository-${snapshotSuffix}`)

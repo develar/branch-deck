@@ -27,6 +27,7 @@ import { copyText, isCopyKey } from "@/lib/clipboard"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
 import { collapsedLanes, isStackRoot, sideStackSizes, stackSizes } from "@/lib/stack-collapse"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
+import { describeSyncStep } from "@/lib/sync-step"
 import { closeBranchPreview, openBranchPreview, showBranchInPreview, useBranchPreview } from "@/stores/branch-preview"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { useBranchSync, useFoundCommits, useParkedTableRows } from "@/stores/branch-sync"
@@ -408,13 +409,16 @@ function BranchTableHead() {
 }
 
 /**
- * The table while the first sync of a repository synced before brings its rows: the filter bar's room where the rows of
- * the last sync had one, the column heads and a body as tall as those rows (`lastBranchCount`), so the rows fill it
- * without moving what is below; the loading line after its delay. The main window shows it only when the rows take
+ * The table while a sync of a repository synced before brings its first rows (the first sync of a session the window
+ * opened, also of another session under a changed prefix, or one after a sync that failed or waited for git): the
+ * filter bar's room where the rows of the last sync had one, the column heads and a body as tall as those rows
+ * (`lastBranchCount`), so the rows fill it without moving what is below; the loading line after its delay. The main window shows it only when the rows take
  * longer than its budget (`MAIN_CONTENT_BUDGET`); before, the window is hidden.
  */
 function BranchTableLoading() {
   const rowCount = Math.max(1, useSelectedRepositoryState("lastBranchCount") ?? 0)
+  // a sync of a large repository takes a while: the line says what it does
+  const syncStep = useBranchSync(state => state.syncStep)
   return (
     <BranchColumnsRoot>
       <Card className="gap-0 py-0" aria-busy="true" data-testid="branch-table-loading">
@@ -430,7 +434,7 @@ function BranchTableLoading() {
               <tr key={index}>
                 {/* as tall as a branch row: its cell padding around a line of 24px */}
                 <td colSpan={4} className="px-6 py-(--bd-cell-y)">
-                  <div className="flex h-6 items-center">{index === 0 && <LoadingLine>Syncing branches…</LoadingLine>}</div>
+                  <div className="flex h-6 items-center">{index === 0 && <LoadingLine>{describeSyncStep(syncStep)}</LoadingLine>}</div>
                 </td>
               </tr>
             ))}

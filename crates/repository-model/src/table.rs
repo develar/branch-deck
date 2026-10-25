@@ -23,7 +23,7 @@
 
 use crate::facts::{Seq, Sequence};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
-use domain_types::error::ApiError;
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{
   ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchSync, BranchView, CommitSync, LandedSection, SyncState, SyncStep, TableHeader, TableSections,
 };
@@ -201,15 +201,27 @@ impl TableState {
         self.sync = SyncState::Idle;
       }
       Err(error) => {
-        self.defer_sync();
+        self.restore_before_sync();
         self.sync = SyncState::Failed { error };
       }
     }
   }
 
   /// The sync was refused before it built anything (a rebase in progress, a detached HEAD: `SyncDeferred`): the table
-  /// of the sync before comes back with what the session wrote since, and nothing failed
-  pub fn defer_sync(&mut self) {
+  /// of the sync before comes back with what the session wrote since, and nothing failed. The sync says why it waits;
+  /// a run under a prefix the git config left (`prefix_changed`) is no state of this session, whose window opens the
+  /// session of the new prefix
+  pub fn defer_sync(&mut self, error: ApiError) {
+    self.restore_before_sync();
+    self.sync = if error.code == ErrorCode::PrefixChanged {
+      SyncState::Idle
+    } else {
+      SyncState::Deferred { error }
+    };
+  }
+
+  /// The table of the sync before comes back, with what the session wrote since
+  fn restore_before_sync(&mut self) {
     if let Some(before) = self.before_sync.take() {
       self.parts = *before;
       for (_, write) in std::mem::take(&mut self.writes) {
@@ -217,7 +229,6 @@ impl TableState {
       }
       self.commit_index = index_commits(&self.parts.branches);
     }
-    self.sync = SyncState::Idle;
   }
 
   /// The sync runs once more for `branches` (`SyncReport::retry`: another process moved what it built): their rows say

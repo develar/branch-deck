@@ -44,6 +44,8 @@ import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { getErrorCode } from "@/lib/errors"
 import { sameStringRecord, withoutKeys } from "@/lib/record"
+import type { SyncDeferral } from "@/lib/sync-deferred"
+import { describeSyncDeferral } from "@/lib/sync-deferred"
 import { showToast } from "@/lib/toast-message"
 import { addTiming } from "@/lib/update-progress"
 import { isMainWindow } from "@/lib/window-label"
@@ -362,6 +364,8 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   }
   update.isSyncing = running || (session?.pending.count ?? 0) > 0
   update.syncError = syncErrorOf(next)
+  update.syncDeferred = syncDeferredOf(next, state.syncDeferred)
+  update.syncStep = next.sync.kind === "running" ? next.sync.step : null
 
   if (changes === null || changes.header != null) {
     Object.assign(update, headerFields(state, next))
@@ -476,6 +480,15 @@ function syncErrorOf(view: RepositoryView | null): string | null {
     return view.sync.error.message || "Failed to sync branches"
   }
   return view?.sync.kind === "running" ? null : requestError
+}
+
+/** Why git refused the last sync of `view`, the same object as `shown` while it says the same; null otherwise */
+function syncDeferredOf(view: RepositoryView, shown: SyncDeferral | null): SyncDeferral | null {
+  if (view.sync.kind !== "deferred") {
+    return null
+  }
+  const deferral = describeSyncDeferral(view.sync.error)
+  return shown?.title === deferral.title && shown.description === deferral.description ? shown : deferral
 }
 
 /** The fields of the header; a record of the same entries stays the same object, a sync rarely changes them */
@@ -659,6 +672,8 @@ function resetTable(): void {
   branchSyncStore.setState({
     isSyncing: false,
     syncError: null,
+    syncDeferred: null,
+    syncStep: null,
     syncedRepositoryPath: null,
     inputsCheckedAt: null,
     viewVersion: null,
@@ -882,10 +897,10 @@ async function settle(
 
 /**
  * A request of `target` the session refused. A deferred sync (a rebase in progress, a detached HEAD) is no failure: the
- * user's own (`manual`) says so in an `info` toast, any other waits silently. Nor is a sync of a session whose prefix
- * the git config no longer names (`prefix_changed`: a `git config` in a terminal): the run resolved the prefix again,
- * the page shows the new one, and the window opens the session under it, which it syncs for a repository synced before
- * (`useSyncOnOpen`). Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is asked
+ * user's own (`manual`) says so in an `info` toast, any other waits; the view says why it waits (`deferred`), which the
+ * page shows where it has no table. Nor is a sync of a session whose prefix the git config no longer names
+ * (`prefix_changed`: a `git config` in a terminal): the run resolved the prefix again, the page shows the new one, and
+ * the window opens the session under it, which it syncs for a repository synced before (`useSyncOnOpen`). Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is asked
  * again once the page has the prefix: the session of the new prefix serves it
  */
 async function refused(target: Session, reason: SyncReason, error: ApiError, askAgain: (() => Promise<SyncAnswer | null>) | null): Promise<SyncAnswer | null> {
@@ -906,11 +921,7 @@ async function refused(target: Session, reason: SyncReason, error: ApiError, ask
   }
   if (code === "operation_in_progress" || code === "detached_head") {
     if (reason === "manual") {
-      showToast({
-        type: "info",
-        title: message,
-        description: code === "operation_in_progress" ? "The branches sync once git finished it" : "Check out a branch to sync its commits",
-      })
+      showToast({ type: "info", ...describeSyncDeferral(error) })
     }
   } else {
     failRequest(target, message, error)
@@ -923,8 +934,12 @@ function failRequest(target: Session, message: string, error: unknown): void {
   if (target !== session) {
     return
   }
-  requestError = message || "Failed to sync branches"
-  console.error("Sync error:", error)
+  const shown = message || "Failed to sync branches"
+  // a focus that finds what the failed run read answers its error again, without a run: logged once
+  if (requestError !== shown) {
+    console.error("Sync error:", error)
+  }
+  requestError = shown
   branchSyncStore.setState({ syncError: syncErrorOf(target.view) })
 }
 

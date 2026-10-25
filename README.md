@@ -101,6 +101,8 @@ publisher: choose More info → Run anyway.
 3. Commit as usual, with a `(name)` prefix or an issue key in the subject.
 4. Sync (⌘R / Ctrl+R): each group becomes a local branch `<prefix>/virtual/<name>`.
 5. Push a branch from its row and open its pull request from the toast.
+6. Let coding agents work beside you: Help → Install Agent CLI…. You stay in your checkout; an agent leases a
+   worktree of its own and lands each commit on your branch ([Agent CLI](#agent-cli)).
 
 ## Features
 

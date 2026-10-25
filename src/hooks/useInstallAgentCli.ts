@@ -5,6 +5,7 @@ import { notifyError } from "@/lib/errors"
 import { resolveHomeDir, tildePath } from "@/lib/home-path"
 import { openSettings } from "@/lib/settings-window"
 import { showToast } from "@/lib/toast-message"
+import { refreshAgentCliStatus } from "@/stores/agent-cli"
 
 /**
  * The toast text of an install: where agents find bd, how to run it in a terminal when it is not on PATH, and how agents
@@ -33,6 +34,7 @@ export async function installAgentCli(openAgentSettings = true): Promise<AgentCl
     notifyError("Cannot install the Agent CLI", result.error)
     return null
   }
+  refreshAgentCliStatus()
   const description = describeInstall(result.data, await resolveHomeDir())
   showToast({
     title: "Agent CLI installed",

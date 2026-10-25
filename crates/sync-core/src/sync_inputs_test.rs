@@ -119,3 +119,26 @@ fn changes_with_the_upstream_of_the_checked_out_branch() {
   git(&executor, &repo, &["update-ref", "refs/remotes/origin/master", &initial]);
   assert_eq!(processes(&repo), 2);
 }
+
+/// A sync git deferred (a rebase in progress, a detached HEAD) syncs once git finished: the end of an operation is a
+/// change also when it moves no ref (an abort), and so is a branch checked out again
+#[test]
+fn changes_when_a_git_operation_starts_or_ends() {
+  let repo = TestRepo::new();
+  let executor = GitCommandExecutor::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  let head = repo.create_commit("(auth) Add login", "login.txt", "login");
+  let before = fingerprint(&executor, &repo);
+
+  let rebase = repo.path().join(".git/rebase-merge");
+  std::fs::create_dir_all(&rebase).unwrap();
+  let rebasing = fingerprint(&executor, &repo);
+  assert_ne!(rebasing, before, "a rebase started");
+  sync_utils::fs_retry::remove_dir(&rebase).unwrap();
+  assert_eq!(fingerprint(&executor, &repo), before, "the rebase aborted: as before it");
+
+  git(&executor, &repo, &["update-ref", "--no-deref", "HEAD", &head]);
+  assert_ne!(fingerprint(&executor, &repo), before, "HEAD detached");
+  git(&executor, &repo, &["symbolic-ref", "HEAD", "refs/heads/master"]);
+  assert_eq!(fingerprint(&executor, &repo), before, "the branch checked out again");
+}

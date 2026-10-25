@@ -1953,7 +1953,7 @@ none, its leaf is the whole stack. `crates/sync-core/src/stack_branch.rs`.
 
 Auto-sync on Focus syncs only when what a sync reads changed since the last sync (`read_sync_inputs`,
 `crates/sync-core/src/sync_inputs.rs`), so it is on by default: a focus of an unchanged repository costs two git
-processes and three file stats, no object read (three processes when HEAD's branch tracks another remote branch than
+processes and the stats of nine files, no object read (three processes when HEAD's branch tracks another remote branch than
 a `master` or `main`; `a_focus_with_unchanged_inputs_reads_only_the_fingerprint`). The session decides it, not the
 page: the main window tells the session its focus (`set_window_focus`), and Rust reads the setting
 (`SessionHost::syncs_on_focus`); with it off, a focus starts no process.
@@ -1970,14 +1970,22 @@ page: the main window tells the session its focus (`set_window_focus`), and Rust
    so a fetch of it is a change too.
 4. The size and the modification time of `config`, `config.worktree` (descriptions, `branchdeck.stacks`, the
    upstream configuration) and `.idea/vcs.xml` (issue links).
+5. Which of the files git keeps in the worktree's git directory during an operation exist (`OPERATION_MARKERS` of
+   `rewrite_guard.rs`: `rebase-merge`, `rebase-apply`, `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `sequencer`),
+   the files whose presence defers a sync: an abort of a rebase moves no ref, and still syncs the deferred sync
+   (`changes_when_a_git_operation_starts_or_ends`). A detached HEAD needs nothing more: the listing then has no `*`
+   line, and a branch checked out again adds it.
 
 The inputs (`SyncInputs`) are the remote branches of the prefix by name with their commits, listed apart, and the hash
 of the rest and the prefix: the prefix of the session (`SessionKey`, which Rust resolves for the repository; the git
 prefix from the memo of `BranchPrefixes`, no process), so a changed prefix, the app's or the repository's own, changes
 them (`changes_with_the_prefix_alone`), and is another session anyway. The session's scheduler reads them
 (`repository_model::sync_scheduler`, [Session facts](#session-facts)): a run reads them first, so a commit made
-while the sync runs is a change, or takes the ones its focus check just read, and a successful run keeps them; a focus
-compares them. The session's own push moves the remote-tracking refs of what it sent (`refs/remotes/origin/<full
+while the sync runs is a change, or takes the ones its focus check just read, and the run that ended keeps them with
+its outcome; a focus compares them. A run that failed or that git deferred is kept too: a focus that finds the inputs
+it read answers its error and runs nothing, so a sync of a large repository that fails is not repeated on every return
+to the window (`a_focus_after_a_failed_sync_reads_only_the_fingerprint`); an open of the repository (`Open`) and Sync
+(`Manual`) run anyway, and a run under a prefix the config left (`prefix_changed`) is no outcome to keep. The session's own push moves the remote-tracking refs of what it sent (`refs/remotes/origin/<full
 name>`, set by the push or by its fetch of a moved remote), and the table has its outcome already: the end of the push
 puts those refs, at the remote tips of its statuses, into the inputs the scheduler keeps (`SyncScheduler::pushed`, no
 git process), and into what a check or a run in flight read, which may be from before the push. So a focus right after
@@ -3384,14 +3392,16 @@ event changes the state at once, and the patch of what changed goes to the subsc
 time), at once when a run starts, when its build ended (`UnappliedBranchesFound`: the tips are known before the
 detection and the update check end, which come as patches of their own), when it ends and after an `apply`. The
 schedule (`SyncScheduler`, which replaced the chain of syncs each window ran itself): `Manual` and `AfterRewrite` always run, as one quiet follow-up while a run is in flight; `Focus` and
-`Open` run only when the inputs changed since the last successful sync, a focus during a run is one check after
-the chain, and a window that opens during a run is served by it; a `SyncReport::retry` runs once more for the same
+`Open` run only when the inputs changed since the last run that ended (after a failed or deferred one, only `Focus`
+checks; `Open` runs), a focus during a run is one check after the chain, and a window that opens during a run is
+served by it; a `SyncReport::retry` runs once more for the same
 requests, the branches the run did not build `Syncing` meanwhile. A ticket (`SyncTicket`) resolves after the last
 patch of the run that serves its request, never after the follow-ups. A deferred sync (`SyncDeferred`) restores the
-table and keeps the state idle, its ticket gets the code; so does a run whose git config names the branches by
-another prefix than its session's (`prefix_changed`: a `git config` in a terminal before any command resolved the
-prefix again), which builds nothing under the prefix the config left; another failure restores the table with
-`Failed { error }`. The host supplies the sync (`SessionHost`; the app's is `GitSessionHost` with the options, the
+table, nothing failed, and the state says why it waits (`Deferred { error }`, until the next run starts), which the page
+shows where it has no rows; its ticket gets the code. A run whose git config names the branches by another prefix than
+its session's (`prefix_changed`: a `git config` in a terminal before any command resolved the prefix again) builds
+nothing under the prefix the config left, restores the table and keeps the state idle; another failure restores the
+table with `Failed { error }`. The host supplies the sync (`SessionHost`; the app's is `GitSessionHost` with the options, the
 prefix of the config it read and the error conversion it keeps, `SessionEnvironment::run_setup`). A session without
 subscribers runs nothing (a focus is `Skipped`, no git process), and `Sessions::sweep` removes it after two minutes
 without subscribers or operations on the session clock (`TestClock` in the tests), and at once one whose actor is gone

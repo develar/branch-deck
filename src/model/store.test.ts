@@ -305,6 +305,31 @@ describe("a sync of the session", () => {
     await manual
     expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false })
     expect(toasts).toEqual([{ type: "info", title: "Not synced: a rebase is in progress", description: "The branches sync once git finished it" }])
+
+    // the view says why it waits, in the words of the toast, until the next run
+    await send({ sync: { kind: "deferred", error: deferred } })
+    expect(branchSyncStore.getState()).toMatchObject({
+      syncError: null,
+      syncDeferred: { title: "Not synced: a rebase is in progress", description: "The branches sync once git finished it" },
+    })
+    const shown = branchSyncStore.getState().syncDeferred
+    await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
+    expect(branchSyncStore.getState().syncDeferred).toBe(shown)
+    await send(running)
+    expect(branchSyncStore.getState().syncDeferred).toBeNull()
+    await send({ sync: { kind: "deferred", error: { ...deferred, code: "detached_head", message: "Not synced: HEAD is detached" } } })
+    expect(branchSyncStore.getState().syncDeferred).toEqual({ title: "Not synced: HEAD is detached", description: "Check out a branch to sync its commits" })
+  })
+
+  it("names the step of the running sync, and none once it ended", async () => {
+    await open()
+    expect(branchSyncStore.getState().syncStep).toBeNull()
+    await send(running)
+    expect(branchSyncStore.getState().syncStep).toBe("grouping")
+    await send({ sync: { kind: "running", step: "building" } })
+    expect(branchSyncStore.getState().syncStep).toBe("building")
+    await send(idle)
+    expect(branchSyncStore.getState().syncStep).toBeNull()
   })
 
   it("resolves the prefix again when the git config names another one than the session's, quietly", async () => {

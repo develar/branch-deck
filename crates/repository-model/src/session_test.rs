@@ -300,7 +300,7 @@ async fn a_moved_branch_is_retried_once_and_syncing_until_then() {
 }
 
 /// A failed sync keeps the table of the sync before, its rows as they were, with the error; a deferred one keeps it
-/// too and says nothing failed, its ticket gets the code
+/// too and says nothing failed, only why it waits (`Deferred`), until the next run; its ticket gets the code
 #[tokio::test]
 async fn a_failed_sync_keeps_the_table() {
   let host = Arc::new(ScriptedHost::default());
@@ -308,6 +308,7 @@ async fn a_failed_sync_keeps_the_table() {
   host.push(vec![grouping(vec![grouped("other", &["o1"])])], Err(ApiError::internal("broken")));
   let deferred = ApiError::new(ErrorCode::OperationInProgress, SyncDeferred::OperationInProgress("rebase").to_string());
   host.push(Vec::new(), Err(deferred.clone()));
+  host.push(auth_built(), Ok(report(false, &[])));
   let (sessions, key) = watched(&host).await;
   sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
   let synced = snapshot(&sessions, &key).await;
@@ -322,10 +323,44 @@ async fn a_failed_sync_keeps_the_table() {
   );
   assert_eq!((&failed.order, &failed.branches), (&synced.order, &synced.branches));
 
-  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Err(deferred));
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Err(deferred.clone()));
   let deferred_view = snapshot(&sessions, &key).await;
-  assert_eq!(deferred_view.sync, SyncState::Idle);
+  assert_eq!(deferred_view.sync, SyncState::Deferred { error: deferred });
   assert_eq!(deferred_view.branches, synced.branches);
+
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert_eq!(snapshot(&sessions, &key).await.sync, SyncState::Idle);
+}
+
+/// A failed sync is not repeated on every focus: a focus that finds what the failed run read reads the fingerprint (two
+/// processes), answers the error and leaves the view as it is; a commit since runs again
+#[tokio::test]
+async fn a_focus_after_a_failed_sync_reads_only_the_fingerprint() {
+  // no commit yet: the sync fails
+  let repo = TestRepo::new();
+  let key = SessionKey {
+    worktree: repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  let (git, sessions, window) = watched_with_focus(&key, true).await;
+  let error = outcome(sessions.sync(&key, SyncReason::Open)).await.unwrap_err();
+  let failed = snapshot(&sessions, &key).await;
+  assert_eq!(failed.sync, SyncState::Failed { error: error.clone() });
+  window.take();
+
+  let before = git.process_stats().unwrap().counts();
+  assert_eq!(outcome(sessions.set_window_focus(&key, true).unwrap()).await, Err(error.clone()));
+  assert_eq!(processes_since(&git, &before), [("for-each-ref".to_string(), 1), ("rev-parse".to_string(), 1)]);
+  assert_eq!(snapshot(&sessions, &key).await, failed, "no run");
+  assert_eq!(window.take(), []);
+
+  repo.create_commit("(auth) Add auth", "auth.txt", "auth");
+  assert!(sessions.set_window_focus(&key, false).is_none());
+  assert_eq!(
+    outcome(sessions.set_window_focus(&key, true).unwrap()).await,
+    Ok(SyncOutcome::Synced),
+    "a commit since: the sync runs again"
+  );
 }
 
 /// The environment of the app's sessions in a test: the default options, a deferred sync with its code, whether a
@@ -536,6 +571,19 @@ async fn a_session_without_subscribers_runs_nothing_and_goes_away() {
   assert_eq!(reopened.version.seq, 0);
 }
 
+/// The sessions of a git that counts its processes, Auto-sync on Focus `syncs_on_focus`, with a window on `key`
+async fn watched_with_focus(key: &SessionKey, syncs_on_focus: bool) -> (GitCommandExecutor, Sessions, Window) {
+  let git = GitCommandExecutor::new().with_process_stats("sessions");
+  let environment = TestEnvironment {
+    syncs_on_focus,
+    ..TestEnvironment::default()
+  };
+  let (sessions, _clock) = with_environment(git.clone(), environment);
+  let window = Window::default();
+  sessions.subscribe(key, Box::new(window.clone())).await.unwrap();
+  (git, sessions, window)
+}
+
 /// A focus of a session a window shows, with nothing a sync reads changed, reads the fingerprint (two processes) and
 /// syncs nothing; a lost focus and, with Auto-sync on Focus off, a gained one ask nothing and start no git process
 #[tokio::test]
@@ -546,14 +594,7 @@ async fn a_focus_with_unchanged_inputs_reads_only_the_fingerprint() {
     prefix: "test".to_string(),
   };
   for syncs_on_focus in [true, false] {
-    let git = GitCommandExecutor::new().with_process_stats("sessions");
-    let environment = TestEnvironment {
-      syncs_on_focus,
-      ..TestEnvironment::default()
-    };
-    let (sessions, _clock) = with_environment(git.clone(), environment);
-    let window = Window::default();
-    sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+    let (git, sessions, window) = watched_with_focus(&key, syncs_on_focus).await;
     sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
     let synced = snapshot(&sessions, &key).await;
     window.take();

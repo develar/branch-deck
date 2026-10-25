@@ -10,6 +10,17 @@ targets:
   - ../../src/components/repository/BranchPrefixHelp.tsx
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/SyncButton.tsx
+  - ../../src/components/repository/AgentsHint.tsx
+  - ../../src/components/shared/InstallAgentCliButton.tsx
+  - ../../src/components/branch/BranchTableCard.tsx
+  - ../../src/hooks/useAgentCliStatus.ts
+  - ../../src/stores/agent-cli.ts
+  - ../../src/lib/agents-hint.ts
+  - ../../src/lib/sync-step.ts
+  - ../../src/lib/sync-deferred.ts
+  - ../../crates/repository-model/src/table.rs
+  - ../../crates/repository-model/src/runtime.rs
+  - ../../crates/git-ops/src/rewrite_guard.rs
   - ../../src/hooks/useSyncOnOpen.ts
   - ../../src/model/store.ts
   - ../../crates/repository-model/src/sync_scheduler.rs
@@ -45,7 +56,7 @@ targets:
 # Onboarding
 
 Status: Implemented
-Date: 2026-10-15
+Date: 2026-10-25
 
 ## Summary
 
@@ -149,6 +160,15 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
   [@test] ../../src/model/store.test.ts (`keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended`)
+- While a sync runs and the page has no rows to show (the first sync of a session of a repository synced before: when
+  the window opens it at start, or another session of it, under a prefix changed in a terminal or in Settings; a sync
+  after one that failed or waited for git), the body is the loading table where the rows will
+  be, never an empty page under a spinning Sync. Its line says what the sync does, as the tooltip of Sync does:
+  "Grouping the commits…", "Building the branches…", "Checking which branches landed…", and "Syncing branches…" before a
+  step is known. A failed sync's alert gives way to it while the next sync runs.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`shows the loading table in the body during the first sync of another session of a repository synced before`)
+  [@test] ../../src/lib/sync-step.test.ts (`names what a running sync does, and only that it runs before a step is known`)
+  [@test] ../../src/model/store.test.ts (`names the step of the running sync, and none once it ended`)
 - Auto-sync on Focus (Settings → General, File → Auto-sync on Focus) is on by default and syncs on a focus
   only when what a sync reads changed since the last sync of the session (the inputs of
   [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), read when the sync started, so a commit made
@@ -162,6 +182,17 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_runs_only_when_the_inputs_changed`, `a_focus_during_a_run_checks_the_inputs_once_after_the_chain`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_with_unchanged_inputs_reads_only_the_fingerprint`, `a_focus_during_a_run_is_one_check_after_it`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs on focus only when what a sync reads changed, and says when it checked`)
+- A sync that failed, or that git deferred, is not repeated by a focus while what a sync reads is as that sync read
+  it, with which of the files git keeps during an operation exist (`rebase-merge`, `rebase-apply`, `MERGE_HEAD`,
+  `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `sequencer`): the focus reads the inputs once and answers the error of that sync,
+  the alert stays and no run starts, so a sync of a large repository that fails does not run again on every return to
+  the window. A change syncs: a commit, the end of a rebase (also an abort, which moves no ref), a branch checked out
+  again after a detached HEAD. Sync (⌘R) and the window opening the repository sync anyway; ⌘R during a run asks for the
+  check after it, which a run that failed with nothing changed answers with its error.
+  [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_focus_after_a_failed_run_with_the_same_inputs_answers_its_error_without_a_run`, `a_focus_after_a_failed_run_runs_when_the_inputs_changed`, `an_open_after_a_failed_run_runs_again_also_joining_a_focus_check`, `a_prefix_change_is_not_remembered`, `a_failed_run_settles_its_requests_with_the_error`)
+  [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_when_a_git_operation_starts_or_ends`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_focus_after_a_failed_sync_reads_only_the_fingerprint`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`does not sync again on a focus after a failed sync while nothing changed, and syncs again on Sync`)
 - The app's own push is no change for the focus: it moves the remote branches it sent, which a sync reads, but the
   table has its outcome already, and the session puts those remote branches into the inputs it knows, so the focus right
   after a Push syncs nothing ("Checked just now"). A push that ends while a sync or the check of a focus runs counts
@@ -204,12 +235,17 @@ alert with the reason and the next step, never a raw Git error.
   half-done history would archive the branches it lacks. It is no failure: no error alert, no red Sync, the branches as
   the last sync left them. A sync the user asked for (Sync, ⌘R, the Ready to Sync card) says so in an `info` toast, "Not
   synced: a rebase is in progress" / "The branches sync once git finished it" ("Not synced: HEAD is detached" / "Check
-  out a branch to sync its commits"); a sync the app started (on open, on focus, after a change) waits silently.
+  out a branch to sync its commits"); a sync the app started (on open, on focus, after a change) waits without a toast.
+  The view of the session says why it waits (`Deferred`) until the next sync starts: a page without rows (a repository
+  synced before, opened during a rebase) shows it as an `info` alert in the body, in the words of the toast, and the
+  focus after git finished syncs.
   [@test] ../../crates/sync-core/src/sync_test.rs (`sync_waits_while_a_rebase_is_in_progress_or_head_is_detached`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`waits_while_a_rebase_is_in_progress`)
   [@test] ../../src/model/store.test.ts (`is no failure when deferred: no error, the table as it was, an info toast only for a sync the user asked for`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in an info toast that a sync waits for git, and leaves the branches as they were`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in the body that a sync waits for git while there is no table, and syncs once git finished`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_failed_sync_keeps_the_table`)
 - A switch to another repository forgets the branches of the previous one at once, also while its sync runs: the
   window ends its subscription to the session of that repository and subscribes to the session of the next, so a late
   patch of the old one never shows under the name of another repository, and Sync of the next is not busy for it.
@@ -236,6 +272,11 @@ alert with the reason and the next step, never a raw Git error.
 - While there is no branch, the unassigned commits card says under its title: "Start a commit subject with `(name)` or
   an issue key like `ABC-123` to group it into a branch, or select commits and move them to one."
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`explains the grouping in the unassigned commits while there is no branch`)
+- With no branch and no unassigned commit after a sync, "No active branches" names the baseline the sync compared with,
+  "No commits ahead of `origin/master`" (a branch that tracks another remote branch is compared with that one), says to
+  commit to the branch with a prefix, and where coding agents work (below).
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`names the baseline and where coding agents work in the empty state, and installs the Agent CLI there`)
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should show empty state alert when only archived branches exist`)
 - One set of examples everywhere (empty state, guide, popover, README): `(auth) Add login form`, `ABC-123 Fix login
   bug`, `[threading] ABC-123 Fix login bug`.
 - Move to… says that it rewrites the commits: "Creates the branch auth with 2 commits: rewrites them to start with
@@ -254,6 +295,17 @@ alert with the reason and the next step, never a raw Git error.
   agents write (name) when they commit once Name the branch in each commit subject is on for this repository.", with
   "Open Agent Settings".
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in the help of the unassigned commits whether agents write the prefix here, and opens their settings`)
+- On the way to the first branches, the Ready to Sync card and "No active branches" say where coding agents work: the
+  user never picks a worktree, an agent leases one through bd ([bd lease](../cli/lease.spec.md)). By
+  `branchdeck.agentLease` of the repository (on by default): "You work in this checkout. With the Agent CLI, coding
+  agents such as Claude Code lease worktrees of their own and land each commit on your branch." with "Install Agent CLI"
+  (the install and the toast of Help → Install Agent CLI…), and once it is installed "You work in this checkout. Coding
+  agents such as Claude Code lease worktrees of their own through bd and land each commit on your branch." with "Open
+  Agent Settings"; with the rule off, "With the Agent CLI, coding agents such as Claude Code work in this checkout beside
+  you." (installed: "Coding agents such as Claude Code work in this checkout beside you, through bd."). The status of the
+  Agent CLI is read when the line shows, on each focus and after an install.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in Ready to Sync where coding agents work, installs the Agent CLI there and opens Agent Settings`, `names the baseline and where coding agents work in the empty state, and installs the Agent CLI there`)
+  [@test] ../../src/lib/agents-hint.test.ts (`says where agents work by the rule of the repository, and that the Agent CLI lets them`)
 - Settings → Agents without the skill installed offers "Install Agent CLI" ([Settings](settings.spec.md#agents)).
 
 ### AI and help

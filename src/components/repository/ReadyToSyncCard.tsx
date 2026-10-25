@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
+import { AgentsHint } from "@/components/repository/AgentsHint"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { isMac } from "@/lib/platform"
 import { syncBranches, useBranchSync } from "@/stores/branch-sync"
@@ -10,7 +11,8 @@ import { useEffectiveBranchPrefix } from "@/stores/repository"
 
 /**
  * The page of a repository never synced: nothing reads or writes branches until the user syncs, so the page says what
- * Sync does and when it runs from then on. A repository synced before syncs when the window opens it (`useSyncOnOpen`).
+ * Sync does and when it runs from then on, and where coding agents work beside the user (`AgentsHint`). A repository
+ * synced before syncs when the window opens it (`useSyncOnOpen`).
  */
 export function ReadyToSyncCard() {
   const branchPrefix = useEffectiveBranchPrefix()
@@ -46,6 +48,7 @@ export function ReadyToSyncCard() {
             <Kbd>{isMac ? "⌘R" : "Ctrl+R"}</Kbd>
           </span>
         </div>
+        <AgentsHint />
       </CardContent>
     </Card>
   )

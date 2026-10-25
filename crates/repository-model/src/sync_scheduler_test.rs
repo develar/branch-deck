@@ -108,8 +108,8 @@ fn a_run_that_asks_for_a_retry_is_retried_once() {
   assert_eq!(decision.next, Step::Nothing);
 }
 
-/// A failed or deferred run settles its requests with the error and keeps the inputs of the last successful sync; the
-/// end of a run that is not in flight changes nothing
+/// A failed or deferred run settles its requests with the error, and is what a later check compares with: inputs other
+/// than it read run, also the inputs of the last successful sync; the end of a run that is not in flight changes nothing
 #[test]
 fn a_failed_run_settles_its_requests_with_the_error() {
   let mut scheduler = synced_once();
@@ -118,6 +118,84 @@ fn a_failed_run_settles_its_requests_with_the_error() {
   let deferred = ApiError::new(ErrorCode::OperationInProgress, "Not synced: rebase is in progress");
   let decision = scheduler.run_finished(2, Some(inputs(2)), RunEnd::Failed(deferred.clone()), true);
   assert_eq!(decision.resolve, [("manual", Err(deferred))]);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).next, run(3, Some(inputs(1)), false));
+}
+
+/// A scheduler whose first run read `inputs(1)` and failed with `error`
+fn failed_once(error: &ApiError) -> SyncScheduler<&'static str> {
+  let mut scheduler = SyncScheduler::new();
+  assert_eq!(scheduler.request(SyncReason::Open, "open", true).next, run(1, None, false));
+  let decision = scheduler.run_finished(1, Some(inputs(1)), RunEnd::Failed(error.clone()), true);
+  assert_eq!(decision.resolve, [("open", Err(error.clone()))]);
+  scheduler
+}
+
+/// A failed sync of a large repository is not repeated on every focus: a focus whose inputs are the ones the failed run
+/// read answers its error after one cheap check, also the focuses made while a run was in flight
+#[test]
+fn a_focus_after_a_failed_run_with_the_same_inputs_answers_its_error_without_a_run() {
+  let error = ApiError::internal("broken");
+  let mut scheduler = failed_once(&error);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  let decision = scheduler.inputs_read(Some(inputs(1)), true);
+  assert_eq!(decision.resolve, [("focus", Err(error.clone()))]);
+  assert_eq!(decision.next, Step::Nothing);
+  assert!(scheduler.is_idle());
+
+  // ⌘R runs; a focus during it checks once after it, against what that run read
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::Nothing);
+  let decision = scheduler.run_finished(2, Some(inputs(1)), RunEnd::Failed(error.clone()), true);
+  assert_eq!(decision.resolve, [("manual", Err(error.clone()))]);
+  assert_eq!(decision.next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).resolve, [("focus", Err(error))]);
+}
+
+/// A change of what a sync reads (a commit, the end of a rebase) runs after a failed run; so do inputs git could not read
+#[test]
+fn a_focus_after_a_failed_run_runs_when_the_inputs_changed() {
+  let deferred = ApiError::new(ErrorCode::OperationInProgress, "Not synced: a rebase is in progress");
+  let mut scheduler = failed_once(&deferred);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).next, run(2, Some(inputs(2)), false));
+  let decision = scheduler.run_finished(2, Some(inputs(2)), OK, true);
+  assert_eq!(decision.resolve, [("focus", SYNCED)]);
+
+  let mut scheduler = failed_once(&deferred);
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(None, true).next, run(2, None, false));
+}
+
+/// An open of the repository syncs it again after a failed run: at once, and also when it joins the check of a focus
+#[test]
+fn an_open_after_a_failed_run_runs_again_also_joining_a_focus_check() {
+  let error = ApiError::internal("broken");
+  let mut scheduler = failed_once(&error);
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, run(2, None, false));
+  scheduler.run_finished(2, Some(inputs(1)), RunEnd::Failed(error.clone()), true);
+
+  assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, Step::Nothing);
+  let decision = scheduler.inputs_read(Some(inputs(1)), true);
+  assert_eq!(decision.resolve.len(), 0);
+  assert_eq!(decision.next, run(3, Some(inputs(1)), false));
+  let decision = scheduler.run_finished(3, Some(inputs(1)), OK, true);
+  assert_eq!(decision.resolve, [("focus", SYNCED), ("window", SYNCED)]);
+
+  // after a success an open checks as a focus does
+  assert_eq!(scheduler.request(SyncReason::Open, "window", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).resolve, [("window", Ok(SyncOutcome::Unchanged))]);
+}
+
+/// A run under a prefix the git config left (`prefix_changed`) is no outcome of the session: the last run stays what a
+/// check compares with
+#[test]
+fn a_prefix_change_is_not_remembered() {
+  let mut scheduler = synced_once();
+  assert_eq!(scheduler.request(SyncReason::Manual, "manual", true).next, run(2, None, false));
+  let changed = ApiError::new(ErrorCode::PrefixChanged, "The branch prefix of the repository is \"b\" now");
+  scheduler.run_finished(2, Some(inputs(2)), RunEnd::Failed(changed), true);
   assert_eq!(scheduler.request(SyncReason::Focus, "focus", true).next, Step::CheckInputs);
   assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).resolve, [("focus", Ok(SyncOutcome::Unchanged))]);
 }

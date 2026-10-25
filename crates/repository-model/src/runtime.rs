@@ -27,8 +27,10 @@
 //!   `apply`. The waiters of a run resolve after its last patch.
 //! - The end of a run: a success leaves the table its events made; a deferred sync (`operation_in_progress`,
 //!   `detached_head`, and `prefix_changed`: the git config the run read names the branches by another prefix than the
-//!   session's, so it builds nothing) restores the table and says nothing failed, its waiters get the code; another
-//!   failure restores the table with `Failed { error }`. A run whose report asks for a retry (`SyncReport::retry`) runs
+//!   session's, so it builds nothing) restores the table and says nothing failed, its waiters get the code; the sync is
+//!   `Deferred { error }` for the first two, which the page shows where there is no table, and `Idle` for the last;
+//!   another failure restores the table with `Failed { error }`. The scheduler remembers what a failed or deferred run
+//!   read, so a focus that finds the same runs nothing. A run whose report asks for a retry (`SyncReport::retry`) runs
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::{BranchTable, RemoteFacts};
@@ -551,7 +553,7 @@ impl Actor {
         self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline });
         self.derive_patronus();
       }
-      (_, Err(error)) if is_deferred(&error) => self.state.defer_sync(),
+      (_, Err(error)) if is_deferred(&error) => self.state.defer_sync(error),
       (_, Err(error)) => {
         let _ = self.facts.table.answer(observation, Err(error.clone()));
         self.state.finish_sync(Err(error));

@@ -1,17 +1,14 @@
 import { useEffect, useId, useState } from "react"
 import { cn } from "cn"
-import { TerminalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { ConfigReadError, SettingRow, SettingsSection } from "@/components/settings/SettingRow"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { InlineCode } from "@/components/shared/InlineCode"
+import { InstallAgentCliButton } from "@/components/shared/InstallAgentCliButton"
+import { useAgentCliStatus } from "@/hooks/useAgentCliStatus"
 import { useConfigWrite } from "@/hooks/useConfigWrite"
-import { installAgentCli } from "@/hooks/useInstallAgentCli"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
-import { useWindowFocus } from "@/hooks/useWindowFocus"
-import type { AgentCliStatus } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { resolveHomeDir, tildePath } from "@/lib/home-path"
 import { CONFIG_KEYS, describeGlobalSource, overriddenReason, repositoryName, writeErrorTitle } from "@/lib/repository-config"
 import { openSettings } from "@/lib/settings-window"
@@ -65,19 +62,11 @@ export function AgentsPage({ openCount }: { openCount: number }) {
 
 /** Whether the skill is installed (`agent_cli_status`, asked on each open and focus), else the install */
 function AgentSkill({ openCount }: { openCount: number }) {
-  const [status, setStatus] = useState<AgentCliStatus | null>(null)
+  const status = useAgentCliStatus(openCount)
   const [homeDir, setHomeDir] = useState("")
-  const [installing, setInstalling] = useState(false)
-  const read = () => {
-    void commands.agentCliStatus().then(setStatus)
-  }
-  useEffect(() => {
-    void commands.agentCliStatus().then(setStatus)
-  }, [openCount])
   useEffect(() => {
     void resolveHomeDir().then(setHomeDir)
   }, [])
-  useWindowFocus(read)
 
   if (status === null) {
     return null
@@ -86,20 +75,7 @@ function AgentSkill({ openCount }: { openCount: number }) {
     return (
       <div className="flex min-h-6 items-center gap-2 text-xs text-muted-foreground" data-testid="agent-skill">
         The agent skill is not installed
-        <Button
-          size="xs"
-          variant="outline"
-          disabled={installing}
-          onClick={() => {
-            setInstalling(true)
-            void installAgentCli(false)
-              .then(read)
-              .finally(() => setInstalling(false))
-          }}
-        >
-          <TerminalIcon data-icon="inline-start" />
-          Install Agent CLI
-        </Button>
+        <InstallAgentCliButton openAgentSettings={false} />
       </div>
     )
   }

@@ -6,15 +6,18 @@
 //! A request carries its waiter (`W`), which the scheduler hands back with the outcome when the run that serves it
 //! ends, never the chain after it: an update waits for its own sync, not for the follow-up a ⌘R during it asked for.
 //! - `Manual` and `AfterRewrite` always run: at once, or as the follow-up of the run in flight.
-//! - `Focus` and `Open` run only when what a sync reads changed since the last successful sync (`read_sync_inputs`, one
-//!   cheap read); a session that never synced runs at once. A push of the session moves the remote-tracking refs of
+//! - `Focus` and `Open` run only when what a sync reads changed since the last run that ended (`read_sync_inputs`, one
+//!   cheap read); a session that never synced runs at once. A run that failed or that git deferred (a rebase in
+//!   progress) is remembered with what it read: a focus with the same inputs answers its error and runs nothing, so a
+//!   failed sync of a large repository is not repeated on every focus; an open, ⌘R and a change of the inputs (a commit,
+//!   the end of the rebase) run again. A push of the session moves the remote-tracking refs of
 //!   what it sent, which a sync reads: the scheduler replaces them in what it knows (`pushed`), so a focus after the
 //!   push syncs nothing (the table has the push's outcome already). A focus while a run is in flight checks once after the
 //!   chain: a commit in the IDE during a long sync is not lost, and a sync that saw it costs no second one. A window that
 //!   opens while a run is in flight is served by that run: its end is the table the window shows.
 //! - A focus of a session without subscribers is skipped: no window shows it, so nothing runs.
 
-use domain_types::error::ApiError;
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{SyncOutcome, SyncReason};
 use sync_core::sync_inputs::SyncInputs;
 
@@ -65,8 +68,11 @@ pub(crate) enum RunEnd {
 #[derive(Debug, PartialEq, Eq)]
 enum Phase {
   Idle,
-  /// A fingerprint is being read for `Focus` or `Open`
-  Checking,
+  /// A fingerprint is being read for `Focus` or `Open`; `open`: an open waits for it, which a failed last run does not
+  /// answer
+  Checking {
+    open: bool,
+  },
   /// A run is in flight; `retried`: it is the silent retry already
   Running {
     run: RunId,
@@ -84,9 +90,8 @@ pub(crate) struct SyncScheduler<W> {
   follow_up: Vec<W>,
   /// The focuses while a run was in flight: one check after the chain serves them all
   recheck: Vec<W>,
-  /// The inputs the last successful sync read, with the remote-tracking refs the session's pushes moved since; `None`
-  /// before one, or when git could not tell
-  synced_inputs: Option<SyncInputs>,
+  /// What the last run that ended read and how it ended; `None` before one, or when git could not tell
+  last: Option<LastRun>,
   /// The remote-tracking refs the session's pushes moved while the check or the run in flight ran (at their commit, or
   /// gone): it may have read them before, so they go into what it read
   pushed_meanwhile: Vec<(String, Option<String>)>,
@@ -100,7 +105,7 @@ impl<W> SyncScheduler<W> {
       serving: Vec::new(),
       follow_up: Vec::new(),
       recheck: Vec::new(),
-      synced_inputs: None,
+      last: None,
       pushed_meanwhile: Vec::new(),
       last_run: 0,
     }
@@ -129,19 +134,21 @@ impl<W> SyncScheduler<W> {
         next: Step::Nothing,
       };
     }
+    let open = reason == SyncReason::Open;
     match self.phase {
       Phase::Idle => {
         self.serving.push(waiter);
-        if checks_inputs && self.synced_inputs.is_some() {
-          self.phase = Phase::Checking;
+        if checks_inputs && self.last.as_ref().is_some_and(|last| last.answers(open)) {
+          self.phase = Phase::Checking { open };
           Decision::next(Step::CheckInputs)
         } else {
           Decision::next(self.start(None, false))
         }
       }
       // a focus or an open joins the check; a run waits for its answer
-      Phase::Checking if checks_inputs => {
+      Phase::Checking { open: joined } if checks_inputs => {
         self.serving.push(waiter);
+        self.phase = Phase::Checking { open: joined || open };
         Decision::next(Step::Nothing)
       }
       Phase::Running { .. } if reason == SyncReason::Open => {
@@ -152,7 +159,7 @@ impl<W> SyncScheduler<W> {
         self.recheck.push(waiter);
         Decision::next(Step::Nothing)
       }
-      Phase::Checking | Phase::Running { .. } => {
+      Phase::Checking { .. } | Phase::Running { .. } => {
         self.follow_up.push(waiter);
         Decision::next(Step::Nothing)
       }
@@ -160,25 +167,30 @@ impl<W> SyncScheduler<W> {
   }
 
   /// A push of the session left the remote-tracking refs `refs`, each at its commit or gone (`None`): the table has its
-  /// outcome, so what the last successful sync read has them now, and so has what the check or the run in flight read
+  /// outcome, so what the last run read has them now, and so has what the check or the run in flight read
   pub(crate) fn pushed(&mut self, refs: Vec<(String, Option<String>)>) {
-    if let Some(inputs) = self.synced_inputs.as_mut() {
-      with_pushed(inputs, &refs);
+    if let Some(last) = self.last.as_mut() {
+      with_pushed(&mut last.inputs, &refs);
     }
     if self.phase != Phase::Idle {
       self.pushed_meanwhile.extend(refs);
     }
   }
 
-  /// The inputs of the check came: the same as the last successful sync read ends the check; any other, or none (git
-  /// could not tell), runs, and that run serves the requests that waited for the check too
+  /// The inputs of the check came: the same as the last run read ends the check with its outcome (`Unchanged`, or its
+  /// error for focuses only); any other, or none (git could not tell), runs, and that run serves the requests that
+  /// waited for the check too
   pub(crate) fn inputs_read(&mut self, inputs: Option<SyncInputs>, watched: bool) -> Decision<W> {
-    if self.phase != Phase::Checking {
+    let Phase::Checking { open } = self.phase else {
       return Decision::next(Step::Nothing);
-    }
+    };
     let inputs = self.with_pushed_meanwhile(inputs);
-    if inputs.is_some() && inputs == self.synced_inputs {
-      let mut resolve = self.serving.drain(..).map(|waiter| (waiter, Ok(SyncOutcome::Unchanged))).collect();
+    let answer = match (&self.last, &inputs) {
+      (Some(last), Some(inputs)) if last.inputs == *inputs && last.answers(open) => Some(last.answer()),
+      _ => None,
+    };
+    if let Some(answer) = answer {
+      let mut resolve = self.serving.drain(..).map(|waiter| (waiter, answer.clone())).collect();
       self.phase = Phase::Idle;
       let next = self.after_chain(watched, &mut resolve);
       return Decision { resolve, next };
@@ -201,10 +213,18 @@ impl<W> SyncScheduler<W> {
       // one silent retry, for the same requests: its tip was not this run's build
       RunEnd::Succeeded { retry: true } if !retried => return Decision::next(self.start(None, true)),
       RunEnd::Succeeded { .. } => {
-        self.synced_inputs = inputs;
+        self.last = inputs.map(|inputs| LastRun { inputs, outcome: Ok(()) });
         Ok(SyncOutcome::Synced)
       }
-      RunEnd::Failed(error) => Err(error),
+      // a run under a prefix the git config left builds nothing of this session: what it read is no outcome of it
+      RunEnd::Failed(error) if error.code == ErrorCode::PrefixChanged => Err(error),
+      RunEnd::Failed(error) => {
+        self.last = inputs.map(|inputs| LastRun {
+          inputs,
+          outcome: Err(error.clone()),
+        });
+        Err(error)
+      }
     };
     let mut resolve = self.serving.drain(..).map(|waiter| (waiter, settled.clone())).collect();
     self.phase = Phase::Idle;
@@ -228,8 +248,8 @@ impl<W> SyncScheduler<W> {
       return Step::Nothing;
     }
     self.serving = recheck;
-    if self.synced_inputs.is_some() {
-      self.phase = Phase::Checking;
+    if self.last.is_some() {
+      self.phase = Phase::Checking { open: false };
       Step::CheckInputs
     } else {
       self.start(None, false)
@@ -250,6 +270,26 @@ impl<W> SyncScheduler<W> {
     let run = self.last_run;
     self.phase = Phase::Running { run, retried: retry };
     Step::Run { run, inputs, retry }
+  }
+}
+
+/// What the last run that ended read (with the remote-tracking refs the session's pushes moved since) and how it ended
+#[derive(Debug)]
+struct LastRun {
+  inputs: SyncInputs,
+  /// `Err`: the run failed, or git deferred it (a rebase in progress, a detached HEAD)
+  outcome: Result<(), ApiError>,
+}
+
+impl LastRun {
+  /// Whether the same inputs answer a check: always after a success; after a failure only a focus, as an open of the
+  /// repository syncs it again
+  const fn answers(&self, open: bool) -> bool {
+    self.outcome.is_ok() || !open
+  }
+
+  fn answer(&self) -> Settled {
+    self.outcome.clone().map(|()| SyncOutcome::Unchanged)
   }
 }
 

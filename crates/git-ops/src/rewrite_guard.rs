@@ -59,6 +59,17 @@ pub(crate) fn merge_refusal(id: &str) -> anyhow::Error {
   )
 }
 
+/// The files git keeps in the worktree's own git directory while it is in the middle of an operation, each with the
+/// operation; a sync's inputs stat them too (`sync_core::sync_inputs`), so the end of one is a change
+pub const OPERATION_MARKERS: [(&str, &str); 6] = [
+  ("rebase-merge", "a rebase"),
+  ("rebase-apply", "a rebase"),
+  ("MERGE_HEAD", "a merge"),
+  ("CHERRY_PICK_HEAD", "a cherry-pick"),
+  ("REVERT_HEAD", "a revert"),
+  ("sequencer", "a cherry-pick or revert"),
+];
+
 /// Fails if git is in the middle of a rebase, merge, cherry-pick or revert: rewriting history then would corrupt it.
 pub fn ensure_no_operation_in_progress(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
   match find_operation_in_progress(git_executor, repo_path)? {
@@ -70,28 +81,19 @@ pub fn ensure_no_operation_in_progress(git_executor: &GitCommandExecutor, repo_p
 /// The operation git is in the middle of ("a rebase", "a merge", "a cherry-pick", "a revert"), from the files it keeps in
 /// the git directory; one `rev-parse` for all of them
 pub fn find_operation_in_progress(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Option<&'static str>> {
-  const MARKERS: [(&str, &str); 6] = [
-    ("rebase-merge", "a rebase"),
-    ("rebase-apply", "a rebase"),
-    ("MERGE_HEAD", "a merge"),
-    ("CHERRY_PICK_HEAD", "a cherry-pick"),
-    ("REVERT_HEAD", "a revert"),
-    ("sequencer", "a cherry-pick or revert"),
-  ];
-
   // the markers live in the worktree's own git directory: none to read when the operation knows it
   if let Some(dirs) = known_dirs(git_executor, repo_path) {
-    return Ok(MARKERS.iter().find(|(marker, _)| dirs.git_path(marker).exists()).map(|(_, operation)| *operation));
+    return Ok(OPERATION_MARKERS.iter().find(|(marker, _)| dirs.git_path(marker).exists()).map(|(_, operation)| *operation));
   }
   let mut args = vec!["rev-parse"];
-  for (marker, _) in MARKERS {
+  for (marker, _) in OPERATION_MARKERS {
     args.push("--git-path");
     args.push(marker);
   }
   // one path per marker, relative to the repository directory (or absolute in a linked worktree)
   let paths = git_executor.execute_command_lines(&args, repo_path)?;
   Ok(
-    MARKERS
+    OPERATION_MARKERS
       .iter()
       .zip(paths)
       .find(|(_, path)| Path::new(repo_path).join(path).exists())
