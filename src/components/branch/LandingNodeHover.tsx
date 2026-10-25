@@ -1,8 +1,9 @@
 import type { ReactElement, ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { RobotRow } from "@/components/repository/RobotRows"
+import { HoverDescription } from "@/components/shared/HoverDescription"
 import type { LandingNode } from "@/lib/landing-node"
 import { getPatronusChipState } from "@/lib/patronus"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
@@ -27,18 +28,12 @@ export interface LandingNodeHoverProps {
 
 /**
  * The hover of a landing node: its state in words, the issue keys as links, and for a state of its robot the robot with
- * its actions (`LandingNodeDetails`). A click on the node goes on to the row (or the island header): it never pins the
- * popover. Not a tab stop: the row has its own keys, and the same actions are in its slot, its menu and its robot chip.
+ * its actions (`LandingNodeDetails`). A click on the node goes on to the row (or the island header): it never pins or
+ * closes the popover (`HoverDescription`). Not a tab stop: the row has its own keys, and the same actions are in its slot, its menu and its robot chip.
  */
 export function LandingNodeHover({ node, subject, trigger, children, onReveal }: LandingNodeHoverProps) {
   return (
-    <Popover
-      onOpenChange={(_open, eventDetails) => {
-        if (eventDetails.reason === "trigger-press") {
-          eventDetails.cancel()
-        }
-      }}
-    >
+    <HoverDescription>
       <PopoverTrigger openOnHover delay={300} nativeButton={false} tabIndex={-1} render={trigger}>
         {children}
       </PopoverTrigger>
@@ -53,7 +48,7 @@ export function LandingNodeHover({ node, subject, trigger, children, onReveal }:
       >
         <LandingNodeDetails node={node} subject={subject} onReveal={onReveal} />
       </PopoverContent>
-    </Popover>
+    </HoverDescription>
   )
 }
 

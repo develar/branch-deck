@@ -366,7 +366,8 @@ reports in it and closes it once merged.
   Running, 18 minutes, about 22 minutes left" ("…, 14 hours, longer than usual").
 - Hovering the robot opens the details: the mode and the state, the name, the target branch, the commit, the start and
   finish times, the cancellation reason, the notice about the commit (below) and the actions of the robot
-  ([below](#restart-and-cancel)). A click opens the robot page and does not toggle the row.
+  ([below](#restart-and-cancel)). A click opens the robot page, leaves the details as they are
+  ([hover descriptions](../../docs/design/ui-theme.md)) and does not toggle the row.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
 - With the dot, the details say what changed and how to test the branch as it is: "Started on 3264f30f; the branch has
   changed since (now 88de421d): the result won't cover the newest commits. Restart Safe Push to test the current

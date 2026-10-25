@@ -17,7 +17,16 @@ import {
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
 import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
-import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, landingRow, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
+import {
+  EARLIER_COMMIT,
+  clickStatusChipAfterHover,
+  hoverStatusChip,
+  openBranchPreview,
+  landingRow,
+  openLandingOverview,
+  pushBranchFromRow,
+  switchBranchPreview,
+} from "../helpers/review-status-helpers"
 import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
@@ -120,8 +129,8 @@ test.describe("Pull request chip", () => {
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
 
-    // the row does not toggle
-    await getChip(page, "ABC-123").click()
+    // the click opens the pull request and leaves the hover open; the row does not toggle
+    await clickStatusChipAfterHover(page, getChip(page, "ABC-123"), "pull-request-popover")
     expect(await getOpenedUrls(page)).toEqual([APPROVED.url, CHANGES_REQUESTED.url])
     await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
   })

@@ -4,7 +4,7 @@ import { FoldVerticalIcon, GitPullRequestIcon, UnfoldVerticalIcon } from "lucide
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActionTracks } from "@/components/branch/ActionTracks"
 import { ColumnTrack } from "@/components/branch/BranchColumns"
@@ -17,6 +17,7 @@ import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { WholeStackSlot } from "@/components/branch/WholeStackSlot"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { useIsFullyLanded } from "@/hooks/useLandedIn"
@@ -425,7 +426,7 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
  * branches of the stack that have work for the remote, parents first, `stackChildrenPushOrder`, and the stack branch of
  * the whole stack while it goes along, `useStackBranchAlong`), in one push; a commit the branches and the stack branch
  * both send counts once. The hover names it and lists what it sends, and the branches that ask first in their rows; a
- * click pushes and never toggles the hover, so it stays while the pointer does and shows the progress.
+ * click pushes and leaves the hover as it is (`HoverDescription`), so it shows the progress while the pointer stays.
  * Disabled, "↑" with the reason in its hover, while it would push nothing beyond the root
  * (`describePushWithChildrenBlocker`: the stack is on the remote, the root row's push is the push, the branches with work
  * ask first, or only the stack branch has work and doesn't go along) and while a Safe Push runs in the stack: a push
@@ -472,15 +473,7 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
   // the stack branch holds the commits of the branches: what the remote lacks of both, each once
   const pushCommits = withStackBranch ? Math.max(summary.pushCommits, stack.remoteStatus?.commitsAhead ?? 0) : summary.pushCommits
   return (
-    <Popover
-      onOpenChange={(_open, eventDetails) => {
-        // the click is the push: Base UI would close the hover on a click half a second after it opened (and pin it on
-        // a quicker one), and the pointer that stays on the button opens it no more
-        if (eventDetails.reason === "trigger-press") {
-          eventDetails.cancel()
-        }
-      }}
-    >
+    <HoverDescription>
       <PopoverTrigger
         openOnHover
         delay={300}
@@ -522,7 +515,7 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
           </>
         )}
       </PopoverContent>
-    </Popover>
+    </HoverDescription>
   )
 }
 

@@ -1,8 +1,9 @@
 import { ChevronRightIcon, ExternalLinkIcon, SparklesIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Popover, PopoverTrigger } from "@/components/ui/popover"
+import { PopoverTrigger } from "@/components/ui/popover"
 import { HelpPopoverContent, HelpSection } from "@/components/shared/HelpPopover"
+import { HoverDescription } from "@/components/shared/HoverDescription"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { useAIToggle } from "@/hooks/useAIToggle"
 import { formatTimestamp } from "@/lib/time"
@@ -10,18 +11,19 @@ import type { AIError } from "@/stores/ai-suggestions"
 
 /**
  * AI status icon next to the inline branch creator buttons: a click toggles AI (after an error it turns AI off, so the
- * next click retries), hover explains what AI does and what it sends.
+ * next click retries), hover explains what AI does and what it sends; the click leaves the hover as it is, which then
+ * says the new state (`HoverDescription`).
  */
 export function AIStatusIndicator() {
   const { aiMode, aiError, statusIconClassName, toggleAIMode } = useAIToggle()
 
   return (
-    <Popover>
+    <HoverDescription>
       <PopoverTrigger openOnHover render={<Button variant="ghost" size="icon-xs" aria-label={aiMode === "claude" ? "Disable AI" : "Enable AI"} onClick={toggleAIMode} />}>
         <SparklesIcon className={statusIconClassName} data-testid="ai-status-icon" />
       </PopoverTrigger>
       {aiError ? <AIErrorDetails error={aiError} /> : <AIHelp isEnabled={aiMode === "claude"} />}
-    </Popover>
+    </HoverDescription>
   )
 }
 

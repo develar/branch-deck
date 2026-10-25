@@ -93,5 +93,12 @@ test.describe("Branch graph", () => {
     // the hover closes when the pointer leaves: the click did not pin it
     await page.mouse.move(0, 0)
     await expect(details).toHaveCount(0)
+    // nor does a click half a second after the hover opened close it
+    await target.hover()
+    await expect(details).toBeVisible()
+    await page.clock.fastForward(1000)
+    await target.click()
+    await expect(row).toHaveAttribute("data-state", "closed")
+    await expect(details).toHaveAttribute("data-open", "")
   })
 })

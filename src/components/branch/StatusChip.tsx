@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { HoverDescription } from "@/components/shared/HoverDescription"
 import type { StatusChipColor } from "@/lib/status-chip"
 import { statusChipTextColors } from "@/lib/status-chip"
 
@@ -24,12 +25,14 @@ export interface StatusChipProps {
 
 /**
  * A text-sized status after the branch status (pull request, Patronus robot, landed commits): a plain button that
- * underlines on hover, opens its details on hover and the item on click. A click does not toggle the row. No chip has an
+ * underlines on hover, opens its details on hover and the item on click, which leaves the details as they are
+ * (`HoverDescription`); a chip without an item opens them on a click. A click does not toggle the row. No chip has an
  * outline: the icon and the hue tell the state; the focus ring follows the `rounded-2xl` of buttons and badges.
  */
 export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange, className }: StatusChipProps) {
+  const Root = onActivate === undefined ? Popover : HoverDescription
   return (
-    <Popover onOpenChange={onOpenChange}>
+    <Root onOpenChange={onOpenChange}>
       <PopoverTrigger
         openOnHover
         delay={300}
@@ -56,7 +59,7 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
       <PopoverContent align="start" className="w-80 gap-3 p-3" data-testid={detailsTestId}>
         {details}
       </PopoverContent>
-    </Popover>
+    </Root>
   )
 }
 

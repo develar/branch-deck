@@ -230,7 +230,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - Hovering the node must say its state in the words the row uses elsewhere (the reason of the next step, the status):
   "Ready to land: Safe Push lands 2 branches", "Waits for the approval of IJPL Code Platform: Ilya Korennoy is
   requested on #1078", "Lands with oauth: its Safe Push runs", "Landed in origin/master". Its hover target is the lane's
-  16px square around the 8px circle; a click goes on to the row, and never pins the hover.
+  16px square around the 8px circle; a click goes on to the row, and neither pins nor closes the hover
+  ([hover descriptions](../../docs/design/ui-theme.md)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should say which branches a running Safe Push lands, and not start them on their own`)
   [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should give every branch of a table without stacks its node, and keep the push on the dot of the status`, `should go on to the row on a click of the node, never pinning its hover`)
 - What the hover names must open from it: it is a popover (`LandingNodeHover`), not a tooltip. The issue keys of the
@@ -372,7 +373,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - Hovering the status text must open its description: the remote status in a sentence and the last push time, the
   reason of a block, the error.
 - A chip must be a text-sized button. Hovering it opens its details; a click opens its item (the pull request, the
-  robot), or the details when it has none (Landed), and never toggles the row. The stack chip after the name of a
+  robot) and leaves the details as they are ([hover descriptions](../../docs/design/ui-theme.md)), or opens the
+  details when it has none (Landed), and never toggles the row. The stack chip after the name of a
   stack root is the one disclosure among them: a click collapses or expands the stack, its hover is a tooltip.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
@@ -420,7 +422,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   says "The branch isn't on the remote yet: the push creates it.") is its accessible name and the
   first line of its description on hover, which shows also while it is disabled, with the remote commits a force push
   drops, the question before a push that drops them, and the progress of a running push. A click pushes and leaves
-  the hover as it is: open while the pointer stays, also after a click well after it opened. Its colour is the push colour
+  the hover as it is ([hover descriptions](../../docs/design/ui-theme.md)): open while the pointer stays, also
+  after a click well after it opened. Its colour is the push colour
   of the branch as the text of a ghost button (the arrow for `primary`), neutral when landed. A branch up to date with
   its remote has no button: the status text says it, and a disabled arrow in every pushed row would only repeat it; so has a branch a running Safe Push holds, whose Status cell shows the robot or
   "lands with oauth", and its Safe Push slot is empty too ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs));

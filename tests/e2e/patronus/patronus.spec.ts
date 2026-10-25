@@ -9,7 +9,16 @@ import { expectColumnAligned } from "../helpers/column-helpers"
 import { INTENT_DWELL_PAST_MS, resetIpc, settledInvokes, withoutAppTimers } from "../helpers/ipc-helpers"
 import { availableRobots, buildsNeverStarted, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { EARLIER_COMMIT, hoverStatusChip, landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
+import {
+  EARLIER_COMMIT,
+  clickStatusChipAfterHover,
+  hoverStatusChip,
+  landingRow,
+  openBranchPreview,
+  openLandingOverview,
+  pushBranchFromRow,
+  switchBranchPreview,
+} from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
@@ -142,8 +151,8 @@ test.describe("Patronus chip", () => {
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
 
-    // the row does not toggle
-    await getChip(page, "ABC-123").click()
+    // the click opens the robot and leaves the hover open; the row does not toggle
+    await clickStatusChipAfterHover(page, getChip(page, "ABC-123"), "patronus-popover")
     expect(await getOpenedUrls(page)).toEqual([RUNNING.url, FAILED.url])
     await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
   })

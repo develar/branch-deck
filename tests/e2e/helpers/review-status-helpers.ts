@@ -36,6 +36,17 @@ export async function hoverStatusChip(page: Page, chip: Locator, popoverTestId: 
   return popover
 }
 
+/**
+ * Clicks a status chip that opens its item a second after its hover opened (`hoverStatusChip`), later than the 500 ms
+ * within which Base UI would pin the details: they stay open, as the pointer does (`HoverDescription`)
+ */
+export async function clickStatusChipAfterHover(page: Page, chip: Locator, popoverTestId: string): Promise<void> {
+  const popover = await hoverStatusChip(page, chip, popoverTestId)
+  await page.clock.fastForward(1000)
+  await chip.click()
+  await expect(popover).toHaveAttribute("data-open", "")
+}
+
 /** Hovers the landing indicator of the header and returns its overview */
 export async function openLandingOverview(page: Page): Promise<Locator> {
   await page.getByTestId("landing-indicator").hover()

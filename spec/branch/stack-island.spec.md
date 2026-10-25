@@ -133,7 +133,8 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   line per branch, the stack branch last: "user-name/stack/air · the whole stack branch · 2 commits"), and the
   branches whose push drops remote commits, which ask first in their rows. It is
   one atomic push of all of them ([Stacked Branches](stacked-branches.spec.md#pull-requests)): a click pushes and leaves
-  the hover as it is, open while the pointer stays, also a click well after it opened; while it runs, the spinner
+  the hover as it is ([hover descriptions](../../docs/design/ui-theme.md)), open while the pointer stays, also a
+  click well after it opened; while it runs, the spinner
   and the percent, "Pushing 7 branches" its name and the line of git on hover, the one indicator of the stack push
   (also of Push with Children from the root's menu), and every row it pushes shows the same progress on its own push
   button. So does the push of the stack branch alone, a step of the restart of its robot, of Request Review… of its

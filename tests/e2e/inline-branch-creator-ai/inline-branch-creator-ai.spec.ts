@@ -159,15 +159,19 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await expectMoveEffect(page)
     await captureHtmlSnapshot(inlineBranchCreator.getPortal(page), "inline-branch-creator-ai-enabled")
 
+    // the pointer stays on the button: its hover says the state each click leaves
+    const help = page.locator("[data-slot=popover-content] [data-slot=popover-title]")
     await aiStatusIcon.click()
     await expect(aiStatusIcon).toHaveClass(/text-muted/)
     await expect(suggestionButtons).toHaveCount(0)
+    await expect(help).toHaveText("AI suggestions are off")
     await expectMoveEffect(page)
     await captureHtmlSnapshot(inlineBranchCreator.getPortal(page), "inline-branch-creator-ai-disabled-after-toggle")
 
     await aiStatusIcon.click()
     await expect(aiStatusIcon).toHaveClass(/text-primary/)
     await expect(suggestionButtons).toHaveCount(2)
+    await expect(help).toHaveText("AI suggestions are on")
     await expectMoveEffect(page)
     await captureHtmlSnapshot(inlineBranchCreator.getPortal(page), "inline-branch-creator-ai-reenabled")
   })
@@ -184,6 +188,14 @@ test.describe("Inline Branch Creator - AI Features", () => {
     await expect(help.locator("[data-slot=popover-description]")).toHaveText("The button turns them off.")
     await expect(help).toContainText("the commit messages and changed file names go to Anthropic. No diffs or file contents are sent.")
     await expect(help).not.toContainText(/click/i)
+
+    // the button, half a second after the hover opened: AI is off, and the hover, still open, says so
+    await page.clock.fastForward(1000)
+    await getAIStatusIcon(page).click()
+    await expectAIDisabled(page)
+    await expect(help).toHaveAttribute("data-open", "")
+    await expect(help.locator("[data-slot=popover-title]")).toHaveText("AI suggestions are off")
+    await expect(help.locator("[data-slot=popover-description]")).toHaveText("The button turns them on.")
   })
 
   test("should populate branch name input with selected suggestion", async ({ page, setupUnassignedRepo }) => {

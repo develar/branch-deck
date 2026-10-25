@@ -4,10 +4,11 @@ import { cn } from "cn"
 import { ArrowUpIcon, UploadIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { RobotActionButton } from "@/components/branch/PatronusChip"
+import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import type { PushButtonAction } from "@/hooks/usePushButton"
@@ -64,8 +65,8 @@ export interface BranchPushButtonProps {
  * the one push of a stack, "Pushing login 45%" for a stack push of another branch; on the root of a small stack
  * "Pushing the whole stack 45%" for the push of the stack branch of its whole stack alone, unless the start of its Safe
  * Push pushes it, which its button in the slot shows) and the hover the last
- * progress line of git, with the amount and the rate when that line lacks them. A click pushes and never toggles the
- * hover, so it stays while the pointer does; only the question before a push that drops remote commits opens it.
+ * progress line of git, with the amount and the rate when that line lacks them. A click pushes and leaves the hover as
+ * it is (`HoverDescription`); only the question before a push that drops remote commits opens it on the click.
  */
 export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut, stackPushInHeader = false, waits = null }: BranchPushButtonProps) {
   // a stack push from this row shows what it pushes, unless the island header shows it
@@ -127,15 +128,9 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   }
 
   return (
-    <Popover
+    <HoverDescription
       open={open}
       onOpenChange={(nextOpen, details) => {
-        // the click is the push (or the question, which opens it itself): Base UI would close the hover on a click
-        // half a second after it opened (and pin it on a quicker one), and the pointer that stays opens it no more
-        if (details.reason === "trigger-press") {
-          details.cancel()
-          return
-        }
         if (nextOpen) {
           setOpen(true)
         }
@@ -227,7 +222,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
           </>
         )}
       </PopoverContent>
-    </Popover>
+    </HoverDescription>
   )
 }
 

@@ -320,6 +320,17 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   button can open over the form of the row above; a hoverable one stayed open there and swallowed the click.
 - **An icon-only button has a `Tooltip`** and an `aria-label`; a label repeated on every row names its object
   ("Expand feature-auth"). Text is a `Tooltip`, rich content a `Popover`; never a native `title`.
+- **Hover descriptions**: a popover that describes on hover a trigger with a click action of its own (a push button
+  and the push of an island header, a status chip that opens its pull request or robot, a landing node, the AI toggle)
+  is a `HoverDescription` (`src/components/shared/HoverDescription.tsx`): the click does the action and neither pins
+  nor closes the description, which follows the pointer and shows what the click changed (the progress of the push,
+  then why its button is disabled; the new state of the toggle). Base UI takes a press on the trigger of a
+  hover-opened popover as a toggle: within 500 ms of the open it pinned it, so it stayed after the pointer left; later
+  it closed it, and the pointer that stayed on the button opened it no more. A click opens a popover only where that
+  is the action: the question before a push that drops remote commits (opened by the click itself), a help icon, a
+  time, the landing overview, a chip without an item. A `Tooltip` closes on the click (`closeOnClick` of Base UI) and
+  opens again when the pointer comes back: the click of a button with a tooltip often opens what it would cover, a
+  menu or a dialog.
 - **States**:
   - empty: one muted `text-sm` line where the content would be ("No commits found"), no icon; only the empty window
     is an `Alert`;

@@ -309,7 +309,8 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../src/lib/pull-request.test.ts (`asks for a push when the branch changed, waits for GitHub after one, and says quietly that it shows an earlier build`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say when the branch changed since the pull request's head`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say only quietly that the pull request shows an earlier build of the same commits`)
-- A click on the chip opens the pull request in the browser and does not toggle the row.
+- A click on the chip opens the pull request in the browser, leaves its details as they are
+  ([hover descriptions](../../docs/design/ui-theme.md)) and does not toggle the row.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)
 - The branch context menu has "Open Pull Request" in its history group when the branch has a pull request, also when the
   branch can't be modified, and "Copy Pull Request Link" in its copy group. "Open Pull Request" shows `O`, which opens

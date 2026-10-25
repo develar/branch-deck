@@ -57,8 +57,9 @@ is its 2.5 GB download.
   consent to the on-device model, reads as `initial`: the prompt asks again.
   [@test] ../../src/stores/settings/aiSettings.test.ts (`asks again after the consent to the on-device model`)
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should ask again after the consent to the on-device model`)
-- The sparkles button toggles between `claude` and `disabled`; the answer persists.
-  [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should toggle AI on/off via sparkles icon`)
+- The sparkles button toggles between `claude` and `disabled`; the answer persists. The click leaves its help popover
+  as it is ([hover descriptions](../../docs/design/ui-theme.md)): open while the pointer stays, it says the new state.
+  [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should toggle AI on/off via sparkles icon`, `should say in the help popover what the AI button does and what it sends`)
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should persist AI state across form open/close`)
 - Settings → General (⌘,, [Settings](../repository/settings.spec.md)) has the section "AI" with the switch "Suggest
   branch names" and the same note as the prompt. On is `claude`, off is `disabled`, and `initial` shows as off:
