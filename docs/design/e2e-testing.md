@@ -659,7 +659,10 @@ log of the fake). No test answers a remote write in the page: the registry test 
   starts the chain failed. Update Project is a fetch, then the update, then its sync: `runAndWaitForUpdate` waits for
   the answer of `update_project` (`nextAnswer`, the page's next answer of a command, with the test's timeout), then the
   toast and the button are an assertion's; a start of a robot, the answer of `start_patronus_robot`
-  (`runAndWaitForAnswer`, `nextAnswer(page, command, count)` for two starts side by side). The step of a row waits for
+  (`runAndWaitForAnswer`, `nextAnswer(page, command, count)` for two starts side by side); a restart of a robot that
+  runs on an older commit, the answers of its cancel, its push and its restart in turn (`runAndWaitForRestart` of
+  `patronus-actions.spec.ts`). The press is the action of the wait: a wait that began after it missed the answer of a
+  restart that came 90 ms before it (traced on the Studio) and held the test 30 s. The step of a row waits for
   facts that answer one after another (the robots, the pull requests, why a robot failed, what it needs to land, the
   approvals): "Checking…" names the fact it waits for (`data-waits-for` of the slot), and `waitForStepFacts`
   (`safe-push-helpers.ts`) gives each fact an assertion's time of its own before the step is asserted. The steps

@@ -220,6 +220,18 @@ async function pushAndRestartFromMenu(page: Page) {
   await page.getByRole("menuitem", { name: "Restart Safe Push", exact: true }).click()
 }
 
+/**
+ * Presses the Restart Safe Push of a robot that runs on an older commit, which cancels it, pushes and restarts it, and
+ * waits for the answer of each step in turn: under load each takes seconds, more than one assertion's time for the three
+ */
+async function runAndWaitForRestart(page: Page, press: () => Promise<unknown>): Promise<void> {
+  const steps = ["cancel_patronus_robot", "push_branch", "restart_patronus_robot"].map(command => nextAnswer(page, command))
+  await press()
+  for (const step of steps) {
+    await step
+  }
+}
+
 /** "Safe Push" of the open branch menu disabled, `reason` on its hover; then its "Patronus ›" opened */
 async function expectMenuSafePushRefused(page: Page, reason: string): Promise<void> {
   const safePush = page.getByRole("menuitem", { name: "Safe Push S", exact: true })
@@ -342,8 +354,8 @@ test.describe("Patronus actions", () => {
     expect((await repo.getPatronusLog()).starts).toEqual([])
     // nothing was pushed or started: once the holder is done, the same step pushes and starts
     await repo.holdRepositoryLock(false)
-    await button.click()
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /))
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => button.click())
+    await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(pushes).toHaveLength(2)
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
   })
@@ -538,8 +550,8 @@ test.describe("Patronus actions", () => {
     const description = page.getByRole("tooltip").filter({ hasText: "Lands ABC-123" })
     await expect(description).toHaveText("Lands ABC-123 into master once the checks passS")
     await expect(description.locator("kbd")).toHaveText("S")
-    await button.click()
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /))
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => button.click())
+    await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(await startedBranches(repo)).toEqual(["ABC-123"])
 
     // "⋯" has the menu of the right-click
@@ -549,8 +561,8 @@ test.describe("Patronus actions", () => {
     await expect(rowMenu.getByRole("menuitem", { name: "Copy", exact: true })).toBeVisible()
     // the approvals go into the GitHub pull request: no Space merge request is created (deprecated)
     await expect(rowMenu.getByRole("menuitem", { name: "Create Space Merge Request…" })).toHaveCount(0)
-    await rowMenu.getByRole("menuitem", { name: "Safe Push S", exact: true }).click()
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => expect(chip(page, "feature-auth")).toHaveAccessibleName(/^Safe Push: Running, /))
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => rowMenu.getByRole("menuitem", { name: "Safe Push S", exact: true }).click())
+    await expect(chip(page, "feature-auth")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(await startedBranches(repo)).toEqual(["ABC-123", "feature-auth"])
 
     // the menu of the branch with the running robot says why
@@ -570,8 +582,8 @@ test.describe("Patronus actions", () => {
     await setupStarts(page, setupRepo, syncAndWaitForBranches)
     const row = findBranchRow(page, "ABC-123")
     await verifyBranchState(row, "closed")
-    await slotSafePush(page, "ABC-123").click()
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /))
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => slotSafePush(page, "ABC-123").click())
+    await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
     // the button starts, it doesn't toggle the row
     await verifyBranchState(row, "closed")
   })
@@ -710,8 +722,8 @@ test.describe("Patronus actions", () => {
     await expect(popoverStart(page)).toBeEnabled()
     // the start enabled later takes the focus: Enter starts it now, once
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => expectJiraStarted(page, repo))
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => page.keyboard.press("Enter"))
+    await expectJiraStarted(page, repo)
   })
 
   test("should restart a failed robot and cancel a running one from the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -719,8 +731,8 @@ test.describe("Patronus actions", () => {
 
     let popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
     await expect(popover.getByRole("button", { name: "Cancel Safe Push" })).toHaveCount(0)
-    await popover.getByRole("button", { name: "Restart Safe Push" }).click()
-    await runAndWaitForAnswer(page, "restart_patronus_robot", () => expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /))
+    await runAndWaitForAnswer(page, "restart_patronus_robot", () => popover.getByRole("button", { name: "Restart Safe Push" }).click())
+    await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect((await repo.getPatronusLog()).restarts).toEqual([FAILED.id])
     await page.keyboard.press("Escape")
 
@@ -833,8 +845,8 @@ test.describe("Patronus actions", () => {
       expect((await repo.getPatronusLog()).starts).toEqual([])
 
       // nothing to say any more: the click starts at once, with the merge request whose approvals count
-      await slotSafePush(page, "JIRA-456").click()
-      await runAndWaitForAnswer(page, "start_patronus_robot", () => expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /))
+      await runAndWaitForAnswer(page, "start_patronus_robot", () => slotSafePush(page, "JIRA-456").click())
+      await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
       // the branch isn't on the remote yet: the start pushes it first, without a toast of its own
       expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
       await expect(pushedToast(page, "JIRA-456")).toHaveCount(0)
@@ -1462,7 +1474,7 @@ test.describe("Patronus actions", () => {
       const actions = description.getByTestId("push-hold-actions")
       await actions.getByRole("button", { name: "Open in Patronus" }).click()
       expect(await getOpenedUrls(page)).toEqual([OLDER.url])
-      await actions.getByRole("button", { name: "Restart Safe Push" }).click()
+      await runAndWaitForRestart(page, () => actions.getByRole("button", { name: "Restart Safe Push" }).click())
       await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
       await expectCancelPushRestart(repo, pushes)
     })
@@ -1470,7 +1482,7 @@ test.describe("Patronus actions", () => {
     test("should cancel the robot, push and restart it on the pushed commit, from Restart Safe Push", async ({ page }) => {
       const pushes = await routePushNotingPatronus(page, repo)
 
-      await pushAndRestartFromMenu(page)
+      await runAndWaitForRestart(page, () => pushAndRestartFromMenu(page))
       // the restart is the action: one toast says it, and opens the restarted robot
       const toast = page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })
       await expect(toast).toBeVisible()
