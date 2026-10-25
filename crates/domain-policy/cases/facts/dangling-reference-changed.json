@@ -1,5 +1,6 @@
 {
   "given": {"branch": "suspend", "commits": [], "dangling": "changed"},
+  "openPullRequests": {},
   "readiness": {
     "suspend": {
       "pullRequest": null,

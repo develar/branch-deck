@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - ../../src/lib/os-notification.ts
   - ../../crates/domain-types/src/patronus.rs
+  - ../../crates/domain-policy/src/review.rs
   - ../../crates/patronus/src/actions.rs
   - ../../crates/patronus/src/client.rs
   - ../../crates/patronus/src/review.rs
@@ -570,7 +571,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   Patronus can't judge the approvals before the start (`unknown`, `unavailable`, GitHub doesn't list the pull requests,
   a repository only on Space whose merge request needs approvals), the push dismisses approvals Patronus doesn't count,
   the rules of the repository can't be read for a push into an approved pull request, a start without review. S, "Safe Push With Profile…" and the start without review always confirm.
-  [@test] ../../src/lib/safe-push-decision.test.ts (`starts a lone branch at once when there is nothing to say: default checks, approved or not needed`, `opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the profiles, the remote status, the review and the rules, each saying what it waits for, a failed read of the rules unknown with its reason`, `refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`, `confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals`, `lets a profile that skips the review start without the approvals, and a start without review wait for its profile`)
+  [@test] ../../src/lib/safe-push-decision.test.ts (`starts a lone branch at once when there is nothing to say: default checks, approved or not needed`, `opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the profiles, the remote status, the review and the rules, each saying what it waits for, a failed read of the rules unknown with its reason`, `refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`, `confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals`, `lets a profile that skips the review start without the approvals and past a pull request into another base, and a start without review wait for its profile`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`, `the_safe_push_profile_cases_answer_as_bd_answers_today`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`, `the safe push profile cases answer as the app answers today`, `the safe push review cases answer as the app answers today`)
 - A click waits for the facts its decision needs, its button busy with "Checking…": the session answers each of them,
@@ -1169,6 +1170,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
 - Space merge requests are deprecated: the approvals go into the GitHub pull request of the branch, and Branch Deck
   never creates a merge request. One Patronus finds open still counts: the start links it.
+- Where the approvals a start misses count is one rule of the app and `bd` (`domain_policy::review::review_state`): the
+  pull request the robot starts from, else the GitHub pull request the branch doesn't have yet; a repository only on
+  Space is read once there, whatever reason the answer gives: the merge request Patronus found open, else nowhere known
+  (its GitHub repository unknown). No answer is pending, never missing.
+  [@test] ../../crates/domain-policy/src/review_test.rs (`the_review_says_where_the_missing_approvals_count_and_reads_a_repository_only_on_space_once`)
 - A repository only on Space (no GitHub repository of the branches) keeps the merge request path: its start is not
   held back (merge requests are deprecated and the robot decides, [Next Step](next-step.spec.md#the-table)), but one
   whose approvals are required confirms first, its popover saying "Needs review by the code owners: a Safe Push fails

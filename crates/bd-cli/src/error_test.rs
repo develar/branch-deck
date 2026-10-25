@@ -59,6 +59,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::ApprovalsMissing, 4, false),
   (ErrorCode::PushDismissesApprovals, 4, false),
   (ErrorCode::RulesUnknown, 4, false),
+  (ErrorCode::PullRequestOtherBase, 4, false),
   (ErrorCode::RobotRunning, 4, false),
   (ErrorCode::Landed, 4, false),
   (ErrorCode::DanglingReference, 4, false),

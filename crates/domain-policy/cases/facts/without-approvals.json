@@ -1,5 +1,6 @@
 {
   "given": {"flags": ["withoutApprovals"], "readiness": "missing"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

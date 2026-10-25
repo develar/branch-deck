@@ -18,14 +18,16 @@ use bd_core::stack_summary::whole_stack;
 use bd_core::sync_command::{SyncOutput, lock, sync_locked};
 use domain_policy::stack::WholeStack;
 use domain_types::commit::Commit;
-use domain_types::patronus::{ReviewReadinessBranch, ReviewStart};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState as ListedPullRequestState, PullRequestsResult};
+use domain_types::patronus::{ReviewReadiness, ReviewReadinessBranch, ReviewStart};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState as ListedPullRequestState, PullRequestView, PullRequestsResult};
+use domain_types::session::PullRequestsView;
 use domain_types::stack::{BranchStack, StackBranchState};
 use github::fake_github::{FakeAnswer, FakeGitHub};
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::stack::place_branches;
 use history_rewrite::store_lines::StoreLines;
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
+use repository_model::derive::open_pull_requests_view;
 use repository_model::patronus_view::{landed_commits, with_landing_needs};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
@@ -943,6 +945,7 @@ impl Situation {
       with_landing_needs(&mut facts.view, &table, &needs);
     }
     let readiness = if on_space { self.readiness(&context, &synced, given) } else { BTreeMap::new() };
+    let open_pull_requests = self.open_pull_requests(&context, &synced, &readiness);
     let report = &synced.report;
     let tips = |of: &HashMap<String, String>| -> BTreeMap<String, String> {
       of.iter()
@@ -962,12 +965,41 @@ impl Situation {
       "robots": facts.robots,
       "view": facts.view,
       "readiness": readiness,
+      "openPullRequests": open_pull_requests,
     });
     name_ids(&mut value, &names_of(&synced));
     settle_robots(&mut value["robots"]);
     // the fake listens on a port of its own: the robot pages under one host
     let value: Value = serde_json::from_str(&serde_json::to_string(&value).unwrap().replace(&self.space.patronus_url, "https://patronus")).unwrap();
     sorted(value)
+  }
+
+  /// The open pull request of each subject as the view of the session reads it (`open_pull_requests_view`): of the pull
+  /// requests GitHub lists for the case, with the candidates of the readiness of `readiness` (the facts of the app)
+  fn open_pull_requests(&self, context: &RepoContext, synced: &SyncOutput, readiness: &BTreeMap<String, Value>) -> BTreeMap<String, PullRequestView> {
+    let Some(repository) = github_repository(context, &synced.report).unwrap() else {
+      return BTreeMap::new();
+    };
+    let listed = open_pull_requests(context, &github_service(context, &self.environment), context.runtime().unwrap(), &repository);
+    let pull_requests = PullRequestsView {
+      pull_requests: listed.pull_requests,
+      stack_pull_requests: listed.stack_pull_requests,
+      ..PullRequestsView::default()
+    };
+    let answers: BTreeMap<&String, ReviewReadiness> = readiness
+      .iter()
+      .map(|(key, fact)| (key, serde_json::from_value(fact["readiness"].clone()).unwrap()))
+      .collect();
+    let report = &synced.report;
+    let target = target_branch_of(report.upstream.as_ref()).unwrap_or_default();
+    open_pull_requests_view(
+      &target,
+      |name| report.branches.iter().any(|branch| branch.name == name),
+      |root| report.stack_branches.iter().any(|stack| stack.root == root),
+      &pull_requests,
+      |key| answers.iter().find(|(known, _)| known.as_str() == key).map(|(_, readiness)| readiness),
+      &context.prefix,
+    )
   }
 
   /// The review readiness as the app's scan asks it (`readinessInputOf`): the branch from its open pull request into

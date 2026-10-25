@@ -1,5 +1,6 @@
 {
   "given": {"pullRequest": {"base": "release-252"}},
+  "openPullRequests": {"auth": {"base": {"base": "release-252", "kind": "other"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {
       "pullRequest": null,

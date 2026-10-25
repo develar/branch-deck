@@ -1,5 +1,13 @@
 {
   "given": {"branch": "auth", "pullRequest": {"base": "test-user/virtual/gone"}},
+  "openPullRequests": {
+    "auth": {
+      "base": {"from": "gone", "kind": "virtual", "retarget": "master"},
+      "candidates": [],
+      "draft": false,
+      "number": 7
+    }
+  },
   "readiness": {
     "auth": {
       "pullRequest": null,

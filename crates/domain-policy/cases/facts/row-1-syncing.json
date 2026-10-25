@@ -1,5 +1,6 @@
 {
   "given": {"sync": "running"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

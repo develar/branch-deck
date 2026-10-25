@@ -117,8 +117,11 @@ export type SafePushDecision =
   /** Nothing to say: it starts */
   | { readonly kind: "start" }
 
-/** The steps of the next step that wait for approvals: a profile that skips the review, or a start without it, needs none */
-const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting"])
+/**
+ * The steps of the next step that wait for approvals: a profile that skips the review, or a start without it, needs none;
+ * nor is it held back by a pull request into another base, whose approvals count for no start into the target (D3b)
+ */
+const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting", "otherBase"])
 
 /** The approvals don't hold the start back: a start without review, or a profile known to skip it (`skipsReview`) */
 function skipsApprovals(facts: SafePushFacts): boolean {

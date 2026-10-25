@@ -1,5 +1,6 @@
 {
   "given": {"target": "unprotected"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

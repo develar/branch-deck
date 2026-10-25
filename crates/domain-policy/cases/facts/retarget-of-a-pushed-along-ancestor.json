@@ -4,6 +4,14 @@
     "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
     "pullRequest": {"base": "test-user/virtual/auth", "of": "login"}
   },
+  "openPullRequests": {
+    "login": {
+      "base": {"from": "auth", "kind": "virtual", "retarget": "master"},
+      "candidates": [],
+      "draft": false,
+      "number": 7
+    }
+  },
   "readiness": {
     "session": {
       "pullRequest": null,

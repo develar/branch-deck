@@ -1,5 +1,6 @@
 {
   "given": {"landingNeeds": true},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

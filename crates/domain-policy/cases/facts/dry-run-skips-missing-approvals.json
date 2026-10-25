@@ -1,5 +1,6 @@
 {
   "given": {"mode": "dryRun", "readiness": "missing"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

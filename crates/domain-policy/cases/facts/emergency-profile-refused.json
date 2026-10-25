@@ -1,5 +1,6 @@
 {
   "given": {"profile": {"chosen": "emergency"}},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

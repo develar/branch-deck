@@ -5,6 +5,14 @@
     "readiness": "missing",
     "stackPullRequest": true
   },
+  "openPullRequests": {
+    "stack:auth": {
+      "base": {"kind": "target"},
+      "candidates": [{"fullName": "Alice", "groups": ["Air Plugin Release Team"], "login": "alice-gh", "preselected": true}],
+      "draft": false,
+      "number": 12
+    }
+  },
   "readiness": {
     "login": {
       "pullRequest": null,

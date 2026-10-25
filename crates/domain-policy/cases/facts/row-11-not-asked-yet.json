@@ -1,5 +1,6 @@
 {
   "given": {"readiness": "notAsked"},
+  "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},
   "robots": [

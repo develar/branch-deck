@@ -1,5 +1,6 @@
 {
   "given": {"mode": "dryRun", "robot": {"on": "older", "state": "running"}},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

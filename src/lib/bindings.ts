@@ -1737,6 +1737,12 @@ export type ErrorCode =
  */
 "rules_unknown" | 
 /**
+ *  `bd safe-push`: the open pull request of the branch goes into another base than the target (a release branch), and
+ *  Patronus merges a pull request into its base: its approvals count for no Safe Push into the target; nothing was
+ *  pushed or started. Retarget it on GitHub once the user approves; `--without-approvals` starts through the API
+ */
+"pull_request_other_base" | 
+/**
  *  `bd safe-push`: a robot runs on the last commit of the branch, on a branch it is built on, or on a branch built on
  *  it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`). `bd push`: a Safe Push
  *  runs on the branch or lands it with a branch built on it: a push won't land (`--restart-running`)
@@ -3459,6 +3465,22 @@ export type PullRequestAvailability =
 /**  The request failed, e.g. offline or timed out */
 { status: "error"; message: string };
 
+/**
+ *  Where an open pull request goes, as a Safe Push of its branch reads it (`domain_policy::pull_request::base_of`):
+ *  Patronus merges a pull request into its base, so only one into the target counts
+ */
+export type PullRequestBase = 
+/**  Into the target, or GitHub didn't say its base: a robot starts from it, its approvals count */
+{ kind: "target" } | 
+/**
+ *  Into a virtual branch of the user (a parent's, another branch of the table, one that landed and is gone): every
+ *  pull request of a virtual branch goes into the target, so it is retargeted to `retarget`, never a choice; `from`
+ *  the short name of the branch it goes into (`auth` of `user/virtual/auth`)
+ */
+{ kind: "virtual"; from: string; retarget: string } | 
+/**  Into another base (a release branch), which may be meant: its approvals count only for a Safe Push into `base` */
+{ kind: "other"; base: string };
+
 /**  What a review of the user says */
 export type PullRequestReviewEvent = "approve" | 
 /**  Needs a body: GitHub refuses a request for changes without one */
@@ -3474,6 +3496,19 @@ export type PullRequestStartBranch = {
 };
 
 export type PullRequestState = "open" | "closed" | "merged";
+
+/**
+ *  The open pull request of a subject (a branch, or `stack:<root>` the whole stack) as the rules read it, a part of the
+ *  view of the session (`RepositoryView.open_pull_requests`)
+ */
+export type PullRequestView = {
+	number: number,
+	base: PullRequestBase,
+	/**  A draft: Patronus merges it once it is ready for review, nobody is asked to review it */
+	draft: boolean,
+	/**  The code owners Request Review… offers, of the review readiness of the subject; empty without missing approvals */
+	candidates: ReviewCandidate[],
+};
 
 /**  What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went */
 export type PullRequestsChange = {
@@ -3844,6 +3879,12 @@ export type RepositoryView = {
 	 *  (`domain_policy::push`); a branch whose pushes send it alone is not listed
 	 */
 	pushes: { [key in string]: BranchPush },
+	/**
+	 *  The open pull request of each subject (a branch, `stack:<root>` the whole stack) as the rules read it: where it
+	 *  goes, a draft, the code owners Request Review… offers (`domain_policy::pull_request`, `domain_policy::review`); a
+	 *  subject without an open pull request is not listed
+	 */
+	openPullRequests: { [key in string]: PullRequestView },
 	sections: TableSections,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
@@ -3919,6 +3960,23 @@ export type Retry =
 "same" | 
 /**  A request built again from a new read of the state may succeed; the same one fails again */
 "after_reread";
+
+/**
+ *  A code owner Request Review… offers (`domain_policy::review::candidates`): suggested by Patronus for a group whose
+ *  approval is missing, with a GitHub login
+ */
+export type ReviewCandidate = {
+	login: string,
+	/**  The full name Patronus knows; null when it names none */
+	fullName: string | null,
+	/**  The missing groups that suggest them, in the order of the readiness */
+	groups: string[],
+	/**
+	 *  Chosen when the popover opens, and whom `bd request-review` asks: one suggested code owner of each missing group
+	 *  nobody is asked for yet, each once
+	 */
+	preselected: boolean,
+};
 
 /**  A commit of the pull request */
 export type ReviewCommit = {
@@ -5021,6 +5079,8 @@ export type TableChanges = {
 	removedStacks?: string[],
 	pushes?: { [key in string]: BranchPush },
 	removedPushes?: string[],
+	openPullRequests?: { [key in string]: PullRequestView },
+	removedOpenPullRequests?: string[],
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,

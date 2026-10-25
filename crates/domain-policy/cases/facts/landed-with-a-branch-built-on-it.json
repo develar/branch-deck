@@ -3,6 +3,7 @@
     "commits": ["(auth) Add auth", "(auth/login) Add login"],
     "robot": {"on": "child:login", "state": "success"}
   },
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

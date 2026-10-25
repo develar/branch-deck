@@ -5,6 +5,7 @@
     "mode": "dryRun",
     "robot": {"on": "child:session", "state": "running"}
   },
+  "openPullRequests": {},
   "readiness": {
     "login": {
       "pullRequest": null,

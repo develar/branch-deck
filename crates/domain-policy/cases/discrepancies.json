@@ -50,7 +50,7 @@
     "closed": "s1-holes",
     "today": {
       "app": ["src/lib/safe-push-decision.ts#function skipsApprovals"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#} else if pull_request.is_none() && profile.is_some_and(|profile| profile.skips_review == Some(true)) {"]
+      "bd": ["crates/domain-policy/src/review.rs#} else if !from_pull_request && profile.is_some_and(|profile| profile.skips_review == Some(true)) {"]
     }
   },
   {
@@ -72,18 +72,20 @@
     "id": "pull-request-into-another-base",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "an open pull request into another base (a release branch): the app blocks the Safe Push, bd starts through the API and ignores it",
+    "title": "an open pull request into another base (a release branch): its approvals count for no Safe Push into the target; closed in s8-policy: both refuse a start that counts them (the app by row 5′, bd with pull_request_other_base) and let a start without review or a profile that skips it go through the API",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D3b",
-    "twins": ["row-5-prime-another-base"],
     "today": {
-      "app": ["src/lib/branch-next-step.ts#return step(\"otherBase\", item, general ?? reason, dryRunBlocker, { tone: \"quiet\", retarget, ...notice })"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#fn other_base_pull_request_start"]
-    }
+      "app": [
+        "src/lib/safe-push-decision.ts#const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set([\"createPullRequest\", \"changesRequested\", \"requestReview\", \"awaiting\", \"otherBase\"])"
+      ],
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#Refusal::new(ErrorCode::PullRequestOtherBase, message)", "crates/domain-policy/src/pull_request.rs#pub fn base_of"]
+    },
+    "closed": "s8-policy"
   },
   {
     "id": "push-over-a-moved-remote",
@@ -108,15 +110,15 @@
     "id": "request-review-pushes-first",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "Request Review of a branch the remote lags: the app pushes first, bd request-review doesn't push; each side computes the candidates on its own",
+    "title": "Request Review of a branch the remote lags: the app pushes first, bd request-review doesn't push; the candidates are one rule of both (domain_policy::review::candidates)",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#request-review", "spec/cli/agent-cli.spec.md#bd-request-review"],
     "discrepancy": "D5",
     "today": {
       "app": [
         "src/components/branch/RequestReviewForm.tsx#if (pushes && !(await pushFirst(branch.name, errorTitle, repositoryPath)))",
-        "src/lib/request-review.ts#export function getRequestReviewCandidates"
+        "src/components/branch/RequestReviewForm.tsx#const candidates = view?.candidates ?? []"
       ],
-      "bd": ["crates/bd-remote/src/request_review_command.rs#fn suggested_reviewers"]
+      "bd": ["crates/bd-remote/src/request_review_command.rs#let Candidates { candidates, without_reviewer } = candidates(Some(&review.readiness), &pull_request);"]
     }
   },
   {
@@ -296,7 +298,7 @@
     "twins": ["readiness-unavailable", "row-11-unavailable", "readiness-space-required"],
     "today": {
       "app": ["src/lib/safe-push-decision.ts#function isReviewUnjudged", "src/hooks/useSafePush.ts#function reviewFactOf"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#pub(crate) fn review_readiness", "crates/remote-facts/src/review_readiness.rs#fn to_branch_readiness"]
+      "bd": ["crates/bd-remote/src/safe_push_command.rs#pub(crate) fn review_readiness", "crates/domain-policy/src/review.rs#pub fn review_state"]
     }
   },
   {

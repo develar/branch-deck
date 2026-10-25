@@ -20,10 +20,15 @@
 //!   (`over_moved_remote`), what a push of several branches covers and what each of them does (`push_plan`: Push Stack,
 //!   Push with Children), the pushes of a branch the view sends (`branch_push`) and the stack branch Push with Children
 //!   of a root takes along (`stack_branch_along`)
+//! - `pull_request`: where an open pull request goes (`base_of`: the target, a virtual branch it leaves for the target,
+//!   another base that may be meant), the pull request a robot starts from (`start_pull_request`), and what a push does
+//!   to its approvals by the rules of its base (`dismisses_approvals`)
 //! - `reasons`: the reasons the rules give (`domain_types::reason::Reason`), with the facts their words need
-//! - `readiness`: the pull request a Safe Push would start from (`start_pull_request`), when an answer of the review
-//!   readiness is the news that approvals arrived (`approval_news`), and whether a subject waits for them
-//!   (`awaits_approval`)
+//! - `readiness`: when an answer of the review readiness is the news that approvals arrived (`approval_news`), and
+//!   whether a subject waits for them (`awaits_approval`)
+//! - `review`: whom Request Review… offers and `bd request-review` asks (`candidates`), what an answer of the readiness
+//!   means for a start and where the approvals count, a repository only on Space read once (`review_state`), and when a
+//!   Safe Push starts without them (`skips_approvals`)
 //! - `refresh`: when a fact of the remote is asked again: the cadence of the robots of Patronus (the list, the poll, the
 //!   failing robots, the problems, the details), of the merge profiles, of the pull requests and the branch rules of
 //!   GitHub, of the review readiness and of the review requests, by the reason that asks and the clock of the session
@@ -38,10 +43,12 @@ pub mod holds;
 pub mod land;
 pub mod landing_needs;
 pub mod parked;
+pub mod pull_request;
 pub mod push;
 pub mod readiness;
 pub mod reasons;
 pub mod refresh;
+pub mod review;
 pub mod robot_match;
 pub mod stack;
 
@@ -54,6 +61,8 @@ mod landing_needs_test;
 #[cfg(test)]
 mod parked_test;
 #[cfg(test)]
+mod pull_request_test;
+#[cfg(test)]
 mod push_test;
 #[cfg(test)]
 mod readiness_test;
@@ -61,6 +70,8 @@ mod readiness_test;
 mod reason_catalog_test;
 #[cfg(test)]
 mod refresh_test;
+#[cfg(test)]
+mod review_test;
 #[cfg(test)]
 mod robot_match_test;
 #[cfg(test)]

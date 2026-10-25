@@ -1,14 +1,14 @@
 //! Every pull request of a virtual branch goes into the baseline, with the commits of the branches it is built on: the
 //! approvals Patronus counts are the ones of a pull request into its target (`docs/design/landing.md`). An open pull
 //! request whose base is a virtual branch of the user (`{prefix}/virtual/…`: a parent's branch, from before, or the one
-//! of a parent that landed) is retargeted to the baseline (`PATCH pulls/<n>`, `retarget_pull_request`): by `bd push`
+//! of a parent that landed; `domain_policy::pull_request::base_of`) is retargeted to the baseline (`PATCH pulls/<n>`, `retarget_pull_request`): by `bd push`
 //! for the pushed branches and by `bd safe-push` for the branch it starts and the branches its push takes along, as the
 //! app's push does. A pull request into any other base (a release branch) is left as it is: that base may be meant.
 
 use crate::request_review_command::availability_error;
 use bd_core::context::RepoContext;
-use domain_types::branch_names::{BranchKind, strip_branch_namespace};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
+use domain_policy::pull_request::base_of;
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, ReviewerState};
 use github::service::GitHubService;
 use remote_facts::pull_request_writes::retarget_pull_request;
 use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
@@ -33,11 +33,6 @@ pub struct RetargetedPullRequest {
   pub approved_by: Vec<String>,
 }
 
-/// A base that is a virtual branch of the user (`{prefix}/virtual/…`), whatever branch it names: never a choice
-pub(crate) fn is_virtual_branch_base(base: &str, prefix: &str) -> bool {
-  strip_branch_namespace(base, prefix, BranchKind::Virtual).is_some_and(|name| !name.is_empty())
-}
-
 /// The retargets of the pull requests of `names` (`pull_requests` by virtual branch name): open, into a virtual branch of
 /// `prefix`, to `base`, in the order of `names`
 pub(crate) fn virtual_base_retargets<'a>(
@@ -50,7 +45,10 @@ pub(crate) fn virtual_base_retargets<'a>(
     .into_iter()
     .filter_map(|name| {
       let pull_request = pull_requests.get(name)?;
-      (pull_request.state == PullRequestState::Open && is_virtual_branch_base(&pull_request.base_ref_name, prefix)).then(|| RetargetedPullRequest {
+      let PullRequestBase::Virtual { .. } = base_of(pull_request, base, prefix) else {
+        return None;
+      };
+      (pull_request.state == PullRequestState::Open).then(|| RetargetedPullRequest {
         branch: name.to_string(),
         number: pull_request.number,
         url: pull_request.url.clone(),

@@ -5,6 +5,7 @@
     "pullRequest": {"reviewers": ["ikorennoy"]},
     "readiness": "missing"
   },
+  "openPullRequests": {"login": {"base": {"kind": "target"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "login": {
       "pullRequest": 7,

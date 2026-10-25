@@ -24,7 +24,7 @@
 
 use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
 use crate::patronus_facts::{PatronusFacts, table_of};
-use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
+use crate::pull_request_retarget::{RetargetedPullRequest, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{
   LANDED_NEXT, PullRequestDraft, PushArgs, PushedBranch, REMOTE_REFUSED_NEXT, WOULD_REJECT_NEXT, github_repository, not_synced_reason, push_locked, push_size_limit, pushed_branch,
   refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
@@ -43,19 +43,21 @@ use domain_policy::facts::Repository;
 use domain_policy::holds::is_active;
 use domain_policy::land::{Start as LandStart, start_refusal};
 use domain_policy::parked::{parked_state, whole_stack_parked};
+use domain_policy::pull_request::{RulesAnswer, base_of, dismisses_approvals};
 use domain_policy::push::{drops_remote_commits, needs_push};
+use domain_policy::review::{ApprovalsSkip, CountsIn, ReviewState, review_state, skips_approvals};
 use domain_policy::stack::WholeStack;
 use domain_types::branch_names::to_final_branch_name;
-use domain_types::error::ErrorCode;
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit, Subject};
 use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewerApprovalState, UnavailableReadinessReason,
   UnknownReadinessReason,
 };
-use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, ReviewerState};
 use domain_types::reason::Reason;
-use domain_types::session::ParkedMember;
+use domain_types::session::{Fact, FactState, ParkedMember};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
@@ -417,14 +419,13 @@ struct Plan {
   review: Option<Review>,
   /// The rules of the target for a push into the approved pull request the robot starts from
   rules: Option<RulesSummary>,
-  /// Why the approvals don't hold the start back; `None` when a `missing` readiness refuses it
-  approvals_skipped_by: Option<ApprovalsSkippedBy>,
+  /// Why the approvals don't hold the start back (`domain_policy::review::skips_approvals`); `None` when a `missing`
+  /// readiness refuses it
+  approvals_skipped_by: Option<ApprovalsSkip>,
   /// The open pull request the robot starts from: into the target, or for a branch into a virtual branch (retargeted
-  /// first, `retargets`)
+  /// first, `retargets`); one into another base refuses a start whose approvals count (`pull_request_other_base`), and
+  /// a start that skips them goes through the API
   pull_request: Option<PullRequest>,
-  /// The open pull request into another base (a release branch): left as it is, the start goes through the API, and
-  /// `--create-pull-request` takes it instead of opening a second one
-  other_base_pull_request: Option<PullRequest>,
   /// The open pull requests into a virtual branch of the branch and of the branches its push takes along
   retargets: Vec<RetargetedPullRequest>,
   push_needed: bool,
@@ -448,36 +449,11 @@ struct Plan {
   target_check: Option<(TargetCheck, TargetCheckSummary)>,
 }
 
-/// Why the approvals don't hold a Safe Push back, the `skipped_by` of the `review`
-#[derive(Debug, Clone, Copy)]
-enum ApprovalsSkippedBy {
-  /// A start through the API with a merge profile known to skip the code-owner review (the options of the last robot,
-  /// or the list with the new API), as the app's Safe Push without review starts; a `/patronus` comment has no profile
-  Profile,
-  /// `--without-approvals`
-  WithoutApprovals,
-}
-
-impl ApprovalsSkippedBy {
-  /// What a Safe Push skips the approvals for, if anything: never a dry run (no review) or a pull request it opens
-  /// (no start)
-  fn of(args: &SafePushArgs, pushes: bool, pull_request: Option<&PullRequest>, profile: Option<&PatronusProfile>) -> Option<Self> {
-    if !pushes || args.create_pull_request {
-      None
-    } else if args.without_approvals {
-      Some(Self::WithoutApprovals)
-    } else if pull_request.is_none() && profile.is_some_and(|profile| profile.skips_review == Some(true)) {
-      Some(Self::Profile)
-    } else {
-      None
-    }
-  }
-
-  const fn name(self) -> &'static str {
-    match self {
-      Self::Profile => "profile",
-      Self::WithoutApprovals => "without_approvals",
-    }
+/// The `skipped_by` of the `review`: why the approvals don't hold a Safe Push back
+const fn approvals_skip_name(skip: ApprovalsSkip) -> &'static str {
+  match skip {
+    ApprovalsSkip::Profile => "profile",
+    ApprovalsSkip::WithoutApprovals => "without_approvals",
   }
 }
 
@@ -662,11 +638,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
 
   if args.create_pull_request {
     if output.pull_request.is_none() {
-      // one open pull request per branch: the one into another base is the branch's, GitHub would open a second one
-      output.pull_request = Some(match &plan.other_base_pull_request {
-        Some(existing) => other_base_pull_request_start(existing, &plan.target),
-        None => create_pull_request(context, args, &github, runtime, &plan, &draft)?,
-      });
+      output.pull_request = Some(create_pull_request(context, args, &github, runtime, &plan, &draft)?);
     }
     return Ok(output);
   }
@@ -1255,11 +1227,15 @@ fn plan(
     Some(_) => listed.stack_pull_requests.get(name),
     None => listed.pull_requests.get(name),
   };
-  let (pull_request, other_base_pull_request) = match own.filter(|pull_request| pull_request.state == PullRequestState::Open) {
-    Some(open) if open.base_ref_name.is_empty() || open.base_ref_name == target || (stack_push.is_none() && is_virtual_branch_base(&open.base_ref_name, &context.prefix)) => {
-      (Some(open.clone()), None)
-    }
-    other => (None, other.cloned()),
+  // where it goes (`base_of`): the robot starts from it in the target, or a branch's from a virtual branch once it is
+  // retargeted; another base (for the whole stack also a virtual branch, which no retarget touches) is no start
+  let (pull_request, other_base) = match own.filter(|pull_request| pull_request.state == PullRequestState::Open) {
+    Some(open) => match base_of(open, &target, &context.prefix) {
+      PullRequestBase::Target => (Some(open.clone()), None),
+      PullRequestBase::Virtual { .. } if stack_push.is_none() => (Some(open.clone()), None),
+      _ => (None, Some(open)),
+    },
+    None => (None, None),
   };
   let retargets = match &stack_push {
     Some(_) => Vec::new(),
@@ -1319,7 +1295,25 @@ fn plan(
         .iter()
         .all(|refusal| refusal.code != ErrorCode::StackConflict && refusal.code != ErrorCode::StackNotBuilt)
   });
-  let approvals_skipped_by = ApprovalsSkippedBy::of(args, pushes, pull_request.as_ref(), profile.as_ref());
+  let approvals_skipped_by = skips_approvals(mode, args.create_pull_request, args.without_approvals, pull_request.is_some(), profile.as_ref());
+  // D3b: Patronus merges a pull request into its base, so the approvals of one into another base (a release branch)
+  // count for no Safe Push into the target; it may be meant, so it is never retargeted silently
+  if let Some(other) = other_base
+    && pushes
+    && approvals_skipped_by.is_none()
+  {
+    let number = other.number;
+    let base = &other.base_ref_name;
+    let message = format!(
+      "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"
+    );
+    let retarget = match &github {
+      Some(repository) => format!("gh pr edit {number} --repo {} --base {}", repository.full_name(), shell_word(&target)),
+      None => format!("gh pr edit {number} --base {}", shell_word(&target)),
+    };
+    // the retarget, the user's to approve; --without-approvals is a suppression, only the message names it
+    refusals.push(Refusal::new(ErrorCode::PullRequestOtherBase, message).with_next_step(retarget, true));
+  }
   let review = if pushes && reviewable {
     let repository = ReadinessRepository {
       space: &space,
@@ -1339,11 +1333,11 @@ fn plan(
     // Patronus judges the approvals of the pull request the robot starts from; an older Patronus that doesn't say
     // whose count leaves the start to the robot. A profile that skips the review starts without them, as the app's
     // Safe Push without review does
-    if matches!(review.readiness, ReviewReadiness::Missing { .. }) && approvals_skipped_by.is_none() && !args.create_pull_request {
-      let refusal = Refusal::new(
-        ErrorCode::ApprovalsMissing,
-        approvals_missing_message(&what, &rerun, &review, github.as_ref(), pull_request.as_ref()),
-      );
+    if let ReviewState::Missing { groups, counts_in } = review_state(Some(&review.readiness), Some(&review.requirement), github.is_some(), pull_request.as_ref())
+      && approvals_skipped_by.is_none()
+      && !args.create_pull_request
+    {
+      let refusal = Refusal::new(ErrorCode::ApprovalsMissing, approvals_missing_message(&what, &rerun, &review.readiness, groups, counts_in));
       // without a pull request the approvals count in the one `--create-pull-request` opens: a push, the user's to approve
       refusals.push(if github.is_some() && pull_request.is_none() {
         refusal.with_next_step(format!("{} --create-pull-request", safe_push_again(context, name, stack_push.is_some())), true)
@@ -1365,7 +1359,21 @@ fn plan(
     .filter(|pull_request| pushes && push_needed && !args.create_pull_request && pull_request.reviewers.iter().any(|reviewer| reviewer.state == ReviewerState::Approved));
   let rules = match (approved, &github) {
     (Some(pull_request), Some(repository)) => {
-      let read = runtime.block_on(read_branch_rules(github_service, &context.repository, repository, &target));
+      // the rules as one fact of the session would hold them: GitHub's answer, or why it gave none
+      let rules = match runtime.block_on(read_branch_rules(github_service, &context.repository, repository, &target)) {
+        Ok(rules) => Fact {
+          value: Some(rules),
+          state: FactState::Fresh,
+          ..Fact::default()
+        },
+        Err(failure) => Fact {
+          value: None,
+          state: FactState::Unavailable {
+            reason: ApiError::new(ErrorCode::NetworkError, failure_message(&failure)),
+          },
+          ..Fact::default()
+        },
+      };
       let counted = review.as_ref().is_some_and(|review| matches!(review.readiness, ReviewReadiness::Approved { .. }));
       let (fix, steps) = if stack_push.is_some() {
         (
@@ -1384,7 +1392,8 @@ fn plan(
           ],
         )
       };
-      let (summary, refusal) = rules_check(read, pull_request.number, &target, counted, args.allow_unknown_rules, &fix);
+      let answer = dismisses_approvals(Some(&rules), pull_request);
+      let (summary, refusal) = rules_summary(&answer, pull_request.number, &target, counted, args.allow_unknown_rules, &fix);
       // the push and the review request of the fix, each the user's to approve; never the rules unknown
       refusals.extend(refusal.map(|refusal| match refusal.code {
         ErrorCode::PushDismissesApprovals => steps.iter().fold(refusal, |refusal, step| refusal.with_next_step(step, true)),
@@ -1408,7 +1417,6 @@ fn plan(
     rules,
     approvals_skipped_by,
     pull_request,
-    other_base_pull_request,
     retargets,
     push_needed,
     remotes,
@@ -1430,13 +1438,13 @@ fn plan(
   })
 }
 
-/// What the rules of `target` mean for a push of new commits into the approved pull request #`number`: the approvals
-/// Patronus counts (`counted`) dismissed by it refuse the start (`push_dismisses_approvals`, `fix` says what to do),
-/// other approvals dismissed are said; rules GitHub didn't answer refuse it (`rules_unknown`) unless `allow_unknown`,
-/// never read as "keeps the approvals"
-fn rules_check(read: Result<BranchRules, GitHubFailure>, number: u32, target: &str, counted: bool, allow_unknown: bool, fix: &str) -> (RulesSummary, Option<Refusal>) {
-  match read {
-    Ok(rules) if rules.dismiss_stale_reviews_on_push && counted => {
+/// What the rules of `target` (`domain_policy::pull_request::dismisses_approvals`) mean for a push of new commits into
+/// the approved pull request #`number`: the approvals Patronus counts (`counted`) dismissed by it refuse the start
+/// (`push_dismisses_approvals`, `fix` says what to do), other approvals dismissed are said; rules GitHub didn't answer
+/// refuse it (`rules_unknown`) unless `allow_unknown`, never read as "keeps the approvals"
+fn rules_summary(answer: &RulesAnswer, number: u32, target: &str, counted: bool, allow_unknown: bool, fix: &str) -> (RulesSummary, Option<Refusal>) {
+  match answer {
+    RulesAnswer::Dismiss if counted => {
       let message = format!(
         "Nothing was pushed or started: the push dismisses the approvals of pull request #{number} that Patronus counts (the rules of {target} dismiss stale reviews on push), and the robot would fail without them; {fix}"
       );
@@ -1446,23 +1454,26 @@ fn rules_check(read: Result<BranchRules, GitHubFailure>, number: u32, target: &s
       };
       (summary, Some(Refusal::new(ErrorCode::PushDismissesApprovals, message)))
     }
-    Ok(rules) => {
-      let message = if rules.dismiss_stale_reviews_on_push {
-        format!("The push dismisses the approvals of pull request #{number} (the rules of {target} dismiss stale reviews on push); Patronus counts none of them")
-      } else {
-        format!("The push keeps the approvals of pull request #{number}: the rules of {target} don't dismiss stale reviews")
-      };
+    RulesAnswer::Dismiss => {
       let summary = RulesSummary {
-        dismiss_stale_reviews_on_push: Some(rules.dismiss_stale_reviews_on_push),
-        message,
+        dismiss_stale_reviews_on_push: Some(true),
+        message: format!("The push dismisses the approvals of pull request #{number} (the rules of {target} dismiss stale reviews on push); Patronus counts none of them"),
       };
       (summary, None)
     }
-    Err(failure) => {
-      let unknown = format!(
-        "Cannot check whether the push keeps the approvals of pull request #{number}: GitHub didn't answer the rules of {target} ({})",
-        failure_message(&failure)
-      );
+    RulesAnswer::Keep => {
+      let summary = RulesSummary {
+        dismiss_stale_reviews_on_push: Some(false),
+        message: format!("The push keeps the approvals of pull request #{number}: the rules of {target} don't dismiss stale reviews"),
+      };
+      (summary, None)
+    }
+    RulesAnswer::Unknown { .. } | RulesAnswer::Loading => {
+      let why = match answer {
+        RulesAnswer::Unknown { reason } => format!(" ({})", reason.message),
+        _ => String::new(),
+      };
+      let unknown = format!("Cannot check whether the push keeps the approvals of pull request #{number}: GitHub didn't answer the rules of {target}{why}");
       let summary = RulesSummary {
         dismiss_stale_reviews_on_push: None,
         message: unknown.clone(),
@@ -1685,24 +1696,6 @@ pub(crate) fn open_pull_requests(context: &RepoContext, github: &GitHubService, 
   result
 }
 
-/// `--create-pull-request` of a branch whose open pull request goes into another base than the target: it is taken as
-/// it is, and the warning says where Patronus would merge it
-fn other_base_pull_request_start(existing: &PullRequest, target: &str) -> PullRequestStart {
-  PullRequestStart {
-    number: existing.number,
-    url: existing.url.clone(),
-    created: false,
-    comment_url: None,
-    reply: None,
-    reviewers: Vec::new(),
-    assignees: Vec::new(),
-    warnings: vec![format!(
-      "pull request #{} already existed and goes into {}: Patronus merges a pull request into its base, so its approvals count only for a Safe Push into {}; retarget it to {target} on GitHub (`gh pr edit {} --base {target}`) for a Safe Push into {target}",
-      existing.number, existing.base_ref_name, existing.base_ref_name, existing.number
-    )],
-  }
-}
-
 /// How `bd` names itself to Patronus, GitHub and YouTrack
 pub(crate) fn cli_user_agent() -> String {
   format!("Branch Deck CLI/{} ({}; {})", bd_core::version::VERSION, std::env::consts::OS, std::env::consts::ARCH)
@@ -1785,12 +1778,14 @@ pub(crate) fn review_readiness(
 pub(crate) const UNKNOWN_GITHUB_REPOSITORY: &str =
   "The GitHub repository of the branches is unknown: the Space settings name no GitHub mirror; run `git config branchdeck.githubRepository <owner>/<name>`";
 
-/// "The code owners haven't approved auth: …", with the groups, the approvals Patronus doesn't count, and where the
-/// approvals count: the GitHub pull request of the branch, or a Space merge request found open. `name` says what lands
-/// ("auth", "the whole auth stack"), `rerun` is the command that starts it ("bd safe-push auth")
-fn approvals_missing_message(name: &str, rerun: &str, review: &Review, github: Option<&GitHubRepository>, pull_request: Option<&PullRequest>) -> String {
-  let ReviewReadiness::Missing { groups, not_counted, reason } = &review.readiness else {
-    return String::new();
+/// "The code owners haven't approved auth: …", with the missing `groups`, the approvals Patronus doesn't count, and where
+/// the approvals count (`counts_in`, `domain_policy::review::review_state`): the GitHub pull request of the branch, or a
+/// Space merge request found open. `name` says what lands ("auth", "the whole auth stack"), `rerun` is the command that
+/// starts it ("bd safe-push auth")
+fn approvals_missing_message(name: &str, rerun: &str, readiness: &ReviewReadiness, groups: &[MissingReviewGroup], counts_in: CountsIn) -> String {
+  let (not_counted, reason) = match readiness {
+    ReviewReadiness::Missing { not_counted, reason, .. } => (not_counted.as_slice(), Some(*reason)),
+    _ => (&[][..], None),
   };
   let named = groups.iter().map(format_missing_group).collect::<Vec<_>>().join(", ");
   let needed = if named.is_empty() { String::new() } else { format!(" Needs review by {named}.") };
@@ -1803,21 +1798,18 @@ fn approvals_missing_message(name: &str, rerun: &str, review: &Review, github: O
       join_names(&not_counted.iter().map(person_name).collect::<Vec<_>>())
     )
   };
-  let no_eligible = if *reason == MissingApprovalsReason::NoEligibleReviewer {
+  let no_eligible = if reason == Some(MissingApprovalsReason::NoEligibleReviewer) {
     " No member of a group can approve it (Patronus names none eligible): ask the group to add a reviewer."
   } else {
     ""
   };
-  let counts = match (github, pull_request, &review.requirement.merge_request) {
-    (Some(_), Some(pull_request), _) => format!(
-      "Patronus counts code-owner approvals in pull request #{} ({}): once they approved it there, run it again",
-      pull_request.number, pull_request.url
-    ),
-    (Some(_), None, _) => format!(
+  let counts = match counts_in {
+    CountsIn::PullRequest { number, url } => format!("Patronus counts code-owner approvals in pull request #{number} ({url}): once they approved it there, run it again"),
+    CountsIn::NewPullRequest => format!(
       "Patronus counts code-owner approvals in the GitHub pull request of the branch: `{rerun} --create-pull-request` pushes the branch and opens it, and the Safe Push starts from it once they approved"
     ),
-    (None, _, Some(merge_request)) => format!("Waiting for approval in {} ({})", merge_request.review_key, merge_request.url),
-    (None, _, None) => {
+    CountsIn::MergeRequest(merge_request) => format!("Waiting for approval in {} ({})", merge_request.review_key, merge_request.url),
+    CountsIn::UnknownRepository => {
       format!("Patronus counts code-owner approvals in the GitHub pull request of the branch. {UNKNOWN_GITHUB_REPOSITORY}, then `{rerun} --create-pull-request`")
     }
   };
@@ -2033,7 +2025,7 @@ fn merge_request_summary(merge_request: &PatronusMergeRequest) -> MergeRequestSu
   }
 }
 
-fn review_summary(review: &Review, reviewed_on_github: bool, pull_request: Option<&PullRequest>, skipped_by: Option<ApprovalsSkippedBy>) -> ReviewSummary {
+fn review_summary(review: &Review, reviewed_on_github: bool, pull_request: Option<&PullRequest>, skipped_by: Option<ApprovalsSkip>) -> ReviewSummary {
   let requirement = &review.requirement;
   let missing_groups: &[MissingReviewGroup] = match &review.readiness {
     ReviewReadiness::Missing { groups, .. } => groups,
@@ -2071,7 +2063,7 @@ fn review_summary(review: &Review, reviewed_on_github: bool, pull_request: Optio
     approved_on_github: pull_request.map_or_else(Vec::new, |pull_request| github_approvers(requirement, pull_request)),
     readiness: readiness.to_string(),
     readiness_reason: readiness_reason.map(str::to_string),
-    skipped_by: skipped_by.map(|skipped_by| skipped_by.name().to_string()),
+    skipped_by: skipped_by.map(|skipped_by| approvals_skip_name(skipped_by).to_string()),
     waiting_for: missing_groups.iter().flat_map(|group| &group.requested).map(person_summary).collect(),
     not_counted: match &review.readiness {
       ReviewReadiness::Missing { not_counted, .. } => not_counted.iter().map(person_summary).collect(),

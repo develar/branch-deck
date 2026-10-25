@@ -1,5 +1,6 @@
 {
   "given": {"parked": "self"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

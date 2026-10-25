@@ -1,5 +1,6 @@
 {
   "given": {"profile": {"chosen": "lsc"}},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

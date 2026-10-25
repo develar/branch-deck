@@ -1,9 +1,8 @@
-use crate::readiness::{Answered, ApprovalNews, approval_news, awaits_approval, start_pull_request};
-use domain_types::fixtures::pull_request;
+use crate::readiness::{Answered, ApprovalNews, approval_news, awaits_approval};
 use domain_types::patronus::{
   ApprovedReviewGroup, MissingApprovalsReason, MissingReviewGroup, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason, UnknownReadinessReason,
 };
-use domain_types::pull_request::{PullRequestState, Reviewer, ReviewerState};
+use domain_types::pull_request::{Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
 
 fn person(login: &str, full_name: &str) -> Person {
@@ -175,31 +174,6 @@ fn is_no_news_for_another_tip_a_start_through_the_api_the_same_reviews_or_a_read
     reason: UnknownReadinessReason::ApprovalsNotEvaluated,
   };
   assert_eq!(news((&before, &unknown), (&reviewed, &ready)), None);
-}
-
-#[test]
-fn a_safe_push_starts_from_the_open_pull_request_into_the_target_while_patronus_names_the_github_repository() {
-  let open = pull_request("auth", 7);
-  assert_eq!(start_pull_request(Some(&open), "master", Some("acme/monorepo")).map(|it| it.number), Some(7));
-  // a base not read yet counts as the target
-  let unread = domain_types::pull_request::PullRequest {
-    base_ref_name: String::new(),
-    ..open.clone()
-  };
-  assert_eq!(start_pull_request(Some(&unread), "master", Some("acme/monorepo")).map(|it| it.number), Some(7));
-  // through the API: another base, a closed one, none, or no GitHub repository Patronus knows
-  let other_base = domain_types::pull_request::PullRequest {
-    base_ref_name: "user/virtual/login".to_owned(),
-    ..open.clone()
-  };
-  let closed = domain_types::pull_request::PullRequest {
-    state: PullRequestState::Closed,
-    ..open.clone()
-  };
-  assert_eq!(start_pull_request(Some(&other_base), "master", Some("acme/monorepo")), None);
-  assert_eq!(start_pull_request(Some(&closed), "master", Some("acme/monorepo")), None);
-  assert_eq!(start_pull_request(None, "master", Some("acme/monorepo")), None);
-  assert_eq!(start_pull_request(Some(&open), "master", None), None);
 }
 
 /// A subject waits for approvals when its last answer, of the same tip and pull request, misses them, or when Patronus

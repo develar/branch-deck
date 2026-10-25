@@ -14,7 +14,7 @@ use test_utils::sync_fixtures::TestReporter;
 
 /// The view a window holds after `patches`, from an empty one of `epoch`
 fn fold(epoch: u32, patches: Vec<ViewPatch>) -> RepositoryView {
-  let mut view = View::new(epoch).snapshot();
+  let mut view = View::new(epoch, "user").snapshot();
   for patch in patches {
     apply_patch(&mut view, patch).unwrap();
   }
@@ -26,7 +26,7 @@ fn fold(epoch: u32, patches: Vec<ViewPatch>) -> RepositoryView {
 #[test]
 fn a_patch_carries_only_the_parts_that_changed() {
   let mut state = TableState::new();
-  let mut view = View::new(7);
+  let mut view = View::new(7, "user");
   run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
   let first = view.diff(&state, &FactStore::new()).unwrap();
   assert_eq!((first.base, first.next), (Version { epoch: 7, seq: 0 }, Version { epoch: 7, seq: 1 }));
@@ -54,19 +54,19 @@ fn a_patch_carries_only_the_parts_that_changed() {
 #[test]
 fn a_patch_applies_only_to_the_view_at_its_base_in_its_epoch() {
   let mut state = TableState::new();
-  let mut view = View::new(3);
+  let mut view = View::new(3, "user");
   run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
   let first = view.diff(&state, &FactStore::new()).unwrap();
   state.apply(SyncEvent::RemoteStatusUpdate(remote_status("ui", &[])));
   let second = view.diff(&state, &FactStore::new()).unwrap();
 
-  let mut window = View::new(3).snapshot();
+  let mut window = View::new(3, "user").snapshot();
   assert_eq!(
     apply_patch(&mut window, second.clone()),
     Err(PatchRejected::MissingBase { view: 0, base: 1 }),
     "a lost patch"
   );
-  let mut foreign = View::new(4).snapshot();
+  let mut foreign = View::new(4, "user").snapshot();
   assert_eq!(apply_patch(&mut foreign, first.clone()), Err(PatchRejected::ForeignEpoch { view: 4, patch: 3 }));
   apply_patch(&mut window, first.clone()).unwrap();
   assert_eq!(apply_patch(&mut window, first), Err(PatchRejected::MissingBase { view: 1, base: 0 }), "a patch twice");
@@ -84,7 +84,7 @@ fn a_patch_applies_only_to_the_view_at_its_base_in_its_epoch() {
 /// A table synced once with every commit and branch unchanged, and the view of a window that has it
 fn synced_unchanged() -> (TableState, View) {
   let mut state = TableState::new();
-  let mut view = View::new(1);
+  let mut view = View::new(1, "user");
   run_sync(&mut state, sync_events(CommitSyncStatus::Unchanged, BranchSyncStatus::Unchanged));
   view.diff(&state, &FactStore::new()).unwrap();
   (state, view)
@@ -196,7 +196,7 @@ async fn the_patches_of_a_large_table_cost_less_than_its_events() {
   let path = directory.path().to_str().unwrap();
   let git = GitCommandExecutor::new();
   let mut state = TableState::new();
-  let mut view = View::new(new_epoch());
+  let mut view = View::new(new_epoch(), "user");
   let epoch = view.version().epoch;
 
   let (first, events) = patches_of_sync(&git, path, &mut state, &mut view, EVENTS_PER_PATCH).await;

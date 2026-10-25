@@ -1,5 +1,6 @@
 {
   "given": {"robot": {"on": "tip", "state": "success"}},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

@@ -145,7 +145,7 @@ describe("getSafePushDecision", () => {
     expect(getSafePushDecision(facts({ mode: "dryRun", review: { kind: "none" }, pushHeld: "A Safe Push of auth is running" }))).toMatchObject({ kind: "refuse", opens: "robot" })
   })
 
-  it("lets a profile that skips the review start without the approvals, and a start without review wait for its profile", () => {
+  it("lets a profile that skips the review start without the approvals and past a pull request into another base, and a start without review wait for its profile", () => {
     const missing: Partial<SafePushFacts> = { review: { kind: "loaded", readiness: { kind: "missing", groups: [], notCounted: [], reason: "noPullRequestContext" } } }
     const awaiting: Partial<SafePushFacts> = { step: { kind: "createPullRequest", blocker: "Code owners must approve in a pull request: IJPL" } }
     expect(getSafePushDecision(facts({ ...missing, ...awaiting, fromPullRequest: null, profile: { ...LSC, skipsReview: true } }))).toEqual({
@@ -160,6 +160,11 @@ describe("getSafePushDecision", () => {
       kind: "confirm",
       reasons: ["profile", "bypass"],
     })
+    // a pull request into another base holds back only a start whose approvals count (D3b)
+    const otherBase: Partial<SafePushFacts> = { step: { kind: "otherBase", blocker: "Approvals in #7 don't count: its base is release-252" } }
+    expect(getSafePushDecision(facts({ ...otherBase, fromPullRequest: null }))).toMatchObject({ kind: "refuse", reason: "Approvals in #7 don't count: its base is release-252" })
+    expect(getSafePushDecision(facts({ ...otherBase, fromPullRequest: null, profile: { ...LSC, skipsReview: true } }))).toEqual({ kind: "confirm", reasons: ["profile"] })
+    expect(getSafePushDecision(facts({ ...otherBase, fromPullRequest: null, bypassReview: true, profile: LSC }))).toEqual({ kind: "confirm", reasons: ["profile", "bypass"] })
     // a reason that isn't the approvals still refuses
     expect(getSafePushDecision(facts({ ...missing, step: { kind: "none", blocker: "Wait for the sync to finish" }, bypassReview: true, profile: LSC }))).toMatchObject({
       kind: "refuse",

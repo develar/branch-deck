@@ -1,5 +1,6 @@
 {
   "given": {"conflicts": "auth"},
+  "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},
   "robots": [

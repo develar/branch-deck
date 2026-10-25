@@ -1,5 +1,6 @@
 {
   "given": {"readiness": "space"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,
@@ -16,7 +17,7 @@
         ],
         "kind": "missing",
         "notCounted": [],
-        "reason": "approvalsMissing"
+        "reason": "noPullRequestContext"
       },
       "requirement": {
         "groups": [

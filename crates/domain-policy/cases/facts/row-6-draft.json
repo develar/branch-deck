@@ -1,5 +1,6 @@
 {
   "given": {"pullRequest": {"draft": true}},
+  "openPullRequests": {"auth": {"base": {"kind": "target"}, "candidates": [], "draft": true, "number": 7}},
   "readiness": {
     "auth": {
       "pullRequest": 7,

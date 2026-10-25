@@ -197,6 +197,7 @@ vi.mock("@/lib/bindings", () => ({
 
 vi.mock("@/stores/branch-sync", async () => {
   const { getPushHold } = await import("@/stores/patronus")
+  const { openPullRequestOf } = await import("@/test-support/open-pull-request")
   return {
     branchSyncStore: { getState: () => ({ baselineBranch: "origin/master", branches: stores.branches }), subscribe: () => () => {} },
     getBranch: (name: string) => stores.branches[name],
@@ -204,6 +205,7 @@ vi.mock("@/stores/branch-sync", async () => {
     // the pushes of a branch as Rust orders them (`domain_policy::push::branch_push`, pinned by push_test.rs), over the
     // stores of these tests: a fixture, the page decides none of it
     getPushOrders: (name: string) => pushOrdersOf(name, getPushHold),
+    getOpenPullRequest: (name: string) => openPullRequestOf(stores.pullRequests[name]),
     getStackNotBuilt: (root: string): Reason | null => {
       const stack = stores.stackBranches[root]
       if (stack === undefined || stack.members.length === 0) {

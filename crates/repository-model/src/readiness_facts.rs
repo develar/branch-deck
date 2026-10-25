@@ -5,7 +5,7 @@
 //!
 //! - The ask of a subject is what a window shows of it: the tip (the copy of the newest commit, which the row shows
 //!   once the sync built it; the stack branch of a whole stack while it is built), the pull request its robot would start from
-//!   (`domain_policy::readiness::start_pull_request`, with the GitHub repository Patronus names) and the reviews of it.
+//!   (`domain_policy::pull_request::start_pull_request`, with the GitHub repository Patronus names) and the reviews of it.
 //!   Its inputs are the hash of the ask and of the rechecks (Check Approvals Again): a new tip, start or review, and a
 //!   recheck, make the readiness `Stale` in the patch that changes them, until the answer of the new inputs.
 //! - Asked (`domain_policy::refresh::readiness_priority`): what a surface needs now and what a recheck asks, at once;
@@ -20,7 +20,8 @@
 
 use crate::facts::{Applied, FactRecord, Observation};
 use crate::table::TableState;
-use domain_policy::readiness::{Answered, approval_news, awaits_approval, start_pull_request};
+use domain_policy::pull_request::start_pull_request;
+use domain_policy::readiness::{Answered, approval_news, awaits_approval};
 use domain_policy::refresh::{ReadinessPriority, readiness_priority};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::error::{ApiError, ErrorCode};

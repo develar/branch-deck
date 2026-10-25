@@ -13,18 +13,11 @@ import { notifyError } from "@/lib/errors"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { openPullRequest } from "@/lib/pull-request"
-import {
-  describeCodeOwnersFact,
-  formatCandidate,
-  formatRefused,
-  formatRequestedToast,
-  getRequestReviewBlocker,
-  getRequestReviewCandidates,
-  requestReviewPushes,
-} from "@/lib/request-review"
+import { describeCodeOwnersFact, formatCandidate, formatDraftReason, formatRefused, formatRequestedToast } from "@/lib/request-review"
 import { showToast } from "@/lib/toast-message"
 import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
+import { useOpenPullRequest } from "@/stores/branch-sync"
 import { runOperation, useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { usePatronusAvailable } from "@/stores/patronus"
 import { requestReviewers, useBranchRules } from "@/stores/pull-requests"
@@ -71,7 +64,9 @@ async function pushFirst(name: string, errorTitle: string, repositoryPath: strin
  */
 export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: RequestReviewFormProps) {
   const repositoryPath = useSelectedProjectPath() ?? ""
-  const candidates = getRequestReviewCandidates(readiness, pullRequest)
+  // the open pull request as Rust reads it: a draft, the code owners Request Review… offers (`review::candidates`)
+  const view = useOpenPullRequest(branch.name)
+  const candidates = view?.candidates ?? []
   // null until the user changes the choice: the suggested ones of the readiness as it is now
   const [choice, setChoice] = useState<readonly string[] | null>(null)
   const checked = choice ?? candidates.filter(candidate => candidate.preselected).map(candidate => candidate.login)
@@ -82,9 +77,10 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
   useIndicatorClaim(surface)
   const isRequesting = useSurfaceBusy(surface) !== null
 
-  const blocker = getRequestReviewBlocker(pullRequest)
-  // the reviewers see the commits: the request pushes the work the remote lacks first, a step of it, not of the user
-  const pushes = requestReviewPushes(branch)
+  const blocker = view?.draft === true ? formatDraftReason(pullRequest.number) : null
+  // the reviewers see the commits: the request pushes the work the remote lacks first (Rust's push action of the remote
+  // status; an unknown one is no push), a step of it, not of the user
+  const pushes = branch.remoteStatus != null && branch.remoteStatus.action.kind !== "upToDate"
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approved = pushes && pullRequest.reviewers.some(reviewer => reviewer.state === "approved")
   // only a warning here: the request counts no approvals, so it never waits for the rules; rules it can't read are said

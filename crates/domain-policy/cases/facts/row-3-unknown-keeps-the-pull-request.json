@@ -4,6 +4,7 @@
     "readiness": "unknown",
     "robot": {"fromPullRequest": true, "on": "tip", "reason": "approvals", "state": "failure"}
   },
+  "openPullRequests": {"auth": {"base": {"kind": "target"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {
       "pullRequest": 7,

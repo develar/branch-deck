@@ -1272,17 +1272,17 @@ fn the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_targ
   assert_eq!(space.remote_tip("test-user/virtual/login"), pushed);
 }
 
-/// One open pull request per branch: `--create-pull-request` takes the one the branch has, whatever its base, and
-/// retargets one into a virtual branch to the target
+/// One open pull request per branch: `--create-pull-request` takes the one the branch has into a virtual branch and
+/// retargets it to the target; one into another base counts the approvals for no Safe Push into the target, so it
+/// refuses with `pull_request_other_base` (D3b), the retarget its only next step
 #[test_log::test]
-fn create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_base() {
+fn create_pull_request_retargets_the_pull_request_of_a_virtual_branch_and_refuses_one_into_another_base() {
   let (_space, github, environment) = needs_review_on_github();
   list_pull_requests(&github, &[pull_request_of("auth", 7, "release-252", &[])]);
-  let output = create_pull_request(&environment);
-  let warning = output["pull_request"]["warnings"][0].as_str().unwrap();
-  assert!(warning.starts_with("pull request #7 already existed and goes into release-252: "), "{output}");
-  assert_eq!(output["pull_request"]["number"], json!(7));
-  assert_eq!((output["pull_request"].get("created"), output.get("retargeted")), (None, None));
+  let (exit_code, output) = safe_push(&environment, &["auth", "--create-pull-request"]);
+  assert_error(&output, exit_code, (4, "pull_request_other_base"));
+  assert_eq!(next_steps(&output["error"]), [("gh pr edit 7 --repo acme/monorepo --base master".to_string(), true)]);
+  assert!(github.requests_to("POST", "/repos/acme/monorepo/pulls").is_empty());
 
   list_pull_requests(&github, &[pull_request_of("auth", 7, "test-user/virtual/core", &[])]);
   github.answer("PATCH", "/repos/acme/monorepo/pulls/7", FakeAnswer::ok(json!({"number": 7})));
@@ -1293,6 +1293,30 @@ fn create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_ba
   );
   assert_eq!(output["retargeted"][0]["old_base"], json!("test-user/virtual/core"));
   assert!(github.requests_to("POST", "/repos/acme/monorepo/pulls").is_empty());
+}
+
+/// D3b: Patronus merges a pull request into its base, so the approvals of one into another base (a release branch)
+/// count for no Safe Push into the target: a Safe Push that counts them refuses `pull_request_other_base` with the
+/// retarget as its next step (the message names `--without-approvals`), never retargeting it silently; a Dry Run counts none and
+/// starts, and so does a Safe Push without approvals, both through the API
+#[test_log::test]
+fn a_pull_request_into_another_base_refuses_only_a_safe_push_whose_approvals_count() {
+  let (space, github, environment) = needs_review_on_github();
+  list_pull_requests(&github, &[pull_request_of("auth", 7, "release-252", &[])]);
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
+  assert_error(&output, exit_code, (4, "pull_request_other_base"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("pull request #7 of auth goes into release-252"), "{message}");
+  assert_eq!(next_steps(&output["error"]), [("gh pr edit 7 --repo acme/monorepo --base master".to_string(), true)]);
+  assert!(github.requests_to("PATCH", "/repos/acme/monorepo/pulls/7").is_empty());
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
+
+  for args in [&["auth", "--patronus-dry-run"][..], &["auth", "--without-approvals"]] {
+    let (exit_code, output) = safe_push(&environment, args);
+    assert_eq!(exit_code, 0, "{args:?}: {output}");
+    assert_eq!(output["started_via"], json!("api"), "{args:?}");
+  }
+  assert!(github.requests_to("PATCH", "/repos/acme/monorepo/pulls/7").is_empty());
 }
 
 /// `--whole-stack` of any branch of a stack that forks lands every branch of it in one robot, from the stack branch of

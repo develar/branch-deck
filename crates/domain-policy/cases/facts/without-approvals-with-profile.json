@@ -1,5 +1,6 @@
 {
   "given": {"flags": ["withoutApprovals"], "profile": {"chosen": "lsc"}, "readiness": "missing"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

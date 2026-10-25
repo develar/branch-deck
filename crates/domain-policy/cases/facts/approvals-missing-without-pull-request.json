@@ -1,5 +1,6 @@
 {
   "given": {"readiness": "missing"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

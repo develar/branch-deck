@@ -1086,8 +1086,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--reviewer <login>` logins asked (the author left out; a reviewer GitHub refuses is in `pull_request.warnings`), as
   the app's dialog creates it ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request)), without a
   start, and must be `invalid_arguments` without a GitHub repository of the branches; a pull request that already
-  exists is found instead and left as it is, with a warning, whatever its base: one into a virtual branch is retargeted
-  to the target (`retargeted`), one into another base is taken with a warning that Patronus merges it there. The
+  exists is found instead: one into the target is left as it is, one into a virtual branch is retargeted to the target
+  (`retargeted`), one into another base refuses `pull_request_other_base` (its approvals would count for no Safe Push
+  into the target). The
   `review` reviewers carry their `github_login` when Patronus names it, for `--reviewer`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names`, `a_pull_request_that_already_exists_is_found_instead`)
 - The token is the first of `GH_TOKEN` (`GITHUB_TOKEN`), `gh auth token`, the app's sign-in (its token file) and the git
@@ -1100,7 +1101,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   request.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
-  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`, `create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_base`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`, `create_pull_request_retargets_the_pull_request_of_a_virtual_branch_and_refuses_one_into_another_base`)
 - A branch a merged Safe Push landed whole must refuse the start with `landed` (exit 4, first of the `refusals` of
   `--check`): "Nothing was pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is
   left to land"; so must `--whole-stack` once every branch of the stack landed ("every branch of the whole auth stack
@@ -1212,9 +1213,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   must be retargeted to the target before anything is pushed or canceled, and the robot then starts from the
   branch's: `retargeted` lists them as `bd push` does, `--check` the ones a start would retarget. A retarget of the
   branch's own pull request that GitHub refuses fails the start with nothing pushed or started; one of a branch taken
-  along is a `retarget_warnings` line. One into another base (a release branch) stays, and the start goes through
-  the API.
+  along is a `retarget_warnings` line (where a pull request goes is the rule of the app's, `domain_policy::pull_request::
+  base_of`). One into another base (a release branch) stays as it is, never retargeted silently: its approvals count
+  for no Safe Push into the target, so a Safe Push that counts them, `--create-pull-request` too, must refuse
+  `pull_request_other_base` (exit 4, also in `refusals`) with the `gh pr edit … --base <target>` retarget as its next
+  step, as the app refuses by row 5′ ([Next Step](../branch/next-step.spec.md#the-table)); a Dry Run, `--without-approvals`
+  and a profile that skips the review count none and start through the API.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_target_before_the_start`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_pull_request_into_another_base_refuses_only_a_safe_push_whose_approvals_count`)
 - Without the Space token of the Safe Push CLI it must be `not_logged_in`, and outside Space `not_on_space`, before a
   request to Patronus.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`without_a_token_or_space_nothing_runs`)
@@ -1224,7 +1230,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd request-review <branch>` must ask GitHub users to review the open pull request of the virtual branch, as the
   app's Request Review… does ([Pull Requests](../branch/pull-requests.spec.md#request-review)): without `--reviewer`,
   one suggested code owner with a GitHub login of each group whose approval is missing and nobody is asked for yet,
-  each once, never the author, a member asked already or one whose approval counts, from the review readiness
+  each once, never the author, a member asked already or one whose approval counts (the ones the app's popover checks,
+  by the one rule of both: `domain_policy::review::candidates`), from the review readiness
   `bd safe-push` checks (the pre-check with the pull request, asked again); `--reviewer <login>` (repeatable) asks
   those instead and doesn't ask Patronus. It must print `reviewers` (whom it asks), `requested`, `refused` with
   GitHub's reason, `waiting_for` (the reviewers the pull request asks after the request) and the `readiness` before it,

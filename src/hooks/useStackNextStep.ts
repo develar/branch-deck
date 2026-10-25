@@ -21,7 +21,7 @@ import { getBranchNextStep } from "@/lib/branch-next-step"
 import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
 import { stackParkedState } from "@/lib/parked"
-import { formatLandingSubject, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
+import { formatLandingSubject, getSafePushSlot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
@@ -31,7 +31,7 @@ import { describeWholeStackLanding, formatWholeStack, stackReadinessKey, stackRo
 import { useShowReviewReadiness } from "@/model/demand"
 import { formatReasonOrNull } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackBranch, getStackNotBuilt, getWholeStack, isForkingRoot, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getOpenPullRequest, getStackBranch, getStackNotBuilt, getWholeStack, isForkingRoot, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import {
   getStackLandedReason,
@@ -114,18 +114,21 @@ export function getCreateStackPullRequestItem(root: string): MenuItem | null {
 }
 
 /** The pull request of the whole stack as the next step needs it: never retargeted, so never "a virtual branch" */
-function stackPullRequestFactOf(stack: StackBranch, target: string): NextStepPullRequest | null {
+function stackPullRequestFactOf(stack: StackBranch): NextStepPullRequest | null {
   const pullRequest = getStackPullRequest(stack.root)
   if (pullRequest === undefined) {
     return null
   }
+  const base = getOpenPullRequest(stackReadinessKey(stack.root))?.base
   const mergedCurrent = pullRequest.state === "merged" && !isReviewCommitOutdated(getReviewCommitState(pullRequest.headRefOid, stack.tip ?? undefined, stack.remoteStatus))
   return {
     number: pullRequest.number,
     state: pullRequest.state,
     isDraft: pullRequest.isDraft,
     base: pullRequest.baseRefName ?? "",
-    intoTarget: isPullRequestIntoTarget(pullRequest, target),
+    // where an open one goes, as Rust reads it (`pull_request::base_of`); one into a virtual branch is no retarget of
+    // the whole stack, another base
+    intoTarget: base === undefined || base.kind === "target",
     mergedCurrent,
     baseIsVirtualBranch: false,
     waitingFor: waitingReviewers(pullRequest),
@@ -195,7 +198,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     // a refresh that failed for a while keeps the last listing: its pull requests are known as of then
     pullRequestsAvailable: getPullRequestListing() === "listed",
     pullRequestsUnlisted: getPullRequestListing() === "unlisted" ? formatAvailabilityHint(getPullRequestAvailability()) : null,
-    pullRequest: stackPullRequestFactOf(stack, target),
+    pullRequest: stackPullRequestFactOf(stack),
     target,
     // what merged Safe Pushes landed of it is in the target: the robot lands the rest
     landsBranches: rest.members.length,
@@ -219,7 +222,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
       retarget: () => {},
       // in the column of steps of the island header, which is the whole stack's
       createPullRequest: stackStepItem(getCreateStackPullRequestItem(root)),
-      requestReview: getRequestReviewItem(pullRequest, readiness?.readiness ?? null, () => openRequestReview(key)),
+      requestReview: getRequestReviewItem(getOpenPullRequest(key), () => openRequestReview(key)),
       fixLanding,
     },
   }

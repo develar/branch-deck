@@ -14,14 +14,14 @@ import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { describeOrphanedStackPullRequest, describeWholeStackLanding, formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { formatReasonOrNull } from "@/presenters/reasons"
-import { branchSyncStore, getBranch, getStackBranch, getStackNotBuilt, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getOpenPullRequest, getStackBranch, getStackNotBuilt, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { openInline } from "@/stores/inline-row-action"
 import { getStackLandedBy } from "@/stores/landed-stacks"
 import { getStackRobot, isPatronusAvailable } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { getReadinessTarget, getReviewReadiness } from "@/stores/review-readiness"
+import { getReadinessTarget } from "@/stores/review-readiness"
 
 /** Where the actions of the whole stack render */
 export interface WholeStackMenuOptions {
@@ -170,7 +170,7 @@ function getWholeStackRequestReviewItem(root: string): MenuItem | null {
   if (next?.leaf === null && next.step.kind === "requestReview" && next.step.item !== null) {
     return next.step.item
   }
-  return getRequestReviewItem(getStackPullRequest(root), getReviewReadiness(key)?.readiness ?? null, () => openRequestReview(key))
+  return getRequestReviewItem(getOpenPullRequest(key), () => openRequestReview(key))
 }
 
 /**

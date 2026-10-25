@@ -206,7 +206,12 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::Internal
     | ErrorCode::Canceled => &[],
     ErrorCode::InvalidPlan => &["reword"],
-    ErrorCode::StackConflict | ErrorCode::StackNotBuilt | ErrorCode::TargetConflict | ErrorCode::PushDismissesApprovals | ErrorCode::NotLoggedIn => &["safe-push"],
+    ErrorCode::StackConflict
+    | ErrorCode::StackNotBuilt
+    | ErrorCode::TargetConflict
+    | ErrorCode::PushDismissesApprovals
+    | ErrorCode::PullRequestOtherBase
+    | ErrorCode::NotLoggedIn => &["safe-push"],
     ErrorCode::ApprovalsMissing | ErrorCode::RulesUnknown => &["help agent", "safe-push"],
     ErrorCode::HunkConflict | ErrorCode::BlockNotFound => &["move-hunk"],
     ErrorCode::HeadMoved => &["help agent", "group"],

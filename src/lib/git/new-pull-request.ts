@@ -7,7 +7,7 @@ import { baselineOnRemote } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore } from "@/stores/branch-sync"
+import { branchSyncStore, getOpenPullRequest } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getPatronusGitHubRepository } from "@/stores/patronus"
 import { getGitHubRepository, getPullRequest, retargetPullRequest } from "@/stores/pull-requests"
@@ -31,16 +31,6 @@ function ghRepositoryOption(): string {
   return repository === null ? "" : ` --repo ${repository}`
 }
 
-/**
- * A base that is a virtual branch of the user (`{prefix}/virtual/…`): the base of a pull request opened into a parent's
- * branch, before every pull request went into the baseline. Patronus merges a pull request into its base, so its
- * approvals never count; a release branch or another base of the user's choice isn't one.
- */
-export function isVirtualBranchBase(base: string): boolean {
-  const namespace = getFullBranchName("")
-  return base.length > namespace.length && base.startsWith(namespace)
-}
-
 /** The open pull request of a branch whose base is a virtual branch, and the base it goes into instead */
 export interface PullRequestRetarget {
   readonly pullRequest: PullRequest
@@ -51,17 +41,17 @@ export interface PullRequestRetarget {
 }
 
 /**
- * The open pull request of a branch whose base is a virtual branch (`isVirtualBranchBase`), e.g. its parent's or the one
- * of a parent that landed, with the base it goes into instead; null if there is nothing to retarget. A pull request into
- * a release branch is left as it is: that base may be meant.
+ * The open pull request of a branch whose base is a virtual branch, e.g. its parent's or the one of a parent that landed,
+ * with the base it goes into instead, as Rust reads it (`PullRequestView.base`, `pull_request::base_of`); null if there
+ * is nothing to retarget. A pull request into a release branch is left as it is: that base may be meant.
  */
 export function getPullRequestRetarget(branchName: string): PullRequestRetarget | null {
   const pullRequest = getPullRequest(branchName)
-  const current = pullRequest?.baseRefName ?? ""
-  if (pullRequest === undefined || pullRequest.state !== "open" || !isVirtualBranchBase(current)) {
+  const base = getOpenPullRequest(branchName)?.base
+  if (pullRequest === undefined || base?.kind !== "virtual") {
     return null
   }
-  return { pullRequest, from: current.slice(getFullBranchName("").length), base: getPullRequestBase() }
+  return { pullRequest, from: base.from, base: base.retarget }
 }
 
 /**

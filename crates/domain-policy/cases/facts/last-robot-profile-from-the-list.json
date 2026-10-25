@@ -3,6 +3,7 @@
     "profile": {"lastRobot": "lsc", "newApi": true, "skipsReview": true},
     "robot": {"on": "older", "state": "failure"}
   },
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

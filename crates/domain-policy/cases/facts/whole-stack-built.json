@@ -3,6 +3,7 @@
     "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
     "subject": "wholeStack"
   },
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

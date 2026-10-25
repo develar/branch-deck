@@ -5,6 +5,7 @@
     "remote": "unpushed",
     "rules": "unknown"
   },
+  "openPullRequests": {"auth": {"base": {"kind": "target"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {
       "pullRequest": 7,

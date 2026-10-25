@@ -15,6 +15,7 @@ targets:
   - ../../crates/repository-model/src/readiness_facts.rs
   - ../../crates/remote-facts/src/scheduler_readiness.rs
   - ../../crates/domain-policy/src/readiness.rs
+  - ../../crates/domain-policy/src/pull_request.rs
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/lib/landing-node.ts
   - ../../src/hooks/useLandingNode.ts
@@ -90,8 +91,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   | 2 | A robot failed or was canceled, not for approvals, and no running Safe Push of a branch it is built on (of the whole stack: of a branch of it) lands a part of it; while one does, the failure of the earlier piece waits for it: the rows below decide, the Safe Push disabled with "A Safe Push of auth is running: wait until it merges" | "Restart Safe Push" (Safe Push… where Patronus can't restart it) | enabled |
   | 3 | A robot failed for approvals, started from the open pull request into the target, readiness `approved` | "Restart Safe Push" | enabled |
   | 4 | removed: a stacked branch takes the rows of its own pull request into master, see below | — | — |
-  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `isVirtualBranchBase`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | disabled: "Approvals in #7 don't count: its base is user/virtual/auth" |
-  | 5′ | An open pull request into another base, which may be meant (a release branch) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252" |
+  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `base` `virtual` of the open pull request the session reads, `domain_policy::pull_request::base_of`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | disabled: "Approvals in #7 don't count: its base is user/virtual/auth" |
+  | 5′ | An open pull request into another base, which may be meant (a release branch; `base` `other`) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252"; a start that counts no approval (without review, a profile that skips the review) starts, as `bd safe-push` (D3b) |
   | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
   | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected; on the remote or not, its dialog pushes the branch; disabled only while the GitHub repository is unknown); a branch of a whole stack whose pull request is open: quiet "In #12", which opens it (below) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
   | 8 | `missing`, a member of a missing group requested changes (and wasn't asked again since) | quiet "Changes Requested" in `destructive`, opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
@@ -425,12 +426,12 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../crates/test-server/src/review_readiness_test.rs (`the_session_asks_the_readiness_a_window_needs_from_the_fake_patronus`)
 - The ask of a subject is what its row shows: the tip (the copy the sync built), and the start of the robot: the open
   pull request into the target with its reviewers and author while Patronus names the GitHub repository, else through
-  the API (`domain_policy::readiness::start_pull_request`; the page's own `readinessInputOf` follows the same rule).
+  the API (`domain_policy::pull_request::start_pull_request`; the page's own `readinessInputOf` follows the same rule).
   The whole stack is one more subject, `stack:<root>` (`stackReadinessKey`, a name no branch has): asked as its stack
   branch (`ReviewReadinessBranch.source`) with the pull request of the whole stack, only while the sync built the stack
   branch (another state has nothing its Safe Push would land).
   [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`the_ask_is_the_tip_a_window_shows_and_the_pull_request_its_robot_starts_from`)
-  [@test] ../../crates/domain-policy/src/readiness_test.rs (`a_safe_push_starts_from_the_open_pull_request_into_the_target_while_patronus_names_the_github_repository`)
+  [@test] ../../crates/domain-policy/src/pull_request_test.rs (`a_safe_push_starts_from_the_open_pull_request_into_the_target_while_patronus_names_the_github_repository`)
 - What a surface needs and the rechecks of Check Approvals Again go at once, each in a call of its own beside whatever
   is in flight: a click waits for no pre-check but its own. The rest is a queue: the kept answers of all of it first,
   in one read (the object cache keeps them by what Patronus decides on), then the shown subjects before the hidden ones,

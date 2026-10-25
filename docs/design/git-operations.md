@@ -3627,7 +3627,7 @@ profiles in the Patronus store) and asks the session (`refreshPullRequests`, `as
 The review readiness (`facts.readiness` by subject, a branch or `stack:<root>`; `repository_model::readiness_facts`):
 the actor builds the ask of each subject from the view as the page sees it (the tip is the copy of its newest commit, a
 whole stack only once its stack branch is `Built`; the pull request it starts from by
-`domain_policy::readiness::start_pull_request`, in the GitHub repository Patronus named) and expects its inputs before
+`domain_policy::pull_request::start_pull_request`, in the GitHub repository Patronus named) and expects its inputs before
 each patch. The scheduler (`scheduler_readiness.rs`) asks what a surface needs and Check Approvals Again (`refresh_facts
 { readiness, manual, subject }`, new inputs) at once, each in a call of its own, then the shown subjects and after them
 the hidden ones that wait for approvals of the same tip and start, at most four at a time, after one read of the answers

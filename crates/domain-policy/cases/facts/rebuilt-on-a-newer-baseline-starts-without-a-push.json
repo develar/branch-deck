@@ -1,5 +1,6 @@
 {
   "given": {"remote": "rebuiltOnNewerBaseline"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

@@ -1,5 +1,6 @@
 {
   "given": {"commits": ["(auth) Add auth", "(auth) Add login"], "landed": "byContent"},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

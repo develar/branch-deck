@@ -12,6 +12,7 @@ import type {
   Commit,
   CommitSyncStatus,
   DroppedCommit,
+  PullRequestView,
   PushAction,
   Reason,
   RemoteStatusUpdate,
@@ -240,6 +241,12 @@ export interface BranchSyncState {
    * branch not listed pushes alone; read through `pushOrdersIn`
    */
   pushes: Readonly<Record<string, BranchPush>>
+  /**
+   * The open pull request of each subject (a branch, `stack:<root>` the whole stack) as Rust reads it
+   * (`RepositoryView.openPullRequests`: where it goes, a draft, the code owners Request Review… offers); a subject
+   * without an open pull request is not listed
+   */
+  openPullRequests: Readonly<Record<string, PullRequestView>>
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -269,6 +276,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   parked: {},
   stackBranches: {},
   pushes: {},
+  openPullRequests: {},
 }))
 
 /**
@@ -649,6 +657,16 @@ export function pushOrdersIn(state: BranchSyncState, name: string): PushOrders {
 /** `pushOrdersIn` of the stores now */
 export function getPushOrders(name: string): PushOrders {
   return pushOrdersIn(branchSyncStore.getState(), name)
+}
+
+/** The open pull request of `subject` (a branch, `stackReadinessKey(root)`) as Rust reads it; undefined without one */
+export function getOpenPullRequest(subject: string): PullRequestView | undefined {
+  return branchSyncStore.getState().openPullRequests[subject]
+}
+
+/** `getOpenPullRequest`, re-rendering when it changes */
+export function useOpenPullRequest(subject: string): PullRequestView | undefined {
+  return useStore(branchSyncStore, state => state.openPullRequests[subject])
 }
 
 /** The branches stacked directly on `name`, newest first */

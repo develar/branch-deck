@@ -271,3 +271,49 @@ pub struct BranchRules {
   /// A push of new commits dismisses the approvals of a pull request into the branch
   pub dismiss_stale_reviews_on_push: bool,
 }
+
+/// Where an open pull request goes, as a Safe Push of its branch reads it (`domain_policy::pull_request::base_of`):
+/// Patronus merges a pull request into its base, so only one into the target counts
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum PullRequestBase {
+  /// Into the target, or GitHub didn't say its base: a robot starts from it, its approvals count
+  Target,
+  /// Into a virtual branch of the user (a parent's, another branch of the table, one that landed and is gone): every
+  /// pull request of a virtual branch goes into the target, so it is retargeted to `retarget`, never a choice; `from`
+  /// the short name of the branch it goes into (`auth` of `user/virtual/auth`)
+  Virtual { from: String, retarget: String },
+  /// Into another base (a release branch), which may be meant: its approvals count only for a Safe Push into `base`
+  Other { base: String },
+}
+
+/// A code owner Request Review… offers (`domain_policy::review::candidates`): suggested by Patronus for a group whose
+/// approval is missing, with a GitHub login
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewCandidate {
+  pub login: String,
+  /// The full name Patronus knows; null when it names none
+  pub full_name: Option<String>,
+  /// The missing groups that suggest them, in the order of the readiness
+  pub groups: Vec<String>,
+  /// Chosen when the popover opens, and whom `bd request-review` asks: one suggested code owner of each missing group
+  /// nobody is asked for yet, each once
+  pub preselected: bool,
+}
+
+/// The open pull request of a subject (a branch, or `stack:<root>` the whole stack) as the rules read it, a part of the
+/// view of the session (`RepositoryView.open_pull_requests`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestView {
+  pub number: u32,
+  pub base: PullRequestBase,
+  /// A draft: Patronus merges it once it is ready for review, nobody is asked to review it
+  pub draft: bool,
+  /// The code owners Request Review… offers, of the review readiness of the subject; empty without missing approvals
+  pub candidates: Vec<ReviewCandidate>,
+}

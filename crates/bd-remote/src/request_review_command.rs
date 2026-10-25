@@ -1,7 +1,8 @@
 //! `bd request-review`: ask GitHub users to review the open pull request of a virtual branch, as the app's Request
 //! Review… does (`spec/branch/pull-requests.spec.md#request-review`). Without `--reviewer` it asks the code owners
 //! Patronus suggests for the groups whose approval is missing, one per group nobody is asked for yet, from the review
-//! readiness `bd safe-push` checks (the pre-check with the pull request, asked again). Users only: a team is not asked.
+//! readiness `bd safe-push` checks (the pre-check with the pull request, asked again): the ones the app's popover
+//! preselects, by the one rule of both (`domain_policy::review::candidates`). Users only: a team is not asked.
 //! No repository lock and no sync: the readiness is that of the virtual branch as the last sync built it; the only
 //! write is the request on GitHub (`POST pulls/<n>/requested_reviewers`).
 
@@ -11,10 +12,12 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
+use domain_policy::pull_request::base_of;
+use domain_policy::review::{Candidates, candidates};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
-use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
+use domain_types::patronus::{Person, ReviewReadinessBranch};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState};
 use git_ops::revs::resolve_commit;
 use remote_facts::pull_request_writes::request_pull_request_reviewers;
 use remote_facts::pull_requests::{GitHubWriteError, SIGNED_OUT_MESSAGE, list_pull_requests};
@@ -116,7 +119,17 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
 
   let (readiness, review, reviewers, groups_without_reviewer) = if args.reviewers.is_empty() {
     let review = code_owner_review(context, environment, runtime, &repository, name, &pull_request)?;
-    let (reviewers, groups_without_reviewer) = suggested_reviewers(&review.readiness, &pull_request);
+    // the candidates of the app's Request Review…: it asks the ones the popover preselects
+    let Candidates { candidates, without_reviewer } = candidates(Some(&review.readiness), &pull_request);
+    let reviewers: Vec<Person> = candidates
+      .into_iter()
+      .filter(|candidate| candidate.preselected)
+      .map(|candidate| Person {
+        login: Some(candidate.login),
+        full_name: candidate.full_name,
+      })
+      .collect();
+    let groups_without_reviewer = without_reviewer;
     if reviewers.is_empty() && !groups_without_reviewer.is_empty() {
       return Err(CliError::new(
         ErrorCode::NoReviewer,
@@ -244,41 +257,9 @@ fn code_owner_review(
     branch_prefix: &context.prefix,
   };
   // the robot starts from the pull request only when it goes into the target
-  let into_target = (pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target).then_some(pull_request);
+  let into_target = (base_of(pull_request, &target, &context.prefix) == PullRequestBase::Target).then_some(pull_request);
   let branch = ReviewReadinessBranch::starting_from(name.to_string(), None, tip, into_target);
   review_readiness(context, &service, runtime, &readiness_repository, &branch)
-}
-
-/// One suggested code owner with a GitHub login of each missing group nobody is asked for, each once (a person chosen
-/// for another group covers this one too), as the app's Request Review… preselects them; never the author, a member
-/// asked already or one whose approval counts. And the missing groups nobody is asked for that have no such owner.
-fn suggested_reviewers(readiness: &ReviewReadiness, pull_request: &PullRequest) -> (Vec<Person>, Vec<String>) {
-  let ReviewReadiness::Missing { groups, .. } = readiness else {
-    return (Vec::new(), Vec::new());
-  };
-  let is = |login: &str, other: Option<&str>| other.is_some_and(|other| other.eq_ignore_ascii_case(login));
-  let asked = |login: &str| {
-    pull_request
-      .reviewers
-      .iter()
-      .any(|reviewer| reviewer.requested && reviewer.login.eq_ignore_ascii_case(login))
-  };
-  let mut chosen: Vec<Person> = Vec::new();
-  let mut without = Vec::new();
-  for group in groups.iter().filter(|group| group.requested.is_empty()) {
-    let candidate = group.suggested.iter().find(|person| {
-      person
-        .login
-        .as_deref()
-        .is_some_and(|login| !is(login, pull_request.author.as_deref()) && !asked(login) && !group.approved_by.iter().any(|approver| is(login, approver.login.as_deref())))
-    });
-    match candidate {
-      Some(person) if chosen.iter().any(|it| is(person.login.as_deref().unwrap_or_default(), it.login.as_deref())) => {}
-      Some(person) => chosen.push(person.clone()),
-      None => without.push(group.name.clone()),
-    }
-  }
-  (chosen, without)
 }
 
 /// The full name Patronus knows for a GitHub login

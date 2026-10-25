@@ -16,8 +16,9 @@ Two tests read every `*.json` file here, one test function per `group`, and name
 
 No adapter decides for its side. The Rust side builds a repository of `given` with the fixtures, once per case. What
 the app's stores hold of the Rust core — the tips the sync left, the robots as the list answers them, in its order,
-the repository view (`patronus_view` with the landing needs, as `bd status` reads it) and the review readiness of the
-branch and of its whole stack — the group test computes of that same repository before it checks and starts, and
+the repository view (`patronus_view` with the landing needs, as `bd status` reads it), the review readiness of the
+branch and of its whole stack, and the open pull requests as the view of the session reads them (`openPullRequests`:
+where each goes, a draft, the code owners Request Review… offers; `open_pull_requests_view`) — the group test computes of that same repository before it checks and starts, and
 writes to `facts/<id>.json`, one file per exercised case (`assert_facts_kept`; the ids named `<branch>-tip`,
 `<branch>-remote`, `stack-<root>-tip`, `<branch>-c<i>` for the i-th original commit, the robots with their start and
 finish times settled by rank, the robot pages under `https://patronus`). The TS side seeds those files. What it still

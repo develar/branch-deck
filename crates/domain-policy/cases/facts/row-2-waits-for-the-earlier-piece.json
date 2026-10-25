@@ -4,6 +4,7 @@
     "commits": ["(auth) Add auth", "(auth/login) Add login"],
     "robot": [{"on": "older", "state": "failure"}, {"on": "ancestor:auth", "state": "running"}]
   },
+  "openPullRequests": {},
   "readiness": {
     "login": {
       "pullRequest": null,

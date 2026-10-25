@@ -673,7 +673,7 @@
   {
     "id": "approved-pull-request-into-another-base-pushes",
     "group": "review",
-    "title": "a push of a new commit into the approved #7, which goes into a release branch, while the rules dismiss stale reviews: the app refuses by the base (row 5′), no dismiss fact without a start from the pull request; bd ignores the pull request and refuses the approvals Patronus finds missing without one",
+    "title": "a push of a new commit into the approved #7, which goes into a release branch, while the rules dismiss stale reviews: both refuse by the base (row 5′, D3b), no dismiss fact without a start from the pull request; bd also names the approvals Patronus finds missing without one",
     "spec": ["spec/branch/next-step.spec.md#the-table:5′", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": null,
     "given": {
@@ -697,13 +697,13 @@
     },
     "bd": {
       "check": {
-        "refusals": ["approvals_missing"],
+        "refusals": ["pull_request_other_base", "approvals_missing"],
         "push_needed": true,
         "pull_request": null,
         "readiness": "missing"
       },
       "start": {
-        "error": "approvals_missing"
+        "error": "pull_request_other_base"
       }
     }
   },

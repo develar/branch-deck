@@ -52,6 +52,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
     branches: {},
     stacks: {},
     pushes: {},
+    openPullRequests: {},
     sections: { unassigned: [], archived: { names: [], newlyArchived: [], integration: {} }, unapplied: [], landed: { baseline: null, landing: [], landed: [] } },
     patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} } },
     facts: {

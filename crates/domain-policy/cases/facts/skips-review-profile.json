@@ -4,6 +4,7 @@
     "readiness": "missing",
     "robot": {"on": "older", "state": "failure"}
   },
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

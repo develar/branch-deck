@@ -21,7 +21,7 @@ use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
-use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability};
+use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView};
 use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
 use crate::review_request::ReviewRequest;
@@ -338,6 +338,10 @@ pub struct RepositoryView {
   /// What the pushes of each branch send, as the rules order them over the table and the holds of the robots
   /// (`domain_policy::push`); a branch whose pushes send it alone is not listed
   pub pushes: BTreeMap<String, BranchPush>,
+  /// The open pull request of each subject (a branch, `stack:<root>` the whole stack) as the rules read it: where it
+  /// goes, a draft, the code owners Request Review… offers (`domain_policy::pull_request`, `domain_policy::review`); a
+  /// subject without an open pull request is not listed
+  pub open_pull_requests: BTreeMap<String, PullRequestView>,
   pub sections: TableSections,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
@@ -966,6 +970,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_pushes: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub open_pull_requests: BTreeMap<String, PullRequestView>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_open_pull_requests: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,

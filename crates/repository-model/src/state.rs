@@ -4,10 +4,11 @@
 //! version of the last patch, for a window that opens or lost a patch. Rust decides equality, so the page keeps the
 //! identity of every part a patch does not carry.
 
-use crate::derive::push_view;
+use crate::derive::{open_pull_requests_view, push_view};
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
+use domain_types::branch_names::baseline_on_remote;
 use domain_types::session::{
   ArchivedChanges, Fact, FactsChanges, FactsView, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, RobotsChange, RobotsView, SyncState,
   TableChanges, Version, ViewPatch,
@@ -19,17 +20,20 @@ use std::hash::{BuildHasher, RandomState};
 #[derive(Clone, Debug)]
 pub struct View {
   last_sent: RepositoryView,
+  /// The branch prefix of the session: the virtual branches a pull request may go into
+  prefix: String,
 }
 
 impl View {
-  /// An empty view at the start of `epoch`; the first `diff` sends everything the table has
+  /// An empty view at the start of `epoch` of the session of `prefix`; the first `diff` sends everything the table has
   #[must_use]
-  pub fn new(epoch: u32) -> Self {
+  pub fn new(epoch: u32, prefix: &str) -> Self {
     Self {
       last_sent: RepositoryView {
         version: Version { epoch, seq: 0 },
         ..RepositoryView::default()
       },
+      prefix: prefix.to_owned(),
     }
   }
 
@@ -63,6 +67,16 @@ impl View {
     } else {
       diff_keyed(&last.pushes, &push_view(parts, &facts.patronus.part().view, facts.pull_requests.view()))
     };
+    let readiness = |key: &str| facts.readiness.fact(key)?.value.as_ref().map(|subject| &subject.readiness);
+    let open_pull_requests = open_pull_requests_view(
+      baseline_on_remote(&parts.header.baseline_branch),
+      |name| parts.branches.contains_key(name),
+      |root| parts.stacks.contains_key(root),
+      facts.pull_requests.view(),
+      readiness,
+      &self.prefix,
+    );
+    let (open_pull_requests, removed_open_pull_requests) = diff_keyed(&last.open_pull_requests, &open_pull_requests);
     let (last_archived, archived) = (&last.sections.archived, &parts.sections.archived);
     let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
     let archived_changes = ArchivedChanges {
@@ -82,6 +96,8 @@ impl View {
       removed_stacks,
       pushes,
       removed_pushes,
+      open_pull_requests,
+      removed_open_pull_requests,
       unassigned: changed_commits(&last.sections.unassigned, &parts.sections.unassigned),
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),

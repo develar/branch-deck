@@ -4,6 +4,7 @@
     "parked": "session",
     "subject": "wholeStack"
   },
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

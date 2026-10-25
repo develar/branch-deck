@@ -51,6 +51,9 @@ targets:
   - ../../src/lib/request-review.ts
   - ../../src/components/branch/RequestReviewPopover.tsx
   - ../../src/components/branch/RequestReviewForm.tsx
+  - ../../crates/domain-policy/src/pull_request.rs
+  - ../../crates/domain-policy/src/review.rs
+  - ../../crates/repository-model/src/derive.rs
 ---
 
 # Pull Requests
@@ -504,7 +507,9 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 - `getRequestReviewItem` (`src/lib/request-review.ts`) builds the item, id `request-review`, "Request Review…", for
   every surface that offers it (the row's next step, the branch menu): there only while the branch
   has an open pull request (else "Create Pull Request…" asks the reviewers); disabled with the reason while the pull
-  request is a draft ("#1078 is a draft: mark it ready for review on GitHub first"). Work the remote lacks by content is
+  request is a draft ("#1078 is a draft: mark it ready for review on GitHub first"), as the session reads the open pull
+  request of the subject (`RepositoryView.openPullRequests`, `PullRequestView`: its number, where it goes by
+  `domain_policy::pull_request::base_of`, a draft, the candidates below). Work the remote lacks by content is
   no reason: the request pushes it first (`pushForAction`, no push toast; one only rebuilt on a newer baseline is up to
   date, an unknown remote status pushes nothing), so the reviewers see the commits. A push that dismisses the
   approvals the pull request has (the rules of its base as the session read them, `useBranchRules` answers `dismiss`) is said in
@@ -515,6 +520,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   A refused push ("Cannot request a review on
   #1078" with its reason) asks nobody. Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
   [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is disabled with the reason for a draft only: work the remote lacks is pushed by the request`, `is not there without an open pull request`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_reads_where_each_open_pull_request_goes_and_whom_request_review_offers`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should push the commits the remote lacks as the first step of Request Review…`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should say in Request Review… while Patronus names no code owners, when it fails to, and when the rules of the branch can't be read`)
 - It opens `RequestReviewPopover`, mounted by the surface around its own trigger (Base UI `render`), with the branch,
@@ -522,13 +528,15 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   owners", a checkbox per suggested code owner with a GitHub login of the groups whose approval is missing (the full name,
   the login beside it, the groups below), never the author, a member asked already or one whose approval counts, each
   once; checked when it opens: one per missing group nobody is asked for yet, each once, as the Create Pull Request
-  dialog chooses them (`preselectedReviewers`). A readiness that comes after the opening checks them too, until the
+  dialog chooses them. One rule decides them for the popover and `bd request-review` alike
+  (`domain_policy::review::candidates`, `ReviewCandidate.preselected`), which the view of the session sends with the
+  open pull request. A readiness that comes after the opening checks them too, until the
   user checks or unchecks one. While Patronus names none the popover says why, never nothing as if none were needed
   (`describeCodeOwnersFact`): "Asking Patronus which code owners must approve…" before its answer, "Patronus didn't
   answer which code owners must approve (…): ask the reviewers yourself." after a failed check, "Patronus doesn't tell
   yet which code owners must approve: ask the reviewers yourself." for a check that doesn't judge them. "Others" (or "Reviewers" without code owners): the reviewer search of
   the dialog (`ReviewerPicker`, `useReviewerSearch`). "Request Review" asks the checked ones and the chosen ones.
-  [@test] ../../src/lib/request-review.test.ts (`are the suggested ones of the missing groups, one per group nobody is asked for chosen, each once`, `leave out the author, whoever is asked already and an approval that counts; a group someone is asked for chooses nobody`, `are none when no approval is missing or the readiness is unknown`)
+  [@test] ../../crates/domain-policy/src/review_test.rs (`are_the_suggested_ones_of_the_missing_groups_one_per_group_nobody_is_asked_for_chosen_each_once`, `leave_out_the_author_whoever_is_asked_already_and_an_approval_that_counts_a_group_someone_is_asked_for_chooses_nobody`, `are_none_when_no_approval_is_missing_or_the_readiness_is_unknown`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should choose the code owner of a readiness of the whole stack that comes after its Request Review… opened`)
   [@test] ../../src/lib/request-review.test.ts (`says while Patronus checks them, when its check failed or doesn't tell, never nothing as if none were needed`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should say in Request Review… while Patronus names no code owners, when it fails to, and when the rules of the branch can't be read`)

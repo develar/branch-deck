@@ -1,7 +1,8 @@
 // The app's side of a scenario case (`crates/domain-policy/cases/README.md`): the stores seeded as the sync, the
 // repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), then the app's own readers answer:
 // `getBranchNextStepOf` and `getStackNextStepNow` for the step, `readSafePush` for the decision. What the Rust core
-// computes of the case's repository (the tips, the robots, the repository view, the review readiness) comes from
+// computes of the case's repository (the tips, the robots, the repository view, the review readiness, the open pull
+// requests as the view reads them) comes from
 // `cases/facts/<id>.json`, which the Rust scenario test writes from the same `given`; the adapter maps the rest of
 // `given` to store-shaped facts (the table of the sync, the landing report, the pull requests, the rules: the README
 // names what it still models) and decides nothing of either side. A value the README doesn't map fails with "not
@@ -11,7 +12,18 @@ import type { SafePushRead } from "@/hooks/useSafePush"
 import { readSafePush } from "@/hooks/useSafePush"
 import { getStackNextStepNow } from "@/hooks/useStackNextStep"
 import { internalError } from "@/lib/api-error"
-import type { BranchRules, Fact, PatronusProfile, PatronusReviewRequirement, PatronusRobot, PatronusStartOptions, PatronusView, PullRequest, ReviewReadiness } from "@/lib/bindings"
+import type {
+  BranchRules,
+  Fact,
+  PatronusProfile,
+  PatronusReviewRequirement,
+  PatronusRobot,
+  PatronusStartOptions,
+  PatronusView,
+  PullRequest,
+  PullRequestView,
+  ReviewReadiness,
+} from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { robotsById } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
@@ -49,8 +61,9 @@ interface ReadinessFact {
  * What the Rust core computes of the case's repository, written by the group tests of `crates/bd-remote/src/scenario_test.rs`
  * (`assert_facts_kept`) from the fixtures of the same `given`: the tips of the virtual branches, of
  * their remote branches and of the stack branches (`<branch>-tip`, `<branch>-remote`, `stack-<root>-tip`), the robots
- * as the list answers them, the repository view (`patronus_view` with the landing needs) and the review readiness of
- * the branch and of its whole stack, by the keys of the review-readiness store
+ * as the list answers them, the repository view (`patronus_view` with the landing needs), the review readiness of
+ * the branch and of its whole stack, by the keys of the review-readiness store, and the open pull requests as the view
+ * reads them (`open_pull_requests_view`)
  */
 export interface ScenarioFacts {
   /** `given` the facts were computed from, as the case file has it */
@@ -61,6 +74,8 @@ export interface ScenarioFacts {
   readonly robots: readonly PatronusRobot[]
   readonly view: PatronusView
   readonly readiness: Readonly<Record<string, ReadinessFact>>
+  /** The open pull request of each subject as the view of the session reads it (`RepositoryView.openPullRequests`) */
+  readonly openPullRequests: Readonly<Record<string, PullRequestView>>
 }
 
 const FACTS_DIRECTORY = "/crates/domain-policy/cases/facts"
@@ -241,6 +256,7 @@ function seedSync(given: Given, facts: ScenarioFacts): void {
     baselineStatus: { repositoryPath: REPOSITORY_PATH, baselineBranch: BASELINE, update: null, checkError: null },
     stackBranches,
     parked: parkedLines,
+    openPullRequests: facts.openPullRequests,
     isSyncing: given.sync === "running",
     pushingBranches: {},
     stackPushes: {},

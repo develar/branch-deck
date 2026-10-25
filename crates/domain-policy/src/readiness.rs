@@ -1,19 +1,9 @@
-//! What the review readiness of a subject is asked with, and when an answer is news (spec/branch/patronus.spec.md,
-//! "Code-owner review"): the pull request a Safe Push would start from (`start_pull_request`, the rule of
-//! `getPullRequestStart` of the page), and the approvals that arrived between two answers of the same commits
-//! (`approval_news`, which the session tells once), and whether a subject waits for them (`awaits_approval`).
+//! When an answer of the review readiness of a subject is news (spec/branch/patronus.spec.md, "Code-owner review"): the
+//! approvals that arrived between two answers of the same commits (`approval_news`, which the session tells once), and
+//! whether a subject waits for them (`awaits_approval`). What it is asked with is `pull_request::start_pull_request`.
 
 use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
-use domain_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState};
-
-/// The pull request a robot of the subject would start from: its open pull request into `target` (one without a base
-/// read counts), while Patronus names the GitHub repository the branches are mirrored to; else none, and the robot
-/// starts through the API, which counts no approval
-#[must_use]
-pub fn start_pull_request<'a>(pull_request: Option<&'a PullRequest>, target: &str, github_repository: Option<&str>) -> Option<&'a PullRequest> {
-  github_repository?;
-  pull_request.filter(|pull_request| pull_request.state == PullRequestState::Open && (pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target))
-}
+use domain_types::pull_request::{Reviewer, ReviewerState};
 
 /// An answer of the readiness with what it was asked for
 #[derive(Clone, Copy, Debug)]

@@ -1,5 +1,6 @@
 {
   "given": {"remote": "rebuiltOnNewerBaseline", "robot": {"on": "remote", "state": "running"}},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

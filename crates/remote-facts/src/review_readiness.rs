@@ -16,7 +16,7 @@ use crate::patronus_review::{ReviewInput, attribute_ownership_paths, read_review
 use anyhow::anyhow;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use domain_types::patronus::{
-  BranchReviewReadiness, MissingApprovalsReason, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
+  BranchReviewReadiness, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::is_object_id;
@@ -156,7 +156,7 @@ pub async fn kept_review_readiness(
     branches
       .into_iter()
       .zip(answers)
-      .map(|(branch, answer)| answer.map(|answer| to_branch_readiness(branch, Ok(answer), true)))
+      .map(|(branch, answer)| answer.map(|answer| to_branch_readiness(branch, Ok(answer))))
       .collect::<Vec<_>>()
   }))
   .await;
@@ -196,16 +196,11 @@ pub async fn branch_review_readiness(
   }
 
   let (git, path, baseline) = (git.clone(), repository_path.to_string(), repository.baseline.to_string());
-  let github = repository.github.is_some();
   let branches = branches.to_vec();
   tokio::task::spawn_blocking(in_current_span(move || {
     let mut answers = answers;
     attribute_answered(&git, &path, &baseline, answers.iter_mut().map(|answer| answer.as_mut().ok()), &inputs);
-    branches
-      .into_iter()
-      .zip(answers)
-      .map(|(branch, answer)| to_branch_readiness(branch, answer, github))
-      .collect()
+    branches.into_iter().zip(answers).map(|(branch, answer)| to_branch_readiness(branch, answer)).collect()
   }))
   .await
   .map_err(|e| anyhow!("The review readiness task failed: {e}"))
@@ -367,23 +362,12 @@ pub fn review_answer_key(identity: &str, repository: &ReadinessRepository<'_>, p
   hasher.finalize().into()
 }
 
-fn to_branch_readiness(branch: ReviewReadinessBranch, answer: Result<PatronusReviewRequirement, PatronusAvailability>, github: bool) -> BranchReviewReadiness {
+fn to_branch_readiness(branch: ReviewReadinessBranch, answer: Result<PatronusReviewRequirement, PatronusAvailability>) -> BranchReviewReadiness {
   let (requirement, readiness) = match answer {
     Ok(requirement) => {
       let reviewers = matches!(branch.start, ReviewStart::PullRequest { .. }).then_some(branch.reviewers.as_slice());
-      let readiness = match review_readiness(&requirement, reviewers, branch.start) {
-        // a repository only on Space counts the approvals of a merge request, which the answer already holds
-        ReviewReadiness::Missing {
-          groups,
-          not_counted,
-          reason: MissingApprovalsReason::NoPullRequestContext,
-        } if !github => ReviewReadiness::Missing {
-          groups,
-          not_counted,
-          reason: MissingApprovalsReason::ApprovalsMissing,
-        },
-        readiness => readiness,
-      };
+      // where the approvals of a repository only on Space count is the rule's (`domain_policy::review::review_state`)
+      let readiness = review_readiness(&requirement, reviewers, branch.start);
       (Some(requirement), readiness)
     }
     Err(availability) => (None, unavailable(availability)),

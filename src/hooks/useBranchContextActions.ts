@@ -65,6 +65,7 @@ import {
   getBranch,
   getBranchTableOrder,
   getIssueGroups,
+  getOpenPullRequest,
   getPushOrders,
   getStackAncestors,
   getStackBranch,
@@ -93,7 +94,7 @@ import {
 } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { getReadinessTarget, getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
+import { getReadinessTarget, recheckReviewReadiness } from "@/stores/review-readiness"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getYouTrackKeyOfIssue, youTrackAuthStore } from "@/stores/youtrack"
 
@@ -177,8 +178,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     reviewActions.push(openPullRequestItem)
   }
   // the row's step when it is the one (a group nobody of it can approve says so), else the builder's item
-  const requestReview =
-    nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItem(pullRequest, getReviewReadiness(branch.name)?.readiness ?? null, () => openRequestReview(branch.name))
+  const requestReview = nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItem(getOpenPullRequest(branch.name), () => openRequestReview(branch.name))
   if (requestReview !== null) {
     reviewActions.push(requestReview)
   }

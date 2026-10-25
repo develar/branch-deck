@@ -282,7 +282,7 @@ fn keeps_the_objects_of_unchanged_robots_and_the_record_when_nothing_changed() {
       robot("b", Some("ui"), PatronusRobotStatus::Running, 9),
     ]
   };
-  let (mut facts, state, mut view) = (FactStore::new(), TableState::new(), View::new(7));
+  let (mut facts, state, mut view) = (FactStore::new(), TableState::new(), View::new(7, "user"));
   facts.robots.answer(at(1, 0, 1), FULL_LIST, listed(robots()), &mut Vec::new());
   view.diff(&state, &facts).unwrap();
   facts.robots.answer(at(2, 0, 2), FULL_LIST, listed(robots()), &mut Vec::new());

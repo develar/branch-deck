@@ -1,5 +1,6 @@
 {
   "given": {"pullRequest": {"approvers": ["ikorennoy"]}, "readiness": "approved"},
+  "openPullRequests": {"auth": {"base": {"kind": "target"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {
       "pullRequest": 7,

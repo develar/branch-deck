@@ -7,7 +7,8 @@
 //! reported; a patch carries a structure only when it changed. `push_view` is what the pushes of each branch send
 //! (`domain_policy::push::branch_push`) over the table, the holds of the Patronus view and the pull requests of the
 //! whole stacks: the view derives it with each patch (`state::View::diff`), so a push button, a menu and an island read
-//! one order.
+//! one order. `open_pull_requests_view` is the open pull request of each subject as the rules read it (where it goes, a
+//! draft, the code owners Request Review… offers), derived with each patch too.
 //!
 //! `decide_landing` is what the rules decide over the Patronus facts of a table (`patronus_view`), for the view of the
 //! session, the guards of the app and `bd` alike: the hold of each branch (`domain_policy::holds::branch_hold`) and of
@@ -22,14 +23,16 @@ use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, push_blocker, restart_action, stack_branch_hold};
 use domain_policy::land::{BranchStart, StackStart, Start, on_last_commit, restart_refusal, start_refusal};
 use domain_policy::parked::{parked_state, whole_stack_parked};
+use domain_policy::pull_request::base_of;
 use domain_policy::push::{HeadedStack, Kept, PushState, branch_push};
 use domain_policy::reasons::{landed, stack_landed, stack_not_built};
+use domain_policy::review::candidates;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
-use domain_types::patronus::{PatronusPushMode, PatronusRobot};
-use domain_types::pull_request::PullRequestState;
+use domain_types::patronus::{PatronusPushMode, PatronusRobot, ReviewReadiness};
+use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, PatronusView, RobotOf, RobotRestart, SpanView, StackLanding};
-use domain_types::session::{BranchPush, BranchSection, BranchStatus, BranchStructure, ParkedMember, PullRequestsView, RowsView, WholeStackView};
+use domain_types::session::{BranchPush, BranchSection, BranchStatus, BranchStructure, ParkedMember, PullRequestsView, RowsView, WholeStackView, stack_readiness_key};
 use domain_types::stack::StackBranchUpdate;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -151,6 +154,45 @@ pub(crate) fn push_view(parts: &TableParts, patronus: &PatronusView, pull_reques
       (push != BranchPush::default()).then(|| (name.to_string(), push))
     })
     .collect()
+}
+
+/// The open pull request of each subject of a table (a branch `branches` has, the whole stack of a root `stacks` has as
+/// `stack:<root>`) as the rules read it, by the pull requests GitHub listed and the review readiness Patronus answered
+/// (`readiness`, by subject): where it goes (`domain_policy::pull_request::base_of`, `target` the branch the baseline is
+/// on the remote, the virtual branches those of `prefix`), whether it is a draft, and the code owners Request Review…
+/// offers (`domain_policy::review::candidates`). A subject without an open pull request is not listed. The view derives
+/// it with each patch; `bd`'s scenario facts read it too
+pub fn open_pull_requests_view<'a>(
+  target: &str,
+  branches: impl Fn(&str) -> bool,
+  stacks: impl Fn(&str) -> bool,
+  pull_requests: &PullRequestsView,
+  readiness: impl Fn(&str) -> Option<&'a ReviewReadiness>,
+  prefix: &str,
+) -> BTreeMap<String, PullRequestView> {
+  let view_of = |key: String, pull_request: &PullRequest| {
+    let view = PullRequestView {
+      number: pull_request.number,
+      base: base_of(pull_request, target, prefix),
+      draft: pull_request.is_draft,
+      candidates: candidates(readiness(&key), pull_request).candidates,
+    };
+    (key, view)
+  };
+  let open = |(_, pull_request): &(&String, &PullRequest)| pull_request.state == PullRequestState::Open;
+  let of_branches = pull_requests
+    .pull_requests
+    .iter()
+    .filter(|(name, _)| branches(name))
+    .filter(open)
+    .map(|(name, pull_request)| view_of(name.clone(), pull_request));
+  let of_stacks = pull_requests
+    .stack_pull_requests
+    .iter()
+    .filter(|(root, _)| stacks(root))
+    .filter(open)
+    .map(|(root, pull_request)| view_of(stack_readiness_key(root), pull_request));
+  of_branches.chain(of_stacks).collect()
 }
 
 /// What `push_view` reads of a branch

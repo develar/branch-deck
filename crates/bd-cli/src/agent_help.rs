@@ -496,6 +496,10 @@ Refusals, nothing pushed or started:
   tell the user `rules.message`.
 - `rules_unknown` (exit 4, also in `refusals`): GitHub didn't answer the rules of the target, so the push may dismiss
   the approvals: ask the user; `bd safe-push --allow-unknown-rules` starts anyway, beside --allow-missing.
+- `pull_request_other_base` (exit 4, also in `refusals`): the open pull request of the branch goes into another base
+  (a release branch), so its approvals count for no Safe Push into the target: ask the user; the retarget `gh pr edit`
+  of the message once approved, or --without-approvals (a start through the API) only when the user says so. A pull
+  request into a virtual branch is retargeted to the target as a step of the start (`retargeted`).
 - `target_conflict` (exit 4, `error.commits`, `error.paths`, also in `refusals`): Patronus can't rebase what lands
   onto the newest target; the message names the commits of the target that change the files. `bd update` resolves
   it locally (after the user approves), then run the Safe Push again.

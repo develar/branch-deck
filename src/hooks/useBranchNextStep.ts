@@ -11,20 +11,10 @@ import { formatLandedState, formatPendingFact, getBranchNextStep } from "@/lib/b
 import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
-import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
 import type { MenuItem } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
-import {
-  formatLandedReason,
-  formatPatronusAvailabilityHint,
-  formatPushMode,
-  formatSafePushLoginCommand,
-  getSafePushSlot,
-  isLandedByOwnRobot,
-  isLandedWhole,
-  isPullRequestIntoTarget,
-} from "@/lib/patronus"
+import { formatLandedReason, formatPatronusAvailabilityHint, formatPushMode, formatSafePushLoginCommand, getSafePushSlot, isLandedByOwnRobot, isLandedWhole } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { isWindows } from "@/lib/platform"
@@ -38,7 +28,7 @@ import { useShowReviewReadiness } from "@/model/demand"
 import { formatReasonOrNull } from "@/presenters/reasons"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getOpenPullRequest, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
 import { landedStore } from "@/stores/landed"
 import type { Operations } from "@/stores/operations"
 import { getObjectBusy, operationLabel, operationsStore, runOperation } from "@/stores/operations"
@@ -97,11 +87,12 @@ export function getLandedIn(name: string): string | null {
 }
 
 /** The pull request of the branch as the next step needs it */
-function pullRequestFactOf(branch: Branch, target: string): NextStepPullRequest | null {
+function pullRequestFactOf(branch: Branch): NextStepPullRequest | null {
   const pullRequest = getPullRequest(branch.name)
   if (pullRequest === undefined) {
     return null
   }
+  const base = getOpenPullRequest(branch.name)?.base
   // a merged pull request of other commits than the branch has now: new work under the same name
   const mergedCurrent = pullRequest.state === "merged" && !isReviewCommitOutdated(getReviewCommitState(pullRequest.headRefOid, branch.commits[0]?.hash, branch.remoteStatus))
   return {
@@ -109,9 +100,10 @@ function pullRequestFactOf(branch: Branch, target: string): NextStepPullRequest 
     state: pullRequest.state,
     isDraft: pullRequest.isDraft,
     base: pullRequest.baseRefName ?? "",
-    intoTarget: isPullRequestIntoTarget(pullRequest, target),
+    // where an open one goes, as Rust reads it (`pull_request::base_of`)
+    intoTarget: base === undefined || base.kind === "target",
     mergedCurrent,
-    baseIsVirtualBranch: isVirtualBranchBase(pullRequest.baseRefName ?? ""),
+    baseIsVirtualBranch: base?.kind === "virtual",
     waitingFor: waitingReviewers(pullRequest),
     changesRequestedBy: changesRequestedBy(pullRequest),
     checksFailing: pullRequest.checks?.state === "failing",
@@ -296,7 +288,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
   const landedIn = getLandedIn(name)
   // all of it landed; one with commits after the landed ones has them to land
   const landedWith = isLandedWhole(landedBy) ? formatLandedReason(landedBy) : null
-  const pullRequestFact = pullRequestFactOf(branch, target)
+  const pullRequestFact = pullRequestFactOf(branch)
   return {
     branchName: name,
     subject: name,
@@ -342,7 +334,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
       retarget: () => void retargetToTarget(name),
       // nothing of a branch that landed is left to review: the step decides it, so the item reads its facts here
       createPullRequest: getCreatePullRequestItem(branch, formatLandedState({ landedIn, landedWith, robot: slot, pullRequest: pullRequestFact })),
-      requestReview: getRequestReviewItem(pullRequest, readiness?.readiness ?? null, () => openRequestReview(name)),
+      requestReview: getRequestReviewItem(getOpenPullRequest(name), () => openRequestReview(name)),
       fixLanding,
     },
   }

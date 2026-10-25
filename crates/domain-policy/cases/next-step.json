@@ -474,9 +474,9 @@
   {
     "id": "row-5-prime-another-base",
     "group": "next-step-rows",
-    "title": "the pull request #7 goes into release-252, which may be meant: the app refuses, bd ignores it and starts through the API",
+    "title": "the pull request #7 goes into release-252, which may be meant: its approvals count for no Safe Push into master, so both refuse a start that counts them (D3b, closed)",
     "spec": ["spec/branch/next-step.spec.md#the-table:5′", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D3b",
+    "discrepancy": null,
     "given": {
       "pullRequest": {
         "base": "release-252"
@@ -490,8 +490,48 @@
     },
     "bd": {
       "check": {
-        "refusals": [],
+        "refusals": ["pull_request_other_base"],
         "pull_request": null
+      },
+      "start": {
+        "error": "pull_request_other_base"
+      }
+    }
+  },
+  {
+    "id": "row-5-prime-another-base-without-review",
+    "group": "next-step-rows",
+    "title": "the pull request #7 goes into release-252, and the profile of the last robot, which failed on an older commit, skips the review: the start counts no approval, so the base holds nothing back; both start through the API",
+    "spec": ["spec/branch/next-step.spec.md#the-table:5′", "spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "discrepancy": null,
+    "given": {
+      "pullRequest": {
+        "base": "release-252"
+      },
+      "robot": {
+        "state": "failure",
+        "on": "older"
+      },
+      "profile": {
+        "lastRobot": "lsc",
+        "skipsReview": true
+      }
+    },
+    "app": {
+      "step": {
+        "kind": "otherBase",
+        "safePushBlocker": "Approvals in #7 don't count: its base is release-252"
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["profile"]
+      }
+    },
+    "bd": {
+      "check": {
+        "refusals": [],
+        "pull_request": null,
+        "profile": "lsc"
       },
       "start": {
         "started_via": "api"

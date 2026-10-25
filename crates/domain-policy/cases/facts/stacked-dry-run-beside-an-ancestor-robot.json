@@ -5,6 +5,7 @@
     "mode": "dryRun",
     "robot": {"on": "ancestor:auth", "state": "running"}
   },
+  "openPullRequests": {},
   "readiness": {
     "login": {
       "pullRequest": null,

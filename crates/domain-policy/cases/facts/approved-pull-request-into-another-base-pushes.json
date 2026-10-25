@@ -5,6 +5,14 @@
     "remote": "unpushed",
     "rules": "dismiss"
   },
+  "openPullRequests": {
+    "auth": {
+      "base": {"base": "release/1", "kind": "other"},
+      "candidates": [{"fullName": "Alice", "groups": ["Air Plugin Release Team"], "login": "alice-gh", "preselected": true}],
+      "draft": false,
+      "number": 7
+    }
+  },
   "readiness": {
     "auth": {
       "pullRequest": null,

@@ -1,5 +1,6 @@
 {
   "given": {"remote": "unpushed", "robot": {"on": "remote", "state": "success"}},
+  "openPullRequests": {},
   "readiness": {
     "auth": {
       "pullRequest": null,

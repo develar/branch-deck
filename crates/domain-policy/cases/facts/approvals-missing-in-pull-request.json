@@ -1,5 +1,15 @@
 {
   "given": {"pullRequest": {}, "readiness": "missing"},
+  "openPullRequests": {
+    "auth": {
+      "base": {"kind": "target"},
+      "candidates": [
+        {"fullName": "Ilya Korennoy", "groups": ["IJPL Code Platform"], "login": "ikorennoy", "preselected": true}
+      ],
+      "draft": false,
+      "number": 7
+    }
+  },
   "readiness": {
     "auth": {
       "pullRequest": 7,

@@ -168,6 +168,7 @@ pub(crate) enum Message {
 pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn SessionHost>, life: Arc<SessionLife>, events: Arc<EventSink>) -> mpsc::UnboundedSender<Message> {
   let (mailbox, messages) = mpsc::unbounded_channel();
   let span = info_span!(parent: None, "session", worktree = %key.worktree, prefix = %key.prefix);
+  let view = View::new(new_epoch(), &key.prefix);
   let actor = Actor {
     key,
     host,
@@ -176,7 +177,7 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     state: TableState::new(),
     facts: FactStore::new(),
     run_seq: Seq::default(),
-    view: View::new(new_epoch()),
+    view,
     scheduler: SyncScheduler::new(),
     subscribers: Vec::new(),
     demands: HashMap::new(),

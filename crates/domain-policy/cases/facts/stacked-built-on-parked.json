@@ -1,5 +1,6 @@
 {
   "given": {"branch": "login", "commits": ["(auth) Add auth", "(auth/login) Add login"], "parked": "builtOn"},
+  "openPullRequests": {},
   "readiness": {
     "login": {
       "pullRequest": null,
