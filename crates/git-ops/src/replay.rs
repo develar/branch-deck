@@ -41,13 +41,20 @@ pub fn replay_range_with_env(git_executor: &GitCommandExecutor, repo_path: &str,
 }
 
 /// The first commit of a linear range whose replay conflicts, by a binary search over its prefixes (⌈log₂ n⌉ replays:
-/// `git replay` stops at the first conflict). `replay(last)` replays the commits up to the index `last` and is `None` on
-/// a conflict; the prefix up to `high` conflicts, and every prefix before `low` replays cleanly onto `tip`. Returns the
-/// index of the first conflicting commit and the tip of the longest clean prefix (`tip` when there is none)
-pub(crate) fn first_conflict(mut low: usize, mut high: usize, mut tip: String, mut replay: impl FnMut(usize) -> anyhow::Result<Option<String>>) -> anyhow::Result<(usize, String)> {
+/// `git replay` stops at the first conflict). `replay(first, tip, last)` replays the commits from the index `first` to
+/// the index `last` onto `tip` and is `None` on a conflict; each probe starts from the longest clean prefix found so
+/// far, so the probes replay about n commits in all, not ⌈log₂ n⌉ × n/2. The prefix up to `high` conflicts, and every
+/// prefix before `low` replays cleanly onto `tip`. Returns the index of the first conflicting commit and the tip of the
+/// longest clean prefix (`tip` when there is none)
+pub(crate) fn first_conflict(
+  mut low: usize,
+  mut high: usize,
+  mut tip: String,
+  mut replay: impl FnMut(usize, &str, usize) -> anyhow::Result<Option<String>>,
+) -> anyhow::Result<(usize, String)> {
   while low < high {
     let middle = low + (high - low) / 2;
-    match replay(middle)? {
+    match replay(low, &tip, middle)? {
       Some(clean) => {
         tip = clean;
         low = middle + 1;
@@ -56,6 +63,60 @@ pub(crate) fn first_conflict(mut low: usize, mut high: usize, mut tip: String, m
     }
   }
   Ok((low, tip))
+}
+
+/// Where the replay of runs of commits ended (`first_conflict_in_runs`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RunsReplay {
+  /// Every commit replayed onto the tip
+  Clean(String),
+  /// The commit at `index` conflicts onto `tip`, the commits before it replayed
+  Conflict { index: usize, tip: String },
+}
+
+/// Replay the commits from the index `from` to `end` (exclusive) onto `tip`, one `replay(first, tip, last)` per run of
+/// consecutive commits (`run_starts`, the indices after a commit left out), and find the first conflicting commit of
+/// the first run that conflicts (`first_conflict`). With `known_conflict`, the run of `from` is known to conflict up
+/// to `end`, so its search starts at once
+pub(crate) fn first_conflict_in_runs(
+  run_starts: &[usize],
+  from: usize,
+  end: usize,
+  mut tip: String,
+  known_conflict: bool,
+  mut replay: impl FnMut(usize, &str, usize) -> anyhow::Result<Option<String>>,
+) -> anyhow::Result<RunsReplay> {
+  let mut first = from;
+  while first < end {
+    let last = run_end(run_starts, first, end).min(end) - 1;
+    // only the run of `from` can be known to conflict: a run that replays goes on to the next
+    if !(known_conflict && first == from)
+      && let Some(clean) = replay(first, &tip, last)?
+    {
+      tip = clean;
+      first = last + 1;
+      continue;
+    }
+    let (index, tip) = first_conflict(first, last, tip, &mut replay)?;
+    return Ok(RunsReplay::Conflict { index, tip });
+  }
+  Ok(RunsReplay::Clean(tip))
+}
+
+/// The replay of the commits from `local[first]` to `local[last]` onto `tip` with `env`, as `first_conflict` and
+/// `first_conflict_in_runs` call it; `local` is linear history within each run
+pub(crate) fn replay_of<'a>(
+  git_executor: &'a GitCommandExecutor,
+  repo_path: &'a str,
+  local: &'a [String],
+  env: &'a [(&'a str, &'a str)],
+) -> impl FnMut(usize, &str, usize) -> anyhow::Result<Option<String>> + 'a {
+  move |first, tip, last| {
+    // linear history within a run: `<last> ^<first>^` is exactly the commits from `first` to `last`
+    let revs = [local[last].clone(), format!("^{}^", local[first])];
+    let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
+    Ok(replay_range_with_env(git_executor, repo_path, tip, &revs, env)?)
+  }
 }
 
 /// The end (exclusive) of the run of consecutive commits that holds the commit at `index` of `len` commits, whose runs
@@ -98,3 +159,7 @@ pub(crate) fn merge_trees(git_executor: &GitCommandExecutor, repo_path: &str, ba
     _ => Err(CopyCommitError::Other(anyhow!("git merge-tree failed: {output}"))),
   }
 }
+
+#[cfg(test)]
+#[path = "replay_test.rs"]
+mod replay_test;

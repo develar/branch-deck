@@ -307,7 +307,8 @@ pub struct UpdateSummary {
   pub upstream: Option<String>,
   /// `blocked`: local changes sit on paths the update writes; `error`: the check failed
   pub state: UpdateCheckState,
-  /// The files a conflicting update touches (at most 50), or the local changes that block it (at most 100)
+  /// The conflicting files of the first local commit that conflicts (at most 50), or the local changes that block the
+  /// update (at most 100)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub files: Vec<String>,
   /// The files left out of `files`
@@ -565,7 +566,7 @@ fn update_summary(baseline: &BaselineStatus, landing: &[LandedBranch], short: &S
         UpdateState::UpToDate => (UpdateCheckState::UpToDate, Vec::new(), 0),
         UpdateState::Clean { kind: UpdateKind::FastForward } => (UpdateCheckState::FastForward, Vec::new(), 0),
         UpdateState::Clean { kind: UpdateKind::Rebase } => (UpdateCheckState::Rebase, Vec::new(), 0),
-        UpdateState::Conflict { files, file_count, .. } => (UpdateCheckState::Conflict, files.clone(), *file_count),
+        UpdateState::Conflict { first_conflict } => (UpdateCheckState::Conflict, first_conflict.files.clone(), first_conflict.file_count),
         UpdateState::Blocked { paths, path_count } => (UpdateCheckState::Blocked, paths.clone(), *path_count),
       };
       (Some(check.upstream.clone()), state, files, count, None)

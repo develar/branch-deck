@@ -14,6 +14,7 @@ import {
   stopWaitingUpdateItem,
   updateFooterWords,
 } from "@/lib/update-state"
+import { conflictState } from "@/test-support/update-conflict"
 
 describe("describeUpdateState", () => {
   it("names the state, never a count of upstream commits", () => {
@@ -36,11 +37,11 @@ describe("describeUpdateState", () => {
   })
 
   it("names at most three files, four of four: never 'and 1 more'", () => {
-    const one = describeUpdateState({ status: "conflict", files: ["a.txt"], fileCount: 1, commits: [], upstreamCommits: [] }, "origin/master")
+    const one = describeUpdateState(conflictState(["a.txt"], 1), "origin/master")
     expect(one).toEqual({ tone: "warning", summary: "Conflicts in 1 file: a.txt", short: "conflicts in 1 file" })
-    const five = describeUpdateState({ status: "conflict", files: ["a", "b", "c", "d", "e"], fileCount: 5, commits: [], upstreamCommits: [] }, "origin/master")
+    const five = describeUpdateState(conflictState(["a", "b", "c", "d", "e"], 5), "origin/master")
     expect(five.summary).toBe("Conflicts in 5 files: a, b, c and 2 more")
-    const four = describeUpdateState({ status: "conflict", files: ["a", "b", "c", "d"], fileCount: 4, commits: [], upstreamCommits: [] }, "origin/master")
+    const four = describeUpdateState(conflictState(["a", "b", "c", "d"], 4), "origin/master")
     expect(four.summary).toBe("Conflicts in 4 files: a, b, c, d")
     expect(describeUpdateState({ status: "blocked", paths: ["src/app.txt"], pathCount: 1 }, "origin/master")).toEqual({
       tone: "warning",
@@ -51,7 +52,7 @@ describe("describeUpdateState", () => {
 
   it("counts the files the backend left out of its list", () => {
     const names = Array.from({ length: 50 }, (_, i) => `f${i}`)
-    const wide = describeUpdateState({ status: "conflict", files: names, fileCount: 300, commits: [], upstreamCommits: [] }, "origin/master")
+    const wide = describeUpdateState(conflictState(names, 300), "origin/master")
     expect(wide).toEqual({ tone: "warning", summary: "Conflicts in 300 files: f0, f1, f2 and 297 more", short: "conflicts in 300 files" })
     const blocked = describeUpdateState({ status: "blocked", paths: names, pathCount: 120 }, "origin/master")
     expect(blocked.summary).toBe("Your uncommitted changes in f0, f1, f2 and 117 more overlap origin/master")
@@ -72,7 +73,7 @@ describe("lastFetchTime", () => {
 describe("describeAsFetched", () => {
   const upToDate = describeUpdateState({ status: "upToDate" }, "origin/master")
   const clean = describeUpdateState({ status: "clean", kind: "rebase" }, "origin/master")
-  const conflict = describeUpdateState({ status: "conflict", files: ["a.txt"], fileCount: 1, commits: [], upstreamCommits: [] }, "origin/master")
+  const conflict = describeUpdateState(conflictState(["a.txt"], 1), "origin/master")
 
   it("says the baseline was not fetched yet instead of a state nobody asked the remote for", () => {
     const fetched = Date.now()

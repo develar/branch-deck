@@ -406,8 +406,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `update-ref --stdin`). A chain whose next step needs the answer of the one before keeps one interactive process per
   chain: a sync merges a branch in one `merge-tree --stdin` and writes its copies with one `fast-import`
   (`commit_chain.rs`), never `commit-tree` per commit; `with_process_stats` counts the processes of an operation. A
-  resolve session finds the first conflicting commit with a binary search over prefixes: ⌈log₂ n⌉ `replay` runs, then
-  one `replay` of the rest per round. Never parse translated text: exit codes, `--porcelain`, `-z`. The one named
+  check of an update finds the first conflicting commit with a binary search over prefixes, each probe from the longest
+  clean prefix: ⌈log₂ n⌉ `replay` runs; a resolve session opens its first round there, then one `replay` of the rest
+  per round. Never parse translated text: exit codes, `--porcelain`, `-z`. The one named
   exception: a branch description costs one `git config` per changed branch (`bd describe`, `descriptions` of a
   `bd group` plan), because git has no batch config writer; read them with one `--get-regexp`.
 - **Exit codes**: `merge-tree` and `replay` exit with 1 on conflicts; `merge-tree --stdin` exits with 0 even then, and

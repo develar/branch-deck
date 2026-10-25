@@ -14,7 +14,7 @@ use crate::landed_pairing::LandedDrop;
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
 use crate::ref_transaction::RefTransaction;
-use crate::replay::{first_conflict, replay_range_with_env, run_end};
+use crate::replay::{RunsReplay, first_conflict_in_runs, replay_of};
 use crate::resolve_check::{CheckFailure, Labels, block_count, check_resolution, dropped_lines, has_foreign_encoding, has_markers};
 use crate::revs::{Worktree, is_ancestor, resolve_commit, short_id};
 use crate::rewrite_guard::ensure_no_merges;
@@ -320,11 +320,6 @@ pub struct SessionState {
 impl SessionState {
   pub const fn total(&self) -> usize {
     self.local.len()
-  }
-
-  /// The end (exclusive) of the run of consecutive commits that holds `local[index]`
-  fn run_end(&self, index: usize) -> usize {
-    run_end(&self.run_starts, index, self.local.len())
   }
 
   /// The committer as `GIT_COMMITTER_*` variables for `git replay`
@@ -634,9 +629,9 @@ pub struct SessionStart<'a> {
 }
 
 /// Start the session of the current worktree for an update whose replay conflicts: the session replays the local commits
-/// of the check's `ReplayPlan`, without the commits it left out, so it pairs nothing again. The first conflicting commit
-/// is found with a binary search over prefixes of the local commits (⌈log₂ n⌉ replays: `git replay` stops at the first
-/// conflict), and its round is stored in a new session ref. Nothing else moves. With `ResolveMode::On`, a conflicting
+/// of the check's `ReplayPlan`, without the commits it left out, so it pairs nothing again. Its first round opens at the
+/// first conflict the check found (`ReplayPlan::first_conflict`), after one replay per run of the commits before it,
+/// and is stored in a new session ref. Nothing else moves. With `ResolveMode::On`, a conflicting
 /// commit that its words resolve is a round that resolves itself (`advance`). `Unsupported` when the first conflict
 /// can't be resolved in a round; then nothing is written but git objects
 #[instrument(skip(git_executor, start), fields(branch = start.plan.checked.branch))]
@@ -679,8 +674,8 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
   if !state.landed_dropped.is_empty() {
     info!(left_out = state.landed_dropped.len(), "local commits the upstream proves it has are left out");
   }
-  // the check replayed the kept commits and conflicted
-  let (objects, words_refs) = advance(git_executor, repo_path, &mut state, true, start.resolve)?;
+  // the round of the check's first conflict opens without a search
+  let (objects, words_refs) = advance(git_executor, repo_path, &mut state, replay.first_conflict, start.resolve)?;
   let session_ref = session_ref(&worktree.id);
   let written = match write_state(git_executor, repo_path, &state, None) {
     Ok(written) => written,
@@ -844,7 +839,7 @@ pub fn continue_session(
   }
 
   let mut resolved_refs: Vec<ResolvedRef> = resolved_ref.into_iter().collect();
-  let objects = match advance(git_executor, repo_path, &mut state, false, resolve) {
+  let objects = match advance(git_executor, repo_path, &mut state, None, resolve) {
     Ok((objects, words_refs)) => {
       resolved_refs.extend(words_refs);
       objects
@@ -1264,8 +1259,10 @@ pub fn round_upstream_commits(git_executor: &GitCommandExecutor, repo_path: &str
   Ok(by_path)
 }
 
-/// Replay the local commits after `replayed` onto `tip`. With `known_conflict` (the replay of all of them conflicted
-/// already) or after one replay that conflicts, a binary search over the prefixes finds the first conflicting commit.
+/// Replay the local commits after `replayed` onto `tip`, one `replay` per run of consecutive commits; in the first run
+/// that conflicts, a binary search over the prefixes finds the first conflicting commit, each probe from the longest
+/// clean prefix so far. `first_conflict` is the index of the first conflict that the check found
+/// (`ReplayPlan::first_conflict`): the commits before it replay, and its round opens without a search.
 /// With `ResolveMode::On`, a commit whose conflict of git resolves by words is a round that resolves itself: it counts
 /// in `round`, its resolution has `words`, and the replay goes on. The first other one opens its round. Every replay runs
 /// with the session's committer, so the same input gives the same ids. Without a conflict the session is ready to
@@ -1275,11 +1272,11 @@ fn advance(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   state: &mut SessionState,
-  known_conflict: bool,
+  first_conflict: Option<usize>,
   resolve: ResolveMode,
 ) -> Result<(Option<RoundObjects>, Vec<ResolvedRef>)> {
   let mut words_refs = Vec::new();
-  match advance_resolving(git_executor, repo_path, state, known_conflict, resolve, &mut words_refs) {
+  match advance_resolving(git_executor, repo_path, state, first_conflict, resolve, &mut words_refs) {
     Ok(objects) => Ok((objects, words_refs)),
     Err(e) => {
       discard(git_executor, repo_path, None, &words_refs);
@@ -1292,41 +1289,33 @@ fn advance_resolving(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   state: &mut SessionState,
-  mut known_conflict: bool,
+  mut first_conflict: Option<usize>,
   resolve: ResolveMode,
   words_refs: &mut Vec<ResolvedRef>,
 ) -> Result<Option<RoundObjects>> {
   let env = state.committer_env()?;
   let env: Vec<(&str, &str)> = env.iter().map(|(name, value)| (*name, value.as_str())).collect();
   let total = state.local.len();
-  let replay = |state: &SessionState, last: usize| -> Result<Option<String>> {
-    // linear history within a run: `<last> ^<first>^` is exactly the commits from `replayed` to `last`
-    let revs = [state.local[last].clone(), format!("^{}^", state.local[state.replayed])];
-    let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
-    Ok(replay_range_with_env(git_executor, repo_path, &state.tip, &revs, &env)?)
-  };
   loop {
-    // one replay per run of consecutive commits; the first run that conflicts is searched
-    let high = loop {
-      if state.replayed == total {
-        state.status = SessionStatus::Ready;
-        return Ok(None);
+    if state.replayed == total {
+      state.status = SessionStatus::Ready;
+      return Ok(None);
+    }
+    // up to the conflict the check found; a commit before it that the words resolved conflicts on the way
+    let end = first_conflict.filter(|&index| index >= state.replayed).unwrap_or(total);
+    let replay = replay_of(git_executor, repo_path, &state.local, &env);
+    let (low, tip) = match first_conflict_in_runs(&state.run_starts, state.replayed, end, state.tip.clone(), false, replay)? {
+      RunsReplay::Conflict { index, tip } => (index, tip),
+      RunsReplay::Clean(tip) if end < total => {
+        first_conflict = None;
+        (end, tip)
       }
-      let end = state.run_end(state.replayed);
-      // the check replayed all of them in one run and conflicted
-      if known_conflict && state.run_starts.is_empty() {
-        break end - 1;
-      }
-      match replay(state, end - 1)? {
-        Some(tip) => {
-          state.tip = tip;
-          state.replayed = end;
-        }
-        None => break end - 1,
+      RunsReplay::Clean(tip) => {
+        state.tip = tip;
+        state.replayed = total;
+        continue;
       }
     };
-    known_conflict = false;
-    let (low, tip) = first_conflict(state.replayed, high, state.tip.clone(), |middle| replay(state, middle))?;
     state.tip = tip;
     state.replayed = low;
     state.round += 1;

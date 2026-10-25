@@ -37,6 +37,23 @@ pub struct UpdateCommit {
   pub files: Vec<String>,
 }
 
+/// The first local commit whose replay onto the upstream conflicts: the merge of its change onto the upstream with the
+/// local commits before it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FirstConflict {
+  /// The commit; its `files` are `files`
+  pub commit: UpdateCommit,
+  /// The files whose merge conflicts, at most the first `MAX_ATTRIBUTED_FILES`
+  pub files: Vec<String>,
+  /// All files whose merge conflicts: a monorepo commit can conflict in thousands
+  pub file_count: u32,
+  /// The upstream commits since the merge base that changed `files`, oldest first, at most the newest
+  /// `MAX_UPSTREAM_COMMITS`
+  pub upstream_commits: Vec<UpdateCommit>,
+}
+
 /// Whether the branch can be updated, relative to the last fetch of the upstream
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -48,17 +65,10 @@ pub enum UpdateState {
   Clean { kind: UpdateKind },
   /// Replaying the local commits onto the upstream conflicts; nothing was changed
   Conflict {
-    /// The files that likely conflict, at most the first `MAX_ATTRIBUTED_FILES`: the ones with their commits
-    files: Vec<String>,
-    /// All files that likely conflict: a monorepo update can conflict in thousands
-    #[serde(rename = "fileCount")]
-    file_count: u32,
-    /// The local commits, oldest first
-    commits: Vec<UpdateCommit>,
-    /// The upstream commits that changed the likely conflicting files, oldest first, at most the newest
-    /// `MAX_UPSTREAM_COMMITS`
-    #[serde(rename = "upstreamCommits")]
-    upstream_commits: Vec<UpdateCommit>,
+    /// The first local commit whose replay conflicts, after the commits the update leaves out because the upstream
+    /// has them
+    #[serde(rename = "firstConflict")]
+    first_conflict: FirstConflict,
   },
   /// Uncommitted or staged changes, or untracked files, sit on paths the update would write; nothing was changed
   Blocked {

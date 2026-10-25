@@ -223,8 +223,9 @@ fn the_first_conflict_is_found_with_a_binary_search() {
     assert_eq!(exit_code, 1, "{round}");
     assert_eq!((&round["session"]["replayed"], &round["session"]["total"]), (&json!(conflict_at - 1), &json!(n)), "{round}");
     assert_eq!(round["session"]["commit"]["subject"], json!(format!("(auth) Commit {conflict_at}")));
-    // the replay of the check, then the search
-    assert!(wrapped.count("replay") <= 1 + search_replays(n), "{n}/{conflict_at}: {} replays", wrapped.count("replay"));
+    // the replay of the check and its search for the first conflict, then one replay of the commits before it in the
+    // session, which opens the round there without a search of its own
+    assert!(wrapped.count("replay") <= 2 + search_replays(n), "{n}/{conflict_at}: {} replays", wrapped.count("replay"));
 
     std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs\nmine\nthree\n").unwrap();
     let (exit_code, done) = wrapped.run(&["update", "--continue"]);

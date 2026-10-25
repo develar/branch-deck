@@ -2,7 +2,7 @@
 //! a commit that does not resolve, and one that the words leave empty.
 
 use crate::commit_writer::current_committer;
-use crate::word_replay::{WordsReplay, replay_resolving_words, resolve_note};
+use crate::word_replay::{WordsOutcome, WordsReplay, replay_resolving_words, resolve_note};
 use domain_types::conflict::ResolvedFileSummary;
 use domain_types::update_project::UpdateResolvedCommit;
 use pretty_assertions::assert_eq;
@@ -24,12 +24,20 @@ fn diverged(repo: &TestRepo, upstream_f: &str, local_f: &str) -> (String, Vec<St
 }
 
 /// `diverged` and the replay of its local commits onto the upstream
-fn replay(repo: &TestRepo, upstream_f: &str, local_f: &str) -> (String, Vec<String>, Option<WordsReplay>) {
+fn replay(repo: &TestRepo, upstream_f: &str, local_f: &str) -> (String, Vec<String>, WordsOutcome) {
   let (upstream, local) = diverged(repo, upstream_f, local_f);
   let (git, path) = (repo.git_executor(), repo.path_str());
   let committer = current_committer(git, path).unwrap();
   let replay = replay_resolving_words(git, path, &upstream, &local, &[], &[], &committer).unwrap();
   (upstream, local, replay)
+}
+
+/// The replay of every commit, else a panic
+fn replayed(outcome: WordsOutcome) -> WordsReplay {
+  match outcome {
+    WordsOutcome::Replayed(replay) => replay,
+    WordsOutcome::Stopped { index, .. } => panic!("the replay stopped at {index}"),
+  }
 }
 
 fn temp_refs(repo: &TestRepo) -> String {
@@ -40,7 +48,7 @@ fn temp_refs(repo: &TestRepo) -> String {
 fn a_conflict_that_resolves_by_words_is_committed_and_the_rest_replays_onto_it() {
   let repo = TestRepo::new();
   let (upstream, local, replay) = replay(&repo, "alpha beta GAMMA\nend\n", "ALPHA beta gamma\nend\n");
-  let replay = replay.unwrap();
+  let replay = replayed(replay);
 
   assert_eq!(repo.git(&["show", &format!("{}:f.txt", replay.tip)]), "ALPHA beta GAMMA\nend");
   assert_eq!(repo.git(&["log", "--format=%s", &format!("{upstream}..{}", replay.tip)]), "Add b\nChange f\nAdd a");
@@ -68,11 +76,15 @@ fn a_conflict_that_resolves_by_words_is_committed_and_the_rest_replays_onto_it()
   assert_eq!(temp_refs(&repo), "");
 }
 
+/// The replay stops at the commit that does not resolve, onto the tip of the commits before it: the first conflict of
+/// the update
 #[test]
 fn a_commit_whose_words_conflict_too_stops_the_replay() {
   let repo = TestRepo::new();
-  let (_, _, replay) = replay(&repo, "one beta gamma\nend\n", "two beta gamma\nend\n");
-  assert_eq!(replay, None);
+  let (upstream, _, replay) = replay(&repo, "one beta gamma\nend\n", "two beta gamma\nend\n");
+  let WordsOutcome::Stopped { index, tip } = replay else { panic!("{replay:?}") };
+  assert_eq!(index, 1);
+  assert_eq!(repo.git(&["log", "--format=%s", &format!("{upstream}..{tip}")]), "Add a");
   assert_eq!(temp_refs(&repo), "");
 }
 
@@ -81,7 +93,7 @@ fn a_commit_that_the_words_leave_without_a_change_is_dropped() {
   let repo = TestRepo::new();
   // the upstream has the word change of the local commit and one more
   let (upstream, _, replay) = replay(&repo, "ALPHA beta GAMMA\nend\n", "ALPHA beta gamma\nend\n");
-  let replay = replay.unwrap();
+  let replay = replayed(replay);
   assert_eq!(repo.git(&["log", "--format=%s", &format!("{upstream}..{}", replay.tip)]), "Add b\nAdd a");
   assert_eq!(replay.resolved, Vec::new());
   assert_eq!(temp_refs(&repo), "");

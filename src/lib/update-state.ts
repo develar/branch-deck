@@ -47,13 +47,15 @@ export function describeUpdateState(state: UpdateState, upstream: string, resolv
       return resolved.length === 0
         ? { tone: "success", summary: `Rebases cleanly onto ${upstream}`, short: "rebases cleanly" }
         : { tone: "success", summary: `Rebases onto ${upstream}, ${resolvingWords(resolved)}`, short: `rebases, ${resolvingWords(resolved)}` }
-    case "conflict":
+    case "conflict": {
+      // the files of the first commit that conflicts: where the rebase stops first
+      const { files, fileCount } = state.firstConflict
       return {
         tone: "warning",
-        summary:
-          state.fileCount === 0 ? `Your commits conflict with ${upstream}` : `Conflicts in ${formatFileCount(state.fileCount)}: ${formatFileList(state.files, state.fileCount)}`,
-        short: state.fileCount === 0 ? "conflicts" : `conflicts in ${formatFileCount(state.fileCount)}`,
+        summary: fileCount === 0 ? `Your commits conflict with ${upstream}` : `Conflicts in ${formatFileCount(fileCount)}: ${formatFileList(files, fileCount)}`,
+        short: fileCount === 0 ? "conflicts" : `conflicts in ${formatFileCount(fileCount)}`,
       }
+    }
     case "blocked":
       return {
         tone: "warning",

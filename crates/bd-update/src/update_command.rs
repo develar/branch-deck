@@ -148,7 +148,8 @@ pub struct UpdateOutput {
   /// The local commits the baseline has, by branch: the update dropped them (with --dry-run: would drop them)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed: Vec<LandedSummary>,
-  /// With --dry-run and `conflict`: the likely conflicting files and the commits on both sides
+  /// With --dry-run and `conflict`: the first conflicting commit, its conflicting files and the baseline commits that
+  /// change them
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflict: Option<UpdateConflict>,
   /// The resolve session: its open round, or what is left of it
@@ -423,14 +424,15 @@ impl UpdateCommandOutput {
   }
 }
 
+/// The first local commit whose replay conflicts, after the commits the update leaves out
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UpdateConflict {
-  /// The files that likely conflict, at most the first 50: the ones with their commits
+  /// The files whose merge conflicts, at most the first 50
   pub files: Vec<String>,
-  /// The likely conflicting files left out of `files`
+  /// The conflicting files left out of `files`
   #[serde(default, skip_serializing_if = "is_zero")]
   pub files_omitted: u32,
-  /// The local commits, oldest first
+  /// The first conflicting commit, with `files`
   pub commits: Vec<UpdateConflictCommit>,
   /// The baseline commits that changed those files, oldest first, at most the newest 50
   pub upstream_commits: Vec<UpdateConflictCommit>,
@@ -946,22 +948,21 @@ fn output(
   let mut ids = vec![check.head.as_str(), head, check.upstream_head.as_str()];
   ids.extend(landed_ids(&landed));
   ids.extend(landed_dropped.iter().flat_map(|(drop, _)| [drop.commit.as_str(), drop.upstream.as_str()]));
-  if let UpdateState::Conflict { commits, upstream_commits, .. } = &check.state {
-    ids.extend(commits.iter().chain(upstream_commits).map(|commit| commit.id.as_str()));
+  if let UpdateState::Conflict { first_conflict } = &check.state {
+    ids.extend(
+      std::iter::once(&first_conflict.commit)
+        .chain(&first_conflict.upstream_commits)
+        .map(|commit| commit.id.as_str()),
+    );
   }
   ids.extend(check.resolved_by_words.iter().flat_map(|commit| [commit.commit.as_str(), commit.new_id.as_str()]));
   let short = context.short_ids(ids);
   let conflict = match &check.state {
-    UpdateState::Conflict {
-      files,
-      file_count,
-      commits,
-      upstream_commits,
-    } => Some(UpdateConflict {
-      files: files.clone(),
-      files_omitted: omitted(*file_count as usize, files.len()),
-      commits: conflict_commits(commits, &short),
-      upstream_commits: conflict_commits(upstream_commits, &short),
+    UpdateState::Conflict { first_conflict } => Some(UpdateConflict {
+      files: first_conflict.files.clone(),
+      files_omitted: omitted(first_conflict.file_count as usize, first_conflict.files.len()),
+      commits: conflict_commits(std::slice::from_ref(&first_conflict.commit), &short),
+      upstream_commits: conflict_commits(&first_conflict.upstream_commits, &short),
     }),
     _ => None,
   };

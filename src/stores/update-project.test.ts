@@ -6,6 +6,7 @@ import type { ToastActionProps } from "@/lib/toast-message"
 import { getOperationBlocker, getOperations, operationsStore, runOperation } from "@/stores/operations"
 import { retryUpdateWithoutFetch, runFetchBaseline, runUpdateProject, runUpdateProjectOf, selectRunningUpdate, updateProjectStore } from "@/stores/update-project"
 import { openToasts, resetToasts, toasts } from "@/test-support/toast-mock"
+import { conflictState } from "@/test-support/update-conflict"
 
 /** A command of the backend that runs until the test finishes it */
 interface RunningCommand {
@@ -290,7 +291,7 @@ describe("the running update", () => {
   it("syncs after every update, also an update that was up to date, conflicted or was blocked", async () => {
     const answers: UpdateProjectResult[] = [
       UP_TO_DATE,
-      { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: { status: "conflict", files: ["a.txt"], fileCount: 1, commits: [], upstreamCommits: [] } } },
+      { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: conflictState(["a.txt"], 1) } },
       { ...UP_TO_DATE, check: { ...UP_TO_DATE.check, state: { status: "blocked", paths: ["a.txt"], pathCount: 1 } } },
     ]
     for (const [index, answer] of answers.entries()) {

@@ -10,7 +10,7 @@
 
 use crate::commit_writer::{EditedCommit, TreeEdit, WrittenEdit, discard_temp_refs, read_raw_commits, write_edited_commit};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
-use crate::replay::{first_conflict, replay_range_with_env, run_end};
+use crate::replay::{RunsReplay, first_conflict_in_runs, replay_of};
 use crate::word_resolve::{RESOLVE_VERSION, WordResolution, WordResolveOutcome, resolve_by_words};
 use anyhow::{Result, anyhow, bail};
 use domain_types::conflict::ResolvedFileSummary;
@@ -130,10 +130,19 @@ pub(crate) struct WordsReplay {
   pub resolved: Vec<UpdateResolvedCommit>,
 }
 
+/// Where a replay that resolves by words ended
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WordsOutcome {
+  /// Every commit replayed, each conflict of git resolved
+  Replayed(WordsReplay),
+  /// The commit at `index` conflicts onto `tip`, and its words do not resolve it: the first conflict of the update
+  Stopped { index: usize, tip: String },
+}
+
 /// Replay `local` (oldest first, linear history within each run of `run_starts`, the indices where a run starts after
 /// a commit left out) onto `onto` with `env` for `git replay`; a commit that conflicts is resolved by words with
 /// `committer`. The replay of all of them conflicted already: with one run, the search for the first conflict starts at
-/// once. `None` at the first commit that does not resolve. A resolved commit that changes nothing is dropped, as
+/// once. It stops at the first commit that does not resolve. A resolved commit that changes nothing is dropped, as
 /// `git replay` drops a commit that becomes empty. No temporary ref is left
 #[instrument(skip(git_executor, local, run_starts, env, committer), fields(commits = local.len()))]
 pub(crate) fn replay_resolving_words(
@@ -144,7 +153,7 @@ pub(crate) fn replay_resolving_words(
   run_starts: &[usize],
   env: &[(&str, &str)],
   committer: &str,
-) -> Result<Option<WordsReplay>> {
+) -> Result<WordsOutcome> {
   let mut written = Vec::new();
   let replay = replay_words(git_executor, repo_path, onto, local, run_starts, env, committer, &mut written);
   if let Some(first) = written.first() {
@@ -167,32 +176,26 @@ fn replay_words(
   env: &[(&str, &str)],
   committer: &str,
   written: &mut Vec<WrittenEdit>,
-) -> Result<Option<WordsReplay>> {
+) -> Result<WordsOutcome> {
   let mut replay = WordsReplay {
     tip: onto.to_string(),
     resolved: Vec::new(),
   };
+  let mut replay_to = replay_of(git_executor, repo_path, local, env);
   let mut next = 0;
-  while next < local.len() {
-    let (from, last) = (next, run_end(run_starts, next, local.len()) - 1);
-    let replay_to = |tip: &str, end: usize| -> Result<Option<String>> {
-      // linear history within a run: `<end> ^<from>^` is exactly the commits from `from` to `end`
-      let revs = [local[end].clone(), format!("^{}^", local[from])];
-      let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
-      Ok(replay_range_with_env(git_executor, repo_path, tip, &revs, env)?)
-    };
+  loop {
     // the replay of a single run conflicted already
     let known_conflict = next == 0 && run_starts.is_empty();
-    if !known_conflict && let Some(tip) = replay_to(&replay.tip, last)? {
-      replay.tip = tip;
-      next = last + 1;
-      continue;
-    }
-    let start = replay.tip.clone();
-    let (index, clean) = first_conflict(from, last, start.clone(), |end| replay_to(&start, end))?;
+    let (index, clean) = match first_conflict_in_runs(run_starts, next, local.len(), replay.tip.clone(), known_conflict, &mut replay_to)? {
+      RunsReplay::Clean(tip) => {
+        replay.tip = tip;
+        return Ok(WordsOutcome::Replayed(replay));
+      }
+      RunsReplay::Conflict { index, tip } => (index, tip),
+    };
     let Some(resolved) = resolve_commit_onto(git_executor, repo_path, &local[index], &clean, committer)? else {
       debug!(commit = %local[index], "a commit of the update does not resolve by words");
-      return Ok(None);
+      return Ok(WordsOutcome::Stopped { index, tip: clean });
     };
     if resolved.written.tree == resolved.written.parent_tree {
       replay.tip = clean;
@@ -203,7 +206,6 @@ fn replay_words(
     written.push(resolved.written);
     next = index + 1;
   }
-  Ok(Some(replay))
 }
 
 #[cfg(test)]

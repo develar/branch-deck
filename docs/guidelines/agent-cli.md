@@ -713,8 +713,8 @@ lock, checks again and applies a clean update. The fetch runs before the lock, s
   as in `bd sync`): `commit`, `new_id` (not for a dry run), `conflicts`, `file_count` and `files`. An update whose
   every conflict resolves so is a `rebase` without a session.
 - A conflict starts a resolve session (below): `state` `conflict`, exit 1. With `--dry-run`, nothing starts: `conflict`
-  lists the likely conflicting `files` (the first 50; `files_omitted` counts the rest), the local `commits` and the
-  `upstream_commits` that change them (`commit`, `subject`, `author`, `files`).
+  names the first conflict: its `files` (the first 50; `files_omitted` counts the rest), the commit in `commits` and
+  the `upstream_commits` that change the files (`commit`, `subject`, `author`, `files`).
 - `uncommitted_overlap` (exit 4): uncommitted, staged or untracked files sit on paths the update writes; `paths`
   lists them, the first 100, and the message says how many there are beyond. bd never stashes, resets or commits
   them: the agent asks the user, then runs `bd update` again.

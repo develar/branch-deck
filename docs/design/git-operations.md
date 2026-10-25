@@ -920,15 +920,21 @@ Details:
   and replaying them conflicts or brings them back. As `pull --rebase` does, they are excluded with the old tip from
   the forced fetch line and with the fork point from the tracking ref's reflog; the fork point also covers a forced
   fetch made in a terminal before the check inside a sync.
-- **Conflict.** `replay` reports a conflict only by its exit code. The files come from `merge-tree --write-tree
-  --name-only -z --no-messages U H` (`<tree>\0<file>\0…`, exit 1). If only the replay of single commits conflicts, they
-  are the paths both `diff-tree B U` and `diff-tree B H` change. The commits are `log --reverse HEAD ^U ^<previous
-  tips>`. Two more `--literal-pathspecs log --reverse --no-merges --no-renames --name-only -z -- <files>` runs tell
-  which commits change the files: one over the local range, one over `B..U` with
-  `--max-count=50` (a monorepo upstream has thousands). At most 50 files go on the command line, which Windows limits
-  to 32K characters. The result names the files, the commits and the upstream commits with their authors and
-  committers and both times (`%an %at %cn %ct`: the committer time of an upstream commit is about when it landed), with
-  H, U and B, for the dialog and the agent prompt; nothing has changed. In `bd update` (not `--dry-run`), a conflict
+- **Conflict.** `replay` reports a conflict only by its exit code. The check names the first conflict
+  (`UpdateState::Conflict.first_conflict`): the first kept local commit whose replay conflicts, and the tip of the
+  commits before it. With the resolve by words on, it is the commit where that replay stopped
+  (`WordsOutcome::Stopped`); else one `replay` per run of the `ReplayPlan`, and in the first run that conflicts a
+  binary search over its prefixes, each probe from the longest clean prefix found so far
+  (`replay::first_conflict_in_runs`): about n replayed commits for a run of n, where a probe from the start of the run
+  replayed ⌈log₂ n⌉ × n/2. Its files come from one `merge-tree --write-tree --name-only -z --no-messages
+  --merge-base=<c>^ <tip> <c>` (`<tree>\0<file>\0…`, exit 1), the commit from one `log --no-walk`, and one more
+  `--literal-pathspecs log --reverse --no-merges --no-renames --name-only -z -- <files>` over `B..U` with
+  `--max-count=50` (a monorepo upstream has thousands) tells which upstream commits change them. A merge of the whole
+  branch named files that no commit conflicts on, and missed the files of the commits that do. At most 50 files go on
+  the command line, which Windows limits to 32K characters. The result names the commit, its files and the upstream
+  commits with their authors and committers and both times (`%an %at %cn %ct`: the committer time of an upstream
+  commit is about when it landed), with H, U and B, for the dialog and the agent prompt; nothing has changed. The plan
+  keeps its index (`ReplayPlan::first_conflict`), so a resolve session opens its first round there. In `bd update` (not `--dry-run`), a conflict
   starts a resolve session under the same lock instead ("Resolve session" below). Before the conflict, the check
   resolves the conflicts of git by words when `branchdeck.resolveByWords` is on ("Resolve by words" below).
 - **Dirty working tree.** Two-way `read-tree -m -u` updates a path only where `H` and `N` differ, and only if the index
@@ -1017,8 +1023,8 @@ Details:
     replaying, and writes its own conflict to the cache: the click on Update after the sync that found the conflict,
     and the sync after a conflicting click, cost no replay (in a monorepo, hundreds of local commits replay for
     seconds). A clean outcome is never shared: its commits must carry the real committer date.
-  - **Bounded.** A conflict reports the first 50 likely conflicting files (51 rather than one left out, as every cut
-    list: `list_cut::kept`), the ones its commits are attributed to
+  - **Bounded.** A conflict reports the first 50 files of its first conflict (51 rather than one left out, as every
+    cut list: `list_cut::kept`), the ones its commits are attributed to
     (each a pathspec, and Windows limits a command line to 32K characters), and counts all (`file_count`); a block
     reports the first 100 paths and counts all (`path_count`). The event of every sync carries the state, so a conflict
     in thousands of files costs the app and `bd` a list of 50, not thousands of paths and file lists per commit.
@@ -1126,7 +1132,7 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 | Step | Command |
 |---|---|
 | Start | the check of "Update project" conflicted under the lock, and the session replays its `ReplayPlan`: the local commits without the proven ones, in runs, and the candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer) |
-| Find the conflict | a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
+| Find the conflict | at the start, the first conflict of the check: one `replay` per run of the commits before it, and its round opens without a search (a commit before it that the words resolve conflicts on the way and is searched). After a resolution, one `replay` per run of the rest, and in the first that conflicts a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`, each probe from the longest clean prefix: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
 | Resolve by words | with `branchdeck.resolveByWords` on, the merge of the round (below) resolved by words: one `check-attr`, one `cat-file --batch` and one `fast-import`; a resolved commit is a round that resolves itself, and the search goes on after it ("Resolve by words") |
 | Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs, which also writes the copies |
 | The copies | one `log -1 --patch-with-stat` for `commit.patch`, one `log` of the upstream commits of the files, and the check of every sync for `blocked_paths` (two `diff-tree`, `rev-parse --git-path index`, `cat-file --batch-check -Z`, `hash-object --stdin-paths`) |
@@ -1914,7 +1920,8 @@ In Update Project and `bd update`, with the same setting (`crates/git-ops/src/wo
   replay goes on. The agent sees only the rounds that do not resolve. `start_session` gets the mode with the check,
   `continue_session` from the config at each step.
 - **The cost.** A check that conflicts in a commit whose words do not resolve replays the prefixes once more: one
-  binary search, then the session searches again. The trial without the words is unchanged.
+  binary search, which names the first conflict; the session opens its round there without a search of its own. The
+  trial without the words is unchanged.
 
 #### Stack branch
 
@@ -2759,7 +2766,8 @@ of `bd safe-push` and of the app (`sync_core::target_conflict`, one core for bot
    <tip> ^<target>`, objects only, never a ref. The app resolves both tips first (one `rev-parse`); `bd safe-push`
    has them from the sync.
 3. Only on a conflict: the commits of the range (one `log`), the first conflicting commit by a binary search over the
-   prefixes (⌈log₂ n⌉ `replay`, `first_conflict`), its files from one `merge-tree --write-tree --name-only -z` onto
+   prefixes, each probe from the longest clean prefix (⌈log₂ n⌉ `replay`, `first_conflict`), its files from one
+   `merge-tree --write-tree --name-only -z` onto
    the longest clean prefix, the base (one `merge-base`), and the commits of the target after the base that change
    the files (one `log --literal-pathspecs … -- <files>`, the newest 10).
 
@@ -3804,7 +3812,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | Squash two commits | `a_squash` | 18 | 14 |
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |
-| Update Project that conflicts, two twins and a real conflict: the pairing once, no lock (2026-10-25) | `a_conflicting_update_pairs_its_commits_once` | 30 | 30 |
+| Update Project that conflicts, two twins and a real conflict: the pairing once, no lock; the first conflict instead of the outline of the whole branch: 1 less (2026-10-25) | `a_conflicting_update_pairs_its_commits_once` | 30 | 29 |
 | App stack push of two branches (`push_branches`; first a push per branch; the size check since 2026-10-25: 3 more) | `an_atomic_push_of_a_stack` * | 8 | 7 |
 | The text of the app's pull request of the whole stack (`read_new_stack_pull_request`) | `the_text_of_a_new_pull_request_of_the_whole_stack` ** | 1 | 1 |
 | What a merged robot landed after a change below its commit (`robot_landings`, 2026-10-18) | `the_landing_of_a_merged_robot_after_a_change_below_its_commit` | 8 | 8 |

@@ -1,7 +1,6 @@
 import { useRef, useState } from "react"
-import { ChevronRightIcon, CopyCheckIcon, CopyIcon, TriangleAlertIcon } from "lucide-react"
+import { CopyCheckIcon, CopyIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { CommitSubject } from "@/components/commit/CommitSubject"
@@ -11,7 +10,6 @@ import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
 import type { UpdateCheck, UpdateCommit } from "@/lib/bindings"
-import { formatCommitCount } from "@/lib/commit"
 import { formatFileCount } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { cutList } from "@/lib/text"
@@ -126,29 +124,13 @@ function ConflictFileItem({ file, upstream }: { file: ConflictFile; upstream: st
   )
 }
 
-/** All local commits, oldest first; those that change a likely conflicting file are marked */
-function AllCommits({ commits, defaultOpen }: { commits: readonly UpdateCommit[]; defaultOpen: boolean }) {
+/** The first local commit that conflicts: the rebase stops there first, the commits before it replay */
+function FirstConflictLine({ commit }: { commit: UpdateCommit }) {
   return (
-    <Collapsible defaultOpen={defaultOpen} className="flex flex-col gap-1.5">
-      <CollapsibleTrigger className="group flex w-fit items-center gap-1 text-muted-foreground hover:text-foreground">
-        <ChevronRightIcon className="size-4 transition-transform group-data-[panel-open]:rotate-90" />
-        {`All ${formatCommitCount(commits.length)} to rebase, oldest first`}
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <ul data-testid="update-conflict-commits" className="grid grid-cols-[auto_max-content_minmax(0,1fr)] gap-x-2 gap-y-1 pl-1">
-          {commits.map(commit => (
-            <li key={commit.id} className="col-span-full grid grid-cols-subgrid items-baseline">
-              {commit.files.length > 0 ? (
-                <TriangleAlertIcon aria-label="Changes a likely conflicting file" className="size-3 self-center text-warning" />
-              ) : (
-                <span className="size-3" />
-              )}
-              <CommitCells commit={commit} />
-            </li>
-          ))}
-        </ul>
-      </CollapsibleContent>
-    </Collapsible>
+    <p data-testid="update-first-conflict" className="grid grid-cols-[max-content_max-content_minmax(0,1fr)] items-baseline gap-x-3">
+      <span className="text-muted-foreground">First conflict</span>
+      <CommitCells commit={commit} />
+    </p>
   )
 }
 
@@ -156,10 +138,11 @@ function dialogTitle({ state, upstream }: UpdateCheck): string {
   if (state.status !== "conflict") {
     return "Your uncommitted changes block the update"
   }
-  if (state.fileCount === 0) {
+  const { fileCount } = state.firstConflict
+  if (fileCount === 0) {
     return `Your commits conflict with ${upstream}`
   }
-  return `${formatFileCount(state.fileCount)} ${state.fileCount === 1 ? "conflicts" : "conflict"} with ${upstream}`
+  return `${formatFileCount(fileCount)} ${fileCount === 1 ? "conflicts" : "conflict"} with ${upstream}`
 }
 
 /**
@@ -215,18 +198,17 @@ export function UpdateBlockedDialog({ check, onClose }: UpdateBlockedDialogProps
                   ? "Rebase in a terminal or your IDE, or copy a prompt for a coding agent."
                   : "Rebase in a terminal or your IDE, or hand it to a coding agent: the prompt resolves each commit with bd, outside the working tree."}
               </p>
-              {state.files.length > 0 && (
+              <FirstConflictLine commit={state.firstConflict.commit} />
+              {state.firstConflict.files.length > 0 && (
                 <div className="flex flex-col gap-1.5">
                   <ul data-testid="update-conflict-files" className="flex flex-col gap-3">
-                    {groupConflictFiles(state.files, state.commits, state.upstreamCommits).map(file => (
+                    {groupConflictFiles(state.firstConflict.files, [state.firstConflict.commit], state.firstConflict.upstreamCommits).map(file => (
                       <ConflictFileItem key={file.path} file={file} upstream={upstream} />
                     ))}
                   </ul>
-                  <MoreLine count={state.fileCount - state.files.length} noun="files" testId="update-conflict-more-files" />
+                  <MoreLine count={state.firstConflict.fileCount - state.firstConflict.files.length} noun="files" testId="update-conflict-more-files" />
                 </div>
               )}
-              {/* a newly shown conflict starts collapsed again */}
-              <AllCommits key={`${shown.head}-${shown.upstreamHead}`} commits={state.commits} defaultOpen={state.fileCount === 0} />
             </>
           )}
           {state.status === "blocked" && (

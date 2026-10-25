@@ -275,12 +275,9 @@ test.describe("Update Project", () => {
     // 2024-01-02 10:00 UTC)
     await expect(file.locator("li[data-side=local]")).toHaveText([/^yours[0-9a-f]{8}feature-auth Change line 219 hours ago$/])
     await expect(file.locator("li[data-side=upstream]")).toHaveText([/^origin\/master[0-9a-f]{8}Change line 2 upstreamDana Lee · authored 19 hours ago · landed 4 hours ago$/])
-    // every commit to rebase, collapsed
-    const commits = dialog.getByTestId("update-conflict-commits")
-    await expect(commits).toBeHidden()
-    await dialog.getByRole("button", { name: "All 2 commits to rebase, oldest first" }).click()
-    await expect(commits.locator("li")).toHaveText([/Add login/, /Change line 2/])
-    await expect(commits.locator("li").nth(1).getByLabel("Changes a likely conflicting file")).toBeVisible()
+    // the first commit that conflicts, where the rebase stops; the commit before it replays and is not named
+    await expect(dialog.getByTestId("update-first-conflict")).toHaveText(/^First conflict[0-9a-f]{8}feature-auth Change line 2$/)
+    await expect(dialog).not.toContainText("Add login")
 
     const copy = dialog.getByTestId("copy-agent-prompt")
     await copy.click()

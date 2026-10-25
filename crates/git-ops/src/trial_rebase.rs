@@ -42,8 +42,9 @@ pub struct RebaseConflict {
 }
 
 /// Replays the commits of `tip` that `onto` lacks onto `onto` (one `replay`). On a conflict it finds the first
-/// conflicting commit by a binary search over the prefixes (`first_conflict`), the files of its merge onto the longest
-/// clean prefix, and the commits of the target that change them. It writes objects only, never a ref
+/// conflicting commit by a binary search over the prefixes, each probe from the longest clean prefix so far
+/// (`first_conflict`), the files of its merge onto the longest clean prefix, and the commits of the target that change
+/// them. It writes objects only, never a ref
 #[instrument(skip(git_executor))]
 pub fn trial_rebase(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, tip: &str) -> Result<TrialRebase> {
   let negated = format!("^{onto}");
@@ -57,8 +58,10 @@ pub fn trial_rebase(git_executor: &GitCommandExecutor, repo_path: &str, onto: &s
     .len()
     .checked_sub(1)
     .ok_or_else(|| anyhow!("git replay of {tip} onto {onto} conflicts, but no commit is ahead"))?;
-  let (index, clean_tip) = first_conflict(0, last, onto.to_string(), |end| {
-    Ok(replay_range(git_executor, repo_path, onto, &[&commits[end].id, &negated])?)
+  let (index, clean_tip) = first_conflict(0, last, onto.to_string(), |first, tip, end| {
+    // the commits from `first` to `end`: after the one before `first`, else after the target
+    let after = first.checked_sub(1).map_or_else(|| negated.clone(), |before| format!("^{}", commits[before].id));
+    Ok(replay_range(git_executor, repo_path, tip, &[&commits[end].id, &after])?)
   })?;
   let commit = commits[index].clone();
   let mut files = conflicting_files(git_executor, repo_path, &clean_tip, &commit.id)?;

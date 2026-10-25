@@ -3,7 +3,7 @@ use crate::update_project::{
   update_project_with,
 };
 use domain_types::SyncEvent;
-use domain_types::update_project::{UpdateCommit, UpdateKind, UpdateState};
+use domain_types::update_project::{FirstConflict, UpdateCommit, UpdateKind, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::UndoBlocked;
@@ -269,10 +269,12 @@ fn touched_only_file_passes_thanks_to_the_refresh() {
   assert_eq!(status(&clone), "");
 }
 
+/// The first local commit that conflicts, with the files of its merge onto the commits before it and the upstream
+/// commits that change those files; the commit before it replays and is not named
 #[test]
-fn same_line_conflict_reports_files_and_commits_and_changes_nothing() {
+fn same_line_conflict_reports_the_first_conflict_and_changes_nothing() {
   let Setup { upstream, clone } = setup();
-  let first = clone.create_commit_with_timestamp("(auth) Add login", "login.txt", "login\n", Some(1_700_000_100));
+  clone.create_commit_with_timestamp("(auth) Add login", "login.txt", "login\n", Some(1_700_000_100));
   let second = clone.create_commit_with_timestamp("(auth) Change two", "shared.txt", "one\nlocal two\nthree\n", Some(1_700_000_200));
   upstream.create_commit("Upstream other", "other.txt", "upstream other\n");
   // written by Dana Lee, landed a day later by a robot: the committer is another person at another time
@@ -304,23 +306,22 @@ fn same_line_conflict_reports_files_and_commits_and_changes_nothing() {
     committer_time,
     files: files.iter().map(ToString::to_string).collect(),
   };
-  // only the commits that change the conflicting file carry it; the upstream lists only those
+  // the upstream lists only the commits that change the conflicting file
   assert_eq!(
     check.state,
     UpdateState::Conflict {
-      files: vec!["shared.txt".to_string()],
-      file_count: 1,
-      commits: vec![
-        commit(first, "(auth) Add login", ("Test User", 1_700_000_100), ("Test User", 1_700_000_100), &[]),
-        commit(second, "(auth) Change two", ("Test User", 1_700_000_200), ("Test User", 1_700_000_200), &["shared.txt"]),
-      ],
-      upstream_commits: vec![commit(
-        upstream_change,
-        "Upstream change",
-        ("Dana Lee", 1_700_000_300),
-        ("Patronus", 1_700_090_000),
-        &["shared.txt"]
-      )],
+      first_conflict: FirstConflict {
+        commit: commit(second, "(auth) Change two", ("Test User", 1_700_000_200), ("Test User", 1_700_000_200), &["shared.txt"]),
+        files: vec!["shared.txt".to_string()],
+        file_count: 1,
+        upstream_commits: vec![commit(
+          upstream_change,
+          "Upstream change",
+          ("Dana Lee", 1_700_000_300),
+          ("Patronus", 1_700_090_000),
+          &["shared.txt"]
+        )],
+      },
     }
   );
   assert_eq!((check.branch.as_str(), check.upstream.as_str()), ("master", "origin/master"));
@@ -494,7 +495,10 @@ async fn sync_reports_the_baseline_status() -> anyhow::Result<()> {
   assert_eq!(baseline_branch, "origin/master");
   assert_eq!(check_error, &None);
   let state = &update.as_ref().unwrap().state;
-  assert!(matches!(state, UpdateState::Conflict { files, .. } if files == &["shared.txt"]), "{state:?}");
+  assert!(
+    matches!(state, UpdateState::Conflict { first_conflict } if first_conflict.files == ["shared.txt"]),
+    "{state:?}"
+  );
   Ok(())
 }
 
@@ -545,15 +549,15 @@ fn e2e_templates_have_the_expected_update_states() {
   let (_, state) = check("update_conflict", templates::update_conflict());
   // the dialog shows when the upstream commit was written and, more than an hour later, when it landed
   assert!(
-    matches!(&state, UpdateState::Conflict { files, file_count: 1, commits, upstream_commits }
-      if files == &["src/app.txt"] && commits.len() == 2 && upstream_commits.len() == 1
+    matches!(&state, UpdateState::Conflict { first_conflict: FirstConflict { files, file_count: 1, upstream_commits, .. } }
+      if files == &["src/app.txt"] && upstream_commits.len() == 1
         && upstream_commits[0].committer_time > upstream_commits[0].time + 3600),
     "{state:?}"
   );
   let (_, state) = check("update_conflict_wide", templates::update_conflict_wide());
   // the dialog lists the first 50 files and the newest 5 of the 7 upstream commits of each
   assert!(
-    matches!(&state, UpdateState::Conflict { files, file_count: 60, upstream_commits, .. }
+    matches!(&state, UpdateState::Conflict { first_conflict: FirstConflict { files, file_count: 60, upstream_commits, .. } }
       if files.len() == 50 && files[0] == "src/wide/file00.txt" && upstream_commits.len() == 7),
     "{state:?}"
   );
@@ -1061,10 +1065,12 @@ fn wide_conflict(count: usize) -> Setup {
 fn wide_conflict_reports_the_first_files_with_their_commits_and_counts_all() {
   let Setup { upstream: _upstream, clone } = wide_conflict(60);
   let UpdateState::Conflict {
-    files,
-    file_count,
-    commits,
-    upstream_commits,
+    first_conflict: FirstConflict {
+      commit,
+      files,
+      file_count,
+      upstream_commits,
+    },
   } = preview(&clone)
   else {
     panic!("not a conflict");
@@ -1072,19 +1078,22 @@ fn wide_conflict_reports_the_first_files_with_their_commits_and_counts_all() {
   // a monorepo update can conflict in thousands of files: the check reports the ones it attributes commits to
   assert_eq!((files.len(), file_count), (50, 60));
   assert_eq!((files[0].as_str(), files[49].as_str()), ("src/file000.txt", "src/file049.txt"));
-  assert_eq!(commits[0].files, files);
+  assert_eq!(commit.files, files);
   assert_eq!(upstream_commits[0].files, files);
 }
 
 #[test]
 fn a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits() {
   let Setup { upstream: _upstream, clone } = wide_conflict(51);
-  let UpdateState::Conflict { files, file_count, commits, .. } = preview(&clone) else {
+  let UpdateState::Conflict {
+    first_conflict: FirstConflict { commit, files, file_count, .. },
+  } = preview(&clone)
+  else {
     panic!("not a conflict");
   };
   // the count of the rest is never 1: the one file costs no more
   assert_eq!((files.len(), file_count), (51, 51));
-  assert_eq!(commits[0].files, files);
+  assert_eq!(commit.files, files);
 }
 
 /// The blocked update of a clone whose untracked files sit on `count` paths the upstream adds

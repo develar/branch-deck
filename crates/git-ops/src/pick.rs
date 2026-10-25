@@ -609,9 +609,9 @@ impl Replay<'_> {
   }
 
   /// The first conflicting commit of the segment `first..=last`, which conflicts onto `onto`: a binary search over its
-  /// prefixes, then the files of its merge onto the longest clean prefix
+  /// prefixes, each probe from the longest clean prefix so far, then the files of its merge onto that prefix
   fn conflict(&self, onto: &str, first: usize, last: usize) -> Result<PickConflict> {
-    let (index, clean_tip) = first_conflict(first, last, onto.to_string(), |prefix_last| self.segment(onto, first, prefix_last))?;
+    let (index, clean_tip) = first_conflict(first, last, onto.to_string(), |low, tip, prefix_last| self.segment(tip, low, prefix_last))?;
     let commit = &self.range[index].commit;
     let mut files = conflicting_files(self.git_executor, self.target, &clean_tip, &commit.id)?;
     let file_count = u32::try_from(files.len()).unwrap_or(u32::MAX);

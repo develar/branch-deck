@@ -22,6 +22,7 @@ import {
 } from "@/stores/activity"
 import type { ArrayStoreState } from "@/stores/settings/persistent-store"
 import { testRemoteStatus } from "@/stores/test-branch"
+import { conflictState } from "@/test-support/update-conflict"
 
 /** A persistent store as the test creates it: its options and its zustand store */
 interface CreatedStore {
@@ -256,7 +257,7 @@ describe("activity", () => {
     const check = { branch: "master", upstream: "origin/master", head: "h", upstreamHead: "u", base: "b", fetchedAt: null }
     recordUpdate("/a", { check: { ...check, state: { status: "upToDate" } }, applied: null, landed: [] })
     expect(entries()).toEqual([])
-    recordUpdate("/a", { check: { ...check, state: { status: "conflict", files: ["src/app.txt"], fileCount: 1, commits: [], upstreamCommits: [] } }, applied: null, landed: [] })
+    recordUpdate("/a", { check: { ...check, state: conflictState(["src/app.txt"], 1) }, applied: null, landed: [] })
     expect(entries()[0]).toMatchObject({
       kind: "update",
       title: "Didn't update master",

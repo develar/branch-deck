@@ -91,14 +91,22 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The state must be one of:
   - up to date: the upstream has nothing the branch lacks;
   - clean, as a fast-forward or a rebase;
-  - conflict, with the files that likely conflict (the first 50, the ones with their commits, and the count of all),
-    the local commits oldest first, and the upstream commits that change those files (the newest 50, oldest first);
-    each commit has its author and author time, its committer and committer time (for an upstream commit, about when
-    it reached the upstream, e.g. when a robot landed it) and the likely conflicting files it changes;
+  - conflict, with the first conflict (`firstConflict`): the first local commit whose replay conflicts after the
+    commits the update leaves out because the upstream has them, the files of its merge onto the commits before it
+    (the first 50, and the count of all), and the upstream commits that change those files (the newest 50, oldest
+    first); each commit has its author and author time, its committer and committer time (for an upstream commit,
+    about when it reached the upstream, e.g. when a robot landed it) and the conflicting files it changes. The search
+    for it replays one run of commits at a time, and each probe of its binary search starts from the longest clean
+    prefix, so a run of n commits costs about n replayed commits, not ⌈log₂ n⌉ × n/2. With the resolve by words on, it
+    is the commit where that replay stopped. A resolve session opens its first round at that commit, without a
+    search of its own;
   - blocked, with the local paths that overlap the update (the first 100, and the count of all): uncommitted or
     staged changes on a file the upstream changes, an untracked file where it adds one, an ignored file where it adds
     one.
-  [@test] ../../crates/update-core/src/update_project_test.rs (`same_line_conflict_reports_files_and_commits_and_changes_nothing`)
+  [@test] ../../crates/update-core/src/update_project_test.rs (`same_line_conflict_reports_the_first_conflict_and_changes_nothing`)
+  [@test] ../../crates/git-ops/src/replay_test.rs (`each_probe_starts_from_the_longest_clean_prefix`, `the_runs_replay_until_the_first_that_conflicts`)
+  [@test] ../../crates/git-ops/src/word_replay_test.rs (`a_commit_whose_words_conflict_too_stops_the_replay`)
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`the_first_conflict_is_found_with_a_binary_search`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`dirty_touched_path_blocks_and_changes_nothing`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`staged_touched_path_blocks`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`untracked_file_that_upstream_adds_blocks`)
@@ -442,14 +450,15 @@ The header shows whether an update would apply cleanly, from a check that every 
 - A conflict or a block after a click opens a dialog in the frame of the previews: it says nothing was changed and
   when the baseline was fetched. It reads the app's bd command in the repository when it opens (`agent_cli_command`),
   so the copy needs no wait; Copy waits until it is read.
-- The conflict title counts all files, "1 file conflicts with origin/master" or "6 files conflict with origin/master";
+- The conflict title counts all files of the first conflict, "1 file conflicts with origin/master" or "6 files
+  conflict with origin/master";
   without known files it says "Your commits conflict with origin/master".
-- A conflict lists the files that likely conflict, each with the local commits ("yours", with their author time) and
-  the upstream commits that change it. An upstream commit shows its author and both times when they differ by more
-  than an hour, "Daniil Bubnov · authored 13 days ago · landed 2 hours ago", else one, "Daniil Bubnov, 13 days ago":
-  a commit written long ago can have reached the upstream just now. The list of all local commits, oldest first, comes
-  collapsed below; the commits that change a likely conflicting file are marked. Without known files that list is
-  open. The line above the files says to rebase in a terminal or the IDE, or, with a bd command, that the prompt
+- A conflict names the first conflict, "First conflict <id> <subject>": the commit where the rebase stops first.
+  Below it the files of its merge, each with that commit ("yours", with its author time) and the upstream commits
+  that change it. An upstream commit shows its author and both times when they differ by more than an hour,
+  "Daniil Bubnov · authored 13 days ago · landed 2 hours ago", else one, "Daniil Bubnov, 13 days ago": a commit
+  written long ago can have reached the upstream just now. A file that only a merge of the whole branch would name is
+  never listed. The line above says to rebase in a terminal or the IDE, or, with a bd command, that the prompt
   resolves each commit with bd, outside the working tree.
   [@test] ../../src/lib/update-conflict.test.ts (`gives each file the commits of each side that change it, in their order`)
   [@test] ../../src/lib/update-conflict.test.ts (`names when the commit was written and when it landed, if that was more than an hour later`)
@@ -508,18 +517,18 @@ The header shows whether an update would apply cleanly, from a check that every 
   id: mine the oldest (the first to stop a replay), upstream the newest, then "+<n> more", "+<n> or more" when the
   backend kept only the newest 50 upstream commits. Without bd, each upstream commit is described once, at most the 10
   newest, then "… and <n> more:" with where the rest are (`git log --oneline <base>..<upstream> --
-  <path>`). Without bd, more than 30 local commits list only those the files name (or the first 30, without known
-  files), at most 30, with the count and `git log --reverse --oneline <base>..<head>`. A blocked prompt lists at most
+  <path>`). A blocked prompt lists at most
   50 paths, then "… and <n> more: `git status` lists them", and asks about "these files". No list leaves out only one:
   one more than its limit is given whole (`cutList`), so the prompt never says "… and 1 more files".
   [@test] ../../src/lib/agent-prompt.test.ts (`never counts one where the item would stand: a list one longer than its limit is given whole`)
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, names the first files and a few commits of each by id`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`without bd, lists only the local commits the files name, with the command for the rest`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`without bd, names the first conflict and the commits of its files`)
   [@test] ../../src/lib/agent-prompt.test.ts (`counts the rest exactly when the backend did not cut the upstream list`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`lists the first local commits without known files`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`names the first conflict without known files`)
   [@test] ../../src/lib/agent-prompt.test.ts (`caps the paths of a blocked update`)
 - Without a bd command, the conflict prompt must contain the repository path, the branch, the upstream with the ids of
-  HEAD, the upstream and the merge base and the fetch time, the local commits oldest first, the likely conflicting
+  HEAD, the upstream and the merge base and the fetch time, the first conflict ("The rebase stops first at my commit
+  <id> <subject>", with `git log --reverse --oneline <base>..<head>` for the other commits), the likely conflicting
   files, the rules (keep every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push;
   other sessions may work in the tree, so uncommitted changes stop the agent, which asks the user and never stashes,
   resets, checks out or commits them) and the steps (rebase, resolve keeping the upstream change and the intent of the
@@ -527,7 +536,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   commits and the upstream commits that change it; "Upstream commits of these files" describes each upstream one once,
   with its subject, author and both dates: "(Daniil Bubnov, authored 2026-10-01, in origin/master since 2026-10-14)".
   [@test] ../../src/lib/agent-prompt.test.ts (`names the repository, the branch, the upstream and the exact ids`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`lists the local commits oldest first`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`names the first commit that conflicts and how to list the others`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names the commits on both sides of each likely conflicting file`)
   [@test] ../../src/lib/agent-prompt.test.ts (`states the rules and the steps`)
   [@test] ../../src/lib/agent-prompt.test.ts (`leaves out the file list when the conflicting files are unknown`)

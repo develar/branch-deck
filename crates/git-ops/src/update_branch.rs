@@ -13,17 +13,17 @@ use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedSc
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
-use crate::replay::replay_range_with_env;
+use crate::replay::{RunsReplay, first_conflict_in_runs, replay_of, replay_range_with_env};
 use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, is_ancestor, known_dirs, merge_base, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
 use crate::update_resolve::RESOLVE_NOTES_REF;
-use crate::word_replay::{WordsReplay, replay_resolving_words, resolve_note};
+use crate::word_replay::{WordsOutcome, replay_resolving_words, resolve_note};
 use crate::word_resolve::ResolveMode;
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update, prepare_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
 use domain_types::error::ErrorCode;
-use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
+use domain_types::update_project::{AppliedUpdate, FirstConflict, UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
@@ -113,6 +113,9 @@ pub struct ReplayPlan {
   /// The indices of `local` where a run of consecutive commits starts after one left out: a replay covers one run
   pub run_starts: Vec<usize>,
   pub pairing: LandedPairing,
+  /// The index in `local` of the first commit that conflicts (`UpdateState::Conflict`); `None` when the replay
+  /// applies. A resolve session opens its first round there, without a search
+  pub first_conflict: Option<usize>,
 }
 
 impl ReplayPlan {
@@ -131,7 +134,12 @@ impl ReplayPlan {
       }
       local.push(commit.clone());
     }
-    Self { local, run_starts, pairing }
+    Self {
+      local,
+      run_starts,
+      pairing,
+      first_conflict: None,
+    }
   }
 
   /// The local commits left out: the upstream proves it has them
@@ -377,18 +385,9 @@ fn check_update_with(
   };
 
   let (new_head, changed, blocked) = match &outcome {
-    ReplayOutcome::Conflict {
-      files,
-      file_count,
-      commits,
-      upstream_commits,
-      plan: replay,
-    } => {
+    ReplayOutcome::Conflict { first_conflict, plan: replay } => {
       plan.check.state = UpdateState::Conflict {
-        files: files.clone(),
-        file_count: *file_count,
-        commits: commits.clone(),
-        upstream_commits: upstream_commits.clone(),
+        first_conflict: first_conflict.clone(),
       };
       plan.replay = Some(replay.clone());
       (None, &[][..], Vec::new())
@@ -461,11 +460,8 @@ pub fn recheck_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: 
 #[derive(Debug, Clone)]
 enum ReplayOutcome {
   Conflict {
-    /// The first `MAX_ATTRIBUTED_FILES` likely conflicting files
-    files: Vec<String>,
-    file_count: u32,
-    commits: Vec<UpdateCommit>,
-    upstream_commits: Vec<UpdateCommit>,
+    first_conflict: FirstConflict,
+    /// With `ReplayPlan::first_conflict`
     plan: ReplayPlan,
   },
   Applies {
@@ -512,15 +508,22 @@ fn replay_outcome(
       } else {
         let replay = ReplayPlan::of(read_pairing(git_executor, repo_path, plan, &revs, landed)?);
         let mut replayed = replay_without_landed(git_executor, repo_path, upstream_head, &revs, env, &replay)?;
-        if replayed.is_none()
-          && resolve == ResolveMode::On
-          && let Some(words) = replay_by_words(git_executor, repo_path, upstream_head, &replay, env, purpose)?
-        {
-          replayed = Some(words.tip);
-          resolved = words.resolved;
+        let mut stopped = None;
+        if replayed.is_none() && resolve == ResolveMode::On {
+          match replay_by_words(git_executor, repo_path, upstream_head, &replay, env, purpose)? {
+            WordsOutcome::Replayed(words) => {
+              replayed = Some(words.tip);
+              resolved = words.resolved;
+            }
+            WordsOutcome::Stopped { index, tip } => stopped = Some((index, tip)),
+          }
         }
         let Some(new_head) = replayed else {
-          return conflict_outcome(git_executor, repo_path, base, upstream_head, head, &revs, replay);
+          let (index, tip) = match stopped {
+            Some(stopped) => stopped,
+            None => find_first_conflict(git_executor, repo_path, upstream_head, &replay, env)?,
+          };
+          return conflict_outcome(git_executor, repo_path, base, upstream_head, replay, index, &tip);
         };
         replay_plan = Some(replay);
         new_head
@@ -559,24 +562,48 @@ fn read_pairing(git_executor: &GitCommandExecutor, repo_path: &str, plan: &Updat
   }
 }
 
-/// The conflict of a replay: the files that likely conflict and the commits of both sides that change them; the
-/// commits the plan left out are not listed
-fn conflict_outcome(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, upstream_head: &str, head: &str, revs: &[&str], plan: ReplayPlan) -> Result<ReplayOutcome> {
-  let paths = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
+/// The first conflicting commit of the kept local commits of `plan` onto `upstream_head`, whose replay conflicted:
+/// one `replay` per run that applies, a binary search in the first run that conflicts, each probe from the longest
+/// clean prefix so far (`replay::first_conflict_in_runs`). The index in `plan.local` and the tip it conflicts onto
+fn find_first_conflict(git_executor: &GitCommandExecutor, repo_path: &str, upstream_head: &str, plan: &ReplayPlan, env: &[(&str, &str)]) -> Result<(usize, String)> {
+  let replay = replay_of(git_executor, repo_path, &plan.local, env);
+  // a single run is the replay that conflicted
+  let known_conflict = plan.run_starts.is_empty();
+  match first_conflict_in_runs(&plan.run_starts, 0, plan.local.len(), upstream_head.to_string(), known_conflict, replay)? {
+    RunsReplay::Conflict { index, tip } => Ok((index, tip)),
+    RunsReplay::Clean(_) => bail!("The replay of the local commits conflicted, but each of its runs replays"),
+  }
+}
+
+/// The conflict of a replay at the commit at `index` of `plan.local`, onto `tip`: the files of its merge, the commit and
+/// the upstream commits that change those files
+fn conflict_outcome(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, upstream_head: &str, mut plan: ReplayPlan, index: usize, tip: &str) -> Result<ReplayOutcome> {
+  let id = &plan.local[index];
+  let paths = first_conflict_files(git_executor, repo_path, tip, id)?;
   let file_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
   let paths = &paths[..kept(paths.len(), MAX_ATTRIBUTED_FILES)];
   let files: Vec<String> = paths.iter().map(|path| display_path(path)).collect();
+  let mut commit = local_commits(git_executor, repo_path, &["--no-walk", id])?
+    .pop()
+    .ok_or_else(|| anyhow!("git log printed no commit {id}"))?;
+  commit.files.clone_from(&files);
   // a path that is not UTF-8 can't be a pathspec argument: it is listed, without commits
   let pathspecs: Vec<String> = paths.iter().filter_map(|path| path.to_str().ok()).map(str::to_string).collect();
-  let (mut commits, upstream_commits) = conflict_commits(git_executor, repo_path, revs, base, upstream_head, &pathspecs)?;
-  let left_out: HashSet<&str> = plan.left_out().iter().map(|drop| drop.commit.as_str()).collect();
-  commits.retain(|commit| !left_out.contains(commit.id.as_str()));
-  debug!(file_count, commits = commits.len(), upstream_commits = upstream_commits.len(), "update conflicts");
+  let upstream_commits = if pathspecs.is_empty() {
+    Vec::new()
+  } else {
+    let upstream_range = format!("{base}..{upstream_head}");
+    commits_touching(git_executor, repo_path, &[&upstream_range], &pathspecs, Some(MAX_UPSTREAM_COMMITS))?
+  };
+  debug!(commit = %id, file_count, upstream_commits = upstream_commits.len(), "update conflicts");
+  plan.first_conflict = Some(index);
   Ok(ReplayOutcome::Conflict {
-    files,
-    file_count,
-    commits,
-    upstream_commits,
+    first_conflict: FirstConflict {
+      commit,
+      files,
+      file_count,
+      upstream_commits,
+    },
     plan,
   })
 }
@@ -590,7 +617,7 @@ fn replay_by_words(
   plan: &ReplayPlan,
   env: &[(&str, &str)],
   purpose: CheckPurpose,
-) -> Result<Option<WordsReplay>> {
+) -> Result<WordsOutcome> {
   let committer = current_committer(git_executor, repo_path)?;
   let committer = match purpose {
     // `Name <email> <seconds> <tz>`: the date of `PREVIEW_COMMITTER_DATE`
@@ -1669,59 +1696,24 @@ fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, up
   Ok(tips)
 }
 
-/// The files that likely make the replay conflict: those that a merge of HEAD and the upstream conflicts on, or, if
-/// only the replay of single commits conflicts, those changed on both sides of the merge base
-fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, upstream_head: &str, head: &str) -> Result<Vec<Vec<u8>>> {
-  // `<tree>\0<file>\0...`, exit code 1 on conflicts; the files as git stores them, untrimmed
+/// The files whose merge conflicts when `commit` is cherry-picked onto `tip`: one `merge-tree`, the files as git stores
+/// them
+fn first_conflict_files(git_executor: &GitCommandExecutor, repo_path: &str, tip: &str, commit: &str) -> Result<Vec<Vec<u8>>> {
+  let merge_base = format!("--merge-base={commit}^");
+  // `<tree>\0<file>\0...`, exit code 1 on conflicts; the files untrimmed
   let output = git_executor
-    .cmd(&["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", upstream_head, head], repo_path)
+    .cmd(&["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", &merge_base, tip, commit], repo_path)
     .accept(&[1])
     .bytes()?;
   let mut files: Vec<Vec<u8>> = output.split(|&b| b == 0).skip(1).filter(|file| !file.is_empty()).map(<[u8]>::to_vec).collect();
-  if files.is_empty() {
-    let upstream_files: HashSet<Vec<u8>> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|c| c.path).collect();
-    files = changed_paths(git_executor, repo_path, base, head)?
-      .into_iter()
-      .map(|c| c.path)
-      .filter(|path| upstream_files.contains(path))
-      .collect();
-  }
   files.dedup();
   Ok(files)
 }
 
-/// The upstream commits listed for the likely conflicting files: a monorepo upstream can have thousands
+/// The upstream commits listed for the files of the first conflict: a monorepo upstream can have thousands
 const MAX_UPSTREAM_COMMITS: usize = 50;
 
-/// The local commits of `revs`, oldest first, and the upstream commits since `base` that changed the likely conflicting
-/// `files`; each commit lists the files of `files` it changes
-fn conflict_commits(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  revs: &[&str],
-  base: &str,
-  upstream_head: &str,
-  files: &[String],
-) -> Result<(Vec<UpdateCommit>, Vec<UpdateCommit>)> {
-  let mut commits = local_commits(git_executor, repo_path, revs)?;
-  if files.is_empty() {
-    return Ok((commits, Vec::new()));
-  }
-  let mut touching: HashMap<String, Vec<String>> = commits_touching(git_executor, repo_path, revs, files, None)?
-    .into_iter()
-    .map(|commit| (commit.id, commit.files))
-    .collect();
-  for commit in &mut commits {
-    if let Some(files) = touching.remove(&commit.id) {
-      commit.files = files;
-    }
-  }
-  let upstream_range = format!("{base}..{upstream_head}");
-  let upstream_commits = commits_touching(git_executor, repo_path, &[&upstream_range], files, Some(MAX_UPSTREAM_COMMITS))?;
-  Ok((commits, upstream_commits))
-}
-
-/// The commits of `revs`, oldest first, without files
+/// The commits of `revs` (`log` options too), oldest first, without files
 fn local_commits(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[&str]) -> Result<Vec<UpdateCommit>> {
   let mut args = vec!["log", "--reverse", "-z", COMMIT_FORMAT];
   args.extend_from_slice(revs);

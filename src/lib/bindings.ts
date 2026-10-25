@@ -2045,6 +2045,24 @@ export type FindDeclarationParams = {
 	revisions?: DiffRevisions,
 };
 
+/**
+ *  The first local commit whose replay onto the upstream conflicts: the merge of its change onto the upstream with the
+ *  local commits before it
+ */
+export type FirstConflict = {
+	/**  The commit; its `files` are `files` */
+	commit: UpdateCommit,
+	/**  The files whose merge conflicts, at most the first `MAX_ATTRIBUTED_FILES` */
+	files: string[],
+	/**  All files whose merge conflicts: a monorepo commit can conflict in thousands */
+	fileCount: number,
+	/**
+	 *  The upstream commits since the merge base that changed `files`, oldest first, at most the newest
+	 *  `MAX_UPSTREAM_COMMITS`
+	 */
+	upstreamCommits: UpdateCommit[],
+};
+
 /**  Steps that belong together: they share a branch, and their plan alone has the result */
 export type FixComponent = {
 	steps: FixStep[],
@@ -5144,17 +5162,11 @@ export type UpdateState =
 { status: "clean"; kind: UpdateKind } | 
 /**  Replaying the local commits onto the upstream conflicts; nothing was changed */
 { status: "conflict"; 
-/**  The files that likely conflict, at most the first `MAX_ATTRIBUTED_FILES`: the ones with their commits */
-files: string[]; 
-/**  All files that likely conflict: a monorepo update can conflict in thousands */
-fileCount: number; 
-/**  The local commits, oldest first */
-commits: UpdateCommit[]; 
 /**
- *  The upstream commits that changed the likely conflicting files, oldest first, at most the newest
- *  `MAX_UPSTREAM_COMMITS`
+ *  The first local commit whose replay conflicts, after the commits the update leaves out because the upstream
+ *  has them
  */
-upstreamCommits: UpdateCommit[] } | 
+firstConflict: FirstConflict } | 
 /**  Uncommitted or staged changes, or untracked files, sit on paths the update would write; nothing was changed */
 { status: "blocked"; 
 /**  The paths, at most the first `MAX_BLOCKED_PATHS` */

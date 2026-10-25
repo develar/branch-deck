@@ -65,9 +65,10 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-update/src/update_test.rs (`a_failed_fetch_is_a_network_error`, `the_update_waits_for_the_repository_lock_after_its_fetch`)
 - `--no-fetch` must update onto the last fetched baseline. `--dry-run` must imply `--no-fetch`, take no lock and
   print what the update would do, writing at most git objects. A dry run of a conflict must print `state: "conflict"`
-  with the likely conflicting files, the local commits and the upstream commits that change them, start no session,
-  change nothing, and exit with 1. The output goes into an agent's context: `files` lists the first 50, the ones
-  with their commits, and `files_omitted` counts the rest; never one left out: 51 are all listed, with their commits.
+  with the first conflict: the files of its merge, the commit (`commits`) and the upstream commits that change the
+  files; start no session, change nothing, and exit with 1. The output goes into an agent's context: `files` lists
+  the first 50, the ones with their commits, and `files_omitted` counts the rest; never one left out: 51 are all
+  listed, with their commits.
   [@test] ../../crates/bd-update/src/update_test.rs (`dry_run_neither_fetches_nor_writes`, `a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing`, `a_dry_run_of_a_wide_conflict_lists_the_first_files_and_counts_the_rest`)
 - With `branchdeck.resolveByWords` on (the default), an update whose every conflict of git resolves by words must
   apply as a clean `rebase`, with no session. The commit that the words resolve keeps the author and the message of
@@ -120,8 +121,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   shared `refs/branch-deck/resolve/<worktree id>` (`main`, or the name of a linked worktree), so that a
   `gc --prune=now` in another worktree keeps its objects. In another worktree, `--continue` must be `no_session`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_session_belongs_to_its_worktree_and_survives_a_gc_in_another`)
-- The first conflicting commit must be found with a binary search over the prefixes of the local commits, at most
-  ⌈log₂ n⌉ replays after the check; after a resolution, one replay of the rest, and a search only when it conflicts.
+- The first round must open at the first conflict of the check, after one replay of the commits before it: the check
+  found it with a binary search over the prefixes, each probe from the longest clean prefix, at most ⌈log₂ n⌉
+  replays after its own replay. After a resolution, one replay of the rest, and a search only when it conflicts.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`the_first_conflict_is_found_with_a_binary_search`)
 - Every commit the session writes must have the committer of the session start (name, email and date), so the same
   input gives the same ids; `--continue --dry-run` must report the `new_id` that `--continue` writes.

@@ -70,8 +70,6 @@ const MAX_PROMPT_FILES = 20
 const MAX_FILE_COMMITS = 3
 /** The upstream commits the prompt without bd describes in full, once, newest first; with bd each round names those of its files */
 const MAX_DESCRIBED_UPSTREAM_COMMITS = 10
-/** The local commits the prompt without bd lists; more are only the ones its files name */
-const MAX_LISTED_COMMITS = 30
 /** `MAX_UPSTREAM_COMMITS` of `update_branch.rs`: a list this long may lack the older upstream commits of a file */
 const BACKEND_UPSTREAM_COMMITS = 50
 
@@ -88,8 +86,6 @@ interface ConflictOutline {
   files: OutlinedFile[]
   /** The likely conflicting files left out */
   moreFiles: number
-  /** The local commits the files name, oldest first */
-  local: UpdateCommit[]
   /** The upstream commits the files name, newest first */
   upstream: UpdateCommit[]
 }
@@ -100,17 +96,15 @@ function commitIds(commits: readonly UpdateCommit[], rest: number, cut: boolean)
 }
 
 function conflictOutline(state: ConflictState): ConflictOutline {
-  const cut = state.upstreamCommits.length >= BACKEND_UPSTREAM_COMMITS
-  const local = new Set<string>()
+  // the first commit that conflicts, with the files of its merge: where the rebase stops first
+  const first = state.firstConflict
+  const cut = first.upstreamCommits.length >= BACKEND_UPSTREAM_COMMITS
   const upstream = new Set<string>()
   // the backend reports the first files and counts all
-  const { shown, more: moreFiles } = cutList(state.files, MAX_PROMPT_FILES, state.fileCount)
-  const files = groupConflictFiles(shown, state.commits, state.upstreamCommits).map(file => {
+  const { shown, more: moreFiles } = cutList(first.files, MAX_PROMPT_FILES, first.fileCount)
+  const files = groupConflictFiles(shown, [first.commit], first.upstreamCommits).map(file => {
     const mine = cutList(file.local, MAX_FILE_COMMITS).shown
     const theirs = cutList([...file.upstream].reverse(), MAX_FILE_COMMITS).shown
-    for (const commit of mine) {
-      local.add(commit.id)
-    }
     for (const commit of theirs) {
       upstream.add(commit.id)
     }
@@ -123,8 +117,7 @@ function conflictOutline(state: ConflictState): ConflictOutline {
   return {
     files,
     moreFiles,
-    local: state.commits.filter(commit => local.has(commit.id)),
-    upstream: state.upstreamCommits.filter(commit => upstream.has(commit.id)).reverse(),
+    upstream: first.upstreamCommits.filter(commit => upstream.has(commit.id)).reverse(),
   }
 }
 
@@ -179,20 +172,10 @@ function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state:
   ].join("\n\n")
 }
 
-/**
- * The local commits, oldest first: all of them up to `MAX_LISTED_COMMITS`, else those the files name (all, without
- * known files), cut at that many, with the count and the command that lists the branch
- */
-function localCommitsSection(check: UpdateCheck, commits: readonly UpdateCommit[], named: readonly UpdateCommit[]): string {
-  const line = (commit: UpdateCommit) => `${formatShortHash(commit.id)} ${commit.subject}`
-  if (commits.length <= MAX_LISTED_COMMITS) {
-    return `My local commits, oldest first:\n${bullets(commits.map(line))}`
-  }
-  const listed = named.length === 0 ? commits : named
-  const { shown, more } = cutList(listed, MAX_LISTED_COMMITS)
-  const title = named.length === 0 ? "My local commits" : "My local commits that change these files"
-  const all = `${commits.length} in all; \`git log --reverse --oneline ${check.base}..${check.head}\` lists the branch`
-  return `${title}, oldest first (${all}):\n${bullets([...shown.map(line), ...(more === 0 ? [] : [`… and ${more} more`])])}`
+/** The first local commit that conflicts (`firstConflict`): the rebase stops there first; `git log` lists the branch */
+function firstConflictSection(check: UpdateCheck, commit: UpdateCommit): string {
+  const log = `\`git log --reverse --oneline ${check.base}..${check.head}\` lists my commits`
+  return `The rebase stops first at my commit ${formatShortHash(commit.id)} ${commit.subject}; ${log}.`
 }
 
 /**
@@ -216,7 +199,7 @@ export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: Agent
     sections.push(
       `Rebase the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` and resolve the conflicts.`,
       stateLines(check, fetchTime),
-      localCommitsSection(check, state.commits, outline.local),
+      firstConflictSection(check, state.firstConflict.commit),
     )
     if (outline.files.length > 0) {
       const files = outline.files.map(({ path, local, upstream }) => {

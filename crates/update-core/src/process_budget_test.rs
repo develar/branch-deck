@@ -90,9 +90,10 @@ fn an_update_after_its_fetch() {
 /// (`rev-list --cherry-mark`, none here) and the upstream commits by the local authors (`log`), replays both pairs by
 /// identity (`merge-tree --stdin`, one `rev-parse` of the upstream trees), and proves the one whose cherry-pick
 /// conflicts by its changed lines (`diff-tree -p -U0` with `patch-id --verbatim`, `diff-tree --raw`). The replay
-/// without the twins conflicts again (the second `replay`), the resolve by words fails on the real conflict (`var`,
-/// `merge-tree`, `check-attr`, `cat-file`), then the conflict is described (`merge-tree`, three `log`). A conflict moves
-/// nothing: no lock, no witness
+/// without the twins conflicts again (the second `replay`), and the resolve by words stops at the real conflict (`var`,
+/// `merge-tree`, `check-attr`, `cat-file`): the first conflict, which needs no search. It is described by its merge
+/// (`merge-tree`), the commit (`log`) and the upstream commits that change its files (`log`); the outline of the whole
+/// branch is gone (one `log` less). A conflict moves nothing: no lock, no witness
 #[test]
 fn a_conflicting_update_pairs_its_commits_once() {
   let (_upstream, clone, _, _) = TestRepo::upstream_and_clone_with_twins(false);
@@ -117,7 +118,7 @@ fn a_conflicting_update_pairs_its_commits_once() {
       ("config", 1),
       ("diff-tree", 2),
       ("for-each-ref", 1),
-      ("log", 5),
+      ("log", 4),
       ("merge-base", 2),
       ("merge-tree", 3),
       ("patch-id", 1),
