@@ -2,7 +2,7 @@
 //! first and then carries the patches, each on the version before it, up to the version a sync answers; it ends with
 //! `unsubscribe_view`; a repository without a prefix is refused with the `ApiError` of the app, on the stream too
 
-use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, start_test_server};
+use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, start_test_server, view_when};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -35,7 +35,7 @@ async fn a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sy
   let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
   assert_eq!(synced["outcome"], "synced", "{synced}");
   patches_up_to(&mut messages, &subscribed["view"]["version"], &synced["version"]).await;
-  // the committed table lists the robots: their patch follows
+  // the committed table asks for the facts: their patches follow, the landing needs last
   let version = listed(&client, addr, &path).await;
   patches_up_to(&mut messages, &synced["version"], &version).await;
 
@@ -196,7 +196,7 @@ async fn patches_up_to(messages: &mut Messages, from: &Value, version: &Value) -
   patches
 }
 
-/// A window on the session of a repository of `template`, synced once, with the robots the sync's list answered: the
+/// A window on the session of a repository of `template`, synced once, with what the sync asked answered (`listed`): the
 /// client, the path, the window's stream and the version of its view
 async fn synced_window(template: &str, channel: u32) -> (reqwest::Client, SocketAddr, String, Messages, Value) {
   let addr = start_test_server().await;
@@ -205,24 +205,24 @@ async fn synced_window(template: &str, channel: u32) -> (reqwest::Client, Socket
   let mut messages = subscribe(&client, addr, &id, &path, channel).await;
   let subscribed = subscription(&mut messages).await;
   post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
-  // the first committed table lists the robots: their patch follows the sync's
+  // the first committed table asks for the facts: their patches follow the sync's, the landing needs last
   let listed = listed(&client, addr, &path).await;
   patches_up_to(&mut messages, &subscribed["view"]["version"], &listed).await;
   (client, addr, path, messages, listed)
 }
 
-/// The version of the view once the robots and the pull requests of the session at `path` are answered (the lists after
-/// its first sync) and the view of what the robots hold is derived of them
+/// The version of the view once what the first sync of the session at `path` asks is answered: the robots, the pull
+/// requests and the review requests (the lists after it), the view of what the robots hold derived of them, and the
+/// landing needs of the table, which are computed after that view and come in a patch of their own. Until a test asks
+/// for something again, no patch follows this version
 async fn listed(client: &reqwest::Client, addr: SocketAddr, path: &str) -> Value {
-  loop {
-    let view = post(client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
+  let settled = |view: &Value| {
+    let answered = |state: &Value| state["kind"] != "loading";
     let facts = &view["facts"];
-    let answered = |part: &Value| part["head"]["state"]["kind"] != "loading";
-    if answered(&facts["robots"]) && answered(&facts["pullRequests"]) && view["patronus"]["state"]["kind"] == "fresh" {
-      return view["version"].clone();
-    }
-    tokio::task::yield_now().await;
-  }
+    let lists = [&facts["robots"], &facts["pullRequests"], &facts["reviewRequests"]];
+    lists.into_iter().all(|part| answered(&part["head"]["state"])) && view["patronus"]["state"]["kind"] == "fresh" && answered(&view["patronus"]["landingNeeds"])
+  };
+  view_when(client, addr, path, settled).await["version"].clone()
 }
 
 /// A push reaches the session as a patch of the remote status it left, whose version its answer names; no sync runs
