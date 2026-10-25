@@ -1,6 +1,7 @@
 use crate::commands::branch_prefix::PrefixInputs;
 use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
+use crate::commands::session::SessionsState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::{api_error, patronus_error};
@@ -9,9 +10,9 @@ use app_settings::service::SettingsService;
 use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
-  BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
+  BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability,
   PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams,
-  PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
@@ -89,6 +90,39 @@ impl PatronusState {
     Ok(space)
   }
 
+  /// The user's robots of the repository at `repository_path`, its branches named under `branch_prefix`, in the Space
+  /// repository `origin` pushes to: the last 7 days, or the ones started since `since`, with the GitHub
+  /// repository the branches are mirrored to (`AppFactSources`, the reads of the session's scheduler). Off Space, or when
+  /// git can't tell the remote, the availability says so. With the new API of Settings → Patronus (`new_api`) the list
+  /// names the merge profile of each robot (`mergeProfile`, behind the `robot.list.merge.profile.enabled` flag of
+  /// Patronus); off, it leaves the profile unknown
+  pub(crate) async fn robots(
+    &self,
+    git_executor: &GitCommandExecutor,
+    repository_state: &RepositoryStateCache,
+    (repository_path, branch_prefix): (&str, &str),
+    since: Option<u32>,
+    background: bool,
+    new_api: bool,
+  ) -> PatronusRobotsResult {
+    let repository = match self.space_repository(git_executor, repository_path).await {
+      Ok(Some(repository)) => repository,
+      Ok(None) => return PatronusRobotsResult::from(PatronusAvailability::NotPatronus),
+      Err(error) => return PatronusRobotsResult::from(PatronusAvailability::Error { message: error.message }),
+    };
+    let mut result = self.service.robots(&repository.name, branch_prefix, since, background, new_api).await;
+    match github_repository(git_executor, repository_state, repository_path, None).await {
+      Ok(github) => result.github_repository = github.map(|github| github.full_name()),
+      Err(error) => warn!(error = ?error, "the robots name no GitHub repository: it can't be read"),
+    }
+    result
+  }
+
+  /// The robots of `known` whose status changed since the session saw it, the others not in the answer
+  pub(crate) async fn poll(&self, branch_prefix: &str, known: &[KnownRobotStatus]) -> PatronusRobotsResult {
+    self.service.poll(branch_prefix, known).await
+  }
+
   /// The Space repository, for an action: not on Space is an error
   async fn required_space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<SpaceRepository, ApiError> {
     self.space_repository(git_executor, repository_path).await?.ok_or_else(not_on_space)
@@ -155,56 +189,6 @@ pub async fn get_robot_stats(
       }
     };
     Ok(robot_stats_core(&source, &calendar, unix_now(), params.period, params.refresh, &send).await)
-  })
-  .await
-}
-
-/// The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
-/// `since`. When Patronus can't be asked, the availability says why. With the new API of Settings → Patronus the list
-/// names the merge profile of each robot (`mergeProfile`, behind the `robot.list.merge.profile.enabled` flag of
-/// Patronus); off, it leaves the profile unknown.
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, patronus, settings, prefixes))]
-#[specta::specta]
-pub async fn get_patronus_robots(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  patronus: State<'_, PatronusState>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
-  params: GetPatronusRobotsParams,
-) -> Result<PatronusRobotsResult, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
-      return Ok(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
-    };
-    let new_api = inputs.patronus_new_api();
-    let branch_prefix = inputs.resolve(&params.repository_path).await?;
-    let mut result = patronus.service.robots(&repository.name, &branch_prefix, params.since, params.background, new_api).await;
-    result.github_repository = github_repository(&git_executor, &repository_state, &params.repository_path, None)
-      .await?
-      .map(|github| github.full_name());
-    Ok(result)
-  })
-  .await
-}
-
-/// The robots of `params.robots` whose status changed since the app saw it; the others are not in the result
-#[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, robots = params.robots.len()))]
-#[specta::specta]
-pub async fn poll_patronus_robots(
-  git_executor: State<'_, GitCommandExecutor>,
-  patronus: State<'_, PatronusState>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
-  params: PollPatronusRobotsParams,
-) -> Result<PatronusRobotsResult, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let branch_prefix = inputs.resolve(&params.repository_path).await?;
-    Ok(patronus.service.poll(&branch_prefix, &params.robots).await)
   })
   .await
 }
@@ -320,15 +304,18 @@ pub async fn get_patronus_start_options(
 /// stack; the frontend pushes it first. The whole sequence is `RemoteActions::start_robot` (`start_guard`), which the test
 /// server runs too: the user's robots (one list; a failed list fails the start), the checks of the kept table (parked,
 /// landed whole, not built, a robot on its last commit or one that lands a part of it), the landing gate with the
-/// commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot.
+/// commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot, which the
+/// session of the repository polls from now on (`SessionsState::write_robot`).
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, mode = ?params.mode))]
 #[specta::specta]
+#[expect(clippy::too_many_arguments, reason = "tauri passes each state of a command as an argument")]
 pub async fn start_patronus_robot(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
+  sessions: State<'_, SessionsState>,
   settings: State<'_, SettingsService>,
   prefixes: State<'_, BranchPrefixes>,
   params: StartPatronusRobotParams,
@@ -339,7 +326,9 @@ pub async fn start_patronus_robot(
     let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
     let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
     let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views, &branch_prefix);
-    actions.start_robot(move || repository_state.object_cache(&git, &path), &params).await.map_err(api_error)
+    let robot = actions.start_robot(move || repository_state.object_cache(&git, &path), &params).await.map_err(api_error)?;
+    sessions.write_robot(&params.repository_path, branch_prefix, &robot).await;
+    Ok(robot)
   })
   .await
 }
@@ -410,38 +399,40 @@ pub async fn check_target_conflict(
 /// Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
 /// a start (`RemoteActions::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
 #[tauri::command]
-#[instrument(skip(git_executor, patronus, views, settings, prefixes))]
+#[instrument(skip(git_executor, patronus, views, sessions, settings, prefixes))]
 #[specta::specta]
 pub async fn restart_patronus_robot(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
+  sessions: State<'_, SessionsState>,
   settings: State<'_, SettingsService>,
   prefixes: State<'_, BranchPrefixes>,
   params: PatronusRobotParams,
 ) -> Result<PatronusRobot, ApiError> {
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    act_on_robot(inputs, &patronus, &views, &params, RobotAction::Restart).await
+    act_on_robot(inputs, &patronus, &views, &sessions, &params, RobotAction::Restart).await
   })
   .await
 }
 
 /// Asks Patronus to cancel a running robot of the user's list (`RemoteActions::cancel_robot`); it answers it canceling
 #[tauri::command]
-#[instrument(skip(git_executor, patronus, views, settings, prefixes))]
+#[instrument(skip(git_executor, patronus, views, sessions, settings, prefixes))]
 #[specta::specta]
 pub async fn cancel_patronus_robot(
   git_executor: State<'_, GitCommandExecutor>,
   patronus: State<'_, PatronusState>,
   views: State<'_, RepositoryViews>,
+  sessions: State<'_, SessionsState>,
   settings: State<'_, SettingsService>,
   prefixes: State<'_, BranchPrefixes>,
   params: PatronusRobotParams,
 ) -> Result<PatronusRobot, ApiError> {
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    act_on_robot(inputs, &patronus, &views, &params, RobotAction::Cancel).await
+    act_on_robot(inputs, &patronus, &views, &sessions, &params, RobotAction::Cancel).await
   })
   .await
 }
@@ -459,6 +450,7 @@ async fn act_on_robot(
   inputs: PrefixInputs,
   patronus: &PatronusState,
   views: &RepositoryViews,
+  sessions: &SessionsState,
   params: &PatronusRobotParams,
   action: RobotAction,
 ) -> Result<PatronusRobot, ApiError> {
@@ -466,11 +458,13 @@ async fn act_on_robot(
   let branch_prefix = inputs.resolve(&params.repository_path).await?;
   let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
   let actions = remote_actions(patronus, space.as_ref(), &git_executor, views, &branch_prefix);
-  match action {
+  let robot = match action {
     RobotAction::Restart => actions.restart_robot(params).await,
     RobotAction::Cancel => actions.cancel_robot(params).await,
   }
-  .map_err(api_error)
+  .map_err(api_error)?;
+  sessions.write_robot(&params.repository_path, branch_prefix, &robot).await;
+  Ok(robot)
 }
 
 /// The current status of one robot, read right before a push into its branch

@@ -164,20 +164,11 @@ export const commands = {
 	 */
 	prefetchBranchReview: (params: PrefetchBranchReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("prefetch_branch_review", { params })),
 	/**
-	 *  The user's Patronus robots in the Space repository `origin` pushes to: the last 7 days, or the ones started since
-	 *  `since`. When Patronus can't be asked, the availability says why. With the new API of Settings → Patronus the list
-	 *  names the merge profile of each robot (`mergeProfile`, behind the `robot.list.merge.profile.enabled` flag of
-	 *  Patronus); off, it leaves the profile unknown.
-	 */
-	getPatronusRobots: (params: GetPatronusRobotsParams) => typedError<PatronusRobotsResult, ApiError>(__TAURI_INVOKE("get_patronus_robots", { params })),
-	/**
 	 *  The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
 	 *  the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
 	 *  before the runs are read
 	 */
 	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, ApiError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
-	/**  The robots of `params.robots` whose status changed since the app saw it; the others are not in the result */
-	pollPatronusRobots: (params: PollPatronusRobotsParams) => typedError<PatronusRobotsResult, ApiError>(__TAURI_INVOKE("poll_patronus_robots", { params })),
 	/**
 	 *  The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover. With the
 	 *  new API of Settings → Patronus the progress of a running robot comes in one request (`GET /robots/progress`, behind
@@ -192,7 +183,8 @@ export const commands = {
 	 *  stack; the frontend pushes it first. The whole sequence is `RemoteActions::start_robot` (`start_guard`), which the test
 	 *  server runs too: the user's robots (one list; a failed list fails the start), the checks of the kept table (parked,
 	 *  landed whole, not built, a robot on its last commit or one that lands a part of it), the landing gate with the
-	 *  commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot.
+	 *  commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot, which the
+	 *  session of the repository polls from now on (`SessionsState::write_robot`).
 	 */
 	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, ApiError>(__TAURI_INVOKE("start_patronus_robot", { params })),
 	/**
@@ -287,6 +279,12 @@ export const commands = {
 	 *  page sends it when it changes, at most four times a second, and again for a new subscription
 	 */
 	setDemand: (params: SetDemandParams) => __TAURI_INVOKE<void>("set_demand", { params }),
+	/**
+	 *  Asks the repository's session to read a fact again: the refresh button, or an action that needs it now (the robot a
+	 *  `/patronus` comment started). Answers once that read applied, with the version of the view after its patch; null when
+	 *  nothing was asked (the rules held it back, no session is open)
+	 */
+	refreshFacts: (params: RefreshFactsParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("refresh_facts", { params })),
 	/**
 	 *  Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
 	 *  the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
@@ -1387,6 +1385,11 @@ export type Demand = {
 	reviewWindows: string[],
 	/**  The robots whose details a surface shows (the robot popover, the preview, a row of the landing overview) */
 	robotDetails: string[],
+	/**
+	 *  The robots of no branch the window started and follows until they finish (the Safe Push of a reviewed pull
+	 *  request): polled with the robots of the branches
+	 */
+	watchedRobots: string[],
 };
 
 /**  The GitHub repository found without `branchdeck.githubRepository` */
@@ -1774,6 +1777,66 @@ export type EveryoneDelivery = {
 	merge_time: number,
 };
 
+/**
+ *  A fact of a session that a service or a computation answers (docs/design/rust-domain-authority.md, "Факты"): the
+ *  value of the last answer, how it stands now, the number of the observation that answered it (`seq`, from the one
+ *  counter of the session: an answer applies only when its observation is newer) and when it answered (Unix seconds).
+ *  `value` is `None` until the first answer
+ */
+export type Fact<T> = {
+	value: T | null,
+	state: FactState,
+	seq: number,
+	observedAt: number,
+};
+
+/**  A family of the facts of a session, which a window asks to read again (`RefreshFactsParams`) */
+export type FactFamily = 
+/**  The user's robots of Patronus (`FactsView::robots`) */
+"robots";
+
+/**  Why a window asks a fact again */
+export type FactRefreshReason = 
+/**  The refresh button: always asks, the robots of the full window */
+"manual" | 
+/**
+ *  An action of the window changed the remote and needs the fact now (the robot a `/patronus` comment started):
+ *  asks, and once more after a read in flight
+ */
+"afterWrite";
+
+/**
+ *  How a fact stands. A fact without an answer is never "no": a read that fails is `Unavailable` with its reason, never
+ *  an empty value, and never a `Loading` that lasts
+ */
+export type FactState = 
+/**  No answer yet: from the open of the session (or a change of what it is of) until the first one */
+{ kind: "loading" } | 
+/**  The value is the answer of the newest observation */
+{ kind: "fresh" } | 
+/**
+ *  The value is an earlier answer: the newest read failed (`reason`), or what the fact is of changed and it is being
+ *  read or computed again (`None`); nothing waits for it
+ */
+{ kind: "stale"; reason?: ApiError | null } | 
+/**  No answer: the read failed before any answer came */
+{ kind: "unavailable"; reason: ApiError } | 
+/**  Nothing asks for it (no window demands it) */
+{ kind: "unknown" };
+
+/**  The parts of the facts that changed */
+export type FactsChanges = {
+	robots?: RobotsChange | null,
+};
+
+/**
+ *  The facts of the remote services a session keeps, each with how it stands (docs/design/rust-domain-authority.md,
+ *  "Факты")
+ */
+export type FactsView = {
+	robots: RobotsView,
+};
+
 /**  A failed build of the dependency chain of a check (never a composite one) */
 export type FailedBuild = {
 	/**  The build configuration name, e.g. "Compile" */
@@ -2142,14 +2205,6 @@ export type GetNewStackPullRequestParams = {
 	target: string,
 };
 
-export type GetPatronusRobotsParams = {
-	repositoryPath: string,
-	/**  Unix seconds: only the robots started since then (an incremental refresh); null = the last 7 days */
-	since: number | null,
-	/**  Asked by a timer or an event, not by the user: skipped while Patronus is backing off after failures */
-	background: boolean,
-};
-
 export type GetPatronusStartOptionsParams = {
 	repositoryPath: string,
 	/**  As the sync detected it, e.g. `origin/master`: the robot pushes to the branch it tracks */
@@ -2355,12 +2410,6 @@ export type IssueNavigationLink = {
 export type KindCount = {
 	kind: RobotFailureKind,
 	count: number,
-};
-
-/**  A running robot whose status the app knows */
-export type KnownRobotStatus = {
-	id: string,
-	status: PatronusRobotStatus,
 };
 
 /**  The landed commits of one branch */
@@ -3071,19 +3120,6 @@ export type PatronusRobotStatus = "running" |
 /**  A status this version does not know */
 "unknown";
 
-export type PatronusRobotsResult = {
-	availability: PatronusAvailability,
-	/**  The robots of the user in the repository, newest first; empty unless available */
-	robots: PatronusRobot[],
-	/**
-	 *  `owner/name` of the GitHub repository the branches are mirrored to (the mirror of the committed Space settings, or
-	 *  `branchdeck.githubRepository`): their pull
-	 *  requests are reviewed there, and Patronus merges one from its `/patronus merge` comment. Only in the list of a
-	 *  repository, not in a poll.
-	 */
-	githubRepository?: string | null,
-};
-
 /**  What a start offers for a branch */
 export type PatronusStartOptions = {
 	/**  The branch the robot pushes to, e.g. `master` */
@@ -3129,11 +3165,6 @@ export type PlannedGroup = {
 	/**  The virtual branch the target is grouped into; `None` for an unassigned target */
 	branch: string | null,
 	folded: PlannedFixup[],
-};
-
-export type PollPatronusRobotsParams = {
-	repositoryPath: string,
-	robots: KnownRobotStatus[],
 };
 
 /**  Starts a robot from a GitHub pull request: the `/patronus` comment */
@@ -3361,6 +3392,16 @@ export type ReapplyBranchResult = {
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";
+
+/**
+ *  Asks the session of a repository to read a fact again (`refresh_facts`); the answer is the version of the view after
+ *  the patch of that read, null when nothing was asked (the rules held it back, no session is open)
+ */
+export type RefreshFactsParams = {
+	repositoryPath: string,
+	family: FactFamily,
+	reason: FactRefreshReason,
+};
 
 /**  A login GitHub didn't ask to review: the author, a user without access to the repository */
 export type RefusedReviewer = {
@@ -3987,6 +4028,34 @@ export type RobotStatsResult = {
 	stats: RobotStats | null,
 };
 
+/**  What changed of the robots: the head when it differs, the robots that changed and the ids that went */
+export type RobotsChange = {
+	head?: Fact<RobotsHead> | null,
+	robots?: { [key in string]: PatronusRobot },
+	removedRobots?: string[],
+};
+
+/**  What the last answer of Patronus said of the repository */
+export type RobotsHead = {
+	/**  Whether the repository is on Space, the Safe Push CLI logged in, Patronus answering */
+	availability: PatronusAvailability,
+	/**
+	 *  `owner/name` of the GitHub repository the branches are mirrored to, as the last list named it
+	 *  (`PatronusRobotsResult::github_repository`)
+	 */
+	githubRepository: string | null,
+};
+
+/**
+ *  The user's robots of Patronus in the repository, as the session listed and polled them: what Patronus said of the
+ *  repository and how the fact stands (`head`: `Loading` until the first answer, `Stale` with the robots of an earlier
+ *  answer after a failure, `Unavailable` after a failure without one), and the robots by id
+ */
+export type RobotsView = {
+	head: Fact<RobotsHead>,
+	robots: { [key in string]: PatronusRobot },
+};
+
 /**  An action of a row of Settings → Tools */
 export type RunCliToolActionParams = {
 	tool: CliTool,
@@ -4582,6 +4651,7 @@ export type TableChanges = {
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,
 	landed?: LandedSection | null,
+	facts?: FactsChanges | null,
 };
 
 /**  What the table as a whole was grouped and checked with */
@@ -4621,6 +4691,8 @@ export type TableView = {
 	/**  The stack branches the last sync reported, by the root of their stack */
 	stacks: { [key in string]: StackBranchUpdate },
 	sections: TableSections,
+	/**  What the remote services answered, beside the table */
+	facts: FactsView,
 };
 
 /**  What the check found */

@@ -57,18 +57,18 @@ fn check_rows(rows: &[Row], due: impl Fn(RefreshReason, FactTiming) -> bool) {
 }
 
 #[test]
-fn the_robots_are_listed_after_a_sync_every_five_minutes_never_after_a_push() {
+fn the_robots_are_listed_after_a_sync_every_five_minutes_never_after_a_push_and_at_once_for_a_start() {
   let rows: &[Row] = &[
     (Manual, Some(0), Some(0), true),
+    (Demand, Some(0), Some(0), true),
     (Sync, None, None, true),
     (Sync, Some(299), Some(1), false),
     (Sync, Some(300), Some(299), true),
     (Push, None, None, false),
     (Poll, None, None, false),
-    (Demand, None, None, false),
   ];
   check_rows(rows, |reason, timing| robots_list_due(reason, NOW, timing, ON_SERVICE));
-  assert!(robots_list_follows_up(Manual));
+  assert!(robots_list_follows_up(Manual) && robots_list_follows_up(Demand));
   assert!(!robots_list_follows_up(Sync) && !robots_list_follows_up(Focus));
 }
 

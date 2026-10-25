@@ -4,7 +4,7 @@
  * it names. The page's store (`src/model/store.ts`) applies the patches of its session with it, the fake sessions of
  * the store tests (`src/test-support/fake-sessions.ts`) keep their views with it
  */
-import type { BranchChange, BranchView, TableView, ViewPatch } from "@/lib/bindings"
+import type { BranchChange, BranchView, RobotsChange, RobotsView, TableView, ViewPatch } from "@/lib/bindings"
 import { withoutKeys } from "@/lib/record"
 
 /** The view after `patch`; the caller checked that `view` is at its base */
@@ -27,6 +27,7 @@ export function applyViewPatch(view: TableView, patch: ViewPatch): TableView {
   }
   const sections = view.sections
   const archived = changes.archived
+  const robots = changes.facts?.robots
   return {
     version: patch.next,
     sync: changes.sync ?? view.sync,
@@ -47,6 +48,15 @@ export function applyViewPatch(view: TableView, patch: ViewPatch): TableView {
               integration: { ...withoutKeys(sections.archived.integration, archived.removedIntegration ?? []), ...archived.integration },
             },
     },
+    facts: robots == null ? view.facts : { robots: patchedRobots(view.facts.robots, robots) },
+  }
+}
+
+/** The robots after a patch: its head when it names one, the robots it names replace theirs, those it removes go */
+function patchedRobots(robots: RobotsView, change: RobotsChange): RobotsView {
+  return {
+    head: change.head ?? robots.head,
+    robots: { ...withoutKeys(robots.robots, change.removedRobots ?? []), ...change.robots },
   }
 }
 

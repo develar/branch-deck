@@ -1782,6 +1782,18 @@ rewrites между процессами через файл `s10`; `s12` ждё
     счётчиком, ≤ 4/с, повтор на новую подписку); фокус и online проведены, вызовы `show`/`need`/`preview`/
     `robotDetails` переезжают со своими семействами (s7-6, s7-7). `POST /clock/advance { ms }` + sweep,
     `advanceBackendClock(ms)`; `COMMAND_COUNT` 128.
+  - s7-3a (по коду): планировщик `remote_facts::scheduler` (задача на сессию поверх `Sessions::events`, решения
+    `domain_policy::refresh`, ожидание `sleep_until`, чтения `FactSources`, применение через порт `FactsPort` =
+    `Sessions::begin`/`apply_facts`) ведёт список и опрос роботов; `RobotsFact` хранит у каждого робота номер записавшего
+    его наблюдения (список, начатый до старта или опроса, их не откатывает), часть `facts.robots` вида — по id, патч несёт
+    только изменённых. Робот старта, рестарта и отмены попадает в сессию из команды (`Sessions::write_robot`), watched-
+    роботы — через `Demand.watched_robots`, фокус опроса — `set_window_focus` (`SessionEventKind::Focus`) и demand. Первый
+    список — после первой зафиксированной таблицы наблюдаемой сессии (как раньше после sync), не на открытии: фикстура
+    теста, выставленная до sync, читается им. `refresh_facts` отвечает версией после патча своего чтения (кнопка
+    обновления, список после 👍 комментария: `AfterWrite` → `RefreshReason::Demand`, который `robots_list_due` теперь
+    пропускает и повторяет после списка в полёте). Страница: `applyRobotsFacts` через `onSessionFacts` главного окна;
+    удалены `get_patronus_robots`, `poll_patronus_robots`, ворота и таймеры списка и опроса, `COMMAND_COUNT` 127.
+    Failing, problems и news — s7-3b.
   - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
     requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
     `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):

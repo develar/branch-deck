@@ -164,26 +164,34 @@ fn running_on(branch: &str) -> serde_json::Value {
   }]})
 }
 
-/// The robots of the fixture come through the real service from the fake Patronus of the repository: an empty
-/// `sourceRevision` is the tip of the robot's branch when Patronus answers, and the fake counts the requests that
-/// reached it
+/// The robots of the fixture come through the real service from the fake Patronus of the repository into the session's
+/// facts, read by the scheduler of the facts: an empty `sourceRevision` is the tip of the robot's branch when Patronus
+/// answers, and the fake counts the requests that reached it
 #[tokio::test]
 async fn the_robots_of_the_fixture_come_through_the_real_service() {
   let (addr, client, id, repository_path, tip) = repository_with_branch("feature", "HEAD~1").await;
+  let session = json!({"repositoryPath": repository_path});
+  post(&client, addr, "/invoke/subscribe_view", session.clone()).await;
+  let refresh = json!({"repositoryPath": repository_path, "family": "robots", "reason": "manual"});
+  let robots = || async {
+    let snapshot = post(&client, addr, "/invoke/get_snapshot", session.clone()).await;
+    snapshot["facts"]["robots"].clone()
+  };
 
-  let params = json!({"repositoryPath": repository_path, "since": null, "background": false});
-  let before = post(&client, addr, "/invoke/get_patronus_robots", params.clone()).await;
-  assert_eq!(before["availability"], json!({"status": "notPatronus"}));
+  post(&client, addr, "/invoke/refresh_facts", refresh.clone()).await;
+  assert_eq!(robots().await["head"]["value"]["availability"], json!({"status": "notPatronus"}));
 
   post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("feature")).await;
-  let listed = post(&client, addr, "/invoke/get_patronus_robots", params).await;
-  assert_eq!(listed["availability"], json!({"status": "available"}));
-  assert_eq!(listed["robots"][0]["branchName"], "feature");
-  assert_eq!(listed["robots"][0]["sourceRevision"], tip.as_str());
+  post(&client, addr, "/invoke/refresh_facts", refresh).await;
+  let listed = robots().await;
+  assert_eq!(listed["head"]["value"]["availability"], json!({"status": "available"}));
+  assert_eq!(listed["robots"]["r1"]["branchName"], "feature");
+  assert_eq!(listed["robots"]["r1"]["sourceRevision"], tip.as_str());
 
   let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
   assert_eq!(log["listCalls"], 2);
   assert_eq!(log["requests"]["list"], 1);
+  assert_eq!(log["robots"]["r1"]["sourceRevision"], tip.as_str());
 }
 
 /// Settings → Patronus, the new API, is read in Rust from the settings of the repository, never sent by the page: the

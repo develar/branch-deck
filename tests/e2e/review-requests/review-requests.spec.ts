@@ -21,7 +21,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
+import { advanceBackendClock, holdCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -564,9 +564,8 @@ test.describe("Review window", () => {
     syncAndWaitForBranches,
   }) => {
     // GitHub shows the commit the user approved
-    const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD, RELEASE])
     // the robot is not among the user's: the thumbs up is the start
-    await routeCommand(page, "get_patronus_robots", () => availableRobots())
+    const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD, RELEASE])
 
     // the row's menu blocks it as the review does: Patronus would merge #103 into its own base
     await getReviewRow(page, 103).click({ button: "right" })
@@ -625,8 +624,8 @@ test.describe("Review window", () => {
     const repo = await setupSafePush(page, setupRepo, syncAndWaitForBranches, [OLD])
     // the page's clock is at 2024-01-02 10:00Z; the robot runs on no branch of the user's
     const started = robot("ABC-123", "review-robot", { branchName: null, startTime: 1704189600, pullRequest: { number: 101, url: "https://github.com/acme/monorepo/pull/101" } })
-    await routeCommand(page, "get_patronus_robots", () => availableRobots(started))
-    const polls = await routeCommand(page, "poll_patronus_robots", () => availableRobots({ ...started, status: "success", finishTime: 1704189700 }))
+    // Patronus lists it once the bot started it: the list the app asks after the thumbs up has it
+    await repo.setPatronus(availableRobots(started))
 
     const { window: reviewPage, review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
@@ -641,14 +640,16 @@ test.describe("Review window", () => {
     await expect(row).toHaveAttribute("data-branch-name", "#101 Rework the session store")
     await expect(row.getByRole("button", { name: "Open Pull Request #101 of #101 Rework the session store" })).toBeVisible()
 
-    // polled while it runs: its merge is told by what it tested
+    // the session polls it while it runs, every minute of its clock: its merge is told by what it tested
+    await repo.setPatronus(availableRobots({ ...started, status: "success", finishTime: 1704189700 }))
+    const merged = page.locator("[data-slot=toast]", { hasText: "#101 Rework the session store merged into master" })
     await expect
       .poll(async () => {
-        await page.clock.fastForward(60_000)
-        return polls.length
+        await advanceBackendClock(60_000)
+        return merged.count()
       })
-      .toBeGreaterThan(0)
-    await expect(page.locator("[data-slot=toast]", { hasText: "#101 Rework the session store merged into master" })).toBeVisible()
+      .toBe(1)
+    expect((await repo.getPatronusLog()).pollCalls).toBeGreaterThan(0)
   })
 
   test("should not Safe Push a pull request that got commits since the user reviewed it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

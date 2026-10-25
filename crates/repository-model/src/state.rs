@@ -4,9 +4,10 @@
 //! version of the last patch, for a window that opens or lost a patch. Rust decides equality, so the page keeps the
 //! identity of every part a patch does not carry.
 
+use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
-use domain_types::session::{ArchivedChanges, TableChanges, TableView, Version, ViewPatch};
+use domain_types::session::{ArchivedChanges, FactsChanges, RobotsChange, RobotsView, TableChanges, TableView, Version, ViewPatch};
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
 
@@ -39,8 +40,8 @@ impl View {
     self.last_sent.clone()
   }
 
-  /// The patch from the view sent last to `state`, and the view moves to it; `None` when no part differs
-  pub fn diff(&mut self, state: &TableState) -> Option<ViewPatch> {
+  /// The patch from the view sent last to `state` and `facts`, and the view moves to it; `None` when no part differs
+  pub fn diff(&mut self, state: &TableState, facts: &FactStore) -> Option<ViewPatch> {
     let last = &self.last_sent;
     let parts = &state.parts;
     let mut branches = BTreeMap::new();
@@ -71,6 +72,7 @@ impl View {
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),
       landed: changed(&last.sections.landed, &parts.sections.landed),
+      facts: robots_change(&last.facts.robots, facts.robots.view()).map(|robots| FactsChanges { robots: Some(robots) }),
     };
     if changes.is_empty() {
       return None;
@@ -86,6 +88,17 @@ impl View {
     }
     Some(patch)
   }
+}
+
+/// What changed of the robots: the head when it differs, the robots by id
+fn robots_change(last: &RobotsView, now: &RobotsView) -> Option<RobotsChange> {
+  let (robots, removed_robots) = diff_keyed(&last.robots, &now.robots);
+  let change = RobotsChange {
+    head: changed(&last.head, &now.head),
+    robots,
+    removed_robots,
+  };
+  (change != RobotsChange::default()).then_some(change)
 }
 
 /// A random epoch of a session: random per process and per call

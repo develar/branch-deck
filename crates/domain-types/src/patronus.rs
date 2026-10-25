@@ -155,7 +155,7 @@ pub struct GetPatronusRobotsParams {
 }
 
 /// A running robot whose status the app knows
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct KnownRobotStatus {

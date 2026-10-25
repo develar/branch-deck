@@ -4,12 +4,13 @@ import type {
   PatronusCommandReply,
   PatronusProfile,
   PatronusReviewRequirement,
+  PatronusRobot,
   PatronusRobotProgress,
-  PatronusRobotsResult,
   RemoteStatusUpdate,
   ReviewRequestsResult,
   StackBranchUpdate,
 } from "../../../src/lib/bindings"
+import type { PatronusRobotsFixture } from "./patronus-helpers"
 import type { GitHubFixture, GitHubLog } from "./pull-request-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
 
@@ -73,13 +74,16 @@ export type PatronusStartRequest = {
 }
 
 /**
- * What the page asked of Patronus (its commands, which the caches of the service may answer), what reached the fake
- * (`requests`), and the actions in order: the start requests, the robots restarted, canceled and whose status was read
+ * What the app asked of Patronus (the lists and polls of the session, the page's commands for the details, which the
+ * caches of the service may answer), what reached the fake (`requests`), and the actions in order: the start requests,
+ * the robots restarted, canceled and whose status was read
  */
 export type PatronusLog = {
   listCalls: number
   pollCalls: number
   detailCalls: number
+  /** By id, the robots the session's lists and polls answered last (a fixture's empty revision resolved by the fake) */
+  robots: Record<string, PatronusRobot>
   requests: PatronusRequests
   starts: PatronusStartRequest[]
   restarts: string[]
@@ -303,7 +307,7 @@ export class TestRepositoryBuilder {
    * `url` of a robot is the one the client derives from its id; an empty `sourceRevision` is the tip of the robot's
    * branch when Patronus answers, `~N` its Nth first parent
    */
-  async setPatronus(result: PatronusRobotsResult): Promise<void> {
+  async setPatronus(result: PatronusRobotsFixture): Promise<void> {
     await this.setFixture("patronus", result)
   }
 

@@ -4,7 +4,7 @@
 //! for a snapshot. A lost patch costs one snapshot and never shows a wrong table.
 
 use domain_types::commit::Commit;
-use domain_types::session::{BranchChange, BranchRemote, BranchSync, BranchView, CommitSync, TableChanges, TableView, Version, ViewPatch};
+use domain_types::session::{BranchChange, BranchRemote, BranchSync, BranchView, CommitSync, RobotsChange, TableChanges, TableView, Version, ViewPatch};
 use std::collections::BTreeMap;
 
 /// Why a patch does not apply to a view; the window asks for a snapshot instead
@@ -81,6 +81,7 @@ pub fn apply_patch(view: &mut TableView, patch: ViewPatch) -> Result<(), PatchRe
     archived,
     unapplied,
     landed,
+    facts,
   } = changes;
   // a branch the view lacks comes with its head and commits, also when the same patch removes it first
   for (name, change) in &branches {
@@ -116,6 +117,15 @@ pub fn apply_patch(view: &mut TableView, patch: ViewPatch) -> Result<(), PatchRe
       section.integration.remove(name);
     }
     section.integration.extend(archived.integration);
+  }
+  if let Some(robots) = facts.and_then(|facts| facts.robots) {
+    let RobotsChange { head, robots, removed_robots } = robots;
+    let view = &mut view.facts.robots;
+    set_if_some(&mut view.head, head);
+    for id in &removed_robots {
+      view.robots.remove(id);
+    }
+    view.robots.extend(robots);
   }
   Ok(())
 }

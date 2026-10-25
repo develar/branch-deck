@@ -9,6 +9,12 @@
 //!   successful run leaves the table of the session's facts (`FactStore::table`), which a failed or deferred one keeps.
 //! - A push: its end writes the remote statuses it left into the table and the remote-tracking refs it moved into the
 //!   inputs the scheduler knows (`SyncScheduler::pushed`), so a focus after it compares equal and runs nothing.
+//! - Facts: a read of a remote service takes its number (`Message::Begin`, of the session's epoch) and its answer applies
+//!   to the facts (`Message::ApplyFacts`) unless the session is another one by then; a write of the app (the robot of a
+//!   start, a restart, a cancel) is numbered when it applies. The facts are parts of the view, sent with the table's
+//!   patches. The actor tells the scheduler of the facts what it asks by (`SessionEventKind`): its first window and its
+//!   last, the union of the demands, the committed table, and after each patch the robots the poll asks about
+//!   (`facts::robots_digest`), when they changed.
 //! - Patches: each event changes the state at once; the patch of what changed goes out at most every
 //!   `PATCH_INTERVAL` (wall time, `Instant`: it only bounds the delay of the delivery), and at once at the start of a
 //!   run, when the build ended (`UnappliedBranchesFound`: the branches and the stack branches are built, so the tips are
@@ -21,13 +27,14 @@
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::BranchTable;
-use crate::facts::{FactStore, Observation, Seq, TableFacts};
-use crate::session::{Busy, RunReporter, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
+use crate::facts::{FactResult, FactStore, FactTicket, Observation, RobotsDigest, Seq, TableFacts, robots_digest};
+use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
 use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
 use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::patronus::PatronusRobot;
 use domain_types::session::{Demand, SyncReason, SyncState, SyncStep, TableView, Version};
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
@@ -70,6 +77,20 @@ pub(crate) enum Message {
   /// The demand of all the windows of the session
   #[cfg(test)]
   DemandOf(oneshot::Sender<Demand>),
+  /// The number of a read of a fact that starts now
+  Begin(oneshot::Sender<FactTicket>),
+  /// The answer of the read of `ticket`; `reply` gets the version of the view after its patch, `None` for a ticket of
+  /// another epoch
+  ApplyFacts {
+    ticket: FactTicket,
+    result: FactResult,
+    reply: oneshot::Sender<Option<Version>>,
+  },
+  /// The robot an action of the app answered; `reply` gets the version of the view after its patch
+  WriteRobot {
+    robot: PatronusRobot,
+    reply: oneshot::Sender<Version>,
+  },
   Sync {
     reason: SyncReason,
     waiter: Waiter,
@@ -105,7 +126,7 @@ pub(crate) enum Message {
 /// mailbox is gone (the registry's and those of its runs in flight). The actor and the checks and runs it starts log in
 /// the span `session{worktree prefix}`, a root: the actor outlives the command that opened it and serves the requests of
 /// every window, so it belongs to no one operation
-pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn SessionHost>, life: Arc<SessionLife>) -> mpsc::UnboundedSender<Message> {
+pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn SessionHost>, life: Arc<SessionLife>, events: Arc<EventSink>) -> mpsc::UnboundedSender<Message> {
   let (mailbox, messages) = mpsc::unbounded_channel();
   let span = info_span!(parent: None, "session", worktree = %key.worktree, prefix = %key.prefix);
   let actor = Actor {
@@ -120,6 +141,9 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     scheduler: SyncScheduler::new(),
     subscribers: Vec::new(),
     demands: HashMap::new(),
+    events,
+    told_demand: Demand::default(),
+    told_digest: None,
     flush_at: None,
     last_flush: None,
     in_flight: None,
@@ -143,6 +167,12 @@ struct Actor {
   subscribers: Vec<(SubscriptionId, Box<dyn Subscriber>)>,
   /// What the window of each subscription shows and needs (`Demand`); the facts are asked for all of them
   demands: HashMap<SubscriptionId, Demand>,
+  /// Where the events of the session go (the scheduler of the facts)
+  events: Arc<EventSink>,
+  /// The union of the demands the scheduler was told last
+  told_demand: Demand,
+  /// The robots of the poll the scheduler was told last, with the version of the view and the demand they are of
+  told_digest: Option<(Version, Vec<String>, RobotsDigest)>,
   /// When the pending patch goes out
   flush_at: Option<Instant>,
   last_flush: Option<Instant>,
@@ -180,6 +210,13 @@ impl Actor {
         self.subscribers.push((id, subscriber));
         // the patches after this snapshot follow it
         let _ = reply.send(self.view.snapshot());
+        if self.subscribers.len() == 1 {
+          self.events.emit(&self.key, SessionEventKind::Watched(true));
+          if self.facts.table.value().is_some() {
+            self.events.emit(&self.key, SessionEventKind::TableCommitted);
+          }
+          self.tell_digest();
+        }
       }
       Message::Unsubscribe(id) => {
         let before = self.subscribers.len();
@@ -187,6 +224,7 @@ impl Actor {
         self.demands.remove(&id);
         if self.subscribers.len() < before {
           self.life.subscriber_left();
+          self.windows_changed();
         }
       }
       Message::Snapshot(reply) => {
@@ -196,6 +234,7 @@ impl Actor {
         let _ = reply.send(self.facts.table_facts());
       }
       Message::Close => {
+        // the registry told the scheduler that the session closed
         for _ in self.subscribers.drain(..) {
           self.life.subscriber_left();
         }
@@ -204,7 +243,36 @@ impl Actor {
       Message::Demand { id, demand } => {
         if self.subscribers.iter().any(|(subscription, _)| *subscription == id) {
           self.demands.insert(id, demand);
+          self.tell_demand();
+          self.tell_digest();
         }
+      }
+      Message::Begin(reply) => {
+        let _ = reply.send(FactTicket {
+          epoch: self.view.version().epoch,
+          seq: self.state.next_seq(),
+        });
+      }
+      Message::ApplyFacts { ticket, result, reply } => {
+        if ticket.epoch != self.view.version().epoch {
+          let _ = reply.send(None);
+          return;
+        }
+        let observation = Observation {
+          seq: ticket.seq,
+          inputs: 0,
+          at: self.life.now(),
+          observed_at: unix_now(),
+        };
+        self.facts.apply(observation, result);
+        self.flush();
+        let _ = reply.send(Some(self.view.version()));
+      }
+      Message::WriteRobot { robot, reply } => {
+        let seq = self.state.next_seq();
+        self.facts.robots.write(seq, robot);
+        self.flush();
+        let _ = reply.send(self.view.version());
       }
       #[cfg(test)]
       Message::DemandOf(reply) => {
@@ -247,9 +315,46 @@ impl Actor {
     !self.subscribers.is_empty()
   }
 
+  /// A window went: the scheduler hears of the demand without it, and of the last window
+  fn windows_changed(&mut self) {
+    if self.subscribers.is_empty() {
+      self.events.emit(&self.key, SessionEventKind::Watched(false));
+    }
+    self.tell_demand();
+    self.tell_digest();
+  }
+
+  /// Tells the scheduler the union of the demands when it changed
+  fn tell_demand(&mut self) {
+    let demand = self.demand();
+    if demand != self.told_demand {
+      self.told_demand = demand.clone();
+      self.events.emit(&self.key, SessionEventKind::Demand(demand));
+    }
+  }
+
+  /// Tells the scheduler the robots the poll asks about when they changed: computed only after a patch or a change of
+  /// the demand, which are what they are of
+  fn tell_digest(&mut self) {
+    if !self.events.is_taken() || self.subscribers.is_empty() {
+      return;
+    }
+    let version = self.view.version();
+    let watched = &self.told_demand.watched_robots;
+    if self.told_digest.as_ref().is_some_and(|(at, of, _)| *at == version && of == watched) {
+      return;
+    }
+    let digest = robots_digest(&self.state, self.facts.robots.view(), watched);
+    // the scheduler starts from no running robot
+    let changed = self.told_digest.as_ref().map_or_else(|| digest != RobotsDigest::default(), |(_, _, told)| *told != digest);
+    self.told_digest = Some((version, watched.clone(), digest.clone()));
+    if changed {
+      self.events.emit(&self.key, SessionEventKind::Robots(digest));
+    }
+  }
+
   /// The demand of all the windows of the session: focused or online when one of them is, each list the union of
   /// theirs, sorted
-  #[cfg_attr(not(test), expect(dead_code, reason = "the scheduler of the facts asks by it, from the robots of s7-3 on"))]
   fn demand(&self) -> Demand {
     fn union<'a>(lists: impl Iterator<Item = &'a Vec<String>>) -> Vec<String> {
       lists.flatten().cloned().collect::<BTreeSet<String>>().into_iter().collect()
@@ -264,6 +369,7 @@ impl Actor {
       previewed: union(demands().map(|demand| &demand.previewed)),
       review_windows: union(demands().map(|demand| &demand.review_windows)),
       robot_details: union(demands().map(|demand| &demand.robot_details)),
+      watched_robots: union(demands().map(|demand| &demand.watched_robots)),
     }
   }
 
@@ -313,6 +419,7 @@ impl Actor {
       (_, Ok(synced)) => {
         self.state.finish_sync(Ok(()));
         let _ = self.facts.table.answer(observation, Ok(Arc::new(synced.table)));
+        self.events.emit(&self.key, SessionEventKind::TableCommitted);
       }
       (_, Err(error)) if is_deferred(&error) => self.state.defer_sync(),
       (_, Err(error)) => {
@@ -384,7 +491,7 @@ impl Actor {
   fn flush(&mut self) {
     self.flush_at = None;
     self.last_flush = Some(Instant::now());
-    let Some(patch) = self.view.diff(&self.state) else {
+    let Some(patch) = self.view.diff(&self.state, &self.facts) else {
       return;
     };
     let life = &self.life;
@@ -397,8 +504,14 @@ impl Actor {
       }
       kept
     });
+    let left = !gone.is_empty();
     for id in gone {
       self.demands.remove(&id);
+    }
+    if left {
+      self.windows_changed();
+    } else {
+      self.tell_digest();
     }
   }
 }

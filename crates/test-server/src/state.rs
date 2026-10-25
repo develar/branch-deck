@@ -24,8 +24,8 @@ pub struct AppState {
   /// page each reports on (`channel_commands`): `cancel_lock_wait` stops one
   pub lock_waits: history_rewrite::lock_wait::LockWaits,
   /// The sessions of the repositories (`session_routes`), as the app hosts them; their syncs keep their tables in
-  /// `repository_views`
-  pub sessions: repository_model::session::Sessions,
+  /// `repository_views`, their facts are read by the scheduler of the facts over the fakes (`TestFactSources`)
+  pub sessions: std::sync::Arc<repository_model::session::Sessions>,
   /// The clock the sessions age on: it stands still, so no session of a test goes away by itself
   pub session_clock: sync_utils::clock::TestClock,
 }
@@ -69,9 +69,12 @@ pub struct TestRepository {
   pub review_prune_keeps: std::sync::Mutex<Vec<Vec<u32>>>,
   /// The fake services behind the real ones (`remote_host.rs`), started on the first need; stopped with the repository
   pub remote: std::sync::OnceLock<std::sync::Arc<crate::remote_host::RemoteHost>>,
-  /// How often the page listed and polled the robots, so a test can check its request policy
+  /// How often the session of the repository listed and polled the robots, so a test can check its request policy
   pub patronus_list_calls: AtomicU32,
   pub patronus_poll_calls: AtomicU32,
+  /// By id, the robots the lists and the polls of the session answered last: a robot of a fixture without its revision
+  /// has the one the fake resolved (`robots` of `GET /repositories/{id}/patronus`)
+  pub patronus_answered: std::sync::Mutex<std::collections::BTreeMap<String, domain_types::patronus::PatronusRobot>>,
   /// How often the app asked for the details of a robot: the build progress of its checks comes only with them
   pub patronus_detail_calls: AtomicU32,
   /// The `get_branch_review_readiness` calls, in order: the branches asked and whether it was a recheck

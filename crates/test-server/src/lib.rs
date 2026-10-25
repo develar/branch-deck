@@ -144,10 +144,23 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       repository_views,
       branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
       lock_waits: history_rewrite::lock_wait::LockWaits::default(),
-      sessions: repository_model::session::Sessions::new(tokio::runtime::Handle::current(), Arc::new(host), Arc::new(session_clock.clone())),
+      sessions: Arc::new(repository_model::session::Sessions::new(
+        tokio::runtime::Handle::current(),
+        Arc::new(host),
+        Arc::new(session_clock.clone()),
+      )),
       session_clock,
     }
   });
+  // the facts of the sessions, read on the same clock from the fakes of each test repository
+  if let Some(events) = state.sessions.events() {
+    let scheduler = remote_facts::scheduler::Scheduler {
+      port: Arc::clone(&state.sessions) as Arc<dyn remote_facts::scheduler::FactsPort>,
+      sources: Arc::new(session_routes::TestFactSources { state: Arc::downgrade(&state) }),
+      clock: Arc::new(state.session_clock.clone()),
+    };
+    scheduler.start(&tokio::runtime::Handle::current(), events);
+  }
 
   let app = create_app(Arc::clone(&state));
   (app, state)
@@ -222,6 +235,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/unsubscribe_view", post(session_routes::unsubscribe_view))
     .route("/invoke/set_window_focus", post(session_routes::set_window_focus))
     .route("/invoke/set_demand", post(session_routes::set_demand))
+    .route("/invoke/refresh_facts", post(session_routes::refresh_facts))
     .route("/invoke/sync", post(session_routes::sync))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/reword", post(tauri_command_bridge::reword))
@@ -280,9 +294,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_new_stack_pull_request", post(tauri_command_bridge::get_new_stack_pull_request))
     .route("/invoke/prefetch_branch_review", post(tauri_command_bridge::prefetch_branch_review))
     .route("/invoke/get_file_owners", post(tauri_command_bridge::get_file_owners))
-    .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))
     .route("/invoke/get_robot_stats", post(tauri_command_bridge::get_robot_stats))
-    .route("/invoke/poll_patronus_robots", post(tauri_command_bridge::poll_patronus_robots))
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_patronus_robot_problems", post(tauri_command_bridge::get_patronus_robot_problems))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
@@ -706,6 +718,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, se
     remote: std::sync::OnceLock::new(),
     patronus_list_calls: std::sync::atomic::AtomicU32::new(0),
     patronus_poll_calls: std::sync::atomic::AtomicU32::new(0),
+    patronus_answered: std::sync::Mutex::new(std::collections::BTreeMap::new()),
     patronus_detail_calls: std::sync::atomic::AtomicU32::new(0),
     review_readiness_calls: std::sync::Mutex::default(),
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),

@@ -360,9 +360,10 @@ pub async fn set_patronus_history(Path(id): Path<String>, State(state): State<Ar
   Ok(StatusCode::OK)
 }
 
-/// What the page asked (`listCalls`, `pollCalls`, `detailCalls`: its commands, which the caches of the service may
-/// answer), what reached the fake Patronus (`requests`), and the actions it took, in order: the bodies of the start
-/// requests (`starts`), the robots restarted (`restarts`), canceled (`cancels`) and whose status was read (`statusReads`)
+/// What the app asked (`listCalls`, `pollCalls`: the lists and polls of the session, `detailCalls`: the page's commands,
+/// which the caches of the service may answer), the robots the lists and polls answered by id (`robots`), what reached
+/// the fake Patronus (`requests`), and the actions it took, in order: the bodies of the start requests (`starts`), the
+/// robots restarted (`restarts`), canceled (`cancels`) and whose status was read (`statusReads`)
 pub async fn get_patronus_fixture(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
   let repo = state.repositories.get(&id).ok_or_else(unknown_repository)?;
   let host = repo.remote(&state.git_executor);
@@ -371,6 +372,7 @@ pub async fn get_patronus_fixture(Path(id): Path<String>, State(state): State<Ar
   Ok(Json(serde_json::json!({
     "listCalls": repo.patronus_list_calls.load(ordering),
     "pollCalls": repo.patronus_poll_calls.load(ordering),
+    "robots": repo.patronus_answered.lock().expect("patronus answered lock").clone(),
     "detailCalls": repo.patronus_detail_calls.load(ordering),
     "requests": {
       "list": fake.list_calls.load(ordering),

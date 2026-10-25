@@ -1,11 +1,14 @@
 use crate::branch_table::BranchTable;
+use crate::facts::{FactResult, RobotsDigest, RobotsRead};
 use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
-use crate::session::{IDLE_LIMIT, RunReporter, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
+use crate::session::{IDLE_LIMIT, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
 use crate::table::RemoteSubject;
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
 use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::fixtures::robot;
+use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus, PatronusRobotsResult};
 use domain_types::session::{BranchStatus, Demand, SyncOutcome, SyncReason, SyncState, SyncStep, TableView, ViewPatch};
 use domain_types::stack::BlockReason;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
@@ -892,4 +895,65 @@ async fn a_timer_waits_on_the_test_clock_until_an_advance_reaches_its_time() {
   assert!(!timer.is_finished(), "59 s of 60");
   clock.advance(Duration::from_secs(1));
   tokio::time::timeout(Duration::from_secs(5), timer).await.unwrap().unwrap();
+}
+
+/// What the scheduler of the facts heard of the session since the last call, by kind
+fn heard(events: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEvent>) -> Vec<String> {
+  let mut kinds = Vec::new();
+  while let Ok(SessionEvent { kind, .. }) = events.try_recv() {
+    kinds.push(match kind {
+      SessionEventKind::Watched(watched) => format!("watched {watched}"),
+      SessionEventKind::Closed => "closed".to_owned(),
+      SessionEventKind::Focus(focused) => format!("focus {focused}"),
+      SessionEventKind::Demand(demand) => format!("demand focused {}", demand.focused),
+      SessionEventKind::TableCommitted => "table committed".to_owned(),
+      SessionEventKind::Robots(RobotsDigest { active, .. }) => format!("robots {:?}", active.iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>()),
+      SessionEventKind::Refresh { .. } => "refresh".to_owned(),
+    });
+  }
+  kinds
+}
+
+/// The scheduler hears what the facts of a session are asked by: a window watches it, its table is committed, the
+/// robots the poll asks about (those of its branches, on the tips of the table); a read numbers itself when it starts,
+/// its answer reaches the windows as a patch, and the answer of a read of a session that closed meanwhile applies to the
+/// session opened again under the key no more
+#[tokio::test]
+async fn the_reads_of_the_facts_reach_the_windows_and_the_scheduler_hears_what_it_asks_by() {
+  let host = Arc::new(ScriptedHost::default());
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let mut events = sessions.events().unwrap();
+  assert!(sessions.events().is_none(), "one consumer");
+  let key = key("/repo");
+  let window = Window::default();
+  sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  assert_eq!(heard(&mut events), vec!["watched true", "table committed"]);
+
+  let ticket = sessions.begin(&key).await.unwrap();
+  let listed = PatronusRobotsResult {
+    availability: PatronusAvailability::Available,
+    robots: vec![robot("auth-robot", Some("auth"), PatronusRobotStatus::Running, 10)],
+    github_repository: None,
+  };
+  let read = RobotsRead::List { full: true };
+  let version = sessions.apply_facts(&key, ticket, FactResult::Robots { read, result: listed.clone() }).await.unwrap();
+  assert_eq!(heard(&mut events), vec![r#"robots ["auth-robot"]"#]);
+  let patch = window.take().pop().unwrap();
+  assert_eq!(patch.next, version);
+  assert_eq!(patch.changes.facts.unwrap().robots.unwrap().robots.keys().collect::<Vec<_>>(), vec!["auth-robot"]);
+
+  // a start's robot: newer than every read before, polled from now on
+  let started = robot("started", Some("auth"), PatronusRobotStatus::Running, 20);
+  sessions.write_robot(&key, started).await.unwrap();
+  assert_eq!(heard(&mut events), vec![r#"robots ["started"]"#]);
+  assert_eq!(snapshot(&sessions, &key).await.facts.robots.robots["started"].status, PatronusRobotStatus::Running);
+
+  let late = sessions.begin(&key).await.unwrap();
+  sessions.close_worktree("/repo");
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  assert_eq!(heard(&mut events), vec!["closed", "watched true"]);
+  assert_eq!(sessions.apply_facts(&key, late, FactResult::Robots { read, result: listed }).await, None);
+  assert!(snapshot(&sessions, &key).await.facts.robots.robots.is_empty());
 }

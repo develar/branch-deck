@@ -13,9 +13,9 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
-  GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
-  PatronusCommandSubject, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult,
-  PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject,
+  PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::pull_request::{
   CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
@@ -1265,22 +1265,38 @@ fn space_of(state: &AppState, path: &str) -> Result<Option<(Arc<RemoteHost>, Spa
   Ok(host.and_then(|host| host.space_repository().map(|space| (host, space))))
 }
 
-/// The user's robots as the app lists them (`commands/patronus.rs`): the real service asks the fake Patronus of the
-/// repository, which answers the fixture of `POST /repositories/{id}/patronus`
-pub async fn get_patronus_robots(State(state): State<Arc<AppState>>, Json(params): Json<GetPatronusRobotsParams>) -> CommandResult<PatronusRobotsResult> {
-  repository_by_path(&state, &params.repository_path)?.patronus_list_calls.fetch_add(1, Ordering::SeqCst);
-  let Some((host, space)) = space_of(&state, &params.repository_path)? else {
-    return Ok(Json(PatronusRobotsResult::from(PatronusAvailability::NotPatronus)));
+/// The user's robots as the session of a test repository lists them (`TestFactSources`, as `PatronusState::robots` of the
+/// app): the real service asks the fake Patronus of the repository, which answers the fixture of
+/// `POST /repositories/{id}/patronus`; counted, and the robots answered kept for the tests (`patronus_answered`)
+pub(crate) async fn list_robots(state: &AppState, key: &SessionKey, since: Option<u32>, background: bool) -> Result<PatronusRobotsResult, Rejection> {
+  repository_by_path(state, &key.worktree)?.patronus_list_calls.fetch_add(1, Ordering::SeqCst);
+  let Some((host, space)) = space_of(state, &key.worktree)? else {
+    return Ok(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
   };
-  let (branch_prefix, new_api) = (
-    branch_prefix_of(&state, &params.repository_path).await?,
-    patronus_new_api_of(&state, &params.repository_path)?,
-  );
-  let mut result = host.patronus_service().robots(&space.name, &branch_prefix, params.since, params.background, new_api).await;
-  let git = config_git(&state, &params.repository_path)?;
-  let Json(github) = run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &params.repository_path)).await?;
+  let new_api = patronus_new_api_of(state, &key.worktree)?;
+  let mut result = host.patronus_service().robots(&space.name, &key.prefix, since, background, new_api).await;
+  let (git, path) = (config_git(state, &key.worktree)?, key.worktree.clone());
+  let Json(github) = run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &path)).await?;
   result.github_repository = github.map(|github| github.full_name());
-  Ok(Json(result))
+  keep_answered(state, &key.worktree, &result);
+  Ok(result)
+}
+
+/// The robots whose status changed since the session saw it, as the session of a test repository polls them; counted
+pub(crate) async fn poll_robots(state: &AppState, key: &SessionKey, known: &[KnownRobotStatus]) -> Result<PatronusRobotsResult, Rejection> {
+  repository_by_path(state, &key.worktree)?.patronus_poll_calls.fetch_add(1, Ordering::SeqCst);
+  let host = remote_of(state, &key.worktree)?;
+  let result = host.patronus_service().poll(&key.prefix, known).await;
+  keep_answered(state, &key.worktree, &result);
+  Ok(result)
+}
+
+/// Keeps the robots of an answer by id, for the tests that pin a revision the fake resolved
+fn keep_answered(state: &AppState, path: &str, result: &PatronusRobotsResult) {
+  if let Ok(repository) = repository_by_path(state, path) {
+    let mut answered = repository.patronus_answered.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    answered.extend(result.robots.iter().map(|robot| (robot.id.clone(), robot.clone())));
+  }
 }
 
 /// The Safe Push statistics as the app reads them (`get_robot_stats`): the real core against the fake Patronus of the
@@ -1312,14 +1328,6 @@ pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): J
   Ok(Json(
     robot_stats_core(&source, &Calendar::utc(), PAGE_CLOCK_START, params.period, params.refresh, &|_| {}).await,
   ))
-}
-
-/// The robots whose status changed since the page saw it, as the app polls them
-pub async fn poll_patronus_robots(State(state): State<Arc<AppState>>, Json(params): Json<PollPatronusRobotsParams>) -> CommandResult<PatronusRobotsResult> {
-  repository_by_path(&state, &params.repository_path)?.patronus_poll_calls.fetch_add(1, Ordering::SeqCst);
-  let host = remote_of(&state, &params.repository_path)?;
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  Ok(Json(host.patronus_service().poll(&branch_prefix, &params.robots).await))
 }
 
 /// The robot with its profile, checks, problems and progress, as the app reads them
@@ -1484,8 +1492,19 @@ pub async fn start_patronus_robot(State(state): State<Arc<AppState>>, Json(param
   let operation = "start the Patronus robot";
   let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
   let actions = inputs.actions(&state);
-  let robot = actions.start_robot(ObjectCache::disabled, &params).await;
-  robot.map(Json).map_err(|e| failed(operation, e))
+  let robot = actions.start_robot(ObjectCache::disabled, &params).await.map_err(|e| failed(operation, e))?;
+  write_robot(&state, &params.repository_path, inputs.branch_prefix.clone(), &robot).await;
+  Ok(Json(robot))
+}
+
+/// The robot an action answered goes into the robots of the session of the repository, as the app's commands write it
+async fn write_robot(state: &AppState, repository_path: &str, prefix: String, robot: &PatronusRobot) {
+  let key = SessionKey {
+    worktree: repository_path.to_owned(),
+    prefix,
+  };
+  // a session not open has no robots to keep it in
+  let _ = state.sessions.write_robot(&key, robot.clone()).await;
 }
 
 /// Restarts a robot as the app does (`RemoteActions::restart_robot`): the fake lists a new one on the newest commit of
@@ -1516,8 +1535,10 @@ async fn act_on_robot(state: &AppState, params: &PatronusRobotParams, action: Ro
   let robot = match action {
     RobotAction::Restart => actions.restart_robot(params).await,
     RobotAction::Cancel => actions.cancel_robot(params).await,
-  };
-  robot.map(Json).map_err(|e| failed(operation, e))
+  }
+  .map_err(|e| failed(operation, e))?;
+  write_robot(state, &params.repository_path, inputs.branch_prefix.clone(), &robot).await;
+  Ok(Json(robot))
 }
 
 /// The status of one robot as the app reads it before a push into its branch

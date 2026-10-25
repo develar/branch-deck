@@ -7,8 +7,9 @@
 //!
 //! The names on the wire are the ones the page reads today (`branch-sync.ts`). The statuses are data: the texts, the
 //! marks of what to expand and the badges are the page's presentation of them. A fact a service or a computation
-//! answers is a `Fact` with its `FactState` (the rule of a fact without an answer); a window tells the session what it
-//! shows and needs (`Demand`).
+//! answers is a `Fact` with its `FactState` (the rule of a fact without an answer), and the facts of the remote services
+//! are parts of the view beside the table (`FactsView`: the robots of Patronus by id); a window tells the session what
+//! it shows and needs (`Demand`) and asks it to read a fact again (`RefreshFactsParams`).
 
 use crate::branch_integration::BranchIntegrationInfo;
 use crate::commit::Commit;
@@ -16,6 +17,7 @@ use crate::conflict::WordResolutionSummary;
 use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
+use crate::patronus::{PatronusAvailability, PatronusRobot};
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
 use crate::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate, UnappliedBranchInfo};
@@ -56,6 +58,18 @@ pub struct Fact<T> {
   pub state: FactState,
   pub seq: u32,
   pub observed_at: u32,
+}
+
+impl<T> Default for Fact<T> {
+  /// A fact without an answer yet
+  fn default() -> Self {
+    Self {
+      value: None,
+      state: FactState::Loading,
+      seq: 0,
+      observed_at: 0,
+    }
+  }
 }
 
 /// How a fact stands. A fact without an answer is never "no": a read that fails is `Unavailable` with its reason, never
@@ -106,6 +120,9 @@ pub struct Demand {
   pub review_windows: Vec<String>,
   /// The robots whose details a surface shows (the robot popover, the preview, a row of the landing overview)
   pub robot_details: Vec<String>,
+  /// The robots of no branch the window started and follows until they finish (the Safe Push of a reviewed pull
+  /// request): polled with the robots of the branches
+  pub watched_robots: Vec<String>,
 }
 
 /// The demand of a window, by its subscription to the session (`ViewSubscription::id`)
@@ -115,6 +132,38 @@ pub struct Demand {
 pub struct SetDemandParams {
   pub subscription: u32,
   pub demand: Demand,
+}
+
+/// A family of the facts of a session, which a window asks to read again (`RefreshFactsParams`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum FactFamily {
+  /// The user's robots of Patronus (`FactsView::robots`)
+  Robots,
+}
+
+/// Why a window asks a fact again
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum FactRefreshReason {
+  /// The refresh button: always asks, the robots of the full window
+  Manual,
+  /// An action of the window changed the remote and needs the fact now (the robot a `/patronus` comment started):
+  /// asks, and once more after a read in flight
+  AfterWrite,
+}
+
+/// Asks the session of a repository to read a fact again (`refresh_facts`); the answer is the version of the view after
+/// the patch of that read, null when nothing was asked (the rules held it back, no session is open)
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshFactsParams {
+  pub repository_path: String,
+  pub family: FactFamily,
+  pub reason: FactRefreshReason,
 }
 
 /// Why a session syncs (`repository_model::sync_scheduler` decides what runs)
@@ -236,6 +285,40 @@ pub struct TableView {
   /// The stack branches the last sync reported, by the root of their stack
   pub stacks: BTreeMap<String, StackBranchUpdate>,
   pub sections: TableSections,
+  /// What the remote services answered, beside the table
+  pub facts: FactsView,
+}
+
+/// The facts of the remote services a session keeps, each with how it stands (docs/design/rust-domain-authority.md,
+/// "Факты")
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FactsView {
+  pub robots: RobotsView,
+}
+
+/// The user's robots of Patronus in the repository, as the session listed and polled them: what Patronus said of the
+/// repository and how the fact stands (`head`: `Loading` until the first answer, `Stale` with the robots of an earlier
+/// answer after a failure, `Unavailable` after a failure without one), and the robots by id
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RobotsView {
+  pub head: Fact<RobotsHead>,
+  pub robots: BTreeMap<String, PatronusRobot>,
+}
+
+/// What the last answer of Patronus said of the repository
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RobotsHead {
+  /// Whether the repository is on Space, the Safe Push CLI logged in, Patronus answering
+  pub availability: PatronusAvailability,
+  /// `owner/name` of the GitHub repository the branches are mirrored to, as the last list named it
+  /// (`PatronusRobotsResult::github_repository`)
+  pub github_repository: Option<String>,
 }
 
 /// What the table as a whole was grouped and checked with
@@ -492,6 +575,35 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub landed: Option<LandedSection>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub facts: Option<FactsChanges>,
+}
+
+/// The parts of the facts that changed
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FactsChanges {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub robots: Option<RobotsChange>,
+}
+
+/// What changed of the robots: the head when it differs, the robots that changed and the ids that went
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RobotsChange {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub head: Option<Fact<RobotsHead>>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub robots: BTreeMap<String, PatronusRobot>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_robots: Vec<String>,
 }
 
 impl TableChanges {

@@ -34,12 +34,10 @@ async fn a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sy
 
   let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
   assert_eq!(synced["outcome"], "synced", "{synced}");
-  let mut version = subscribed["view"]["version"].clone();
-  while version != synced["version"] {
-    let patch = messages.next().await["progress"].clone();
-    assert_eq!(patch["base"], version, "each patch follows the one before");
-    version = patch["next"].clone();
-  }
+  patches_up_to(&mut messages, &subscribed["view"]["version"], &synced["version"]).await;
+  // the committed table lists the robots: their patch follows
+  let version = listed(&client, addr, &path).await;
+  patches_up_to(&mut messages, &synced["version"], &version).await;
 
   let snapshot = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
   assert_eq!(snapshot["version"], version);
@@ -198,17 +196,30 @@ async fn patches_up_to(messages: &mut Messages, from: &Value, version: &Value) -
   patches
 }
 
-/// A window on the session of a repository of `template`, synced once: the client, the path, the window's stream and
-/// the version of its view
+/// A window on the session of a repository of `template`, synced once, with the robots the sync's list answered: the
+/// client, the path, the window's stream and the version of its view
 async fn synced_window(template: &str, channel: u32) -> (reqwest::Client, SocketAddr, String, Messages, Value) {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository_from(&client, addr, template).await;
   let mut messages = subscribe(&client, addr, &id, &path, channel).await;
   let subscribed = subscription(&mut messages).await;
-  let synced = post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
-  patches_up_to(&mut messages, &subscribed["view"]["version"], &synced["version"]).await;
-  (client, addr, path, messages, synced["version"].clone())
+  post(&client, addr, "/invoke/sync", json!({ "repositoryPath": path, "reason": "manual" })).await;
+  // the first committed table lists the robots: their patch follows the sync's
+  let listed = listed(&client, addr, &path).await;
+  patches_up_to(&mut messages, &subscribed["view"]["version"], &listed).await;
+  (client, addr, path, messages, listed)
+}
+
+/// The version of the view once the robots of the session at `path` are answered (the list after its first sync)
+async fn listed(client: &reqwest::Client, addr: SocketAddr, path: &str) -> Value {
+  loop {
+    let view = post(client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
+    if view["facts"]["robots"]["head"]["state"]["kind"] != "loading" {
+      return view["version"].clone();
+    }
+    tokio::task::yield_now().await;
+  }
 }
 
 /// A push reaches the session as a patch of the remote status it left, whose version its answer names; no sync runs
@@ -272,6 +283,7 @@ async fn the_clock_of_the_sessions_moves_only_by_a_test_and_sweeps_the_idle_ones
     "previewed": [],
     "reviewWindows": [],
     "robotDetails": [],
+    "watchedRobots": [],
   });
   let set = post_as(
     &client,

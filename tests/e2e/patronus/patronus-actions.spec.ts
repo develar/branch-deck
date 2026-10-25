@@ -1024,8 +1024,12 @@ test.describe("Patronus actions", () => {
      * The comment posted, then the fake clock over the app's wait before it reads the bot's reply (`COMMAND_REPLY_INTERVAL_MS`,
      * 3 s, in src/stores/patronus.ts) until it read it, instead of waiting it out
      */
-    async function skipReplyWait(page: Page, repo: TestRepositoryBuilder) {
+    async function skipReplyWait(page: Page, repo: TestRepositoryBuilder, listed?: PatronusRobot) {
       await expect.poll(async () => (await comments(repo)).length).toBe(1)
+      // Patronus lists the robot the bot started from now on: the list the app asks after the 👍 has it
+      if (listed !== undefined) {
+        await repo.setPatronus(availableRobots(listed))
+      }
       // the wait starts once the app has the posted comment, so a step can come before it: step until the read
       await skipCommandReplyWait(page, repo)
     }
@@ -1033,8 +1037,6 @@ test.describe("Patronus actions", () => {
     test("should start a Safe Push from the pull request with a /patronus merge comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches)
       const started = robotOfComment()
-      // the robot the comment started is in the list asked for after the 👍
-      const lists = await routeCommand(page, "get_patronus_robots", params => (params.since === null ? availableRobots() : availableRobots(started)))
 
       // a comment runs the default checks of the target: no profile to choose
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
@@ -1050,7 +1052,7 @@ test.describe("Patronus actions", () => {
       await expect(popover.getByTestId("safe-push-review")).toHaveText("No code-owner review needed.")
       await expect(popover.getByTestId("safe-push-profile-field")).toHaveCount(0)
       await popoverStart(page).click()
-      await skipReplyWait(page, repo)
+      await skipReplyWait(page, repo, started)
 
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
       // the own branch stays: the sync archives it once merged
@@ -1059,7 +1061,8 @@ test.describe("Patronus actions", () => {
       const posted = (await repo.getGitHubLog()).requests.findIndex(it => it.method === "POST" && it.path === repoPath("issues", 7, "comments"))
       const reads = (await repo.getGitHubLog()).requests.slice(posted + 1).filter(it => it.method === "GET" && it.path.startsWith(repoPath("issues", "comments")))
       expect(reads.length).toBeGreaterThan(0)
-      expect(lists.at(-1)?.since).not.toBeNull()
+      // the session listed it after the 👍
+      expect((await repo.getPatronusLog()).robots["pr-robot"]?.pullRequest?.number).toBe(7)
       // the comment started it: no start through the API
       expect((await repo.getPatronusLog()).starts).toEqual([])
 

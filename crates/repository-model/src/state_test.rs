@@ -1,3 +1,4 @@
+use crate::facts::FactStore;
 use crate::patch::{PatchRejected, apply_patch};
 use crate::state::{View, new_epoch};
 use crate::table::TableState;
@@ -27,13 +28,13 @@ fn a_patch_carries_only_the_parts_that_changed() {
   let mut state = TableState::new();
   let mut view = View::new(7);
   run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
-  let first = view.diff(&state).unwrap();
+  let first = view.diff(&state, &FactStore::new()).unwrap();
   assert_eq!((first.base, first.next), (Version { epoch: 7, seq: 0 }, Version { epoch: 7, seq: 1 }));
   assert_eq!(first.changes.branches.keys().collect::<Vec<_>>(), ["auth", "ui"]);
-  assert_eq!(view.diff(&state), None);
+  assert_eq!(view.diff(&state, &FactStore::new()), None);
 
   state.apply(SyncEvent::RemoteStatusUpdate(remote_status("ui", &["copy-u1"])));
-  let second = view.diff(&state).unwrap();
+  let second = view.diff(&state, &FactStore::new()).unwrap();
   let remote = BranchChange {
     remote: Some(BranchRemote {
       status: Some(remote_status("ui", &["copy-u1"])),
@@ -55,9 +56,9 @@ fn a_patch_applies_only_to_the_view_at_its_base_in_its_epoch() {
   let mut state = TableState::new();
   let mut view = View::new(3);
   run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
-  let first = view.diff(&state).unwrap();
+  let first = view.diff(&state, &FactStore::new()).unwrap();
   state.apply(SyncEvent::RemoteStatusUpdate(remote_status("ui", &[])));
-  let second = view.diff(&state).unwrap();
+  let second = view.diff(&state, &FactStore::new()).unwrap();
 
   let mut window = View::new(3).snapshot();
   assert_eq!(
@@ -85,7 +86,7 @@ fn synced_unchanged() -> (TableState, View) {
   let mut state = TableState::new();
   let mut view = View::new(1);
   run_sync(&mut state, sync_events(CommitSyncStatus::Unchanged, BranchSyncStatus::Unchanged));
-  view.diff(&state).unwrap();
+  view.diff(&state, &FactStore::new()).unwrap();
   (state, view)
 }
 
@@ -97,13 +98,13 @@ fn an_unchanged_resync_sends_only_the_sync_state() {
 
   let mut patches = Vec::new();
   state.begin_sync();
-  patches.extend(view.diff(&state));
+  patches.extend(view.diff(&state, &FactStore::new()));
   for event in sync_events(CommitSyncStatus::Unchanged, BranchSyncStatus::Unchanged) {
     state.apply(event);
-    patches.extend(view.diff(&state));
+    patches.extend(view.diff(&state, &FactStore::new()));
   }
   state.finish_sync(Ok(()));
-  patches.extend(view.diff(&state));
+  patches.extend(view.diff(&state, &FactStore::new()));
   let syncs: Vec<_> = patches.iter().map(|patch| patch.changes.sync.clone()).collect();
   let only_sync = patches.iter().all(|patch| {
     TableChanges {
@@ -118,7 +119,7 @@ fn an_unchanged_resync_sends_only_the_sync_state() {
 
   state.begin_sync();
   state.apply(grouping(vec![grouped("ui", &["u1"])]));
-  let dropped = view.diff(&state).unwrap();
+  let dropped = view.diff(&state, &FactStore::new()).unwrap();
   assert_eq!(
     (dropped.changes.removed_branches, dropped.changes.order),
     (vec!["auth".to_string()], Some(vec!["ui".to_string()]))
@@ -140,13 +141,13 @@ fn a_grouping_that_reads_the_notes_of_the_copies_resends_no_commit() {
   };
   state.begin_sync();
   state.apply(grouping(vec![with_notes(grouped("auth", &["a2", "a1"])), with_notes(grouped("ui", &["u1"]))]));
-  let patch = view.diff(&state).unwrap();
+  let patch = view.diff(&state, &FactStore::new()).unwrap();
   assert!(patch.changes.branches.values().all(|change| change.commits.is_none()), "{patch:#?}");
 
   let mut reworded = grouped("ui", &["u1"]);
   reworded.commits[0].message = "Another subject".to_string();
   state.apply(grouping(vec![with_notes(grouped("auth", &["a2", "a1"])), reworded]));
-  let patch = view.diff(&state).unwrap();
+  let patch = view.diff(&state, &FactStore::new()).unwrap();
   assert_eq!(patch.changes.branches.keys().collect::<Vec<_>>(), ["ui"], "{patch:#?}");
   assert!(patch.changes.branches["ui"].commits.is_some());
 }
@@ -172,15 +173,15 @@ async fn patches_of_sync(git: &GitCommandExecutor, path: &str, state: &mut Table
   let events = reporter.get_events();
   let mut patches = Vec::new();
   state.begin_sync();
-  patches.extend(view.diff(state));
+  patches.extend(view.diff(state, &FactStore::new()));
   for events in events.chunks(batch) {
     for event in events {
       state.apply(event.clone());
     }
-    patches.extend(view.diff(state));
+    patches.extend(view.diff(state, &FactStore::new()));
   }
   state.finish_sync(Ok(()));
-  patches.extend(view.diff(state));
+  patches.extend(view.diff(state, &FactStore::new()));
   (patches, events)
 }
 

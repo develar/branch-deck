@@ -3,20 +3,28 @@
 //! (`repository_model::session`) owns the table. Each command names the repository by its path and resolves the session
 //! key with the prefix Rust resolves (`PrefixInputs`); a repository without a prefix is refused (`no_branch_prefix`).
 //!
+//! The facts of the remote services are read for the sessions by the scheduler of the facts
+//! (`remote_facts::scheduler`), which the app starts beside them on the same clock and reads through `AppFactSources`;
+//! a window asks a fact again with `refresh_facts`.
+//!
 //! A subscription ends with `unsubscribe_view`, with its window (`forget_window` on `Destroyed`) and with a page load
 //! of its window (a reload): a Tauri channel of a page that went away never fails its send, so the session would keep it.
 //! A subscription is recorded under the page that asked for it (`WindowSubscriptions`), so one that answers after its
 //! page went away (the command awaited the prefix and the session meanwhile) ends at once.
 
 use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
+use crate::commands::patronus::PatronusState;
 use crate::operation::operation;
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
-use domain_types::session::{SetDemandParams, SyncAnswer, SyncReason, TableView, ViewPatch, ViewSubscription};
+use domain_types::patronus::{KnownRobotStatus, PatronusRobot, PatronusRobotsResult};
+use domain_types::session::{RefreshFactsParams, SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
+use remote_facts::fact_sources::{FactSources, Read};
+use remote_facts::scheduler::Scheduler;
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::views::RepositoryViews;
@@ -26,7 +34,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
-use sync_utils::clock::SystemClock;
+use sync_utils::clock::{Clock, SystemClock};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Webview};
 use tracing::instrument;
@@ -91,11 +99,21 @@ impl WindowSubscriptions {
 }
 
 impl SessionsState {
-  /// The sessions of the app: their syncs run with `git` and keep their tables in `views`, on the system clock, swept
-  /// every `SWEEP_INTERVAL`
+  /// The sessions of the app: their syncs run with `git` and keep their tables in `views`, their facts are read by the
+  /// scheduler of the facts, both on the system clock; swept every `SWEEP_INTERVAL`
   pub fn new(app: &AppHandle, git: GitCommandExecutor, views: RepositoryViews) -> Self {
     let host = GitSessionHost::new(git, views, AppEnvironment { app: app.clone() });
-    let sessions = Arc::new(Sessions::new(tauri::async_runtime::handle().inner().clone(), Arc::new(host), Arc::new(SystemClock::new())));
+    let runtime = tauri::async_runtime::handle().inner().clone();
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
+    let sessions = Arc::new(Sessions::new(runtime.clone(), Arc::new(host), Arc::clone(&clock)));
+    if let Some(events) = sessions.events() {
+      let scheduler = Scheduler {
+        port: Arc::clone(&sessions) as Arc<dyn remote_facts::scheduler::FactsPort>,
+        sources: Arc::new(AppFactSources { app: app.clone() }),
+        clock,
+      };
+      scheduler.start(&runtime, events);
+    }
     sessions.sweep_every(SWEEP_INTERVAL);
     Self {
       sessions,
@@ -110,6 +128,17 @@ impl SessionsState {
 
   fn windows(&self) -> std::sync::MutexGuard<'_, WindowSubscriptions> {
     self.windows.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  /// The robot an action answered (a start, a restart, a cancel) goes into the robots of the session of the repository
+  /// under `prefix`, which polls it from now on; nothing for a session that is not open
+  pub async fn write_robot(&self, repository_path: &str, prefix: String, robot: &PatronusRobot) {
+    let key = SessionKey {
+      worktree: repository_path.to_owned(),
+      prefix,
+    };
+    // a session not open keeps no robots
+    let _ = self.sessions.write_robot(&key, robot.clone()).await;
   }
 
   /// Ends the subscriptions of the window `label`: it closed, or its page loads again
@@ -153,6 +182,31 @@ impl SessionEnvironment for AppEnvironment {
 
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     self.app.state::<SettingsService>().app().auto_sync_on_focus
+  }
+}
+
+/// What the scheduler of the facts reads the remote services of the app's sessions with: the Patronus service of the app
+/// and the repository's Space repository and GitHub mirror (`PatronusState::robots`), the settings when a read starts
+struct AppFactSources {
+  app: AppHandle,
+}
+
+impl FactSources for AppFactSources {
+  fn robots<'a>(&'a self, key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult> {
+    Box::pin(async move {
+      let new_api = self.app.state::<SettingsService>().app().patronus_new_api;
+      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
+      let repository = (key.worktree.as_str(), key.prefix.as_str());
+      self
+        .app
+        .state::<PatronusState>()
+        .robots(&git, &repository_state, repository, since, background, new_api)
+        .await
+    })
+  }
+
+  fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult> {
+    Box::pin(async move { self.app.state::<PatronusState>().poll(&key.prefix, &known).await })
   }
 }
 
@@ -321,6 +375,27 @@ pub async fn sync(
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;
     state.sessions.sync(&key, params.reason).wait().await
+  })
+  .await
+}
+
+/// Asks the repository's session to read a fact again: the refresh button, or an action that needs it now (the robot a
+/// `/patronus` comment started). Answers once that read applied, with the version of the view after its patch; null when
+/// nothing was asked (the rules held it back, no session is open)
+#[tauri::command]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, family = ?params.family, reason = ?params.reason))]
+#[specta::specta]
+pub async fn refresh_facts(
+  git_executor: State<'_, GitCommandExecutor>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
+  state: State<'_, SessionsState>,
+  params: RefreshFactsParams,
+) -> Result<Option<Version>, ApiError> {
+  operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    let key = session_key(inputs, &params.repository_path).await?;
+    Ok(state.sessions.refresh(&key, params.family, params.reason).await)
   })
   .await
 }

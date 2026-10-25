@@ -3306,6 +3306,22 @@ remote statuses of branches and stack branches, the issue links), through the re
 around the run's (`SessionEnvironment::reporter`, the run's own by default), so the session, its patches and the views
 hold what such a sync makes.
 
+The facts of the remote services are read for the sessions by one scheduler (`remote_facts::scheduler`), which each
+host starts beside its `Sessions` on the same clock: `Sessions::events` gives it what the facts are asked by (a window
+watches a session or no longer does, its focus from `set_window_focus` and its demand, a committed table, the robots
+the poll asks about, a refresh a window asks with `refresh_facts`); it decides by `domain_policy::refresh`, reads
+through the host's `FactSources` (the app's `AppFactSources` over `PatronusState`, the E2E server's `TestFactSources`
+over the fakes of each test repository) and applies each answer to its session (`Sessions::begin`, the number of the
+read with the epoch of the session, then `Sessions::apply_facts`); it starts no git process. The robots of Patronus are
+the first such fact (`FactStore::robots`, `facts.robots` of the view, by robot id): a list after the first committed
+table of a watched session, then by the rules of
+[Load on Patronus](../../spec/branch/patronus.spec.md#load-on-patronus), and a poll of the running robots the
+session matches to the tips of its table and of the watched robots of the demand (`facts::robots_digest`); each robot
+keeps the number of the read or the write that wrote it, so a list started before a start's robot
+(`Sessions::write_robot`, which the start, the restart and the cancel of both hosts call) or a poll never rolls it back,
+and a failed answer keeps the robots `Stale`. The page stores what the patches bring (`applyRobotsFacts`) and asks no
+list or poll of its own.
+
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table
 are the robots, the robot of each branch and whole stack (`match_robots`, which the page does itself) and what the asker

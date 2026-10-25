@@ -3,11 +3,13 @@ import { isAwaitingApproval } from "@/hooks/useBranchNextStep"
 import { isStackAwaitingApproval, readinessKeysNeedingAnswer, tellReadinessNews } from "@/hooks/useStackNextStep"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
-import { setWindowFocus } from "@/lib/os-notification"
+import { isWindowFocused, setWindowFocus } from "@/lib/os-notification"
 import { watchFailingRobots } from "@/lib/patronus-failing"
+import { setDemandFocused } from "@/model/demand"
+import { onSessionFacts } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
-import { refreshPatronus, setPatronusWindowFocus, watchRepositoryView, watchRobotProblems } from "@/stores/patronus"
+import { applySessionFacts, watchRepositoryView, watchRobotProblems } from "@/stores/patronus"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
 import { onReviewRequestsPoll, refreshReviewRequests } from "@/stores/review-requests"
@@ -19,10 +21,11 @@ function isAwaiting(): boolean {
 }
 
 /**
- * Keeps the review status of the main window current: the GitHub pull requests, the review requests of others and the
- * Patronus robots, after every successful sync and on window focus (each store throttles both). A push refreshes the
- * pull requests itself. Running robots are polled every minute while the window is focused, a robot that pushes every
- * five minutes while it is not; a running robot that will fail and a robot that failed are told once
+ * Keeps the review status of the main window current: the GitHub pull requests and the review requests of others,
+ * after every successful sync and on window focus (each store throttles both). A push refreshes the pull requests
+ * itself. The session of the repository lists and polls the robots of Patronus itself (`remote_facts::scheduler`, by
+ * the window's focus, which it tells from the start, and its demand), and the Patronus store takes them from its view
+ * (`applySessionFacts`); a running robot that will fail and a robot that failed are told once
  * (`watchFailingRobots`); what a merged robot landed is read by content when a change below its commit gave the
  * branches new copies (`watchRepositoryView`); why a failed robot a change of the branches matched failed
  * (`watchRobotProblems`); which commits a running robot covers, once its branch changed since it
@@ -35,6 +38,9 @@ function isAwaiting(): boolean {
  * the review requests; an approval that arrives is news (`tellReadinessNews`).
  */
 export function useReviewStatusRefresh(): void {
+  useEffect(() => onSessionFacts(applySessionFacts), [])
+  // the focus the window has now: the session polls by it until the window gains or loses it
+  useEffect(() => setDemandFocused(isWindowFocused()), [])
   useEffect(() => watchFailingRobots(), [])
   useEffect(() => watchRepositoryView(), [])
   // why a failed robot failed, for a robot a change of the branches gave a row: its next step waits for it
@@ -59,7 +65,6 @@ export function useReviewStatusRefresh(): void {
         if (previous.isSyncing && !state.isSyncing && state.syncError === null) {
           void refreshPullRequests("sync")
           void refreshReviewRequests("sync")
-          void refreshPatronus("sync")
         }
       }),
     [],
@@ -76,12 +81,7 @@ export function useReviewStatusRefresh(): void {
       setWindowFocus(true)
       void refreshPullRequests(isAwaiting() ? "manual" : "focus")
       void refreshReviewRequests("focus")
-      void refreshPatronus("focus")
-      setPatronusWindowFocus(true)
     },
-    () => {
-      setWindowFocus(false)
-      setPatronusWindowFocus(false)
-    },
+    () => setWindowFocus(false),
   )
 }

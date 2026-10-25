@@ -50,8 +50,8 @@ use commands::move_commits::move_commits_to_branch;
 use commands::parked_branches::{park_branches, unpark_branches};
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, check_landing_gate, check_target_conflict, get_branch_review_readiness, get_patronus_failing_robots, get_patronus_robot_details,
-  get_patronus_robot_problems, get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, get_patronus_target_branch, get_robot_commit_map, get_robot_failure,
-  get_robot_stats, poll_patronus_robots, post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
+  get_patronus_robot_problems, get_patronus_robot_status, get_patronus_start_options, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_stats,
+  post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
 };
 use commands::pull_requests::{
   close_pull_request, create_pull_request, get_branch_rules, get_new_pull_request, get_new_stack_pull_request, get_pull_request_head, get_pull_requests,
@@ -63,7 +63,7 @@ use commands::repository_config::{get_repository_config, set_repository_config};
 use commands::repository_view::{get_repository_view, wait_landing_needs};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_review_requests, prune_review_refs};
 use commands::reword::reword;
-use commands::session::{SessionsState, get_snapshot, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
+use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
@@ -140,9 +140,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
       get_branch_review,
       get_file_owners,
       prefetch_branch_review,
-      get_patronus_robots,
       get_robot_stats,
-      poll_patronus_robots,
       get_patronus_robot_details,
       get_patronus_start_options,
       start_patronus_robot,
@@ -166,6 +164,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
       unsubscribe_view,
       set_window_focus,
       set_demand,
+      refresh_facts,
       sync,
       resolve_branch_prefix,
       check_git_setup,

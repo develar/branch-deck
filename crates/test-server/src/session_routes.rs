@@ -6,20 +6,24 @@
 //! failure answers `{"result": {"status": "error", "error": <ApiError>}}` on the stream, the JSON of the app. The next run
 //! of a session takes the overrides a test set for its repository (`sync_overrides`). A push the page answered (the
 //! templates have no remote) reaches the session through `pushed_in_page`. The clock of the sessions stands still until
-//! a test moves it (`POST /clock/advance`, `advance_clock`).
+//! a test moves it (`POST /clock/advance`, `advance_clock`). The facts of the sessions are read by the scheduler of the
+//! facts, as the app reads them, over the fakes of each test repository (`TestFactSources`); a window asks one again with
+//! `refresh_facts`.
 
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
 use crate::state::AppState;
 use crate::sync_overrides::OverridingReporter;
-use crate::tauri_command_bridge::{CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, repository_by_path};
+use crate::tauri_command_bridge::{CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, list_robots, poll_robots, repository_by_path};
 use app_api::api_error::{api_error, no_branch_prefix};
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
-use domain_types::session::{SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusRobotsResult};
+use domain_types::session::{RefreshFactsParams, SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
 use domain_types::{ProgressReporter, RemoteStatusUpdate};
+use remote_facts::fact_sources::{FactSources, Read};
 use repository_model::runtime::{RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::RemoteSubject;
@@ -76,6 +80,33 @@ impl SessionEnvironment for TestSessionEnvironment {
       .upgrade()
       .and_then(|state| repository_by_path(&state, &key.worktree).ok().map(|repository| repository.store.app().auto_sync_on_focus))
       .unwrap_or(false)
+  }
+}
+
+/// What the scheduler of the facts reads the fakes of a test repository with, as the app reads its services
+/// (`list_robots`, `poll_robots`: counted, so the tests check the request policy); a read the server can't make (the
+/// repository went away) is a failure of Patronus
+pub struct TestFactSources {
+  pub state: Weak<AppState>,
+}
+
+impl TestFactSources {
+  async fn answer(&self, read: impl AsyncFnOnce(&AppState) -> Result<PatronusRobotsResult, Rejection>) -> PatronusRobotsResult {
+    let failure = |message: &str| PatronusRobotsResult::from(PatronusAvailability::Error { message: message.to_owned() });
+    let Some(state) = self.state.upgrade() else {
+      return failure("The test server stopped");
+    };
+    read(&state).await.unwrap_or_else(|_| failure("The test server cannot read the robots"))
+  }
+}
+
+impl FactSources for TestFactSources {
+  fn robots<'a>(&'a self, key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult> {
+    Box::pin(self.answer(async move |state| list_robots(state, key, since, background).await))
+  }
+
+  fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult> {
+    Box::pin(self.answer(async move |state| poll_robots(state, key, &known).await))
   }
 }
 
@@ -208,4 +239,11 @@ pub async fn pushed_in_page(State(state): State<Arc<AppState>>, Json(request): J
     table.end_push(&subjects, Some(statuses));
   });
   Ok(Json(applied.version().await))
+}
+
+/// Asks the session of the repository to read a fact again, as the app's `refresh_facts`: the version after the patch
+/// of that read, null when nothing was asked
+pub async fn refresh_facts(State(state): State<Arc<AppState>>, Json(params): Json<RefreshFactsParams>) -> CommandResult<Option<Version>> {
+  let key = session_key(&state, &params.repository_path).await?;
+  Ok(Json(state.sessions.refresh(&key, params.family, params.reason).await))
 }

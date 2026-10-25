@@ -16,10 +16,28 @@
  * of another epoch than the view's is of a session the window left while the session open now still has the view's
  * epoch, and else subscribes the window again: its subscription went with the actor of its session (`whenServedViewAt`).
  * The remote status of a row is the session's: Rust orders a push's outcome against the syncs, so the store shows what
- * it gets.
+ * it gets. The facts of the remote services come in the same view and go to whoever listens (`onSessionFacts`: the
+ * main window's Patronus store); a fact is asked again with `refreshSessionFacts`.
  */
 import { Channel } from "@tauri-apps/api/core"
-import type { ApiError, BranchChange, BranchView, Commit, CommitSync, StackBranchUpdate, SyncAnswer, SyncReason, TableChanges, TableView, Version, ViewPatch } from "@/lib/bindings"
+import type {
+  ApiError,
+  BranchChange,
+  BranchView,
+  Commit,
+  CommitSync,
+  FactFamily,
+  FactRefreshReason,
+  FactsChanges,
+  FactsView,
+  StackBranchUpdate,
+  SyncAnswer,
+  SyncReason,
+  TableChanges,
+  TableView,
+  Version,
+  ViewPatch,
+} from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
@@ -67,6 +85,25 @@ interface Session {
 let session: Session | null = null
 /** Told after every change of the view, the close of a session and a failed subscription */
 const viewListeners = new Set<() => void>()
+
+/** Takes the facts of the view of the session of `repositoryPath` after a change of them; `changes` null for a snapshot */
+export type FactsListener = (repositoryPath: string, facts: FactsView, changes: FactsChanges | null) => void
+
+const factsListeners = new Set<FactsListener>()
+
+/**
+ * Tells `listener` the facts of the session's view now (as a snapshot, when the window has one) and after every change
+ * of them; returns the unsubscribe
+ */
+export function onSessionFacts(listener: FactsListener): () => void {
+  factsListeners.add(listener)
+  if (session?.view != null) {
+    listener(session.repositoryPath, session.view.facts, null)
+  }
+  return () => {
+    factsListeners.delete(listener)
+  }
+}
 /** The failure of the last request that no run answered (a refused request, no repository); the view has a run's own */
 let requestError: string | null = null
 /** The runs this window saw start, the number of the one in flight; `groupedRun` names one of them */
@@ -139,6 +176,20 @@ export async function whenSessionViewAt(repositoryPath: string, version: Version
   if (version !== null) {
     await whenServedViewAt(repositoryPath, version, false)
   }
+}
+
+/**
+ * Asks the session of `repositoryPath` to read a fact again (`refresh_facts`) and resolves once the patch of that read is
+ * in the store; false when nothing was asked (the rules held it back, no session is open) or the request failed
+ */
+export async function refreshSessionFacts(repositoryPath: string, family: FactFamily, reason: FactRefreshReason): Promise<boolean> {
+  const result = await commands.refreshFacts({ repositoryPath, family, reason })
+  if (result.status === "error") {
+    console.warn("Cannot ask the session to read its facts again", result.error)
+    return false
+  }
+  await whenSessionViewAt(repositoryPath, result.data)
+  return result.data !== null
 }
 
 function subscribe(repositoryPath: string, pending: { count: number } = { count: 0 }): void {
@@ -313,6 +364,11 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
     setUnappliedBranches(next.sections.unapplied.map(({ remote, ...info }) => ({ ...info, remoteStatus: remote === null ? null : toRemoteStatus(remote) })))
   }
   projectArchived(previous, next, changes)
+  if (changes === null || changes.facts != null) {
+    for (const listener of factsListeners) {
+      listener(repositoryPath, next.facts, changes?.facts ?? null)
+    }
+  }
   if (changesTable(previous, changes)) {
     update.tableRevision = state.tableRevision + 1
   }

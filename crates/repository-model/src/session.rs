@@ -8,20 +8,26 @@
 //! one). Without subscribers nothing runs for it (a focus syncs nothing), and `sweep` removes it once it has been idle
 //! for `IDLE_LIMIT` on the session clock (`Clock`: `SystemClock` in the app, `TestClock` in the tests and the E2E
 //! server). A session opened again starts a new epoch, so a window that held the old one asks for a snapshot.
+//!
+//! Events: what the facts of the sessions are asked by (`SessionEvent`: a window watches a session or no longer does,
+//! its focus and demand, a sync committed the table, the robots the poll asks about changed, a window asks a fact
+//! again) go to the one consumer that takes `events`, the scheduler of the remote facts (`remote_facts::scheduler`); its
+//! reads number themselves with `begin` and apply with `apply_facts`. Without a consumer nothing is sent.
 
 use crate::branch_table::BranchTable;
-use crate::facts::TableFacts;
+use crate::facts::{FactResult, FactTicket, RobotsDigest, TableFacts};
 use crate::runtime::{Message, spawn_actor};
 use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::ApiError;
-use domain_types::session::{Demand, SyncAnswer, SyncReason, TableView, Version, ViewAnswer, ViewPatch};
+use domain_types::patronus::PatronusRobot;
+use domain_types::session::{Demand, FactFamily, FactRefreshReason, SyncAnswer, SyncReason, TableView, Version, ViewAnswer, ViewPatch};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 use sync_core::push::PushBranchesOutcome;
 use sync_core::sync::SyncReport;
@@ -41,6 +47,55 @@ pub const IDLE_LIMIT: Duration = Duration::from_mins(2);
 pub struct SessionKey {
   pub worktree: String,
   pub prefix: String,
+}
+
+/// What happened to a session that its facts are asked by (the module's header), for the scheduler of the facts
+#[derive(Debug)]
+pub struct SessionEvent {
+  pub key: SessionKey,
+  pub kind: SessionEventKind,
+}
+
+#[derive(Debug)]
+pub enum SessionEventKind {
+  /// A window subscribed and the session had none (`true`), or its last window went (`false`): nothing is asked for a
+  /// session no window shows
+  Watched(bool),
+  /// The session was removed (idle, its repository went away); a session of the same key opened later is a new one
+  Closed,
+  /// A window of the session gained (`true`) or lost the focus (`set_window_focus`)
+  Focus(bool),
+  /// The demand of all the windows of the session changed (`set_demand`)
+  Demand(Demand),
+  /// A sync of the session succeeded: the table is committed
+  TableCommitted,
+  /// The robots the poll asks about changed (`facts::robots_digest`)
+  Robots(RobotsDigest),
+  /// A window asks to read a fact again (`refresh`); `reply` gets the version of the view after the patch of that read,
+  /// `None` when nothing was asked
+  Refresh {
+    family: FactFamily,
+    reason: FactRefreshReason,
+    reply: oneshot::Sender<Option<Version>>,
+  },
+}
+
+/// Where the actors and the registry send the events of the sessions: nowhere until a consumer takes them (`events`)
+#[derive(Default)]
+pub(crate) struct EventSink(OnceLock<mpsc::UnboundedSender<SessionEvent>>);
+
+impl EventSink {
+  /// Whether a consumer takes the events
+  pub(crate) fn is_taken(&self) -> bool {
+    self.0.get().is_some_and(|sender| !sender.is_closed())
+  }
+
+  pub(crate) fn emit(&self, key: &SessionKey, kind: SessionEventKind) {
+    if let Some(sender) = self.0.get() {
+      // a consumer that went away hears nothing
+      let _ = sender.send(SessionEvent { key: key.clone(), kind });
+    }
+  }
 }
 
 /// A window's subscription to the patches of a session, unique within the registry (`u32`: a number in TypeScript)
@@ -223,6 +278,7 @@ pub struct Sessions {
   clock: Arc<dyn Clock>,
   entries: Mutex<HashMap<SessionKey, Entry>>,
   next_subscription: AtomicU32,
+  events: Arc<EventSink>,
 }
 
 impl Sessions {
@@ -235,7 +291,45 @@ impl Sessions {
       clock,
       entries: Mutex::new(HashMap::new()),
       next_subscription: AtomicU32::new(1),
+      events: Arc::new(EventSink::default()),
     }
+  }
+
+  /// The events of every session from now on, for the one consumer (the scheduler of the facts); `None` once taken
+  pub fn events(&self) -> Option<mpsc::UnboundedReceiver<SessionEvent>> {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    self.events.0.set(sender).is_ok().then_some(receiver)
+  }
+
+  /// The number of a read of a fact of the open session of `key`, newer than everything the session saw (the
+  /// module `facts`); `None` for a session that is not open
+  pub async fn begin(&self, key: &SessionKey) -> Option<FactTicket> {
+    self.ask(key, Message::Begin).await
+  }
+
+  /// Applies the answer of the read of `ticket` to the facts of the session of `key`, and answers the version of the
+  /// view after its patch; `None` when the session is not open or is another one than the ticket's (opened again)
+  pub async fn apply_facts(&self, key: &SessionKey, ticket: FactTicket, result: FactResult) -> Option<Version> {
+    self.ask(key, |reply| Message::ApplyFacts { ticket, result, reply }).await.flatten()
+  }
+
+  /// The robot an action of the app answered (a start, a restart, a cancel) goes into the robots of the open session of
+  /// `key`, newer than every read that started before: it is polled from now on. Answers the version of the view after
+  /// its patch; `None` for a session that is not open
+  pub async fn write_robot(&self, key: &SessionKey, robot: PatronusRobot) -> Option<Version> {
+    self.ask(key, |reply| Message::WriteRobot { robot, reply }).await
+  }
+
+  /// A window of the open session of `key` asks to read a fact again; answers the version of the view after the patch
+  /// of that read once it is applied, `None` when nothing was asked (the rules held it back, the session is not open,
+  /// nothing takes the events)
+  pub async fn refresh(&self, key: &SessionKey, family: FactFamily, reason: FactRefreshReason) -> Option<Version> {
+    if !self.is_open(key) || !self.events.is_taken() {
+      return None;
+    }
+    let (reply, version) = oneshot::channel();
+    self.events.emit(key, SessionEventKind::Refresh { family, reason, reply });
+    version.await.ok().flatten()
   }
 
   #[must_use]
@@ -245,23 +339,13 @@ impl Sessions {
 
   /// The view of an open session at the version of its last patch; `None` for a session that is not open
   pub async fn get_snapshot(&self, key: &SessionKey) -> Option<TableView> {
-    let (reply, answer) = oneshot::channel();
-    let sent = self.lock().get(key).is_some_and(|entry| entry.mailbox.send(Message::Snapshot(reply)).is_ok());
-    if !sent {
-      return None;
-    }
-    answer.await.ok()
+    self.ask(key, Message::Snapshot).await
   }
 
   /// The table of the last successful sync of an open session, with the memo of the content walks of its views; `None`
   /// for a session that is not open or never synced
   pub async fn table(&self, key: &SessionKey) -> Option<TableFacts> {
-    let (reply, answer) = oneshot::channel();
-    let sent = self.lock().get(key).is_some_and(|entry| entry.mailbox.send(Message::Table(reply)).is_ok());
-    if !sent {
-      return None;
-    }
-    answer.await.ok().flatten()
+    self.ask(key, Message::Table).await.flatten()
   }
 
   /// Subscribes a window to the session of `key`, opening it: the snapshot at the subscription, then every patch after
@@ -292,6 +376,7 @@ impl Sessions {
     if !self.is_open(key) {
       return None;
     }
+    self.events.emit(key, SessionEventKind::Focus(focused));
     (focused && self.host.syncs_on_focus(key)).then(|| self.sync(key, SyncReason::Focus))
   }
 
@@ -307,12 +392,7 @@ impl Sessions {
   /// The demand of all the windows of an open session
   #[cfg(test)]
   pub(crate) async fn demand(&self, key: &SessionKey) -> Option<Demand> {
-    let (reply, answer) = oneshot::channel();
-    let sent = self.lock().get(key).is_some_and(|entry| entry.mailbox.send(Message::DemandOf(reply)).is_ok());
-    if !sent {
-      return None;
-    }
-    answer.await.ok()
+    self.ask(key, Message::DemandOf).await
   }
 
   /// Asks the session of `key` for a sync, opening it; the ticket resolves when the run that serves the request ends
@@ -383,6 +463,7 @@ impl Sessions {
     // the actor ends with its mailbox
     for key in &idle {
       entries.remove(key);
+      self.events.emit(key, SessionEventKind::Closed);
     }
     idle
   }
@@ -397,6 +478,7 @@ impl Sessions {
     for key in &closed {
       if let Some(entry) = entries.remove(key) {
         let _ = entry.mailbox.send(Message::Close);
+        self.events.emit(key, SessionEventKind::Closed);
       }
     }
     closed.len()
@@ -428,6 +510,17 @@ impl Sessions {
     );
   }
 
+  /// Sends the open session of `key` the message `message` makes with a reply, and answers the reply; `None` when the
+  /// session is not open or its actor went away first
+  async fn ask<T>(&self, key: &SessionKey, message: impl FnOnce(oneshot::Sender<T>) -> Message) -> Option<T> {
+    let (reply, answer) = oneshot::channel();
+    let sent = self.lock().get(key).is_some_and(|entry| entry.mailbox.send(message(reply)).is_ok());
+    if !sent {
+      return None;
+    }
+    answer.await.ok()
+  }
+
   fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<SessionKey, Entry>> {
     self.entries.lock().unwrap_or_else(PoisonError::into_inner)
   }
@@ -442,10 +535,11 @@ impl Sessions {
     if entries.get(key).is_some_and(Entry::is_dead) {
       tracing::warn!(worktree = %key.worktree, prefix = %key.prefix, "The actor of the session is gone: the session opens again");
       entries.remove(key);
+      self.events.emit(key, SessionEventKind::Closed);
     }
     let entry = entries.entry(key.clone()).or_insert_with(|| {
       let life = Arc::new(SessionLife::new(Arc::clone(&self.clock)));
-      let mailbox = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life));
+      let mailbox = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life), Arc::clone(&self.events));
       Entry { mailbox, life }
     });
     action(entry);

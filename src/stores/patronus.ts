@@ -3,7 +3,6 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
 import type {
-  KnownRobotStatus,
   LandingAllowances,
   LandingRefusal,
   PatronusAvailability,
@@ -17,13 +16,17 @@ import type {
   RemoteFacts,
   RobotMatch,
   RobotOf,
+  FactsChanges,
+  FactsView,
+  RobotsChange,
+  RobotsView,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure, getErrorDetails } from "@/lib/errors"
 import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-stack"
-import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
+import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import {
   REVIEW_APPROVAL_SUBSYSTEM,
@@ -36,17 +39,17 @@ import {
   formatStackPushHoldReason,
   isHoldingRobot,
   isLandedWhole,
-  isPushingRobot,
   isRobotActive,
   openRobot,
 } from "@/lib/patronus"
 import { isRemoteUpToDate } from "@/lib/push-summary"
-import type { RefreshReason } from "@/lib/refresh-gate"
-import { createRefreshGates } from "@/lib/refresh-gate"
+import { withoutKeys } from "@/lib/record"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import { stackAncestors } from "@/lib/stack"
 import { lastFetchTime } from "@/lib/update-state"
+import { watchRobotInDemand } from "@/model/demand"
+import { refreshSessionFacts } from "@/model/store"
 import { recordRobot } from "@/stores/activity"
 import type { BranchSyncState, RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getStackBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip, useStackBranch, whenSynced } from "@/stores/branch-sync"
@@ -57,35 +60,30 @@ import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/store
 import { getRepositoryState } from "@/stores/settings/repositoryState"
 import { runFetchBaseline, runUpdateProjectOf } from "@/stores/update-project"
 
-/** A sync asks for new robots at most this often: robots are started elsewhere, a sync never starts one */
-export const SYNC_REFRESH_GAP_MS = 5 * 60_000
-/** On window focus, robots older than this are asked for */
-export const FOCUS_REFRESH_AGE_MS = 120_000
-/** Focus events closer together than this ask nothing */
-export const MIN_FOCUS_GAP_MS = 60_000
-/** A running robot of a branch is polled this often while the window is focused */
-export const POLL_INTERVAL_MS = 60_000
-/** A running robot that pushes is polled this often while the window is not focused, to tell when it merged */
-export const BACKGROUND_POLL_INTERVAL_MS = 5 * 60_000
-/** A focus asks for the running robots at once if the last poll is at least this old */
-export const MIN_POLL_GAP_MS = 50_000
-/** An incremental list starts this long before the previous list started, so a robot started meanwhile is not missed */
-export const LIST_OVERLAP_MS = 120_000
+/**
+ * A robot a `/patronus` comment started may have started this long before the comment was posted (the clocks of the
+ * app and of Patronus differ)
+ */
+const COMMENT_ROBOT_SLACK_MS = 120_000
 /** After a `/patronus` comment, how often the bot's reaction and the robot are asked for */
 export const COMMAND_REPLY_INTERVAL_MS = 3_000
 /** How long a `/patronus` comment waits for the bot to start the robot */
 export const COMMAND_REPLY_TIMEOUT_MS = 60_000
 
-/** The robots of one repository and branch prefix */
+/**
+ * The robots of one repository and branch prefix, as the session of the repository listed and polled them
+ * (`facts.robots` of its view, applied by `applyRobotsFacts`), with what the page derives of them
+ */
 export interface RepositoryPatronus {
   /** null until the first answer */
   readonly availability: PatronusAvailability | null
-  /** By robot id */
+  /** By robot id: the session's, a robot an action of the page answered until the session's patch has it */
   readonly robots: Readonly<Record<string, PatronusRobot>>
-  /** `Date.now()` when the last answered list request started, 0 = never: the next list is a full one */
-  readonly listedFrom: number
+  /** Patronus answered with robots once: what they hold is known from the answer of the view on */
+  readonly listed: boolean
   /** `Date.now()` of the last answer, 0 = never */
   readonly fetchedAt: number
+  /** The refresh button asked the robots and the session hasn't answered yet */
   readonly isRefreshing: boolean
   /** By robot id, of the failed robots of the branches: failed for missing code-owner approvals */
   readonly needsReview: Readonly<Record<string, boolean>>
@@ -98,13 +96,14 @@ export interface RepositoryPatronus {
   readonly githubRepository: string | null
   /**
    * By robot id, the robots of no branch the user started from the app (a Safe Push of a reviewed pull request) with
-   * what they test ("#101 Rework the session store"): polled while they run, told when they merge, listed in the header
+   * what they test ("#101 Rework the session store"): the session polls them while they run (`watchedRobots` of the
+   * demand), their merge is told, the header lists them
    */
   readonly watched: Readonly<Record<string, string>>
   /**
    * By robot id, the running robots a failed required check dooms: Patronus warns that they will fail, although they run
-   * on (for an hour, maybe). Asked after each answer of a list or a poll (`loadRobotFacts`) until known; a robot stays failing
-   * until it finishes.
+   * on (for an hour, maybe). Asked after each answer of a list or a poll (`loadRobotFacts`) until known; a robot stays
+   * failing until it finishes.
    */
   readonly failing: Readonly<Record<string, true>>
   /**
@@ -151,7 +150,7 @@ export const patronusStore = createStore<PatronusState>(() => ({ repositories: {
 const EMPTY: RepositoryPatronus = {
   availability: null,
   robots: {},
-  listedFrom: 0,
+  listed: false,
   fetchedAt: 0,
   isRefreshing: false,
   needsReview: {},
@@ -566,7 +565,7 @@ let askedView: {
 let viewInFlight: Promise<void> | null = null
 
 /**
- * Asks `get_repository_view` when its inputs changed: the robots (their record, which `mergeRobots` keeps while nothing
+ * Asks `get_repository_view` when its inputs changed: the robots (their record, which `withRobots` keeps while nothing
  * changed), the matches and remote facts of the branches, and the table the session holds (by its revision: a sync that
  * changed nothing of it asks nothing). During a sync only a change of the robots asks (the backend answers from the table of the last sync), so a merge says what it landed at
  * once. One question in flight; one that changes meanwhile is asked once it answered. Resolves once the view is of the
@@ -640,7 +639,7 @@ async function askRepositoryView(): Promise<void> {
  * asked with (a list that changed them asks again)
  */
 function isOfListedRobots(entry: RepositoryPatronus, asking: Readonly<Record<string, PatronusRobot>>): boolean {
-  return entry.listedFrom > 0 && entry.robots === asking
+  return entry.listed && entry.robots === asking
 }
 
 /** The repository whose landing needs the page waits for, one wait at a time */
@@ -972,37 +971,40 @@ function sameRobot(a: PatronusRobot, b: PatronusRobot): boolean {
 }
 
 /**
- * The robots after an answer: a full list replaces them, an incremental list or a poll adds and updates. A robot that
- * did not change keeps its object, so the chips of other branches don't re-render; nothing changed = the same record.
+ * `previous` with `changed` (each replaces the robot of its id, the merge profile kept when it names none: a list never
+ * does, the details or a start named it) and without `removed`. A robot that did not change keeps its object, so the
+ * chips of other branches don't render again; nothing changed = the same record.
  */
-export function mergeRobots(previous: Readonly<Record<string, PatronusRobot>>, incoming: readonly PatronusRobot[], replace: boolean): Readonly<Record<string, PatronusRobot>> {
-  const next: Record<string, PatronusRobot> = replace ? {} : { ...previous }
-  let changed = replace && Object.keys(previous).length !== incoming.length
-  for (const answered of incoming) {
+function withRobots(previous: Readonly<Record<string, PatronusRobot>>, changed: readonly PatronusRobot[], removed: readonly string[]): Readonly<Record<string, PatronusRobot>> {
+  const next = withoutKeys(previous, removed)
+  let differs = removed.some(id => id in previous)
+  for (const answered of changed) {
     const known = previous[answered.id]
-    // a list doesn't name the profile: the one a poll, the details or the start named stays
     const robot = answered.profile == null && known?.profile != null ? { ...answered, profile: known.profile } : answered
     if (known !== undefined && sameRobot(known, robot)) {
       next[robot.id] = known
     } else {
       next[robot.id] = robot
-      changed = true
+      differs = true
     }
   }
-  return changed ? next : previous
+  return differs ? next : previous
 }
 
-/** Stores robots of an answer (with `patch`), and tells about the robots that merged since the last answer */
-function storeRobots(key: string, incoming: readonly PatronusRobot[], replace: boolean, patch: Partial<RepositoryPatronus>): void {
+/**
+ * Stores `robot`, which an action of the page answered (a start, a restart, a cancel, a status read), in the robots of
+ * `key` before the session's patch has it, and tells a merge it shows
+ */
+function storeRobot(key: string, robot: PatronusRobot): void {
   const previous = patronusStore.getState().repositories[key]?.robots ?? EMPTY.robots
-  const robots = mergeRobots(previous, incoming, replace)
-  update(key, () => ({ ...patch, robots }))
-  if (robots !== previous) {
-    // what the estimates learn from, also after a restart
-    recordFinishedRobots(key.slice(0, key.lastIndexOf("\n")), Object.values(robots))
-    for (const robot of findMergedRobots(previous, robots)) {
-      announceMerge(key, robot)
-    }
+  const robots = withRobots(previous, [robot], [])
+  if (robots === previous) {
+    return
+  }
+  update(key, () => ({ robots }))
+  recordFinishedRobots(key.slice(0, key.lastIndexOf("\n")), Object.values(robots))
+  for (const merged of findMergedRobots(previous, robots)) {
+    announceMerge(key, merged)
   }
 }
 
@@ -1091,101 +1093,79 @@ function showMergeToast(repositoryPath: string, robot: PatronusRobot, title: str
   })
 }
 
-// ---- refresh ----
+// ---- the robots of the session ----
 
-/**
- * The list policy: a sync asks for new robots every five minutes at most, a focus when the robots are older than two
- * minutes, the refresh button always (a full list). A push asks nothing: whether a robot tests an older commit is
- * known locally. Running robots are polled separately (`fetch-updates`, see below).
- */
-const listGates = createRefreshGates({
-  isDue: (reason, sinceStart, sinceAnswer) => {
-    switch (reason) {
-      case "manual":
-        return true
-      case "sync":
-        return sinceStart >= SYNC_REFRESH_GAP_MS
-      case "focus":
-        return sinceStart >= MIN_FOCUS_GAP_MS && sinceAnswer >= FOCUS_REFRESH_AGE_MS
-      case "push":
-      case "poll":
-        return false
-    }
-  },
-  followUpReasons: new Set<RefreshReason>(["manual"]),
-})
-
-const pollGates = createRefreshGates({
-  isDue: (reason, sinceStart) => reason === "poll" && sinceStart >= MIN_POLL_GAP_MS,
-  followUpReasons: new Set<RefreshReason>(),
-})
-
-let pollTimer: ReturnType<typeof setTimeout> | undefined
-
-/**
- * Stores an answer of Patronus: its robots (a full list replaces them), its availability and, for a list (not a poll),
- * the GitHub repository. A failure keeps the robots shown: a failed refresh does not make them go away. Never throws;
- * true when Patronus answered with robots.
- */
-async function applyAnswer(key: string, request: ReturnType<typeof commands.getPatronusRobots>, replace: boolean, isList: boolean): Promise<boolean> {
-  let availability: PatronusAvailability
-  try {
-    const result = await request
-    if (result.status === "ok" && result.data.availability.status === "available") {
-      const robots = result.data.robots
-      storeRobots(key, robots, replace, {
-        availability: result.data.availability,
-        fetchedAt: Date.now(),
-        ...(isList && { githubRepository: result.data.githubRepository ?? null }),
-      })
-      return true
-    }
-    availability = result.status === "ok" ? result.data.availability : { status: "error", message: result.error.message }
-  } catch (error) {
-    availability = { status: "error", message: error instanceof Error ? error.message : String(error) }
+/** The facts of the session's view of the main window (`onSessionFacts`): the robots, when a patch has them */
+export function applySessionFacts(repositoryPath: string, facts: FactsView, changes: FactsChanges | null): void {
+  if (changes === null || changes.robots != null) {
+    applyRobotsFacts(repositoryPath, facts.robots, changes?.robots ?? null)
   }
-  update(key, () => ({ availability, fetchedAt: Date.now() }))
-  return false
 }
 
 /**
- * Asks Patronus for the robots of the selected repository, if the reason allows it now (see the policy above): the
- * first time and on the refresh button the last 7 days, else the robots started since shortly before the last list.
- * Never fails: what went wrong is the availability. A repository that is not on Space is asked again only by the
- * refresh button.
+ * The robots of the session of `repositoryPath` as its view has them now (`facts.robots`), with the patch that brought
+ * them (`change`; null for a snapshot, which replaces them): the session lists and polls them by its rules
+ * (`remote_facts::scheduler`), the page only stores them. A patch replaces the robots it names, the merge profile kept
+ * when it names none (the details named it), and removes those it drops; a robot it doesn't name keeps its object, so
+ * the chips of other branches don't render again. A new answer of Patronus asks for the facts of the robots it brought
+ * (`loadRobotFacts`); the robots that merged since the robots before are told (`announceMerge`)
  */
-export function refreshPatronus(reason: RefreshReason): Promise<void> {
-  const key = currentKey()
-  if (key === null) {
-    return Promise.resolve()
-  }
+export function applyRobotsFacts(repositoryPath: string, view: RobotsView, change: RobotsChange | null): void {
+  const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
   const entry = patronusStore.getState().repositories[key] ?? EMPTY
-  if (entry.availability?.status === "notPatronus" && reason !== "manual") {
-    return Promise.resolve()
+  const removed = change === null ? Object.keys(entry.robots).filter(id => !(id in view.robots)) : (change.removedRobots ?? [])
+  const changed = Object.values(change === null ? view.robots : (change.robots ?? {}))
+  const robots = withRobots(entry.robots, changed, removed)
+  const head = view.head
+  const availability = head.value?.availability ?? null
+  // a failure after robots were listed keeps them, stale
+  const listed = entry.listed || availability?.status === "available" || head.state.kind === "stale"
+  // a snapshot of a session Patronus has not answered yet (`Loading`) is no answer: the robots of the repository are
+  // stored from the first answer on, and their view asked from then
+  const answered = head.value !== null && (change === null || change.head != null)
+  if (robots === entry.robots && !answered) {
+    return
   }
-  const [repositoryPath] = key.split("\n") as [string, string]
-  const listed = listGates.refresh(key, reason, entry.fetchedAt, async current => {
-    const listedFrom = patronusStore.getState().repositories[key]?.listedFrom ?? 0
-    const full = current === "manual" || listedFrom === 0
-    const startedAt = Date.now()
-    update(key, () => ({ isRefreshing: true }))
-    try {
-      const since = full ? null : Math.floor((listedFrom - LIST_OVERLAP_MS) / 1000)
-      const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, since, background: current !== "manual" }), full, true)
-      if (answered) {
-        // a view that failed is asked again after a list, also of the same robots
-        if (patronusStore.getState().repositories[key]?.viewFailure != null) {
-          askedView = null
-        }
-        // a list that left the robots as they were (none) has its view already
-        update(key, entry => ({ listedFrom: startedAt, viewListed: entry.viewListed || entry.viewOf === entry.robots }))
-        loadRobotFacts(key)
-      }
-    } finally {
-      update(key, () => ({ isRefreshing: false }))
+  if (answered && availability?.status === "available" && entry.viewFailure !== null) {
+    // a view that failed is asked again after an answer of Patronus, also of the same robots
+    askedView = null
+  }
+  update(key, previous => ({
+    robots,
+    availability,
+    githubRepository: head.value?.githubRepository ?? null,
+    fetchedAt: head.observedAt * 1000,
+    listed,
+    // a list that left the robots as they were (none) has its view already
+    viewListed: previous.viewListed || (listed && !previous.listed && previous.viewOf === robots),
+  }))
+  if (robots !== entry.robots) {
+    // what the estimates learn from, also after a restart
+    recordFinishedRobots(repositoryPath, Object.values(robots))
+    for (const robot of findMergedRobots(entry.robots, robots)) {
+      announceMerge(key, robot)
     }
-  })
-  return listed.then(() => schedulePoll(false))
+  }
+  if (answered && head.value?.availability.status === "available") {
+    loadRobotFacts(key)
+  }
+}
+
+/**
+ * Asks the session to list the robots again, the full window (the refresh button); `isRefreshing` until its patch is in
+ */
+export async function refreshPatronus(): Promise<void> {
+  const key = currentKey()
+  const repositoryPath = getSelectedProject()?.path
+  if (key === null || repositoryPath === undefined) {
+    return
+  }
+  update(key, () => ({ isRefreshing: true }))
+  try {
+    await refreshSessionFacts(repositoryPath, "robots", "manual")
+  } finally {
+    update(key, () => ({ isRefreshing: false }))
+  }
 }
 
 /**
@@ -1377,57 +1357,6 @@ function activeBranchRobots(key: string): PatronusRobot[] {
   return [...active.values()]
 }
 
-/**
- * Arms the poll timer when a branch has a running robot: every minute while the window is focused, every five minutes
- * while it is not and a robot pushes (to tell when it merged; a dry run waits for the focus). `restart` replaces a
- * pending timer (after a poll, on a focus change), else a pending one is kept.
- */
-function schedulePoll(restart: boolean): void {
-  if (pollTimer !== undefined && !restart) {
-    return
-  }
-  clearTimeout(pollTimer)
-  pollTimer = undefined
-  const key = currentKey()
-  if (key === null) {
-    return
-  }
-  const active = activeBranchRobots(key)
-  const windowFocused = isWindowFocused()
-  if (windowFocused ? active.length === 0 : !active.some(isPushingRobot)) {
-    return
-  }
-  pollTimer = setTimeout(
-    () => {
-      pollTimer = undefined
-      void pollPatronus()
-    },
-    windowFocused ? POLL_INTERVAL_MS : BACKGROUND_POLL_INTERVAL_MS,
-  )
-}
-
-/** Asks Patronus whether the running robots of the branches changed; only the changed ones come back */
-export function pollPatronus(): Promise<void> {
-  const key = currentKey()
-  if (key === null) {
-    return Promise.resolve()
-  }
-  const known: KnownRobotStatus[] = activeBranchRobots(key).map(robot => ({ id: robot.id, status: robot.status }))
-  if (known.length === 0) {
-    return Promise.resolve()
-  }
-  const [repositoryPath] = key.split("\n") as [string, string]
-  return pollGates.refresh(key, "poll", 0, async () => {
-    try {
-      if (await applyAnswer(key, commands.pollPatronusRobots({ repositoryPath, robots: known }), false, false)) {
-        loadRobotFacts(key)
-      }
-    } finally {
-      schedulePoll(true)
-    }
-  })
-}
-
 // ---- actions ----
 
 /** The selected repository, whose robots the page shows; throws without one. Rust resolves the branch prefix */
@@ -1486,7 +1415,7 @@ export function isPatronusOffered(): boolean {
  * the steps on the robots it listed, as a failed refresh of GitHub keeps the last listing
  */
 export function hasPatronusListed(): boolean {
-  return (currentRepository()?.listedFrom ?? 0) > 0
+  return currentRepository()?.listed ?? false
 }
 
 /**
@@ -1539,28 +1468,28 @@ function isPendingEntry(entry: RepositoryPatronus | undefined): boolean {
 
 /**
  * Watches a robot of no branch the user started (a Safe Push of a reviewed pull request), named by what it tests
- * ("#101 Rework the session store"): it is stored, polled while it runs, told when it merged and listed in the header,
- * for the session
+ * ("#101 Rework the session store"): it is stored, the session polls it while it runs (the demand of the window), its
+ * merge is told and the header lists it, for the life of the window
  */
 export function watchRobot(robot: PatronusRobot, label: string): void {
   const key = currentKey()
   if (key === null) {
     return
   }
-  update(key, entry => ({ robots: { ...entry.robots, [robot.id]: robot }, watched: { ...entry.watched, [robot.id]: label } }))
-  schedulePoll(false)
+  storeRobot(key, robot)
+  update(key, entry => ({ watched: { ...entry.watched, [robot.id]: label } }))
+  watchRobotInDemand(robot.id)
 }
 
 /**
  * Adds or replaces a robot the user just started, restarted or canceled, in the repository of `key` (by default the
- * selected one: a start that ran on after a switch stores its robot where it started); it is polled while it runs
+ * selected one: a start that ran on after a switch stores its robot where it started); the command gave it to the
+ * session too, which polls it while it runs
  */
 export function upsertPatronusRobot(robot: PatronusRobot, key: string | null = currentKey()): void {
-  if (key === null) {
-    return
+  if (key !== null) {
+    storeRobot(key, robot)
   }
-  storeRobots(key, [robot], false, {})
-  schedulePoll(false)
 }
 
 /**
@@ -1571,7 +1500,7 @@ export function rememberRobotProfile(robot: PatronusRobot): void {
   const key = currentKey()
   const known = key === null ? undefined : patronusStore.getState().repositories[key]?.robots[robot.id]
   if (key !== null && known !== undefined && robot.profile != null && known.profile == null) {
-    storeRobots(key, [{ ...known, profile: robot.profile }], false, {})
+    storeRobot(key, { ...known, profile: robot.profile })
   }
 }
 
@@ -1700,7 +1629,7 @@ export function findCommentRobot(
     const matches =
       robot.pullRequest?.number === pullRequestNumber &&
       (robot.pushMode === "dryRun") === (mode === "dryRun") &&
-      robot.startTime * 1000 >= postedAt - LIST_OVERLAP_MS &&
+      robot.startTime * 1000 >= postedAt - COMMENT_ROBOT_SLACK_MS &&
       !known.has(robot.id)
     if (matches && (found === undefined || robot.startTime > found.startTime)) {
       found = robot
@@ -1711,10 +1640,10 @@ export function findCommentRobot(
 
 /**
  * Posts the command, waits up to a minute from the comment (the checks before it take none of it) for the reaction of
- * the bot (👎 throws its reason, no answer throws), then,
- * within that minute and for up to `robotWait` after the 👍, lists the robots started since the comment for the one it
- * started (`findCommentRobot`): stored and returned, polled while it runs; null when none came, then looked for in the
- * background with an infinite `robotWait` (the user's own robot).
+ * the bot (👎 throws its reason, no answer throws), then, within that minute and for up to `robotWait` after the 👍,
+ * asks the session to list the robots (`refresh_facts`, `afterWrite`) for the one it started (`findCommentRobot`):
+ * returned, polled by the session while it runs; null when none came, then looked for in the background with an
+ * infinite `robotWait` (the user's own robot).
  */
 async function askPatronusOnPullRequest(
   pullRequestNumber: number,
@@ -1749,17 +1678,13 @@ async function askPatronusOnPullRequest(
   // the minute of the bot counts from here, not from before the checks
   const postedAt = Date.now()
   const replyParams = { repositoryPath, pullRequestNumber, commentId: posted.data.id, githubRepository }
+  // the session lists the robots started since shortly before its last list, and once more after a list in flight
   const lookUp = async (): Promise<PatronusRobot | undefined> => {
-    const since = Math.floor((postedAt - LIST_OVERLAP_MS) / 1000)
     if (key === null) {
       return undefined
     }
-    await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, since, background: false }), false, false)
-    const robot = findCommentRobot(patronusStore.getState().repositories[key]?.robots ?? {}, pullRequestNumber, mode, postedAt, known)
-    if (robot !== undefined) {
-      schedulePoll(false)
-    }
-    return robot
+    await refreshSessionFacts(repositoryPath, "robots", "afterWrite")
+    return findCommentRobot(patronusStore.getState().repositories[key]?.robots ?? {}, pullRequestNumber, mode, postedAt, known)
   }
   let acceptedAt: number | null = null
   let rejectedOnce = false
@@ -1879,31 +1804,12 @@ export async function fetchPatronusRobotStatus(robot: PatronusRobot): Promise<Pa
   return result.data
 }
 
-/**
- * While the window is not focused, only a robot that pushes is polled, slowly; on focus the merges told meanwhile get
- * their toasts and the running robots are asked for at once
- */
-export function setPatronusWindowFocus(focused: boolean): void {
-  setWindowFocus(focused)
-  if (!focused) {
-    schedulePoll(true)
-    return
-  }
-  clearTimeout(pollTimer)
-  pollTimer = undefined
-  void pollPatronus().then(() => schedulePoll(false))
-}
-
-/** Forgets the gates, the timer and the data (tests) */
+/** Forgets the data (tests) */
 export function resetPatronus(): void {
   problemsInFlight.clear()
   landingSettled.clear()
   lateCommentStarts.clear()
   failingInFlight.clear()
-  listGates.reset()
-  pollGates.reset()
-  clearTimeout(pollTimer)
-  pollTimer = undefined
   resetOsNotification()
   announcedMerges.clear()
   askedView = null

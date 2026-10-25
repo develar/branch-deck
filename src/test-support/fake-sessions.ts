@@ -51,6 +51,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): TableView {
     branches: {},
     stacks: {},
     sections: { unassigned: [], archived: { names: [], newlyArchived: [], integration: {} }, unapplied: [], landed: { baseline: null, landing: [], landed: [] } },
+    facts: { robots: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {} } },
   }
 }
 

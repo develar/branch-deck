@@ -14,15 +14,31 @@
 //! an answer of those comes.
 //!
 //! `FactStore` holds the facts of a session: the branch table of its last successful sync (`table`, which the guards of
-//! the app's actions read through `Sessions::table`), the families of the remote services in the steps that bring them.
+//! the app's actions read through `Sessions::table`) and the robots of Patronus (`robots`, a part of the view by id), the
+//! other families of the remote services in the steps that bring them. A read of a service takes its number with
+//! `Sessions::begin` (a `FactTicket`, of the epoch of the session, so the answer of a read of a session that closed
+//! meanwhile applies to no session opened again) and applies its answer with `Sessions::apply_facts` (`FactResult`).
+//!
+//! The robots (`RobotsFact`): a list replaces them (a full one) or adds to them, a poll adds the robots whose status
+//! changed, a write of the app (the robot of a start, a restart or a cancel) adds its robot. Each robot keeps the number
+//! of what wrote it, so a list started before a write or a poll never rolls their robot back; a failed answer keeps the
+//! robots and only says why; the merge profile a poll or a start named stays through a list, which never names it.
+//! `robots_digest` is what the poll asks about: the running robots of the branches and whole stacks of the table
+//! (`domain_policy::robot_match`, on the tips the table has now, the pushes of the session included) and the watched
+//! ones of the demand.
 
 use crate::branch_table::BranchTable;
 use crate::patronus_view::ContentMemo;
-use domain_policy::refresh::FactTiming;
-use domain_types::error::ApiError;
-use domain_types::session::{Fact, FactState};
+use crate::table::TableState;
+use domain_policy::refresh::{ActiveRobots, FactTiming};
+use domain_policy::robot_match::{RobotIndex, Tips, match_table};
+use domain_types::error::{ApiError, ErrorCode};
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotsResult};
+use domain_types::session::{Fact, FactState, RobotsHead, RobotsView};
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use sync_core::patronus_start::is_robot_active;
 
 /// The number of an observation of a session, from its `Sequence`: a greater one is newer
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -172,6 +188,29 @@ impl<T> FactRecord<T> {
   }
 }
 
+/// The number of a read of a session (`Sessions::begin`), with the epoch of the session it was taken in: the answer
+/// applies only to that session, never to one opened again after it closed
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FactTicket {
+  pub epoch: u32,
+  pub seq: Seq,
+}
+
+/// How the robots were read
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RobotsRead {
+  /// A list: `full` = the robots of the service's whole window, which replace those the session has
+  List { full: bool },
+  /// A poll of the robots the session knows running: only the changed ones come back
+  Poll,
+}
+
+/// The answer of a read of a remote service, which `Sessions::apply_facts` applies to the facts of its session
+#[derive(Clone, Debug)]
+pub enum FactResult {
+  Robots { read: RobotsRead, result: PatronusRobotsResult },
+}
+
 /// The table of a session and the memo of the content walks of its views, as `Sessions::table` answers them
 #[derive(Clone, Debug)]
 pub struct TableFacts {
@@ -187,6 +226,8 @@ pub struct FactStore {
   pub table: FactRecord<Arc<BranchTable>>,
   /// What the views of the table asked by content (`patronus_view`), kept across its syncs
   pub memo: Arc<Mutex<ContentMemo>>,
+  /// The user's robots of Patronus
+  pub robots: RobotsFact,
 }
 
 impl FactStore {
@@ -195,6 +236,14 @@ impl FactStore {
     Self {
       table: FactRecord::loading(),
       memo: Arc::new(Mutex::new(ContentMemo::default())),
+      robots: RobotsFact::default(),
+    }
+  }
+
+  /// Applies the answer of the read of `observation`; whether it changed a fact
+  pub fn apply(&mut self, observation: Observation, result: FactResult) -> bool {
+    match result {
+      FactResult::Robots { read, result } => self.robots.answer(observation, read, result),
     }
   }
 
@@ -211,6 +260,189 @@ impl FactStore {
 impl Default for FactStore {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+/// The robots of Patronus as a session keeps them (the module's header): the part of the view, and by robot id the
+/// number of the observation that wrote it
+#[derive(Clone, Debug, Default)]
+pub struct RobotsFact {
+  view: RobotsView,
+  written: HashMap<String, u32>,
+  /// The number of the list that named the GitHub repository kept
+  github_seq: u32,
+  /// Patronus answered with robots once: a failure after it is `Stale`, before it `Unavailable`
+  listed: bool,
+}
+
+impl RobotsFact {
+  /// The part of the view
+  #[must_use]
+  pub const fn view(&self) -> &RobotsView {
+    &self.view
+  }
+
+  /// The answer of a list or a poll; whether it changed the robots or the head. An answer whose observation is not
+  /// newer than the head's changes no head, and of the robots only those no newer observation wrote
+  pub fn answer(&mut self, observation: Observation, read: RobotsRead, result: PatronusRobotsResult) -> bool {
+    let seq = observation.seq.0;
+    let before = self.view.clone();
+    let PatronusRobotsResult {
+      availability,
+      robots,
+      github_repository,
+    } = result;
+    let available = availability == PatronusAvailability::Available;
+    if available {
+      let answered: BTreeSet<String> = robots.iter().map(|robot| robot.id.clone()).collect();
+      for robot in robots {
+        self.put(seq, robot);
+      }
+      if read == (RobotsRead::List { full: true }) {
+        let written = &self.written;
+        // a robot a newer write or poll wrote stays: the list did not see it yet
+        let gone: Vec<String> = self
+          .view
+          .robots
+          .keys()
+          .filter(|id| !answered.contains(*id) && written.get(*id).is_none_or(|kept| *kept < seq))
+          .cloned()
+          .collect();
+        for id in gone {
+          self.view.robots.remove(&id);
+          self.written.remove(&id);
+        }
+      }
+    }
+    let kept_github = self.view.head.value.as_ref().and_then(|head| head.github_repository.clone());
+    let github_repository = if available && matches!(read, RobotsRead::List { .. }) && seq > self.github_seq {
+      self.github_seq = seq;
+      github_repository
+    } else {
+      kept_github
+    };
+    let head = &mut self.view.head;
+    if seq > head.seq {
+      head.state = match &availability {
+        PatronusAvailability::Available | PatronusAvailability::NotPatronus => FactState::Fresh,
+        failed => {
+          let reason = availability_error(failed);
+          if self.listed {
+            FactState::Stale { reason: Some(reason) }
+          } else {
+            FactState::Unavailable { reason }
+          }
+        }
+      };
+      head.seq = seq;
+      head.observed_at = observation.observed_at;
+      head.value = Some(RobotsHead { availability, github_repository });
+    } else if let Some(head) = &mut head.value {
+      head.github_repository = github_repository;
+    }
+    self.listed |= available;
+    self.view != before
+  }
+
+  /// The robot a write of the app answered (a start, a restart, a cancel), numbered when it is applied; whether it
+  /// changed the robots
+  pub fn write(&mut self, seq: Seq, robot: PatronusRobot) -> bool {
+    let id = robot.id.clone();
+    let before = self.view.robots.get(&id).cloned();
+    self.put(seq.0, robot);
+    self.view.robots.get(&id) != before.as_ref()
+  }
+
+  /// Keeps `robot` unless a newer observation wrote it; the profile kept when the answer names none (a list never does)
+  fn put(&mut self, seq: u32, mut robot: PatronusRobot) {
+    if self.written.get(&robot.id).is_some_and(|kept| *kept >= seq) {
+      return;
+    }
+    if robot.profile.is_none()
+      && let Some(known) = self.view.robots.get(&robot.id)
+    {
+      robot.profile.clone_from(&known.profile);
+    }
+    self.written.insert(robot.id.clone(), seq);
+    self.view.robots.insert(robot.id.clone(), robot);
+  }
+}
+
+/// Why Patronus gave no robots, as the error of the fact
+fn availability_error(availability: &PatronusAvailability) -> ApiError {
+  match availability {
+    PatronusAvailability::NotLoggedIn => ApiError::new(ErrorCode::NotLoggedIn, "The Safe Push CLI is not logged in"),
+    PatronusAvailability::Error { message } => ApiError::new(ErrorCode::PatronusError, message.clone()),
+    PatronusAvailability::Available | PatronusAvailability::NotPatronus => ApiError::internal("Patronus answered"),
+  }
+}
+
+/// What the poll of the robots asks about: the running robots (a cancel included) of the branches and whole stacks of
+/// the table and the watched ones, by id with the status the session knows, and whether one of them pushes
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RobotsDigest {
+  pub active: Vec<KnownRobotStatus>,
+  pub pushing: bool,
+}
+
+impl RobotsDigest {
+  /// The running robots as the refresh rules count them
+  #[must_use]
+  pub const fn active_robots(&self) -> ActiveRobots {
+    ActiveRobots {
+      any: !self.active.is_empty(),
+      pushing: self.pushing,
+    }
+  }
+}
+
+/// The robots of `robots` the poll asks about (`RobotsDigest`): those of the branches and stacks of `table` on the tips
+/// it has now (the virtual copy of the newest commit, else the commit; the remote tip of its status) and `watched`
+#[must_use]
+pub fn robots_digest(table: &TableState, robots: &RobotsView, watched: &[String]) -> RobotsDigest {
+  if robots.robots.is_empty() {
+    return RobotsDigest::default();
+  }
+  // newest first, as a list answers them: the order breaks a tie of the matching
+  let mut listed: Vec<PatronusRobot> = robots.robots.values().cloned().collect();
+  listed.sort_by(|a, b| b.start_time.cmp(&a.start_time).then_with(|| a.id.cmp(&b.id)));
+  let index = RobotIndex::new(&listed);
+  let branches = table.order().iter().filter_map(|name| {
+    let branch = table.branch(name)?;
+    let local = branch
+      .copies
+      .first()
+      .and_then(|copy| copy.hash.as_deref())
+      .or_else(|| branch.commits.first().map(|commit| commit.id.as_str()));
+    Some(Tips {
+      of: name,
+      local,
+      remote: branch.remote.status.as_ref().and_then(|status| status.remote_tip.as_deref()),
+    })
+  });
+  let stacks = table.stacks().map(|stack| Tips {
+    of: &stack.root,
+    local: stack.tip.as_deref(),
+    remote: stack.remote.as_ref().and_then(|status| status.remote_tip.as_deref()),
+  });
+  let matches = match_table(&index, branches, stacks);
+  let ids: BTreeSet<&str> = matches
+    .branches
+    .values()
+    .chain(matches.stacks.values())
+    .map(String::as_str)
+    .chain(watched.iter().map(String::as_str))
+    .collect();
+  let active: Vec<&PatronusRobot> = ids.into_iter().filter_map(|id| robots.robots.get(id)).filter(|robot| is_robot_active(robot)).collect();
+  RobotsDigest {
+    pushing: active.iter().any(|robot| robot.push_mode != PatronusPushMode::DryRun),
+    active: active
+      .into_iter()
+      .map(|robot| KnownRobotStatus {
+        id: robot.id.clone(),
+        status: robot.status,
+      })
+      .collect(),
   }
 }
 

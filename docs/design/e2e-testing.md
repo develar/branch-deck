@@ -247,7 +247,9 @@ Mock implementation:
 - **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
   `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` that stands still, so no session of a test
   goes away by itself until the test moves it, `advanceBackendClock`): `get_snapshot`, `sync`, `set_window_focus`,
-  `set_demand` (what the window of a subscription shows, `src/model/demand.ts`) and `unsubscribe_view` answer JSON;
+  `set_demand` (what the window of a subscription shows, `src/model/demand.ts`), `refresh_facts` and
+  `unsubscribe_view` answer JSON; the scheduler of the facts runs on the same clock and reads the fakes of each
+  repository (`TestFactSources`: the lists and polls of the robots, counted in `listCalls` and `pollCalls`);
   `subscribe_view` is a long-lived event stream of its channel (`X-Progress-Channel`, the `patches` of the command):
   `{ result }` with the subscription and its view first, then each `ViewPatch` as `{ progress }`, until
   `unsubscribe_view` or the deletion of the repository, which closes its sessions first, so the stream ends and the
@@ -381,7 +383,9 @@ State isolation:
   overruns. The backend's: the sessions of the test server age on one `TestClock` (`AppState::session_clock`), which
   stands still; the timers that decide what a session asks and when (its polls, retries and backoffs, the sweep of a
   session no window shows) wake only when a test moves it with `advanceBackendClock(ms)` (wait-helpers.ts, `POST
-  /clock/advance { ms }`, which also sweeps the idle sessions). Neither moves the 16 ms merge of the patches or a
+  /clock/advance { ms }`, which also sweeps the idle sessions): the poll of the robots a minute after the last one
+  while the window is focused, so a test that waits for a merge a poll tells moves it in a loop until the toast shows;
+  a focus (`tauri://focus`) polls at once, unless a poll ran less than 50 s ago on that clock. Neither moves the 16 ms merge of the patches or a
   bounded lock wait, which run on wall time: a test waits for the patch an advance causes (its DOM state,
   `data-view-version`), never for time
 - **Motion**: `base-test.ts` switches the enter animations off in every window of a test (a constructable sheet,
@@ -429,12 +433,13 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`PatronusClient::with_web_url`), so a robot links where the app links it. The service is replaced on each Patronus
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
   so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
-- **Bridge**: `get_patronus_robots`, `poll_patronus_robots`, `get_patronus_robot_details`, `get_robot_failure`,
-  `get_patronus_robot_problems`, `get_patronus_failing_robots`, `get_patronus_start_options`,
-  `get_patronus_target_branch`, `start_patronus_robot`, `restart_patronus_robot`, `cancel_patronus_robot` and
-  `get_patronus_robot_status` call the service as `src-tauri/src/commands/patronus.rs` does: the list answers
-  `notPatronus` while the repository is not on Space and names the GitHub repository by the real
-  `resolve_github_repository`; the start options and the start need Space and the target branch of the baseline
+- **Bridge**: the lists and polls of the session's robots (`TestFactSources`, `list_robots` and `poll_robots` of the
+  bridge), `get_patronus_robot_details`, `get_robot_failure`, `get_patronus_robot_problems`,
+  `get_patronus_failing_robots`, `get_patronus_start_options`, `get_patronus_target_branch`, `start_patronus_robot`,
+  `restart_patronus_robot`, `cancel_patronus_robot` and `get_patronus_robot_status` call the service as
+  `src-tauri/src/commands/patronus.rs` does (a start, a restart and a cancel give their robot to the session, as the
+  app's commands do): the list answers `notPatronus` while the repository is not on Space and names the GitHub
+  repository by the real `resolve_github_repository`; the start options and the start need Space and the target branch of the baseline
   (`required_target_branch`), and the start runs the app's `prepare_robot_start` first (the landing gate, without the
   object cache, then the source ref of the virtual or the stack branch).
 - **Actions**: in `state_only` the fake acts as Patronus does: a start (`POST /robots`) lists a new running robot
@@ -469,8 +474,10 @@ log of the fake). No test answers a remote write in the page: the registry test 
   then a start offers only the default checks. The default profile is the real service's: the profile of the branch's
   last robot, which a fixture robot names in `profile`; so are the profiles that skip the review (`skipsReview` of a
   regular profile comes only from that robot's options, an emergency profile always skips it)
-- **Log**: `GET /repositories/{id}/patronus` (`getPatronusLog`) answers `listCalls`, `pollCalls`, `detailCalls`, the
-  commands of the page (the caches of the service answer some of them: a test of the page's ask policy counts these),
+- **Log**: `GET /repositories/{id}/patronus` (`getPatronusLog`) answers `listCalls` and `pollCalls`, the lists and
+  polls of the session, `detailCalls`, the commands of the page (the caches of the service answer some of them: a test
+  of the ask policy counts these), `robots`, the robots the lists and polls answered by id (a fixture robot's empty
+  revision as the fake resolved it: `mergeRunningRobots` pins it in the next fixture),
   `requests`, what reached the fake: `list`, `updates`, `details` and `startOptions` counts, and the robot ids of
   `problems` and `progress` in order; and the actions in order: `starts`, the bodies of the start requests as Patronus
   got them (`startRequest` in `patronus-helpers.ts` builds the expected one, `wholeStackStartRequest` the one from

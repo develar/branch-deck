@@ -57,7 +57,8 @@ export const SetupRepoOptionsSchema = z.object({
   reviewRequests: z.any().optional(),
 
   /**
-   * What `get_patronus_robots` answers (a `PatronusRobotsResult`, see `patronus-helpers.ts`), set before the first sync
+   * What the fake Patronus answers the session's lists and polls (`PatronusRobotsFixture` of `patronus-helpers.ts`),
+   * set before the first sync
    * Default: undefined - the repository is not on Space
    */
   patronus: z.any().optional(),

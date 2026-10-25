@@ -9,7 +9,7 @@ export function testPatronusRepository(robots: Readonly<Record<string, PatronusR
   return {
     availability: { status: "available" },
     robots,
-    listedFrom: 0,
+    listed: true,
     fetchedAt: 0,
     isRefreshing: false,
     needsReview: {},

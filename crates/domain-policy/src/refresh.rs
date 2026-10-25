@@ -7,8 +7,9 @@
 //! These are the rules of today's stores (`src/stores/patronus.ts`, `pull-requests.ts`, `review-readiness.ts`,
 //! `review-requests.ts`, `src/lib/review-requests.ts`, `src/hooks/useSafePush.ts`, `usePatronusRobotDetails.ts`), and
 //! the constants keep the names of the TypeScript ones, with the family in front where two stores have one each; the
-//! focus rule, the same in three stores, is one. Nothing runs them yet: the stores keep their timers until the
-//! scheduler of the session asks these (stage s7-session-facts). Two rules are the design's, not the stores': the
+//! focus rule, the same in three stores, is one. The scheduler of the sessions (`remote_facts::scheduler`) asks the
+//! robots by them; the other stores keep their timers until their families move into the session (stage
+//! s7-session-facts). Two rules are the design's, not the stores': the
 //! readiness asks 4 subjects in parallel instead of batches of 8 one after another, and the hidden subjects that wait
 //! for an approval come after the shown ones.
 
@@ -114,24 +115,26 @@ fn refused_by_service(reason: RefreshReason, now: Duration, service: ServiceStat
   reason != RefreshReason::Manual && (service.off_service || service.retry_at.is_some_and(|retry_at| now < retry_at))
 }
 
-/// A list of the robots: the refresh button always; a sync every five minutes at most; a focus when the robots are older
-/// than two minutes and at least a minute after the last request; a push never (whether a robot tests an older commit
-/// is known locally), nor the poll's timer, nor a demand
+/// A list of the robots: the refresh button always, and a start that needs the robot it started (the robot of a
+/// `/patronus` comment); a sync every five minutes at most; a focus when the robots are older than two minutes and at
+/// least a minute after the last request; a push never (whether a robot tests an older commit is known locally), nor
+/// the poll's timer
 pub fn robots_list_due(reason: RefreshReason, now: Duration, list: FactTiming, service: ServiceState) -> bool {
   if refused_by_service(reason, now, service) {
     return false;
   }
   match reason {
-    RefreshReason::Manual => true,
+    RefreshReason::Manual | RefreshReason::Demand => true,
     RefreshReason::Sync => elapsed(now, list.started_at) >= ROBOTS_SYNC_REFRESH_GAP,
     RefreshReason::Focus => focus_due(now, list),
-    RefreshReason::Push | RefreshReason::Poll | RefreshReason::Demand => false,
+    RefreshReason::Push | RefreshReason::Poll => false,
   }
 }
 
-/// The refresh button during a list asks once more after it; the other reasons add nothing
-pub fn robots_list_follows_up(reason: RefreshReason) -> bool {
-  reason == RefreshReason::Manual
+/// The refresh button and a start that needs its robot ask once more after a list in flight, which may have started
+/// before the robot; the other reasons add nothing
+pub const fn robots_list_follows_up(reason: RefreshReason) -> bool {
+  matches!(reason, RefreshReason::Manual | RefreshReason::Demand)
 }
 
 /// The robots a list asks for
@@ -143,8 +146,8 @@ pub enum ListWindow {
   Since(Duration),
 }
 
-/// The first list and the refresh button ask for the full window; every other list for the robots started since
-/// `ROBOTS_LIST_OVERLAP` before the last answered list started
+/// The first list and the refresh button ask for the full window; every other list (a start's too) for the robots started
+/// since `ROBOTS_LIST_OVERLAP` before the last answered list started
 pub fn robots_list_window(reason: RefreshReason, last_answered_list_started: Option<Duration>) -> ListWindow {
   match last_answered_list_started {
     Some(started) if reason != RefreshReason::Manual => ListWindow::Since(started.saturating_sub(ROBOTS_LIST_OVERLAP)),

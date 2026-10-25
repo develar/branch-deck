@@ -2,32 +2,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type {
   ApiError,
-  GetPatronusRobotsParams,
   GetRobotCommitMapParams,
+  PatronusAvailability,
   PatronusCommandReply,
   PatronusRobot,
-  PatronusRobotsResult,
-  PollPatronusRobotsParams,
   PostPatronusCommandParams,
+  RobotsView,
   GetRepositoryViewParams,
   LandingRefusal,
   PatronusView,
   WaitLandingNeedsParams,
 } from "@/lib/bindings"
 import { notifyError, setErrorRecorder } from "@/lib/errors"
+import { setWindowFocus } from "@/lib/os-notification"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
+import { currentDemand } from "@/model/demand"
 import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
 import {
-  BACKGROUND_POLL_INTERVAL_MS,
   COMMAND_REPLY_INTERVAL_MS,
   COMMAND_REPLY_TIMEOUT_MS,
   REVIEWED_ROBOT_WAIT_MS,
-  FOCUS_REFRESH_AGE_MS,
-  LIST_OVERLAP_MS,
-  MIN_FOCUS_GAP_MS,
-  POLL_INTERVAL_MS,
-  SYNC_REFRESH_GAP_MS,
+  applyRobotsFacts,
   getBranchRobot,
   getLandedBy,
   getLandedWithChildrenReason,
@@ -42,11 +38,8 @@ import {
   hasPatronusListed,
   isRobotProblemsPending,
   markRobotFailing,
-  mergeRobots,
   patronusStore,
-  refreshPatronus,
   resetPatronus,
-  setPatronusWindowFocus,
   findCommentRobot,
   LATE_ROBOT_INTERVAL_MS,
   LATE_ROBOT_WAIT_MS,
@@ -63,10 +56,11 @@ import { branchFacts, landedWhole, robotOf } from "@/test-support/patronus-repos
 
 const { patronus, branches } = vi.hoisted(() => ({
   patronus: {
-    lists: [] as GetPatronusRobotsParams[],
-    polls: [] as PollPatronusRobotsParams[],
-    list: null as PatronusRobotsResult | null,
-    poll: null as PatronusRobotsResult | null,
+    /** The reasons of each `refresh_facts` of the robots the page asked */
+    refreshes: [] as string[],
+    /** What the session's next list answers (`list`, a list a refresh asks) and its next poll (`poll`) */
+    list: null as RobotsAnswer | null,
+    poll: null as RobotsAnswer | null,
     problemCalls: [] as string[],
     /** What the problems of a robot are: the review approval check unless a test says otherwise; "offline" for an error */
     problems: null as { title: string; subsystem: string }[] | "offline" | null,
@@ -115,14 +109,6 @@ vi.mock("@/lib/bindings", async importOriginal => ({
   // the constants of the bindings (the defaults of the settings Rust reads); the commands are the test's
   ...(await importOriginal<typeof import("@/lib/bindings")>()),
   commands: {
-    getPatronusRobots: async (params: GetPatronusRobotsParams) => {
-      patronus.lists.push(params)
-      return { status: "ok", data: patronus.list }
-    },
-    pollPatronusRobots: async (params: PollPatronusRobotsParams) => {
-      patronus.polls.push(params)
-      return { status: "ok", data: patronus.poll }
-    },
     startPatronusRobot: async () => ({ status: "error", error: patronus.startFailure }),
     postPatronusCommand: async (params: PostPatronusCommandParams) => {
       await new Promise(resolve => setTimeout(resolve, patronus.checkMs))
@@ -258,6 +244,15 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   },
 }))
 
+// the session lists the robots a refresh asks for and the page gets its patch
+vi.mock("@/model/store", () => ({
+  refreshSessionFacts: async (_repositoryPath: string, _family: string, reason: string) => {
+    patronus.refreshes.push(reason)
+    answerRobots(patronus.list!, reason === "manual")
+    return true
+  },
+}))
+
 vi.mock("@/stores/repository", async () => ({
   ...(await import("@/test-support/selected-repository-mock")),
   getSelectedProject: () => ({ path: branches.selected }),
@@ -322,8 +317,59 @@ function robot(patch: Partial<PatronusRobot> = {}): PatronusRobot {
   }
 }
 
-function available(...robots: PatronusRobot[]): PatronusRobotsResult {
+/** What Patronus answers the session: the robots, whether it could, the GitHub repository of a list */
+interface RobotsAnswer {
+  readonly availability: PatronusAvailability
+  readonly robots: readonly PatronusRobot[]
+  readonly githubRepository?: string | null
+}
+
+function available(...robots: PatronusRobot[]): RobotsAnswer {
   return { availability: { status: "available" }, robots }
+}
+
+/** The robots of the session of /repo, as its view has them */
+let sessionRobots: RobotsView = { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {} }
+
+/**
+ * The session applies `answer` of a list (`full`: the whole window, which replaces the robots) or of a poll, as
+ * `repository_model::facts::RobotsFact` does, and the page gets its patch (`applyRobotsFacts`)
+ */
+function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
+  const previous = sessionRobots
+  const isAvailable = answer.availability.status === "available"
+  const robots: Record<string, PatronusRobot> = isAvailable && full ? {} : { ...previous.robots }
+  if (isAvailable) {
+    for (const answered of answer.robots) {
+      const known = previous.robots[answered.id]
+      robots[answered.id] = answered.profile == null && known?.profile != null ? { ...answered, profile: known.profile } : answered
+    }
+  }
+  const failed = answer.availability.status === "notLoggedIn" || answer.availability.status === "error"
+  const head: RobotsView["head"] = {
+    value: {
+      availability: answer.availability,
+      githubRepository: isAvailable && !poll ? (answer.githubRepository ?? null) : (previous.head.value?.githubRepository ?? null),
+    },
+    state: failed ? { kind: "stale", reason: internalError("Patronus didn't answer") } : { kind: "fresh" },
+    seq: previous.head.seq + 1,
+    observedAt: Math.floor(Date.now() / 1000),
+  }
+  const changed = Object.fromEntries(Object.entries(robots).filter(([id, robot]) => JSON.stringify(previous.robots[id]) !== JSON.stringify(robot)))
+  sessionRobots = { head, robots }
+  applyRobotsFacts("/repo", sessionRobots, { head, robots: changed, removedRobots: Object.keys(previous.robots).filter(id => !(id in robots)) })
+}
+
+/** The session lists the robots: `patronus.list`, the whole window */
+async function list(answer: RobotsAnswer = patronus.list!): Promise<void> {
+  answerRobots(answer, true)
+  await vi.advanceTimersByTimeAsync(0)
+}
+
+/** The session polls the running robots: `patronus.poll` */
+async function poll(answer: RobotsAnswer = patronus.poll!): Promise<void> {
+  answerRobots(answer, false, true)
+  await vi.advanceTimersByTimeAsync(0)
 }
 
 function setBranches(...names: string[]): void {
@@ -352,8 +398,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(START)
   resetPatronus()
-  patronus.lists = []
-  patronus.polls = []
+  sessionRobots = { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {} }
+  patronus.refreshes = []
   patronus.problemCalls = []
   patronus.problems = null
   patronus.problemsHeld = null
@@ -408,7 +454,7 @@ describe("holds", () => {
     setBranches("air", "bazel", "side", "other")
     branches.stacks = { air: { root: "air", members: ["air", "bazel", "side"], tip: "stack-tip", remoteStatus: null } }
     patronus.list = available(robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip" }))
-    await refreshPatronus("sync")
+    await list()
     const span = { by: robotOf("air", "r1", true), carried: { commits: ["c1"], amended: [] } }
     const held = branchFacts({ span, hold: { kind: "span", ...span } })
     await answerView({
@@ -435,7 +481,7 @@ describe("holds", () => {
     expect(getLandingBranchCount("sso")).toBe(3)
     // the robot of oauth merged elsewhere (`bd`, before a restart): the view says what it landed
     patronus.list = available(robot({ branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 }))
-    await refreshPatronus("sync")
+    await list()
     const by = robotOf("oauth", "r1")
     await answerView({ branches: { auth: landedWhole(by), login: landedWhole(by), oauth: landedWhole(by, true) } })
     const holds = ["auth", "login", "oauth", "sso"].map(name => getPushHold(name))
@@ -456,7 +502,7 @@ describe("holds", () => {
     branches.stacks = { auth: { root: "auth", members: ["auth", "login", "session"], tip: "stack-tip", remoteStatus: null } }
     const login = robot({ id: "login-robot", branchName: "login", sourceRevision: "login-tip", status: "success", finishTime: 200 })
     patronus.list = available(login)
-    await refreshPatronus("sync")
+    await list()
     const byLogin = robotOf("login", "login-robot")
     await answerView({ branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true) } })
     // the Safe Push of login landed auth and login: session is left, so is the stack branch, which carries it
@@ -465,8 +511,7 @@ describe("holds", () => {
 
     // session landed with its own: nothing of the stack is left
     patronus.list = available(login, robot({ id: "session-robot", branchName: "session", sourceRevision: "session-tip", status: "success", finishTime: 300 }))
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
-    await refreshPatronus("sync")
+    await list()
     await answerView({ branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true), session: landedWhole(robotOf("session", "session-robot"), true) } })
     expect(getStackLandedReason("auth")).toBe("Landed in master with login and session")
     expect(getStackBranchHoldReason("auth")).toBe("Landed in master with login and session: nothing of it is left to push")
@@ -480,7 +525,7 @@ describe("holds", () => {
     branches.current = { auth: stacked("auth", null), login: stacked("login", "auth") }
     const merged = robot({ branchName: "login", sourceRevision: "login-old", status: "success", finishTime: 200 })
     patronus.list = available(merged, robot({ id: "dry", branchName: "auth", pushMode: "dryRun", status: "success", finishTime: 100 }))
-    await refreshPatronus("sync")
+    await list()
     await answerView({ branches: { login: landedWhole(robotOf("login", "r1"), true) } })
     // a merged dry run lands nothing: not sent; the robot of each branch as the rows match it
     expect(patronus.viewCalls.map(call => [call.repositoryPath, call.robots.map(it => it.id), call.matched])).toEqual([
@@ -489,14 +534,12 @@ describe("holds", () => {
     expect(patronus.viewCalls[0]?.remote.branches.login).toEqual({ remoteTip: null, upToDate: false })
     expect(getPushHold("login")).toMatchObject({ kind: "landed", branch: "login" })
     // the same robots and branches are not asked again
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
-    await refreshPatronus("sync")
+    await list()
     await whenRepositoryViewCurrent()
     expect(patronus.viewCalls).toHaveLength(1)
     // a robot that changes asks again
     patronus.list = available(merged, robot({ id: "r2", branchName: "auth" }))
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
-    await refreshPatronus("sync")
+    await list()
     await whenRepositoryViewCurrent()
     expect(patronus.viewCalls.map(call => call.robots.map(it => it.id))).toEqual([["r1"], ["r1", "r2"]])
   })
@@ -504,7 +547,7 @@ describe("holds", () => {
   it("waits for the landing needs Rust computes in the background, unknown until then, and asks the view again once", async () => {
     branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: null } }
     patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-old" }))
-    await refreshPatronus("sync")
+    await list()
     const refusal: LandingRefusal = {
       kind: "missingDeclaration",
       branch: "auth",
@@ -536,7 +579,7 @@ describe("holds", () => {
   it("keeps the store as it is when a view asked again says the same, so no row reads it again", async () => {
     branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: null } }
     patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip" }))
-    await refreshPatronus("sync")
+    await list()
     const held = () => ({ branches: { auth: branchFacts({ hold: { kind: "own", by: robotOf("auth", "r1"), carried: null } }) } })
     await answerView(held())
     const state = patronusStore.getState()
@@ -553,7 +596,7 @@ describe("holds", () => {
   it("asks the repository view after a sync only when a patch changed the table: the backend's table is the same", async () => {
     branches.tableRevision = 1
     patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip" }))
-    await refreshPatronus("sync")
+    await list()
     await answerView({})
     // another sync whose patches changed only the state of its run: nothing to ask
     branches.syncCount = 2
@@ -570,7 +613,7 @@ describe("holds", () => {
     setBranches("air", "bazel")
     branches.stacks = { air: { root: "air", members: ["air", "bazel"], tip: "stack-tip", remoteStatus: null } }
     patronus.list = available(robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip", pushMode: "dryRun" }))
-    await refreshPatronus("sync")
+    await list()
     expect([getPushHold("air"), getPushHold("bazel")]).toEqual([null, null])
   })
 })
@@ -581,24 +624,21 @@ describe("watchRobotCoverage", () => {
     const ahead = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["newer"], commitsAhead: 1, myCommitsAhead: 1 })
     branches.current = { auth: { name: "auth", commits: [{ hash: "newer" }], remoteStatus: ahead } }
     patronus.list = available(robot())
-    await refreshPatronus("sync")
+    await list()
     const stop = watchRobotCoverage()
     await vi.waitFor(() => expect(Object.keys(robotCoverageStore.getState().maps)).toHaveLength(1))
     expect(patronus.commitMapCalls).toEqual([
       { repositoryPath: "/repo", branchName: "auth", stackRoot: null, sourceRevision: "tip", ancestors: [], baselineBranch: "origin/master" },
     ])
     // the same tip is not asked again
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
     patronus.list = available(robot({ name: "renamed" }))
-    await refreshPatronus("sync")
-    await vi.waitFor(() => expect(patronus.lists).toHaveLength(2))
+    await list()
     await Promise.resolve()
     expect(patronus.commitMapCalls).toHaveLength(1)
 
     // restarted on the branch as it is: it covers every commit, the map goes
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
     patronus.list = available(robot({ sourceRevision: "newer" }))
-    await refreshPatronus("sync")
+    await list()
     await vi.waitFor(() => expect(robotCoverageStore.getState().maps).toEqual({}))
     expect(patronus.commitMapCalls).toHaveLength(1)
     stop()
@@ -607,7 +647,7 @@ describe("watchRobotCoverage", () => {
   it("asks nothing for a finished robot", async () => {
     branches.current = { auth: { name: "auth", commits: [{ hash: "newer" }], remoteStatus: testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["newer"], commitsAhead: 1 }) } }
     patronus.list = available(robot({ status: "failure", finishTime: 200 }))
-    await refreshPatronus("sync")
+    await list()
     const stop = watchRobotCoverage()
     await Promise.resolve()
     await Promise.resolve()
@@ -616,130 +656,12 @@ describe("watchRobotCoverage", () => {
   })
 })
 
-describe("refreshPatronus", () => {
-  it("lists the last days first, then only the robots started since shortly before the last list", async () => {
-    await refreshPatronus("sync")
-    // the page names the repository only: Rust resolves the prefix and reads the new API of the settings
-    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", since: null, background: true }])
-    expect(getBranchRobot("auth")?.status).toBe("failure")
-
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
-    await refreshPatronus("sync")
-    expect(patronus.lists[1]?.since).toBe(Math.floor((START - LIST_OVERLAP_MS) / 1000))
-  })
-
-  it("asks after a sync every five minutes at most, on focus when older than two minutes, never after a push", async () => {
-    await refreshPatronus("sync")
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS - 1)
-    await refreshPatronus("sync")
-    await refreshPatronus("push")
-    expect(patronus.lists).toHaveLength(1)
-
-    vi.setSystemTime(START + MIN_FOCUS_GAP_MS)
-    await refreshPatronus("focus")
-    expect(patronus.lists).toHaveLength(1)
-    vi.setSystemTime(START + FOCUS_REFRESH_AGE_MS)
-    await refreshPatronus("focus")
-    expect(patronus.lists).toHaveLength(2)
-  })
-
-  it("lists the full window on the refresh button, asked by the user", async () => {
-    await refreshPatronus("sync")
-    await refreshPatronus("manual")
-    expect(patronus.lists[1]).toMatchObject({ since: null, background: false })
-  })
-
-  it("does not ask again for a repository that is not on Space, until the refresh button", async () => {
-    patronus.list = { availability: { status: "notPatronus" }, robots: [] }
-    await refreshPatronus("sync")
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS + FOCUS_REFRESH_AGE_MS)
-    await refreshPatronus("sync")
-    await refreshPatronus("focus")
-    expect(patronus.lists).toHaveLength(1)
-    await refreshPatronus("manual")
-    expect(patronus.lists).toHaveLength(2)
-  })
-
-  it("keeps the shown robots when Patronus can't answer", async () => {
-    await refreshPatronus("sync")
-    patronus.list = { availability: { status: "notLoggedIn" }, robots: [] }
-    await refreshPatronus("manual")
-    const entry = patronusStore.getState().repositories["/repo\nuser"]!
-    expect(entry.availability).toEqual({ status: "notLoggedIn" })
-    expect(entry.robots.r1?.status).toBe("failure")
-  })
-})
-
-describe("polling", () => {
-  it("polls the running robots of the branches every minute while the window is focused", async () => {
-    patronus.list = available(robot(), robot({ id: "other-branch", branchName: "gone" }))
-    await refreshPatronus("sync")
-    expect(patronus.polls).toHaveLength(0)
-
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(patronus.polls).toEqual([{ repositoryPath: "/repo", robots: [{ id: "r1", status: "running" }] }])
-
-    patronus.poll = available(robot({ status: "success", finishTime: 200 }))
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(patronus.polls).toHaveLength(2)
-    expect(getBranchRobot("auth")?.status).toBe("success")
-
-    // nothing runs any more: no timer
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
-    expect(patronus.polls).toHaveLength(2)
-  })
-
-  it("stops on blur and asks at once on focus", async () => {
-    patronus.list = available(robot())
-    await refreshPatronus("sync")
-    setPatronusWindowFocus(false)
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
-    expect(patronus.polls).toHaveLength(0)
-
-    setPatronusWindowFocus(true)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(patronus.polls).toHaveLength(1)
-    // a quick blur and focus asks nothing more
-    setPatronusWindowFocus(false)
-    setPatronusWindowFocus(true)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(patronus.polls).toHaveLength(1)
-  })
-
-  it("polls a robot that pushes every five minutes while the window is not focused, a dry run not at all", async () => {
-    patronus.list = available(robot())
-    await refreshPatronus("sync")
-    setPatronusWindowFocus(false)
-    await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS - 1)
-    expect(patronus.polls).toHaveLength(0)
-    await vi.advanceTimersByTimeAsync(1)
-    expect(patronus.polls).toHaveLength(1)
-    await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS)
-    expect(patronus.polls).toHaveLength(2)
-
-    resetPatronus()
-    patronus.polls = []
-    patronus.list = available(robot({ pushMode: "dryRun" }))
-    await refreshPatronus("sync")
-    setPatronusWindowFocus(false)
-    await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS * 3)
-    expect(patronus.polls).toHaveLength(0)
-  })
-
-  it("polls nothing without running robots", async () => {
-    await refreshPatronus("sync")
-    setPatronusWindowFocus(true)
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
-    expect(patronus.polls).toHaveLength(0)
-  })
-})
-
 describe("merges", () => {
   it("tells once in a toast with Update Project and the robot page when a running robot of a branch merged", async () => {
     patronus.list = available(robot())
-    await refreshPatronus("sync")
+    await list()
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
       ["auth merged into master", "Safe Push", "Update Project", "Open in Patronus"],
     ])
@@ -752,20 +674,20 @@ describe("merges", () => {
     expect(notices.fetches).toEqual([])
 
     // the same robot in a later answer is no news
-    await refreshPatronus("manual")
+    await list()
     expect(notices.toasts).toHaveLength(1)
   })
 
   it("offers Update Project also after a fetch since the merge: the update is what picks it up", async () => {
     patronus.list = available(robot())
-    await refreshPatronus("sync")
-    setPatronusWindowFocus(false)
+    await list()
+    setWindowFocus(false)
     // fetched a second after the robot finished
     fetches.lastFetchTime = 201_000
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
-    await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS)
+    await poll()
     expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push" }])
-    setPatronusWindowFocus(true)
+    setWindowFocus(true)
     expect(notices.toasts.map(it => [it.title, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
       ["auth merged into master", "Update Project", "Open in Patronus"],
     ])
@@ -775,29 +697,30 @@ describe("merges", () => {
 
   it("polls a watched robot of no branch and names its merge by what it tests", async () => {
     patronus.list = available()
-    await refreshPatronus("sync")
+    await list()
     // the head of the pull request of someone else: no branch has it
     const ofReview = { id: "pr", branchName: null, sourceRevision: "their-head" }
     watchRobot(robot(ofReview), "#101 Rework the session store")
     expect(getBranchRobot("auth")).toBeUndefined()
+    // the session polls it: the window watches it (`watchedRobots` of its demand)
+    expect(currentDemand().watchedRobots).toEqual(["pr"])
     patronus.poll = available(robot({ ...ofReview, status: "success", finishTime: 200 }))
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(patronus.polls.at(-1)?.robots).toEqual([{ id: "pr", status: "running" }])
+    await poll()
     expect(notices.toasts.map(it => it.title)).toEqual(["#101 Rework the session store merged into master"])
   })
 
   it("tells a merge in the background by an OS notification, and in a toast on focus", async () => {
     patronus.list = available(robot())
-    await refreshPatronus("sync")
-    setPatronusWindowFocus(false)
+    await list()
+    setWindowFocus(false)
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
-    await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS)
+    await poll()
     // the notification says what merged, as the toast does
     expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push" }])
     expect(notices.permissionRequests).toBe(1)
     expect(notices.toasts).toEqual([])
 
-    setPatronusWindowFocus(true)
+    setWindowFocus(true)
     expect(notices.toasts.map(it => it.title)).toEqual(["auth merged into master"])
   })
 
@@ -811,10 +734,10 @@ describe("merges", () => {
     }
     const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-tip", pullRequest: { number: 7, url: "u7" } })
     patronus.list = available(oauth)
-    await refreshPatronus("sync")
+    await list()
     patronus.view = landedOauthStack()
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     await vi.waitFor(() => expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."]))
     // the pull request of the robot's repository
     expect(notices.closedIn).toEqual(["/repo\nuser"])
@@ -827,7 +750,7 @@ describe("merges", () => {
     notices.pullRequests = { auth: { number: 5, state: "open", headRefOid: "auth-tip" } }
     const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-tip", pullRequest: { number: 7, url: "u7" } })
     patronus.list = available(oauth)
-    await refreshPatronus("sync")
+    await list()
     await answerView(landedOauthStack())
     // the merge waits for the sync; meanwhile the user opens another repository, whose auth has an open pull request too
     let synced!: () => void
@@ -835,7 +758,7 @@ describe("merges", () => {
       synced = resolve
     })
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     branches.selected = "/other"
     synced()
 
@@ -858,11 +781,11 @@ describe("merges", () => {
     }
     const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-old" })
     patronus.list = available(oauth)
-    await refreshPatronus("sync")
+    await list()
     // the view of the running robot lands nothing yet; the one of the merge says auth has a commit left
     patronus.view = landedOauthStack(["auth-new"])
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     await vi.waitFor(() => expect(notices.closed).toEqual(["login Landed in master with the Safe Push of user/virtual/oauth, which is built on this branch."]))
     expect(patronus.viewCalls.at(-1)?.robots.map(it => [it.id, it.status])).toEqual([["r1", "success"]])
     expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of login: it landed with oauth"])
@@ -890,16 +813,15 @@ describe("merges", () => {
     }
     const whole = robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip", pullRequest: { number: 12, url: "u12" } })
     patronus.list = available(whole)
-    await refreshPatronus("sync")
+    await list()
     patronus.view = {
       branches: {},
       stacks: {},
       landedByRobot: { r1: ["air", "bazel", "side"].map(branch => ({ branch, own: false, after: [] })) },
     }
-    // the robot of the whole stack is polled: no branch has it
+    // the session polls the robot of the whole stack: no branch has it
     patronus.poll = available({ ...whole, status: "success", finishTime: 200 })
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(patronus.polls.at(-1)?.robots).toEqual([{ id: "r1", status: "running" }])
+    await poll()
     const comment = "Landed in master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."
     await vi.waitFor(() => expect(notices.closed).toEqual([`air ${comment}`, `bazel ${comment}`]))
     expect(notices.toasts.map(it => [it.title, it.description])).toEqual([
@@ -914,9 +836,9 @@ describe("merges", () => {
     notices.stackPullRequests = { air: { number: 12, state: "open", headRefOid: "stack-tip" } }
     const auth = robot({ branchName: "auth", sourceRevision: "auth-tip" })
     patronus.list = available(auth)
-    await refreshPatronus("sync")
+    await list()
     patronus.poll = available({ ...auth, status: "success", finishTime: 200 })
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · #12 no longer matches the air stack: auth landed"])
     expect(getStackLandedBy("air")).toBe("auth")
     expect(notices.closed).toEqual([])
@@ -925,9 +847,9 @@ describe("merges", () => {
   it("does not tell a successful dry run or a robot first seen merged", async () => {
     patronus.list = available(robot({ pushMode: "dryRun" }), robot({ id: "r2", branchName: "other", status: "success" }))
     setBranches("auth", "other")
-    await refreshPatronus("sync")
+    await list()
     patronus.poll = available(robot({ pushMode: "dryRun", status: "success" }))
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     expect(getBranchRobot("auth")?.status).toBe("success")
     expect(notices.toasts).toEqual([])
   })
@@ -959,8 +881,8 @@ describe("pull request start", () => {
       },
     ])
     expect(patronus.replyCalls).toBe(2)
-    // an incremental list from shortly before the comment
-    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", since: Math.floor((START - LIST_OVERLAP_MS) / 1000), background: false }])
+    // the session lists the robots for the start (incremental, from shortly before its last list)
+    expect(patronus.refreshes).toEqual(["afterWrite"])
     expect(getBranchRobot("auth")?.id).toBe("pr")
   })
 
@@ -969,7 +891,7 @@ describe("pull request start", () => {
     // a Dry Run of #7 canceled a minute ago, listed before the comment
     const canceledDryRun = robot({ id: "dry", pushMode: "dryRun", status: "canceled", startTime: (START - 60_000) / 1000, pullRequest })
     patronus.list = available(canceledDryRun)
-    await refreshPatronus("sync")
+    await list()
     vi.setSystemTime(START + 1000)
     patronus.replies = [{ status: "accepted" }]
     const dryRunNotKnown = robot({ id: "dry-2", pushMode: "dryRun", startTime: (START - 30_000) / 1000, pullRequest })
@@ -993,7 +915,7 @@ describe("pull request start", () => {
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
     const { listed, ...answer } = await asked
     expect(answer).toEqual({ robot: null, commentUrl: COMMENT_URL })
-    const asks = patronus.lists.length
+    const asks = patronus.refreshes.length
 
     patronus.list = available(ofPullRequest)
     await vi.advanceTimersByTimeAsync(LATE_ROBOT_INTERVAL_MS)
@@ -1001,7 +923,7 @@ describe("pull request start", () => {
     expect(await listed).toBe(ofPullRequest)
     // found: no more lists for it
     await vi.advanceTimersByTimeAsync(LATE_ROBOT_WAIT_MS)
-    expect(patronus.lists).toHaveLength(asks + 1)
+    expect(patronus.refreshes).toHaveLength(asks + 1)
   })
 
   it("joins a repeat of an accepted comment whose robot Patronus lists not yet, and posts no second comment", async () => {
@@ -1038,8 +960,8 @@ describe("pull request start", () => {
     await vi.advanceTimersByTimeAsync(patronus.checkMs + 30_000)
     expect((await asked).robot?.id).toBe("pr")
     expect(patronus.commands).toHaveLength(1)
-    // the robots listed from shortly before the comment
-    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", since: Math.floor((commented - LIST_OVERLAP_MS) / 1000), background: false }])
+    // one list of the session after the thumbs up
+    expect(patronus.refreshes).toEqual(["afterWrite"])
   })
 
   it("throws the reason the bot gave with its thumbs down", async () => {
@@ -1051,7 +973,7 @@ describe("pull request start", () => {
     const failed = expect(started).rejects.toThrow("Pull request #7 is a draft and cannot be merged.")
     await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
     await failed
-    expect(patronus.lists).toEqual([])
+    expect(patronus.refreshes).toEqual([])
   })
 
   it("gives up after a minute without an answer", async () => {
@@ -1081,10 +1003,10 @@ describe("pull request start", () => {
 
   it("keeps the GitHub repository of a list through a poll, and refreshes the pull requests when a robot of one merged", async () => {
     patronus.list = { ...available(ofPullRequest), githubRepository: "acme/monorepo" }
-    await refreshPatronus("sync")
+    await list()
     expect(patronusStore.getState().repositories["/repo\nuser"]?.githubRepository).toBe("acme/monorepo")
     patronus.poll = { ...available({ ...ofPullRequest, status: "success", finishTime: 200 }), githubRepository: null }
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     expect(patronusStore.getState().repositories["/repo\nuser"]?.githubRepository).toBe("acme/monorepo")
     expect(notices.pullRequestRefreshes).toEqual(["push"])
   })
@@ -1132,16 +1054,14 @@ describe("facts without an answer", () => {
       // not asked yet: whether it lands the repository is unknown
       expect(isPatronusPending()).toBe(true)
       patronus.list = available(robot({ status: "running" }))
-      await refreshPatronus("sync")
+      await list()
       await vi.advanceTimersByTimeAsync(0)
       // the view of the listed robot came after the list: what it holds is known
       expect(patronus.viewCalls.length).toBeGreaterThan(0)
       expect(isPatronusPending()).toBe(false)
       // a poll that changes the robot lags the view a moment, which no row waits for
       patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
-      setPatronusWindowFocus(true)
-      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-      expect(patronus.polls.length).toBeGreaterThan(0)
+      await poll()
       expect(isPatronusPending()).toBe(false)
     } finally {
       unwatch()
@@ -1152,13 +1072,13 @@ describe("facts without an answer", () => {
     const unwatch = watchRepositoryView()
     try {
       patronus.list = { availability: { status: "error", message: "503" }, robots: [] }
-      await refreshPatronus("sync")
+      await list()
       await vi.advanceTimersByTimeAsync(0)
       expect(isPatronusPending()).toBe(false)
       resetPatronus()
       // no robot: the view asked before the list stays the view of its robots
       patronus.list = available()
-      await refreshPatronus("sync")
+      await list()
       await vi.advanceTimersByTimeAsync(0)
       expect(isPatronusPending()).toBe(false)
     } finally {
@@ -1170,7 +1090,7 @@ describe("facts without an answer", () => {
     const unwatch = watchRepositoryView()
     try {
       patronus.viewFailure = "the table is gone"
-      await refreshPatronus("sync")
+      await list()
       await vi.advanceTimersByTimeAsync(0)
       // no view ever answered: what the robots hold is unknown, which is no "none"
       expect(isPatronusPending()).toBe(false)
@@ -1182,7 +1102,7 @@ describe("facts without an answer", () => {
       expect(patronus.viewCalls).toHaveLength(asked)
 
       patronus.viewFailure = null
-      await refreshPatronus("manual")
+      await list()
       await vi.advanceTimersByTimeAsync(0)
       expect(getPatronusViewFailure()).toBeNull()
       const view = patronusStore.getState().repositories["/repo\nuser"]?.view
@@ -1191,7 +1111,7 @@ describe("facts without an answer", () => {
       // a later failure keeps that view, stale: its holds and landing ancestors stay
       patronus.viewFailure = "the table is gone"
       patronus.list = available(robot({ id: "r2" }))
-      await refreshPatronus("manual")
+      await list()
       await vi.advanceTimersByTimeAsync(0)
       expect(patronusStore.getState().repositories["/repo\nuser"]?.view).toBe(view)
       expect(getPatronusViewFailure()).toBeNull()
@@ -1206,7 +1126,7 @@ describe("facts without an answer", () => {
     patronus.problems = "offline"
     let answer!: () => void
     patronus.problemsHeld = new Promise<void>(resolve => (answer = resolve))
-    await refreshPatronus("sync")
+    await list()
     expect(isRobotProblemsPending(failed)).toBe(true)
     answer()
     await vi.advanceTimersByTimeAsync(0)
@@ -1214,7 +1134,7 @@ describe("facts without an answer", () => {
     expect(isRobotProblemsPending(failed)).toBe(false)
     // the next answer of a list or a poll asks again
     patronus.problems = null
-    await refreshPatronus("manual")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.problemCalls).toEqual(["r1", "r1"])
     expect(patronusStore.getState().repositories["/repo\nuser"]?.needsReview).toEqual({ r1: true })
@@ -1226,11 +1146,11 @@ describe("facts without an answer", () => {
 
 describe("review problems", () => {
   it("reads the problems of a failed robot of a branch once", async () => {
-    await refreshPatronus("sync")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.problemCalls).toEqual(["r1"])
     expect(patronusStore.getState().repositories["/repo\nuser"]?.needsReview).toEqual({ r1: true })
-    await refreshPatronus("manual")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.problemCalls).toEqual(["r1"])
   })
@@ -1241,30 +1161,27 @@ describe("failing robots", () => {
     patronus.list = available(robot(), robot({ id: "r2", branchName: "login", sourceRevision: "login-tip", status: "canceling" }))
     setBranches("auth", "login")
     patronus.failing = ["r1"]
-    await refreshPatronus("sync")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.failingCalls).toEqual([["r1"]])
     expect(patronusStore.getState().repositories["/repo\nuser"]?.failing).toEqual({ r1: true })
     // known: not asked again
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     expect(patronus.failingCalls).toEqual([["r1"]])
   })
 
-  it("asks after an answer only: sync ends and focus events the list gate refuses ask nothing, each poll still asks", async () => {
+  it("asks after an answer only: a patch of the robots without an answer of Patronus asks nothing, each poll still asks", async () => {
     patronus.list = available(robot())
     setBranches("auth")
-    await refreshPatronus("sync")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.failingCalls).toEqual([["r1"]])
-    for (let i = 0; i < 10; i++) {
-      await refreshPatronus(i % 2 === 0 ? "sync" : "focus")
-      await vi.advanceTimersByTimeAsync(1000)
-    }
-    expect(patronus.lists).toHaveLength(1)
+    // a start's robot reaches the session without an answer of Patronus: its patch has no head
+    applyRobotsFacts("/repo", sessionRobots, { robots: { r2: robot({ id: "r2", branchName: "other" }) } })
+    await vi.advanceTimersByTimeAsync(1000)
     expect(patronus.failingCalls).toEqual([["r1"]])
 
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(patronus.polls).toHaveLength(1)
+    await poll()
     expect(patronus.failingCalls).toEqual([["r1"], ["r1"]])
   })
 
@@ -1272,7 +1189,7 @@ describe("failing robots", () => {
     const stop = watchFailingRobots()
     patronus.list = available(robot())
     patronus.failing = ["r1"]
-    await refreshPatronus("sync")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.detailCalls).toEqual(["r1"])
     expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
@@ -1296,12 +1213,12 @@ describe("toast steps decided again at the click", () => {
     const stop = watchFailingRobots()
     patronus.list = available(robot())
     patronus.failing = ["r1"]
-    await refreshPatronus("sync")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     const failing = notices.toasts[0]!
     expect(failing.actionProps?.children).toBe("Cancel Safe Push")
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
 
     failing.actionProps!.onClick()
     expect(infoToasts()).toEqual([["Safe Push of auth merged", "Cancel Safe Push no longer applies", "Open in Patronus"]])
@@ -1313,15 +1230,15 @@ describe("toast steps decided again at the click", () => {
     patronus.failureKind = "infrastructure"
     const stop = watchFailingRobots()
     patronus.list = available(robot())
-    await refreshPatronus("sync")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     const failed = notices.toasts.find(it => it.title === "Safe Push of auth failed")!
     expect(failed.actionProps?.children).toBe("Restart Safe Push")
     // restarted elsewhere (the IDE, bd): a new robot of the branch
     patronus.list = available(robot({ status: "failure", finishTime: 200 }), robot({ id: "r2", startTime: 300 }))
-    await refreshPatronus("manual")
+    await list()
 
     failed.actionProps!.onClick()
     expect(infoToasts()).toEqual([["Safe Push of auth was restarted", "auth → master", "Open in Patronus"]])
@@ -1334,7 +1251,7 @@ describe("push holds", () => {
     const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
     branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login") } as unknown as typeof branches.current
     patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip" }))
-    await refreshPatronus("sync")
+    await list()
     const span = { by: robotOf("login", "login-run"), carried: null }
     await answerView({
       branches: { auth: branchFacts({ span, hold: { kind: "span", ...span } }), login: branchFacts({ hold: { kind: "own", by: robotOf("login", "login-run"), carried: null } }) },
@@ -1344,8 +1261,7 @@ describe("push holds", () => {
     expect(getPushHold("oauth")).toBeNull()
     // canceled meanwhile: the view of the running robot holds nothing until the next one comes
     patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip", status: "canceling" }))
-    await vi.advanceTimersByTimeAsync(SYNC_REFRESH_GAP_MS)
-    await refreshPatronus("sync")
+    await list()
     expect(getPushHold("login")).toBeNull()
     expect(getPushHold("auth")).toBeNull()
   })
@@ -1355,7 +1271,7 @@ describe("push holds", () => {
     // a restack placed env below auth after the Safe Push of login started
     branches.current = { env: stacked("env", null), auth: stacked("auth", "env"), login: stacked("login", "auth") } as unknown as typeof branches.current
     patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-old" }))
-    await refreshPatronus("sync")
+    await list()
     const span = { by: robotOf("login", "login-run"), carried: { commits: ["auth-original"], amended: [] } }
     await answerView({ branches: { auth: branchFacts({ span, hold: { kind: "span", ...span } }) } })
     expect(getPushHold("env")).toBeNull()
@@ -1369,10 +1285,10 @@ describe("failed robots", () => {
   /** The robot r1 of auth running after the first list, failed in the next poll */
   async function failRunningRobot(): Promise<void> {
     patronus.list = available(robot())
-    await refreshPatronus("sync")
+    await list()
     await vi.advanceTimersByTimeAsync(0)
     patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
   }
 
   function toasts() {
@@ -1387,7 +1303,7 @@ describe("failed robots", () => {
     expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
     // a later answer with the same robot tells nothing
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    await poll()
     expect(notices.toasts).toHaveLength(1)
     stop()
   })
@@ -1444,28 +1360,5 @@ describe("failed robots", () => {
     await vi.advanceTimersByTimeAsync(FAILURE_PROBLEMS_WAIT_MS)
     expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
     stop()
-  })
-})
-
-describe("mergeRobots", () => {
-  it("keeps the objects of unchanged robots and the record when nothing changed", () => {
-    const first = robot()
-    const previous = { r1: first }
-    expect(mergeRobots(previous, [robot()], true)).toBe(previous)
-    const changed = mergeRobots(previous, [robot(), robot({ id: "r2" })], false)
-    expect(changed).not.toBe(previous)
-    expect(changed.r1).toBe(first)
-    // a full list drops the robots it does not have
-    expect(Object.keys(mergeRobots(changed, [robot({ id: "r2" })], true))).toEqual(["r2"])
-  })
-
-  it("keeps the merge profile a poll, the details or the start named when a list, which never names it, answers the robot", () => {
-    const profile = { id: "lsc", name: "Large Scale Change", skipsReview: null }
-    const polled = robot({ profile })
-    const previous = { r1: polled }
-    expect(mergeRobots(previous, [robot()], true)).toBe(previous)
-    expect(mergeRobots(previous, [robot({ status: "failure" })], false).r1?.profile).toEqual(profile)
-    // an answer that names another profile wins
-    expect(mergeRobots(previous, [robot({ profile: { id: null, name: null, skipsReview: null } })], false).r1?.profile).toEqual({ id: null, name: null, skipsReview: null })
   })
 })

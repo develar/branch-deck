@@ -35,7 +35,7 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { holdCommand, recordCommand } from "../helpers/wait-helpers"
+import { advanceBackendClock, holdCommand, recordCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
@@ -980,10 +980,16 @@ test.describe("Whole stack", () => {
     await expectPatronusStarts(repo, [wholeStackStartRequest("auth")])
     expect(stackPushes).toHaveLength(1)
 
-    // the robot of the whole stack merged too: nothing of it is left
+    // the robot of the whole stack merged too: nothing of it is left; the session polls the robot it started every
+    // minute of its clock
     await repo.setPatronus(availableRobots(merged, mergedWholeAuthStack(1704146400)))
-    await page.clock.fastForward("01:01")
-    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Whole auth stack merged into master" })).toBeVisible()
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Whole auth stack merged into master" })
+    await expect
+      .poll(async () => {
+        await advanceBackendClock(61_000)
+        return toast.count()
+      })
+      .toBe(1)
     await expect(findBranchRow(page, "session").getByTestId("landed-with")).toHaveText("Landed with the whole auth stack")
     await expect(findBranchRow(page, "login").getByTestId("landed-with")).toHaveText("Landed with oauth")
     const reason = "Landed in master with oauth and the whole auth stack"

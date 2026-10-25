@@ -7,7 +7,6 @@ import type {
   PatronusReviewerGroup,
   PatronusReviewRequirement,
   PatronusRobot,
-  PatronusRobotsResult,
   ReviewReadiness,
   ReviewReadinessBranch,
 } from "../../../src/lib/bindings"
@@ -19,6 +18,17 @@ import type { SetupRepoOptions } from "./setup-options"
 import { emitTauriEvent } from "./sync-helpers"
 import type { PatronusStartRequest, SyncOverrides, TestRepositoryBuilder } from "./test-repository"
 import { routeCommand } from "./wait-helpers"
+
+/**
+ * What the fake Patronus of a test repository answers the lists and polls of its session (`TestRepositoryBuilder.setPatronus`,
+ * `PatronusRobotsResult` of Rust): whether the repository is on Space and Patronus answers, the user's robots, and the
+ * GitHub repository its branches are mirrored to
+ */
+export interface PatronusRobotsFixture {
+  readonly availability: PatronusAvailability
+  readonly robots: readonly PatronusRobot[]
+  readonly githubRepository?: string | null
+}
 
 /**
  * A running Safe Push of a virtual branch. The empty `sourceRevision` makes the test server answer with the local tip
@@ -42,8 +52,8 @@ export function robot(branchName: string, id: string, patch: Partial<PatronusRob
 }
 
 /**
- * The running `robot` merged: Patronus answers it on the next focus (a poll), its commit the tip its branch has then.
- * Returns it as the poll answered it, and keeps that commit in every later answer, whatever the branch becomes
+ * The running `robot` merged: Patronus answers it on the next focus (the session's poll), its commit the tip its branch
+ * has then. Returns it as the poll answered it, and keeps that commit in every later answer, whatever the branch becomes
  */
 export async function mergeRunningRobot(page: Page, repo: TestRepositoryBuilder, robot: PatronusRobot, finishTime = 1704142800): Promise<PatronusRobot> {
   const [merged] = await mergeRunningRobots(page, repo, [robot], finishTime)
@@ -51,10 +61,11 @@ export async function mergeRunningRobot(page: Page, repo: TestRepositoryBuilder,
 }
 
 /**
- * The running `robots` merged in turn, an hour apart from `finishTime`, answered by one poll (`mergeRunningRobot`):
- * returned as the poll answered them, their commits kept in every later answer. `others` stay in every answer as they
- * are (a robot that finished before). The page shows the robots running first (a `landing-span`): the focus polls only
- * the running robots the page knows, so a focus before the list of the robots answered polls nothing
+ * The running `robots` merged in turn, an hour apart from `finishTime`, answered by one poll of the session
+ * (`mergeRunningRobot`): returned as the poll answered them, their commits kept in every later answer. `others` stay in
+ * every answer as they are (a robot that finished before). The page shows the robots running first (a
+ * `landing-span`): the focus polls only the running robots the session knows, so a focus before the list of the robots
+ * answered polls nothing
  */
 export async function mergeRunningRobots(
   page: Page,
@@ -63,11 +74,11 @@ export async function mergeRunningRobots(
   finishTime = 1704142800,
   others: readonly PatronusRobot[] = [],
 ): Promise<PatronusRobot[]> {
-  const polled = page.waitForResponse(response => response.url().endsWith("/invoke/poll_patronus_robots"))
   await repo.setPatronus(availableRobots(...others, ...robots.map((robot, index) => ({ ...robot, status: "success" as const, finishTime: finishTime + index * 3600 }))))
   await emitTauriEvent(page, "tauri://focus")
-  const answered = ((await (await polled).json()) as PatronusRobotsResult).robots
-  const merged = robots.map(robot => answered.find(it => it.id === robot.id)!)
+  const answered = () => repo.getPatronusLog().then(log => robots.map(robot => log.robots[robot.id]))
+  await expect.poll(async () => (await answered()).map(robot => robot?.status)).toEqual(robots.map(() => "success"))
+  const merged = (await answered()).map(robot => robot!)
   for (const robot of merged) {
     expect(robot.sourceRevision).toMatch(/^[0-9a-f]{40}$/)
   }
@@ -223,12 +234,12 @@ export function missingApprovals(robotId: string) {
   }
 }
 
-/** The answer of `get_patronus_robots` for these robots */
-export function availableRobots(...robots: PatronusRobot[]): PatronusRobotsResult {
+/** What the fake Patronus answers with these robots */
+export function availableRobots(...robots: PatronusRobot[]): PatronusRobotsFixture {
   return { availability: { status: "available" }, robots }
 }
 
-export function unavailableRobots(availability: PatronusAvailability): PatronusRobotsResult {
+export function unavailableRobots(availability: PatronusAvailability): PatronusRobotsFixture {
   return { availability, robots: [] }
 }
 
@@ -264,9 +275,8 @@ export async function setupTakenRobot(
   landed: string,
   options: SetupRepoOptions = {},
 ): Promise<{ repo: TestRepositoryBuilder; robot: PatronusRobot }> {
-  const listed = page.waitForResponse(response => response.url().endsWith("/invoke/get_patronus_robots"))
   const repo = await setupRunningRobot(page, (name, setup) => setupRepo(name, { ...options, ...setup }), syncAndWaitForBranches, template, running, landed)
-  const taken = ((await (await listed).json()) as PatronusRobotsResult).robots.find(it => it.id === running.id)!
+  const taken = (await repo.getPatronusLog()).robots[running.id]!
   expect(taken.sourceRevision).toMatch(/^[0-9a-f]{40}$/)
   await repo.setPatronus(availableRobots(taken))
   return { repo, robot: taken }

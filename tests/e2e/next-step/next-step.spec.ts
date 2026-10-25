@@ -38,7 +38,7 @@ import { openSubmenu } from "../helpers/selection-helpers"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, oneCommitUnpushedRemote, pushedRemote } from "../helpers/sync-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, holdCommandCalls, recordCommand, routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, holdCommandCalls, recordCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -115,20 +115,14 @@ async function clickSafePushForPopover(page: Page) {
 const SAFE_PUSH_ITEM = { name: /^Safe Push( S)?$/ }
 
 /**
- * The start of JIRA-456 from #1078 (`/patronus merge`): the fake GitHub's bot answers the comment with 👍; the robot
- * it started is in the list asked for after it
- */
-async function routePullRequestStart(page: Page) {
-  const started = robot(BRANCH, "pr-robot", { sourceRevision: null, startTime: Math.floor(Date.now() / 1000), pullRequest: { number: 1078, url: AWAITED.url } })
-  await routeCommand(page, "get_patronus_robots", params => (params.since === null ? availableRobots() : availableRobots(started)))
-}
-
-/**
- * The comment of the start on #1078 reached the fake GitHub, the app read the bot's reply over its wait; then the
- * toast of the started robot, with Open in Patronus and Cancel Safe Push
+ * The start of JIRA-456 from #1078 (`/patronus merge`): the comment reached the fake GitHub, whose bot answers it with
+ * 👍, and Patronus lists the robot it started from then on, so the list the app asks after the 👍 has it; the app read
+ * the bot's reply over its wait; then the toast of the started robot, with Open in Patronus and Cancel Safe Push
  */
 async function expectStartedFromPullRequest(page: Page, repo: TestRepositoryBuilder) {
   await expect.poll(() => gitHubRequests(repo, "POST", "issues", 1078, "comments")).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+  const started = robot(BRANCH, "pr-robot", { sourceRevision: null, startTime: Math.floor(Date.now() / 1000), pullRequest: { number: 1078, url: AWAITED.url } })
+  await repo.setPatronus(availableRobots(started))
   await skipCommandReplyWait(page, repo)
   await expectStartedToast(page)
 }
@@ -283,7 +277,6 @@ test.describe("Next step", () => {
   }) => {
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, APPROVED_BY_CODE_OWNER, [approved])
-    await routePullRequestStart(page)
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
     await slotSafePush(page, BRANCH).hover()
     await expect(page.getByRole("tooltip", { name: "Lands" })).toHaveText(`Lands ${BRANCH} into master once the checks passS`)
@@ -305,7 +298,6 @@ test.describe("Next step", () => {
   test("should keep Safe Push while Patronus doesn't tell whose approvals count, and say so before it starts", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const botApproved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [botApproved])
-    await routePullRequestStart(page)
     const popover = await clickSafePushForPopover(page)
     await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's approval.")
     await expect(popoverStart(page)).toHaveText("Safe Push")
@@ -694,7 +686,6 @@ test.describe("Next step", () => {
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
 
     // the toast's Safe Push has nothing to say: it starts at once, a comment on the pull request
-    await routePullRequestStart(page)
     await toast.getByRole("button", { name: "Safe Push", exact: true }).click()
     await expectStartedFromPullRequest(page, repo)
     await expect(safePushPopover(page)).toHaveCount(0)

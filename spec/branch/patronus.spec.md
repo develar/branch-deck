@@ -28,6 +28,9 @@ targets:
   - ../../crates/remote-facts/src/patronus_review.rs
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus-failing.ts
+  - ../../crates/remote-facts/src/scheduler.rs
+  - ../../crates/remote-facts/src/fact_sources.rs
+  - ../../crates/repository-model/src/facts.rs
   - ../../src/lib/patronus.ts
   - ../../src/lib/review-commit.ts
   - ../../src/lib/robot-coverage.ts
@@ -176,15 +179,23 @@ reports in it and closes it once merged.
   shows ([Settings](../repository/settings.spec.md)).
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_robots_of_the_fixture_come_through_the_real_service`, `a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
   [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_guarded_push_runs_the_processes_of_the_core_push`)
-  [@test] ../../src/stores/patronus.test.ts (`lists the last days first, then only the robots started since shortly before the last list`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_robots_of_the_fixture_come_through_the_real_service`)
 - The pushed tip comes with the remote status of the branch: the `rev-parse` that checks the remote branch exists
   returns it, so it costs no extra git process.
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`)
 
 ### Load on Patronus
 
-- The first list and the refresh button ask for the last 7 days; every other list asks only for the robots started
-  since 2 minutes before the previous list started. A full list asked again within 10 s (a second window of the
+- The session of the repository lists and polls the robots, not the page: one scheduler of the facts of the sessions
+  on the clock of the sessions (`remote_facts::scheduler`, by the rules of `domain_policy::refresh`), one list or poll
+  in flight per session, nothing for a session no window shows; each answer reaches the windows as a patch of the
+  robots by id (`facts.robots` of the view), which the page stores (`applyRobotsFacts`). The refresh button and the
+  list a `/patronus` comment needs after the bot's 👍 ask the session (`refresh_facts`) and wait for the patch of that
+  list.
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_reads_of_the_facts_reach_the_windows_and_the_scheduler_hears_what_it_asks_by`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_nothing_for_a_session_no_window_watches`, `a_closed_session_asks_nothing_and_answers_a_refresh_with_none`)
+- The first list (after the first sync of a session a window shows) and the refresh button ask for the last 7 days;
+  every other list asks only for the robots started since 2 minutes before the previous list started. A full list asked again within 10 s (a second window of the
   repository) is answered from the last one, unless the robots changed since (a start, a restart, a cancel, a poll
   that saw a change). The list of a check before an action of the app (its push, the landing check of the popover, a
   start, a restart, a cancel) is asked anew every time, never answered from a kept one: a robot the IDE or `bd`
@@ -192,24 +203,31 @@ reports in it and closes it once merged.
   popover asks three lists (the landing check, the push, then the start; a fourth cancels the robot it replaces), each
   a full window: the cost of a check that sees what the page's list can't.
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_from_the_popover_asks_three_full_lists`)
-  [@test] ../../src/stores/patronus.test.ts (`lists the last days first, then only the robots started since shortly before the last list`)
-  [@test] ../../src/stores/patronus.test.ts (`lists the full window on the refresh button, asked by the user`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`lists_the_last_days_first_then_only_the_robots_started_since_shortly_before_the_last_list`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`lists_the_full_window_on_the_refresh_button_asked_by_the_user`)
   [@test] ../../crates/patronus/src/service_test.rs (`reuses_a_fresh_full_list_but_not_an_incremental_one`, `the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere`, `a_poll_that_sees_a_change_drops_the_kept_full_list`)
   [@test] ../../crates/patronus/src/service_test.rs (`a_full_list_in_flight_when_the_robots_changed_is_not_kept`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_start_a_restart_and_a_cancel_forget_the_full_list`)
 - A sync lists at most every 5 minutes, a focus when the robots are older than 2 minutes (and at least a minute after
-  the last request). A push lists nothing: whether the branch changed since a robot started is known locally.
-  [@test] ../../src/stores/patronus.test.ts (`asks after a sync every five minutes at most, on focus when older than two minutes, never after a push`)
+  the last request). A push lists nothing: whether the branch changed since a robot started is known locally. The
+  refresh button and the list after a `/patronus` comment always ask, and once more after a list in flight (which may
+  have started before the robot); a sync or a focus during a list joins it.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_after_a_sync_every_five_minutes_at_most_on_focus_when_older_than_two_minutes_never_after_a_push`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_refresh_button_and_a_start_during_a_list_ask_once_more_after_it`, `lists_the_robot_a_start_needs_at_once_since_shortly_before_the_last_list`)
 - A repository that answered "not on Space" is asked again only by the refresh button.
-  [@test] ../../src/stores/patronus.test.ts (`does not ask again for a repository that is not on Space, until the refresh button`)
-- The running robots of the branches are polled with `POST /app/rest/v1/robots/fetch-updates` (the known status of
-  each; only the changed ones come back) only while a branch has a running robot: every minute while the window is
-  focused; while it is not, every 5 minutes and only while a robot that pushes (not a dry run) runs, so its merge is
-  told without the window. A focus polls at once, unless the last poll is less than 50 s old.
-  [@test] ../../src/stores/patronus.test.ts (`polls the running robots of the branches every minute while the window is focused`)
-  [@test] ../../src/stores/patronus.test.ts (`stops on blur and asks at once on focus`)
-  [@test] ../../src/stores/patronus.test.ts (`polls a robot that pushes every five minutes while the window is not focused, a dry run not at all`)
-  [@test] ../../src/stores/patronus.test.ts (`polls nothing without running robots`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`does_not_ask_again_for_a_repository_that_is_not_on_space_until_the_refresh_button`)
+- The running robots of the branches and the whole stacks, and the watched ones, are polled with
+  `POST /app/rest/v1/robots/fetch-updates` (the known status of each; only the changed ones come back) only while one
+  of them runs: every minute while a window of the session is focused (the focus of the window's demand); while none
+  is, every 5 minutes and only while a robot that pushes (not a dry run) runs, so its merge is told without the
+  window. A focus polls at once, unless the last poll is less than 50 s old. The session matches the robots to the
+  tips of its table as the rows do (`domain_policy::robot_match`), a push of the session included; a robot a start, a
+  restart or a cancel answered goes into the session at once (`Sessions::write_robot`) and is polled from then on.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`polls_the_running_robots_of_the_branches_every_minute_while_the_window_is_focused`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`stops_on_blur_and_asks_at_once_on_focus`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`polls_a_robot_that_pushes_every_five_minutes_while_the_window_is_not_focused_a_dry_run_not_at_all`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`polls_nothing_without_running_robots`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones`)
   [@test] ../../crates/patronus/src/service_test.rs (`polls_only_running_robots_with_their_known_status`)
 - After each list and each poll, the running robots (not a canceling one) of the branches and the watched ones that are
   not known failing yet are asked whether they will fail ([Failing](#failing)): `GET /robots/{id}/problems` of each, in
@@ -219,7 +237,7 @@ reports in it and closes it once merged.
   list or a poll Patronus didn't answer, ask nothing; the problems of the failed robots of the branches are read after an
   answer too. One such question runs per repository at a time.
   [@test] ../../src/stores/patronus.test.ts (`asks whether the running robots will fail after a list and each poll, until known, never for a canceling one`)
-  [@test] ../../src/stores/patronus.test.ts (`asks after an answer only: sync ends and focus events the list gate refuses ask nothing, each poll still asks`)
+  [@test] ../../src/stores/patronus.test.ts (`asks after an answer only: a patch of the robots without an answer of Patronus asks nothing, each poll still asks`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_running_robot_whose_required_check_failed_is_failing`)
 - A token Patronus rejects (401) is not sent again by a background request until the token file changes (the CLI
   renewed it): Patronus checks every unknown token against Space. The refresh button still asks.
@@ -267,10 +285,13 @@ reports in it and closes it once merged.
   minutes, reset by the next answer, and the kept robots stay. `bd push`, `bd safe-push` and `bd robot` decide on the
   robots: they list them fresh and keep the list. `--no-cache` asks every time.
   [@test] ../../crates/bd-remote/src/robot_list_test.rs (`the_robots_are_kept_while_they_hold_then_the_new_ones_are_listed_and_the_running_ones_polled`, `a_rejected_token_and_a_failure_hold_the_requests_and_keep_the_robots`, `status_asks_patronus_once_while_the_kept_robots_hold`)
-- An answer keeps the robot objects that did not change, so only the chips of changed robots render again; a failed
-  answer keeps the robots shown and only changes the availability.
-  [@test] ../../src/stores/patronus.test.ts (`keeps the objects of unchanged robots and the record when nothing changed`)
-  [@test] ../../src/stores/patronus.test.ts (`keeps the shown robots when Patronus can't answer`)
+- An answer patches only the robots it changed, so the page keeps the objects of the others and only the chips of
+  changed robots render again; a failed answer keeps the robots shown and only changes the availability (the fact
+  `Stale` after robots were listed, `Unavailable` before). Each robot keeps the number of the read or the write that
+  wrote it: a list that started before a start or a poll answers after them and rolls neither back.
+  [@test] ../../crates/repository-model/src/facts_test.rs (`keeps_the_objects_of_unchanged_robots_and_the_record_when_nothing_changed`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`keeps_the_shown_robots_when_patronus_cant_answer`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`a_list_started_before_a_write_or_a_poll_never_rolls_their_robot_back`, `keeps_the_github_repository_of_a_list_through_a_poll`)
 
 ### Robot of a row
 
@@ -392,7 +413,7 @@ reports in it and closes it once merged.
   robot's options). A later list keeps it: the robot merges, the profile isn't overwritten with "not known".
   [@test] ../../crates/patronus/src/service_test.rs (`polls_only_running_robots_with_their_known_status`)
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
-  [@test] ../../src/stores/patronus.test.ts (`keeps the merge profile a poll, the details or the start named when a list, which never names it, answers the robot`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`keeps_the_merge_profile_a_poll_the_details_or_the_start_named_when_a_list_which_never_names_it_answers_the_robot`)
 - The main window keeps a history of the finished robots it saw (`robotHistory` in `settings.json`, the robot, its
   profile when known, the push mode, the target branch, the start, the finish and the status), at most 200 robots and
   none that finished more than 30 days ago, so the estimate survives a restart and learns beyond the 7 days of a list.

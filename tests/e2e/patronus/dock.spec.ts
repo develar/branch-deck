@@ -1,5 +1,4 @@
 // @spec spec/repository/robots-indicator.spec.md
-import type { PatronusRobotsResult } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
@@ -69,11 +68,10 @@ test.describe("Dock", () => {
     await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with oauth")
     await expect.poll(() => getDockCalls(page)).toEqual([{ progressBar: { status: "indeterminate", progress: 0 } }])
 
-    // canceled, it lands nothing: the failure of login is the user's move again
-    const polled = page.waitForResponse(response => response.url().endsWith("/invoke/poll_patronus_robots"))
+    // canceled, it lands nothing: the failure of login is the user's move again; the focus polls it at once
     await repo.setPatronus(availableRobots(loginFailed, { ...oauth, status: "canceled", finishTime: 1704142800 }))
     await emitTauriEvent(page, "tauri://focus")
-    expect(((await (await polled).json()) as PatronusRobotsResult).robots.find(it => it.id === oauth.id)?.status).toBe("canceled")
+    await expect.poll(async () => (await repo.getPatronusLog()).robots[oauth.id]?.status).toBe("canceled")
     // the badge comes only now, after the progress of oauth ended: none before it
     await expect.poll(() => getDockCalls(page)).toEqual([{ progressBar: { status: "indeterminate", progress: 0 } }, { progressBar: { status: "none" } }, { badgeCount: 1 }])
   })

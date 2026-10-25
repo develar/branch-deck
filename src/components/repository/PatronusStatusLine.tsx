@@ -28,7 +28,7 @@ export function PatronusStatusLine() {
       checkedLabel="Patronus checked"
       checkedAt={fetchedAt}
       isRefreshing={isRefreshing}
-      onRefresh={() => void refreshPatronus("manual")}
+      onRefresh={() => void refreshPatronus()}
       refreshLabel="Refresh Patronus"
       testId="patronus-status-line"
       refreshTestId="patronus-refresh"

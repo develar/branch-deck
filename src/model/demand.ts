@@ -3,11 +3,13 @@
  * the one thing the page tells Rust of itself (`set_demand`, by the window's subscription), which the session asks its
  * facts by. A surface holds a part while it shows it (`showBranch`, `showStack`, `needBranch`, `previewBranch`,
  * `showReviewWindow`, `showRobotDetails`): each answers its release and is counted, so two surfaces of one branch hold it
- * once. The focus of the window and whether the machine is online come with them.
+ * once; a watched robot of no branch is held for the life of the window (`watchRobotInDemand`). The focus of the window
+ * and whether the machine is online come with them.
  *
  * A change goes out at most four times a second (`DEMAND_SEND_INTERVAL_MS`), without waiting for an answer, and only
  * when it differs from what was sent; a new subscription (another repository, a session opened again) gets it again.
- * The stores still ask their facts themselves until each family moves into the session.
+ * The session asks the robots by it (the cadence of the poll by the focus, the watched robots polled with those of the
+ * branches); the other stores still ask their facts themselves until each family moves into the session.
  */
 import type { Demand } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -15,9 +17,9 @@ import { commands } from "@/lib/bindings"
 /** The least time between two sends of the demand */
 export const DEMAND_SEND_INTERVAL_MS = 250
 
-type Part = "visibleBranches" | "visibleStacks" | "needed" | "previewed" | "reviewWindows" | "robotDetails"
+type Part = "visibleBranches" | "visibleStacks" | "needed" | "previewed" | "reviewWindows" | "robotDetails" | "watchedRobots"
 
-const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "previewed", "reviewWindows", "robotDetails"]
+const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "previewed", "reviewWindows", "robotDetails", "watchedRobots"]
 
 /** By part, each name with the number of surfaces that hold it */
 const held = new Map<Part, Map<string, number>>(PARTS.map(part => [part, new Map()]))
@@ -80,6 +82,17 @@ export function showRobotDetails(robotId: string): () => void {
   return hold("robotDetails", robotId)
 }
 
+/**
+ * The window follows the robot of no branch it started (the Safe Push of a reviewed pull request) until it finishes: the
+ * session polls it with the robots of the branches, for the life of the window
+ */
+export function watchRobotInDemand(robotId: string): void {
+  if (held.get("watchedRobots")!.has(robotId)) {
+    return
+  }
+  hold("watchedRobots", robotId)
+}
+
 /** The window gained (`true`) or lost the focus */
 export function setDemandFocused(value: boolean): void {
   if (focused !== value) {
@@ -111,6 +124,7 @@ export function currentDemand(): Demand {
     previewed: names("previewed"),
     reviewWindows: names("reviewWindows"),
     robotDetails: names("robotDetails"),
+    watchedRobots: names("watchedRobots"),
   }
 }
 

@@ -238,7 +238,7 @@ export function unavailableFactOf(robot: PatronusRobot | undefined): Unavailable
 }
 
 function refreshPatronusItem(reason: string): MenuItem {
-  return { id: "refresh-patronus", label: "Refresh Patronus", icon: RefreshCwIcon, description: reason, onSelect: () => void refreshPatronus("manual") }
+  return { id: "refresh-patronus", label: "Refresh Patronus", icon: RefreshCwIcon, description: reason, onSelect: () => void refreshPatronus() }
 }
 
 /** Why no start is decided while Patronus didn't give the view of its robots, and no earlier one stands for it */

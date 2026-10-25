@@ -16,6 +16,12 @@
 //! - `cli_tool_releases`: the newest release of the CLIs of Settings → Tools, once a day
 //! - `youtrack_cli`: the `youtrack` CLI signed in with a permanent token of the app's YouTrack
 //!
+//! The facts of the sessions:
+//! - `fact_sources`: what the scheduler reads the remote services with, implemented by the hosts (the app, the E2E
+//!   server)
+//! - `scheduler`: when the facts of each session are read, by the rules of `domain_policy::refresh` on the clock of the
+//!   sessions, and their answers applied to the session (the robots of Patronus: the list and the poll)
+//!
 //! Patronus:
 //! - `patronus_command`: the `/patronus` comment of a pull request
 //! - `patronus_review`: the commits of the code-owner pre-check of a Safe Push
@@ -25,6 +31,7 @@
 
 pub mod branch_rules;
 pub mod cli_tool_releases;
+pub mod fact_sources;
 pub mod patronus_command;
 pub mod patronus_review;
 pub mod pull_request_create;
@@ -35,6 +42,7 @@ pub mod review_readiness;
 pub mod review_requests;
 pub mod robot_stats;
 pub mod robot_stats_aggregate;
+pub mod scheduler;
 pub mod stack_pull_request;
 pub mod youtrack_cli;
 
