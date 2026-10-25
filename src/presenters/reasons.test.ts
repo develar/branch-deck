@@ -27,9 +27,19 @@ describe("formatReason", () => {
       "A Safe Push of the whole auth stack is running: wait until it merges, or restart it on the current stack",
       "auth can't be pushed: it failed to sync",
       "The remote branch of auth has 2 commits that auth lacks: push it from its row, which shows them",
+      "Built on parked auth: Unpark auth to push",
+      "Parked: Unpark it to push",
+      "Patronus does not push into master",
+      "#7 is a draft: Patronus merges it once it is ready for review",
+      "Approvals in #7 don't count: its base is release/253",
+      "Patronus checks the approvals when the robot starts and fails without them",
+      "The push dismisses the approvals of #7: push first, then ask for the review again",
+      "“Use parseFlow” of flow uses parseFlow (flow/Flow.kt:3), which “Add parseFlow” of util adds: git merges it, but the build of flow fails. Stack flow on util to land it too.",
+      "“Remove the env” of fake-agent removes CONTROL_URL_ENV, which acp/Host.kt:7 still uses, and “Read the url” of acp changes that use: the build of fake-agent fails. Move that commit into fake-agent, or stack fake-agent on its branch.",
+      "01234567 conflicts in a.kt with the newest target: Patronus would fail the robot at once",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(13)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(21)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

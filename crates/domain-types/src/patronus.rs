@@ -289,11 +289,14 @@ pub struct StartPatronusRobotParams {
   pub allow: LandingAllowances,
 }
 
-/// The overrides of a refusal of `trial_check::landing_gate`, each by the user: `--allow-dangling` and `--allow-missing`
-/// of `bd safe-push`, Start Anyway of the app
+/// What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
+/// `domain_policy::land::decide`), each by the user: the flags of `bd safe-push` (`--allow-dangling`, `--allow-missing`,
+/// `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`), Start Anyway of the app for the
+/// refusals of `trial_check::landing_gate`
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "one allowance per refusal the user lifts")]
 pub struct LandingAllowances {
   /// Start although a commit proves a dangling reference
   #[serde(default)]
@@ -301,6 +304,18 @@ pub struct LandingAllowances {
   /// Start although what lands uses a name a branch outside it adds
   #[serde(default)]
   pub allow_missing: bool,
+  /// Push away the commits of a remote branch the branch lacks (someone's work, D12)
+  #[serde(default)]
+  pub allow_force: bool,
+  /// Start although GitHub didn't answer the rules of the target for a push into an approved pull request
+  #[serde(default)]
+  pub allow_unknown_rules: bool,
+  /// Start although Patronus couldn't answer the code-owner review (its pre-check failed, D14)
+  #[serde(default)]
+  pub allow_unknown_review: bool,
+  /// Cancel the running Safe Push of an older commit the start replaces
+  #[serde(default)]
+  pub cancel_running: bool,
 }
 
 /// Whether the code owners still have to approve the branch before a Safe Push can merge it

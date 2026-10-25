@@ -147,6 +147,10 @@ pub enum ErrorCode {
   /// commits into a pull request someone approved: the push may dismiss the approvals Patronus counts; nothing was
   /// pushed or started. Ask the user; `--allow-unknown-rules` starts anyway
   RulesUnknown,
+  /// `bd safe-push`: Patronus couldn't answer the code-owner review of the Safe Push (its pre-check failed): whether the
+  /// approvals count is not known, never "approved"; nothing was pushed or started. Ask the user;
+  /// `--allow-unknown-review` starts anyway, and the robot checks the approvals when it starts
+  ReviewUnknown,
   /// `bd safe-push`: the open pull request of the branch goes into another base than the target (a release branch), and
   /// Patronus merges a pull request into its base: its approvals count for no Safe Push into the target; nothing was
   /// pushed or started. Retarget it on GitHub once the user approves; `--without-approvals` starts through the API
@@ -272,6 +276,7 @@ impl ErrorCode {
       | Self::ApprovalsMissing
       | Self::PushDismissesApprovals
       | Self::RulesUnknown
+      | Self::ReviewUnknown
       | Self::PullRequestOtherBase
       | Self::RobotRunning
       | Self::Landed

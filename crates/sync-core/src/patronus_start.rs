@@ -1,19 +1,10 @@
-//! What a robot of the user does to a push and a start: the push that fails it, the modes a profile allows, the words
-//! of a mode and of what a robot lands. Pure functions over the robots of the user; whether a robot still runs and
+//! The words of a mode and of what a robot lands, for `bd` and the guards of the app. Whether a robot still runs and
 //! pushes is `domain_policy::holds`, which robot belongs to a branch `domain_policy::robot_match`, what they land and
-//! landed the repository view (`repository_model::patronus_view`).
+//! landed the repository view (`repository_model::patronus_view`), what a start replaces and the modes a profile
+//! allows `domain_policy::land`.
 
-use domain_policy::holds::{is_active, is_pushing};
-use domain_policy::robot_match::is_started_on;
-use domain_types::landing::Subject;
-use domain_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot};
+use domain_types::patronus::PatronusPushMode;
 use domain_types::repository_view::Carried;
-
-/// A push into the source branch makes its running Safe Push fail at the end ("branch was modified"); a dry run is not
-/// affected
-pub fn is_push_into_robot_risky(robot: &PatronusRobot, subject: &Subject) -> bool {
-  is_active(robot) && is_pushing(robot) && is_started_on(robot, subject)
-}
 
 /// "auth", "auth and login", "auth, login and oauth"
 pub fn join_names(names: &[String]) -> String {
@@ -59,11 +50,6 @@ pub fn carried_ids(carried: Option<&Carried>) -> String {
     listed.push("…".to_string());
   }
   format!(" ({})", listed.join(", "))
-}
-
-/// The profile allows the mode; no modes listed = any
-pub fn allows_push_mode(profile: &PatronusProfile, mode: PatronusPushMode) -> bool {
-  profile.allowed_push_modes.is_empty() || profile.allowed_push_modes.contains(&mode)
 }
 
 /// "Safe Push", "Dry Run", as the app names a mode

@@ -1737,6 +1737,12 @@ export type ErrorCode =
  */
 "rules_unknown" | 
 /**
+ *  `bd safe-push`: Patronus couldn't answer the code-owner review of the Safe Push (its pre-check failed): whether the
+ *  approvals count is not known, never "approved"; nothing was pushed or started. Ask the user;
+ *  `--allow-unknown-review` starts anyway, and the robot checks the approvals when it starts
+ */
+"review_unknown" | 
+/**
  *  `bd safe-push`: the open pull request of the branch goes into another base than the target (a release branch), and
  *  Patronus merges a pull request into its base: its approvals count for no Safe Push into the target; nothing was
  *  pushed or started. Retarget it on GitHub once the user approves; `--without-approvals` starts through the API
@@ -2591,14 +2597,24 @@ export type LandedSection = {
 };
 
 /**
- *  The overrides of a refusal of `trial_check::landing_gate`, each by the user: `--allow-dangling` and `--allow-missing`
- *  of `bd safe-push`, Start Anyway of the app
+ *  What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
+ *  `domain_policy::land::decide`), each by the user: the flags of `bd safe-push` (`--allow-dangling`, `--allow-missing`,
+ *  `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`), Start Anyway of the app for the
+ *  refusals of `trial_check::landing_gate`
  */
 export type LandingAllowances = {
 	/**  Start although a commit proves a dangling reference */
 	allowDangling?: boolean,
 	/**  Start although what lands uses a name a branch outside it adds */
 	allowMissing?: boolean,
+	/**  Push away the commits of a remote branch the branch lacks (someone's work, D12) */
+	allowForce?: boolean,
+	/**  Start although GitHub didn't answer the rules of the target for a push into an approved pull request */
+	allowUnknownRules?: boolean,
+	/**  Start although Patronus couldn't answer the code-owner review (its pre-check failed, D14) */
+	allowUnknownReview?: boolean,
+	/**  Cancel the running Safe Push of an older commit the start replaces */
+	cancelRunning?: boolean,
 };
 
 /**  The refusals that hold a start back after the user's overrides; empty: it starts */
@@ -3704,8 +3720,42 @@ export type Reason =
 { code: "stackHeld"; root: string; robotId: string; mode: PatronusPushMode } | 
 /**  The last sync did not build `branch` (`block` says why): its virtual branch is an older build */
 { code: "cantPush"; branch: string; block: BlockReason } | 
-/**  The push of `branch` drops `behind` commits of its remote branch it lacks, someone's work: its row asks first */
-{ code: "dropsRemote"; branch: string; behind: number };
+/**
+ *  The push of `branch` drops `behind` commits of its remote branch it lacks, someone's work: its row asks first, and a
+ *  start pushes them away only when the user says so (`LandingAllowances::allow_force`, D12)
+ */
+{ code: "dropsRemote"; branch: string; behind: number } | 
+/**
+ *  `branch` stays local: its own line parks it (`with` none), or it is built on the parked `with` and carries its
+ *  commits; `note` the note of that line, empty without one
+ */
+{ code: "parked"; branch: string; with: string | null; note: string } | 
+/**  Patronus doesn't protect `target`: no robot pushes into it */
+{ code: "unprotected"; target: string } | 
+/**  The pull request `number` a robot starts from is a draft: Patronus merges it once it is ready for review */
+{ code: "draft"; number: number } | 
+/**
+ *  The open pull request `number` of the subject goes into `base`, and Patronus merges a pull request into its base: its
+ *  approvals count for no Safe Push into `target` (D3b); a retarget, the user's, fixes it
+ */
+{ code: "otherBase"; number: number; base: string; target: string } | 
+/**  The code owners haven't approved: a Safe Push fails without the approvals of `groups` */
+{ code: "approvalsMissing"; groups: string[] } | 
+/**
+ *  The push of new commits dismisses the approvals of pull request `number` that Patronus counts (the rules of
+ *  `target` dismiss stale reviews on push): the robot would start without them and fail
+ */
+{ code: "dismissesApprovals"; number: number; target: string } | 
+/**
+ *  What lands would not build, as the landing gate proves it: a dangling reference, a missing declaration (boxed: the
+ *  largest of the codes by far)
+ */
+{ code: "landingRefused"; refusal: LandingRefusal } | 
+/**
+ *  Patronus rebases what lands onto the newest target first, and `commit` (a copy of the virtual branch) conflicts with
+ *  it in `files`: the robot would fail at once
+ */
+{ code: "targetConflict"; commit: string; files: string[] };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";

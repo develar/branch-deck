@@ -459,7 +459,8 @@ pub const SAFE_PUSH_HELP: &str = "\
   `paths`, `waiting_for` (asked, not approved yet), `not_counted` (a bot's approval counts for nothing),
   `merge_request`; Patronus judges the approvals of the GitHub pull request;
 - `push_needed` and the `refusals` a start would meet; `remotes`, what the push replaces and drops of each remote
-  branch (a drop refuses with `push_refused`); a reworded branch needs a push, the robot lands the remote's messages;
+  branch (a drop refuses with `push_refused`; --force pushes the dropped commits away with the start, only once the
+  user approved); a reworded branch needs a push, the robot lands the remote's messages;
 - `target_check`: bd fetches the target and replays what lands onto its tip, as Patronus rebases it before its
   checks: `result` `clean`, `conflict` or `not_run`; `fetched: false` means the check used the last fetched tip;
 - `lands`, what the one robot lands into the target, root first: a stacked branch lands the branches it is built
@@ -483,7 +484,10 @@ Refusals, nothing pushed or started:
   again. --without-approvals starts anyway, only when the user says so: Patronus fails it. A merge profile known
   to skip the review starts without them (`review.skipped_by`: `profile`).
 - `robot_running` (exit 4): a robot runs on the last commit, lands the branch with a branch of its stack or with the
-  whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit.
+  whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit. A Dry Run
+  replaces no Safe Push: its push into a branch whose Safe Push runs is refused.
+- `review_unknown` (exit 4, also in `refusals`): Patronus couldn't answer the code-owner review (its pre-check
+  failed): ask the user; --allow-unknown-review starts anyway, and the robot checks the approvals when it starts.
 - `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it
   lands: fix it there, or, when the user says it is a false alarm, --allow-dangling.
 - `missing_declaration` (exit 4, also in `refusals`): a commit of what lands uses a name that a commit of a branch

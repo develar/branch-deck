@@ -24,8 +24,8 @@ use crate::actions::RemoteActions;
 use crate::derive::LandingFacts;
 use crate::landing::LandingGate;
 use crate::patronus_view::landed_commits;
-use crate::push_guard::span_hold_words;
 use crate::push_guard::{GuardFacts, guard_facts, parked_words, row_refusal};
+use crate::push_guard::{own_hold_words, span_hold_words};
 use anyhow::{Result, anyhow, bail};
 use domain_policy::holds::is_active;
 use domain_policy::land::{BranchStart, StackStart, Start, start_refusal as robot_refusal};
@@ -35,7 +35,8 @@ use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::landing::{LandingCheck, LandingGateParams, Subject, ensure_landing_starts};
 use domain_types::patronus::{PatronusCommandSubject, PatronusPushMode, PatronusRobot, PatronusRobotParams, PostPatronusCommandParams, StartPatronusRobotParams};
 use domain_types::reason::Reason;
-use domain_types::session::ParkedMember;
+use domain_types::repository_view::HoldKind;
+use domain_types::session::{Parked, ParkedMember};
 use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
@@ -101,6 +102,7 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     ),
     Reason::Ancestor { landing, mode } => format!("A {} of {} is running: wait until it merges", push_mode_name(*mode), landing.subject().words()),
     Reason::Held { hold, .. } => match robots.iter().find(|robot| robot.id == hold.by.robot_id) {
+      Some(robot) if hold.kind == HoldKind::Own => own_hold_words(subject, robot, None, "restart it on the current branch"),
       Some(robot) => span_hold_words(subject, &hold.by.subject(), robot, hold.carried.as_ref()),
       None => format!("a running Safe Push of {} lands {subject}: a push won't land", hold.by.subject().words()),
     },
@@ -113,6 +115,27 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::StackHeld { mode, .. } => format!("a {} of {subject} is running on its stack branch", push_mode_name(*mode)),
     Reason::CantPush { branch, .. } => format!("{branch} is not synced"),
     Reason::DropsRemote { branch, behind } => format!("the remote branch of {branch} has {behind} commits {branch} lacks"),
+    Reason::Parked { branch, with, note } => parked_words(
+      branch,
+      &Parked {
+        note: note.clone(),
+        with: with.clone(),
+      },
+    ),
+    Reason::Unprotected { target } => format!("Patronus does not protect {target}: a robot can't be started into it"),
+    Reason::Draft { number } => format!("Pull request #{number} is a draft: Patronus merges it once it is ready for review"),
+    Reason::OtherBase { number, base, target } => {
+      format!("pull request #{number} of {subject} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}")
+    }
+    Reason::ApprovalsMissing { groups } => format!(
+      "The code owners haven't approved {subject}: a Safe Push fails without these approvals (needs review by {})",
+      join_names(groups)
+    ),
+    Reason::DismissesApprovals { number, target } => format!(
+      "the push dismisses the approvals of pull request #{number} that Patronus counts (the rules of {target} dismiss stale reviews on push), and the robot would fail without them"
+    ),
+    Reason::LandingRefused { refusal } => format!("{subject} would not build: {}", refusal.reason()),
+    Reason::TargetConflict { files, .. } => format!("{subject} conflicts with the newest target in {}: Patronus would fail it at once", join_names(files)),
   }
 }
 

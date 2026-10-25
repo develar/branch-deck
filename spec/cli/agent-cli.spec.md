@@ -1021,6 +1021,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   would fail with; it must hold the repository lock for its sync only, so its trial builds and the questions to
   Patronus and GitHub keep no other `bd` writer waiting.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it`)
+- The start must be decided by the rule of the app, `domain_policy::land::decide`, over the facts `bd` read: what the
+  table alone refuses (not synced, parked) fails the command before Patronus or GitHub is asked; the review and the
+  rules of the target are read only when the decision waits for them; the `refusals` are its blockers in their order,
+  then each confirmation a flag of `bd` accepts that the start lacks (the cancel of the Safe Push it replaces,
+  `--cancel-running`; a review Patronus couldn't answer, `--allow-unknown-review`; rules GitHub didn't answer,
+  `--allow-unknown-rules`), named with its flag; its effects are what the start does, in order (the retargets, the
+  cancel, the push, the start from a pull request or through the API with the profile).
+  [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_with_nothing_in_its_way_pushes_what_it_lands_root_first_then_starts`, `every_fact_without_an_answer_waits_or_confirms_and_never_refuses`, `bd_accepts_by_an_allowance_only_the_cancel_an_unknown_review_and_unknown_rules`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`the_table_refuses_first_then_the_target_then_a_push_that_drops_remote_commits_unless_allowed`, `the_landing_gate_refuses_unless_allowed_then_a_conflict_with_the_target`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`)
 - The target branch, the stack and the tips must come from the sync of the same run, and the Space and the GitHub
@@ -1034,13 +1044,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   request of the remote branch as it is. A robot running on that remote branch must refuse the start as one on the
   last commit does. A running Safe Push of an older commit must be replaced as the app's start replaces it once its
   popover said so (`replaces`, "Cancels the Safe Push of auth running on 1a2b3c4."): with nothing to push, a Safe Push start must refuse with `robot_running` ("the start would run beside it") unless
-  `--cancel-running`, which cancels it before the start (`canceled`); a dry run and `--create-pull-request` leave it.
+  `--cancel-running`, which cancels it before the start (`canceled`); a dry run and `--create-pull-request` leave it. A
+  Dry Run replaces no Safe Push: its push into the branch of a running Safe Push is refused (`robot_running`),
+  `--cancel-running` or not ([Patronus](../branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)).
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`, `a_branch_reworded_since_its_push_is_pushed_before_the_start`)
 - `remotes` must name each existing remote branch the start pushes with its remote state, as `bd sync` has it, so
   `--check` says beforehand what the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops. A branch
   whose push would drop commits (`behind`) must refuse the check and the start with `push_refused` and the `bd push`
   that drops them after the user approves; the start's error carries the branch in `error.branches`, nothing pushed
-  or started.
+  or started. `--force`, once the user approved, must start with the drop pushed away (D12): the push replaces the
+  commits of someone else, then the robot starts.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop`, `a_branch_reworded_since_its_push_is_pushed_before_the_start`)
 - The profiles must be those of the target that allow the mode, never the emergency ones (`--profile emergency` is
   `invalid_arguments`: only the app's Safe Push without review offers one, in red); `--profile` takes an id or a name
@@ -1057,13 +1072,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   API (no open pull request to start from) whose merge profile is known to skip the review (the options of the last
   robot say `patronus.review.approval.check.skip`, or the list names it with the new API) must start without them, as
   the app's start does (`skipsApprovals`); `--without-approvals` must start anyway on either route, the counterpart of
-  the app's Safe Push without review: with a `--profile` that skips the review (`--profile lsc`). The `review` says
-  `readiness` (`not_required`, `approved`, `missing`, `unknown`) with its `readiness_reason`, `skipped_by` (`profile` or
+  the app's Safe Push without review: with a `--profile` that skips the review (`--profile lsc`). A pre-check that
+  failed is no answer, never `approved` and never a failure of the command (D14): it must refuse the start with
+  `review_unknown` (exit 4, also in `refusals`), the `review` saying `unavailable`, unless `--allow-unknown-review`,
+  which starts and leaves the approvals to the robot. The `review` says
+  `readiness` (`not_required`, `approved`, `missing`, `unknown`, `unavailable`) with its `readiness_reason`, `skipped_by` (`profile` or
   `without_approvals`) when the approvals don't hold the start back, the code owners asked who haven't approved
   (`waiting_for`), the approvals Patronus doesn't count (`not_counted`), and per group `approved` and `needed`, per
   reviewer `approval_state`, when Patronus evaluated the pull request.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
-  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`, `a_review_patronus_cannot_answer_refuses_the_safe_push_unless_allowed`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`missing_approvals_refuse_unless_skipped_and_approvals_judged_at_the_start_confirm`, `the_default_profile_is_the_last_robots_while_offered_and_a_profile_is_confirmed`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
 - A Safe Push that pushes new commits into the open pull request the robot starts from, which someone approved, must
@@ -1079,6 +1098,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   rules were not read; `--check` lists the refusal in `refusals`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `a_push_that_dismisses_approvals_patronus_does_not_count_starts_and_says_so`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`, `the_rules_are_read_only_for_a_push_into_an_approved_pull_request`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
   `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
@@ -1117,7 +1137,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   named by id; a running Safe Push of an older commit, which the push fails, too, unless `--cancel-running` cancels it
   first. A parent a restack placed below a running Safe Push after its start starts.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
-  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`a_push_into_the_branch_of_a_running_safe_push_is_risky_a_dry_run_or_another_branch_is_not`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`, `the_commits_a_robot_lands_are_named_by_their_number_and_ids`)
+  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_commits_a_robot_lands_are_named_by_their_number_and_ids`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`, `the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced`)
   [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `the_robots_match_their_branches_by_the_cases`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
@@ -1221,6 +1242,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   and a profile that skips the review count none and start through the API.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_target_before_the_start`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_pull_request_into_another_base_refuses_only_a_safe_push_whose_approvals_count`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`the_pull_request_decides_the_route_a_draft_refuses_and_another_base_refuses_only_counted_approvals`)
 - Without the Space token of the Safe Push CLI it must be `not_logged_in`, and outside Space `not_on_space`, before a
   request to Patronus.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`without_a_token_or_space_nothing_runs`)

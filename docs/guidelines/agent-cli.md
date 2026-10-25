@@ -135,7 +135,7 @@ branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `cr
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -1431,7 +1431,7 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `bd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--allow-dangling] [--allow-missing]`
+### `bd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -1490,10 +1490,16 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
 - `--check` syncs and prints the same object without pushing or starting anything: what it `lands`, the profiles, the
   review, `push_needed`, `remotes`, `target_check`, and `refusals`, each `{code, message}` a start would fail with. The
   agent shows it to the user and starts only after the user approves.
+- The decision is the app's rule, `domain_policy::land::decide` ([Rust as the Domain Authority](../design/rust-domain-authority.md#s8-policy)),
+  over what bd read: the `refusals` are its blockers, in their order, then each confirmation a flag accepts that the
+  command lacks (`--cancel-running`, `--allow-unknown-review`, `--allow-unknown-rules`), named with the flag. What the
+  table alone refuses (a branch that didn't sync, a parked one) fails before Patronus or GitHub is asked; the review
+  and the rules of the target are asked only when the decision waits for them.
 - `remotes` names each existing remote branch the start pushes, `{name, remote}` with the `remote` of `bd sync`: what
   the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops (`behind`, `dropped_commits`). One that
   drops commits refuses the check and the start with `push_refused` and the `bd push` that drops them, to run only
-  after the user approves; the start's error has it in `error.branches`. `push_needed` is true for a branch reworded
+  after the user approves; the start's error has it in `error.branches`. `--force`, once the user approved, starts with
+  the drop pushed away (D12). `push_needed` is true for a branch reworded
   since its push: the robot would land the old messages of the remote branch.
 - The target conflict check (`target_check`, the core of the app's start too, `sync_core::target_conflict`): Patronus
   rebases what it lands onto the newest target before any check, and a conflict fails the robot at once. A branch is
@@ -1585,7 +1591,8 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   running"), a Safe Push lands it with a branch of its stack ("A Safe Push of oauth is running: it lands login with
   it"), or a Safe Push of a branch it is built on runs, whose commits it would land a second time ("A Safe Push of
   auth is running: wait until it merges"). A running Safe Push of an older commit fails once the push changes its
-  branch: `--cancel-running` cancels it first (`canceled`); a dry run is not affected.
+  branch: `--cancel-running` cancels it first (`canceled`). A Dry Run replaces no Safe Push: its push into the branch
+  of a running Safe Push is refused, `--cancel-running` or not; one without a push starts beside it.
 - `landed` (exit 4, the first of `refusals` with `--check`): a merged Safe Push landed all of the branch ("Nothing was
   pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is left to land"), or, with
   `--whole-stack`, every branch of the stack ("every branch of the whole auth stack landed in master with the Safe
@@ -1611,6 +1618,9 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   said in `rules.message`. `rules_unknown` (exit 4): GitHub didn't answer the rules (no token, no access, an error);
   `--allow-unknown-rules` starts anyway when the user says so. `rules` is `{dismiss_stale_reviews_on_push: true | false
   | null, message}`, absent when they were not read; `--check` lists either refusal in `refusals`.
+- `review_unknown` (exit 4, nothing pushed or started, also in `refusals`): Patronus couldn't answer the code-owner
+  review (its pre-check failed; `review.readiness` `unavailable`), which is never "approved" (D14);
+  `--allow-unknown-review` starts anyway when the user says so, and the robot checks the approvals when it starts.
 - `pull_request_other_base` (exit 4, nothing pushed or started): the open pull request of the branch goes into another
   base than the target (a release branch, `domain_policy::pull_request::base_of`), and Patronus merges a pull request
   into its base: its approvals count for no Safe Push into the target. The next step is the `gh pr edit <n> --base

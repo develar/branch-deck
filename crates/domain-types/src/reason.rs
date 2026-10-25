@@ -1,9 +1,11 @@
 //! Why an action of the domain is refused, as a code with the facts its words need, never the words
-//! (docs/design/rust-domain-authority.md, s8-policy): `domain_policy` decides it (`holds`, `land`), the page words it
+//! (docs/design/rust-domain-authority.md, s8-policy): `domain_policy` decides it (`holds`, `land`: a start's blockers too,
+//! `land::decide`), the page words it
 //! (`src/presenters/reasons.ts`), `bd` and the guards of the app in their own words (`repository_model::start_guard`,
 //! `repository_model::push_guard`). `crates/domain-policy/reasons.json` lists every code with an example, which
 //! the formatters of both sides are tested on.
 
+use crate::landing::LandingRefusal;
 use crate::patronus::PatronusPushMode;
 use crate::repository_view::{Carried, HoldView, RobotOf};
 use crate::stack::{BlockReason, StackBranchConflict, StackBranchState};
@@ -60,8 +62,30 @@ pub enum Reason {
   StackHeld { root: String, robot_id: String, mode: PatronusPushMode },
   /// The last sync did not build `branch` (`block` says why): its virtual branch is an older build
   CantPush { branch: String, block: BlockReason },
-  /// The push of `branch` drops `behind` commits of its remote branch it lacks, someone's work: its row asks first
+  /// The push of `branch` drops `behind` commits of its remote branch it lacks, someone's work: its row asks first, and a
+  /// start pushes them away only when the user says so (`LandingAllowances::allow_force`, D12)
   DropsRemote { branch: String, behind: u32 },
+  /// `branch` stays local: its own line parks it (`with` none), or it is built on the parked `with` and carries its
+  /// commits; `note` the note of that line, empty without one
+  Parked { branch: String, with: Option<String>, note: String },
+  /// Patronus doesn't protect `target`: no robot pushes into it
+  Unprotected { target: String },
+  /// The pull request `number` a robot starts from is a draft: Patronus merges it once it is ready for review
+  Draft { number: u32 },
+  /// The open pull request `number` of the subject goes into `base`, and Patronus merges a pull request into its base: its
+  /// approvals count for no Safe Push into `target` (D3b); a retarget, the user's, fixes it
+  OtherBase { number: u32, base: String, target: String },
+  /// The code owners haven't approved: a Safe Push fails without the approvals of `groups`
+  ApprovalsMissing { groups: Vec<String> },
+  /// The push of new commits dismisses the approvals of pull request `number` that Patronus counts (the rules of
+  /// `target` dismiss stale reviews on push): the robot would start without them and fail
+  DismissesApprovals { number: u32, target: String },
+  /// What lands would not build, as the landing gate proves it: a dangling reference, a missing declaration (boxed: the
+  /// largest of the codes by far)
+  LandingRefused { refusal: Box<LandingRefusal> },
+  /// Patronus rebases what lands onto the newest target first, and `commit` (a copy of the virtual branch) conflicts with
+  /// it in `files`: the robot would fail at once
+  TargetConflict { commit: String, files: Vec<String> },
 }
 
 impl Reason {
@@ -80,7 +104,15 @@ impl Reason {
       | Self::StackParked { .. }
       | Self::StackLanded { .. }
       | Self::CantPush { .. }
-      | Self::DropsRemote { .. } => None,
+      | Self::DropsRemote { .. }
+      | Self::Parked { .. }
+      | Self::Unprotected { .. }
+      | Self::Draft { .. }
+      | Self::OtherBase { .. }
+      | Self::ApprovalsMissing { .. }
+      | Self::DismissesApprovals { .. }
+      | Self::LandingRefused { .. }
+      | Self::TargetConflict { .. } => None,
     }
   }
 }

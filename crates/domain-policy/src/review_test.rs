@@ -1,5 +1,6 @@
-use crate::review::{ApprovalsSkip, Candidates, CountsIn, ReviewState, candidates, review_state, skips_approvals};
+use crate::review::{Candidates, CountsIn, ReviewState, candidates, review_state, skips_approvals};
 use domain_types::fixtures::pull_request;
+use domain_types::landing::ApprovalsSkip;
 use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, Person, ReviewReadiness,
   UnavailableReadinessReason, UnknownReadinessReason,

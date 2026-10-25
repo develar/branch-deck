@@ -31,6 +31,7 @@ specta = ["dep:specta", "sync-core/specta", "history-rewrite/specta", "domain-ty
 
 [dev-dependencies]
 domain-policy = { path = "../domain-policy" }
+domain-types = { path = "../domain-types", features = ["fixtures"] }
 history-rewrite = { path = "../history-rewrite", features = ["test-commit"] }
 test-utils = { path = "../test-utils" }
 pretty_assertions = { workspace = true }

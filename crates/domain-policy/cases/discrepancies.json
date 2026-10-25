@@ -236,7 +236,7 @@
       ],
       "bd": [
         "crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;",
-        "crates/bd-remote/src/safe_push_command.rs#ErrorCode::RobotRunning, start_refusal_text(&refusal, name, &facts.robots)"
+        "crates/bd-remote/src/safe_push_command.rs#Refusal::new(ErrorCode::RobotRunning, start_refusal_text(reason, what, &self.facts.robots)).with_next_step(robot, false)"
       ]
     }
   },
@@ -250,14 +250,14 @@
     "twins": ["row-5-into-the-parent", "row-5-into-another-branch", "row-5-into-a-landed-branch"],
     "today": {
       "app": ["src/lib/branch-next-step.ts#baseIsVirtualBranch", "src/hooks/useBranchNextStep.ts#export async function retargetToTarget"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#None => virtual_base_retargets("]
+      "bd": ["crates/domain-policy/src/land.rs#matches!(base_of(pull_request, facts.target, facts.prefix), PullRequestBase::Virtual { .. }).then(|| PlannedEffect::Retarget {"]
     }
   },
   {
     "id": "push-over-the-commits-of-someone-else",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the remote branch has a commit of someone else that the branch lacks: the decision of the app reads no dropped commits and starts with a force push (the push button alone asks), bd refuses push_refused",
+    "title": "the remote branch has a commit of someone else that the branch lacks: the decision of the app reads no dropped commits and starts with a force push (the push button alone asks); bd decides by land::decide (s8-6): refused push_refused unless --force, which makes the drop a confirmation and the push a force push; the app joins it in step 7",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
@@ -267,7 +267,10 @@
     "twins": ["remote-behind"],
     "today": {
       "app": ["src/hooks/useSafePush.ts#const startPush = getStartPush(remoteStatus?.action ?? null, pushOrder.length > 1)"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#the remote branch has {} commits the branch doesn't, and the baseline neither"]
+      "bd": [
+        "crates/domain-policy/src/land.rs#decision.blockers.push(Reason::DropsRemote {",
+        "crates/bd-remote/src/safe_push_command.rs#the remote branch has {behind} commits the branch doesn't, and the baseline neither"
+      ]
     }
   },
   {
@@ -280,14 +283,14 @@
     "twins": ["row-1-merged-pull-request"],
     "today": {
       "app": ["src/hooks/useBranchNextStep.ts#const mergedCurrent = pullRequest.state === \"merged\""],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#match own.filter(|pull_request| pull_request.state == PullRequestState::Open)"]
+      "bd": ["crates/domain-policy/src/land.rs#.filter(|pull_request| pull_request.state == PullRequestState::Open)"]
     }
   },
   {
     "id": "review-without-an-answer",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the review Patronus can't answer (the pre-check fails) or answers for a Space merge request: the app confirms with the review line and lets the robot decide, bd fails patronus_error or refuses approvals_missing",
+    "title": "the review Patronus can't answer (the pre-check fails) or answers for a Space merge request: the app confirms with the review line and lets the robot decide; bd decides by land::decide (s8-6): a failed pre-check is the confirmation ReviewUnknown, refused as review_unknown unless --allow-unknown-review, a Space merge request the approvals it misses (approvals_missing); the app joins it in step 7",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#code-owner-review",
@@ -298,7 +301,11 @@
     "twins": ["readiness-unavailable", "row-11-unavailable", "readiness-space-required"],
     "today": {
       "app": ["src/lib/safe-push-decision.ts#function isReviewUnjudged", "src/hooks/useSafePush.ts#function reviewFactOf"],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#pub(crate) fn review_readiness", "crates/domain-policy/src/review.rs#pub fn review_state"]
+      "bd": [
+        "crates/domain-policy/src/land.rs#confirmations.push(Confirmation::ReviewUnknown { message: reason.message.clone() });",
+        "crates/bd-remote/src/safe_push_command.rs#pub(crate) fn readiness_answer",
+        "crates/domain-policy/src/review.rs#pub fn review_state"
+      ]
     }
   },
   {
@@ -319,7 +326,7 @@
         "crates/repository-model/src/derive.rs#dry_run: start_refusal(&start, PatronusPushMode::DryRun, &self.robots),"
       ],
       "bd": [
-        "crates/bd-remote/src/safe_push_command.rs#let start = landing.branch_start(name, push_needed);",
+        "crates/domain-policy/src/land.rs#let robot = start_refusal(&Start::Branch(BranchStart { pushes, ..branch.start }), land.mode, facts.robots);",
         "crates/domain-policy/src/land_test.rs#fn a_dry_run_waits_for_the_last_commit_and_for_the_span_hold_of_the_push_it_makes"
       ]
     }

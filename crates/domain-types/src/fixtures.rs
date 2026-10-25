@@ -110,3 +110,28 @@ pub fn carried(commits: &[&str]) -> crate::repository_view::Carried {
     amended: Vec::new(),
   }
 }
+
+/// The commit `id` of `branch` with `subject`, as a refusal of the landing gate names it
+pub fn stack_commit(id: &str, subject: &str, branch: &str) -> crate::landing::StackCommit {
+  crate::landing::StackCommit {
+    id: id.to_string(),
+    subject: subject.to_string(),
+    branch: branch.to_string(),
+  }
+}
+
+/// The readiness of a change whose group `group` hasn't approved, `needed` more approvals counting
+pub fn missing_approvals(group: &str, needed: Option<u32>) -> crate::patronus::ReviewReadiness {
+  crate::patronus::ReviewReadiness::Missing {
+    groups: vec![crate::patronus::MissingReviewGroup {
+      name: group.to_owned(),
+      needed,
+      approved_by: Vec::new(),
+      requested: Vec::new(),
+      suggested: Vec::new(),
+      changes_requested_by: Vec::new(),
+    }],
+    not_counted: Vec::new(),
+    reason: crate::patronus::MissingApprovalsReason::ApprovalsMissing,
+  }
+}

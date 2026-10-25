@@ -15,13 +15,15 @@
 //! each stack branch, why a Safe Push or a Dry Run can't start (`domain_policy::land::start_refusal`), the robot a Safe
 //! Push start replaces, why the push an action needs can't be made (`push_blocker`), and the restart each robot offers
 //! (`restart_action`, `restart_refusal`). `branch_start` and `stack_start` are the input of a start, which the guards and
-//! `bd` read for their own intent (a restart, a dry run that pushes what `bd` pushes).
+//! `bd` read for their own intent (a restart, a dry run that pushes what `bd` pushes); `branch_subject` and
+//! `stack_subject` the subject part of the decision of a start (`domain_policy::land::decide`), which `bd safe-push`
+//! decides by.
 
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use crate::table::{TableParts, TableState};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, push_blocker, restart_action, stack_branch_hold};
-use domain_policy::land::{BranchStart, StackStart, Start, on_last_commit, restart_refusal, start_refusal};
+use domain_policy::land::{BranchStart, BranchSubject, LandsBranch, StackStart, StackSubject, Start, on_last_commit, restart_refusal, start_refusal};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
 use domain_policy::push::{HeadedStack, Kept, PushState, branch_push};
@@ -403,11 +405,7 @@ impl<'a> LandingFacts<'a> {
 
   fn stack_landing(&self, stack: &StackBranchUpdate) -> StackLanding {
     let start = Start::WholeStack(self.stack_start(stack));
-    let last_commit = self.stack_last_commit(stack);
-    let replaces = self
-      .stack_robot(stack)
-      .filter(|robot| holds_pushes(robot) && robot.stack_root.as_deref() == Some(stack.root.as_str()) && last_commit.is_none())
-      .map(|robot| robot.id.clone());
+    let replaces = self.stack_replaces(stack).map(str::to_string);
     let members = whole_stack_members(&self.repo, &stack.root, &stack.members);
     let rest = whole_stack_rest(&stack.root, &members, stack.commit_count, |name| {
       let landed = self.view.branches.get(name).and_then(|facts| facts.landed_by.as_ref());
@@ -420,6 +418,74 @@ impl<'a> LandingFacts<'a> {
       replaces,
       rest,
     }
+  }
+
+  /// The subject part of the decision of a start of `name` (`domain_policy::land::decide`): its robots, what landed it,
+  /// why it stays local, what it lands with the remote and the hold of each branch, the robot a Safe Push replaces, and
+  /// the open pull request of the whole stack it is a branch of (of `pull_requests`, the listing of the session or of
+  /// `bd`). `None` for a branch the table lacks
+  #[must_use]
+  pub fn branch_subject(&self, name: &str, pull_requests: Option<&PullRequestsView>) -> Option<BranchSubject<'_>> {
+    let name = self.table.branch(name)?.name.as_str();
+    let replaces = self.replaces(name);
+    let held = |branch: &str| self.holds.get(branch).is_some_and(|hold| Some(hold.by.robot_id.as_str()) != replaces);
+    let chain = build_ancestors(&self.repo, name)
+      .into_iter()
+      .chain(std::iter::once(name))
+      .map(|branch| LandsBranch {
+        name: branch,
+        landed_whole: self.landed_whole(branch).is_some(),
+        remote: self.remote_of(branch),
+        held: held(branch),
+      })
+      .collect();
+    let whole_stack_pull_request = self
+      .table
+      .stack_branches
+      .iter()
+      .find(|stack| stack.members.iter().any(|member| member == name))
+      .and_then(|stack| pull_requests?.stack_pull_requests.get(&stack.root))
+      .filter(|pull_request| pull_request.state == PullRequestState::Open)
+      .map(|pull_request| pull_request.number);
+    Some(BranchSubject {
+      start: self.branch_start(name, false),
+      parked: parked_state(&self.repo, name),
+      landed: self.landed_reason(name),
+      chain,
+      tip: self.table.tip_of(name),
+      replaces,
+      whole_stack_pull_request,
+    })
+  }
+
+  /// The subject part of the decision of a start of the whole stack of `stack` (`domain_policy::land::decide`): its
+  /// robots, the parked member, what landed every branch of it, its branches in the order of the stack branch, the
+  /// remote of its stack branch, the robot of the whole stack a Safe Push replaces and the one that holds its pushes
+  #[must_use]
+  pub fn stack_subject<'s>(&'s self, stack: &'s StackBranchUpdate) -> StackSubject<'s> {
+    let root = stack.root.as_str();
+    StackSubject {
+      replaces: self.stack_replaces(stack),
+      start: self.stack_start(stack),
+      parked: whole_stack_parked(&self.repo, stack.members.iter().map(String::as_str)),
+      landed: self.stack_landed_whole(stack).and_then(|landed| stack_landed(root, &landed)),
+      members: stack.members.iter().map(|member| (member.as_str(), self.landed_whole(member).is_some())).collect(),
+      remote: self.remote.stacks.get(root).and_then(RemoteFact::branch),
+      held_by: self.stack_holder(stack),
+    }
+  }
+
+  /// The robot of the whole stack of `stack` that holds the pushes of its stack branch: it runs on it as a Safe Push
+  fn stack_holder(&self, stack: &StackBranchUpdate) -> Option<&'a PatronusRobot> {
+    self
+      .stack_robot(stack)
+      .filter(|robot| holds_pushes(robot) && robot.stack_root.as_deref() == Some(stack.root.as_str()))
+  }
+
+  /// The robot of the whole stack a Safe Push start of it replaces: the one that holds its stack branch from an older
+  /// commit
+  fn stack_replaces(&self, stack: &StackBranchUpdate) -> Option<&'a str> {
+    self.stack_holder(stack).filter(|_| self.stack_last_commit(stack).is_none()).map(|robot| robot.id.as_str())
   }
 
   /// The restart `robot` offers (`restart_action`) and why it can't start now (`restart_refusal`): of its branch, while

@@ -1165,9 +1165,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_review_check_is_not_asked_again_by_itself`)
 - `bd safe-push` checks the same review before a Safe Push, always asked again (the answer is kept for the app), and
   `missing` refuses its start (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that
-  fails for them. `unknown` lets it start, as the robot decides. It collects the approvals in the GitHub pull request
+  fails for them. `unknown` lets it start, as the robot decides. `unavailable` (the pre-check failed) is no answer: it
+  refuses the start as `review_unknown` until the user says to start anyway (`--allow-unknown-review`, the decision's
+  confirmation `ReviewUnknown`, D14). It collects the approvals in the GitHub pull request
   (`--create-pull-request`), never a Space merge request ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
-  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`, `a_review_patronus_cannot_answer_refuses_the_safe_push_unless_allowed`)
 - Space merge requests are deprecated: the approvals go into the GitHub pull request of the branch, and Branch Deck
   never creates a merge request. One Patronus finds open still counts: the start links it.
 - Where the approvals a start misses count is one rule of the app and `bd` (`domain_policy::review::review_state`): the

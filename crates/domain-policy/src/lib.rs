@@ -11,7 +11,10 @@
 //!   and what a restart of a robot does (`restart_action`)
 //! - `land`: why a Safe Push or a Dry Run of a branch or a whole stack can't start (`start_refusal`: blocked, a robot on
 //!   the last commit, one that lands it or a part of it, the hold of the push of a Dry Run), and a restart
-//!   (`restart_refusal`)
+//!   (`restart_refusal`); the decision of a start (`decide`: its blockers, the confirmations the user accepts, the facts
+//!   it waits for and its effects, retarget, cancel, push and the start), what the table alone refuses
+//!   (`table_blocker`), the confirmations `bd` accepts by a flag (`unaccepted`), the modes a profile allows
+//!   (`allows_mode`) and the default profile (`default_profile`)
 //! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
 //! - `parked`: why a branch stays local (`parked_state`: its own line, or a parked branch it is built on), and the
 //!   parked member that keeps a stack branch local (`whole_stack_parked`)

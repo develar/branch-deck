@@ -48,21 +48,28 @@ pub(crate) fn virtual_base_retargets<'a>(
       let PullRequestBase::Virtual { .. } = base_of(pull_request, base, prefix) else {
         return None;
       };
-      (pull_request.state == PullRequestState::Open).then(|| RetargetedPullRequest {
-        branch: name.to_string(),
-        number: pull_request.number,
-        url: pull_request.url.clone(),
-        old_base: pull_request.base_ref_name.clone(),
-        new_base: base.to_string(),
-        approved_by: pull_request
-          .reviewers
-          .iter()
-          .filter(|reviewer| reviewer.state == ReviewerState::Approved)
-          .map(|reviewer| reviewer.login.clone())
-          .collect(),
-      })
+      (pull_request.state == PullRequestState::Open).then(|| RetargetedPullRequest::of(name, pull_request, base))
     })
     .collect()
+}
+
+impl RetargetedPullRequest {
+  /// The retarget of `pull_request` of the virtual branch `branch` from its base to `new_base`, with who approved it
+  pub(crate) fn of(branch: &str, pull_request: &PullRequest, new_base: &str) -> Self {
+    Self {
+      branch: branch.to_string(),
+      number: pull_request.number,
+      url: pull_request.url.clone(),
+      old_base: pull_request.base_ref_name.clone(),
+      new_base: new_base.to_string(),
+      approved_by: pull_request
+        .reviewers
+        .iter()
+        .filter(|reviewer| reviewer.state == ReviewerState::Approved)
+        .map(|reviewer| reviewer.login.clone())
+        .collect(),
+    }
+  }
 }
 
 /// What the retargets did: the pull requests GitHub retargeted, and a warning per one it refused or couldn't be asked about

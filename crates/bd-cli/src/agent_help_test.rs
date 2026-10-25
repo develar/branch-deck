@@ -211,6 +211,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::TargetConflict
     | ErrorCode::PushDismissesApprovals
     | ErrorCode::PullRequestOtherBase
+    | ErrorCode::ReviewUnknown
     | ErrorCode::NotLoggedIn => &["safe-push"],
     ErrorCode::ApprovalsMissing | ErrorCode::RulesUnknown => &["help agent", "safe-push"],
     ErrorCode::HunkConflict | ErrorCode::BlockNotFound => &["move-hunk"],

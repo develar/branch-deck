@@ -4,8 +4,8 @@ use crate::table::TableState;
 use crate::table::table_test::{run_sync, sync_events};
 use domain_policy::refresh::ReadinessPriority;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::fixtures::pull_request;
-use domain_types::patronus::{ApprovedReviewGroup, BranchReviewReadiness, MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, Person, ReviewReadiness, ReviewStart};
+use domain_types::fixtures::{missing_approvals, pull_request};
+use domain_types::patronus::{ApprovedReviewGroup, BranchReviewReadiness, PatronusAvailability, Person, ReviewReadiness, ReviewStart};
 use domain_types::pull_request::{PullRequest, Reviewer, ReviewerState};
 use domain_types::session::{Demand, FactState, NewsEvent, PullRequestsView, RobotsHead};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
@@ -69,18 +69,7 @@ fn at(seq: u32) -> Observation {
 }
 
 fn missing() -> ReviewReadiness {
-  ReviewReadiness::Missing {
-    groups: vec![MissingReviewGroup {
-      name: "IJPL Code Platform".to_owned(),
-      needed: Some(1),
-      approved_by: Vec::new(),
-      requested: Vec::new(),
-      suggested: Vec::new(),
-      changes_requested_by: Vec::new(),
-    }],
-    not_counted: Vec::new(),
-    reason: MissingApprovalsReason::ApprovalsMissing,
-  }
+  missing_approvals("IJPL Code Platform", Some(1))
 }
 
 fn answer(subject: &ReadinessSubject, readiness: ReviewReadiness) -> ReadinessAnswer {

@@ -1,8 +1,12 @@
 //! What refuses a Safe Push or a Dry Run before anything is pushed, as the landing gate (`trial_check::landing_gate`)
 //! builds it for `bd safe-push`, the start of the app and the landing needs of the repository view: typed, so the CLI
-//! and the app each name it in their own words, and each refusal carries the fix the user can run (`LandingFix`).
+//! and the app each name it in their own words, and each refusal carries the fix the user can run (`LandingFix`). And a
+//! start of a robot as the contract's `Land` intent names it, with what `domain_policy::land::decide` answers of it
+//! (`LandDecision`: blockers, confirmations, waits and effects), one decision of `bd safe-push` and of the app.
 
-use crate::patronus::LandingAllowances;
+use crate::error::ApiError;
+use crate::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode};
+use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
 
@@ -259,6 +263,175 @@ fn refused_message(subject: &str, refusals: &[LandingRefusal]) -> String {
     rest => format!(" ({rest} more)"),
   };
   format!("{subject} would not build: {}{more}", first.reason())
+}
+
+/// The merge profile a start asks for
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProfileChoice {
+  /// The profile of the last robot of the subject while the target offers it for the mode, else the default checks
+  #[default]
+  Default,
+  /// A profile the target offers for the mode
+  Id { id: String },
+  /// The default checks of the target
+  None,
+}
+
+/// A start of a robot on a subject (the contract's `Land`; docs/design/rust-domain-authority.md, "Контракты")
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct Land {
+  pub subject: Subject,
+  /// A Safe Push (`RebaseAutosquash`) or a Dry Run
+  pub mode: PatronusPushMode,
+  pub profile: ProfileChoice,
+  /// Start although the code owners haven't approved (`--without-approvals`, the app's Safe Push without review)
+  #[serde(default)]
+  pub without_approvals: bool,
+  /// Push and open the pull request of the subject (or take the open one) instead of a start, where the code owners
+  /// approve (`bd safe-push --create-pull-request`)
+  #[serde(default)]
+  pub create_pull_request: bool,
+  #[serde(default)]
+  pub allow: LandingAllowances,
+}
+
+/// Why the approvals don't hold a Safe Push back (`domain_policy::review::skips_approvals`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalsSkip {
+  /// A start through the API with a merge profile known to skip the code-owner review (its options say it), as the
+  /// app's Safe Push without review starts; a `/patronus` comment has no profile
+  Profile,
+  /// The user said to start without them (`--without-approvals`, the app's Start Without Review)
+  WithoutApprovals,
+}
+
+/// What a start does and what stands in its way, as `domain_policy::land::decide` answers it over the facts it has
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandDecision {
+  /// What refuses it, in order; no confirmation lifts one (an allowance of the intent may keep one from being raised)
+  pub blockers: Vec<Reason>,
+  /// What the user accepts before it starts: a line of the app's popover each, a flag of `bd` for some
+  /// (`domain_policy::land::unaccepted`)
+  pub confirmations: Vec<Confirmation>,
+  /// The facts it waits for, which nobody answered yet (or whose read failed): never read as "no"
+  pub waits: Vec<FactWait>,
+  /// What it does once nothing refuses it, in order: retarget, cancel, push, then the start or the pull request
+  pub effects: Vec<PlannedEffect>,
+  /// What the robot lands, root first: the branches it is built on that merged Safe Pushes didn't land whole, then the
+  /// branch itself; of a whole stack every branch of it they didn't land whole
+  pub lands: Vec<String>,
+  /// The open pull request it starts from with a `/patronus` comment, or the one `create_pull_request` takes
+  pub pull_request: Option<u32>,
+  /// Why the approvals don't hold it back
+  pub approvals_skipped_by: Option<ApprovalsSkip>,
+}
+
+impl LandDecision {
+  /// How the robot starts: through the API with the profile, or from a pull request; none when the start opens the pull
+  /// request instead
+  #[must_use]
+  pub fn start_route(&self) -> Option<&StartRoute> {
+    self.effects.iter().find_map(|effect| match effect {
+      PlannedEffect::StartRobot { route } => Some(route),
+      _ => None,
+    })
+  }
+}
+
+/// What the user accepts before a start (the contract's `Confirmation`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Confirmation {
+  /// It lands `count` branches it is built on with the branch, more than its row
+  LandsMoreThanRow { count: u32 },
+  /// It starts with a profile, not the default checks: the last robot's or one chosen
+  NonDefaultProfile { id: String },
+  /// It cancels the running Safe Push of an older commit it replaces (`LandingAllowances::cancel_running` in `bd`)
+  CancelsRobot { robot_id: String },
+  /// Patronus judges the approvals only when the robot starts: it doesn't evaluate the pull request, or GitHub didn't
+  /// list the pull requests, so the start is not known
+  ApprovalsJudgedAtStart,
+  /// Patronus couldn't answer the code-owner review (`message`, its pre-check failed): the robot checks the approvals
+  /// when it starts (`LandingAllowances::allow_unknown_review` in `bd`, D14)
+  ReviewUnknown { message: String },
+  /// The push dismisses the approvals of pull request `number`, none of which Patronus counts
+  DismissesApprovals { number: u32 },
+  /// GitHub didn't answer the rules of the target: whether the push keeps the approvals of pull request `number` is not
+  /// known (`LandingAllowances::allow_unknown_rules` in `bd`)
+  RulesUnknown { number: u32 },
+  /// It starts without the approvals the code owners haven't given (a Safe Push without review)
+  WithoutApprovals,
+  /// It lands a piece of a stack whose pull request `number` is open: those approvals count for the whole stack only
+  StackPullRequestApprovalsDontCount { number: u32 },
+  /// Its push replaces `commits` commits of the remote branch of `branch` the branch lacks, someone's work (allowed by
+  /// `LandingAllowances::allow_force`, D12)
+  ForcePushDrops { branch: String, commits: u32 },
+}
+
+/// A fact a start waits for: no answer yet, or `failed` with why the read failed; never read as "no"
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FactWait {
+  pub fact: LandFact,
+  pub failed: Option<ApiError>,
+}
+
+/// The facts of a start
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LandFact {
+  /// The tip of the subject and the remote status of what its push takes
+  Remote,
+  /// The merge profiles of the target
+  Profiles,
+  /// The open pull requests of the branches
+  PullRequests,
+  /// The code-owner review Patronus answers for the subject
+  Readiness,
+  /// The rules of the target for a push into the approved pull request `number`
+  Rules { number: u32 },
+  /// What what lands needs of the branches outside it (the landing gate)
+  LandingNeeds,
+}
+
+/// What a start does, in the order of its effects (the contract's `PlannedEffect`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum PlannedEffect {
+  /// The open pull request `number` of `branch` goes from the virtual branch `from` into the target `to` (D11)
+  Retarget { branch: String, number: u32, from: String, to: String },
+  /// The running Safe Push of an older commit it replaces is canceled
+  CancelRobot { robot_id: String },
+  /// The branches with work for the remote are pushed, root first: the branch and the ancestors its push takes; of a
+  /// whole stack its root, whose stack branch is the only one pushed. `force`: it replaces commits the remote has
+  Push { branches: Vec<String>, force: bool },
+  /// The robot starts
+  StartRobot { route: StartRoute },
+  /// The pull request of the subject is opened, where the code owners approve (none is open)
+  CreatePullRequest,
+}
+
+/// How a robot starts
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StartRoute {
+  /// Through the API, with `profile` (`None` the default checks)
+  Api { profile: Option<PatronusProfile> },
+  /// A `/patronus` comment on the open pull request `number`, which runs the default checks of the target
+  Comment { number: u32 },
 }
 
 #[cfg(test)]

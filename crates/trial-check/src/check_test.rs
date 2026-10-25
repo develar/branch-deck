@@ -1,5 +1,5 @@
 use crate::check::{CheckOutcome, CheckReport, CheckSession, Planned, StackIndependence, StackUse, check_plan, run_builds, stack_independence};
-use domain_types::landing::StackCommit;
+use domain_types::fixtures::stack_commit as commit;
 use domain_types::stack::BlockReason;
 use git_ops::merge_memo::{MergeMemo, MergeOutcome, MergeTrees};
 use history_rewrite::issue_groups::ISSUE_GROUPS;
@@ -269,14 +269,6 @@ fn stacked_repo(extra: &[(&str, &str, &str)]) -> (TestRepo, Vec<String>) {
 
 fn independence(repo: &TestRepo, branch: &str) -> Result<StackIndependence, RegroupError> {
   stack_independence(repo.git_executor(), repo.path().to_str().unwrap(), PREFIX, branch, &ObjectCache::disabled())
-}
-
-fn commit(id: &str, subject: &str, branch: &str) -> StackCommit {
-  StackCommit {
-    id: id.to_string(),
-    subject: subject.to_string(),
-    branch: branch.to_string(),
-  }
 }
 
 /// It uses no name of its parent, and says that the names were checked; with the symbols on report only, they weren't

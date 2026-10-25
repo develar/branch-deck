@@ -3,6 +3,7 @@
 //! (`candidates`, D5), what the answer of the readiness means for a start and where the approvals count, a repository
 //! only on Space read once (`review_state`, D14), and when a Safe Push starts without them (`skips_approvals`, D2).
 
+use domain_types::landing::ApprovalsSkip;
 use domain_types::patronus::{MissingReviewGroup, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, Person, ReviewReadiness};
 use domain_types::pull_request::{PullRequest, ReviewCandidate};
 
@@ -122,16 +123,6 @@ pub fn review_state<'a>(
       ReviewState::Missing { groups, counts_in }
     }
   }
-}
-
-/// Why the approvals don't hold a Safe Push back
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ApprovalsSkip {
-  /// A start through the API with a merge profile known to skip the code-owner review (its options say it), as the
-  /// app's Safe Push without review starts; a `/patronus` comment has no profile
-  Profile,
-  /// The user said to start without them (`--without-approvals`, the app's Start Without Review)
-  WithoutApprovals,
 }
 
 /// What a start skips the approvals for, if anything: never a Dry Run (no review) or a pull request it opens instead of a

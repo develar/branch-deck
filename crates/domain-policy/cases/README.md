@@ -11,7 +11,7 @@ Two tests read every `*.json` file here, one test function per `group`, and name
 
 | Side | Test | Adapter |
 | --- | --- | --- |
-| `bd` | `crates/bd-remote/src/scenario_test.rs` | `Given` (serde, `deny_unknown_fields`) → a `Space` of the bd-cli fixtures with the fake Patronus and the fake GitHub → `safe_push()` itself with `--check` (the function the command runs: its preamble, `plan()`, the output of a check) → the projection of the output; then `bd safe-push` without `--check` |
+| `bd` | `crates/bd-remote/src/scenario_test.rs` | `Given` (serde, `deny_unknown_fields`) → a `Space` of the bd-cli fixtures with the fake Patronus and the fake GitHub → `safe_push()` itself with `--check` (the function the command runs: its preamble, `plan()` with the decision of `domain_policy::land::decide`, the output of a check) → the projection of the output; then `bd safe-push` without `--check` |
 | app | `src/lib/scenario-cases.test.ts` | `src/test-support/scenario-case.ts` (zod, strict) → `src/test-support/scenario-facts.ts` seeds the stores as the sync, the repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), what Rust computes of them from `facts/<id>.json` → the app's own readers: `getBranchNextStepOf` (`getStackNextStepNow` of the whole stack) for the step, `readSafePush` for the decision |
 
 No adapter decides for its side. The Rust side builds a repository of `given` with the fixtures, once per case. What

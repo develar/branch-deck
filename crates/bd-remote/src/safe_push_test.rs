@@ -190,6 +190,13 @@ fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_whe
     [("bd robot auth".to_string(), false), ("bd safe-push auth --cancel-running".to_string(), true)]
   );
   assert_eq!(space.remote_tip(AUTH), "");
+  // a Dry Run replaces no Safe Push: its push into the branch is refused, --cancel-running or not
+  for args in [&["auth", "--patronus-dry-run"][..], &["auth", "--patronus-dry-run", "--cancel-running"]] {
+    let (exit_code, output) = space.run(args);
+    assert_error(&output, exit_code, (4, "robot_running"));
+    assert!(output["error"]["message"].as_str().unwrap().starts_with("A Safe Push of auth is running"), "{output}");
+  }
+  assert_eq!((space.fake.canceled.lock().unwrap().len(), space.remote_tip(AUTH)), (0, String::new()));
 
   let (exit_code, output) = space.run(&["auth", "--cancel-running"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -350,10 +357,56 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   let refused = &output["error"]["branches"][0]["remote"];
   assert_eq!(refused["dropped_commits"][0]["subject"], json!("Someone else"));
   assert_eq!(
+    next_steps(&output["error"]),
+    [
+      (format!("bd push auth --force --expect-remote {}", git_ops::revs::short_id(&theirs)), true),
+      ("bd safe-push auth --force".to_string(), true)
+    ]
+  );
+  assert_eq!(
     (space.fake.starts.lock().unwrap().len(), space.remote_tip(AUTH)),
     (0, theirs),
     "nothing was pushed or started"
   );
+
+  // once the user approved the drop (D12), the start pushes the commit of someone else away and starts
+  let (exit_code, output) = space.run(&["auth", "--check", "--force"]);
+  assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
+  let (exit_code, output) = space.run(&["auth", "--force"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["started_via"].clone(), space.remote_tip(AUTH)),
+    (json!("api"), space.local_tip(AUTH)),
+    "pushed over their commit"
+  );
+}
+
+/// A review Patronus can't answer (its pre-check fails) is never "approved" nor a failure of the command: the Safe Push
+/// is refused as `review_unknown` (D14), the `review` saying `unavailable`, until the user says to start anyway
+/// (`--allow-unknown-review`), and the robot checks the approvals when it starts. A Dry Run asks no review
+#[test_log::test]
+fn a_review_patronus_cannot_answer_refuses_the_safe_push_unless_allowed() {
+  let space = Space::new(&["(auth) Add auth"]);
+  *space.fake.review_hook.lock().unwrap() = Some(Arc::new(|_| Some((500, json!({"message": "down"})))));
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (refusal_codes(&output), output["review"]["readiness"].clone()),
+    (vec![json!("review_unknown")], json!("unavailable"))
+  );
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_error(&output, exit_code, (4, "review_unknown"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("--allow-unknown-review starts anyway"), "{output}");
+  assert_eq!(
+    (space.fake.starts.lock().unwrap().len(), space.remote_tip(AUTH)),
+    (0, String::new()),
+    "nothing was pushed or started"
+  );
+
+  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--check"]);
+  assert_eq!((exit_code, output.get("refusals"), output["review"].clone()), (0, None, Value::Null), "{output}");
+  let (exit_code, output) = space.run(&["auth", "--allow-unknown-review"]);
+  assert_eq!((exit_code, output["started_via"].clone()), (0, json!("api")), "{output}");
 }
 
 /// login stacked on auth, each with one commit of its own file

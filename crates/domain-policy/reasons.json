@@ -164,5 +164,101 @@
     "code": "dropsRemote",
     "branch": "auth",
     "behind": 2
+  },
+  {
+    "code": "parked",
+    "branch": "login",
+    "with": "auth",
+    "note": "IJPL-1"
+  },
+  {
+    "code": "parked",
+    "branch": "auth",
+    "with": null,
+    "note": ""
+  },
+  {
+    "code": "unprotected",
+    "target": "master"
+  },
+  {
+    "code": "draft",
+    "number": 7
+  },
+  {
+    "code": "otherBase",
+    "number": 7,
+    "base": "release/253",
+    "target": "master"
+  },
+  {
+    "code": "approvalsMissing",
+    "groups": ["Air Plugin Release Team"]
+  },
+  {
+    "code": "dismissesApprovals",
+    "number": 7,
+    "target": "master"
+  },
+  {
+    "code": "landingRefused",
+    "refusal": {
+      "kind": "missingDeclaration",
+      "branch": "flow",
+      "identifier": "parseFlow",
+      "file": "flow/Flow.kt",
+      "line": 3,
+      "usedBy": {
+        "id": "c1",
+        "subject": "Use parseFlow",
+        "branch": "flow"
+      },
+      "declaredBy": {
+        "id": "u1",
+        "subject": "Add parseFlow",
+        "branch": "util"
+      },
+      "fix": {
+        "kind": "restack",
+        "branch": "flow",
+        "onto": "util"
+      },
+      "landingIn": null
+    }
+  },
+  {
+    "code": "landingRefused",
+    "refusal": {
+      "kind": "danglingReference",
+      "branch": "fake-agent",
+      "reference": "removed",
+      "identifier": "CONTROL_URL_ENV",
+      "file": "acp/Host.kt",
+      "line": 7,
+      "removedBy": {
+        "id": "r1",
+        "subject": "Remove the env",
+        "branch": "fake-agent"
+      },
+      "fixedBy": {
+        "id": "f1",
+        "subject": "Read the url",
+        "branch": "acp"
+      },
+      "fix": {
+        "kind": "moveCommit",
+        "commit": {
+          "id": "f1",
+          "subject": "Read the url",
+          "branch": "acp"
+        },
+        "into": "fake-agent"
+      }
+    }
+  },
+  {
+    "code": "targetConflict",
+    "commit": "0123456789abcdef",
+    "files": ["a.kt"]
   }
 ]

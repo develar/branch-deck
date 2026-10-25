@@ -817,7 +817,7 @@
   {
     "id": "row-11-unavailable",
     "group": "next-step-rows",
-    "title": "Patronus can't answer for the review: the app confirms, bd fails",
+    "title": "Patronus can't answer for the review: the app confirms, bd refuses review_unknown unless --allow-unknown-review",
     "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D14",
     "given": {
@@ -835,7 +835,8 @@
     },
     "bd": {
       "check": {
-        "error": "patronus_error"
+        "refusals": ["review_unknown"],
+        "readiness": "unavailable"
       }
     }
   },

@@ -599,7 +599,7 @@
   {
     "id": "readiness-unavailable",
     "group": "review",
-    "title": "the pre-check of the review fails",
+    "title": "the pre-check of the review fails: the app confirms the review line, bd refuses review_unknown unless --allow-unknown-review",
     "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D14",
     "given": {
@@ -613,10 +613,11 @@
     },
     "bd": {
       "check": {
-        "error": "patronus_error"
+        "refusals": ["review_unknown"],
+        "readiness": "unavailable"
       },
       "start": {
-        "error": "patronus_error"
+        "error": "review_unknown"
       }
     }
   },

@@ -4,6 +4,9 @@
 // (`formatStackHold`), a start check carries the reason of a disabled action (`startCheck`).
 import type { HoldKind, PatronusPushMode, PatronusRobot, Reason, RobotOf } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
+import { formatShortHash } from "@/lib/hash"
+import { describeLandingRefusal } from "@/lib/landing-gate"
+import { formatParkedBlocker } from "@/lib/parked"
 import type { LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import { formatLandingSubject, formatPushMode } from "@/lib/patronus"
 import { joinNames } from "@/lib/text"
@@ -128,6 +131,14 @@ const words = {
   cantPush: ({ branch }, statusText) => `${branch} can't be pushed: ${statusText(branch) === "" ? "it failed to sync" : statusText(branch)}`,
   dropsRemote: ({ branch, behind }) =>
     `The remote branch of ${branch} has ${behind === 1 ? "a commit" : `${behind} commits`} that ${branch} lacks: push it from its row, which shows ${behind === 1 ? "it" : "them"}`,
+  parked: ({ with: parent, note }) => formatParkedBlocker({ with: parent, note }),
+  unprotected: ({ target }) => `Patronus does not push into ${target}`,
+  draft: ({ number }) => `#${number} is a draft: Patronus merges it once it is ready for review`,
+  otherBase: ({ number, base }) => `Approvals in #${number} don't count: its base is ${base}`,
+  approvalsMissing: () => "Patronus checks the approvals when the robot starts and fails without them",
+  dismissesApprovals: ({ number }) => `The push dismisses the approvals of #${number}: push first, then ask for the review again`,
+  landingRefused: ({ refusal }) => describeLandingRefusal(refusal, refusal.branch),
+  targetConflict: ({ commit, files }) => `${formatShortHash(commit)} conflicts in ${joinNames(files)} with the newest target: Patronus would fail the robot at once`,
 } satisfies Words as Words
 
 /**

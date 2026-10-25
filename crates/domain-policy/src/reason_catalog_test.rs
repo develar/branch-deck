@@ -3,7 +3,8 @@
 //! `UPDATE_REASON_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/reason/)'` writes it; without the variable a
 //! stale catalog fails.
 
-use domain_types::fixtures::{carried, robot_of, whole_stack_robot_of};
+use domain_types::fixtures::{carried, robot_of, stack_commit as commit, whole_stack_robot_of};
+use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind};
 use domain_types::patronus::PatronusPushMode;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView, RobotOf};
@@ -26,10 +27,18 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::StackHeld { .. } => 10,
     Reason::CantPush { .. } => 11,
     Reason::DropsRemote { .. } => 12,
+    Reason::Parked { .. } => 13,
+    Reason::Unprotected { .. } => 14,
+    Reason::Draft { .. } => 15,
+    Reason::OtherBase { .. } => 16,
+    Reason::ApprovalsMissing { .. } => 17,
+    Reason::DismissesApprovals { .. } => 18,
+    Reason::LandingRefused { .. } => 19,
+    Reason::TargetConflict { .. } => 20,
   }
 }
 
-const CODES: usize = 13;
+const CODES: usize = 21;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -139,6 +148,61 @@ fn examples() -> Vec<Reason> {
       block: BlockReason::Conflict,
     },
     Reason::DropsRemote { branch: s("auth"), behind: 2 },
+    Reason::Parked {
+      branch: s("login"),
+      with: Some(s("auth")),
+      note: s("IJPL-1"),
+    },
+    Reason::Parked {
+      branch: s("auth"),
+      with: None,
+      note: String::new(),
+    },
+    Reason::Unprotected { target: s("master") },
+    Reason::Draft { number: 7 },
+    Reason::OtherBase {
+      number: 7,
+      base: s("release/253"),
+      target: s("master"),
+    },
+    Reason::ApprovalsMissing {
+      groups: vec![s("Air Plugin Release Team")],
+    },
+    Reason::DismissesApprovals { number: 7, target: s("master") },
+    Reason::LandingRefused {
+      refusal: Box::new(LandingRefusal::MissingDeclaration {
+        branch: s("flow"),
+        identifier: s("parseFlow"),
+        file: s("flow/Flow.kt"),
+        line: 3,
+        used_by: commit("c1", "Use parseFlow", "flow"),
+        declared_by: commit("u1", "Add parseFlow", "util"),
+        fix: LandingFix::Restack {
+          branch: s("flow"),
+          onto: s("util"),
+        },
+        landing_in: None,
+      }),
+    },
+    Reason::LandingRefused {
+      refusal: Box::new(LandingRefusal::DanglingReference {
+        branch: s("fake-agent"),
+        reference: ReferenceKind::Removed,
+        identifier: s("CONTROL_URL_ENV"),
+        file: s("acp/Host.kt"),
+        line: 7,
+        removed_by: commit("r1", "Remove the env", "fake-agent"),
+        fixed_by: commit("f1", "Read the url", "acp"),
+        fix: LandingFix::MoveCommit {
+          commit: commit("f1", "Read the url", "acp"),
+          into: s("fake-agent"),
+        },
+      }),
+    },
+    Reason::TargetConflict {
+      commit: s("0123456789abcdef"),
+      files: vec![s("a.kt")],
+    },
   ]
 }
 
