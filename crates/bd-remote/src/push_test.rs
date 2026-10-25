@@ -407,7 +407,7 @@ fn pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch() {
   let output = push_auth_to_its_tip(&repo, &remote);
   let auth = branch(&output, "auth");
   assert_eq!((&auth["lease"], &auth["pushed_over"]), (&json!(short_id(&older)), &json!(true)));
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 }
 
