@@ -124,6 +124,12 @@ const PAIRS: Pair[] = [
     min: TEXT,
     ratio: (token: Token) => contrast(token(`${fill}-foreground`), token(fill)),
   })),
+  // the edge of a field (Input, Select, Textarea): on an island and in a popup
+  ...["card", "popover"].map(surface => ({
+    name: `input on ${surface}`,
+    min: MARK,
+    ratio: (token: Token) => contrast(token("input"), token(surface)),
+  })),
   // the edge of an unchecked checkbox and switch: on an island (Settings, the find bar of a diff), in a popup (a dialog,
   // the review request) and on the hover of a row there (the code owners of a review request); never on the canvas
   ...["card", "popover"].flatMap(surface => [
@@ -161,7 +167,12 @@ describe.each(["light", "dark"] as const)("the %s tokens", theme => {
 
   it("reads every token from the Islands variables, not from a literal", () => {
     const literals = ["canvas", "background", "card", "popover", "foreground", "muted-foreground", "primary", "border", "input", "control-edge", ...STATUSES]
-      .map(name => `--${name}: ${scope.get(`--${name}`)}`)
+      .map(name => {
+        const value = scope.get(`--${name}`) ?? ""
+        // a token that names another token of the palette (`--control-edge: var(--input)`) reads its variable
+        const reference = /^var\((--[\w-]+)\)$/.exec(value)?.[1]
+        return `--${name}: ${reference !== undefined && !reference.startsWith("--islands-") ? scope.get(reference) : value}`
+      })
       .filter(line => !line.includes("var(--islands-"))
     expect(literals).toEqual([])
   })

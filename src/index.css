@@ -50,7 +50,7 @@
 /*
  * The tree of the branch table (BranchNameCell, StackLanes, ActiveBranchExpanded, BranchRow). Every cell has the
  * vertical padding --bd-cell-y, which the lines span to run over the whole row: a 36px row around the 24px folder
- * button.
+ * button (`icon-sm`).
  *
  * Stacks are a graph (StackLanes): a column of --bd-lane-count lanes, --bd-lane-width each, starts at --bd-lane-start
  * in the name cell; the table sets the count and `bd-lanes`. The folder button of a row follows at --bd-tree-x, so
@@ -283,13 +283,16 @@
   --color-window-button-kde-on-circle: var(--window-button-kde-on-circle);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  /*
+   * The radii of the Islands arcs on the steps of the Mira style (docs/design/ui-theme.md, "Radius scale"): a control
+   * `rounded-md` 4px (Button.arc, Component.arc), a popup, an alert and a nested panel `rounded-lg` 6px (Banner.arc), a
+   * dialog `rounded-xl` 8px, an island `rounded-2xl` 10px (Island.arc)
+   */
   --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.5);
+  --radius-xl: calc(var(--radius) * 2);
+  --radius-2xl: calc(var(--radius) * 2.5);
 }
 
 :root {
@@ -343,14 +346,16 @@
   --info-foreground: var(--islands-text-over-accent-light);
   /* separatorColor: dialog-border */
   --border: var(--islands-dialog-border-light);
-  /* Component.borderColor: control-border. The fill of a field (bg-input/50 of the Rhea style), so no 3:1 border */
-  --input: var(--islands-control-border-light);
   /*
-   * The edge of a control that only its edge shows: an unchecked checkbox, the track of an unchecked switch. 3:1 on
-   * every surface they lie on (WCAG 1.4.11): gray-80, not gray-90, because a checkbox lies on the hover of a row in a
-   * popup (the code owners of a review request), where gray-90 has 2.9:1
+   * The edge of a field (the Mira style draws a field, a select and a textarea by `border-input`, without a fill):
+   * gray-80, not control-border (gray-130, 1.5:1), so it keeps 3:1 on the island, a popup and the hover of a row there
    */
-  --control-edge: var(--islands-gray-80);
+  --input: var(--islands-gray-80);
+  /*
+   * The edge of a control that only its edge shows: an unchecked checkbox, the track of an unchecked switch, 3:1 on every
+   * surface they lie on (WCAG 1.4.11). The edge of a field in light; a step more in dark (below)
+   */
+  --control-edge: var(--input);
   --ring: var(--primary);
   --radius: 0.25rem;
   /*
@@ -481,10 +486,14 @@
     /* step 550 of the same ramp */
     --chart-context: #1c5cab;
     --info-foreground: var(--islands-tool-window-bg-dark);
-    /* separatorColor: popup-border; Component.borderColor: control-border */
+    /* separatorColor: popup-border */
     --border: var(--islands-popup-border-dark);
-    --input: var(--islands-control-border-dark);
-    /* gray-90, not gray-80: gray-80 has 2.7:1 on the hover of a row in a popup */
+    /* gray-80: 3.8:1 on the island, 3.2:1 in a popup */
+    --input: var(--islands-gray-80);
+    /*
+     * gray-90, not the gray-80 of a field: a checkbox lies on the hover of a row in a popup (the code owners of a review
+     * request), where gray-80 has 2.7:1
+     */
     --control-edge: var(--islands-gray-90);
     --window-button-glyph: #ced0d6;
     --window-button-shade: #ffffff;
@@ -565,8 +574,11 @@
     @apply border-border outline-ring/50;
   }
   body {
-    /* Islands layering: the window is the canvas, top-level blocks are `Card` islands */
-    @apply bg-canvas text-foreground antialiased;
+    /*
+     * Islands layering: the window is the canvas, top-level blocks are `Card` islands. The UI text is 13px (`text-sm`):
+     * the primitives carry no text size, so a row, a control and a popup take it from here or from their container
+     */
+    @apply bg-canvas text-sm text-foreground antialiased;
   }
   html {
     @apply font-sans;

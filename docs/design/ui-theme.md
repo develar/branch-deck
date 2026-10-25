@@ -6,8 +6,8 @@
 
 ## Problem
 
-Branch Deck runs inside a JetBrains-centric workflow, and the stock shadcn Rhea preset looked foreign next to IntelliJ.
-The preset had two problems:
+Branch Deck runs inside a JetBrains-centric workflow, and the stock shadcn Rhea preset, its first style, looked foreign
+next to IntelliJ. The preset had two problems:
 
 - **Corners too round.** At `--radius: 0.625rem`, cards were 24px, popovers 22px, and buttons, inputs and badges 18px.
 - **No shared container style.** The main window mixed three container styles:
@@ -37,6 +37,31 @@ token, every colour of the palette maps a variable of the Islands themes (`src/i
 top-level block is the same `Card`.
 
 ## Design
+
+### Style
+
+The ui primitives come from the shadcn style `base-mira` (`components.json`), with the local changes each file names in
+its `// local customisation` header. It was `base-rhea` until October 2026. Mira has the geometry of the IDE, Rhea had
+not (measured on the same page, Islands Light, 13px Inter):
+
+| Style | Field | Button, `sm` | A field is | Its edge on the island |
+| --- | --- | --- | --- | --- |
+| IntelliJ Islands | 28px | 28px, 24px | a 1px border | 1.5:1 (`control-border`) |
+| `base-mira` without its fill (ours) | 28px | 28px, 24px | a 1px border | 4.6:1 (`--input`, gray-80) |
+| `base-rhea` | 32px | 32px, 28px | a fill, no border | 1.2:1 (`bg-input/50`) |
+| `base-nova` | 32px | 32px, 28px | a 1px border | 4.6:1 |
+
+Two local changes apply to every primitive:
+
+- **No text size.** The stock Mira sets 10 and 12px (`text-xs/relaxed`, `text-[0.625rem]`) on its parts. Branch Deck's
+  UI text is 13px: `body` is `text-sm`, and a container sets another step of the type scale where it needs one. Only a
+  chip (`Badge`), a key hint (`Kbd`) and the labels of a chart keep `text-xs`, their step of the type scale; a 20px chip
+  clips the descenders of 13px text. The icons of a button are one step larger than the stock for the 13px text.
+- **No field fill.** Mira fills a field with `bg-input/20` (`dark:bg-input/30`) inside its border. Here `--input` is the
+  border, and a field is its edge only, as in the IDE ([Palette](#palette)).
+
+A branch row stays 36px: its folder button is the 24px `icon-sm`, so the names and the commit subjects under them stay
+where they were.
 
 ### Layering
 
@@ -89,8 +114,8 @@ The palette comes from the Islands themes of the IDE, not from hand-copied value
 | `--foreground` | `text-default` | `#000000` | `#D1D3D9` |
 | `--muted-foreground` | `text-muted` | `#5F6269` | `#9FA2A8` |
 | `--border` | `separatorColor`: `dialog-border`, `popup-border` | `#E9EAEE` | `#33353B` |
-| `--input` | `control-border` (`Component.borderColor`) | `#D1D3D9` | `#40434A` |
-| `--control-edge` | `gray-80`; `gray-90` | `#73767C` | `#8B8E94` |
+| `--input` | `gray-80` | `#73767C` | `#73767C` |
+| `--control-edge` | `--input`; `gray-90` | `#73767C` | `#8B8E94` |
 | `--primary` | `text-link` | `#2F5EB9` | `#71A1FE` |
 | `--success` | `green-70`; `text-success` | `#2A6E47` | `#6DB083` |
 | `--warning` | `yellow-70`; `text-warning` | `#875817` | `#D59637` |
@@ -115,19 +140,17 @@ Where the tokens leave the Islands keys, and why (the ratios measured on the val
   least. The dark statuses stay at the `text-*` step 100: 6.8:1 on the island, 5.8:1 on a popup, 5.8:1 on the tint.
 - **`--info` is the purple of the palette.** Islands has no info key, and its brand blue is the primary. It was
   GitHub's merged violet (`#8250DF`, `#AB7DF8`); the palette steps have the same hue and the contrast of the statuses.
-- **Fields are filled, toggles are edged.**
-  - A text field (`Input`, `Select`, `Textarea`, `InputGroup`, `Combobox`) is filled with `bg-input/50`, as in the IDE
-    and the Rhea style. `--input` stays `control-border`, 1.5:1 on the island (1.8:1 in dark). WCAG 1.4.11 asks for no
-    3:1 boundary of a text field that its label and its place identify.
-  - A control that only its edge shows has the edge `--control-edge` at 3:1: an unchecked `Checkbox` (the edge, no fill)
-    and the track of an unchecked `Switch` (the edge around its `bg-input/90` fill). They lie on an island (Settings,
-    the find bar of a diff), in a popup (a dialog, the review request) and on the hover of a row in a popup (the code
-    owners of a review request), never on the canvas.
-  - `gray-80` in light and `gray-90` in dark, one step more than `gray-90` and `gray-80`: on the hover of a row in a
-    popup those had 2.9:1 and 2.7:1. Now the edge has 4.6:1 on the island and 4.1:1 on the hover in light; 5.3:1 on the
-    island, 4.5:1 in a popup and 3.8:1 on the hover in dark. It stays lighter than the muted text.
-  - The docs sites of the monorepo give their field borders `gray-80`; their style draws a field by its border, ours by
-    its fill.
+- **Fields and toggles are edged, at 3:1 (WCAG 1.4.11).**
+  - `--input` is the border of a field (`Input`, `Select`, `Textarea`, `InputGroup`, `Combobox`), as in the Mira style:
+    `gray-80`, the step the docs sites of the monorepo take, not `control-border` (`gray-130`, 1.5:1 on the island). It
+    has 4.6:1 on the island and in a popup in light, 3.8:1 on the island and 3.2:1 in a popup in dark.
+  - `--control-edge` is the edge of a control that only its edge shows: an unchecked `Checkbox` (the edge, no fill) and
+    the track of an unchecked `Switch` (the track filled with it). They lie on an island (Settings, the find bar of a
+    diff), in a popup (a dialog, the review request) and on the hover of a row in a popup (the code owners of a review
+    request), never on the canvas. In light it is `--input`, 4.1:1 on the hover. In dark it is one step lighter,
+    `gray-90`: `gray-80` has 2.7:1 on the hover, `gray-90` 5.3:1 on the island, 4.5:1 in a popup and 3.8:1 on the hover.
+  - An outline button keeps the faint `border-border` of the stock and its solid `bg-background`: its label identifies
+    it, and its fill keeps it a field on the canvas.
 - **An `Alert` mixes the tint of its tone with the card** (`color-mix(in srgb, var(--destructive) 10%, var(--card))`),
   and its description has the full tone. An alert lies on the canvas: the translucent tint over `#E9EAEE` gave its title
   3.4:1 and its description, at 90% of the tone, 3.0:1. On the card colour they have 5.3:1. A `Callout` and a `Badge`
@@ -137,18 +160,20 @@ Where the tokens leave the Islands keys, and why (the ratios measured on the val
 
 ### Radius scale
 
-The Rhea preset derives all radii from `--radius` through the multipliers in the `@theme inline` block of
-`src/index.css`. `--radius` is `0.25rem`:
+The Mira style names a radius step for each kind of part. The multipliers in the `@theme inline` block of
+`src/index.css` put the Islands arcs on these steps. `--radius` is `0.25rem`:
 
 | Utility | Multiplier | Value | Used by | Islands counterpart |
 | --- | --- | --- | --- | --- |
-| `rounded-4xl`, capped at 24px | 2.6× | 10.4px | `Card`, `Dialog` | `Island.arc` 20, a 10px radius |
-| `rounded-3xl` | 2.2× | 8.8px | `Popover` | popup |
-| `rounded-2xl` | 1.8× | 7.2px | button, input, select, badge, status chip, toast, menu | `Button.arc` 8, a 4px radius |
-| `rounded-xl` | 1.4× | 5.6px | menu items, tooltip | `Banner.arc` 12, a 6px radius |
-| `rounded-lg` | 1× | 4px | `kbd`, inner panels in app code | `Component.arc` 8, a 4px radius |
+| `rounded-2xl` | 2.5× | 10px | `Card`, the file cards of a diff | `Island.arc` 20, a 10px radius |
+| `rounded-xl` | 2× | 8px | `Dialog` | |
+| `rounded-lg` | 1.5× | 6px | `Popover`, menus, `Alert`, inner panels in app code | `Banner.arc` 12, a 6px radius |
+| `rounded-md` | 1× | 4px | button, input, select, checkbox, tooltip, toast, menu items, status chip | `Button.arc` and `Component.arc` 8, a 4px radius |
+| `rounded-sm` | 0.6× | 2.4px | `xs` button | |
+| `rounded-full` | | | badge, switch | |
 
-Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 10px radius.
+Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 10px radius. The stock Mira card is
+`rounded-lg`; `card.tsx` makes it `rounded-2xl`, so an island is 10px and an inner panel (6px) stays less round.
 
 ### Diffs
 
@@ -196,9 +221,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
    **Rationale**: The scale stays proportional across all components and survives `shadcn add --overwrite`. The
    `// local customisation` list in the ui files does not grow.
 
-2. **Decision**: Accept controls at about 7px instead of the 4px of IntelliJ buttons.
-   **Rationale**: Matching IntelliJ exactly would need per-component overrides. A consistent scale matters more than
-   pixel parity.
+2. **Decision**: The radius steps of the Mira style carry the Islands arcs: 4px controls, 6px popups, 10px islands.
+   **Rationale**: Mira gives each kind of part its own step, so the multipliers alone reach the IntelliJ values. Only
+   the `Card` changes its step (`rounded-2xl`), because the stock card is the size of a popup.
 
 3. **Decision**: The canvas is its own token, `--canvas`, and `muted` is a translucent tint.
    **Rationale**: The IntelliJ canvas is darker than any hover on an island. A solid `muted` equal to the canvas would
@@ -253,7 +278,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   header that shows a file (one menu each, never around a diff), and ⌘C on a focused row.
 - **Don't recolour a top-level `Card` or `Alert`** with `bg-muted`. A `bg-muted` override makes the island invisible on the
   canvas.
-- **Nested panels inside a card** use `rounded-lg` (4px): `InfoCard`, code boxes, diff frames and warning boxes.
+- **Nested panels inside a card** use `rounded-lg` (6px): `InfoCard`, code boxes, diff frames and warning boxes.
   `rounded-xl` is the most they get. They must stay visibly less round than the 10px island around them.
   - A section with a header inside an island (the conflict viewer and the amend preview in the expanded row) is a
     `NestedPanel` (`src/components/shared/NestedPanel.tsx`): `rounded-lg border border-border bg-card`, without the ring
@@ -340,7 +365,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   matches Inter's metrics (SF Mono is 4% lower and exists only on macOS), and is the font of the IntelliJ editor the
   code comes from.
 - **Density** is the IntelliJ list density:
-  - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px), which the lanes
+  - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px) around the 24px
+    folder button (`icon-sm`, the other controls of a row are 20px), which the lanes
     of the graph and the family guide span (`StackLanes`, `FamilyGuide`);
   - the dividers of the branch table group its rows: full width between the top-level units (a stack, a lone branch,
     an issue family), from the tree (`--bd-tree-x`) inside one, so a long stack reads as one block and still has a
@@ -538,8 +564,11 @@ Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review tha
 - **Copy IntelliJ values per component** (4px buttons, 10px cards):
   - Why not: it means per-component overrides in `src/components/ui/*`, which are lost on every `--overwrite`, and the
     proportions drift apart over time.
-- **Switch to the Nova style** (`base-nova`, like the JetBrains genui renderer):
-  - Why not: Rhea was chosen for its compact density and Inter, and the radius token alone reaches the target.
+- **Stay on the Rhea style** (`base-rhea`, the first style):
+  - Why not: its 32px controls are larger than the 28px of the IDE, and its fields are a fill of 1.2:1 without a border;
+    the IDE draws a field by its border.
+- **The Nova style** (`base-nova`):
+  - Why not: it has the borders, but its controls are 32px like Rhea's. Mira has the 28px and 24px of the IDE.
 - **shadcn preset radius "small"** (~0.45rem):
   - Why not: it still gives 19px cards and 13px controls, far rounder than Islands.
 - **Stock `zinc` base colour** (`baseColor: zinc`):

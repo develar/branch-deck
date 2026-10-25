@@ -1,5 +1,6 @@
 // local customisation: no `dark:` ring on the tooltip (the theme tokens switch it), no hardcoded radius on the swatches of
-// the tooltip and the legend, `String(…)` for the keys of a payload (type-aware lint: a data key may be a function)
+// the tooltip and the legend, `String(…)` for the keys of a payload (type-aware lint: a data key may be a function); the
+// labels of a chart and its tooltip at `text-xs`, the meta step of the type scale
 import * as React from "react"
 import { cn } from "cn"
 import * as RechartsPrimitive from "recharts"
@@ -154,7 +155,7 @@ function ChartTooltipContent({
   const nestLabel = payload.length === 1 && indicator !== "dot"
 
   return (
-    <div className={cn("grid min-w-32 items-start gap-1.5 rounded-xl bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/10", className)}>
+    <div className={cn("grid min-w-32 items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl", className)}>
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">
         {payload

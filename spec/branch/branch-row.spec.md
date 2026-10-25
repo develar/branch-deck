@@ -765,8 +765,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The status text is `text-sm text-muted-foreground`, truncated in its column, after a `size-1.5` dot. The badge is the
   subtle badge of its colour. The robot in its place is its chip at `text-sm`, `h-6` without padding, a `size-3.5` icon
   (the ring while it runs) where the dot is; the progress line under its time is `h-0.5`, in the padding of the cell.
-- A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and
-  badges (its focus ring), without a border or an outline, and underlined on hover. A dot is `size-1.5 rounded-full
+- A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-md` as buttons (its focus
+  ring), without a border or an outline, and underlined on hover. A dot is `size-1.5 rounded-full
   shrink-0`. The details popover is `w-80` with `p-3`.
 - The colours: `info` merged and landed; `warning` attention (blocked, a pull request or a robot behind the branch,
   "Needs review"); `destructive` a failure or a conflict; `success` approved or passed; the push colour (`primary`, or
