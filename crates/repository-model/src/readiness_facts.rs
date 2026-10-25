@@ -142,7 +142,6 @@ impl ReadinessFact {
     for name in state.order() {
       let stack = state.stack(name).map(|_| stack_readiness_key(name));
       for key in stack.into_iter().chain(std::iter::once(name.clone())) {
-        let ask = subject_ask(state, pull_requests, github, &target, &key);
         let record = self.subjects.get(&key);
         let rechecking = record.is_some_and(|record| record.rechecks > record.answered_rechecks);
         let demanded = rechecking || demand.needed.contains(&key);
@@ -150,14 +149,16 @@ impl ReadinessFact {
           Some(root) => demand.visible_stacks.iter().any(|shown| shown == root),
           None => demand.visible_branches.contains(&key),
         };
+        // a subject nothing asks for and the session has no answer of costs nothing
+        if !demanded && !shown && record.is_none() {
+          continue;
+        }
+        let ask = subject_ask(state, pull_requests, github, &target, &key);
         let awaits = record
           .and_then(|record| record.last_answered.as_ref())
           .zip(ask.as_ref())
           .is_some_and(|(last, ask)| awaits_approval(last, ask));
         let priority = readiness_priority(demanded, shown, awaits);
-        if priority.is_none() && record.is_none() {
-          continue;
-        }
         let record = self.subjects.entry(key.clone()).or_insert_with(SubjectRecord::new);
         let Some(ask) = ask else {
           // no tip to ask about: the record waits for the sync
