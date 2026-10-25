@@ -290,13 +290,14 @@ test.describe("Update Project", () => {
     await expect(dialog).toContainText("the prompt resolves each commit with bd, outside the working tree.")
     const prompt = await readClipboard(page)
     expect(prompt).toContain("Update the branch `master` of the Git repository at ")
-    expect(prompt).toMatch(/- Likely conflict: src\/app.txt \(mine: [0-9a-f]{8}; upstream: [0-9a-f]{8}\)/)
+    expect(prompt).toMatch(/First conflict: [0-9a-f]{8} \(feature-auth\) Change line 2: src\/app\.txt[.,]/)
     // the protocol is bd's own; each round names the upstream commits of its files
     expect(prompt).toContain("Run `bd help update` first and follow it")
     expect(prompt).not.toContain("Upstream commits of these files")
     expect(prompt).toMatch(/bd is `\/Users\/test\/\.local\/bin\/bd -C \S+`; below, `bd` stands for it\./)
     expect(prompt).toContain("1. `bd update --no-fetch`.")
-    expect(prompt).toContain("editing only the copy at `edit`")
+    expect(prompt).toContain("edit only the copies at `edit`")
+    expect(prompt).toContain("When an output or its `error` has `ask_user: true`")
     expect(prompt).toContain("never edit a conflicting file in the working tree.")
     expect(prompt).toContain("Don't push.")
     expect(prompt).not.toContain("git stash push")
@@ -330,7 +331,7 @@ test.describe("Update Project", () => {
 
     await dialog.getByTestId("copy-agent-prompt").click()
     const prompt = await readClipboard(page)
-    expect(prompt).toContain("- … and 40 more files: bd names the files of each round")
+    expect(prompt).toContain("src/wide/file19.txt, and 40 more files.")
     expect(prompt.length).toBeLessThan(8000)
   })
 

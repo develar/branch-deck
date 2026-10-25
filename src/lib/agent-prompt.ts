@@ -1,6 +1,6 @@
 import type { AgentCliCommand, UpdateCheck, UpdateCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
-import { bullets, numbered, RULES, shellWord } from "@/lib/prompt-text"
+import { bullets, numbered, RULES, shellWord, UPDATE_RULES } from "@/lib/prompt-text"
 import { cutList } from "@/lib/text"
 import { groupConflictFiles } from "@/lib/update-conflict"
 
@@ -121,13 +121,20 @@ function conflictOutline(state: ConflictState): ConflictOutline {
   }
 }
 
-/** `Likely conflict: src/app.txt (mine: bbbbbbbb; upstream: cccccccc)` per file, then the count of the rest */
-function likelyConflictLines({ files, moreFiles }: ConflictOutline): string[] {
-  const lines = files.map(({ path, local, upstream }) => {
-    const sides = [...(local === "" ? [] : [`mine: ${local}`]), ...(upstream === "" ? [] : [`upstream: ${upstream}`])]
-    return `Likely conflict: ${sides.length === 0 ? path : `${path} (${sides.join("; ")})`}`
-  })
-  return moreFiles === 0 ? lines : [...lines, `… and ${moreFiles} more files: bd names the files of each round`]
+/**
+ * `First conflict: bbbbbbbb (auth) Change line 2: src/app.txt, src/config.txt`: where bd opens its first round, the files
+ * of its merge, at most `MAX_PROMPT_FILES`, then the count of the rest; each round names the upstream commits of its
+ * files
+ */
+function firstConflictLine(state: ConflictState): string {
+  const first = state.firstConflict
+  const commit = `${formatShortHash(first.commit.id)} ${first.commit.subject}`
+  // the backend reports the first files and counts all
+  const { shown, more } = cutList(first.files, MAX_PROMPT_FILES, first.fileCount)
+  if (shown.length === 0) {
+    return `First conflict: ${commit}.`
+  }
+  return `First conflict: ${commit}: ${shown.join(", ")}${more === 0 ? "" : `, and ${more} more files`}.`
 }
 
 /**
@@ -144,30 +151,30 @@ function upstreamCommitsSection(check: UpdateCheck, commits: readonly UpdateComm
 /**
  * The conflict prompt with bd: the agent updates with `bd update --no-fetch` (the baseline the user saw) and resolves
  * each round in the copies bd writes outside the working tree, never in the working tree itself; no `--expect-head`,
- * because peers commit meanwhile and become more rounds. The prompt holds what bd doesn't know (the repository, the
- * command, what the user saw, the user's rules, what to report); the protocol is bd's own: `bd help update`, the `hint`
- * of each file, `session.next` and `retryable`, so that a prompt never restates an exit code that bd changed
+ * because peers commit meanwhile and become more rounds. The prompt holds only what bd doesn't know (the repository,
+ * the command, what the user saw, the user's rules, what to report); the protocol is bd's own: `bd help update`, the
+ * `hint` of each file, `session.next`, `ask_user` and `retryable`. So the prompt never restates an exit code, a marker
+ * rule or an error code that bd could change, and it asks the user only where bd says `ask_user`
  */
 function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state: ConflictState, fetchTime: number | null, bd: AgentCliCommand): string {
   const { branch, upstream } = check
   const fixup = `git -C ${shellWord(repositoryPath, bd.powershell)} commit -m 'fixup! <subject>' -- <paths>`
   const fetched = fetchTime === null ? "" : ` (fetched ${new Date(fetchTime).toISOString().replace(/\.\d{3}Z$/, "Z")})`
   const heads = `HEAD (${branch}) ${formatShortHash(check.head)}, ${upstream} ${formatShortHash(check.upstreamHead)}.`
-  const files = likelyConflictLines(conflictOutline(state))
   return [
     `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.`,
-    `bd is \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Run \`bd help update\` first and follow it: it explains each field and error. Each run prints one JSON object.`,
-    [`State${fetched}: ${heads}`, ...(files.length === 0 ? [] : [bullets(files)])].join("\n"),
+    `bd is \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Run \`bd help update\` first and follow it: it explains each field, hint and error. Each run prints one JSON object.`,
+    [`State${fetched}: ${heads}`, firstConflictLine(state)].join("\n"),
     `Steps:\n${numbered([
-      "`bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
-      `While it exits 1: resolve each entry of \`session.files\` as its \`hint\` says (and \`session.commit.hint\`, if any), editing only the copy at \`edit\` and only the lines between the markers, then run \`session.next\` with the \`--take\` or \`--delete\` the hint names.${bd.powershell ? " Write each copy with `[IO.File]::WriteAllText('<edit>', $text)`: `Set-Content` and `Out-File` add a byte order mark or write UTF-16, and change the line ends." : ""} A change the commit needs elsewhere waits for the fixup of step 3.`,
-      `Exit 0: build and run the tests of the code you touched. On a failure, commit only the files you fixed, as \`${fixup}\`${bd.powershell ? " (double each `'` of the subject)" : ""}, and run \`bd fold\`; or run \`bd undo <undo_token>\` and tell me.`,
-      "Report each entry of `resolutions` and of `resolved`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
+      "`bd update --no-fetch`. When an output or its `error` has `ask_user: true`, show me its `reasons` (or the error's `message`) with `session.blocked_paths` and `session.landed_differs`, and ask me once. A later round of a commit I decided in `landed_differs` takes that answer.",
+      "While it exits 1: follow the `hint` of each file and of `session.commit`, edit only the copies at `edit`, and run `session.next`.",
+      `Exit 0: build, and run the tests of \`verify.paths\`; without \`verify\`, the build is enough. On a failure, commit only the files you fixed, as \`${fixup}\`${bd.powershell ? " (double each `'` of the subject)" : ""}, and run \`bd fold\`; or run \`bd undo <undo_token>\` and tell me.`,
+      "Report each edited resolution of `resolutions` and `resolved` with every line of `dropped_upstream_lines` and `dropped_commit_lines`, each drop I decided (`landed_as` with `local_only`), and `dropped` as a count per `proof`.",
     ])}`,
     `Rules:\n${bullets([
       "Other sessions work in this tree. Never run `git rebase`, `git stash`, `git checkout` or `git reset`, and never edit a conflicting file in the working tree.",
-      ...RULES,
-      "On an error: `retryable` true: go to step 1. Exit 2 with `paths`: fix those copies and run the command again. `uncommitted_overlap` or `empty_resolution`: ask me. Anything else: stop and show me the error.",
+      ...UPDATE_RULES,
+      "On an error: when `retryable` is true, go to step 1; else do what its `message` says, or stop and show me the error.",
     ])}`,
   ].join("\n\n")
 }
@@ -175,7 +182,7 @@ function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state:
 /** The first local commit that conflicts (`firstConflict`): the rebase stops there first; `git log` lists the branch */
 function firstConflictSection(check: UpdateCheck, commit: UpdateCommit): string {
   const log = `\`git log --reverse --oneline ${check.base}..${check.head}\` lists my commits`
-  return `The rebase stops first at my commit ${formatShortHash(commit.id)} ${commit.subject}; ${log}.`
+  return `First conflict: my commit ${formatShortHash(commit.id)} ${commit.subject}, where the rebase stops first; ${log}.`
 }
 
 /**
@@ -207,7 +214,7 @@ export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: Agent
         return [path, ...sides.map(side => `  - ${side}`)].join("\n")
       })
       const more = outline.moreFiles === 0 ? [] : [`… and ${outline.moreFiles} more files: \`git status\` names them when the rebase stops`]
-      sections.push(`Files that likely conflict:\n${bullets([...files, ...more])}`)
+      sections.push(`Files of the first conflict:\n${bullets([...files, ...more])}`)
     }
     if (outline.upstream.length > 0) {
       sections.push(upstreamCommitsSection(check, outline.upstream))

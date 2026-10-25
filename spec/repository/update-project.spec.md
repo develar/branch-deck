@@ -482,57 +482,61 @@ The header shows whether an update would apply cleanly, from a check that every 
   changes with the upstream needs the same merge as a conflict.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - With a bd command, the conflict prompt must send the agent to bd's resolve session and keep it out of the working
-  tree. It holds what bd does not know and leaves the protocol to bd (`bd help update`, the `hint` of each file,
-  `session.next`, `retryable`): a prompt that restated it drifted from bd (it put `round_moved`, exit 3, under exit 2,
-  and its "exit 3 retries" then sent the agent back to the same refused round). It names the repository path, the
-  branch and the upstream; bd once, as the command to run as written (in PowerShell on Windows), with "bd is
-  `<command>`; below, `bd` stands for it", "Run `bd help update` first and follow it", one JSON object per run; the
-  state the user saw on one line ("State (fetched <time>): HEAD (<branch>) <id>, <upstream> <id>."), then per likely
-  conflicting file "Likely conflict: <path> (mine: <ids>; upstream: <ids>)" (each round names the upstream commits of
-  its files, so the prompt describes none); the steps:
-  1. `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because peers commit meanwhile); with
-     `session.blocked_paths`, ask the user about those files first;
-  2. while it exits 1, resolve each file of `session.files` as its `hint` says (and `session.commit.hint`), only in
-     the copy at `edit` and only between the markers (in PowerShell, write each copy with `[IO.File]::WriteAllText`,
-     as UTF-8 without a byte order mark), then run `session.next` with the `--take` or `--delete` a hint names; a change
-     the commit needs elsewhere waits for the fixup of step 3;
-  3. on exit 0, build and test, and on a failure a `fixup! <subject>` commit of only the fixed files
-     (`git -C <repository> commit -m 'fixup! <subject>' -- <paths>`, the repository quoted for the shell, and in
-     PowerShell each `'` of the subject doubled; never the changes of other sessions) with `bd fold`, or
-     `bd undo <undo_token>`;
-  4. report each entry of `resolutions` and of `resolved` (the commits resolved by words) with its dropped lines.
+  tree. It holds only what bd does not know and leaves the protocol to bd (`bd help update`, the `hint` of each file
+  and of the commit, `session.next`, `ask_user`, `retryable`): a prompt that restated it drifted from bd (it put
+  `round_moved`, exit 3, under exit 2, and its "exit 3 retries" then sent the agent back to the same refused round),
+  and its "ask the user" on an empty result made the agent ask about every commit that upstream had already. It names
+  the repository path, the branch and the upstream; bd once, as the command to run as written (in PowerShell on
+  Windows), with "bd is `<command>`; below, `bd` stands for it", "Run `bd help update` first and follow it", one JSON
+  object per run; the state the user saw on one line ("State (fetched <time>): HEAD (<branch>) <id>, <upstream>
+  <id>."), then "First conflict: <id> <subject>: <files>." (the commit where bd opens its first round, with the files
+  of its merge; each round names the upstream commits of its files, so the prompt describes none); the steps:
+  1. `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because peers commit meanwhile); when an
+     output or its `error` has `ask_user: true`, show the user its `reasons` (or the error's `message`) with
+     `session.blocked_paths` and `session.landed_differs`, and ask once; a later round of a commit decided in
+     `landed_differs` takes that answer;
+  2. while it exits 1, follow the `hint` of each file and of `session.commit`, edit only the copies at `edit`, and run
+     `session.next`;
+  3. on exit 0, build, and run the tests of `verify.paths` (without `verify`, the build is enough), and on a failure
+     a `fixup! <subject>` commit of only the fixed files (`git -C <repository> commit -m 'fixup! <subject>' --
+     <paths>`, the repository quoted for the shell, and in PowerShell each `'` of the subject doubled; never the
+     changes of other sessions) with `bd fold`, or `bd undo <undo_token>`;
+  4. report each edited resolution of `resolutions` and `resolved` with its dropped lines, each drop the user decided
+     (`landed_as` with `local_only`), and `dropped` as a count per `proof`.
 
   The rules: other sessions work in the tree, so never `git rebase`, `git stash`, `git checkout` or `git reset`, and
-  never edit a conflicting file in the working tree; keep every message with its `(prefix)`, don't squash, reorder,
-  split or drop commits, don't push; on an error, `retryable` goes back to step 1, exit 2 with `paths` fixes those
-  copies and runs the command again, `uncommitted_overlap` and `empty_resolution` ask the user, anything else stops
-  and shows the error. The prompt names no exit code above 2 and no other error code.
+  never edit a conflicting file in the working tree; keep every message with its `(prefix)`; don't squash, reorder or
+  split commits, and don't drop a commit yourself, because bd drops a commit it proves landed and `--landed` drops one
+  after the user's yes (`UPDATE_RULES`; the prompt without bd and the robot prompt keep "don't squash, reorder, split
+  or drop commits"); don't push; on an error, `retryable` goes back to step 1, else the agent does what its `message`
+  says or stops and shows the error. The prompt names no exit code above 1, no error code and no rule of the markers:
+  `bd help update` has them, the PowerShell way to write a copy too.
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, resolves a conflict in bd's session, outside the working tree`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for a conflict on Windows`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - A conflict prompt stays a few kilobytes however large the conflict (hundreds of files with 50 upstream commits each
   were hundreds of kilobytes): it is a map, not the record; bd names the files and the upstream commits of each round,
-  git the rest; with bd about 2 KB with one file. At most 20 files, then "… and <n> more files: bd names the
-  files of each round" (without bd: "`git status` names them when the rebase stops"), counted as in the title. Per file at most 3 commits a side, by
-  id: mine the oldest (the first to stop a replay), upstream the newest, then "+<n> more", "+<n> or more" when the
-  backend kept only the newest 50 upstream commits. Without bd, each upstream commit is described once, at most the 10
-  newest, then "… and <n> more:" with where the rest are (`git log --oneline <base>..<upstream> --
-  <path>`). A blocked prompt lists at most
+  git the rest. With bd the first conflict names at most 20 files, then ", and <n> more files", counted as in the
+  title. Without bd at most 20 files, then "… and <n> more files: `git status` names them when the rebase stops"; per
+  file at most 3 commits a side, by id: mine the oldest (the first to stop a replay), upstream the newest, then
+  "+<n> more", "+<n> or more" when the backend kept only the newest 50 upstream commits; each upstream commit is
+  described once, at most the 10 newest, then "… and <n> more:" with where the rest are (`git log --oneline
+  <base>..<upstream> -- <path>`). A blocked prompt lists at most
   50 paths, then "… and <n> more: `git status` lists them", and asks about "these files". No list leaves out only one:
   one more than its limit is given whole (`cutList`), so the prompt never says "… and 1 more files".
   [@test] ../../src/lib/agent-prompt.test.ts (`never counts one where the item would stand: a list one longer than its limit is given whole`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, names the first files and a few commits of each by id`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, names the first conflict with its first files`)
   [@test] ../../src/lib/agent-prompt.test.ts (`without bd, names the first conflict and the commits of its files`)
   [@test] ../../src/lib/agent-prompt.test.ts (`counts the rest exactly when the backend did not cut the upstream list`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names the first conflict without known files`)
   [@test] ../../src/lib/agent-prompt.test.ts (`caps the paths of a blocked update`)
 - Without a bd command, the conflict prompt must contain the repository path, the branch, the upstream with the ids of
-  HEAD, the upstream and the merge base and the fetch time, the first conflict ("The rebase stops first at my commit
-  <id> <subject>", with `git log --reverse --oneline <base>..<head>` for the other commits), the likely conflicting
-  files, the rules (keep every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push;
+  HEAD, the upstream and the merge base and the fetch time, the first conflict ("First conflict: my commit <id>
+  <subject>, where the rebase stops first", with `git log --reverse --oneline <base>..<head>` for the other commits),
+  the files of the first conflict ("Files of the first conflict"), the rules (keep every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push;
   other sessions may work in the tree, so uncommitted changes stop the agent, which asks the user and never stashes,
   resets, checks out or commits them) and the steps (rebase, resolve keeping the upstream change and the intent of the
-  commit, build and test, continue, report each resolution). Each likely conflicting file names the ids of the local
+  commit, build and test, continue, report each resolution). Each file of the first conflict names the ids of the local
   commits and the upstream commits that change it; "Upstream commits of these files" describes each upstream one once,
   with its subject, author and both dates: "(Daniil Bubnov, authored 2026-10-01, in origin/master since 2026-10-14)".
   [@test] ../../src/lib/agent-prompt.test.ts (`names the repository, the branch, the upstream and the exact ids`)

@@ -1299,7 +1299,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--whole-stack`, which lands the whole stack, the landing of a worktree's commits onto a shared branch among its
   triggers, `bd help worktrees` when several sessions or worktrees work on one branch, `bd <command> --help` for the
   outputs and refusals of a command, and the rules an agent must not miss before it reads any help (approval before
-  every push, never reorder, squash or drop commits, `bd pick` instead of a cherry-pick, `error.code`, parked branches,
+  every push, never reorder, squash or split commits and never drop one yourself (bd drops a commit it proves landed,
+  `--landed` one after the user's yes), `bd pick` instead of a cherry-pick, `error.code`, parked branches,
   unapply); the details of an output belong in the binary's help, not in the skill. `bd help skill` must print the
   same text. Its `allowed-tools` must be
   `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
@@ -1332,7 +1333,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - It must be a core of at most 10 KB, which every agent reads before grouping or pushing: the rules first, what needs
   the user's approval (every push, Safe Push and Patronus Dry Run, review request, `gh pr create`, park, unpark,
   unapply, reapply and change of another session's commit, a reword of its message too), parked branches and
-  unapply, never reorder, squash or drop commits except with `bd fold`, a change moved only with `bd move-hunk`, a
+  unapply, never reorder, squash or drop commits yourself (`bd fold` folds the fixups, `bd update` drops the landed
+  ones), a change moved only with `bd move-hunk`, a
   message changed only with `bd reword`, only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo writing
   the working tree, what each exit code asks for (exit 1 never an error object, exit 4 without a rule: stop and show
   `message`), that `retryable` decides a retry whatever the exit code, the error object with `paths`, `branches`,

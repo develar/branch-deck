@@ -47,8 +47,8 @@ Rules
   refuse an unapplied name (`unapplied`); `bd push --unapplied <name>` keeps a copy on the remote when the user asks.
   `branch_not_built` (sync first), `branch_checked_out`, `drop_conflict`, `reapply_conflict` and `nothing_to_reapply`
   change nothing: tell the user.
-- Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
-  change between commits only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
+- Never reorder, squash or drop commits yourself (`bd fold` folds fixup!, squash! and amend!; `bd update` drops
+  landed ones); move a change only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.
 - Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update.
 - Branch on `error.code` and the exit code, never on the message. 0 ok. 1 a conflict, never an error object: the
@@ -629,8 +629,9 @@ command prints and what each of its refusals asks.
 - Land the commits of another worktree with `bd pick`, never with `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema <command>` prints the JSON Schema of its output, `bd version` the version of bd and git.
-- Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
-  change between commits only with `bd move-hunk`, change a message only with `bd reword`. Never push, start a Safe
+- Never reorder, squash or split commits, except folding fixup!, squash! and amend! commits with `bd fold`, and never
+  drop a commit yourself: `bd update` drops a commit it proves landed, and `--landed` drops one after the user's yes.
+  Move a change between commits only with `bd move-hunk`, change a message only with `bd reword`. Never push, start a Safe
   Push or create pull requests before the user approved them; an `error.next_steps` entry with `needs_approval` waits
   for that approval too.
 - Before a Safe Push, run `bd safe-push <branch> --check` first and show the user what it lands: the Safe Push of a
