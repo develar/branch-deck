@@ -4,7 +4,7 @@ import islandsCss from "@/islands.generated.css?raw"
 
 // The contrast of the token pairs of src/index.css (docs/design/ui-theme.md, "Palette"), on the values of the
 // --islands-* variables it maps: text at 4.5:1 and UI marks at 3:1 (WCAG 2.2, 1.4.3 and 1.4.11), on the island, on a
-// popup and on the canvas, and a status text on the 10% tint of its colour (Callout, Badge, Alert)
+// popup and on the canvas, a status text on the 10% tint of its colour (Callout, Badge, Alert), and the edge of a toggle
 
 interface Color {
   r: number
@@ -124,6 +124,16 @@ const PAIRS: Pair[] = [
     min: TEXT,
     ratio: (token: Token) => contrast(token(`${fill}-foreground`), token(fill)),
   })),
+  // the edge of an unchecked checkbox and switch: on an island (Settings, the find bar of a diff), in a popup (a dialog,
+  // the review request) and on the hover of a row there (the code owners of a review request); never on the canvas
+  ...["card", "popover"].flatMap(surface => [
+    { name: `control-edge on ${surface}`, min: MARK, ratio: (token: Token) => contrast(token("control-edge"), token(surface)) },
+    {
+      name: `control-edge on muted over ${surface}`,
+      min: MARK,
+      ratio: (token: Token) => contrast(token("control-edge"), over(token("muted"), token(surface))),
+    },
+  ]),
   // the selection, the robot line, the focus ring
   ...["card", "canvas"].map(surface => ({
     name: `primary as a mark on ${surface}`,
@@ -150,7 +160,7 @@ describe.each(["light", "dark"] as const)("the %s tokens", theme => {
   })
 
   it("reads every token from the Islands variables, not from a literal", () => {
-    const literals = ["canvas", "background", "card", "popover", "foreground", "muted-foreground", "primary", "border", "input", ...STATUSES]
+    const literals = ["canvas", "background", "card", "popover", "foreground", "muted-foreground", "primary", "border", "input", "control-edge", ...STATUSES]
       .map(name => `--${name}: ${scope.get(`--${name}`)}`)
       .filter(line => !line.includes("var(--islands-"))
     expect(literals).toEqual([])

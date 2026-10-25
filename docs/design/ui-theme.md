@@ -79,7 +79,7 @@ The palette comes from the Islands themes of the IDE, not from hand-copied value
   value outside the keys, and its comment gives the reason.
 - **The check.** `src/lib/theme-contrast.test.ts` resolves the mapping in both themes and checks the pairs: text at
   4.5:1 on the island, on a popup and on the canvas, a status text on the 10% tint of its colour, the text on a fill,
-  and `primary` as a mark at 3:1. A change of a theme that breaks a pair fails `pnpm test:unit`.
+  `primary` and `--control-edge` as marks at 3:1. A change of a theme that breaks a pair fails `pnpm test:unit`.
 
 | Token | Islands key | Light | Dark |
 | --- | --- | --- | --- |
@@ -90,6 +90,7 @@ The palette comes from the Islands themes of the IDE, not from hand-copied value
 | `--muted-foreground` | `text-muted` | `#5F6269` | `#9FA2A8` |
 | `--border` | `separatorColor`: `dialog-border`, `popup-border` | `#E9EAEE` | `#33353B` |
 | `--input` | `control-border` (`Component.borderColor`) | `#D1D3D9` | `#40434A` |
+| `--control-edge` | `gray-80`; `gray-90` | `#73767C` | `#8B8E94` |
 | `--primary` | `text-link` | `#2F5EB9` | `#71A1FE` |
 | `--success` | `green-70`; `text-success` | `#2A6E47` | `#6DB083` |
 | `--warning` | `yellow-70`; `text-warning` | `#875817` | `#D59637` |
@@ -114,10 +115,19 @@ Where the tokens leave the Islands keys, and why (the ratios measured on the val
   least. The dark statuses stay at the `text-*` step 100: 6.8:1 on the island, 5.8:1 on a popup, 5.8:1 on the tint.
 - **`--info` is the purple of the palette.** Islands has no info key, and its brand blue is the primary. It was
   GitHub's merged violet (`#8250DF`, `#AB7DF8`); the palette steps have the same hue and the contrast of the statuses.
-- **`--input` stays `control-border`, at 1.5:1 on the island (1.8:1 in dark).** In the Rhea style `--input` is the fill
-  of a field (`bg-input/50` of `Input`, `Select`, `Textarea`; `bg-input/90` of an unchecked `Checkbox` and `Switch`),
-  and the border of an outline button. The docs sites of the monorepo take `gray-80` for a 3:1 border, but as a fill
-  `gray-80` makes every field a dark bar. A 3:1 edge of a field needs a change of the Rhea anatomy, not of the token.
+- **Fields are filled, toggles are edged.**
+  - A text field (`Input`, `Select`, `Textarea`, `InputGroup`, `Combobox`) is filled with `bg-input/50`, as in the IDE
+    and the Rhea style. `--input` stays `control-border`, 1.5:1 on the island (1.8:1 in dark). WCAG 1.4.11 asks for no
+    3:1 boundary of a text field that its label and its place identify.
+  - A control that only its edge shows has the edge `--control-edge` at 3:1: an unchecked `Checkbox` (the edge, no fill)
+    and the track of an unchecked `Switch` (the edge around its `bg-input/90` fill). They lie on an island (Settings,
+    the find bar of a diff), in a popup (a dialog, the review request) and on the hover of a row in a popup (the code
+    owners of a review request), never on the canvas.
+  - `gray-80` in light and `gray-90` in dark, one step more than `gray-90` and `gray-80`: on the hover of a row in a
+    popup those had 2.9:1 and 2.7:1. Now the edge has 4.6:1 on the island and 4.1:1 on the hover in light; 5.3:1 on the
+    island, 4.5:1 in a popup and 3.8:1 on the hover in dark. It stays lighter than the muted text.
+  - The docs sites of the monorepo give their field borders `gray-80`; their style draws a field by its border, ours by
+    its fill.
 - **An `Alert` mixes the tint of its tone with the card** (`color-mix(in srgb, var(--destructive) 10%, var(--card))`),
   and its description has the full tone. An alert lies on the canvas: the translucent tint over `#E9EAEE` gave its title
   3.4:1 and its description, at 90% of the tone, 3.0:1. On the card colour they have 5.3:1. A `Callout` and a `Badge`

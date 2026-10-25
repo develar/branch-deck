@@ -465,7 +465,8 @@ The checklist:
 
 ### Code Style
 - **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
-  `text-destructive`) plus the custom `canvas`, `success`, `warning`, `info` (`text-success`, `bg-warning/10`); the one
+  `text-destructive`) plus the custom `canvas`, `success`, `warning`, `info` (`text-success`, `bg-warning/10`) and `control-edge` (the edge of an
+  unchecked checkbox or switch); the one
   exception is the `window-button-*` palette of the Linux window buttons (IntelliJ's icons, `WindowControls`). **Never** use
   `dark:` variants; the theme is handled by the tokens, which map the IntelliJ Islands values (`src/index.css` on
   `src/islands.generated.css`, copied by `scripts/sync-islands-theme.mjs`; never edit the copy).

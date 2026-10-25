@@ -257,6 +257,7 @@
   --color-success: var(--success);
   --color-ring: var(--ring);
   --color-input: var(--input);
+  --color-control-edge: var(--control-edge);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -344,6 +345,12 @@
   --border: var(--islands-dialog-border-light);
   /* Component.borderColor: control-border. The fill of a field (bg-input/50 of the Rhea style), so no 3:1 border */
   --input: var(--islands-control-border-light);
+  /*
+   * The edge of a control that only its edge shows: an unchecked checkbox, the track of an unchecked switch. 3:1 on
+   * every surface they lie on (WCAG 1.4.11): gray-80, not gray-90, because a checkbox lies on the hover of a row in a
+   * popup (the code owners of a review request), where gray-90 has 2.9:1
+   */
+  --control-edge: var(--islands-gray-80);
   --ring: var(--primary);
   --radius: 0.25rem;
   /*
@@ -477,6 +484,8 @@
     /* separatorColor: popup-border; Component.borderColor: control-border */
     --border: var(--islands-popup-border-dark);
     --input: var(--islands-control-border-dark);
+    /* gray-90, not gray-80: gray-80 has 2.7:1 on the hover of a row in a popup */
+    --control-edge: var(--islands-gray-90);
     --window-button-glyph: #ced0d6;
     --window-button-shade: #ffffff;
     --window-button-kde-glyph: #ced0d6;
