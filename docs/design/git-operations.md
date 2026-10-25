@@ -2844,8 +2844,8 @@ no operation.
   description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it
   before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `bd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
-  `read_symbol_mode` and the configured GitHub repository of the pull requests are one snapshot each, for a caller that
-  needs one key; `stacks_enabled` (`history_rewrite::stack`, which knows no `ConfigSnapshot`) is one
+  `bd commits` takes its stack and symbol settings from the same `RepoContext::config`. The configured GitHub
+  repository of the pull requests is one snapshot, for a caller that needs one key; `stacks_enabled` (`history_rewrite::stack`, which knows no `ConfigSnapshot`) is one
   `git config -z --get-regexp` of `branchdeck.stacks` alone, the last entry read as `parse_git_bool` reads it
   (`sync_utils::git_bool`), so it says what `ConfigSnapshot::stacks` says. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
   errors (a repository that is not accessible).

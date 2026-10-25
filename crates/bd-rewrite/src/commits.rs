@@ -16,7 +16,7 @@ use object_cache::commit_diff::FileChange;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use sync_core::config_snapshot::{SymbolMode, read_symbol_mode};
+use sync_core::config_snapshot::SymbolMode;
 use sync_core::grouping::BranchGrouping;
 use sync_utils::issue_pattern::find_issue_number;
 use trial_check::dependencies::{Dependency, compute_dependencies, connected_components, with_symbols};
@@ -364,7 +364,8 @@ impl Reading {
     // the dependencies need every commit, whatever the scope
     let diffs = read_linked_diffs(context, &grouping.commit_ids, args.include_generated, args.files)?;
     let fixups = fixup_targets(&head, &ordered_commits(&grouping), &grouping.grouping);
-    let symbols = match read_symbol_mode(&context.git, &context.repository)? {
+    // the symbol setting of the command's config, which named the prefix and the stack setting already
+    let symbols = match context.config()?.symbol_mode()? {
       SymbolMode::Off => None,
       SymbolMode::Report | SymbolMode::On => {
         let input = read_symbol_input(&context.git, &context.repository, &context.cache(), diffs.linked())?;

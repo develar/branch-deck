@@ -48,12 +48,6 @@ impl SymbolMode {
   }
 }
 
-/// `branchdeck.symbols` of the repository, `SymbolMode::default()` when unset: one `ConfigSnapshot`; an operation that
-/// reads more of the config takes `ConfigSnapshot::symbol_mode` of its snapshot
-pub fn read_symbol_mode(git: &GitCommandExecutor, repository_path: &str) -> Result<SymbolMode> {
-  ConfigSnapshot::read(git, repository_path)?.symbol_mode()
-}
-
 /// The keys of one `git config -z --show-scope --get-regexp`, in git's order (a later entry wins)
 #[derive(Debug, Clone, Default)]
 pub struct ConfigSnapshot {

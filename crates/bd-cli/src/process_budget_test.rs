@@ -4,8 +4,10 @@
 
 use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
 use crate::remote_fixture_test::{AUTH, Space, needs_code_owner, repo_with_remote, robot as robot_json};
+use crate::{Cli, Command};
 use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
+use clap::Parser;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
 use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
 use bd_lease::workspace_command::workspace_with;
@@ -16,6 +18,7 @@ use bd_remote::robot_stats_command::{RobotStatsArgs, robot_stats};
 use bd_remote::safe_push_command::{SafePushArgs, safe_push};
 use bd_remote::status::{StatusArgs, status};
 use bd_rewrite::check_command::{CheckArgs, check};
+use bd_rewrite::commits::commits;
 // jscpd:ignore-end
 use bd_rewrite::fold_command::{FoldArgs, fold};
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
@@ -133,6 +136,32 @@ fn a_check_with_the_prefix_of_the_config() {
   let output = check(&context, &CheckArgs::default()).unwrap();
   assert!(output.ok, "{output:?}");
   assert_processes(&context, &CHECK);
+}
+
+/// `bd commits` with the branch prefix of the repository's config: the one `git config` of the context names the
+/// prefix, the stack setting and the symbol setting
+#[test]
+fn commits_with_the_prefix_of_the_config() {
+  let repo = repo_with_branches();
+  let context = context_with_the_config_prefix(&repo);
+  // the arguments of `bd commits`, with the defaults of its flags
+  let Command::Commits(args) = Cli::parse_from(["bd", "commits"]).command else {
+    unreachable!("bd commits parses as Command::Commits")
+  };
+  let output = commits(&context, &args).unwrap();
+  assert_eq!(output.commits.len(), 3);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 2),
+      ("check-attr", 1),
+      ("config", 1),
+      ("for-each-ref", 1),
+      ("log", 2),
+      ("remote", 1),
+      ("rev-parse", 2),
+    ],
+  );
 }
 
 /// `bd check --build` of two paths, which the tree of each branch is extracted with: one `archive` per branch, one

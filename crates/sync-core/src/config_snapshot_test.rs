@@ -1,5 +1,5 @@
 use crate::branch_prefix::get_branch_prefix_from_git_config_sync;
-use crate::config_snapshot::{ConfigSnapshot, SymbolMode, read_symbol_mode};
+use crate::config_snapshot::{ConfigSnapshot, SymbolMode};
 use crate::github_repository::GitHubRepository;
 use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -105,7 +105,6 @@ fn assert_same_as_the_readers(repo: &TestRepo) {
   let (git, path) = (repo.git_executor(), repo.path_str());
   let snapshot = snapshot(repo);
   assert_eq!(snapshot.stacks().unwrap(), stacks_enabled(git, path).unwrap());
-  assert_eq!(snapshot.symbol_mode().unwrap(), read_symbol_mode(git, path).unwrap());
   assert_eq!(snapshot.branch_prefix(), get_branch_prefix_from_git_config_sync(git, path).unwrap());
   assert_eq!(snapshot.descriptions(), &read_descriptions(git, path).unwrap());
 }
@@ -178,7 +177,7 @@ fn the_resolve_by_words_is_on_unless_the_config_turns_it_off() {
 #[test]
 fn the_mode_comes_from_git_config_and_is_on_without_it() {
   let repo = TestRepo::new();
-  let mode = || read_symbol_mode(repo.git_executor(), repo.path_str());
+  let mode = || snapshot(&repo).symbol_mode();
   assert_eq!(mode().unwrap(), SymbolMode::On);
   repo.set_config("branchdeck.symbols", "report").unwrap();
   assert_eq!(mode().unwrap(), SymbolMode::Report);
