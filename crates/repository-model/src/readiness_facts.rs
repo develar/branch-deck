@@ -21,8 +21,9 @@
 
 use crate::facts::{Applied, FactRecord, Observation};
 use crate::table::TableState;
+use domain_policy::news::approval_news;
 use domain_policy::pull_request::start_pull_request;
-use domain_policy::readiness::{Answered, approval_news, awaits_approval};
+use domain_policy::readiness::{Answered, awaits_approval};
 use domain_policy::refresh::{ReadinessPriority, readiness_priority};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::error::{ApiError, ErrorCode};

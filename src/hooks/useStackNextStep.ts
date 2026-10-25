@@ -5,7 +5,6 @@ import {
   busyFact,
   fixLanding,
   getBranchNextStepNow,
-  getLandedIn,
   nextStepSources,
   pendingFactOf,
   tellApprovalNews,
@@ -25,24 +24,14 @@ import { formatLandingSubject, getSafePushSlot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
-import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
-import { formatReasonOrNull } from "@/presenters/reasons"
+import { formatLandedWhole, formatReasonOrNull } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getOpenPullRequest, getStackBranch, getStackNotBuilt, getWholeStack, isForkingRoot, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getLandedState, getOpenPullRequest, getStackBranch, getStackNotBuilt, getWholeStack, isForkingRoot, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
-import {
-  getStackLandedReason,
-  getStackLanding,
-  getStackLandingMember,
-  getStackPushHold,
-  getStackRobot,
-  isPatronusAvailable,
-  isRobotFailing,
-  isRobotNeedingReview,
-} from "@/stores/patronus"
+import { getStackLanding, getStackLandingMember, getStackPushHold, getStackRobot, isPatronusAvailable, isRobotFailing, isRobotNeedingReview } from "@/stores/patronus"
 import { getPullRequestAvailability, getPullRequestListing, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness } from "@/stores/review-readiness"
@@ -92,8 +81,8 @@ export function wholeStackRestOf(root: string): WholeStackRest {
 
 /**
  * "Create Pull Request of the Stack…": the pull request of the stack branch of a stack that forks into the baseline,
- * disabled with the reason while the sync didn't build it, and once merged Safe Pushes landed every branch of it
- * (`getStackLandedReason`: nothing of it is left to review or land); null for a stack that doesn't fork or without the
+ * disabled with the reason while the sync didn't build it, and once all of it landed (the view's `landedStates`: nothing
+ * of it is left to review or land); null for a stack that doesn't fork or without the
  * GitHub repository of the branches
  */
 export function getCreateStackPullRequestItem(root: string): MenuItem | null {
@@ -101,7 +90,7 @@ export function getCreateStackPullRequestItem(root: string): MenuItem | null {
   if (stack === undefined || !isForkingRoot(branchSyncStore.getState(), root) || getBranchesGitHubRepository() === null) {
     return null
   }
-  const blocker = formatReasonOrNull(getStackNotBuilt(root)) ?? getStackLandedReason(root)
+  const blocker = formatReasonOrNull(getStackNotBuilt(root)) ?? formatLandedWhole(getLandedState(stackReadinessKey(root)))
   return {
     id: "create-stack-pull-request",
     label: "Create Pull Request of the Stack…",
@@ -120,7 +109,6 @@ function stackPullRequestFactOf(stack: StackBranch): NextStepPullRequest | null 
     return null
   }
   const base = getOpenPullRequest(stackReadinessKey(stack.root))?.base
-  const mergedCurrent = pullRequest.state === "merged" && !isReviewCommitOutdated(getReviewCommitState(pullRequest.headRefOid, stack.tip ?? undefined, stack.remoteStatus))
   return {
     number: pullRequest.number,
     state: pullRequest.state,
@@ -129,7 +117,6 @@ function stackPullRequestFactOf(stack: StackBranch): NextStepPullRequest | null 
     // where an open one goes, as Rust reads it (`pull_request::base_of`); one into a virtual branch is no retarget of
     // the whole stack, another base
     intoTarget: base === undefined || base.kind === "target",
-    mergedCurrent,
     baseIsVirtualBranch: false,
     waitingFor: waitingReviewers(pullRequest),
     changesRequestedBy: changesRequestedBy(pullRequest),
@@ -172,7 +159,6 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
   const restart =
     robot === undefined ? null : (getRobotActions(robot, null, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
   const readiness = options === null ? getReviewReadiness(key) : (freshReadiness(getReviewReadiness(key), key) ?? undefined)
-  const landedIn = stack.members.every(name => getLandedIn(name) !== null) ? getLandedIn(root) : null
   return {
     branchName: key,
     subject: formatWholeStack(root),
@@ -189,9 +175,9 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     landingPart: landingMember,
     held: getStackPushHold(root) !== null,
     parked: stackParkedState(getBranch(stack.root)?.structure.stackParked ?? null),
-    landedIn,
-    // merged Safe Pushes, of pieces of it or its own, landed every branch of it: nothing is left to land
-    landedWith: getStackLandedReason(root),
+    // what landed every branch of it, as Rust decides it (`landedStates`): the fetched baseline, merged Safe Pushes of
+    // pieces of it or its own, its pull request merged with the commits of its stack branch
+    landed: getLandedState(key) ?? null,
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,

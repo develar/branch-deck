@@ -9,17 +9,19 @@ use crate::robot_list::list_robots;
 use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, rules_fact, safe_push as safe_push_command};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
-  LANDED_SUBJECTS, MASTER_RULES, Space, dismissing_rules, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, push_from_elsewhere_to,
-  rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, stack_robot,
+  LANDED_SUBJECTS, MASTER_RULES, Space, dismissing_rules, evaluated_review, fake_github, land_auth_by_content, list_pull_requests, minutes_ago, pull_request_json,
+  push_from_elsewhere_to, rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, stack_robot,
 };
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::stack_summary::whole_stack;
 use bd_core::sync_command::{SyncOutput, lock, sync_locked};
+use domain_policy::facts::Robots;
+use domain_policy::landed::LandedFacts;
 use domain_policy::pull_request::start_pull_request;
 use domain_policy::stack::WholeStack;
 use domain_types::commit::Commit;
-use domain_types::landing::{Land, LandAnswer, ProfileChoice, Subject};
+use domain_types::landing::{self, Land, LandAnswer, ProfileChoice, Subject};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestView, PullRequestsResult};
 use domain_types::session::{Fact, FactState, PullRequestsView, SubjectReadiness};
@@ -32,7 +34,7 @@ use history_rewrite::store_lines::StoreLines;
 use patronus::service::PatronusService;
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
 use repository_model::branch_table::BranchTable;
-use repository_model::derive::{LandSources, land_answer, open_pull_requests_view};
+use repository_model::derive::{LandSources, land_answer, landed_states, open_pull_requests_view};
 use repository_model::facts::{Observation, Seq};
 use repository_model::patronus_view::{landed_commits, with_landing_needs};
 use repository_model::pull_request_facts::PullRequestsFact;
@@ -745,6 +747,24 @@ impl Situation {
       let _ = run_json(&environment, &["--prefix", PREFIX, "sync"]);
       add_robots(&space, &mut environment, given);
     }
+    // a merged pull request merged the commits the branch has: its head is the tip the sync builds
+    if let Some(github) = github
+      .as_ref()
+      .filter(|_| given.pull_request.as_ref().is_some_and(|pull_request| pull_request.state == PullRequestState::Merged))
+    {
+      let _ = run_json(&environment, &["--prefix", PREFIX, "sync"]);
+      let merged: Vec<Value> = pull_requests
+        .iter()
+        .map(|pull_request| {
+          let mut pull_request = pull_request.clone();
+          if pull_request["state"] == "MERGED" {
+            pull_request["headRefOid"] = json!(space.local_tip(pull_request["headRefName"].as_str().unwrap()));
+          }
+          pull_request
+        })
+        .collect();
+      list_pull_requests(github, &merged);
+    }
     if given.not_on_space.is_some() {
       git(&space.repo, &["remote", "set-url", "origin", space.remote.path().to_str().unwrap()]);
     }
@@ -956,6 +976,7 @@ impl Situation {
     }
     let readiness = if on_space { self.readiness(&context, &synced, given) } else { BTreeMap::new() };
     let open_pull_requests = self.open_pull_requests(&context, &synced, &readiness);
+    let landed_states = self.landed_states(&context, &synced, &table, &facts, on_space);
     let land = if on_space {
       self.land(&context, &synced, &table, &facts, given, &readiness)
     } else {
@@ -981,6 +1002,7 @@ impl Situation {
       "view": facts.view,
       "readiness": readiness,
       "openPullRequests": open_pull_requests,
+      "landedStates": landed_states,
       "land": land,
     });
     name_ids(&mut value, &names_of(&synced));
@@ -1016,6 +1038,28 @@ impl Situation {
       |key| answers.iter().find(|(known, _)| known.as_str() == key).map(|(_, readiness)| readiness),
       &context.prefix,
     )
+  }
+
+  /// What landed each subject as the view of the session decides it (`repository_model::derive::landed_states`): over the
+  /// landing report of the sync, the Patronus view (on Space) and the pull requests GitHub lists for the case, in any
+  /// state
+  fn landed_states(&self, context: &RepoContext, synced: &SyncOutput, table: &BranchTable, facts: &PatronusFacts, on_space: bool) -> BTreeMap<String, landing::Landed> {
+    let listed = match github_repository(context, &synced.report).unwrap() {
+      Some(repository) => open_pull_requests(context, &github_service(context, &self.environment), context.runtime().unwrap(), &repository),
+      None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
+    };
+    let pull_requests = PullRequestsView {
+      pull_requests: listed.pull_requests,
+      stack_pull_requests: listed.stack_pull_requests,
+      ..PullRequestsView::default()
+    };
+    let robots = Robots::new(&facts.robots);
+    let landed = LandedFacts {
+      baseline: &synced.landed_section,
+      view: on_space.then_some(&facts.view),
+      robots: &robots,
+    };
+    landed_states(table, &table.remote, &landed, &pull_requests)
   }
 
   /// What the facts of the app's side read the remote services with: the Space repository, the fake Patronus and GitHub,
@@ -1101,6 +1145,7 @@ impl Situation {
       readiness: &readiness_of,
       rules: rules.as_ref(),
       landing_needs: &FactState::Fresh,
+      baseline: &synced.landed_section,
     };
     let chosen = given.profile.as_ref().and_then(|profile| profile.chosen.as_deref());
     let land = Land {

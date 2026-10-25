@@ -34,20 +34,22 @@ use domain_policy::land::{
   BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, decide, offered_profiles, on_last_commit, restart_refusal, standing,
   start_refusal,
 };
+use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
 use domain_policy::push::{HeadedStack, Kept, PushState, branch_push};
-use domain_policy::reasons::{landed, stack_landed, stack_not_built};
+use domain_policy::reasons::stack_not_built;
 use domain_policy::review::candidates;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
-use domain_types::landing::{Land, LandAnswer, LandDecision, LandDecisions, ProfileChoice, Subject};
+use domain_types::landing::{Land, LandAnswer, LandDecision, LandDecisions, Landed, ProfileChoice, Subject};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, LandingNeeds, PatronusView, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStatus, BranchStructure, Fact, FactState, ParkedMember, PullRequestsView, RowsView, SubjectReadiness, WholeStackView, stack_readiness_key,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, Fact, FactState, LandedSection, ParkedMember, PullRequestsView, RowsView, SubjectReadiness, WholeStackView,
+  stack_readiness_key,
 };
 use domain_types::stack::StackBranchUpdate;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -374,15 +376,18 @@ impl<'a> LandingFacts<'a> {
     Some((&landed.by, self.robots.get(&landed.by.robot_id)?))
   }
 
-  /// Why nothing of `name` is left to land: a merged Safe Push landed all of it
-  fn landed_reason(&self, name: &str) -> Option<Reason> {
-    let by = self.view.branches.get(name)?.landed_by.as_ref().filter(|landed| landed.after.is_empty())?;
-    Some(landed(name, by, self.robots.get(&by.by.robot_id)?))
-  }
-
   /// Merged Safe Pushes landed every member of `stack` whole: what landed each
   fn stack_landed_whole(&self, stack: &StackBranchUpdate) -> Option<Vec<(&'a RobotOf, &'a PatronusRobot)>> {
     stack.members.iter().map(|member| self.landed_whole(member)).collect()
+  }
+
+  /// What `domain_policy::landed` reads of these facts with the landing report `baseline`
+  const fn landed_facts<'s>(&'s self, baseline: &'s LandedSection) -> LandedFacts<'s> {
+    LandedFacts {
+      baseline,
+      view: Some(self.view),
+      robots: &self.robots,
+    }
   }
 
   /// The hold of the push of the stack branch of `stack` (`stack_branch_hold`)
@@ -439,7 +444,7 @@ impl<'a> LandingFacts<'a> {
   /// the open pull request of the whole stack it is a branch of (of `pull_requests`, the listing of the session or of
   /// `bd`). `None` for a branch the table lacks
   #[must_use]
-  pub fn branch_subject(&self, name: &str, pull_requests: Option<&PullRequestsView>) -> Option<BranchSubject<'_>> {
+  pub fn branch_subject(&self, name: &str, pull_requests: Option<&PullRequestsView>, baseline: &LandedSection) -> Option<BranchSubject<'_>> {
     let name = self.table.branch(name)?.name.as_str();
     let replaces = self.replaces(name);
     let held = |branch: &str| self.holds.get(branch).is_some_and(|hold| Some(hold.by.robot_id.as_str()) != replaces);
@@ -464,7 +469,7 @@ impl<'a> LandingFacts<'a> {
     Some(BranchSubject {
       start: self.branch_start(name, false),
       parked: parked_state(&self.repo, name),
-      landed: self.landed_reason(name),
+      landed: landed_reason(&self.landed_facts(baseline), &landed_subject(self.table, self.remote, Of::Branch(name), pull_requests)),
       chain,
       tip: self.table.tip_of(name),
       replaces,
@@ -476,13 +481,14 @@ impl<'a> LandingFacts<'a> {
   /// robots, the parked member, what landed every branch of it, its branches in the order of the stack branch, the
   /// remote of its stack branch, the robot of the whole stack a Safe Push replaces and the one that holds its pushes
   #[must_use]
-  pub fn stack_subject<'s>(&'s self, stack: &'s StackBranchUpdate) -> StackSubject<'s> {
+  pub fn stack_subject<'s>(&'s self, stack: &'s StackBranchUpdate, pull_requests: Option<&PullRequestsView>, baseline: &LandedSection) -> StackSubject<'s> {
     let root = stack.root.as_str();
+    let of = Of::WholeStack { root, members: &stack.members };
     StackSubject {
       replaces: self.stack_replaces(stack),
       start: self.stack_start(stack),
       parked: whole_stack_parked(&self.repo, stack.members.iter().map(String::as_str)),
-      landed: self.stack_landed_whole(stack).and_then(|landed| stack_landed(root, &landed)),
+      landed: landed_reason(&self.landed_facts(baseline), &landed_subject(self.table, self.remote, of, pull_requests)),
       members: stack.members.iter().map(|member| (member.as_str(), self.landed_whole(member).is_some())).collect(),
       remote: self.remote.stacks.get(root).and_then(RemoteFact::branch),
       held_by: self.stack_holder(stack),
@@ -510,7 +516,8 @@ impl<'a> LandingFacts<'a> {
       (Some(name), _) => {
         let action = restart_action(robot, self.table.tip_of(name), self.remote_of(name), needs_review)?;
         let refusal = self.table.branch(name).and_then(|branch| {
-          let landed = self.landed_reason(&branch.name);
+          // what merged Safe Pushes landed: the view derives without the landing report and the pull requests
+          let landed = landed_reason(&self.landed_facts(&NO_LANDING), &landed_subject(self.table, self.remote, Of::Branch(&branch.name), None));
           restart_refusal(&Start::Branch(self.branch_start(&branch.name, false)), mode, &self.robots, landed)
         });
         (action, refusal)
@@ -522,7 +529,8 @@ impl<'a> LandingFacts<'a> {
         let refusal = match stack {
           None => Some(Reason::NoStackBranch { root: root.clone() }),
           Some(stack) => {
-            let landed = self.stack_landed_whole(stack).and_then(|landed| stack_landed(root, &landed));
+            let of = Of::WholeStack { root, members: &stack.members };
+            let landed = landed_reason(&self.landed_facts(&NO_LANDING), &landed_subject(self.table, self.remote, of, None));
             restart_refusal(&Start::WholeStack(self.stack_start(stack)), mode, &self.robots, landed)
           }
         };
@@ -532,6 +540,73 @@ impl<'a> LandingFacts<'a> {
     };
     Some(RobotRestart { action, refusal })
   }
+}
+
+/// No landing report: what the Patronus view decides alone (the restarts) reads no fetched baseline
+const NO_LANDING: LandedSection = LandedSection {
+  baseline: None,
+  landing: Vec::new(),
+  landed: Vec::new(),
+};
+
+/// The subject `of` of `table` as `domain_policy::landed` reads it: the tip of its virtual branch (of the stack branch of
+/// a whole stack), its remote branch as `remote` knows it, its pull request in `pull_requests` in any state
+#[must_use]
+pub fn landed_subject<'a>(table: &'a BranchTable, remote: &'a RemoteFacts, of: Of<'a>, pull_requests: Option<&'a PullRequestsView>) -> LandedSubject<'a> {
+  match of {
+    Of::Branch(name) => LandedSubject {
+      of,
+      tip: table.tip_of(name),
+      remote: remote.branches.get(name).and_then(RemoteFact::branch),
+      pull_request: pull_requests.and_then(|listing| listing.pull_requests.get(name)),
+    },
+    Of::WholeStack { root, .. } => LandedSubject {
+      of,
+      tip: table.stack(root).and_then(|stack| stack.tip.as_deref()),
+      remote: remote.stacks.get(root).and_then(RemoteFact::branch),
+      pull_request: pull_requests.and_then(|listing| listing.stack_pull_requests.get(root)),
+    },
+  }
+}
+
+/// What landed each subject of `state` (`domain_policy::landed::landed_state`), by subject key: every branch and every
+/// whole stack that forks, over the landing report of the table, the Patronus view while it stands (what merged Safe
+/// Pushes landed) and the listing of the pull requests; none before the first sync
+#[must_use]
+pub fn landed_states_of(state: &TableState, facts: &FactStore) -> BTreeMap<String, Landed> {
+  let Some(table) = facts.table_facts(state) else {
+    return BTreeMap::new();
+  };
+  let part = facts.patronus.part();
+  let robots = listed_robots(facts.robots.view());
+  let robots = Robots::new(&robots);
+  let landed = LandedFacts {
+    baseline: &state.parts.sections.landed,
+    view: matches!(part.state, FactState::Fresh | FactState::Stale { .. }).then_some(&part.view),
+    robots: &robots,
+  };
+  landed_states(&table.table, &table.remote, &landed, facts.pull_requests.view())
+}
+
+/// What landed each subject of `table` (`domain_policy::landed::landed_state`) over `landed` and the listing
+/// `pull_requests`, by subject key: every branch and every whole stack that forks
+#[must_use]
+pub fn landed_states(table: &BranchTable, remote: &RemoteFacts, landed: &LandedFacts<'_>, pull_requests: &PullRequestsView) -> BTreeMap<String, Landed> {
+  let pull_requests = Some(pull_requests);
+  let branches = table.branches.iter().map(|branch| (branch.name.clone(), Of::Branch(&branch.name)));
+  let stacks = table.stack_branches.iter().filter(|stack| !stack.members.is_empty()).map(|stack| {
+    (
+      stack_readiness_key(&stack.root),
+      Of::WholeStack {
+        root: &stack.root,
+        members: &stack.members,
+      },
+    )
+  });
+  branches
+    .chain(stacks)
+    .filter_map(|(key, of)| Some((key, landed_state(landed, &landed_subject(table, remote, of, pull_requests))?)))
+    .collect()
 }
 
 /// What the starts of a table are decided on (`lands_of`, `land_answer`): the table of the last sync with the remote
@@ -556,6 +631,8 @@ pub struct LandSources<'a> {
   pub rules: Option<&'a Fact<BranchRules>>,
   /// How the landing needs of `view` stand: a failed computation waits for nothing (the gate of the start checks)
   pub landing_needs: &'a FactState,
+  /// The landing report of the table: a subject the fetched baseline has whole has nothing left to land
+  pub baseline: &'a LandedSection,
 }
 
 /// The decisions of the default intents of every subject of `state` (`LandDecisions`: a Safe Push with the default
@@ -595,6 +672,7 @@ fn with_land_sources<T>(state: &TableState, facts: &FactStore, prefix: &str, dec
     readiness: &readiness,
     rules: facts.rules.get(target).map(FactRecord::fact),
     landing_needs: &part.landing_needs,
+    baseline: &state.parts.sections.landed,
   };
   Some(decide(&sources))
 }
@@ -663,7 +741,7 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
         _ => None,
       };
       (
-        SubjectFacts::Branch(landing.branch_subject(name, Some(sources.pull_requests))?),
+        SubjectFacts::Branch(landing.branch_subject(name, Some(sources.pull_requests), sources.baseline)?),
         landing.robot_of(name),
         needs,
       )
@@ -671,7 +749,11 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
     Subject::WholeStack { root } => {
       let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root && !stack.members.is_empty())?;
       // the landing needs are of the branches: the gate of the start checks the whole stack
-      (SubjectFacts::WholeStack(landing.stack_subject(stack)), landing.stack_robot(stack), Some(&[][..]))
+      (
+        SubjectFacts::WholeStack(landing.stack_subject(stack, Some(sources.pull_requests), sources.baseline)),
+        landing.stack_robot(stack),
+        Some(&[][..]),
+      )
     }
   };
   let last = robot.and_then(|robot| robot.profile.as_ref());

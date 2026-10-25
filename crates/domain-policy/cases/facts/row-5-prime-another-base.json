@@ -28,6 +28,7 @@
       ]
     }
   },
+  "landedStates": {},
   "openPullRequests": {"auth": {"base": {"base": "release-252", "kind": "other"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {

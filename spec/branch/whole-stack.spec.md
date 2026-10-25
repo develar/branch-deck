@@ -43,6 +43,7 @@ targets:
   - ../../src/stores/pull-requests.ts
   - ../../src/stores/landed-stacks.ts
   - ../../src/lib/landed-stack.ts
+  - ../../crates/domain-policy/src/landed.rs
   - ../../src/lib/patronus-actions.ts
   - ../../src/lib/patronus-failing.ts
   - ../../src/lib/robot-overview.ts
@@ -301,10 +302,11 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."), and the toast
   says it ("Safe Push · closes the pull requests of 6 branches: they landed with the whole stack"); while it ran on the
   stack branch as it is, else by the commits it tested against each branch (a change of a branch since rebuilt the
-  stack branch: the repository view by content, the toast waiting for it), and only a pull request that holds nothing its branch
-  lacks: its head is the branch's tip, or the remote branch has no commit the branch lacks
-  ([Patronus](patronus.spec.md#merged), the same for a piece).
-  [@test] ../../src/lib/landed-stack.test.ts (`leaves the pull request the robot started from to Patronus`)
+  stack branch: the repository view by content, which the news of the merge waits for), and only a pull request that
+  holds nothing its branch lacks: its head is the branch's tip, or the remote branch has no commit the branch lacks;
+  never the pull request the robot started from (`domain_policy::landed::pull_requests_to_close`,
+  [Patronus](patronus.spec.md#merged), the same for a piece).
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`leaves_the_pull_request_the_robot_started_from_to_patronus`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
 - Until the update archives them, every branch of the stack it landed (under the same conditions, also for a robot
   first seen merged) must say so in its row, "Landed with the whole air stack" ([Patronus](patronus.spec.md#merged)),
@@ -431,7 +433,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   `crates/bd-remote/src/status_test.rs`, `safe_push_test.rs`,
   `push_test.rs`, `robot_test.rs`.
 - `pnpm test:unit`: `src/stores/branch-sync.test.ts`, `src/lib/patronus.test.ts`, `src/lib/whole-stack.test.ts`,
-  `src/lib/landed-stack.test.ts`, `src/stores/patronus.test.ts`, `src/hooks/useStackNextStep.test.ts`.
+  `crates/domain-policy/src/landed_test.rs`, `src/stores/patronus.test.ts`, `src/hooks/useStackNextStep.test.ts`.
 - `pnpm e2e tests/e2e/stack-island`: the whole stack in the app (templates `stack_island`, `stack_side_conflict`);
   `tests/e2e/stacked-branches/stacked-branches.spec.ts` for a small stack.
 - `pnpm perf:monorepo`: the full and the unchanged `bd sync` of the pinned monorepo clone, one stack that forks.

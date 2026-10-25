@@ -9,17 +9,19 @@ use crate::table::table_test::{grouped, grouping, remote_at, run_sync, sync_even
 use crate::table::{RemoteSubject, TableState};
 use domain_policy::refresh::{FactTiming, ReadState};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::fixtures::robot;
-use domain_types::landing::Subject;
+use domain_types::fixtures::{pull_request, robot};
+use domain_types::landing::{LandedPullRequest, Subject};
 use domain_types::patronus::{
   KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
   REVIEW_APPROVAL_SUBSYSTEM,
 };
-use domain_types::repository_view::{BranchPatronus, LandedByView, LandingNeeds, PatronusView};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestsResult};
+use domain_types::repository_view::{BranchPatronus, LandedByView, LandingNeeds, PatronusView, RobotLandedBranch};
 use domain_types::session::{FactState, NewsEvent, RobotsHead};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 
 fn at(seq: u32, inputs: u64, seconds: u64) -> Observation {
@@ -400,8 +402,9 @@ fn the_problems_of_a_failed_robot_of_the_table_are_asked_until_known() {
   assert_eq!(problems(&fact), Vec::new());
 }
 
-/// A robot known running that an answer shows merged is news at once; one that failed once its problems say why, or at
-/// once when the session reads none of it (a robot of no branch of the table); a robot first seen finished is no news
+/// A robot known running that an answer shows merged is news at once while no table is there to derive the view of
+/// what it landed of; one that failed once its problems say why, or at once when the session reads none of it (a robot of
+/// no branch of the table); a robot first seen finished is no news
 #[test]
 fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
   let state = synced_table();
@@ -439,7 +442,13 @@ fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
   assert_eq!(
     events(&facts),
     vec![
-      (1, NewsEvent::RobotMerged { robot_id: "merges".into() }),
+      (
+        1,
+        NewsEvent::RobotMerged {
+          robot_id: "merges".into(),
+          closes: Vec::new()
+        }
+      ),
       (
         2,
         NewsEvent::RobotFailed {
@@ -465,6 +474,71 @@ fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
         needs_review: Some(false)
       }
     )
+  );
+}
+
+/// A merge of the table waits for the Patronus view of the robots it merged in (none while a derivation runs) and is told
+/// with the open pull requests of the branches it landed whole besides its own, which the app closes (D7): login's robot
+/// landed auth, whose pull request is at its tip; its own pull request is Patronus' to close
+#[test]
+fn a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_landing_closes() {
+  let state = TableState::new();
+  let mut facts = FactStore::new();
+  let _ = facts.table.answer(at(1, 0, 1), Ok(Arc::new(chain())));
+  let login = |status| robot("r", Some("login"), status, 20);
+  facts.apply(
+    at(2, 0, 2),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: listed(vec![login(PatronusRobotStatus::Running)]),
+    },
+  );
+  let at_tip = |branch: &str, number, tip: &str| PullRequest {
+    head_ref_oid: tip.to_owned(),
+    head_ref_name: format!("test/virtual/{branch}"),
+    ..pull_request(branch, number)
+  };
+  facts.apply(
+    at(3, 0, 3),
+    FactResult::PullRequests(PullRequestsResult {
+      availability: PullRequestAvailability::Available {
+        owner: "acme".to_owned(),
+        name: "monorepo".to_owned(),
+      },
+      pull_requests: BTreeMap::from([("auth".to_owned(), at_tip("auth", 5, "va1")), ("login".to_owned(), at_tip("login", 6, "vl1"))]),
+      stack_pull_requests: BTreeMap::new(),
+    }),
+  );
+  facts.apply(
+    at(4, 0, 4),
+    FactResult::Robots {
+      read: RobotsRead::Poll,
+      result: listed(vec![login(PatronusRobotStatus::Success)]),
+    },
+  );
+  assert_eq!(facts.news(), &[], "the merge waits for the view of what it landed");
+  assert!(facts.patronus.begin(5, Duration::from_secs(5)));
+  facts.tell_merges(&state);
+  assert_eq!(facts.news(), &[], "a derivation runs: its answer is of the robots as they are now");
+  let landed = |branch: &str, own| RobotLandedBranch {
+    branch: branch.to_owned(),
+    own,
+    after: Vec::new(),
+  };
+  let view = PatronusView {
+    landed_by_robot: BTreeMap::from([("r".to_owned(), vec![landed("auth", false), landed("login", true)])]),
+    ..PatronusView::default()
+  };
+  facts.patronus.answer(at(5, 5, 5), Ok(view));
+  let _ = facts.patronus.publish(&chain());
+  facts.tell_merges(&state);
+  let closes = vec![LandedPullRequest {
+    branch: "auth".to_owned(),
+    number: 5,
+  }];
+  assert_eq!(
+    facts.news().iter().map(|news| news.event.clone()).collect::<Vec<_>>(),
+    vec![NewsEvent::RobotMerged { robot_id: "r".into(), closes }]
   );
 }
 

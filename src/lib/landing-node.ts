@@ -1,5 +1,5 @@
 import type { NextStepFacts } from "@/lib/branch-next-step"
-import { formatPendingFact, formatUnlisted, getBranchNextStep } from "@/lib/branch-next-step"
+import { formatPendingFact, formatUnlisted, getBranchNextStep, landedReasonOf } from "@/lib/branch-next-step"
 import { formatParkedLabel } from "@/lib/parked"
 import { isFailingChip } from "@/lib/patronus"
 import type { FoundMove } from "@/lib/running-move"
@@ -88,14 +88,14 @@ const pendingNode = (label: string): LandingNode => ({ kind: "waiting", label, p
  */
 export function getLandingNode(facts: LandingNodeFacts): LandingNode {
   const next: NextStepFacts = { ...facts.next, syncing: false, busy: null }
-  if (next.parked !== null && landedReason(next) === null && next.robot.kind !== "running" && facts.move === null && facts.landingWith === null) {
+  if (next.parked !== null && landedReasonOf(next) === null && next.robot.kind !== "running" && facts.move === null && facts.landingWith === null) {
     const conflict = next.hasError || facts.status === "Error" || facts.status === "MergeConflict" || facts.status === "AnalyzingConflict"
     return node("parked", conflict ? `${formatParkedLabel(next.parked)}\nIt doesn't build: fix it before you unpark it` : formatParkedLabel(next.parked))
   }
   if (next.hasError || facts.status === "Error" || facts.status === "MergeConflict" || facts.status === "AnalyzingConflict") {
     return node("needsFix", next.errorReason ?? (facts.statusText || "The branch failed to sync"))
   }
-  const landed = landedReason(next)
+  const landed = landedReasonOf(next)
   if (landed !== null) {
     return node("inMaster", landed)
   }
@@ -188,23 +188,6 @@ function moveNode({ move, with: by }: FoundMove): LandingNode {
     return node("landing", `Lands with ${by}: its Safe Push starts`)
   }
   return node(move.lands ? "landing" : "waiting", move.label)
-}
-
-/** The branch is in master: the fetched baseline has it, or a merge says so before the update */
-function landedReason(facts: NextStepFacts): string | null {
-  if (facts.landedIn !== null) {
-    return `Landed in ${facts.landedIn}`
-  }
-  if (facts.landedWith !== null) {
-    return facts.landedWith
-  }
-  if (facts.robot.kind === "finished" && facts.robot.chip.kind === "merged") {
-    return "Merged by Patronus"
-  }
-  if (facts.pullRequest?.state === "merged" && facts.pullRequest.mergedCurrent) {
-    return `Pull request #${facts.pullRequest.number} is merged`
-  }
-  return null
 }
 
 /**

@@ -3,7 +3,7 @@
   "land": {
     "decision": {
       "approvalsSkippedBy": null,
-      "blockers": [],
+      "blockers": [{"code": "pullRequestMerged", "number": 7}],
       "confirmations": [],
       "effects": [
         {"branches": ["auth"], "force": false, "kind": "push"},
@@ -28,6 +28,7 @@
       ]
     }
   },
+  "landedStates": {"auth": {"after": [], "by": {"kind": "pullRequest", "number": 7}}},
   "openPullRequests": {},
   "readiness": {
     "auth": {

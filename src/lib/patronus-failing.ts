@@ -47,7 +47,7 @@ export function watchFailingRobots(): () => void {
 
 /**
  * The news of the session of `repositoryPath` the window has not told (`onSessionFacts` hands each once): a robot merged
- * (`announceMerge`), a robot failed, told once Patronus said whether for missing code-owner approvals (or its problems
+ * (`announceMerge`, with the pull requests its landing closes), a robot failed, told once Patronus said whether for missing code-owner approvals (or its problems
  * didn't come, or the session reads none of a robot of no branch: then as a plain failure, `announceFailed`)
  */
 export function tellRobotNews(repositoryPath: string, news: readonly News[]): void {
@@ -63,7 +63,7 @@ export function tellRobotNews(repositoryPath: string, news: readonly News[]): vo
       continue
     }
     if (event.kind === "robotMerged") {
-      announceMerge(key, robot)
+      announceMerge(key, robot, event.closes)
     } else if (!announcedFailures.has(robot.id)) {
       announcedFailures.add(robot.id)
       void announceFailed(key, robot, event.needsReview === true, repository?.watched[robot.id])

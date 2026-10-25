@@ -33,6 +33,7 @@
       ]
     }
   },
+  "landedStates": {},
   "openPullRequests": {"login": {"base": {"kind": "target"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "login": {

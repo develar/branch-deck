@@ -5,6 +5,7 @@ import type {
   BranchLanding,
   Fact,
   FactState,
+  LandedPullRequest,
   LandingAllowances,
   LandingRefusal,
   PatronusAvailability,
@@ -850,11 +851,12 @@ const announcedMerges = new Set<string>()
  * (`tellRobotNews`), once: a toast with Update Project and "Open in Patronus", which follows the merge until the update
  * lands it (`showMergeToast`). While no window is focused, an OS notification
  * says it at once (unless Settings turned it off), and the toast waits for the focus.
- * A stacked branch landed its ancestors too, the whole stack every branch of it: their open pull requests are closed
- * as the session's view says it (`closeLandedPullRequests`, `landedByRobot`), and the toast says so: it waits for the
- * view of the merged robot (`whenRepositoryViewCurrent`), which the session derives after the answer that merged it.
+ * A stacked branch landed its ancestors too, the whole stack every branch of it: the open pull requests its landing
+ * closes come with the news (`closes`, `domain_policy::landed::pull_requests_to_close`), which the session tells once
+ * the view of the robots it merged in stands, so the toast names what it landed (`landedByRobot` of that view) at once
+ * and closes them (`closeLandedPullRequests`).
  */
-export function announceMerge(key: string, robot: PatronusRobot): void {
+export function announceMerge(key: string, robot: PatronusRobot, closes: readonly LandedPullRequest[]): void {
   if (announcedMerges.has(robot.id)) {
     return
   }
@@ -863,17 +865,11 @@ export function announceMerge(key: string, robot: PatronusRobot): void {
     // Patronus closed the pull request with the label `merged`
     void refreshPullRequests("afterWrite")
   }
-  // which pull requests it landed: the view of the merged robot, once it is of the robots as they are now
-  void whenRepositoryViewCurrent().then(() => tellMerge(key, robot))
-}
-
-/** The merge told (`announceMerge`), with the pull requests of what it landed closed, as the view says it now */
-function tellMerge(key: string, robot: PatronusRobot): void {
   const [repositoryPath] = key.split("\n") as [string, string]
   const landed = patronusStore.getState().repositories[key]?.view?.landedByRobot[robot.id] ?? []
-  // the branches and pull requests of the table, and the view the wait made current, are of the shown repository: a
-  // merge of another one closes nothing there, and its toast says so
-  const closed = currentKey() === key ? closeLandedPullRequests(robot, landed, key) : describeLandedLeftOpen(landed, repositoryPath)
+  // the pull requests of the table are of the shown repository: a merge of another one closes nothing there, and its
+  // toast says so
+  const closed = currentKey() === key ? closeLandedPullRequests(robot, closes, key) : describeLandedLeftOpen(closes, repositoryPath)
   const description = closed === null ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed}`
   const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
   recordRobot(title, description, robot, repositoryPath)

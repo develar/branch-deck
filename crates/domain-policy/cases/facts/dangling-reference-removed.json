@@ -47,6 +47,7 @@
       ]
     }
   },
+  "landedStates": {},
   "openPullRequests": {},
   "readiness": {
     "fake-agent": {

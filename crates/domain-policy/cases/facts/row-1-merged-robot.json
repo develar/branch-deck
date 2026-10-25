@@ -48,6 +48,17 @@
       ]
     }
   },
+  "landedStates": {
+    "auth": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "auth", "robotId": "robot-0", "wholeStack": false}],
+        "kind": "robots",
+        "own": true,
+        "target": "master"
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

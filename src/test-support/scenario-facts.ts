@@ -12,7 +12,7 @@ import type { SafePushRead } from "@/hooks/useSafePush"
 import { readSafePush } from "@/hooks/useSafePush"
 import { getStackNextStepNow } from "@/hooks/useStackNextStep"
 import { internalError } from "@/lib/api-error"
-import type { BranchRules, Fact, LandAnswer, PatronusReviewRequirement, PatronusRobot, PatronusView, PullRequest, PullRequestView, ReviewReadiness } from "@/lib/bindings"
+import type { BranchRules, Fact, LandAnswer, Landed, PatronusReviewRequirement, PatronusRobot, PatronusView, PullRequest, PullRequestView, ReviewReadiness } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { robotsById } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
@@ -65,6 +65,11 @@ export interface ScenarioFacts {
   readonly readiness: Readonly<Record<string, ReadinessFact>>
   /** The open pull request of each subject as the view of the session reads it (`RepositoryView.openPullRequests`) */
   readonly openPullRequests: Readonly<Record<string, PullRequestView>>
+  /**
+   * What landed each subject as the view of the session decides it (`RepositoryView.landedStates`,
+   * `repository_model::derive::landed_states`): the landing report of the sync, the Patronus view, the pull requests
+   */
+  readonly landedStates: Readonly<Record<string, Landed>>
   /**
    * What the session decides of the start of the case (`land_answer`, the function of `decide_land` and of the view's
    * `lands`) over the facts it reads of the repository; null off Space and for a whole stack
@@ -251,6 +256,7 @@ function seedSync(given: Given, facts: ScenarioFacts): void {
     stackBranches,
     parked: parkedLines,
     openPullRequests: facts.openPullRequests,
+    landedStates: landedStatesOf(given, facts),
     isSyncing: given.sync === "running",
     pushingBranches: {},
     stackPushes: {},
@@ -390,6 +396,15 @@ export function seedReadiness(facts: ScenarioFacts): void {
     }
   }
   reviewReadinessStore.setState({ repositories: { [KEY]: entries } })
+}
+
+/**
+ * What landed each subject: the session's (`facts.landedStates`), and of `inBaseline` what the session derives of the
+ * landing report `seedLanded` models (the fetched baseline has every commit of the branch), which the Rust side can't
+ * reach: its sync archives the branch
+ */
+function landedStatesOf(given: Given, facts: ScenarioFacts): Readonly<Record<string, Landed>> {
+  return given.landed === "inBaseline" ? { ...facts.landedStates, [given.branch]: { by: { kind: "baseline", upstream: BASELINE }, after: [] } } : facts.landedStates
 }
 
 /** The landing report of the baseline check: `inBaseline` has every commit of the branch */

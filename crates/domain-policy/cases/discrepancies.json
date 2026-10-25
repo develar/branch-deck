@@ -137,13 +137,13 @@
     "id": "close-the-pull-requests-a-robot-landed",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the pull requests a merged robot landed with it: only the app closes them, by its poll of the robots; bd lists and closes none",
+    "title": "the pull requests a merged robot landed with it: only the app closes them, by the news of the merge; bd closed and listed none. Since s8-policy one rule, domain_policy::landed::pull_requests_to_close, names them: the merge news of the session carries them (RobotMerged.closes), bd robot lists them (closes) and closes none",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#merged", "docs/design/landing.md#every-pull-request-goes-into-master"],
     "discrepancy": "D7",
     "today": {
-      "app": ["src/lib/landed-stack.ts#export function closeLandedPullRequests"],
-      "bd": ["crates/bd-remote/src/robot_command.rs#pub fn robot("],
-      "why": "bd has no code of it: the pointer is the robot command, which reports and closes nothing"
+      "app": ["src/lib/landed-stack.ts#export function closeLandedPullRequests", "crates/repository-model/src/facts.rs#pull_requests_to_close(robot, landed, |branch| {"],
+      "bd": ["crates/bd-remote/src/robot_command.rs#let closes = pull_requests_to_close(robot, landed, |branch| {"],
+      "why": "the rule is one; only the app closes, bd lists (owner decision 4: docs/design/landing.md keeps the close the app's)"
     }
   },
   {
@@ -282,14 +282,18 @@
     "id": "merged-pull-request-of-the-commits",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "GitHub merged the pull request with the commits the branch has: the app holds the branch (row 1), bd reads only the open pull requests and the robots and starts through the API",
+    "title": "GitHub merged the pull request with the commits the branch has: the app held the branch (row 1), bd read only the open pull requests and the robots and started through the API; closed in s8-policy: one rule, domain_policy::landed::landed_state, lands the branch at both sides (the view's landedStates, bd's landed refusal), as the case row-1-merged-pull-request shows",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D13",
-    "twins": ["row-1-merged-pull-request"],
+    "twins": [],
     "today": {
-      "app": ["src/hooks/useBranchNextStep.ts#const mergedCurrent = pullRequest.state === \"merged\""],
-      "bd": ["crates/domain-policy/src/land.rs#.filter(|pull_request| pull_request.state == PullRequestState::Open)"]
-    }
+      "app": ["crates/repository-model/src/derive.rs#pub fn landed_states_of", "crates/domain-policy/src/landed.rs#fn by_pull_request("],
+      "bd": [
+        "crates/domain-policy/src/landed.rs#pub fn landed_reason(",
+        "crates/bd-remote/src/safe_push_command.rs#Reason::LandedIn { .. } | Reason::PullRequestMerged { .. } => Refusal::new("
+      ]
+    },
+    "closed": "s8-policy"
   },
   {
     "id": "review-without-an-answer",

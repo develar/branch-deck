@@ -5,7 +5,24 @@ import type { NextStepFacts } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
-import { alice, answered, chip, createPullRequest, facts, finished, group, ilya, missing, openPullRequest, requestReview, restart, withReadiness } from "@/lib/test-next-step-facts"
+import {
+  alice,
+  answered,
+  chip,
+  createPullRequest,
+  facts,
+  finished,
+  group,
+  ilya,
+  inBaseline,
+  landedWith,
+  mergedPullRequest,
+  missing,
+  openPullRequest,
+  requestReview,
+  restart,
+  withReadiness,
+} from "@/lib/test-next-step-facts"
 import { testRobot } from "@/lib/test-robot"
 
 describe("getBranchNextStep", () => {
@@ -21,9 +38,9 @@ describe("getBranchNextStep", () => {
       [{ commitCount: 0, robot: { kind: "none" } }, "No commits to push"],
       [{ blocked: true, startBlocker: "Blocked by auth: fix it first, then sync" }, "Blocked by auth: fix it first, then sync"],
       [{ held: true, startBlocker: "A Safe Push of oauth is running: it lands login with it" }, "A Safe Push of oauth is running: it lands login with it"],
-      [{ landedIn: "origin/master" }, "Landed in origin/master"],
+      [{ landed: inBaseline }, "Landed in origin/master"],
       [{ robot: finished("merged") }, "Merged by Patronus"],
-      [{ pullRequest: { ...openPullRequest, state: "merged", mergedCurrent: true } }, "Pull request #1078 is merged"],
+      [{ pullRequest: { ...openPullRequest, state: "merged" }, landed: mergedPullRequest }, "Pull request #1078 is merged"],
       // a running robot of an older commit: a start replaces it
       [{ robot: { kind: "running", chip: chip("running") } }, null],
     ]
@@ -31,35 +48,39 @@ describe("getBranchNextStep", () => {
       const step = getBranchNextStep(facts(patch))
       expect(step, JSON.stringify(patch)).toMatchObject({ kind: "none", item: null, safePushBlocker: reason })
     }
-    expect(getBranchNextStep(facts({ landedIn: "origin/master" })).dryRunBlocker).toBe("Landed in origin/master")
+    expect(getBranchNextStep(facts({ landed: inBaseline })).dryRunBlocker).toBe("Landed in origin/master")
     expect(getBranchNextStep(facts({ robot: finished("merged") })).dryRunBlocker).toBe("Merged by Patronus")
   })
 
   it("row 1: a branch a merged Safe Push of a branch built on it or of the whole stack landed offers nothing, its Safe Push and Dry Run say who landed it", () => {
-    for (const landedWith of ["Landed in master with oauth", "Landed in master with the whole air stack"]) {
+    for (const [landed, reason] of [
+      [landedWith("oauth"), "Landed in master with oauth"],
+      [landedWith("air", true), "Landed in master with the whole air stack"],
+    ] as const) {
       // its own approvals are missing, its pull request open: all of it landed already
-      const step = getBranchNextStep(withReadiness(missing([group()]), { landedWith }))
-      expect(step).toMatchObject({ kind: "none", item: null, safePushBlocker: landedWith, dryRunBlocker: landedWith, needsReadiness: false })
-      expect(step.notice).toEqual({ title: "Safe Push of wsm-skip-wa-2 can't start", description: landedWith })
+      const step = getBranchNextStep(withReadiness(missing([group()]), { landed }))
+      expect(step).toMatchObject({ kind: "none", item: null, safePushBlocker: reason, dryRunBlocker: reason, needsReadiness: false })
+      expect(step.notice).toEqual({ title: "Safe Push of wsm-skip-wa-2 can't start", description: reason })
     }
-    // the fetched baseline says it once it has the commits
-    expect(getBranchNextStep(facts({ landedIn: "origin/master", landedWith: "Landed in master with oauth" })).safePushBlocker).toBe("Landed in origin/master")
+    // commits after what landed are left to land
+    expect(getBranchNextStep(facts({ landed: { ...landedWith("oauth"), after: ["o2"] }, readiness: answered })).safePushBlocker).toBeNull()
   })
 
   it("row 1: a merged pull request of other commits (new work under the same name) blocks nothing", () => {
-    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, state: "merged", mergedCurrent: false }, readiness: answered }))
+    // the view says nothing landed it: Rust compares the head of the pull request with the branch
+    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, state: "merged" }, readiness: answered }))
     expect(step).toMatchObject({ kind: "safePush", safePushBlocker: null, landed: null })
   })
 
   it("says why nothing of a branch is left to land, what disables its Create Pull Request…, also behind another reason of its start", () => {
     const cases: [Partial<NextStepFacts>, string | null][] = [
-      [{ landedIn: "origin/master", landedWith: "Landed in master with oauth" }, "Landed in origin/master"],
-      [{ landedWith: "Landed in master with oauth" }, "Landed in master with oauth"],
+      [{ landed: inBaseline }, "Landed in origin/master"],
+      [{ landed: landedWith("oauth") }, "Landed in master with oauth"],
       [{ robot: finished("merged") }, "Merged by Patronus"],
-      [{ pullRequest: { ...openPullRequest, state: "merged", mergedCurrent: true } }, "Pull request #1078 is merged"],
+      [{ landed: mergedPullRequest }, "Pull request #1078 is merged"],
       // a sync or a block says why the start waits; the branch landed all the same
-      [{ syncing: true, landedWith: "Landed in master with oauth" }, "Landed in master with oauth"],
-      [{ patronusAvailable: false, robot: { kind: "none" }, landedIn: "origin/master" }, "Landed in origin/master"],
+      [{ syncing: true, landed: landedWith("oauth") }, "Landed in master with oauth"],
+      [{ patronusAvailable: false, robot: { kind: "none" }, landed: inBaseline }, "Landed in origin/master"],
       // work is left: a failed robot, commits after the landed ones
       [{ robot: finished("failed") }, null],
       [{}, null],
@@ -531,7 +552,7 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(withReadiness(missing([group(), group({ name: "Air Platform", requested: [alice] })]))).notice?.title).toBe(
       "Safe Push of wsm-skip-wa-2 waits for 2 reviews",
     )
-    expect(getBranchNextStep(facts({ landedIn: "origin/master" })).notice).toEqual({ title: "Safe Push of wsm-skip-wa-2 can't start", description: "Landed in origin/master" })
+    expect(getBranchNextStep(facts({ landed: inBaseline })).notice).toEqual({ title: "Safe Push of wsm-skip-wa-2 can't start", description: "Landed in origin/master" })
     // the robot of an ancestor holds the start before the wait
     const ancestor = "A Safe Push of login is running: wait until it merges"
     expect(getBranchNextStep(withReadiness(missing([group()]), { startBlocker: ancestor })).notice).toEqual({

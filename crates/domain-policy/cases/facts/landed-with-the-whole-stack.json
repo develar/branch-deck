@@ -40,6 +40,44 @@
       ]
     }
   },
+  "landedStates": {
+    "auth": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "auth", "robotId": "robot-0", "wholeStack": true}],
+        "kind": "robots",
+        "own": false,
+        "target": "master"
+      }
+    },
+    "login": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "auth", "robotId": "robot-0", "wholeStack": true}],
+        "kind": "robots",
+        "own": false,
+        "target": "master"
+      }
+    },
+    "session": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "auth", "robotId": "robot-0", "wholeStack": true}],
+        "kind": "robots",
+        "own": false,
+        "target": "master"
+      }
+    },
+    "stack:auth": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "auth", "robotId": "robot-0", "wholeStack": true}],
+        "kind": "robots",
+        "own": true,
+        "target": "master"
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "login": {

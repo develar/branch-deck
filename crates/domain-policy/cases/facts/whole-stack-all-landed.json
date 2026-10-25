@@ -5,6 +5,47 @@
     "subject": "wholeStack"
   },
   "land": null,
+  "landedStates": {
+    "auth": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+        "kind": "robots",
+        "own": false,
+        "target": "master"
+      }
+    },
+    "login": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+        "kind": "robots",
+        "own": true,
+        "target": "master"
+      }
+    },
+    "session": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "session", "robotId": "robot-1", "wholeStack": false}],
+        "kind": "robots",
+        "own": true,
+        "target": "master"
+      }
+    },
+    "stack:auth": {
+      "after": [],
+      "by": {
+        "by": [
+          {"branch": "login", "robotId": "robot-0", "wholeStack": false},
+          {"branch": "session", "robotId": "robot-1", "wholeStack": false}
+        ],
+        "kind": "robots",
+        "own": false,
+        "target": "master"
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

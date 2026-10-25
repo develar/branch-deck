@@ -1,7 +1,7 @@
 // @spec spec/branch/next-step.spec.md
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { getStackNextStepNow, readinessKeysNeedingAnswer } from "@/hooks/useStackNextStep"
-import type { BranchPatronus, MissingReviewGroup, PatronusRobot, PatronusView, PullRequest, Reason, ReviewReadiness, RobotOf } from "@/lib/bindings"
+import type { BranchPatronus, LandedBy, MissingReviewGroup, PatronusRobot, PatronusView, PullRequest, Reason, ReviewReadiness, RobotOf } from "@/lib/bindings"
 import { robotsById, testRobot } from "@/lib/test-robot"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
@@ -113,6 +113,11 @@ function setPullRequests(stack: PullRequest | null): void {
   })
 }
 
+/** What the view says landed every branch of the whole stack of air (`landedStates`) */
+function setLandedState(by: LandedBy): void {
+  branchSyncStore.setState({ landedStates: { [stackReadinessKey("air")]: { by, after: [] } } })
+}
+
 function setReadiness(readiness: ReviewReadiness, key = stackReadinessKey("air")): void {
   reviewReadinessStore.setState(state => ({
     repositories: {
@@ -137,7 +142,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, stackBranches: {} })
+  branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, stackBranches: {}, landedStates: {} })
   patronusStore.setState({ repositories: {} })
   pullRequestsStore.setState({ repositories: {} })
   reviewReadinessStore.setState({ repositories: {} })
@@ -265,6 +270,8 @@ describe("the next step of the whole stack", () => {
       ],
       { branches: { ...byDeploy, side: landedWholeBy("side", "s1", true) }, ...rest([], 0, ["air", "bazel", "deploy", "side"], [deploy, robotOf("side", "s1")]) },
     )
+    // what landed every branch of it, as the view says it (`landedStates`, `domain_policy::landed`)
+    setLandedState({ kind: "robots", by: [deploy, robotOf("side", "s1")], own: false, target: "master" })
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       kind: "none",
       item: null,
@@ -309,6 +316,8 @@ describe("the next step of the whole stack", () => {
 
   it("is settled once the pull request of the whole stack merged with the stack branch as it is", () => {
     setPullRequests(stackPullRequest({ state: "merged" }))
+    // the view compares its head with the stack branch (`domain_policy::landed`)
+    setLandedState({ kind: "pullRequest", number: 12 })
     expect(getStackNextStepNow("air")?.step).toMatchObject({ kind: "none", safePushBlocker: "Pull request #12 is merged" })
   })
 })

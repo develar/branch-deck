@@ -36,6 +36,7 @@
       ]
     }
   },
+  "landedStates": {},
   "openPullRequests": {
     "auth": {
       "base": {"base": "release/1", "kind": "other"},

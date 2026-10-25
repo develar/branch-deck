@@ -15,7 +15,7 @@ function news(patch: Partial<ApprovalNews> = {}): ApprovalNews {
 describe("approval news", () => {
   it("takes the approvals of the session's news, each with its subject, and none of the robots'", () => {
     const told: News[] = [
-      { id: 1, event: { kind: "robotMerged", robotId: "r1" } },
+      { id: 1, event: { kind: "robotMerged", robotId: "r1", closes: [] } },
       { id: 2, event: { kind: "approvalsArrived", subject: "auth", pullRequest: 7, approvers: [ilya], groups: ["IJPL Code Platform"] } },
     ]
     expect(approvalNewsOf(told)).toEqual([{ branchName: "auth", pullRequest: 7, approvers: [ilya], groups: ["IJPL Code Platform"] }])

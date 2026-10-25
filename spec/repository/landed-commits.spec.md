@@ -6,6 +6,7 @@ targets:
   - ../../crates/domain-types/src/landed.rs
   - ../../crates/domain-types/src/upstream_commit.rs
   - ../../crates/sync-core/src/landed.rs
+  - ../../crates/domain-policy/src/landed.rs
   - ../../crates/git-ops/src/landed_pairing.rs
   - ../../crates/update-core/src/update_project.rs
   - ../../crates/sync-core/src/sync.rs
@@ -177,6 +178,11 @@ by the next sync the same way.
   [@test] ../../src/hooks/usePushButton.test.ts (`is quiet for a branch the baseline has all of: the update archives it`)
   [@test] ../../src/lib/push-summary.test.ts (`skips a branch the fetched baseline has all of: the update archives it`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
+- Such a branch landed, the first answer of what landed it (`domain_policy::landed::landed_state`, the view's
+  `landedStates`, [Next Step](../branch/next-step.spec.md#the-table), row 1): its Safe Push and Dry Run are disabled
+  with "Landed in origin/master", and `bd safe-push` refuses it as `landed` (a whole stack: every branch of it).
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_whole_stack_landed_when_every_branch_of_it_did`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
 
 ### After the update
 

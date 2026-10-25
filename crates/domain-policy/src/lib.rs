@@ -15,7 +15,13 @@
 //!   it waits for and its effects, retarget, cancel, push and the start), what the table alone refuses
 //!   (`table_blocker`), the confirmations `bd` accepts by a flag (`unaccepted`), the modes a profile allows
 //!   (`allows_mode`) and the default profile (`default_profile`)
+//! - `landed`: what landed a subject (`landed_state`: the fetched baseline, merged Safe Pushes, its pull request merged
+//!   with its commits, D13), what a start says of it (`landed_reason`), and the open pull requests of the branches a
+//!   merged Safe Push landed whole besides its own (`pull_requests_to_close`, D7)
 //! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
+//! - `news`: what a window tells once of two answers of a fact: a robot known running that finished
+//!   (`robot_finished`), the approvals that arrived (`approval_news`), the review requests a listing adds
+//!   (`review_requested`)
 //! - `parked`: why a branch stays local (`parked_state`: its own line, or a parked branch it is built on), and the
 //!   parked member that keeps a stack branch local (`whole_stack_parked`)
 //! - `push`: what a push of a branch does to its remote branch (`action`: create, push, force, up to date), whether it
@@ -27,8 +33,7 @@
 //!   another base that may be meant), the pull request a robot starts from (`start_pull_request`), and what a push does
 //!   to its approvals by the rules of its base (`dismisses_approvals`)
 //! - `reasons`: the reasons the rules give (`domain_types::reason::Reason`), with the facts their words need
-//! - `readiness`: when an answer of the review readiness is the news that approvals arrived (`approval_news`), and
-//!   whether a subject waits for them (`awaits_approval`)
+//! - `readiness`: whether a subject waits for approvals (`awaits_approval`)
 //! - `review`: whom Request Review… offers and `bd request-review` asks (`candidates`), what an answer of the readiness
 //!   means for a start and where the approvals count, a repository only on Space read once (`review_state`), and when a
 //!   Safe Push starts without them (`skips_approvals`)
@@ -44,7 +49,9 @@
 pub mod facts;
 pub mod holds;
 pub mod land;
+pub mod landed;
 pub mod landing_needs;
+pub mod news;
 pub mod parked;
 pub mod pull_request;
 pub mod push;
@@ -60,7 +67,11 @@ mod holds_test;
 #[cfg(test)]
 mod land_test;
 #[cfg(test)]
+mod landed_test;
+#[cfg(test)]
 mod landing_needs_test;
+#[cfg(test)]
+mod news_test;
 #[cfg(test)]
 mod parked_test;
 #[cfg(test)]

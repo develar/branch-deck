@@ -1597,7 +1597,9 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is left to land"), or, with
   `--whole-stack`, every branch of the stack ("every branch of the whole auth stack landed in master with the Safe
   Pushes of login and session"). `lands` leaves out the branches merged Safe Pushes landed all of: the robot lands the
-  rest (the branch itself is always named).
+  rest (the branch itself is always named). The same refusal for a branch the fetched baseline has all of ("auth is in
+  origin/master: the update archives it") and for one whose pull request GitHub merged with the commits it has ("pull
+  request #7 of auth is merged"): one rule with the app (`domain_policy::landed::landed_state`); `bd update` picks it up.
 - `dangling_reference` (exit 4, nothing pushed): the branch or a branch it is built on removes, changes or declares
   again a declaration whose use (or other declaration) a commit of another branch changes, as `bd check` reports it
   (`dangling_references`, with its `kind`); the message
@@ -1717,6 +1719,11 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
   stack: the map has the commits of its ancestors too, and `branch` says whose each commit is (a failure may come from
   a parent's commit).
 - The agent fixes and checks locally; the user pushes and restarts the Safe Push.
+- `closes` (a merged Safe Push): the open pull requests of the branches it landed whole besides its own, each holding
+  nothing the branch lacks, never the one it started from (`[{"branch":"auth","number":5}]`): the app closes them with
+  a comment, by the same rule (`domain_policy::landed::pull_requests_to_close`); `bd` closes none. Compared with the
+  tips the refs hold, no sync; left out for a robot that didn't merge, off GitHub and while GitHub doesn't list the
+  pull requests.
 - `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
 ### `bd describe <branch> [--title T] [--body B | --body-file F] [--clear]`

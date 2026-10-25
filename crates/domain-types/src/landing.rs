@@ -2,7 +2,9 @@
 //! builds it for `bd safe-push`, the start of the app and the landing needs of the repository view: typed, so the CLI
 //! and the app each name it in their own words, and each refusal carries the fix the user can run (`LandingFix`). And a
 //! start of a robot as the contract's `Land` intent names it, with what `domain_policy::land::decide` answers of it
-//! (`LandDecision`: blockers, confirmations, waits and effects), one decision of `bd safe-push` and of the app.
+//! (`LandDecision`: blockers, confirmations, waits and effects), one decision of `bd safe-push` and of the app. What
+//! landed a subject (`Landed`, `domain_policy::landed::landed_state`) and the pull requests a merge closes
+//! (`LandedPullRequest`).
 
 use crate::error::ApiError;
 use crate::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode};
@@ -476,6 +478,50 @@ pub enum StartRoute {
   Api { profile: Option<PatronusProfile> },
   /// A `/patronus` comment on the open pull request `number`, which runs the default checks of the target
   Comment { number: u32 },
+}
+
+/// What landed a subject (`domain_policy::landed::landed_state`): the fetched baseline, merged Safe Pushes, or GitHub
+/// merging its pull request; nothing of it is left to land while `after` is empty
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct Landed {
+  pub by: LandedBy,
+  /// The commits added after the landed ones, original ids, newest first: the work left; empty when all of it landed
+  pub after: Vec<String>,
+}
+
+impl Landed {
+  /// All of it landed: nothing is left to push or land until the update archives it
+  #[must_use]
+  pub const fn is_whole(&self) -> bool {
+    self.after.is_empty()
+  }
+}
+
+/// What landed a subject
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum LandedBy {
+  /// The fetched baseline (`upstream`, "origin/master") has every commit of it, until the update archives it
+  Baseline { upstream: String },
+  /// Merged Safe Pushes: of a branch the one that left the fewest commits after it (its own, of a branch built on it,
+  /// of the whole stack); of a whole stack what landed each branch of it, each robot once in the order they merged.
+  /// `own`: the robot of the subject itself landed all of it; `target` the branch the first one pushed into
+  Robots { by: Vec<RobotOf>, own: bool, target: String },
+  /// GitHub merged its pull request `number` with the commits the subject has (D13)
+  PullRequest { number: u32 },
+}
+
+/// An open pull request of a branch a merged Safe Push landed whole besides its own: the app closes it
+/// (`domain_policy::landed::pull_requests_to_close`), `bd robot` lists it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandedPullRequest {
+  pub branch: String,
+  pub number: u32,
 }
 
 #[cfg(test)]

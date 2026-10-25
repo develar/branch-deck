@@ -18,7 +18,9 @@ No adapter decides for its side. The Rust side builds a repository of `given` wi
 the app's stores hold of the Rust core — the tips the sync left, the robots as the list answers them, in its order,
 the repository view (`patronus_view` with the landing needs, as `bd status` reads it), the review readiness of the
 branch and of its whole stack, and the open pull requests as the view of the session reads them (`openPullRequests`:
-where each goes, a draft, the code owners Request Review… offers; `open_pull_requests_view`) — the group test computes of that same repository before it checks and starts, and
+where each goes, a draft, the code owners Request Review… offers; `open_pull_requests_view`), and what landed each
+subject (`landedStates`, `landed_states`: the landing report, the Patronus view, the pull requests in any state) — the
+group test computes of that same repository before it checks and starts, and
 writes to `facts/<id>.json`, one file per exercised case (`assert_facts_kept`; the ids named `<branch>-tip`,
 `<branch>-remote`, `stack-<root>-tip`, `<branch>-c<i>` for the i-th original commit, the robots with their start and
 finish times settled by rank, the robot pages under `https://patronus`). The TS side seeds those files. What it still
@@ -155,7 +157,7 @@ request of a whole stack #12.
 | `sync` | `running` | — (`bd` syncs before it plans) | `syncing` |
 | `conflicts` | a branch | its first commit changes `config.txt`, which only an unassigned commit creates | `hasError` of it, `blocked` of a branch built on it, the stack branch `Conflict` |
 | `notOnSpace` | `true` | `origin` set to the bare repository | `patronusAvailable: false` |
-| `pullRequest` | `{ of [the branch], base [master], draft [false], approvers [[]], reviewers [[]], changesRequested [[]], state [open] }` | the GitHub search answer (`latestReviews`, `reviewRequests`) | `pullRequest`, `fromPullRequest` of `of` only |
+| `pullRequest` | `{ of [the branch], base [master], draft [false], approvers [[]], reviewers [[]], changesRequested [[]], state [open] }` | the GitHub search answer (`latestReviews`, `reviewRequests`); a `merged` one at the tip the sync builds (merged with the commits of the branch) | `pullRequest`, `fromPullRequest` of `of` only |
 | `stackPullRequest` | `true` | the open #12 of `{prefix}/stack/<root>` in the search | `stackPullRequest`; of the whole stack its `pullRequest` |
 | `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below | the answer of the facts (Rust asked as the app's scan asks, `readinessInputOf`) in the review-readiness store under the key of the branch's input, the availability of the pull requests |
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | `--profile`; the last robot's options | `ask.profileId`; `options` |
@@ -163,7 +165,7 @@ request of a whole stack #12.
 | `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none (`fake_github`), `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500; `loading` is `keep` (bd waits for its own read) | the rules of the target as the session read them (`facts.rules`, `seedRules` of `scenario-facts.ts`): `unknown` a failed answer (the start confirms `rulesUnknown`), `loading` no answer yet |
 | `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named | `parked` (`domain_policy::parked`); of the whole stack the `stackParked` of its root |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) | the stack branch `Blocked` by it |
-| `landed` | `inBaseline` · `byContent` | `origin/master` at HEAD; `land_auth_by_content` after `bd push` (`LANDED_SUBJECTS` only) | the landing report of the baseline check (`inBaseline`); one commit left (`byContent`) |
+| `landed` | `inBaseline` · `byContent` | `origin/master` at HEAD; `land_auth_by_content` after `bd push` (`LANDED_SUBJECTS` only) | the landing report of the baseline check and the landed state the session derives of it (`inBaseline`: the sync of bd archives the branch, so the facts can't hold it); one commit left (`byContent`) |
 | `landingNeeds` | `true` | `(codec) Add controlUrl`, then the branch uses it (Kotlin) | `landingNeeds` of the branch in the view of the facts, known |
 | `dangling` | `removed` (branch `fake-agent`) · `changed` (branch `suspend`), with `commits: []` | `commit_dangling_reference` · `commit_changed_declaration` | the fixture's commits; the `danglingReference` the landing gate finds, in the view of the facts |
 

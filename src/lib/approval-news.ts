@@ -15,7 +15,7 @@ export interface ApprovalNews {
 }
 
 /**
- * The approvals of the news of a session (`approvalsArrived`, which `domain_policy::readiness::approval_news` decides:
+ * The approvals of the news of a session (`approvalsArrived`, which `domain_policy::news::approval_news` decides:
  * a subject that waited for approvals in the pull request of the same tip is ready after a new review), each news once;
  * the other news are the robots'
  */

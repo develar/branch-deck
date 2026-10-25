@@ -89,6 +89,8 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     removed_open_pull_requests,
     lands,
     removed_lands,
+    landed_states,
+    removed_landed_states,
     unassigned,
     archived,
     unapplied,
@@ -132,6 +134,10 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     view.lands.remove(key);
   }
   view.lands.extend(lands);
+  for key in &removed_landed_states {
+    view.landed_states.remove(key);
+  }
+  view.landed_states.extend(landed_states);
   let sections = &mut view.sections;
   set_if_some(&mut sections.unassigned, unassigned);
   set_if_some(&mut sections.unapplied, unapplied);

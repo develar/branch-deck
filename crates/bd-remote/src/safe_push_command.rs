@@ -864,15 +864,23 @@ fn compared_table(context: &RepoContext, synced: &SyncOutput) -> BranchTable {
   table
 }
 
-/// The subject part of the decision of `start` (`LandingFacts::branch_subject`, `stack_subject`) over `pull_requests`
-fn subject_facts<'a>(context: &RepoContext, landing: &'a LandingFacts<'a>, start: &'a Start<'_>, pull_requests: Option<&PullRequestsView>) -> Result<SubjectFacts<'a>, CliError> {
+/// The subject part of the decision of `start` (`LandingFacts::branch_subject`, `stack_subject`) over `pull_requests` and
+/// the landing report of the sync
+fn subject_facts<'a>(
+  context: &RepoContext,
+  synced: &SyncOutput,
+  landing: &'a LandingFacts<'a>,
+  start: &'a Start<'_>,
+  pull_requests: Option<&PullRequestsView>,
+) -> Result<SubjectFacts<'a>, CliError> {
+  let baseline = &synced.landed_section;
   Ok(match start {
     Start::Branch(name) => SubjectFacts::Branch(
       landing
-        .branch_subject(name, pull_requests)
+        .branch_subject(name, pull_requests, baseline)
         .ok_or_else(|| unknown_or_unapplied(context, name, UNAPPLIED_SAFE_PUSH))?,
     ),
-    Start::WholeStack(update) => SubjectFacts::WholeStack(landing.stack_subject(update)),
+    Start::WholeStack(update) => SubjectFacts::WholeStack(landing.stack_subject(update, pull_requests, baseline)),
   })
 }
 
@@ -1013,7 +1021,7 @@ fn plan(
   {
     let unasked = PatronusFacts::default();
     let landing = unasked.landing(&table);
-    if let Some(reason) = table_blocker(&subject_facts(context, &landing, start, None)?) {
+    if let Some(reason) = table_blocker(&subject_facts(context, synced, &landing, start, None)?) {
       return Err(table_error(context, synced, start, &reason));
     }
   }
@@ -1130,7 +1138,7 @@ fn plan(
     },
   };
   let rules_of = facts.landing(&table);
-  let subject_facts = subject_facts(context, &rules_of, start, Some(pull_requests))?;
+  let subject_facts = subject_facts(context, synced, &rules_of, start, Some(pull_requests))?;
   let conflict = target_check.as_ref().and_then(|(check, _)| match &check.outcome {
     TargetOutcome::Conflict(conflict) => Some(TargetConflictFact {
       commit: &conflict.commit.id,
@@ -1385,6 +1393,15 @@ impl Told<'_> {
         )
         .with_next_step(format!("{} update", context.bd), true)
       }
+      // the fetched baseline has it, or GitHub merged its pull request with its commits (D13): a robot lands nothing
+      Reason::LandedIn { .. } | Reason::PullRequestMerged { .. } => Refusal::new(
+        ErrorCode::Landed,
+        format!(
+          "Nothing was pushed or started: {}: nothing of it is left to land; {LANDED_NEXT}",
+          start_refusal_text(reason, what, &self.facts.robots)
+        ),
+      )
+      .with_next_step(format!("{} update", context.bd), true),
       Reason::StackNotBuilt { state, .. } => match (self.stack(), state) {
         // the branch of the commit that conflicts builds with what it is built on: a piece to land
         (Some(update), StackBranchState::Conflict) => Refusal::new(ErrorCode::StackConflict, stack_conflict_message(context, self.synced, update)).with_next_step(

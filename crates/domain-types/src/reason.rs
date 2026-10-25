@@ -35,6 +35,10 @@ pub enum Reason {
   Ancestor { landing: RobotOf, mode: PatronusPushMode },
   /// A merged Safe Push landed all of the branch: `own` its own robot
   Landed { branch: String, by: RobotOf, own: bool, target: String },
+  /// The fetched baseline (`upstream`) has every commit of the subject, until the update archives it
+  LandedIn { upstream: String },
+  /// GitHub merged the pull request `number` of the subject with the commits it has (D13)
+  PullRequestMerged { number: u32 },
   /// A running Safe Push holds the push of the branch (`hold`), which the start would make
   Held {
     branch: String,
@@ -103,6 +107,8 @@ impl Reason {
       | Self::StackNotBuilt { .. }
       | Self::StackParked { .. }
       | Self::StackLanded { .. }
+      | Self::LandedIn { .. }
+      | Self::PullRequestMerged { .. }
       | Self::CantPush { .. }
       | Self::DropsRemote { .. }
       | Self::Parked { .. }

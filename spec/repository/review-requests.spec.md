@@ -6,6 +6,7 @@ targets:
   - ../../crates/domain-types/src/review_request.rs
   - ../../src/lib/approval-news.ts
   - ../../crates/remote-facts/src/review_requests.rs
+  - ../../crates/domain-policy/src/news.rs
   - ../../crates/repository-model/src/review_request_facts.rs
   - ../../crates/remote-facts/src/scheduler_review_requests.rs
   - ../../crates/domain-policy/src/refresh.rs
@@ -179,9 +180,10 @@ there, in the preview and in the review alike, on the commit the review shows; t
 
 - A request is new when its number and the time of its request event (`requestedAt`) are not in the last answer: a
   re-request is new. A request back to the user after their answer is not new, and keeps its key, read or unread as
-  the user left it: the user commented, they know it. The session tells them as news (`reviewRequested`, the numbers);
-  its first listing, and the first one after a window watches it anew (a start, the repository selected again), are
-  silent, and so are the news of a view the window subscribes to.
+  the user left it: the user commented, they know it. The session tells them as news (`reviewRequested`, the numbers,
+  `domain_policy::news::review_requested`); its first listing, and the first one after a window watches it anew (a
+  start, the repository selected again), are silent, and so are the news of a view the window subscribes to.
+  [@test] ../../crates/domain-policy/src/news_test.rs (`a_listing_tells_the_requests_it_adds_and_re_requests_never_one_back_to_the_user`)
   [@test] ../../crates/repository-model/src/review_request_facts_test.rs (`the_requests_wait_the_longest_first_and_a_new_one_is_news_once`, `the_first_listing_after_a_window_watches_anew_is_silent`)
   [@test] ../../src/lib/review-requests.test.ts (`keeps the key of a request back to the user after their answer`)
 - While a Branch Deck window has the focus (a conflict window counts), one toast tells the new requests of an answer:
@@ -223,12 +225,12 @@ Safe Push it allows.
   counts). An approval that arrives together with a new tip (a sync after a push) is not told: the row shows it. The first answer of
   a session is no news: an approval made while the app was closed brings none, the row shows it. Each approval is told
   once (by the branch, the pull request and the approvers), decided by the session of the repository
-  (`domain_policy::readiness::approval_news`, told as its news `approvalsArrived`) and told in the main window only. While Patronus can't judge
+  (`domain_policy::news::approval_news`, told as its news `approvalsArrived`) and told in the main window only. While Patronus can't judge
   the approvals (`unknown`, `unavailable` on both answers), GitHub's wait is the news: the pull request waited for
   requested reviewers ([Next Step](../branch/next-step.spec.md) row 10′), now it waits for nobody and some of them
   approved: "ikorennoy approved wsm-skip-wa-2", "#1078".
-  [@test] ../../crates/domain-policy/src/readiness_test.rs (`tells_the_approvals_that_made_a_waiting_pull_request_ready_for_the_same_tip`, `tells_the_approval_of_a_reviewer_github_waited_for_while_patronus_cannot_judge_the_approvals`)
-  [@test] ../../crates/domain-policy/src/readiness_test.rs (`is_no_news_for_another_tip_a_start_through_the_api_the_same_reviews_or_a_readiness_still_missing`)
+  [@test] ../../crates/domain-policy/src/news_test.rs (`tells_the_approvals_that_made_a_waiting_pull_request_ready_for_the_same_tip`, `tells_the_approval_of_a_reviewer_github_waited_for_while_patronus_cannot_judge_the_approvals`)
+  [@test] ../../crates/domain-policy/src/news_test.rs (`is_no_news_for_another_tip_a_start_through_the_api_the_same_reviews_or_a_readiness_still_missing`)
   [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`the_approvals_that_arrived_are_news_once`)
   [@test] ../../src/lib/approval-news.test.ts (`takes the approvals of the session's news, each with its subject, and none of the robots'`, `tells the approvals that made a waiting pull request ready, for the same tip`)
 - The news is a `success` toast "Ilya Korennoy approved wsm-skip-wa-2" ("Ilya Korennoy and Anna Ivanova approved …";
@@ -241,7 +243,7 @@ Safe Push it allows.
   while "Approvals of my pull requests" is on in Settings (`notifyApprovals`); the toast shows on the next focus. An
   Activity entry, kind `review`, keeps it with "Open Pull Request".
   [@test] ../../src/lib/approval-news.test.ts (`names every approver of the groups that waited, each once; a group approved before isn't news`, `says the code owners approved when Patronus needs no approval any more and names nobody`)
-  [@test] ../../crates/domain-policy/src/readiness_test.rs (`names_every_approver_of_the_groups_that_waited_each_once_a_group_approved_before_is_not_news`)
+  [@test] ../../crates/domain-policy/src/news_test.rs (`names_every_approver_of_the_groups_that_waited_each_once_a_group_approved_before_is_not_news`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push of the branch first`)
 - Changes requested by a reviewer stay the "Returned to you" line of the card (below): its own pull requests with the
   review decision `changesRequested`.

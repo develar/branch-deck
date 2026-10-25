@@ -20,7 +20,7 @@ use crate::conflict::WordResolutionSummary;
 use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
-use crate::landing::LandDecisions;
+use crate::landing::{LandDecisions, Landed, LandedPullRequest};
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView};
 use crate::reason::Reason;
@@ -346,6 +346,10 @@ pub struct RepositoryView {
   /// What a Safe Push and a Dry Run of each subject (a branch, `stack:<root>` the whole stack) do now and what stands in
   /// their way, the decisions of their default intents (`domain_policy::land::decide`); none before the Patronus view
   pub lands: BTreeMap<String, LandDecisions>,
+  /// What landed each subject (a branch, `stack:<root>` the whole stack), as `domain_policy::landed::landed_state`
+  /// decides it over the landing report, the Patronus view and the pull requests: the fetched baseline, merged Safe
+  /// Pushes (also a part of it), its pull request merged with its commits; a subject nothing landed is not listed
+  pub landed_states: BTreeMap<String, Landed>,
   pub sections: TableSections,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
@@ -484,10 +488,13 @@ pub struct News {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum NewsEvent {
-  /// A robot known running or canceling succeeded and pushed (not a dry run): it merged what it tested
+  /// A robot known running or canceling succeeded and pushed (not a dry run): it merged what it tested. Told once the
+  /// Patronus view of the robots it merged in stands, with the open pull requests of the branches it landed whole besides
+  /// its own (`closes`, `domain_policy::landed::pull_requests_to_close`), which the app closes
   RobotMerged {
     #[serde(rename = "robotId")]
     robot_id: String,
+    closes: Vec<LandedPullRequest>,
   },
   /// A robot known running or canceling failed, told once why is known: for missing code-owner approvals
   /// (`needsReview`), or not; null when the session doesn't read its problems (a robot of no branch of the table) or
@@ -503,7 +510,7 @@ pub enum NewsEvent {
   /// too; never one back to the user after their answer, and nothing in the first listing of a session a window
   /// watches anew
   ReviewRequested { numbers: Vec<u32> },
-  /// The approvals of a subject that waited for them arrived (`domain_policy::readiness::approval_news`): whose
+  /// The approvals of a subject that waited for them arrived (`domain_policy::news::approval_news`): whose
   /// approval counts now in the groups that waited (none named: the code owners), in the pull request of its start
   ApprovalsArrived {
     subject: String,
@@ -986,6 +993,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_lands: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub landed_states: BTreeMap<String, Landed>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_landed_states: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,

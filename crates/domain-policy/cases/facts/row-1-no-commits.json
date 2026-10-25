@@ -1,6 +1,7 @@
 {
   "given": {"commits": []},
   "land": null,
+  "landedStates": {},
   "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},

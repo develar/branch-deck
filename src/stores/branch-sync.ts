@@ -13,6 +13,7 @@ import type {
   CommitSyncStatus,
   DroppedCommit,
   LandDecisions,
+  Landed,
   PullRequestView,
   PushAction,
   Reason,
@@ -254,6 +255,12 @@ export interface BranchSyncState {
    * before the Patronus view
    */
   lands: Readonly<Record<string, LandDecisions>>
+  /**
+   * What landed each subject (a branch, `stack:<root>` the whole stack), as Rust decides it (`RepositoryView.landedStates`,
+   * `domain_policy::landed::landed_state`): the fetched baseline, merged Safe Pushes (also a part of it, the commits
+   * after it the work left), its pull request merged with its commits; a subject nothing landed is not listed
+   */
+  landedStates: Readonly<Record<string, Landed>>
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -285,6 +292,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   pushes: {},
   openPullRequests: {},
   lands: {},
+  landedStates: {},
 }))
 
 /**
@@ -680,6 +688,11 @@ export function useOpenPullRequest(subject: string): PullRequestView | undefined
 /** The decisions of the default starts of `subject` (a branch, `stackReadinessKey(root)`) as Rust decides them; undefined before the Patronus view */
 export function getLands(subject: string): LandDecisions | undefined {
   return branchSyncStore.getState().lands[subject]
+}
+
+/** What landed `subject` (a branch, `stackReadinessKey(root)`) as Rust decides it; undefined while nothing did */
+export function getLandedState(subject: string): Landed | undefined {
+  return branchSyncStore.getState().landedStates[subject]
 }
 
 /** The branches stacked directly on `name`, newest first */

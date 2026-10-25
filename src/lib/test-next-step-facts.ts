@@ -1,7 +1,7 @@
 // The facts of the next step of a branch for tests (`getBranchNextStep`, `getLandingNode`): an open pull request into
 // master, a start offered, every patch on top
 import { vi } from "vite-plus/test"
-import type { MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
+import type { Landed, MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
 import type { NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
 import type { PatronusChipKind, PatronusChipState, SafePushSlot } from "@/lib/patronus"
@@ -32,13 +32,23 @@ export const openPullRequest: NextStepPullRequest = {
   isDraft: false,
   base: "master",
   intoTarget: true,
-  mergedCurrent: false,
   baseIsVirtualBranch: false,
   waitingFor: [],
   changesRequestedBy: [],
   checksFailing: false,
   changesRequested: false,
 }
+
+/** What the view says landed a branch (`landedStates`): the fetched baseline */
+export const inBaseline: Landed = { by: { kind: "baseline", upstream: "origin/master" }, after: [] }
+
+/** A merged Safe Push into master of `branch` (of the whole stack of the root `branch`) landed all of the branch */
+export function landedWith(branch: string, wholeStack = false): Landed {
+  return { by: { kind: "robots", by: [{ branch, robotId: "r", wholeStack }], own: false, target: "master" }, after: [] }
+}
+
+/** GitHub merged the pull request #1078 with the commits of the branch */
+export const mergedPullRequest: Landed = { by: { kind: "pullRequest", number: 1078 }, after: [] }
 
 export const restart: MenuItem = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => {} }
 export const createPullRequest: MenuItem = { id: "create-pull-request", label: "Create Pull Request…", onSelect: () => {} }
@@ -60,8 +70,7 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     landingPart: null,
     held: false,
     parked: null,
-    landedIn: null,
-    landedWith: null,
+    landed: null,
     robot: { kind: "start" },
     robotPullRequest: null,
     restart: null,

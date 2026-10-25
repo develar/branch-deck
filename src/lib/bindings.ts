@@ -2691,6 +2691,16 @@ export type LandProfiles = {
 	default: string | null,
 };
 
+/**
+ *  What landed a subject (`domain_policy::landed::landed_state`): the fetched baseline, merged Safe Pushes, or GitHub
+ *  merging its pull request; nothing of it is left to land while `after` is empty
+ */
+export type Landed = {
+	by: LandedBy,
+	/**  The commits added after the landed ones, original ids, newest first: the work left; empty when all of it landed */
+	after: string[],
+};
+
 /**  The landed commits of one branch */
 export type LandedBranch = {
 	/**  The virtual branch the commits are grouped into; `None` for unassigned commits */
@@ -2702,6 +2712,19 @@ export type LandedBranch = {
 	/**  When Branch Deck found the commits in the baseline, Unix seconds */
 	landedAt: number,
 };
+
+/**  What landed a subject */
+export type LandedBy = 
+/**  The fetched baseline (`upstream`, "origin/master") has every commit of it, until the update archives it */
+{ kind: "baseline"; upstream: string } | 
+/**
+ *  Merged Safe Pushes: of a branch the one that left the fewest commits after it (its own, of a branch built on it,
+ *  of the whole stack); of a whole stack what landed each branch of it, each robot once in the order they merged.
+ *  `own`: the robot of the subject itself landed all of it; `target` the branch the first one pushed into
+ */
+{ kind: "robots"; by: RobotOf[]; own: boolean; target: string } | 
+/**  GitHub merged its pull request `number` with the commits the subject has (D13) */
+{ kind: "pullRequest"; number: number };
 
 /**  What a merged robot landed of a branch: the robot that left the fewest commits after it, of equals the first merge */
 export type LandedByView = {
@@ -2725,6 +2748,15 @@ export type LandedCommit = {
 	 *  has the change in another commit (squashed upstream)
 	 */
 	upstream: UpstreamCommit | null,
+};
+
+/**
+ *  An open pull request of a branch a merged Safe Push landed whole besides its own: the app closes it
+ *  (`domain_policy::landed::pull_requests_to_close`), `bd robot` lists it
+ */
+export type LandedPullRequest = {
+	branch: string,
+	number: number,
 };
 
 /**  A commit of the remote branch that is an older version of a commit of the baseline: a push replaces it */
@@ -3071,8 +3103,12 @@ export type News = {
 };
 
 export type NewsEvent = 
-/**  A robot known running or canceling succeeded and pushed (not a dry run): it merged what it tested */
-{ kind: "robotMerged"; robotId: string } | 
+/**
+ *  A robot known running or canceling succeeded and pushed (not a dry run): it merged what it tested. Told once the
+ *  Patronus view of the robots it merged in stands, with the open pull requests of the branches it landed whole besides
+ *  its own (`closes`, `domain_policy::landed::pull_requests_to_close`), which the app closes
+ */
+{ kind: "robotMerged"; robotId: string; closes: LandedPullRequest[] } | 
 /**
  *  A robot known running or canceling failed, told once why is known: for missing code-owner approvals
  *  (`needsReview`), or not; null when the session doesn't read its problems (a robot of no branch of the table) or
@@ -3087,7 +3123,7 @@ export type NewsEvent =
  */
 { kind: "reviewRequested"; numbers: number[] } | 
 /**
- *  The approvals of a subject that waited for them arrived (`domain_policy::readiness::approval_news`): whose
+ *  The approvals of a subject that waited for them arrived (`domain_policy::news::approval_news`): whose
  *  approval counts now in the groups that waited (none named: the code owners), in the pull request of its start
  */
 { kind: "approvalsArrived"; subject: string; pullRequest: number; approvers: Person[]; groups: string[] };
@@ -3877,6 +3913,10 @@ export type Reason =
 { code: "ancestor"; landing: RobotOf; mode: PatronusPushMode } | 
 /**  A merged Safe Push landed all of the branch: `own` its own robot */
 { code: "landed"; branch: string; by: RobotOf; own: boolean; target: string } | 
+/**  The fetched baseline (`upstream`) has every commit of the subject, until the update archives it */
+{ code: "landedIn"; upstream: string } | 
+/**  GitHub merged the pull request `number` of the subject with the commits it has (D13) */
+{ code: "pullRequestMerged"; number: number } | 
 /**  A running Safe Push holds the push of the branch (`hold`), which the start would make */
 { code: "held"; branch: string; hold: HoldView; mode: PatronusPushMode; target: string } | 
 /**  The stack of `root` doesn't fork: it has no stack branch */
@@ -4117,6 +4157,12 @@ export type RepositoryView = {
 	 *  their way, the decisions of their default intents (`domain_policy::land::decide`); none before the Patronus view
 	 */
 	lands: { [key in string]: LandDecisions },
+	/**
+	 *  What landed each subject (a branch, `stack:<root>` the whole stack), as `domain_policy::landed::landed_state`
+	 *  decides it over the landing report, the Patronus view and the pull requests: the fetched baseline, merged Safe
+	 *  Pushes (also a part of it), its pull request merged with its commits; a subject nothing landed is not listed
+	 */
+	landedStates: { [key in string]: Landed },
 	sections: TableSections,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
@@ -5334,6 +5380,8 @@ export type TableChanges = {
 	removedOpenPullRequests?: string[],
 	lands?: { [key in string]: LandDecisions },
 	removedLands?: string[],
+	landedStates?: { [key in string]: Landed },
+	removedLandedStates?: string[],
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,

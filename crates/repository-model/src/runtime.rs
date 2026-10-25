@@ -425,6 +425,8 @@ impl Actor {
         self.publish_patronus();
         // what changed while it was derived
         self.derive_patronus();
+        // a view of the robots as they are now tells the merges that waited for it
+        self.facts.tell_merges(&self.state);
         self.flush();
       }
       Message::NeedsComputed { inputs, result } => {

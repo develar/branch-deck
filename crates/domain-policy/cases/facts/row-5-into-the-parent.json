@@ -33,6 +33,7 @@
       ]
     }
   },
+  "landedStates": {},
   "openPullRequests": {
     "login": {
       "base": {"from": "auth", "kind": "virtual", "retarget": "master"},

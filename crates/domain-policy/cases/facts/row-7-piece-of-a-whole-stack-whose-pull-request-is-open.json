@@ -33,6 +33,7 @@
       ]
     }
   },
+  "landedStates": {},
   "openPullRequests": {
     "stack:auth": {
       "base": {"kind": "target"},

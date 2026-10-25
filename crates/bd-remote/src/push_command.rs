@@ -44,6 +44,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, prepare_push_branches, push_leased};
@@ -1219,11 +1220,16 @@ fn lease_rejected(context: &RepoContext, pushed: &[PushedName], moved: &[usize],
 /// The GitHub repository of the branches (`resolve_github_repository`) from what the sync read and the push URL of
 /// `origin`: a git process only for the Space mirror, once per command (`RepoContext::github_repository`)
 pub(crate) fn github_repository(context: &RepoContext, report: &SyncReport) -> Result<Option<GitHubRepository>, CliError> {
+  github_repository_of(context, &report.config)
+}
+
+/// The GitHub repository of the branches by `config` (`branchdeck.githubRepository`, the Space settings), else `origin`
+pub(crate) fn github_repository_of(context: &RepoContext, config: &ConfigSnapshot) -> Result<Option<GitHubRepository>, CliError> {
   context.github_repository(|| {
     Ok(resolve_github_repository_with(
       &context.git,
       &context.repository,
-      report.config.github_repository(),
+      config.github_repository(),
       context.origin_url()?,
     )?)
   })

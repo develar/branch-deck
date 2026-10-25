@@ -536,7 +536,8 @@ stack. After a failed Safe Push, --full says why (`failure`: `kind`, the failed 
 `problems`, the failed `builds` with their failed tests and log tails) and which commits it tested (`commits`, by
 the ids of the checked-out branch: `tested`, `rebased`, `changed`, `added`, `removed`, `landed`).
 `kind: infrastructure`: nothing to fix, the user restarts it; else fix and check locally, the user pushes and
-restarts it.
+restarts it. A merged one lists `closes`: the pull requests of the branches it landed, which the app closes; never
+close them yourself.
 ";
 
 /// `bd robot-stats --help`: the statistics

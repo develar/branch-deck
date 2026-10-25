@@ -15,7 +15,8 @@ use domain_types::patronus::{
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ReviewCandidate};
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStructure, ChildrenPush, Fact, FactState, Parked, ParkedMember, PullRequestsView, RowsView, StackBranchAlong, SubjectReadiness, WholeStackView,
+  BranchPush, BranchSection, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RowsView, StackBranchAlong, SubjectReadiness,
+  WholeStackView,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, SyncEvent};
@@ -389,6 +390,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     readiness: &readiness,
     rules: None,
     landing_needs: &failed,
+    baseline: &LandedSection::default(),
   };
   let lands = decide_lands(&sources);
   assert_eq!(lands.keys().collect::<Vec<_>>(), ["auth", "login", "oauth"]);

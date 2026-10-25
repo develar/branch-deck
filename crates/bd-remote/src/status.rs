@@ -13,7 +13,7 @@ use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_br
 use domain_types::landing::{LandingFix, LandingRefusal};
 use domain_types::repository_view::LandingNeeds;
 use domain_types::settings::PrefixSource;
-use domain_types::stack::ParentState;
+use domain_types::stack::{ParentState, StackBranchUpdate};
 use domain_types::{BranchOrigin, GroupedBranchInfo};
 use git_ops::commit_utils::get_commits_info;
 use history_rewrite::store_lines::StoreLineProblem;
@@ -445,6 +445,38 @@ pub struct CommitSummary {
   pub resolved_by_words: Option<ResolvedByWords>,
 }
 
+/// The table of a grouping without a sync (`bd status`, `bd robot`): the tips the refs hold, the remote tips the grouping
+/// read, no remote status
+pub(crate) fn grouping_table(context: &RepoContext, grouping: &BranchGrouping, stacks: &[StackBranchUpdate]) -> BranchTable {
+  BranchTable {
+    prefix: context.prefix.clone(),
+    baseline: grouping.baseline_branch.clone(),
+    branches: grouping.branches.clone(),
+    tips: grouping.listed.iter().map(|branch| (branch.name.clone(), branch.tip.clone())).collect(),
+    // a grouping without a sync: the tips are what the refs hold
+    not_built: HashMap::new(),
+    copies: HashMap::new(),
+    stack_branches: stacks.to_vec(),
+    parked: grouping.grouping.parked.entries.clone(),
+    // no sync: the remote tips the grouping read, no remote status
+    remote: RemoteFacts {
+      branches: grouping
+        .branches
+        .iter()
+        .map(|branch| {
+          let full_name = to_final_branch_name(&context.prefix, &branch.name).unwrap_or_default();
+          let fact = RemoteFact {
+            remote_tip: grouping.remote_tips.get(&full_name).cloned(),
+            ..RemoteFact::default()
+          };
+          (branch.name.clone(), fact)
+        })
+        .collect(),
+      stacks: BTreeMap::new(),
+    },
+  }
+}
+
 /// `(offset, limit)` of a listing
 type Page = (usize, Option<usize>);
 
@@ -464,33 +496,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   let (landed, landing_needs) = if args.unassigned || grouping.branches.is_empty() {
     (HashMap::new(), None)
   } else {
-    let table = BranchTable {
-      prefix: context.prefix.clone(),
-      baseline: grouping.baseline_branch.clone(),
-      branches: grouping.branches.clone(),
-      tips: grouping.listed.iter().map(|branch| (branch.name.clone(), branch.tip.clone())).collect(),
-      // a grouping without a sync: the tips are what the refs hold
-      not_built: HashMap::new(),
-      copies: HashMap::new(),
-      stack_branches: all_stacks.clone(),
-      parked: grouping.grouping.parked.entries.clone(),
-      // no sync: the remote tips the grouping read, no remote status
-      remote: RemoteFacts {
-        branches: grouping
-          .branches
-          .iter()
-          .map(|branch| {
-            let full_name = to_final_branch_name(&context.prefix, &branch.name).unwrap_or_default();
-            let fact = RemoteFact {
-              remote_tip: grouping.remote_tips.get(&full_name).cloned(),
-              ..RemoteFact::default()
-            };
-            (branch.name.clone(), fact)
-          })
-          .collect(),
-        stacks: BTreeMap::new(),
-      },
-    };
+    let table = grouping_table(context, &grouping, &all_stacks);
     let mut facts = PatronusFacts::read(context, &table, read_robots(context, environment));
     // what the Safe Push of each branch needs, where a Safe Push lands it: one trial session of every branch
     let needs = if args.brief || context.space_repository()?.is_none() {

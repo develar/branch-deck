@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::writable_state;
 use bd_cli::fixture_test::{PREFIX, assert_error, commit_all, git, run_json, write};
-use bd_cli::remote_fixture_test::{AUTH, STACK, Space, assert_schema, forking_stack, minutes_ago, stack_robot};
+use bd_cli::remote_fixture_test::{AUTH, STACK, Space, assert_schema, fake_github, forking_stack, minutes_ago, own_pull_request, reviewed_on_github, stack_robot};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -162,6 +162,45 @@ fn a_successful_robot_has_no_failure_and_a_branch_without_one_has_no_robot() {
 
   let (exit_code, output) = space.robot(&["nope"]);
   assert_error(&output, exit_code, (2, "unknown_branch"));
+}
+
+/// D7: a merged Safe Push lists the open pull requests of the branches it landed whole besides its own (auth, which
+/// login is built on, its pull request at the tip of auth), which the app closes; its own pull request is Patronus' to
+/// close, and bd closes none: nothing is written to GitHub. A robot that didn't merge lists none
+#[test_log::test]
+fn a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add form"]);
+  git(&space.repo, &["config", "branchdeck.stacks", "true"]);
+  space.sync();
+  let login = "test-user/virtual/login";
+  let pull_request = |number: u32, branch: &str| {
+    let mut pull_request = own_pull_request();
+    pull_request["number"] = json!(number);
+    pull_request["url"] = json!(format!("https://github.com/acme/monorepo/pull/{number}"));
+    pull_request["headRefName"] = json!(branch);
+    pull_request["headRefOid"] = json!(space.local_tip(branch));
+    pull_request
+  };
+  let (github, url) = fake_github(&space, &[pull_request(5, AUTH), pull_request(6, login)]);
+  let environment = reviewed_on_github(&space, &url);
+  space.add_robot("running", "RUNNING", "login", &space.local_tip(login));
+  let robot = |args: &[&str]| {
+    let (exit_code, output) = run_json(&environment, &[&["--prefix", PREFIX, "robot"], args].concat());
+    assert_eq!(exit_code, 0, "{output}");
+    output
+  };
+  assert_eq!(robot(&["login"]).get("closes"), None, "a robot that didn't merge");
+
+  space.add_robot("merged", "SUCCESS", "login", &space.local_tip(login));
+  let output = robot(&["login", "--robot", "merged"]);
+  assert_eq!(output["closes"], json!([{"branch": "auth", "number": 5}]));
+  let writes: Vec<String> = github
+    .requests()
+    .iter()
+    .filter(|request| request.method != "GET" && request.path != "/graphql")
+    .map(|request| format!("{} {}", request.method, request.path))
+    .collect();
+  assert_eq!(writes, Vec::<String>::new(), "bd closes none");
 }
 
 #[test_log::test]

@@ -74,6 +74,8 @@ targets:
   - ../../crates/domain-policy/src/robot_match.rs
   - ../../src/lib/patronus-stack.ts
   - ../../src/lib/landed-stack.ts
+  - ../../crates/domain-policy/src/landed.rs
+  - ../../crates/domain-policy/src/news.rs
   - ../../src/lib/whole-stack.ts
   - ../../crates/remote-facts/src/pull_request_writes.rs
   - ../../src/hooks/usePatronusReviewRequirement.ts
@@ -939,10 +941,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 ### Merged
 
 - A robot known as running or canceling that an answer of the session (a poll, a list, the robot of a cancel) shows
-  successful and not a dry run merged its branch: news of the session (`News`, `robotMerged`), which the main window
-  tells once (`tellRobotNews`; none of those its first view of the session had). A robot first seen finished is no
-  news.
-  [@test] ../../crates/repository-model/src/facts_test.rs (`a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why`)
+  successful and not a dry run merged its branch (`domain_policy::news::robot_finished`): news of the session (`News`,
+  `robotMerged`, with the pull requests its landing closes, [below](#merged)), told once the Patronus view of the robots
+  it merged in stands (at once while the session has no table to derive it of), which the main window tells once
+  (`tellRobotNews`; none of those its first view of the session had). A robot first seen finished is no news.
+  [@test] ../../crates/domain-policy/src/news_test.rs (`a_robot_known_running_that_finished_merged_or_failed`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why`, `a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_landing_closes`)
   [@test] ../../src/stores/patronus.test.ts (`does not tell a successful dry run or a robot first seen merged`)
 - With the window focused, a `success` toast says "auth merged into master" (the branch, or the subject of a Safe Push
   of a temporary ref) with the push mode ("Safe Push"), for 10 s; an issue key of the title ("IJPL-1 merged into
@@ -985,22 +989,24 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   ("Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."; one already closed
   gets no second comment, a merged one can't be closed), and the toast and Activity say it ("Safe Push · closes the
   pull request of auth: it landed with oauth", "closes the pull requests of 6 branches: they landed with the whole
-  stack"). By content: only while the robot ran on the branch (the stack branch) as it is, its tip or the same commits
-  rebuilt on a newer baseline, or (of a branch) a commit of it the branch built new ones on since: the copies below it
-  are the same objects, so its ancestors are as the robot took them (the `landedByRobot` of the repository view); after a change below its
-  commit (a new commit or an amend of a branch it is built on), which made new copies, by the commits it tested
-  (the repository view by content, as the rows decide it, [below](#merged)): the toast waits for that answer (the sync that runs,
-  one request), and a branch with commits added after the landed ones keeps its pull request; and only a pull request
-  that holds nothing its branch lacks: its head is the branch's tip, or it is the remote branch and that has no commit
-  the branch lacks (older versions of commits amended here included: their newer versions landed). The pull request the
-  robot started from is Patronus'. A failed close is an error toast "Cannot close pull request #5". A robot first seen
-  merged closes nothing. Only the robot's repository closes: the branches, the pull requests and the view the toast
-  waited for are of the repository the main window shows, so a merge whose repository is no longer shown when the
-  view comes closes nothing there, and the toast says "the pull requests of the branches it landed stay open: idea-1
-  is no longer the open repository" (when it landed any besides its own).
-  [@test] ../../src/stores/patronus.test.ts (`closes no pull request of the repository shown when the merged robot's repository was left before its view came`)
-  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`, `closes the pull requests of the branches the whole stack landed`, `closes the pull requests of what a merged robot landed as the view says it, the toast waiting for the view of the merge`)
-  [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the branches a merged robot landed whole, not of its own branch`, `leaves a pull request with a commit the branch lacks, one of a branch with work left, and one of a branch the table lacks`)
+  stack"). One rule decides which, in Rust (`domain_policy::landed::pull_requests_to_close`, D7), for the app and
+  `bd robot` (`closes`, which `bd` lists and never closes): by content, the branches the robot landed whole besides its
+  own, as the Patronus view of the robots it merged in names them (`landedByRobot`: while the robot ran on the branch,
+  the stack branch, as it is, its tip or the same commits rebuilt on a newer baseline, or a commit of it the branch built
+  new ones on since; after a change below its commit by the commits it tested), so a branch with commits added after the
+  landed ones keeps its pull request; and only a pull request that holds nothing its branch lacks: its head is the
+  branch's tip, or it is the remote branch and that has no commit the branch lacks (older versions of commits amended
+  here included: their newer versions landed). The pull request the robot started from is Patronus'. The session tells
+  the merge once that view stands, with the pull requests it closes (`RobotMerged.closes`), so the toast names them at
+  once. A failed close is an error toast "Cannot close pull request #5". A robot first seen merged closes nothing. Only
+  the robot's repository closes: the pull requests are of the repository the main window shows, so a merge of a
+  repository no longer shown closes nothing there, and the toast says "the pull requests of the branches it landed stay
+  open: idea-1 is no longer the open repository" (when it closes any).
+  [@test] ../../src/stores/patronus.test.ts (`closes no pull request of the repository shown when the merged robot's repository is not the one shown`)
+  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests the news of the merge says its landing closes, each with a comment of the robot, and says so`, `closes the pull requests of the branches the whole stack landed`)
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`closes_the_pull_requests_of_the_branches_a_merged_robot_landed_whole_not_of_its_own_branch`, `leaves_a_pull_request_with_a_commit_the_branch_lacks_one_of_a_branch_with_work_left_and_one_the_table_lacks`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_landing_closes`)
+  [@test] ../../crates/bd-remote/src/robot_test.rs (`a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should close by content the pull requests of the branches a Safe Push landed after a change below its commit, not of one with work left`)
   [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)

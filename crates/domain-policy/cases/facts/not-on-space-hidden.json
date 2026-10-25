@@ -1,6 +1,7 @@
 {
   "given": {"notOnSpace": true},
   "land": null,
+  "landedStates": {},
   "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},

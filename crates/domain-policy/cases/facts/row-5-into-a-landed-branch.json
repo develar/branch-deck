@@ -29,6 +29,7 @@
       ]
     }
   },
+  "landedStates": {},
   "openPullRequests": {
     "auth": {
       "base": {"from": "gone", "kind": "virtual", "retarget": "master"},

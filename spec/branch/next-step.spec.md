@@ -15,6 +15,7 @@ targets:
   - ../../crates/repository-model/src/readiness_facts.rs
   - ../../crates/remote-facts/src/scheduler_readiness.rs
   - ../../crates/domain-policy/src/readiness.rs
+  - ../../crates/domain-policy/src/landed.rs
   - ../../crates/domain-policy/src/pull_request.rs
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/lib/landing-node.ts
@@ -133,11 +134,23 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
-- The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `formatLandedState`), also while
+- What landed a branch, and a whole stack, is one rule in Rust for the app and `bd` (`domain_policy::landed::landed_state`,
+  the view's `landedStates`, [Patronus](patronus.spec.md#merged)), the first that holds: the fetched baseline has every
+  commit of it (of a whole stack, of every branch); merged Safe Pushes landed it (also a part of it, the commits added
+  after it the work left); GitHub merged its pull request with the commits it has: its head is the branch's tip (the
+  stack branch's), or its remote branch, which has what the branch has (a branch only rebuilt on a newer baseline since,
+  D13). A merged pull request of other commits is new work under the same name, a closed one lands nothing. A start of
+  a branch all of which landed is refused at both sides (`bd safe-push`: `landed`).
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_pull_request_lands_the_branch_only_merged_with_the_commits_it_has`, `a_whole_stack_landed_when_every_branch_of_it_did`, `the_reason_a_start_gives_of_what_landed_all_of_the_subject`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
+  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+- The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `landedReasonOf`: the words of the
+  view's landed state, `formatLanded`; before the view of the robots, the robot of the row that merged), also while
   another reason of row 1 (a sync) disables its start: "Landed in origin/master", "Landed in master with oauth",
   "Merged by Patronus", "Pull request #7 is merged". "Create Pull Request…" of the branch reads it: disabled with that
   reason, nothing is left to review ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
   [@test] ../../src/lib/branch-next-step.test.ts (`says why nothing of a branch is left to land, what disables its Create Pull Request…, also behind another reason of its start`)
+  [@test] ../../src/presenters/reasons.test.ts (`words what landed a subject: the baseline, merged Safe Pushes, its own robot, its pull request`)
 - A landed branch with commits added after the landed ones is not settled: those commits are the only work left of
   it, its Status cell says so ("Landed with oauth · 1 commit after it", of the robot's own branch "Landed · 1 commit
   after it"; its hover "1 commit added since, not in master yet"), and it takes the rows of a branch with work: its

@@ -7,20 +7,18 @@ import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
 import type { LandingFix, PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { BranchNextStep, NextStepBusy, NextStepFacts, NextStepPullRequest, StackPullRequestFact, UnavailableFact } from "@/lib/branch-next-step"
-import { formatLandedState, formatPendingFact, getBranchNextStep } from "@/lib/branch-next-step"
+import { formatPendingFact, getBranchNextStep, landedReasonOf } from "@/lib/branch-next-step"
 import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
-import { isFullyLanded } from "@/lib/landed"
 import type { MenuItem } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
-import { formatLandedReason, formatPatronusAvailabilityHint, formatPushMode, formatSafePushLoginCommand, getSafePushSlot, isLandedByOwnRobot, isLandedWhole } from "@/lib/patronus"
+import { formatPatronusAvailabilityHint, formatPushMode, formatSafePushLoginCommand, getSafePushSlot, isLandedByOwnRobot } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { isWindows } from "@/lib/platform"
 import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
-import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { stackProblemOf } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
@@ -28,8 +26,7 @@ import { useShowReviewReadiness } from "@/model/demand"
 import { formatReasonOrNull } from "@/presenters/reasons"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getOpenPullRequest, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
-import { landedStore } from "@/stores/landed"
+import { branchSyncStore, getBranch, getLandedState, getOpenPullRequest, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
 import type { Operations } from "@/stores/operations"
 import { getObjectBusy, operationLabel, operationsStore, runOperation } from "@/stores/operations"
 import {
@@ -69,23 +66,6 @@ import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadiness
 import { getSafePushStarting, safePushStore } from "@/stores/safe-push"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
-/**
- * The baseline ("origin/master") while the fetched baseline has every commit of the branch, before the update archives
- * it (as `useLandedIn`); null otherwise
- */
-export function getLandedIn(name: string): string | null {
-  const landed = landedStore.getState()
-  if (landed.repositoryPath !== getSelectedProject()?.path) {
-    return null
-  }
-  const incoming = landed.landing.find(branch => branch.name === name)
-  if (incoming === undefined || !isFullyLanded(incoming, true)) {
-    return null
-  }
-  const status = branchSyncStore.getState().baselineStatus
-  return status?.update?.upstream ?? status?.baselineBranch ?? "the baseline"
-}
-
 /** The pull request of the branch as the next step needs it */
 function pullRequestFactOf(branch: Branch): NextStepPullRequest | null {
   const pullRequest = getPullRequest(branch.name)
@@ -93,8 +73,6 @@ function pullRequestFactOf(branch: Branch): NextStepPullRequest | null {
     return null
   }
   const base = getOpenPullRequest(branch.name)?.base
-  // a merged pull request of other commits than the branch has now: new work under the same name
-  const mergedCurrent = pullRequest.state === "merged" && !isReviewCommitOutdated(getReviewCommitState(pullRequest.headRefOid, branch.commits[0]?.hash, branch.remoteStatus))
   return {
     number: pullRequest.number,
     state: pullRequest.state,
@@ -102,7 +80,6 @@ function pullRequestFactOf(branch: Branch): NextStepPullRequest | null {
     base: pullRequest.baseRefName ?? "",
     // where an open one goes, as Rust reads it (`pull_request::base_of`)
     intoTarget: base === undefined || base.kind === "target",
-    mergedCurrent,
     baseIsVirtualBranch: base?.kind === "virtual",
     waitingFor: waitingReviewers(pullRequest),
     changesRequestedBy: changesRequestedBy(pullRequest),
@@ -285,10 +262,8 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
   const restart =
     robot === undefined ? null : (getRobotActions(robot, branch, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
   const readiness = options === null ? getReviewReadiness(name) : (freshReadiness(getReviewReadiness(name), name) ?? undefined)
-  const landedIn = getLandedIn(name)
-  // all of it landed; one with commits after the landed ones has them to land
-  const landedWith = isLandedWhole(landedBy) ? formatLandedReason(landedBy) : null
-  const pullRequestFact = pullRequestFactOf(branch)
+  // what landed it, as Rust decides it of the landing report, the robots and the pull requests (`landedStates`)
+  const landed = getLandedState(name) ?? null
   return {
     branchName: name,
     subject: name,
@@ -304,15 +279,14 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     landingPart: landingAncestor,
     held: getPushHold(name) !== null,
     parked: getParkedState(name),
-    landedIn,
-    landedWith,
+    landed,
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,
     // a refresh that failed for a while keeps the last listing: its pull requests are known as of then
     pullRequestsAvailable: getPullRequestListing() === "listed",
     pullRequestsUnlisted: getPullRequestListing() === "unlisted" ? formatAvailabilityHint(getPullRequestAvailability()) : null,
-    pullRequest: pullRequestFact,
+    pullRequest: pullRequestFactOf(branch),
     target,
     // the ancestors a merged Safe Push landed are in the target: the robot lands the others
     landsBranches: getLandingBranchCount(name),
@@ -333,7 +307,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
       },
       retarget: () => void retargetToTarget(name),
       // nothing of a branch that landed is left to review: the step decides it, so the item reads its facts here
-      createPullRequest: getCreatePullRequestItem(branch, formatLandedState({ landedIn, landedWith, robot: slot, pullRequest: pullRequestFact })),
+      createPullRequest: getCreatePullRequestItem(branch, landedReasonOf({ landed, robot: slot })),
       requestReview: getRequestReviewItem(getOpenPullRequest(name), () => openRequestReview(name)),
       fixLanding,
     },
@@ -374,7 +348,6 @@ export function nextStepSources(): readonly unknown[] {
     patronusStore.getState(),
     pullRequestsStore.getState(),
     reviewReadinessStore.getState(),
-    landedStore.getState(),
     operationsStore.getState(),
     safePushStore.getState(),
     repositorySettingsStore.getState(),
@@ -415,7 +388,7 @@ const shownSteps = new Map<string, { sources: readonly unknown[]; key: string; s
 
 /**
  * The next step of the branch, re-rendering when it changes: it depends on the branches, the robots, the pull
- * requests, the readiness, the landed commits and the operations on the row, so each of their stores is watched.
+ * requests (what landed it is of the branch store), the readiness and the operations on the row, so each of their stores is watched.
  * The component shows the step: the readiness store asks for the readiness of the branch while it does
  * (`useShowReviewReadiness`), never for a row a collapse hides; of the root of a stack that forks, the readiness of its
  * whole stack too (`stackReadinessKey`), whose Safe Push its menu and its popover offer, with or without an island.
@@ -433,7 +406,6 @@ export function useNextStepStores<T>(select: () => T): T {
   useStore(patronusStore, select)
   useStore(pullRequestsStore, select)
   useStore(reviewReadinessStore, select)
-  useStore(landedStore, select)
   useStore(safePushStore, select)
   return useStore(operationsStore, select)
 }

@@ -2,7 +2,7 @@
 // code, so a code Rust gives is one the page words (`crates/domain-policy/reasons.json`, `reasons.test.ts`). The field a
 // reason is read from adds the words of its context: a hold of a stack branch says "nothing of it is left to push"
 // (`formatStackHold`), a start check carries the reason of a disabled action (`startCheck`).
-import type { HoldKind, PatronusPushMode, PatronusRobot, Reason, RobotOf } from "@/lib/bindings"
+import type { HoldKind, Landed, PatronusPushMode, PatronusRobot, Reason, RobotOf } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import { describeLandingRefusal } from "@/lib/landing-gate"
@@ -56,6 +56,32 @@ interface HoldWords {
   readonly mode: PatronusPushMode
   readonly target: string
   readonly commits?: number
+}
+
+/**
+ * What landed a subject (`landedStates` of the view, `domain_policy::landed::landed_state`): "Landed in origin/master"
+ * (the fetched baseline), "Landed in master with oauth", "Landed in master with login and the whole air stack" (merged
+ * Safe Pushes), "Merged by Patronus" (its own robot), "Pull request #7 is merged" (GitHub merged it with its commits)
+ */
+export function formatLanded(landed: Landed): string {
+  switch (landed.by.kind) {
+    case "baseline":
+      return `Landed in ${landed.by.upstream}`
+    case "robots":
+      return robotsLandedWords(landed.by.by, landed.by.own, landed.by.target)
+    case "pullRequest":
+      return `Pull request #${landed.by.number} is merged`
+  }
+}
+
+/** `formatLanded` of a subject all of which landed; null while work is left after what landed, or nothing did */
+export function formatLandedWhole(landed: Landed | null | undefined): string | null {
+  return landed == null || landed.after.length > 0 ? null : formatLanded(landed)
+}
+
+/** "Landed in master with login and the whole air stack", each subject once; of the subject's own robot "Merged by Patronus" */
+function robotsLandedWords(by: readonly RobotOf[], own: boolean, target: string): string {
+  return own ? "Merged by Patronus" : `Landed in ${target} with ${joinNames([...new Set(by.map(it => formatLandingSubject(subjectOf(it))))])}`
 }
 
 /** "Landed in master with oauth", of its own robot "Merged by Patronus" */
@@ -126,12 +152,14 @@ const words = {
     }
   },
   stackParked: ({ member }) => `It holds parked ${member}: land the stack in pieces`,
-  stackLanded: ({ by, own, target }) => (own ? "Merged by Patronus" : `Landed in ${target} with ${joinNames([...new Set(by.map(it => formatLandingSubject(subjectOf(it))))])}`),
+  stackLanded: ({ by, own, target }) => robotsLandedWords(by, own, target),
   stackHeld: ({ root, mode }) => stackHeldWords(root, mode),
   cantPush: ({ branch }, statusText) => `${branch} can't be pushed: ${statusText(branch) === "" ? "it failed to sync" : statusText(branch)}`,
   dropsRemote: ({ branch, behind }) =>
     `The remote branch of ${branch} has ${behind === 1 ? "a commit" : `${behind} commits`} that ${branch} lacks: push it from its row, which shows ${behind === 1 ? "it" : "them"}`,
   parked: ({ with: parent, note }) => formatParkedBlocker({ with: parent, note }),
+  landedIn: ({ upstream }) => `Landed in ${upstream}`,
+  pullRequestMerged: ({ number }) => `Pull request #${number} is merged`,
   unprotected: ({ target }) => `Patronus does not push into ${target}`,
   draft: ({ number }) => `#${number} is a draft: Patronus merges it once it is ready for review`,
   otherBase: ({ number, base }) => `Approvals in #${number} don't count: its base is ${base}`,

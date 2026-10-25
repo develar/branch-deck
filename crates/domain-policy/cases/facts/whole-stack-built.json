@@ -4,6 +4,7 @@
     "subject": "wholeStack"
   },
   "land": null,
+  "landedStates": {},
   "openPullRequests": {},
   "readiness": {
     "auth": {

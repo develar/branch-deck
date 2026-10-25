@@ -1,5 +1,5 @@
 import { ClockIcon, FileTextIcon, GitPullRequestArrowIcon, Layers2Icon, MessageSquareWarningIcon, ShieldCheckIcon, TriangleAlertIcon, UserPlusIcon } from "lucide-react"
-import type { LandingFix, LandingRefusal, MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
+import type { Landed, LandingFix, LandingRefusal, MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
 import { isLogin } from "@/lib/create-pull-request"
 import { formatShortHash } from "@/lib/hash"
 import { describeLandingCheck, formatLandingFix, neededCommit } from "@/lib/landing-gate"
@@ -9,6 +9,7 @@ import { formatParkedBlocker } from "@/lib/parked"
 import type { LandingAncestor, SafePushSlot } from "@/lib/patronus"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
 import { joinNames } from "@/lib/text"
+import { formatLandedWhole } from "@/presenters/reasons"
 
 /**
  * The next step of a branch, the first row of the table of [Next Step](../../spec/branch/next-step.spec.md) that
@@ -92,8 +93,6 @@ export interface NextStepPullRequest {
   readonly base: string
   /** It merges into the target of Patronus, or either is unknown (`base` `target` of the open pull request Rust reads) */
   readonly intoTarget: boolean
-  /** Merged with the commits the branch has (not new work under the same name since) */
-  readonly mergedCurrent: boolean
   /**
    * Its base is a virtual branch of the user (`isVirtualBranchBase`): a parent's branch, of a parent in the table or of
    * one that landed or is gone. Every pull request of a virtual branch goes into the target, so the retarget is what
@@ -169,13 +168,12 @@ export interface NextStepFacts {
   readonly held: boolean
   /** The user keeps the branch local, or a branch it is built on (`getParkedState`): nothing of it starts; null otherwise */
   readonly parked: ParkedState | null
-  /** The baseline that has every commit of the branch ("origin/master"); null otherwise */
-  readonly landedIn: string | null
   /**
-   * A merged Safe Push of a branch built on it or of the whole stack landed the branch, before the fetch says so
-   * (`getLandedBy`): the reason, "Landed in master with oauth" (`formatLandedReason`); null otherwise
+   * What landed it, as the view says (`landedStates`, `domain_policy::landed::landed_state`): the fetched baseline, merged
+   * Safe Pushes (its own, of a branch built on it, of the whole stack), its pull request merged with its commits (D13);
+   * null while nothing did. Only one with nothing after it holds the branch (row 1)
    */
-  readonly landedWith: string | null
+  readonly landed: Landed | null
   /** The robot of the row (`getSafePushSlot`) */
   readonly robot: SafePushSlot
   /** The pull request the robot was started from */
@@ -265,7 +263,7 @@ export interface BranchNextStep {
    */
   readonly withoutReview: { readonly blocker: string | null } | null
   /**
-   * Why nothing of it is left to land or review (`formatLandedState`, row 1): "Landed in origin/master", "Landed in
+   * Why nothing of it is left to land or review (`landedReasonOf`, row 1): "Landed in origin/master", "Landed in
    * master with oauth", "Merged by Patronus"; what disables "Create Pull Request…" of a branch. Null while work is left
    */
   readonly landed: string | null
@@ -439,7 +437,7 @@ function startReason(facts: NextStepFacts, startBlocker: string | null): string 
   if (startBlocker !== null) {
     return startBlocker
   }
-  const landed = formatLandedState(facts)
+  const landed = landedReasonOf(facts)
   if (landed !== null) {
     return landed
   }
@@ -450,25 +448,13 @@ function startReason(facts: NextStepFacts, startBlocker: string | null): string 
 }
 
 /**
- * Why nothing of the branch is left to land (row 1): every commit of it is in the baseline by the fetch ("Landed in
- * origin/master"), a merged Safe Push landed all of it ("Landed in master with oauth"), its own robot merged it ("Merged
- * by Patronus"), its pull request merged with its commits; null while work is left. Its start says it as the reason,
- * and "Create Pull Request…" as why there is nothing to review.
+ * Why nothing of the branch is left to land (row 1), in the words of what landed all of it (`formatLandedWhole` of the
+ * view's `landed`): "Landed in origin/master", "Landed in master with oauth", "Merged by Patronus", "Pull request #7 is
+ * merged"; before the view of the robots, the robot of the row that merged says it (row 0). Null while work is left. Its
+ * start says it as the reason, and "Create Pull Request…" as why there is nothing to review.
  */
-export function formatLandedState(facts: Pick<NextStepFacts, "landedIn" | "landedWith" | "robot" | "pullRequest">): string | null {
-  if (facts.landedIn !== null) {
-    return `Landed in ${facts.landedIn}`
-  }
-  if (facts.landedWith !== null) {
-    return facts.landedWith
-  }
-  if (isMergedByRobot(facts)) {
-    return "Merged by Patronus"
-  }
-  if (facts.pullRequest?.state === "merged" && facts.pullRequest.mergedCurrent) {
-    return `Pull request #${facts.pullRequest.number} is merged`
-  }
-  return null
+export function landedReasonOf(facts: Pick<NextStepFacts, "landed" | "robot">): string | null {
+  return formatLandedWhole(facts.landed) ?? (isMergedByRobot(facts) ? "Merged by Patronus" : null)
 }
 
 function isMergedByRobot(facts: Pick<NextStepFacts, "robot">): boolean {
@@ -549,12 +535,9 @@ function isSettled(facts: NextStepFacts): boolean {
     facts.blocked ||
     facts.held ||
     facts.parked !== null ||
-    facts.landedIn !== null ||
-    facts.landedWith !== null ||
+    landedReasonOf(facts) !== null ||
     facts.robot.kind === "running" ||
-    facts.robot.kind === "none" ||
-    isMergedByRobot(facts) ||
-    (facts.pullRequest?.state === "merged" && facts.pullRequest.mergedCurrent)
+    facts.robot.kind === "none"
   )
 }
 
@@ -588,7 +571,7 @@ function quietItem(facts: NextStepFacts, label: string, description: string, ico
  */
 export function getBranchNextStep(facts: NextStepFacts): BranchNextStep {
   const result = decideNextStep(facts)
-  const landed = formatLandedState(facts)
+  const landed = landedReasonOf(facts)
   return landed === null ? result : { ...result, landed }
 }
 

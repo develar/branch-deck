@@ -15,6 +15,7 @@
     },
     "profiles": {"default": null, "emergency": [], "offered": []}
   },
+  "landedStates": {},
   "openPullRequests": {},
   "readiness": {
     "auth": {

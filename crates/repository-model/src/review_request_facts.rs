@@ -1,12 +1,14 @@
 //! The pull requests of others that wait for the user's review ("Your Turn", spec/repository/review-requests.spec.md)
 //! as a fact of the session (`ReviewRequestsFact`, the part `facts.reviewRequests` of the view): each listing replaces
 //! the requests, waiting the longest first; a failure of GitHub keeps them (`Stale`), no token, a token GitHub rejects
-//! and a repository not on GitHub drop them. A listing tells the requests new since the listing before (`News`): a
-//! number and request time it lacked, a re-request too, never a request back to the user after their answer; the first
+//! and a repository not on GitHub drop them. A listing tells the requests new since the listing before (`News`,
+//! `domain_policy::news::review_requested`): a number and request time it lacked, a re-request too, never a request back
+//! to the user after their answer; the first
 //! listing after a window watches the session anew (the start of the app, a repository selected again) is silent.
 
 use crate::facts::Observation;
 use crate::pull_request_facts::availability_error;
+use domain_policy::news::{request_key, review_requested};
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::review_request::{ReviewRequest, ReviewRequestsResult};
 use domain_types::session::{FactState, NewsEvent, ReviewRequestsView};
@@ -51,7 +53,7 @@ impl ReviewRequestsFact {
       PullRequestAvailability::Available { .. } => {
         requests.sort_by_key(|request| (request.waiting_since, request.number));
         news = self.told(&requests);
-        self.known = Some(requests.iter().map(key).collect());
+        self.known = Some(requests.iter().map(request_key).collect());
         self.view.total_count = total_count.max(u32::try_from(requests.len()).unwrap_or(u32::MAX));
         self.view.requests = requests;
         self.view.checked_at = observation.observed_at;
@@ -88,21 +90,11 @@ impl ReviewRequestsFact {
     (self.view != before, news)
   }
 
-  /// The news of `requests` against the listing before: none while it is silent
+  /// The news of `requests` against the listing before (`domain_policy::news::review_requested`): none while it is
+  /// silent
   fn told(&self, requests: &[ReviewRequest]) -> Option<NewsEvent> {
-    let known = self.known.as_ref()?;
-    let numbers: Vec<u32> = requests
-      .iter()
-      .filter(|request| request.back_to_you.is_none() && !known.contains(&key(request)))
-      .map(|request| request.number)
-      .collect();
-    (!numbers.is_empty()).then_some(NewsEvent::ReviewRequested { numbers })
+    review_requested(self.known.as_ref()?, requests)
   }
-}
-
-/// A request as the user was asked: a re-request is a new one, a move of the other side after the user's answer is not
-const fn key(request: &ReviewRequest) -> (u32, u32) {
-  (request.number, request.requested_at)
 }
 
 #[cfg(test)]

@@ -159,9 +159,9 @@
   {
     "id": "row-1-merged-pull-request",
     "group": "next-step-rows",
-    "title": "GitHub merged the pull request #7 with the commits of the branch: the app holds it, bd reads only open pull requests and robots",
+    "title": "GitHub merged the pull request #7 with the commits of the branch: it landed, both hold it (domain_policy::landed, D13)",
     "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D13",
+    "discrepancy": null,
     "given": {
       "pullRequest": {
         "state": "merged"
@@ -175,8 +175,7 @@
     },
     "bd": {
       "check": {
-        "refusals": [],
-        "pull_request": null
+        "refusals": ["landed"]
       }
     }
   },

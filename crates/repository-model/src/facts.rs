@@ -27,7 +27,9 @@
 //! the table (`domain_policy::robot_match`, on the tips the table has now, the pushes of the session included) and the
 //! watched ones of the demand to poll, those of them not known failing, and the failed robots of the table whose
 //! problems are not known. An answer that shows a robot known running or canceling merged or failed is news (`News`,
-//! with a number of its own per session): a merge at once, a failure once its problems say whether it failed for missing
+//! with a number of its own per session, `domain_policy::news::robot_finished`): a merge once the Patronus view of the
+//! robots it merged in stands, with the pull requests its landing closes (`tell_merges`,
+//! `domain_policy::landed::pull_requests_to_close`), a failure once its problems say whether it failed for missing
 //! approvals (or their read failed), at once for a robot whose problems the session doesn't read.
 //!
 //! The Patronus view (`PatronusFact`, the part `patronus` of the view): what the robots land, landed and hold of the
@@ -54,16 +56,19 @@
 //! the news of the new ones.
 
 use crate::branch_table::{BranchTable, RemoteFacts, remote_fact};
+use crate::derive::landed_subject;
 use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_request_facts::ReviewRequestsFact;
 use crate::table::TableState;
 use domain_policy::holds::is_active;
+use domain_policy::landed::{Of, pull_requests_to_close};
+use domain_policy::news::{self, robot_finished};
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::LandingRefusal;
+use domain_types::landing::{LandedPullRequest, LandingRefusal};
 use domain_types::patronus::{
   KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
   REVIEW_APPROVAL_SUBSYSTEM,
@@ -371,6 +376,9 @@ pub struct FactStore {
   last_news: u32,
   /// The failed robots whose news waits for their problems
   failures: BTreeSet<String>,
+  /// The merged robots whose news waits for the Patronus view of the robots they merged in: what they landed and
+  /// which pull requests that closes
+  merges: BTreeSet<String>,
 }
 
 impl FactStore {
@@ -390,6 +398,7 @@ impl FactStore {
       news: Vec::new(),
       last_news: 0,
       failures: BTreeSet::new(),
+      merges: BTreeSet::new(),
     }
   }
 
@@ -491,16 +500,59 @@ impl FactStore {
     }
   }
 
-  /// The robots an answer showed finished: a merge is news now, a failure once its problems are known
+  /// The robots an answer showed finished: a merge once the Patronus view of the robots it merged in stands
+  /// (`tell_merges`; at once while no table is there to derive it of), a failure once its problems are known
   fn finished(&mut self, finished: Vec<Finished>) {
     for robot in finished {
       match robot {
-        Finished::Merged(robot_id) => self.tell(NewsEvent::RobotMerged { robot_id }),
+        Finished::Merged(robot_id) if self.table.value().is_none() => self.tell(NewsEvent::RobotMerged { robot_id, closes: Vec::new() }),
+        Finished::Merged(robot_id) => {
+          self.merges.insert(robot_id);
+        }
         Finished::Failed(id) => {
           self.failures.insert(id);
         }
       }
     }
+  }
+
+  /// The Patronus view of the robots as they are now answered (no derivation runs after it): each merge that waited
+  /// for it is told with the open pull requests of the branches it landed whole besides its own
+  /// (`domain_policy::landed::pull_requests_to_close`, over the table as `state` has it and the listing of the pull
+  /// requests); a view that failed closes none
+  pub fn tell_merges(&mut self, state: &TableState) {
+    if self.merges.is_empty() || self.patronus.is_deriving() {
+      return;
+    }
+    let merges = std::mem::take(&mut self.merges);
+    let told: Vec<NewsEvent> = merges
+      .into_iter()
+      .map(|robot_id| {
+        let closes = self.closes(state, &robot_id);
+        NewsEvent::RobotMerged { robot_id, closes }
+      })
+      .collect();
+    for event in told {
+      self.tell(event);
+    }
+  }
+
+  /// The pull requests the merge of `robot_id` closes, as the Patronus view names what it landed; none without a view
+  fn closes(&self, state: &TableState, robot_id: &str) -> Vec<LandedPullRequest> {
+    let part = self.patronus.part();
+    let (Some(robot), true, Some(table)) = (
+      self.robots.view().robots.get(robot_id),
+      matches!(part.state, FactState::Fresh | FactState::Stale { .. }),
+      self.table_facts(state),
+    ) else {
+      return Vec::new();
+    };
+    let landed = part.view.landed_by_robot.get(robot_id).map_or(&[][..], Vec::as_slice);
+    let pull_requests = Some(self.pull_requests.view());
+    let (table, remote) = (&table.table, &table.remote);
+    pull_requests_to_close(robot, landed, |branch| {
+      table.branch(branch).map(|found| landed_subject(table, remote, Of::Branch(&found.name), pull_requests))
+    })
   }
 
   fn tell(&mut self, event: NewsEvent) {
@@ -698,12 +750,10 @@ impl RobotsFact {
       if robot.profile.is_none() {
         robot.profile.clone_from(&known.profile);
       }
-      if is_active(known) {
-        match robot.status {
-          PatronusRobotStatus::Success if robot.push_mode != PatronusPushMode::DryRun => finished.push(Finished::Merged(robot.id.clone())),
-          PatronusRobotStatus::Failure => finished.push(Finished::Failed(robot.id.clone())),
-          _ => {}
-        }
+      match robot_finished(known, &robot) {
+        Some(news::Finished::Merged) => finished.push(Finished::Merged(robot.id.clone())),
+        Some(news::Finished::Failed) => finished.push(Finished::Failed(robot.id.clone())),
+        None => {}
       }
     }
     self.written.insert(robot.id.clone(), seq);
@@ -893,6 +943,12 @@ impl PatronusFact {
     self.deriving = None;
     self.failed = result.is_err();
     let _ = self.derived.answer(observation, result.map(Arc::new));
+  }
+
+  /// A derivation runs: its answer is not of the robots as they are now
+  #[must_use]
+  pub const fn is_deriving(&self) -> bool {
+    self.deriving.is_some()
   }
 
   /// Patronus answered: a derivation that failed is asked again

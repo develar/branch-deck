@@ -39,6 +39,26 @@
       ]
     }
   },
+  "landedStates": {
+    "auth": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+        "kind": "robots",
+        "own": false,
+        "target": "master"
+      }
+    },
+    "login": {
+      "after": [],
+      "by": {
+        "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+        "kind": "robots",
+        "own": true,
+        "target": "master"
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

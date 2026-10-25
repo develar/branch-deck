@@ -260,5 +260,13 @@
     "code": "targetConflict",
     "commit": "0123456789abcdef",
     "files": ["a.kt"]
+  },
+  {
+    "code": "landedIn",
+    "upstream": "origin/master"
+  },
+  {
+    "code": "pullRequestMerged",
+    "number": 7
   }
 ]

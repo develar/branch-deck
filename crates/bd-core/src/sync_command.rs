@@ -16,7 +16,7 @@ use domain_types::commit::Commit;
 use domain_types::conflict::{MergeConflictInfo, WordResolutionSummary};
 use domain_types::error::ErrorCode;
 use domain_types::landed::LandedBranch;
-use domain_types::session::{BaselineStatus, BranchStatus, BranchSync, BranchView};
+use domain_types::session::{BaselineStatus, BranchStatus, BranchSync, BranchView, LandedSection};
 use domain_types::stack::BranchStack;
 use domain_types::update_project::{UpdateKind, UpdateState};
 use domain_types::{BranchError, ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
@@ -60,6 +60,11 @@ pub struct SyncOutput {
   #[serde(skip)]
   #[schemars(skip)]
   pub remote_statuses: Vec<RemoteStatusUpdate>,
+  /// The check of the update and the commits the fetched baseline has, as the table holds them, for what landed a
+  /// branch (`domain_policy::landed::landed_state`)
+  #[serde(skip)]
+  #[schemars(skip)]
+  pub landed_section: LandedSection,
 }
 
 impl SyncOutput {
@@ -518,6 +523,7 @@ fn summarize(context: &RepoContext, report: SyncReport, table: &TableState) -> S
     landed: landed_summary(landed.landed.clone(), &short),
     report,
     remote_statuses: rows.iter().filter_map(|row| row.remote.status.clone()).collect(),
+    landed_section: landed.clone(),
   }
 }
 

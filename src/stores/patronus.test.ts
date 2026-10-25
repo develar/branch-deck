@@ -4,6 +4,7 @@ import type {
   ApiError,
   FactState,
   GetRobotCommitMapParams,
+  LandedPullRequest,
   LandingRefusal,
   News,
   PatronusAvailability,
@@ -96,6 +97,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     viewHeld: false,
     /** Every derivation fails with this while it is set */
     viewFailure: null as string | null,
+    /** By robot id, the pull requests the news of its merge says its landing closes (`domain_policy::landed`) */
+    closes: {} as Record<string, LandedPullRequest[]>,
     commitMapCalls: [] as GetRobotCommitMapParams[],
   },
   branches: {
@@ -363,7 +366,7 @@ function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
   })
   const news: News[] = finished.flatMap((robot): News[] => {
     if (robot.status === "success" && robot.pushMode !== "dryRun") {
-      return [{ id: ++lastNews, event: { kind: "robotMerged", robotId: robot.id } }]
+      return [{ id: ++lastNews, event: { kind: "robotMerged", robotId: robot.id, closes: patronus.closes[robot.id] ?? [] } }]
     }
     return robot.status === "failure" ? [{ id: ++lastNews, event: { kind: "robotFailed", robotId: robot.id, needsReview: needsReview[robot.id] ?? null } }] : []
   })
@@ -482,6 +485,17 @@ function landedOauthStack(authAfter: string[] = []): PatronusView {
   return { branches: {}, stacks: {}, landedByRobot: { r1: landed }, restarts: {} }
 }
 
+/** The stack auth ← login ← oauth, auth with the open pull request #5 at its tip, and the running robot of oauth listed */
+async function listOauthStack(): Promise<PatronusRobot> {
+  const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+  branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login") }
+  notices.pullRequests = { auth: { number: 5, state: "open", headRefOid: "auth-tip" } }
+  const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-tip", pullRequest: { number: 7, url: "u7" } })
+  patronus.list = available(oauth)
+  await list()
+  return oauth
+}
+
 /** The view the session derives from now on, derived now, and the store once it took it */
 async function answerView(view: Partial<PatronusView>): Promise<void> {
   patronus.view = { branches: {}, stacks: {}, landedByRobot: {}, restarts: {}, ...view }
@@ -518,6 +532,7 @@ beforeEach(() => {
   patronus.landingNeeds = { kind: "fresh" }
   patronus.viewHeld = false
   patronus.viewFailure = null
+  patronus.closes = {}
   patronus.commitMapCalls = []
   robotCoverageStore.setState({ maps: {} })
   notices.pullRequestRefreshes = []
@@ -826,18 +841,10 @@ describe("merges", () => {
     expect(shownToasts.map(it => it.title)).toEqual(["auth merged into master"])
   })
 
-  it("closes the pull requests of the ancestors a stacked branch landed, and says so", async () => {
-    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
-    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login") }
-    notices.pullRequests = {
-      auth: { number: 5, state: "open", headRefOid: "auth-tip" },
-      // pushed before a later commit of login: the merge doesn't have that pull request's head
-      login: { number: 6, state: "open", headRefOid: "older" },
-    }
-    const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-tip", pullRequest: { number: 7, url: "u7" } })
-    patronus.list = available(oauth)
-    await list()
+  it("closes the pull requests the news of the merge says its landing closes, each with a comment of the robot, and says so", async () => {
+    const oauth = await listOauthStack()
     patronus.view = landedOauthStack()
+    patronus.closes = { r1: [{ branch: "auth", number: 5 }] }
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
     await poll()
     await vi.waitFor(() => expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."]))
@@ -846,71 +853,27 @@ describe("merges", () => {
     expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
   })
 
-  it("closes no pull request of the repository shown when the merged robot's repository was left before its view came", async () => {
-    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
-    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login") }
-    notices.pullRequests = { auth: { number: 5, state: "open", headRefOid: "auth-tip" } }
-    const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-tip", pullRequest: { number: 7, url: "u7" } })
-    patronus.list = available(oauth)
-    await list()
+  it("closes no pull request of the repository shown when the merged robot's repository is not the one shown", async () => {
+    const oauth = await listOauthStack()
     await answerView(landedOauthStack())
-    // the merge waits for the sync; meanwhile the user opens another repository, whose auth has an open pull request too
-    let synced!: () => void
-    branches.synced = new Promise(resolve => {
-      synced = resolve
-    })
+    patronus.closes = { r1: [{ branch: "auth", number: 5 }] }
+    // the user opened another repository, whose auth has an open pull request too, before the merge came
+    branches.selected = "/other"
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
     await poll()
-    branches.selected = "/other"
-    synced()
 
     await vi.waitFor(() => expect(shownToasts).toHaveLength(1))
     expect(notices.closed).toEqual([])
     expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · the pull requests of the branches it landed stay open: repo is no longer the open repository"])
   })
 
-  it("closes the pull requests of what a merged robot landed as the view says it, the toast waiting for the view of the merge", async () => {
-    const stacked = (name: string, parent: string | null, remoteTip: string) => ({
-      name,
-      commits: [{ hash: `${name}-copy`, originalHash: `${name}-original` }],
-      remoteStatus: { exists: true, remoteTip, commitsBehind: 0 },
-      stack: { effectiveBase: parent },
-    })
-    branches.current = { auth: stacked("auth", null, "auth-old"), login: stacked("login", "auth", "login-old"), oauth: stacked("oauth", "login", "oauth-old") }
-    notices.pullRequests = {
-      auth: { number: 5, state: "open", headRefOid: "auth-old" },
-      login: { number: 6, state: "open", headRefOid: "login-old" },
-    }
-    const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-old" })
-    patronus.list = available(oauth)
-    await list()
-    // the view of the running robot lands nothing yet; the one of the merge says auth has a commit left
-    patronus.view = landedOauthStack(["auth-new"])
-    patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
-    await poll()
-    await vi.waitFor(() => expect(notices.closed).toEqual(["login Landed in master with the Safe Push of user/virtual/oauth, which is built on this branch."]))
-    expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of login: it landed with oauth"])
-  })
-
   it("closes the pull requests of the branches the whole stack landed", async () => {
-    const member = (name: string, parent: string | null, remoteTip: string | null = null, commitsBehind = 0) => ({
-      name,
-      commits: [{ hash: `${name}-tip` }],
-      remoteStatus: remoteTip === null ? null : { remoteTip, commitsBehind },
-      stack: { effectiveBase: parent },
-    })
-    branches.current = {
-      air: member("air", null),
-      // pushed before a sync rebuilt it: the remote branch has nothing the branch lacks
-      bazel: member("bazel", "air", "bazel-old"),
-      // someone else's commit on the remote: the merge doesn't have it
-      side: member("side", "air", "side-old", 1),
-    }
+    const member = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    branches.current = { air: member("air", null), bazel: member("bazel", "air"), side: member("side", "air") }
     branches.stacks = { air: { root: "air", members: ["air", "bazel", "side"], tip: "stack-tip", remoteStatus: null } }
     notices.pullRequests = {
       air: { number: 5, state: "open", headRefOid: "air-tip" },
-      bazel: { number: 6, state: "open", headRefOid: "bazel-old" },
-      side: { number: 7, state: "open", headRefOid: "side-old" },
+      bazel: { number: 6, state: "open", headRefOid: "bazel-tip" },
     }
     const whole = robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip", pullRequest: { number: 12, url: "u12" } })
     patronus.list = available(whole)
@@ -920,6 +883,12 @@ describe("merges", () => {
       stacks: {},
       landedByRobot: { r1: ["air", "bazel", "side"].map(branch => ({ branch, own: false, after: [] })) },
       restarts: {},
+    }
+    patronus.closes = {
+      r1: [
+        { branch: "air", number: 5 },
+        { branch: "bazel", number: 6 },
+      ],
     }
     // the session polls the robot of the whole stack: no branch has it
     patronus.poll = available({ ...whole, status: "success", finishTime: 200 })

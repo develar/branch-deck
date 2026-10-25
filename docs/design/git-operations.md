@@ -3543,7 +3543,10 @@ push), because a read that started while a write ran may have read before it. An
 an older number (`Sessions::apply_facts`), so a list started before a start's robot or a listing started before a
 retarget never rolls the write back; an answer of a closed session or of another epoch applies to nothing. A transition
 an answer shows is news of the session (`News { id, event }`: a robot merged or failed, approvals arrived, review
-requests came; the last 32 in the view, with growing ids), which the page tells once (a toast, an OS notification).
+requests came, each decided by `domain_policy::news`; the last 32 in the view, with growing ids), which the page tells
+once (a toast, an OS notification). What landed each branch and whole stack (`landedStates`,
+`domain_policy::landed::landed_state`: the landing report of the sync, the Patronus view, the pull requests listed) the
+view derives with each patch but while a sync runs, as `lands`.
 
 | Family | Part of the view | Read through `FactSources` | Asked by `domain_policy::refresh` | Written by the commands |
 |---|---|---|---|---|
@@ -3605,7 +3608,9 @@ robots the session matches to the tips of its table and of the watched robots of
 each robot keeps the number of the read or the write that wrote it, and a failed answer keeps the robots `Stale`. After
 each answer the scheduler asks which running robots of the poll a failed required check dooms and the problems of the
 failed robots of the table not known yet, and a robot known running that an answer shows merged or failed is news: a
-failure once its problems say whether for missing approvals. The details of a robot (`facts.robotDetails`: its checks,
+merge once the Patronus view of the robots it merged in stands (no derivation runs after it; at once without a table),
+with the open pull requests its landing closes (`domain_policy::landed::pull_requests_to_close`, which the page closes
+and `bd robot` lists), a failure once its problems say whether for missing approvals. The details of a robot (`facts.robotDetails`: its checks,
 the build progress of the running ones, its profile) are read while a surface of a window demands them, again when its
 status changes and every 61 s while it runs, and dropped when no window demands them; a details answer puts on the
 robot what a list doesn't name (`RobotsFact::details_answer`: the profile, failing while it runs). The page stores what
@@ -3633,13 +3638,13 @@ each patch. The scheduler (`scheduler_readiness.rs`) asks what a surface needs a
 the hidden ones that wait for approvals of the same tip and start, at most four at a time, after one read of the answers
 the object cache keeps (`kept_review_readiness`, on the blocking pool); a subject Patronus did not answer is asked again
 five minutes later, and while Patronus does not answer the repository nothing is asked and a needed subject is
-`Unavailable`. An answer that shows approvals arrived is news (`domain_policy::readiness::approval_news`).
+`Unavailable`. An answer that shows approvals arrived is news (`domain_policy::news::approval_news`).
 
 The review requests of others (`facts.reviewRequests`, `repository_model::review_request_facts`): the pull requests that
 wait for the user's review, sorted, listed by `review_requests_due` (a committed table at most once a minute, a focus
 after two minutes, the refresh button, a poll five minutes after each answer and later after failures, none offline or
 without a token GitHub accepts); a failure keeps the last list `Stale` (no token and a repository off GitHub drop it),
-and the requests a listing adds are news (`NewsEvent::ReviewRequested`), none in the first answer after a window began
+and the requests a listing adds are news (`NewsEvent::ReviewRequested`, `domain_policy::news::review_requested`), none in the first answer after a window began
 to watch the session (`watched_anew`). While a subject waits for approvals, each
 poll lists the pull requests too.
 

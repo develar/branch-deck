@@ -39,6 +39,7 @@
       ]
     }
   },
+  "landedStates": {},
   "openPullRequests": {},
   "readiness": {
     "auth": {

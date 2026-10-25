@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { Reason } from "@/lib/bindings"
+import type { Landed, Reason } from "@/lib/bindings"
 import { testRobot } from "@/lib/test-robot"
-import { formatLandingReason, formatPushHoldReason, formatReason, formatStackHold, startCheck } from "@/presenters/reasons"
+import { formatLanded, formatLandedWhole, formatLandingReason, formatPushHoldReason, formatReason, formatStackHold, startCheck } from "@/presenters/reasons"
 
 /** Every code Rust gives, with an example (`reason_catalog_test.rs` writes it) */
 const CATALOG = Object.values(import.meta.glob<Reason[]>("/crates/domain-policy/reasons.json", { eager: true, import: "default" }))[0]!
@@ -37,9 +37,11 @@ describe("formatReason", () => {
       "“Use parseFlow” of flow uses parseFlow (flow/Flow.kt:3), which “Add parseFlow” of util adds: git merges it, but the build of flow fails. Stack flow on util to land it too.",
       "“Remove the env” of fake-agent removes CONTROL_URL_ENV, which acp/Host.kt:7 still uses, and “Read the url” of acp changes that use: the build of fake-agent fails. Move that commit into fake-agent, or stack fake-agent on its branch.",
       "01234567 conflicts in a.kt with the newest target: Patronus would fail the robot at once",
+      "Landed in origin/master",
+      "Pull request #7 is merged",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(21)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(23)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {
@@ -81,5 +83,20 @@ describe("formatPushHoldReason", () => {
       "Landed in master with the whole air stack: nothing of it is left to push",
     )
     expect(formatPushHoldReason("oauth", { kind: "landed", branch: "oauth", robot: oauth })).toBe("Merged by Patronus: nothing of it is left to push")
+  })
+})
+
+describe("formatLanded", () => {
+  it("words what landed a subject: the baseline, merged Safe Pushes, its own robot, its pull request", () => {
+    const of = (branch: string, wholeStack = false) => ({ branch, robotId: `${branch}-robot`, wholeStack })
+    const robots = (by: ReturnType<typeof of>[], own = false): Landed => ({ by: { kind: "robots", by, own, target: "master" }, after: [] })
+    expect(formatLanded({ by: { kind: "baseline", upstream: "origin/master" }, after: [] })).toBe("Landed in origin/master")
+    expect(formatLanded(robots([of("oauth")]))).toBe("Landed in master with oauth")
+    expect(formatLanded(robots([of("login"), of("air", true), of("login")]))).toBe("Landed in master with login and the whole air stack")
+    expect(formatLanded(robots([of("auth")], true))).toBe("Merged by Patronus")
+    expect(formatLanded({ by: { kind: "pullRequest", number: 7 }, after: [] })).toBe("Pull request #7 is merged")
+    // a part of it landed: the commits after it are left to land
+    expect(formatLandedWhole({ ...robots([of("oauth")]), after: ["o2"] })).toBeNull()
+    expect(formatLandedWhole(undefined)).toBeNull()
   })
 })

@@ -5,7 +5,7 @@ import type { NextStepFacts } from "@/lib/branch-next-step"
 import type { LandingNodeFacts } from "@/lib/landing-node"
 import { getLandingNode } from "@/lib/landing-node"
 import type { FoundMove } from "@/lib/running-move"
-import { chip, facts, finished, group, missing, openPullRequest, restart, withReadiness } from "@/lib/test-next-step-facts"
+import { chip, facts, finished, group, inBaseline, landedWith, mergedPullRequest, missing, openPullRequest, restart, withReadiness } from "@/lib/test-next-step-facts"
 import { testRobot } from "@/lib/test-robot"
 import { formatLandingWait } from "@/presenters/reasons"
 
@@ -174,10 +174,10 @@ describe("getLandingNode", () => {
   })
 
   it("is in master once the baseline has it or a merge says so, also over a robot that failed before", () => {
-    expect(landing(facts({ landedIn: "origin/master" }))).toEqual({ kind: "inMaster", label: "Landed in origin/master" })
-    expect(landing(facts({ landedWith: "Landed in master with oauth", held: true }))).toEqual({ kind: "inMaster", label: "Landed in master with oauth" })
+    expect(landing(facts({ landed: inBaseline }))).toEqual({ kind: "inMaster", label: "Landed in origin/master" })
+    expect(landing(facts({ landed: landedWith("oauth"), held: true }))).toEqual({ kind: "inMaster", label: "Landed in master with oauth" })
     expect(landing(facts({ robot: finished("merged") }))).toEqual({ kind: "inMaster", label: "Merged by Patronus" })
-    expect(landing(facts({ landedIn: "origin/master", robot: finished("failed"), restart })).kind).toBe("inMaster")
+    expect(landing(facts({ landed: inBaseline, robot: finished("failed"), restart })).kind).toBe("inMaster")
   })
 
   it("keeps its state while a sync or an operation on the row runs", () => {
@@ -190,7 +190,7 @@ describe("getLandingNode", () => {
     const notOnSpace = { patronusAvailable: false, robot: { kind: "none" } } as const
     expect(landing(facts({ ...notOnSpace, pullRequest: null }))).toEqual({ kind: "yourStep", label: "Not in a pull request" })
     expect(landing(facts(notOnSpace))).toEqual({ kind: "waiting", label: "Lands through #1078" })
-    expect(landing(facts({ ...notOnSpace, pullRequest: { ...openPullRequest, state: "merged", mergedCurrent: true } }))).toEqual({
+    expect(landing(facts({ ...notOnSpace, pullRequest: { ...openPullRequest, state: "merged" }, landed: mergedPullRequest }))).toEqual({
       kind: "inMaster",
       label: "Pull request #1078 is merged",
     })

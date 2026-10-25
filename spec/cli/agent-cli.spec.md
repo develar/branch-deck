@@ -1126,7 +1126,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--check`): "Nothing was pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is
   left to land"; so must `--whole-stack` once every branch of the stack landed ("every branch of the whole auth stack
   landed in master with the Safe Pushes of login and session"). `lands` must leave out the branches merged Safe
-  Pushes landed whole, the branch itself always named: the robot lands the rest.
+  Pushes landed whole, the branch itself always named: the robot lands the rest. A branch landed otherwise is refused
+  as `landed` too, by the rule of the app (`domain_policy::landed::landed_state`): the fetched baseline has every commit
+  of it ("auth is in origin/master: the update archives it"), or GitHub merged its pull request with the commits it has,
+  the head of the merged pull request of the listing at its tip or its remote branch up to date ("pull request #7 of
+  auth is merged", D13).
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_landed`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
@@ -1298,6 +1302,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
 - Without the Space token it must be `not_logged_in`, and outside Space `not_on_space`, before a request to Patronus.
   [@test] ../../crates/bd-remote/src/robot_test.rs (`robot_without_a_token_or_space_asks_nothing`)
+- For a merged Safe Push it must list `closes`: the open pull requests of the branches it landed whole besides its own
+  (a branch it is built on, every branch of its whole stack), each holding nothing the branch lacks, never the pull
+  request it started from: the ones the app closes, by the same rule (`domain_policy::landed::pull_requests_to_close`,
+  D7). `bd` closes none: it writes nothing to GitHub. Compared with the tips the refs hold (no sync); left out for a
+  robot that didn't merge, off GitHub and while GitHub doesn't list the pull requests.
+  [@test] ../../crates/bd-remote/src/robot_test.rs (`a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none`)
 
 ### `bd robot-stats`
 

@@ -109,6 +109,8 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::Blocked { by: Some(by), .. } => format!("{subject} is blocked by {by}: fix it first, then sync"),
     Reason::Blocked { by: None, .. } => format!("{subject} is blocked: fix its parent first, then sync"),
     Reason::Landed { .. } | Reason::StackLanded { .. } => format!("{subject} landed: nothing of it is left to land"),
+    Reason::LandedIn { upstream } => format!("{subject} is in {upstream}: the update archives it"),
+    Reason::PullRequestMerged { number } => format!("pull request #{number} of {subject} is merged"),
     Reason::NoStackBranch { .. } => format!("{subject} has no stack branch: the stack doesn't fork"),
     Reason::StackNotBuilt { root, .. } => format!("the stack branch of {root} is not the build of its commits; fix it, then sync"),
     Reason::StackParked { member, .. } => format!("{subject} holds parked {member}; land the stack in pieces"),
