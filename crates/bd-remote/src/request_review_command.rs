@@ -297,14 +297,20 @@ fn review_full_name(review: &Review, login: &str) -> Option<String> {
 pub(crate) fn availability_error(availability: &PullRequestAvailability) -> CliError {
   match availability {
     PullRequestAvailability::SignedOut => CliError::new(ErrorCode::NotLoggedIn, SIGNED_OUT_MESSAGE),
-    PullRequestAvailability::NotAuthenticated { source } => CliError::new(ErrorCode::NotLoggedIn, format!("GitHub rejected the token from {}", source.label())),
+    PullRequestAvailability::NotAuthenticated { source } => CliError::new(
+      ErrorCode::NotLoggedIn,
+      format!(
+        "GitHub rejected the token from {}: tell the user to sign in to GitHub again (in the app, or gh auth login), or to set a valid GH_TOKEN",
+        source.label()
+      ),
+    ),
     PullRequestAvailability::NotGitHub => CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY),
     PullRequestAvailability::RateLimited { .. } => CliError::new(ErrorCode::NetworkError, "GitHub refused the request for its rate limit: try again later"),
     PullRequestAvailability::SsoRequired { url } => CliError::new(
       ErrorCode::NotLoggedIn,
       match url {
         Some(url) => format!("The organization requires SAML SSO: authorize the token at {url}"),
-        None => "The organization requires SAML SSO: authorize the token for it".to_string(),
+        None => "The organization requires SAML SSO: tell the user to authorize the token for the organization on github.com, or to sign in to GitHub again".to_string(),
       },
     ),
     PullRequestAvailability::NoAccess { message, .. } | PullRequestAvailability::Error { message } => CliError::new(ErrorCode::NetworkError, message.clone()),

@@ -219,7 +219,7 @@ pub enum LeaseRefusal {
   #[error("Bazel servers of {path} did not exit on SIGTERM: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
   #[error(
-    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}. Free space (`bd lease clean --free`, the Bazel output bases of slots no longer used), or pass `--min-free 0`",
+    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}. Tell the user (`bd lease clean --free` and the Bazel output bases of slots no longer used free space); never pass `--min-free 0` on your own",
     describe_size(*.available),
     describe_size(*.required),
     describe_idle(.idle)
@@ -234,12 +234,12 @@ pub enum LeaseRefusal {
   #[error("{key} {value:?}: {reason}")]
   InvalidSize { key: String, value: String, reason: String },
   #[error(
-    "HEAD of {path} has {} commit(s) that {}; land them first (`bd pick --from {path} --follow` in the shared checkout), or pass --confirm-preserved to give them up",
+    "HEAD of {path} has {} commit(s) that {}; land them first (`bd pick --from {path} --follow` in the shared checkout); --confirm-preserved gives them up, only when the user says they are kept elsewhere",
     .commits.len(),
     .check.describe()
   )]
   UnlandedCommits { path: String, commits: Vec<UnlandedCommit>, check: LandedCheck },
-  #[error("{path} has local changes; commit or land them, or pass --confirm-preserved to discard them")]
+  #[error("{path} has local changes; commit or land them; --confirm-preserved discards them, only when the user says they are kept elsewhere")]
   DirtyWorktree { path: String, paths: Vec<String> },
   #[error("{path} has local changes; a slot of the pool must be clean")]
   DirtyCandidate { path: String, paths: Vec<String> },

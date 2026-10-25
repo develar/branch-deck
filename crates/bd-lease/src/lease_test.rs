@@ -940,7 +940,7 @@ fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
   assert_error(&output, exit_code, (4, "low_disk_space"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(
-    message.contains("1048576.0 GiB") && message.contains("1 free slot(s)") && message.contains("--min-free 0"),
+    message.contains("1048576.0 GiB") && message.contains("1 free slot(s)") && message.contains("never pass `--min-free 0` on your own"),
     "{output}"
   );
   assert_eq!(states(&fixture.status()), [(first, "free".to_string())]);

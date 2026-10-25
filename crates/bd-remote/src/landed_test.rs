@@ -1,5 +1,5 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{PREFIX, assert_error, commit_all, git, run_json, write};
+use bd_cli::fixture_test::{PREFIX, assert_error, commit_all, git, next_steps, run_json, write};
 use bd_cli::remote_fixture_test::{STACK, Space, forking_stack, minutes_ago, robot};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -17,6 +17,9 @@ fn sync(space: &Space) {
   let (exit_code, output) = bd(space, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
 }
+
+/// What a refusal of a branch that landed says to do
+const UPDATE: &str = "once the user approved, `bd update` archives what landed";
 
 /// `bd --prefix test-user <args>` in the repository of `space`
 pub(crate) fn bd(space: &Space, args: &[&str]) -> (i32, Value) {
@@ -94,23 +97,26 @@ fn push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole() {
   for (args, message) in [
     (
       vec!["push", "login"],
-      format!("Nothing was pushed: login merged into master with its Safe Push ({url}): nothing of it is left to push"),
+      format!("Nothing was pushed: login merged into master with its Safe Push ({url}): nothing of it is left to push; {UPDATE}"),
     ),
     (
       vec!["push", "auth"],
-      format!("Nothing was pushed: auth landed in master with the Safe Push of login ({url}): nothing of it is left to push"),
+      format!("Nothing was pushed: auth landed in master with the Safe Push of login ({url}): nothing of it is left to push; {UPDATE}"),
     ),
     (
       vec!["safe-push", "login"],
-      format!("Nothing was pushed or started: login merged into master with its Safe Push ({url}): nothing of it is left to land"),
+      format!("Nothing was pushed or started: login merged into master with its Safe Push ({url}): nothing of it is left to land; {UPDATE}"),
     ),
   ] {
     let (exit_code, output) = bd(&space, &args);
     assert_error(&output, exit_code, (4, "landed"));
     assert_eq!(output["error"]["message"], json!(message), "{args:?}");
+    // the update moves the checked out branch: the user's to approve
+    assert_eq!(next_steps(&output["error"]), [("bd update".to_string(), true)], "{args:?}");
   }
   let (exit_code, check) = bd(&space, &["safe-push", "login", "--check"]);
   assert_eq!((exit_code, check["refusals"][0]["code"].clone()), (0, json!("landed")), "{check}");
+  assert_eq!(next_steps(&check["refusals"][0]), [("bd update".to_string(), true)]);
 
   // a new commit of auth is work left: auth pushes and lands it, login stays landed
   write(&space.repo, "token.txt", "token\n");
@@ -176,7 +182,7 @@ fn push_leaves_out_a_named_branch_a_merged_safe_push_landed_whole_and_pushes_the
   assert_eq!(
     output["error"]["message"],
     json!(format!(
-      "Nothing was pushed: auth landed in master with the Safe Push of login ({url}): nothing of it is left to push; login merged into master with its Safe Push ({url}): nothing of it is left to push"
+      "Nothing was pushed: auth landed in master with the Safe Push of login ({url}): nothing of it is left to push; login merged into master with its Safe Push ({url}): nothing of it is left to push; {UPDATE}"
     ))
   );
 }
@@ -207,7 +213,9 @@ fn the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_
   assert_error(&output, exit_code, (4, "landed"));
   assert_eq!(
     output["error"]["message"],
-    json!("Nothing was pushed or started: every branch of the whole auth stack landed in master with the Safe Pushes of login and session: nothing of it is left to land")
+    json!(format!(
+      "Nothing was pushed or started: every branch of the whole auth stack landed in master with the Safe Pushes of login and session: nothing of it is left to land; {UPDATE}"
+    ))
   );
 }
 
@@ -237,7 +245,7 @@ fn push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once
   assert_eq!(
     output["error"]["message"],
     json!(format!(
-      "Nothing was pushed: auth landed in master with the Safe Push of login ({url}): nothing of it is left to push"
+      "Nothing was pushed: auth landed in master with the Safe Push of login ({url}): nothing of it is left to push; {UPDATE}"
     ))
   );
   assert_eq!(space.remote_tip(STACK), pushed_before);

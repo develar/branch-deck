@@ -105,6 +105,29 @@ holds most of the push (`dir/`) and its largest files.
 `approvals_missing` of `bd safe-push` has `review`, the code-owner review the Safe Push lacks (see `bd safe-push`).
 `target_conflict` has `commits` and `paths`: the commit that Patronus can't rebase onto the newest target and its files.
 
+A refusal that a command acts on has `next_steps`, the commands ready to run in their order, each with
+`needs_approval` (the `refusals` of `bd safe-push --check` carry them too):
+
+```json
+{"schema":2,"error":{"code":"lease_rejected","message":"The remote rejected auth: …","commits":[],"branches":[…],
+ "next_steps":[{"command":"bd push auth --force --expect-remote 1a2b3c4d","needs_approval":true}],"retryable":false}}
+```
+
+A step with `needs_approval` pushes, rewrites, updates or cancels or restarts a robot: run it only once the user
+approved it. One without it only reads (`bd robot`, `bd sync`, `bd safe-push <branch> --check`). The field is
+`next_steps`, not `next`: the `next` of `bd workspace`, `bd update` and `bd pick` runs at once, a step of an error
+does not. A way to start anyway (`--allow-*`, `--without-approvals`), `--min-free` and a change of the config are
+never a step: the message names each with its condition ("only when the user says it is a false alarm", "never raise
+`branchdeck.pushSizeLimit` yourself"), and so it names the condition of `--force`, `--cancel-running`,
+`--restart-running` and `--confirm-preserved` ("once the user approved"). The steps, by code: `lease_rejected` the
+leased push that replaces the remote branch (`--with-children --force` for a stack branch); `push_refused` the push
+that replaces a branch behind its remote, `bd sync` for one not synced; `robot_running` `bd robot` of the robot, and
+the same command with `--cancel-running` (`safe-push`) or `--restart-running` (`push`) where it applies;
+`approvals_missing` the start with `--create-pull-request` when the branch has no pull request; `dangling_reference`
+the `fix.command` a trial build proved; `missing_declaration` the `bd restack` it names; `push_dismisses_approvals`
+the push, then `bd request-review`; `target_conflict` and `landed` `bd update`; `stack_conflict` the `--check` of the
+branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `crates/bd-core/src/error.rs`.
+
 | Exit | Meaning | Codes |
 |---|---|---|
 | 0 | ok | |

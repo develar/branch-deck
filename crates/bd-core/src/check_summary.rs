@@ -312,7 +312,10 @@ pub fn dangling_reference_message(branch: &str, references: &[(String, DanglingR
     0 => String::new(),
     rest => format!(" ({rest} more: bd check)"),
   };
-  format!("{}{more}; --allow-dangling starts anyway", sentences.join(". "))
+  format!(
+    "{}{more}; --allow-dangling starts anyway, only when the user says it is a false alarm",
+    sentences.join(". ")
+  )
 }
 
 /// One dangling reference of the build of `branch` (`owner` the branch that removes the declaration), in a sentence:

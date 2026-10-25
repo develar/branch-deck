@@ -39,11 +39,11 @@ fn a_dangling_reference_message_describes_two_whole_and_counts_from_three_on() {
   );
   assert_eq!(
     dangling_reference_message("suspend", &of(&[("cleanup", "aa0fb473"), ("flush", "bb1fc584")])),
-    format!("{cleanup}. {flush}; --allow-dangling starts anyway")
+    format!("{cleanup}. {flush}; --allow-dangling starts anyway, only when the user says it is a false alarm")
   );
   assert_eq!(
     dangling_reference_message("suspend", &of(&[("cleanup", "aa0fb473"), ("flush", "bb1fc584"), ("close", "cc2fd695")])),
-    format!("{cleanup} (2 more: bd check); --allow-dangling starts anyway")
+    format!("{cleanup} (2 more: bd check); --allow-dangling starts anyway, only when the user says it is a false alarm")
   );
 }
 
@@ -70,13 +70,13 @@ fn a_dangling_reference_message_names_the_kind() {
   assert_eq!(
     message("changed_declaration"),
     format!(
-      "suspend changes the form of cleanup in c372cb86, and {USE_FILE}:8 still uses it: aa0fb473 changes that use in another branch, so the build fails. To fix it, move aa0fb473 into suspend, or stack suspend on its branch; --allow-dangling starts anyway"
+      "suspend changes the form of cleanup in c372cb86, and {USE_FILE}:8 still uses it: aa0fb473 changes that use in another branch, so the build fails. To fix it, move aa0fb473 into suspend, or stack suspend on its branch; --allow-dangling starts anyway, only when the user says it is a false alarm"
     )
   );
   assert_eq!(
     message("duplicate_declaration"),
     format!(
-      "suspend declares again cleanup in c372cb86, and {USE_FILE}:8 still declares it too: aa0fb473 removes that declaration in another branch, so the build fails. To fix it, move aa0fb473 into suspend, or stack suspend on its branch; --allow-dangling starts anyway"
+      "suspend declares again cleanup in c372cb86, and {USE_FILE}:8 still declares it too: aa0fb473 removes that declaration in another branch, so the build fails. To fix it, move aa0fb473 into suspend, or stack suspend on its branch; --allow-dangling starts anyway, only when the user says it is a false alarm"
     )
   );
 }

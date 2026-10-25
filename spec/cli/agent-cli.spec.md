@@ -210,6 +210,38 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `new_head`, a commit and its copy are `{commit, new_id}`, a state is `state`.
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
+- A refusal must name in its `message` the condition of every way past it that it offers, next to it: a flag that
+  starts anyway (`--allow-dangling`, `--allow-missing`: only when the user says it is a false alarm;
+  `--allow-unknown-rules`, `--without-approvals`: only when the user says so), one that drops, cancels or replaces
+  (`--force`, `--cancel-running`, `--restart-running`, `--confirm-preserved`: once the user approved), and a limit
+  that is the user's (`push_too_large`: never raise `branchdeck.pushSizeLimit` yourself; `low_disk_space`: never
+  pass `--min-free 0` on your own). A refusal that no flag gets past must say what to do: show the user the answer of
+  the remote, `bd sync` for a branch not synced, `bd update` for a branch that landed, tell the user of a parked
+  branch and never unpark it, move fewer blocks of a `hunk_conflict`, sign in again for a token GitHub rejected.
+  [@test] ../../crates/bd-remote/src/push_test.rs (`a_push_over_the_size_limit_is_push_too_large_before_the_remote`, `a_push_the_remote_refuses_with_its_leases_holding_is_push_refused`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`, `rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_refuses_and_names_it`)
+  [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
+  [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+- The error object must carry `next_steps`, the commands that act on the refusal, ready to run (`bd -C <repository>`
+  as the other printed commands), each `{command, needs_approval}`, and the same in each `refusals[]` of
+  `bd safe-push --check`; it is left out when there is none. A step that pushes, rewrites, updates or cancels or
+  restarts a robot (`push`, `safe-push` and `request-review` without `--check`, `update`, `restack`, `--force`,
+  `--cancel-running`, `--restart-running`) must have `needs_approval: true`, and runs only once the user approved it;
+  one that only reads (`bd robot`, `bd sync`, `safe-push --check`) has it false. A suppression (`--allow-*`,
+  `--without-approvals`, `--min-free`, a change of the config) must never be a step: it stays in `message` with its
+  condition. The steps: `lease_rejected` the leased push that replaces the remote branch, `push_refused` of a branch
+  behind its remote the push that replaces it and of a branch not synced `bd sync`, `robot_running` `bd robot` of the
+  robot and the `--cancel-running` or `--restart-running` of the same command, `approvals_missing` without a pull
+  request the `--create-pull-request` of the start, `dangling_reference` the `fix.command` a trial build proved,
+  `missing_declaration` the `bd restack` it names, `push_dismisses_approvals` the push and then the review request,
+  `target_conflict` and `landed` `bd update`, `stack_conflict` the `--check` of the branch whose commit conflicts,
+  `stack_not_built` `bd sync`. It is named `next_steps`, never `next`, whose commands (`bd workspace`, `bd update`,
+  `bd pick`) run at once.
+  [@test] ../../crates/bd-cli/src/error_test.rs (`a_next_step_that_writes_needs_the_approval_and_none_starts_anyway`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `all_needs_yes_and_unsynced_branches_are_refused`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`, `push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
+  [@test] ../../crates/bd-remote/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`)
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
   error. Exit 1 must never be an error object: it is the output of a command that found a conflict (`state:
   "conflict"`, a branch not built, `ok: false`); a conflict bd refuses to work around is exit 4. `retryable` must be

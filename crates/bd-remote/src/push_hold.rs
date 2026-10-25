@@ -9,6 +9,7 @@ use crate::landed::{LandedBranch, landed_branches};
 use crate::patronus_facts::{PatronusFacts, table_of};
 use crate::robot_list::list_robots;
 use crate::safe_push_command::patronus_service;
+use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::sync_command::SyncOutput;
@@ -16,7 +17,7 @@ use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
-use domain_types::repository_view::{Carried, HoldKind};
+use domain_types::repository_view::{Carried, HoldKind, StartRefusal};
 use patronus::service::PatronusService;
 use repository_model::push_guard::{own_hold_words, span_hold_words, stack_hold_words};
 use std::collections::HashMap;
@@ -49,10 +50,33 @@ impl PushHold {
       return format!("{}: nothing of it is left to push", landed.reason(name));
     }
     if self.is_own(name) {
-      own_hold_words(name, &self.robot, self.source_branch.as_deref(), "pass --restart-running to cancel it, push and restart it")
+      own_hold_words(
+        name,
+        &self.robot,
+        self.source_branch.as_deref(),
+        "once the user approved, --restart-running cancels it, pushes and restarts it",
+      )
     } else {
       span_hold_words(name, &self.by, &self.robot, self.carried.as_ref())
     }
+  }
+}
+
+/// `bd robot <branch>`, or `bd robot <root> --whole-stack`: what follows the robot that runs on `subject`, a read
+pub(crate) fn robot_command(context: &RepoContext, subject: &Subject) -> String {
+  match subject {
+    Subject::Branch { name } => format!("{} robot {}", context.bd, shell_word(name)),
+    Subject::WholeStack { root } => format!("{} robot {} --whole-stack", context.bd, shell_word(root)),
+  }
+}
+
+/// What the robot that refuses the start of `own` runs on: `own` itself, the branch built on it or the whole stack that
+/// lands it with more, or what lands a part of it
+pub(crate) fn refusing_subject(refusal: &StartRefusal, own: &Subject) -> Subject {
+  match refusal {
+    StartRefusal::LastCommit { .. } => own.clone(),
+    StartRefusal::Descendant { span } => span.by.subject(),
+    StartRefusal::Ancestor { landing } => landing.subject(),
   }
 }
 

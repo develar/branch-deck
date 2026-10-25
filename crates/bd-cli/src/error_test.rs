@@ -1,7 +1,8 @@
-use crate::fixture_test::{environment, run_json};
+use crate::fixture_test::{environment, next_steps, run_json};
 use bd_core::error::CONFLICT_EXIT;
 use domain_types::error::{ErrorCode, Retry};
 use pretty_assertions::assert_eq;
+use serde_json::{Value, json};
 
 /// Every code with its exit code and whether the same command again may succeed: 2 invalid input, 3 stale (retry), 4
 /// refused, 5 git or network error. Exit 1 is never an error
@@ -107,4 +108,32 @@ fn every_error_code_has_the_exit_code_and_the_retry_of_its_class() {
   let codes = &schema["outputs"]["error"]["$defs"]["ErrorCode"];
   let count = codes["oneOf"].as_array().or_else(|| codes["enum"].as_array()).map(Vec::len).unwrap();
   assert_eq!(count, CODES.len());
+}
+
+/// The check of the `next_steps` the refusal tests call: a step that only reads may run at once, one that pushes,
+/// rewrites or cancels needs the user's approval, and a suppression is never a step
+#[test_log::test]
+fn a_next_step_that_writes_needs_the_approval_and_none_starts_anyway() {
+  let steps = |steps: Value| json!({"next_steps": steps});
+  let read = steps(json!([
+    {"command": "bd -C /repo robot auth --whole-stack", "needs_approval": false},
+    {"command": "bd safe-push auth --check", "needs_approval": false},
+    {"command": "bd sync", "needs_approval": false},
+    {"command": "bd push auth --force --expect-remote 1a2b3c4d", "needs_approval": true},
+  ]));
+  assert_eq!(next_steps(&read).len(), 4);
+  assert_eq!(next_steps(&json!({"code": "landed"})), []);
+  for refused in [
+    json!({"command": "bd -C /repo push auth", "needs_approval": false}),
+    json!({"command": "bd safe-push auth --cancel-running", "needs_approval": false}),
+    json!({"command": "bd request-review auth", "needs_approval": false}),
+    json!({"command": "bd update", "needs_approval": false}),
+    json!({"command": "bd restack login auth", "needs_approval": false}),
+    json!({"command": "bd safe-push auth --allow-dangling", "needs_approval": true}),
+    json!({"command": "bd safe-push auth --without-approvals", "needs_approval": true}),
+    json!({"command": "bd lease get --min-free 0", "needs_approval": true}),
+  ] {
+    let checked = std::panic::catch_unwind(|| next_steps(&steps(json!([refused.clone()]))));
+    assert!(checked.is_err(), "{refused} passed");
+  }
 }

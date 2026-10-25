@@ -9,6 +9,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::push_contents::{PushedFile, push_contents};
 use std::collections::HashMap;
 use std::fmt;
+use std::fmt::Write;
 use sync_utils::size::{format_size, parse_size};
 use tracing::{info, instrument};
 
@@ -55,20 +56,9 @@ impl fmt::Display for PushTooLarge {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(
       f,
-      "The push would add {} in {}, over the push size limit of {}",
-      format_size(self.size),
-      files(self.files),
-      format_size(self.limit)
-    )?;
-    if let Some((path, size, count)) = &self.directory {
-      write!(f, ": {} of it in {path} ({})", format_size(*size), files(*count))?;
-    }
-    let largest: Vec<String> = self.largest.iter().map(|file| format!("{} ({})", file.path, format_size(file.size))).collect();
-    write!(
-      f,
-      "; the largest: {}. Nothing was pushed. Remove the files from the commits (build output?), or raise the push size \
-       limit ({PUSH_SIZE_LIMIT_CONFIG_KEY}, Settings → Patronus)",
-      largest.join(", ")
+      "{} Remove the files from the commits (build output?), or raise the push size limit ({PUSH_SIZE_LIMIT_CONFIG_KEY}, \
+       Settings → Patronus)",
+      self.facts()
     )
   }
 }
@@ -81,6 +71,23 @@ fn files(count: usize) -> String {
 impl std::error::Error for PushTooLarge {}
 
 impl PushTooLarge {
+  /// What the push would add and that nothing was pushed, without what to do about it, which the app and `bd` say each
+  /// in their words
+  pub fn facts(&self) -> String {
+    let mut text = format!(
+      "The push would add {} in {}, over the push size limit of {}",
+      format_size(self.size),
+      files(self.files),
+      format_size(self.limit)
+    );
+    if let Some((path, size, count)) = &self.directory {
+      let _ = write!(text, ": {} of it in {path} ({})", format_size(*size), files(*count));
+    }
+    let largest: Vec<String> = self.largest.iter().map(|file| format!("{} ({})", file.path, format_size(file.size))).collect();
+    let _ = write!(text, "; the largest: {}. Nothing was pushed.", largest.join(", "));
+    text
+  }
+
   /// What the refusal is about, for the `paths` of its error: the directory that holds most of it (`dir/`), then the
   /// largest files
   pub fn paths(&self) -> Vec<String> {

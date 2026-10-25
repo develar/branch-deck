@@ -1,5 +1,5 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{PREFIX, assert_error, branch, commit_all, git, run_in, write};
+use bd_cli::fixture_test::{PREFIX, assert_error, branch, commit_all, git, next_steps, run_in, write};
 use bd_cli::remote_fixture_test::{LANDED_SUBJECTS, land_auth_by_content, push_from_elsewhere_to, remote_tip, repo_with_remote, their_change};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -256,7 +256,14 @@ fn all_needs_yes_and_unsynced_branches_are_refused() {
   commit_all(&repo, "(c) Change shared", 1_700_000_900);
   let (exit_code, output) = run_in(&repo, &["push", "c"]);
   assert_error(&output, exit_code, (4, "push_refused"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("c is not synced"), "{output}");
+  assert!(
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .contains("c is not synced (conflict in f0.txt): fix it first, `bd sync` says what holds it"),
+    "{output}"
+  );
+  assert_eq!(next_steps(&output["error"]), [("bd sync".to_string(), false)]);
 }
 
 /// A parked branch stays local: `--all` and `--with-children` leave it out (`skipped`), and the branches built on it, which
@@ -359,6 +366,13 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   assert_eq!((&rejected["remote"]["head"], &rejected["remote"]["behind"]), (&json!(short_id(&other)), &json!(1)));
   assert_eq!(dropped_subjects(&rejected["remote"]), ["Someone else"]);
   assert_eq!(rejected["remote"]["dropped_commits"][0]["author"], json!("Other"));
+  // the push that replaces it, leased on what bd fetched: the user's to approve
+  let replace = format!("bd push auth --force --expect-remote {}", short_id(&other));
+  assert_eq!(next_steps(&output["error"]), [(replace.clone(), true)]);
+  assert!(
+    output["error"]["message"].as_str().unwrap().contains("once the user approved, push again with --force"),
+    "{output}"
+  );
   let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &output, "error");
 
@@ -366,6 +380,11 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_error(&output, exit_code, (4, "push_refused"));
   assert_eq!(dropped_subjects(&output["error"]["branches"][0]["remote"]), ["Someone else"]);
+  assert!(
+    output["error"]["message"].as_str().unwrap().contains("once the user approved, --force replaces them"),
+    "{output}"
+  );
+  assert_eq!(next_steps(&output["error"]), [(replace, true)]);
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--force"]);
   assert_pushed(&output, exit_code, "forced", &other);
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
@@ -434,6 +453,7 @@ fn a_push_over_the_size_limit_is_push_too_large_before_the_remote() {
     assert_error(&output, exit_code, (4, "push_too_large"));
     let message = output["error"]["message"].as_str().unwrap();
     assert!(message.contains("2.9 KiB of it in tool/target/debug/ (1 file)"), "{output}");
+    assert!(message.ends_with("never raise branchdeck.pushSizeLimit yourself"), "{output}");
     assert_eq!(
       output["error"]["paths"],
       json!(["tool/target/debug/", "tool/target/debug/app", "tool/src/main.rs"]),
@@ -458,6 +478,7 @@ fn a_push_the_remote_refuses_with_its_leases_holding_is_push_refused() {
   assert_error(&output, exit_code, (4, "push_refused"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("the remote refused the push"), "{output}");
+  assert!(message.ends_with("Show the user what the remote answered: no flag of bd gets past it"), "{output}");
   assert!(message.contains("pre-receive hook declined). remote: protected branch"), "what the hook said: {output}");
   assert_eq!(remote_tip(&remote, AUTH), "");
 }

@@ -120,7 +120,10 @@ fn move_hunk_error(context: &RepoContext, error: MoveHunkError) -> CliError {
     MoveHunkError::Conflict { commit, path, .. } => CliError {
       commits: vec![context.short_ids([commit.as_str()]).get(&commit).to_string()],
       paths: vec![path],
-      ..CliError::new(ErrorCode::HunkConflict, message)
+      ..CliError::new(
+        ErrorCode::HunkConflict,
+        format!("{message}; nothing was written. Move fewer blocks with --block, or leave the change where it is"),
+      )
     },
     MoveHunkError::Rewrite(error) => regroup_error(error),
   }

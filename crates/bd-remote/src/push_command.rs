@@ -14,10 +14,11 @@
 
 use crate::landed::{LandedBranch, LandedBySummary, every_branch_landed};
 use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retarget_pull_requests_of};
-use crate::push_hold::{PushHolds, read_push_holds};
+use crate::push_hold::{PushHolds, read_push_holds, robot_command};
 use crate::safe_push_command::{github_service, youtrack_service};
+use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
-use bd_core::error::{CliError, ErrorBranch};
+use bd_core::error::{CliError, ErrorBranch, NextStep};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
@@ -383,6 +384,15 @@ pub fn push_locked(
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
   let mut held = Vec::new();
+  // the commands that act on the refusals, in `next_steps`
+  let mut held_steps = Vec::new();
+  let mut refused_steps = Vec::new();
+  // ` --remote <remote>` for another remote than the one the sync compares with
+  let remote_option = if remote == "origin" {
+    String::new()
+  } else {
+    format!(" --remote {}", shell_word(&remote))
+  };
   // the branches asked for that a merged Safe Push landed whole: left out while the rest has work
   let mut landed: Vec<(&str, &LandedBranch, String)> = Vec::new();
   let mut behind = Vec::new();
@@ -408,16 +418,22 @@ pub fn push_locked(
       // a branch taken along that a Safe Push lands is on the remote as the robot took it: the push of the stack starts
       // above it, as the app's does, and a child carries its commits
       if !implicit.contains(*name) {
-        match &hold.landed {
+        if let Some(landed_branch) = &hold.landed {
           // nothing of it is left to push: it stays as it is, the others push
-          Some(landed_branch) => landed.push((name, landed_branch, hold.reason(name))),
-          None => held.push(hold.reason(name)),
+          landed.push((name, landed_branch, hold.reason(name)));
+        } else {
+          held.push(hold.reason(name));
+          held_steps.push(NextStep::new(robot_command(context, &hold.by), false));
+          if hold.is_own(name) {
+            held_steps.push(NextStep::new(format!("{} push {} --restart-running", context.bd, shell_word(name)), true));
+          }
         }
       }
       continue;
     }
     if let Some(reason) = not_synced_reason(report, branch) {
-      refusals.push(format!("{name} is not synced ({reason})"));
+      refusals.push(format!("{name} is not synced ({reason}): fix it first, `bd sync` says what holds it"));
+      refused_steps.push(NextStep::new(format!("{} sync", context.bd), false));
       continue;
     }
     let full_name = final_name(context, name)?;
@@ -439,9 +455,16 @@ pub fn push_locked(
     {
       let alone = if along { ", or --alone to push the named branches without it" } else { "" };
       refusals.push(format!(
-        "{name}: the remote branch has {} commits the branch doesn't; pass --force to replace them{alone}",
+        "{name}: the remote branch has {} commits the branch doesn't (`dropped_commits`); show them to the user, and once the user approved, --force replaces them{alone}",
         remote_state.behind
       ));
+      // the push the sync names for it, leased on the remote head it saw, when it compared with this remote
+      let replace = branch
+        .push
+        .clone()
+        .filter(|_| remote_option.is_empty())
+        .unwrap_or_else(|| format!("{} push {} --force{remote_option}", context.bd, shell_word(name)));
+      refused_steps.push(NextStep::new(replace, true));
       behind.push(ErrorBranch {
         name: (*name).to_string(),
         remote: remote_state.clone(),
@@ -467,8 +490,12 @@ pub fn push_locked(
       && !args.force
     {
       refusals.push(format!(
-        "{}: the remote branch has {} commits the stack branch doesn't; pass --force to replace them",
+        "{}: the remote branch has {} commits the stack branch doesn't (`dropped_commits`); show them to the user, and once the user approved, --force replaces them",
         stack.branch_name, remote_state.commits_behind
+      ));
+      refused_steps.push(NextStep::new(
+        format!("{} push {} --with-children --force{remote_option}", context.bd, shell_word(&stack.root)),
+        true,
       ));
       let short = context.short_ids(RemoteSummary::ids(remote_state));
       behind.push(ErrorBranch {
@@ -486,7 +513,10 @@ pub fn push_locked(
   // nothing asked for is left but parked branches
   if candidates.is_empty() && stacks.is_empty() && held.is_empty() && refusals.is_empty() && landed.is_empty() && !parked_skipped.is_empty() {
     let reasons: Vec<&str> = parked_skipped.iter().map(|(_, reason)| reason.as_str()).collect();
-    return Err(CliError::new(ErrorCode::Parked, format!("Nothing was pushed: {}", reasons.join("; "))));
+    return Err(CliError::new(
+      ErrorCode::Parked,
+      format!("Nothing was pushed: {}; tell the user, never unpark them yourself", reasons.join("; ")),
+    ));
   }
   // nothing asked for is left but what merged Safe Pushes landed: the push sends nothing that lands. The named ones
   // say it (with --with-children their children landed too)
@@ -501,14 +531,21 @@ pub fn push_locked(
     } else {
       named
     };
-    return Err(CliError::new(ErrorCode::Landed, format!("Nothing was pushed: {}", reasons.join("; "))));
+    return Err(CliError::new(ErrorCode::Landed, format!("Nothing was pushed: {}; {LANDED_NEXT}", reasons.join("; "))).with_next_step(format!("{} update", context.bd), true));
   }
   if !held.is_empty() {
-    return Err(CliError::new(ErrorCode::RobotRunning, format!("Nothing was pushed: {}", held.join("; "))));
+    let mut error = CliError::new(ErrorCode::RobotRunning, format!("Nothing was pushed: {}", held.join("; ")));
+    for step in held_steps {
+      error.push_next_step(step);
+    }
+    return Err(error);
   }
   if !refusals.is_empty() {
     let mut error = CliError::new(ErrorCode::PushRefused, format!("Nothing was pushed: {}", refusals.join("; ")));
     error.branches = behind;
+    for step in refused_steps {
+      error.push_next_step(step);
+    }
     return Err(error);
   }
   if !args.dry_run {
@@ -553,15 +590,19 @@ pub fn push_locked(
       parent_ref: None,
     })
   }));
-  // what a refused push names: the branches, then the stack branches
-  let pushed_names: Vec<(String, usize)> = candidates
+  // what a refused push names: the branches, then the stack branches with their roots
+  let pushed_names: Vec<PushedName> = candidates
     .iter()
-    .map(|candidate| (candidate.synced.name.clone(), candidate.synced.commit_count))
-    .chain(
-      stacks
-        .iter()
-        .map(|stack| (stack.branch_name.clone(), usize::try_from(stack.commit_count).unwrap_or(usize::MAX))),
-    )
+    .map(|candidate| PushedName {
+      name: candidate.synced.name.clone(),
+      commit_count: candidate.synced.commit_count,
+      stack_root: None,
+    })
+    .chain(stacks.iter().map(|stack| PushedName {
+      name: stack.branch_name.clone(),
+      commit_count: usize::try_from(stack.commit_count).unwrap_or(usize::MAX),
+      stack_root: Some(stack.root.clone()),
+    }))
     .collect();
   // the one leased push of the app's push too: atomic, a stack goes whole or not at all
   let target = PushTarget {
@@ -580,11 +621,11 @@ pub fn push_locked(
   let pushed = push_leased(&context.git, &target, &leased, options, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
   let statuses = match pushed {
     LeasedPush::Pushed(statuses) => statuses,
-    LeasedPush::RemoteMoved { moved, remote_statuses } => return Err(lease_rejected(context, &pushed_names, &moved, &remote_statuses)),
+    LeasedPush::RemoteMoved { moved, remote_statuses } => return Err(lease_rejected(context, &pushed_names, &moved, &remote_statuses, &remote_option)),
     LeasedPush::Refused { summary } => {
       return Err(CliError::new(
         ErrorCode::PushRefused,
-        format!("Nothing was pushed: the remote refused the push ({summary})"),
+        format!("Nothing was pushed: the remote refused the push ({summary}). {REMOTE_REFUSED_NEXT}"),
       ));
     }
     LeasedPush::TooLarge(too_large) => return Err(CliError::from(&too_large)),
@@ -592,8 +633,8 @@ pub fn push_locked(
       return Err(CliError::new(
         ErrorCode::LeaseRejected,
         format!(
-          "The remote would reject {}: a remote branch is not where its lease expects it",
-          pushed_names.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", ")
+          "The remote would reject {}: {WOULD_REJECT_NEXT}",
+          pushed_names.iter().map(|pushed| pushed.name.as_str()).collect::<Vec<_>>().join(", ")
         ),
       ));
     }
@@ -799,13 +840,17 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
     }),
     PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => {
       let head = remote_statuses.first().and_then(|status| status.remote_tip.clone());
-      Err(CliError::new(
+      let error = CliError::new(
         ErrorCode::LeaseRejected,
         format!(
-          "The remote branch {full_name} is at {}, not where the lease expected it; nothing was pushed. Show it to the user, then            `--expect-remote` it to replace it",
+          "The remote branch {full_name} is at {}, not where the lease expected it; nothing was pushed. Show it to the user; once the user approved, `--expect-remote` it to replace it",
           head.as_deref().map_or("nothing", |head| head)
         ),
-      ))
+      );
+      Err(match head {
+        Some(head) => error.with_next_step(format!("{} push {} --unapplied --expect-remote {head}", context.bd, shell_word(name)), true),
+        None => error,
+      })
     }
   }
 }
@@ -1045,28 +1090,63 @@ fn resolve_expected(context: &RepoContext, rev: &str) -> Result<String, CliError
   })
 }
 
-/// `lease_rejected` for the branches at `moved` (of `pushed`, each with its commit count), whose remote branch is not
-/// where its lease expects it: nothing was pushed. `push_leased` fetched the branches, and the error lists what each
-/// moved one has now (`remote_statuses`, in the order of `pushed`), so the user can see what a push with
-/// `--force --expect-remote` would drop
-fn lease_rejected(context: &RepoContext, pushed: &[(String, usize)], moved: &[usize], remote_statuses: &[RemoteStatusUpdate]) -> CliError {
-  let names = moved.iter().map(|index| pushed[*index].0.as_str()).collect::<Vec<_>>().join(", ");
+/// A ref of a push, as a refused push names it
+struct PushedName {
+  /// The branch, or the stack branch `{prefix}/stack/<root>`
+  name: String,
+  commit_count: usize,
+  /// The root of the stack branch, which `bd push --with-children` pushes
+  stack_root: Option<String>,
+}
+
+/// What to do about a push the remote refused with every lease held (a hook, a protected branch)
+pub(crate) const REMOTE_REFUSED_NEXT: &str = "Show the user what the remote answered: no flag of bd gets past it";
+
+/// Why a dry run would be rejected, and how to see what the remote has
+pub(crate) const WOULD_REJECT_NEXT: &str =
+  "a remote branch is not where its lease expects it, or the remote refuses the push. Nothing was pushed, and a dry run fetches nothing: show it to the user";
+
+/// What to do about a branch merged Safe Pushes landed whole
+pub(crate) const LANDED_NEXT: &str = "once the user approved, `bd update` archives what landed";
+
+/// `lease_rejected` for the refs at `moved` (of `pushed`), whose remote branch is not where its lease expects it:
+/// nothing was pushed. `push_leased` fetched the branches, and the error lists what each moved one has now
+/// (`remote_statuses`, in the order of `pushed`), so the user can see what a push with `--force --expect-remote` would
+/// drop; its `next_steps` are those pushes, the user's to approve. `remote_option`: ` --remote <remote>`, or empty
+fn lease_rejected(context: &RepoContext, pushed: &[PushedName], moved: &[usize], remote_statuses: &[RemoteStatusUpdate], remote_option: &str) -> CliError {
+  let names = moved.iter().map(|index| pushed[*index].name.as_str()).collect::<Vec<_>>().join(", ");
   let short = context.short_ids(moved.iter().flat_map(|index| RemoteSummary::ids(&remote_statuses[*index])));
   let mut error = CliError::new(
     ErrorCode::LeaseRejected,
     format!(
       "The remote rejected {names}: it is not where the lease expects it. Nothing was pushed; bd fetched it, and \
-       `branches` says what the remote has now (`dropped_commits`: the commits a push drops). Show them to the user; to \
-       replace them, push again with --force --expect-remote <remote.head>"
+       `branches` says what the remote has now (`dropped_commits`: the commits a push drops). Show them to the user; once \
+       the user approved, push again with --force --expect-remote <remote.head> to replace them"
     ),
   );
   error.branches = moved
     .iter()
     .map(|index| ErrorBranch {
-      name: pushed[*index].0.clone(),
-      remote: RemoteSummary::new(&remote_statuses[*index], pushed[*index].1, &short),
+      name: pushed[*index].name.clone(),
+      remote: RemoteSummary::new(&remote_statuses[*index], pushed[*index].commit_count, &short),
     })
     .collect();
+  let bd = &context.bd;
+  let steps: Vec<NextStep> = moved
+    .iter()
+    .zip(&error.branches)
+    .map(|(index, rejected)| {
+      let command = match (&pushed[*index].stack_root, &rejected.remote.head) {
+        (Some(root), _) => format!("{bd} push {} --with-children --force{remote_option}", shell_word(root)),
+        (None, Some(head)) => format!("{bd} push {} --force --expect-remote {head}{remote_option}", shell_word(&rejected.name)),
+        (None, None) => format!("{bd} push {} --force{remote_option}", shell_word(&rejected.name)),
+      };
+      NextStep::new(command, true)
+    })
+    .collect();
+  for step in steps {
+    error.push_next_step(step);
+  }
   error
 }
 

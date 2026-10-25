@@ -524,7 +524,7 @@ pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktre
   let state = session.state().clone();
   if state.git_dir != own.git_dir && Path::new(&state.git_dir).is_dir() && !force {
     return Err(invalid(format!(
-      "The resolve session of the worktree {id} is live: its git dir {} exists. Abort it there, or pass --force",
+      "The resolve session of the worktree {id} is live: its git dir {} exists. Abort it there; --force aborts it from here, once the user approved",
       state.git_dir
     )));
   }

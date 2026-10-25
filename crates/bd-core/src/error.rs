@@ -7,7 +7,7 @@ use history_rewrite::regroup::{FixupRefusal, RegroupError};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt;
-use sync_core::push_size::PushTooLarge;
+use sync_core::push_size::{PUSH_SIZE_LIMIT_CONFIG_KEY, PushTooLarge};
 use sync_core::sync::SyncDeferred;
 
 /// The exit code of a conflict: the output of the command (`state: "conflict"`, a branch not built, `check.ok` false),
@@ -38,6 +38,8 @@ pub struct ErrorExtra {
   pub blocks: Vec<String>,
   /// The processes of `slot_busy`, and those that may own the index lock of `locked`
   pub processes: Vec<ProcessOutput>,
+  /// The commands that act on the refusal, in `ErrorBody::next_steps`; here, as most errors name none
+  pub next_steps: Vec<NextStep>,
 }
 
 impl CliError {
@@ -53,6 +55,28 @@ impl CliError {
     }
   }
 
+  /// The error with one more of its `next_steps`: `command` ready to run, which runs only once the user approved it
+  /// when `needs_approval`. Never a suppression (`--allow-*`, `--without-approvals`, `--min-free`, a config change):
+  /// the message names those with their condition
+  #[must_use]
+  pub fn with_next_step(mut self, command: impl Into<String>, needs_approval: bool) -> Self {
+    self.push_next_step(NextStep::new(command, needs_approval));
+    self
+  }
+
+  /// Adds `step` to the `next_steps` of the error, once
+  pub fn push_next_step(&mut self, step: NextStep) {
+    let steps = &mut self.extra.get_or_insert_default().next_steps;
+    if !steps.contains(&step) {
+      steps.push(step);
+    }
+  }
+
+  /// The `next_steps` of the error
+  pub fn next_steps(&self) -> &[NextStep] {
+    self.extra.as_ref().map_or(&[], |extra| extra.next_steps.as_slice())
+  }
+
   pub fn to_output(&self) -> ErrorOutput {
     ErrorOutput {
       schema: SchemaVersion,
@@ -65,6 +89,7 @@ impl CliError {
         blocks: self.extra.as_ref().map_or_default(|extra| extra.blocks.clone()),
         review: self.review.as_deref().cloned(),
         processes: self.extra.as_ref().map_or_default(|extra| extra.processes.clone()),
+        next_steps: self.next_steps().to_vec(),
         retryable: self.code.retryable(),
       },
     }
@@ -77,10 +102,16 @@ impl fmt::Display for CliError {
   }
 }
 
-/// `push_too_large`, its `paths` the directory that holds most of the push and the largest files
+/// `push_too_large`, its `paths` the directory that holds most of the push and the largest files; the limit is the
+/// user's to raise, never an agent's
 impl From<&PushTooLarge> for CliError {
   fn from(too_large: &PushTooLarge) -> Self {
-    let mut error = Self::new(ErrorCode::PushTooLarge, too_large.to_string());
+    let message = format!(
+      "{} Show it to the user: the files go out of the commits (build output?), or the user raises the limit; never raise \
+       {PUSH_SIZE_LIMIT_CONFIG_KEY} yourself",
+      too_large.facts()
+    );
+    let mut error = Self::new(ErrorCode::PushTooLarge, message);
     error.paths = too_large.paths();
     error
   }
@@ -134,8 +165,32 @@ pub struct ErrorBody {
   /// argv: no `ps` needed to tell them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub processes: Vec<ProcessOutput>,
+  /// The commands that act on the refusal, ready to run, in the order to run them: a step with `needs_approval` runs
+  /// only once the user approved it (a push, a rewrite, a cancel of a robot); one without it only reads (`bd robot`,
+  /// `bd sync`, a `--check`). Never a way to start anyway: `--allow-*`, `--without-approvals` and `--min-free` stay in
+  /// `message`, with the condition of each
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub next_steps: Vec<NextStep>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
+}
+
+/// A command that acts on a refusal (`ErrorBody::next_steps`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct NextStep {
+  /// The command, ready to run in a shell
+  pub command: String,
+  /// It pushes, rewrites or cancels: run it only once the user approved it, never on your own
+  pub needs_approval: bool,
+}
+
+impl NextStep {
+  pub fn new(command: impl Into<String>, needs_approval: bool) -> Self {
+    Self {
+      command: command.into(),
+      needs_approval,
+    }
+  }
 }
 
 /// A process that works in a worktree of the lease pool, or that may own the index lock of a worktree

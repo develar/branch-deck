@@ -226,7 +226,7 @@
       ],
       "bd": [
         "crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;",
-        "crates/bd-remote/src/safe_push_command.rs#message: start_refusal_text(refusal, name, &facts.robots),"
+        "crates/bd-remote/src/safe_push_command.rs#ErrorCode::RobotRunning, start_refusal_text(refusal, name, &facts.robots)"
       ]
     }
   },

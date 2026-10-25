@@ -154,6 +154,13 @@ fn a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_ref
   let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "f.txt"]);
   assert_error(&output, exit_code, (4, "hunk_conflict"));
   assert_eq!((&output["error"]["commits"], &output["error"]["paths"]), (&json!([short_id(&a)]), &json!(["f.txt"])));
+  assert!(
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .ends_with("nothing was written. Move fewer blocks with --block, or leave the change where it is"),
+    "{output}"
+  );
   assert_eq!(repo.head(), b);
 
   let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "b.txt", "--expect-head", short_id(&a)]);

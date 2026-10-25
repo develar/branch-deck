@@ -75,6 +75,44 @@ pub fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
   assert_eq!((exit_code, &output["error"]["code"]), (expected.0, &serde_json::json!(expected.1)), "{output}");
 }
 
+/// The subcommands whose step changes the history or the remote, or a robot: run only once the user approved
+const STEPS_THAT_NEED_APPROVAL: &[&str] = &["push", "update", "restack", "unstack", "park", "unpark", "unapply", "reapply", "move-hunk", "group"];
+
+/// The flags that start anyway or lower a limit: the user's word, named with its condition in the message, never a step
+const SUPPRESSIONS: &[&str] = &["--allow-", "--without-approvals", "--min-free"];
+
+/// The `next_steps` of an error (`output["error"]`) or of a refusal of `--check`, as `(command, needs_approval)`, each
+/// checked: a step that pushes, rewrites, cancels or restarts a robot (`STEPS_THAT_NEED_APPROVAL`, `safe-push` and
+/// `request-review` without `--check`, `--force`, `--restart-running`, `--cancel-running`) needs the user's approval,
+/// and none is a suppression (`SUPPRESSIONS`)
+pub fn next_steps(refusal: &Value) -> Vec<(String, bool)> {
+  let steps = refusal["next_steps"].as_array().map_or_else(Vec::new, |steps| {
+    steps
+      .iter()
+      .map(|step| (step["command"].as_str().unwrap().to_string(), step["needs_approval"].as_bool().unwrap()))
+      .collect()
+  });
+  for (command, needs_approval) in &steps {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    assert!(
+      !words.iter().any(|word| SUPPRESSIONS.iter().any(|suppression| word.starts_with(suppression))),
+      "{command}: a suppression is never a next step"
+    );
+    // the program, then its options before the subcommand (`-C <repository>`)
+    let mut index = 1;
+    while words.get(index).is_some_and(|word| word.starts_with('-')) {
+      index += if words[index] == "-C" { 2 } else { 1 };
+    }
+    let subcommand = words.get(index).copied().unwrap_or_default();
+    let has = |flag: &str| words.contains(&flag);
+    let writes = STEPS_THAT_NEED_APPROVAL.contains(&subcommand)
+      || (matches!(subcommand, "safe-push" | "request-review") && !has("--check"))
+      || ["--force", "--restart-running", "--cancel-running"].into_iter().any(has);
+    assert!(!writes || *needs_approval, "{command}: it writes, so it needs the user's approval");
+  }
+  steps
+}
+
 /// A cherry-pick in progress in `worktree` of `repo`, as one that stopped leaves it: `CHERRY_PICK_HEAD` names its HEAD
 pub fn start_cherry_pick(repo: &TestRepo, worktree: &Path) {
   let git = repo.git_executor();
