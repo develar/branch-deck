@@ -82,6 +82,7 @@ function patchedFacts(facts: FactsView, change: FactsChanges): FactsView {
     pullRequests: change.pullRequests == null ? facts.pullRequests : patchedPullRequests(facts.pullRequests, change.pullRequests),
     rules: change.rules ?? facts.rules,
     profiles: change.profiles ?? facts.profiles,
+    readiness: keyed(facts.readiness, change.readiness, change.removedReadiness),
   }
 }
 

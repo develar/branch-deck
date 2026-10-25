@@ -1,7 +1,9 @@
-//! The review readiness of virtual branches, shared by the app (`get_branch_review_readiness`) and `bd safe-push`: the
-//! commits of the branches (`patronus_review`), the pre-check of Patronus with the pull request each would start from,
-//! cached on disk by what Patronus decides on, then `patronus::review_readiness`. The whole stack is asked as its stack
-//! branch (`ReviewReadinessBranch::source`, `{prefix}/stack/<root>`) with its pull request.
+//! The review readiness of virtual branches, shared by the sessions of the app (the scheduler of the facts, through the
+//! `FactSources` of each host) and `bd safe-push`: the commits of the branches (`patronus_review`), the pre-check of
+//! Patronus with the pull request each would start from, cached on disk by what Patronus decides on, then
+//! `patronus::review_readiness`. The whole stack is asked as its stack branch (`ReviewReadinessBranch::source`,
+//! `{prefix}/stack/<root>`) with its pull request. `kept_review_readiness` answers from the cache alone, so a session
+//! answers what it keeps before it asks Patronus anything.
 //!
 //! The answer of a branch reviewed on GitHub is kept in the `review_answer` store of the object cache, keyed by a hash
 //! of the Patronus server and token, the Space repository, the target, the changed paths, and for a start from a pull
@@ -14,8 +16,7 @@ use crate::patronus_review::{ReviewInput, attribute_ownership_paths, read_review
 use anyhow::anyhow;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use domain_types::patronus::{
-  BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch,
-  ReviewStart, UnavailableReadinessReason,
+  BranchReviewReadiness, MissingApprovalsReason, PatronusAvailability, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::is_object_id;
@@ -51,8 +52,8 @@ pub struct ReadinessRepository<'a> {
   pub branch_prefix: &'a str,
 }
 
-/// What `branch_review_readiness` is asked with, owned: as the app (`get_branch_review_readiness`) and the E2E test
-/// server compose it (`prepare_review_readiness`)
+/// What `branch_review_readiness` is asked with, owned: as the readiness reads of the app and of the E2E test server
+/// compose it (`prepare_review_readiness`)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadinessInputs {
   pub space: SpaceRepository,
@@ -75,28 +76,91 @@ impl ReadinessInputs {
   }
 }
 
-/// The inputs of `branch_review_readiness` for `params`, with the Space and GitHub repositories the caller resolved:
-/// every tip is a commit id (the page sends what it holds), and the target is the branch of origin the baseline
-/// tracks (one git process; a local baseline is refused, Patronus pushes into a branch of origin); the branches are
-/// named under `branch_prefix`, which the host resolved
+/// The inputs of `branch_review_readiness` for `branches` of the worktree `repository_path` against `baseline` (as the
+/// sync detected it, `origin/master`), with the Space and GitHub repositories the caller resolved: every tip is a
+/// commit id (the session asks what its view holds), and the target is the branch of origin the baseline tracks (one
+/// git process; a local baseline is refused, Patronus pushes into a branch of origin); the branches are named under
+/// `branch_prefix`, which the host resolved
 pub fn prepare_review_readiness(
   git: &GitCommandExecutor,
   space: SpaceRepository,
   github: Option<GitHubRepository>,
   branch_prefix: &str,
-  params: &GetBranchReviewReadinessParams,
+  repository_path: &str,
+  baseline: &str,
+  branches: &[ReviewReadinessBranch],
 ) -> anyhow::Result<ReadinessInputs> {
-  if let Some(branch) = params.branches.iter().find(|branch| !is_object_id(&branch.tip)) {
+  if let Some(branch) = branches.iter().find(|branch| !is_object_id(&branch.tip)) {
     anyhow::bail!("Not a commit id: {}", branch.tip);
   }
-  let target = required_target_branch(git, &params.repository_path, &params.baseline_branch)?;
+  let target = required_target_branch(git, repository_path, baseline)?;
   Ok(ReadinessInputs {
     space,
     github,
     target,
-    baseline: params.baseline_branch.clone(),
+    baseline: baseline.to_owned(),
     branch_prefix: branch_prefix.to_owned(),
   })
+}
+
+/// Of `branches`, in their order, the answers the object cache keeps for what Patronus decides on that still hold
+/// (`is_fresh`), without asking Patronus: one `git log` for the commits of all of them, one read of the cache, the
+/// `OWNERSHIP` files for the groups named without their files; a branch too long to check is skipped (as the
+/// pre-check skips it). `None` for each the cache doesn't answer, and for all of a repository only on Space (its
+/// service keeps its own answers) or without the identity of the service
+#[instrument(skip_all, fields(branches = branches.len()))]
+pub async fn kept_review_readiness(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  cache: &ObjectCache,
+  service: &PatronusService,
+  repository: &ReadinessRepository<'_>,
+  branches: &[ReviewReadinessBranch],
+) -> Vec<Option<BranchReviewReadiness>> {
+  let (Some(identity), Some(_)) = (service.identity(), repository.github) else {
+    return vec![None; branches.len()];
+  };
+  let tips: Vec<String> = branches.iter().map(|branch| branch.tip.clone()).collect();
+  let (git, path, cache, baseline) = (git.clone(), repository_path.to_string(), cache.clone(), repository.baseline.to_string());
+  let read = {
+    let (git, path, cache, baseline) = (git.clone(), path.clone(), cache.clone(), baseline.clone());
+    tokio::task::spawn_blocking(in_current_span(move || read_inputs(&git, &path, &cache, &baseline, &tips))).await
+  };
+  let Ok(inputs) = read else {
+    return vec![None; branches.len()];
+  };
+  let keys: Vec<Option<[u8; 32]>> = branches
+    .iter()
+    .zip(&inputs)
+    .map(|(branch, input)| match input {
+      Ok(Some(input)) => Some(review_answer_key(&identity, repository, &input.paths, branch)),
+      _ => None,
+    })
+    .collect();
+  let branches = branches.to_vec();
+  let count = branches.len();
+  let kept = tokio::task::spawn_blocking(in_current_span(move || {
+    let asked: Vec<[u8; 32]> = keys.iter().flatten().copied().collect();
+    let mut found = cache.get_review_answers::<PatronusReviewRequirement>(&asked).into_iter();
+    let now = unix_now();
+    let mut answers: Vec<Option<PatronusReviewRequirement>> = inputs
+      .iter()
+      .zip(&keys)
+      .map(|(input, key)| match (input, key) {
+        (Ok(None), _) => Some(skipped_review()),
+        (_, Some(_)) => found.next().flatten().filter(|kept| is_fresh(kept, now)).map(|kept| kept.answer),
+        _ => None,
+      })
+      .collect();
+    attribute_answered(&git, &path, &baseline, answers.iter_mut().map(Option::as_mut), &inputs);
+    branches
+      .into_iter()
+      .zip(answers)
+      .map(|(branch, answer)| answer.map(|answer| to_branch_readiness(branch, Ok(answer), true)))
+      .collect::<Vec<_>>()
+  }))
+  .await;
+  kept.unwrap_or_else(|_| vec![None; count])
 }
 
 /// The readiness of `branches`, in their order. `recheck` asks Patronus again, never the cache, and in the foreground
@@ -136,12 +200,7 @@ pub async fn branch_review_readiness(
   let branches = branches.to_vec();
   tokio::task::spawn_blocking(in_current_span(move || {
     let mut answers = answers;
-    let mut owed: Vec<(&mut PatronusReviewRequirement, &[String])> = answers
-      .iter_mut()
-      .zip(&inputs)
-      .filter_map(|(answer, input)| Some((answer.as_mut().ok()?, input.as_ref().ok()?.as_ref()?.paths.as_slice())))
-      .collect();
-    attribute_ownership_paths(&git, &path, &baseline, &mut owed);
+    attribute_answered(&git, &path, &baseline, answers.iter_mut().map(|answer| answer.as_mut().ok()), &inputs);
     branches
       .into_iter()
       .zip(answers)
@@ -150,6 +209,22 @@ pub async fn branch_review_readiness(
   }))
   .await
   .map_err(|e| anyhow!("The review readiness task failed: {e}"))
+}
+
+/// Gives the groups of each answer Patronus sent without paths the changed paths of its branch that their `OWNERSHIP`
+/// entries own (`attribute_ownership_paths`, one read for all)
+fn attribute_answered<'a>(
+  git: &GitCommandExecutor,
+  repository_path: &str,
+  baseline: &str,
+  answers: impl Iterator<Item = Option<&'a mut PatronusReviewRequirement>>,
+  inputs: &'a [Result<Option<ReviewInput>, String>],
+) {
+  let mut owed: Vec<(&mut PatronusReviewRequirement, &[String])> = answers
+    .zip(inputs)
+    .filter_map(|(answer, input)| Some((answer?, input.as_ref().ok()?.as_ref()?.paths.as_slice())))
+    .collect();
+  attribute_ownership_paths(git, repository_path, baseline, &mut owed);
 }
 
 /// The commits and paths of each tip, one `git log` for all; when it fails (a tip gone since the page sent it), each tip

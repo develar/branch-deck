@@ -1,7 +1,6 @@
-use crate::review_readiness::{ReadinessInputs, ReadinessRepository, branch_review_readiness, is_fresh, prepare_review_readiness};
+use crate::review_readiness::{ReadinessInputs, ReadinessRepository, branch_review_readiness, is_fresh, kept_review_readiness, prepare_review_readiness};
 use domain_types::patronus::{
-  BranchReviewReadiness, GetBranchReviewReadinessParams, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart,
-  ReviewerApprovalState,
+  BranchReviewReadiness, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState,
 };
 use domain_types::pull_request::{Reviewer, ReviewerState};
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -62,6 +61,20 @@ async fn setup() -> Setup {
   }
 }
 
+fn space() -> SpaceRepository {
+  SpaceRepository {
+    project_key: "ij".to_string(),
+    name: "ultimate".to_string(),
+  }
+}
+
+fn github() -> GitHubRepository {
+  GitHubRepository {
+    owner: "acme".to_string(),
+    name: "monorepo".to_string(),
+  }
+}
+
 fn branch(tip: &str, start: ReviewStart, reviewers: Vec<Reviewer>) -> ReviewReadinessBranch {
   ReviewReadinessBranch {
     branch_name: "IJPL-1".to_string(),
@@ -86,16 +99,23 @@ impl Setup {
     self.readiness_in(branches, recheck, true).await
   }
 
+  /// The answers the cache keeps of `branches`, without Patronus (`kept_review_readiness`)
+  async fn kept(&self, branches: &[ReviewReadinessBranch]) -> Vec<Option<BranchReviewReadiness>> {
+    let (space, github) = (space(), github());
+    let repository = ReadinessRepository {
+      space: &space,
+      github: Some(&github),
+      target: "master",
+      baseline: "baseline",
+      branch_prefix: "me",
+    };
+    let path = self.repo.path().to_str().unwrap();
+    kept_review_readiness(self.repo.git_executor(), path, &self.cache, &self.service, &repository, branches).await
+  }
+
   /// `readiness`, of a repository reviewed on GitHub (`acme/monorepo`) or, without `on_github`, only on Space
   async fn readiness_in(&self, branches: &[ReviewReadinessBranch], recheck: bool, on_github: bool) -> Vec<BranchReviewReadiness> {
-    let space = SpaceRepository {
-      project_key: "ij".to_string(),
-      name: "ultimate".to_string(),
-    };
-    let github = GitHubRepository {
-      owner: "acme".to_string(),
-      name: "monorepo".to_string(),
-    };
+    let (space, github) = (space(), github());
     let repository = ReadinessRepository {
       space: &space,
       github: on_github.then_some(&github),
@@ -316,14 +336,9 @@ async fn the_inputs_of_the_readiness_are_composed_once_for_the_app_and_the_test_
     owner: "acme".to_string(),
     name: "monorepo".to_string(),
   };
-  let params = |baseline: &str, tip: &str| GetBranchReviewReadinessParams {
-    repository_path: path.to_string(),
-    baseline_branch: baseline.to_string(),
-    branches: vec![branch(tip, ReviewStart::Rest, Vec::new())],
-    recheck: false,
-  };
+  let branches = |tip: &str| vec![branch(tip, ReviewStart::Rest, Vec::new())];
 
-  let inputs = prepare_review_readiness(git, space.clone(), Some(github.clone()), "me", &params("origin/master", &setup.tip)).unwrap();
+  let inputs = prepare_review_readiness(git, space.clone(), Some(github.clone()), "me", path, "origin/master", &branches(&setup.tip)).unwrap();
   assert_eq!(
     inputs,
     ReadinessInputs {
@@ -339,8 +354,30 @@ async fn the_inputs_of_the_readiness_are_composed_once_for_the_app_and_the_test_
     ("master", Some("acme"))
   );
 
-  let refused = prepare_review_readiness(git, space.clone(), None, "me", &params("origin/master", "HEAD")).unwrap_err();
+  let refused = prepare_review_readiness(git, space.clone(), None, "me", path, "origin/master", &branches("HEAD")).unwrap_err();
   assert_eq!(refused.to_string(), "Not a commit id: HEAD");
-  let local = prepare_review_readiness(git, space, None, "me", &params("baseline", &setup.tip)).unwrap_err();
+  let local = prepare_review_readiness(git, space, None, "me", path, "baseline", &branches(&setup.tip)).unwrap_err();
   assert!(local.to_string().contains("not a branch of origin"), "{local}");
+}
+
+/// The kept answers come from the cache alone, the pre-check never asked: none before an answer was kept, the answer of
+/// the same reviews after it, none for other reviews, which Patronus decides on again
+#[test(tokio::test(flavor = "multi_thread"))]
+async fn the_kept_answers_come_from_the_cache_without_asking_patronus() {
+  let setup = setup().await;
+  let requested = vec![reviewer("ikorennoy", ReviewerState::Requested, true)];
+  let from_pull_request = branch(&setup.tip, ReviewStart::PullRequest { number: 7 }, requested);
+  assert_eq!(setup.kept(std::slice::from_ref(&from_pull_request)).await, vec![None]);
+  assert_eq!(setup.checks(), 0);
+
+  let asked = setup.readiness(std::slice::from_ref(&from_pull_request), false).await;
+  assert_eq!(setup.checks(), 1);
+  let reviewed = branch(
+    &setup.tip,
+    ReviewStart::PullRequest { number: 7 },
+    vec![reviewer("ikorennoy", ReviewerState::Approved, false)],
+  );
+  let kept = setup.kept(&[from_pull_request, reviewed]).await;
+  assert_eq!(kept, vec![Some(asked[0].clone()), None]);
+  assert_eq!(setup.checks(), 1);
 }

@@ -4,15 +4,21 @@
 use crate::fact_sources::{FactSources, Read};
 use crate::scheduler::{FactsPort, Scheduler};
 use domain_policy::refresh::ReadState;
+use domain_policy::refresh::ReadinessPriority;
 use domain_types::error::ApiError;
 use domain_types::fixtures::pull_request;
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions};
+use domain_types::patronus::{
+  BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, ReviewReadiness,
+  ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
+};
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use pretty_assertions::assert_eq;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, ProblemsRead, RobotsDigest, RobotsRead, Seq};
 use repository_model::pull_request_facts::{PullRequestSubject, PushedHead};
+use repository_model::readiness_facts::{ReadinessDigest, ReadinessSubject};
 use repository_model::session::{SessionEvent, SessionEventKind, SessionKey};
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -55,6 +61,16 @@ struct ScriptedSources {
   /// While set, each list waits until the test releases it
   hold: AtomicBool,
   held: Mutex<Vec<oneshot::Sender<()>>>,
+  /// The calls of the readiness: the subjects of each and whether it was a recheck
+  readiness_calls: Mutex<Vec<(Vec<String>, bool)>>,
+  /// The reads of the kept answers: the subjects of each
+  kept_calls: Mutex<Vec<Vec<String>>>,
+  /// The subjects whose answer the cache keeps
+  kept: Mutex<BTreeSet<String>>,
+  /// While set, each call of the readiness waits until the test releases it
+  hold_readiness: AtomicBool,
+  /// Patronus doesn't answer the pre-checks
+  readiness_unavailable: AtomicBool,
 }
 
 impl ScriptedSources {
@@ -126,6 +142,23 @@ impl FactSources for ScriptedSources {
     })
   }
 
+  fn readiness<'a>(&'a self, _key: &'a SessionKey, _baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>> {
+    lock(&self.readiness_calls).push((asks.iter().map(|ask| ask.branch_name.clone()).collect(), recheck));
+    let held = self.held(&self.hold_readiness);
+    Box::pin(async move {
+      if let Some(released) = held {
+        let _ = released.await;
+      }
+      Ok(asks.iter().map(|ask| self.readiness_of(ask)).collect())
+    })
+  }
+
+  fn cached_readiness<'a>(&'a self, _key: &'a SessionKey, _baseline: String, asks: Vec<ReviewReadinessBranch>) -> Read<'a, Vec<Option<BranchReviewReadiness>>> {
+    lock(&self.kept_calls).push(asks.iter().map(|ask| ask.branch_name.clone()).collect());
+    let kept = lock(&self.kept).clone();
+    Box::pin(async move { asks.iter().map(|ask| kept.contains(&ask.branch_name).then(|| self.readiness_of(ask))).collect() })
+  }
+
   fn profiles<'a>(&'a self, _key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
     lock(&self.github_calls).push(GitHubCall::Profiles(baseline));
     let fails = self.github_fails.load(Ordering::SeqCst);
@@ -142,6 +175,25 @@ impl FactSources for ScriptedSources {
         })
       }
     })
+  }
+}
+
+impl ScriptedSources {
+  fn readiness_of(&self, ask: &ReviewReadinessBranch) -> BranchReviewReadiness {
+    let readiness = if self.readiness_unavailable.load(Ordering::SeqCst) {
+      ReviewReadiness::Unavailable {
+        reason: UnavailableReadinessReason::Error,
+        message: "Patronus answered 500".to_owned(),
+      }
+    } else {
+      ReviewReadiness::NotRequired
+    };
+    BranchReviewReadiness {
+      branch_name: ask.branch_name.clone(),
+      tip: ask.tip.clone(),
+      requirement: None,
+      readiness,
+    }
   }
 }
 
@@ -287,6 +339,7 @@ impl Harness {
       .send(SessionEventKind::Refresh {
         family: FactFamily::Robots,
         reason,
+        subject: None,
         reply,
       })
       .await;
@@ -613,7 +666,14 @@ async fn a_change_of_the_table_asks_the_problems_of_a_failed_robot_it_matched_an
 impl Harness {
   async fn refresh_family(&self, family: FactFamily, reason: FactRefreshReason) -> Option<Version> {
     let (reply, answer) = oneshot::channel();
-    self.send(SessionEventKind::Refresh { family, reason, reply }).await;
+    self
+      .send(SessionEventKind::Refresh {
+        family,
+        reason,
+        subject: None,
+        reply,
+      })
+      .await;
     answer.await.unwrap()
   }
 
@@ -778,4 +838,173 @@ async fn the_profiles_are_asked_when_a_start_needs_them_and_a_minute_later() {
   session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await;
   session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await;
   assert_eq!(session.github_calls(), vec![profiles("origin/main"), profiles("origin/main")], "a failure asks again");
+}
+
+/// A subject of the readiness asked for `priority`, of the inputs `inputs`
+fn readiness_subject(key: &str, priority: ReadinessPriority, inputs: u64) -> ReadinessSubject {
+  ReadinessSubject {
+    key: key.to_owned(),
+    ask: ReviewReadinessBranch {
+      branch_name: key.to_owned(),
+      source: None,
+      tip: format!("{key}-tip"),
+      start: ReviewStart::Rest,
+      reviewers: Vec::new(),
+      author: None,
+    },
+    inputs,
+    priority,
+    rechecks: 0,
+    recheck: false,
+  }
+}
+
+fn readiness_told(subjects: Vec<ReadinessSubject>) -> SessionEventKind {
+  SessionEventKind::Readiness(ReadinessDigest {
+    baseline: "origin/master".to_owned(),
+    subjects,
+  })
+}
+
+impl Harness {
+  /// The calls of the readiness since the last call: the subjects of each, and whether it was a recheck
+  fn readiness_calls(&self) -> Vec<(Vec<String>, bool)> {
+    std::mem::take(&mut *lock(&self.sources.readiness_calls))
+  }
+
+  fn kept_calls(&self) -> Vec<Vec<String>> {
+    std::mem::take(&mut *lock(&self.sources.kept_calls))
+  }
+
+  fn hold_readiness(&self, hold: bool) {
+    self.sources.hold_readiness.store(hold, Ordering::SeqCst);
+  }
+}
+
+fn calls_of(keys: &[&str], recheck: bool) -> Vec<(Vec<String>, bool)> {
+  keys.iter().map(|key| (vec![(*key).to_owned()], recheck)).collect()
+}
+
+/// C10: a demand while the queue is in flight is asked at once in a call of its own, after no pre-check but its own
+#[tokio::test]
+async fn asks_a_demanded_branch_at_once_in_its_own_call_while_the_batch_is_in_flight() {
+  let session = Harness::watched().await;
+  session.hold_readiness(true);
+  let shown: Vec<ReadinessSubject> = ["a", "b", "c", "d", "e"].iter().map(|key| readiness_subject(key, ReadinessPriority::Shown, 1)).collect();
+  session.send(readiness_told(shown.clone())).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["a", "b", "c", "d"], false));
+  let mut told = shown;
+  told.push(readiness_subject("popover", ReadinessPriority::Demanded, 1));
+  session.send(readiness_told(told)).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["popover"], false));
+  // a demand of a subject the queue asks for these inputs waits for that call
+  let mut told: Vec<ReadinessSubject> = ["a", "b", "c", "d", "e"].iter().map(|key| readiness_subject(key, ReadinessPriority::Shown, 1)).collect();
+  told[0].priority = ReadinessPriority::Demanded;
+  session.send(readiness_told(told)).await;
+  assert_eq!(session.readiness_calls(), []);
+}
+
+/// The queue asks the shown subjects before the hidden ones that wait for approvals, at most four at a time, the next
+/// one as one answers; an answer of the same inputs asks nothing more
+#[tokio::test]
+async fn asks_the_shown_rows_before_the_hidden_awaiting_ones_at_most_four_in_parallel() {
+  let session = Harness::watched().await;
+  session.hold_readiness(true);
+  let told = vec![
+    readiness_subject("hidden-1", ReadinessPriority::HiddenAwaiting, 1),
+    readiness_subject("a", ReadinessPriority::Shown, 1),
+    readiness_subject("hidden-2", ReadinessPriority::HiddenAwaiting, 1),
+    readiness_subject("b", ReadinessPriority::Shown, 1),
+    readiness_subject("c", ReadinessPriority::Shown, 1),
+    readiness_subject("d", ReadinessPriority::Shown, 1),
+  ];
+  session.send(readiness_told(told.clone())).await;
+  assert_eq!(session.kept_calls(), [vec!["a", "b", "c", "d", "hidden-1", "hidden-2"]]);
+  assert_eq!(session.readiness_calls(), calls_of(&["a", "b", "c", "d"], false));
+  session.hold_readiness(false);
+  session.release().await;
+  assert_eq!(session.readiness_calls(), calls_of(&["hidden-1", "hidden-2"], false));
+  session.send(readiness_told(told)).await;
+  assert_eq!((session.readiness_calls(), session.kept_calls()), (Vec::new(), Vec::new()));
+}
+
+/// The kept answers of the queue are read first, in one read: a hit asks no pre-check, the misses queue
+#[tokio::test]
+async fn answers_the_cache_before_the_queue() {
+  let session = Harness::watched().await;
+  lock(&session.sources.kept).insert("kept".to_owned());
+  session
+    .send(readiness_told(vec![
+      readiness_subject("kept", ReadinessPriority::Shown, 1),
+      readiness_subject("new", ReadinessPriority::Shown, 1),
+    ]))
+    .await;
+  assert_eq!(session.kept_calls(), [vec!["kept", "new"]]);
+  assert_eq!(session.readiness_calls(), calls_of(&["new"], false));
+  // a demanded subject goes at once, past the read of the kept answers
+  session.send(readiness_told(vec![readiness_subject("popover", ReadinessPriority::Demanded, 1)])).await;
+  assert_eq!((session.kept_calls(), session.readiness_calls()), (Vec::new(), calls_of(&["popover"], false)));
+}
+
+/// Check Approvals Again (new inputs with a recheck) is asked at once with `recheck` beside the ask of the queue in
+/// flight, and its refresh answers after its own answer
+#[tokio::test]
+async fn keeps_the_answer_of_a_recheck_when_the_batch_asked_before_it_answers_later() {
+  let session = Harness::watched().await;
+  session.hold_readiness(true);
+  session.send(readiness_told(vec![readiness_subject("auth", ReadinessPriority::Shown, 1)])).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["auth"], false));
+  let recheck = ReadinessSubject {
+    priority: ReadinessPriority::Demanded,
+    rechecks: 1,
+    recheck: true,
+    ..readiness_subject("auth", ReadinessPriority::Demanded, 2)
+  };
+  session.send(readiness_told(vec![recheck])).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["auth"], true));
+  let (reply, answer) = oneshot::channel();
+  session
+    .send(SessionEventKind::Refresh {
+      family: FactFamily::Readiness,
+      reason: FactRefreshReason::Manual,
+      subject: Some("auth".to_owned()),
+      reply,
+    })
+    .await;
+  session.release().await;
+  assert!(answer.await.unwrap().is_some());
+  // a refresh of a subject nothing asks answers at once
+  assert_eq!(session.refresh_family(FactFamily::Readiness, FactRefreshReason::Manual).await, None);
+}
+
+/// An answer Patronus didn't give is asked again five minutes later on the clock of the session, not before
+#[tokio::test]
+async fn asks_again_five_minutes_after_patronus_did_not_answer() {
+  let session = Harness::watched().await;
+  session.sources.readiness_unavailable.store(true, Ordering::SeqCst);
+  session.send(readiness_told(vec![readiness_subject("auth", ReadinessPriority::Demanded, 1)])).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["auth"], false));
+  session.advance(299).await;
+  assert_eq!(session.readiness_calls(), []);
+  session.advance(1).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["auth"], false));
+}
+
+/// Another repository is another session: its demand is asked at once while the queue of the first is in flight
+#[tokio::test]
+async fn a_repository_change_during_a_batch_does_not_wait_for_it() {
+  let session = Harness::watched().await;
+  session.hold_readiness(true);
+  let shown: Vec<ReadinessSubject> = ["a", "b", "c", "d"].iter().map(|key| readiness_subject(key, ReadinessPriority::Shown, 1)).collect();
+  session.send(readiness_told(shown)).await;
+  assert_eq!(session.readiness_calls().len(), 4);
+  let other = SessionKey {
+    worktree: "/other".to_owned(),
+    prefix: "user".to_owned(),
+  };
+  for kind in [SessionEventKind::Watched(true), readiness_told(vec![readiness_subject("x", ReadinessPriority::Shown, 1)])] {
+    session.events.send(SessionEvent { key: other.clone(), kind }).unwrap();
+  }
+  settle().await;
+  assert_eq!(session.readiness_calls(), calls_of(&["x"], false));
 }

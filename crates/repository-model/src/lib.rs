@@ -30,6 +30,9 @@
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
 //! - `pull_request_facts`: the pull requests of a session by branch and stack, as the listings and the app's writes
 //!   (`PullRequestWrite`, `write_pull_request`) leave them in their order, and the pushed heads a listing checks
+//! - `readiness_facts`: the review readiness of a session by subject: the ask of each from the view (its tip, the pull
+//!   request it starts from, the reviews), what the scheduler asks by the demand (`ReadinessDigest`), the answers in
+//!   their order, the news that approvals arrived
 //! - `runtime`: the actor of a session: its mailbox, the runs of its syncs with the mailbox as their reporter, the
 //!   patches at most every 16 ms; `GitSessionHost`, the syncs, the Patronus views and the landing needs of the app's
 //!   sessions with git
@@ -63,6 +66,7 @@ pub mod patch;
 pub mod patronus_view;
 pub mod pull_request_facts;
 pub mod push_guard;
+pub mod readiness_facts;
 pub mod runtime;
 pub mod session;
 pub mod start_guard;

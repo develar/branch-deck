@@ -38,6 +38,7 @@ use crate::facts::{
 };
 use crate::patronus_view::{ContentMemo, lock_memo};
 use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
+use crate::readiness_facts::ReadinessDigest;
 use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
 use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
@@ -45,7 +46,7 @@ use crate::table::{RemoteSubject, TableState};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{PatronusView, RemoteFacts};
-use domain_types::session::{Demand, RepositoryView, SyncReason, SyncState, SyncStep, Version};
+use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncReason, SyncState, SyncStep, Version};
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -87,6 +88,9 @@ pub(crate) enum Message {
   /// The demand of all the windows of the session
   #[cfg(test)]
   DemandOf(oneshot::Sender<Demand>),
+  /// What the scheduler asks the readiness of now
+  #[cfg(test)]
+  ReadinessDigestOf(oneshot::Sender<ReadinessDigest>),
   /// The number of a read of a fact that starts now
   Begin(oneshot::Sender<FactTicket>),
   /// The answer of the read of `ticket`; `reply` gets the version of the view after its patch and what the scheduler
@@ -100,6 +104,12 @@ pub(crate) enum Message {
   WriteRobot {
     robot: PatronusRobot,
     reply: oneshot::Sender<Version>,
+  },
+  /// Check Approvals Again for `subject`: its readiness is `Stale` at once and asked again; the scheduler answers `reply`
+  /// with the version after the answer
+  Recheck {
+    subject: String,
+    reply: oneshot::Sender<Option<Version>>,
   },
   /// A write of the app to a pull request; `reply` gets the version of the view after its patch
   WritePullRequest {
@@ -171,6 +181,7 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     events,
     told_demand: Demand::default(),
     told_digest: None,
+    told_readiness: ReadinessDigest::default(),
     flush_at: None,
     last_flush: None,
     in_flight: None,
@@ -200,6 +211,8 @@ struct Actor {
   told_demand: Demand,
   /// The robots of the poll the scheduler was told last, with the version of the view and the demand they are of
   told_digest: Option<(Version, Vec<String>, RobotsDigest)>,
+  /// The subjects of the readiness the scheduler was told last
+  told_readiness: ReadinessDigest,
   /// When the pending patch goes out
   flush_at: Option<Instant>,
   last_flush: Option<Instant>,
@@ -272,8 +285,22 @@ impl Actor {
         if self.subscribers.iter().any(|(subscription, _)| *subscription == id) {
           self.demands.insert(id, demand);
           self.tell_demand();
-          self.tell_digest();
+          // the subjects a window asks for have their readiness in the view from now
+          self.flush();
         }
+      }
+      Message::Recheck { subject, reply } => {
+        self.facts.readiness.recheck(&subject);
+        self.flush();
+        self.events.emit(
+          &self.key,
+          SessionEventKind::Refresh {
+            family: FactFamily::Readiness,
+            reason: FactRefreshReason::Manual,
+            subject: Some(subject),
+            reply,
+          },
+        );
       }
       Message::Begin(reply) => {
         let _ = reply.send(FactTicket {
@@ -328,6 +355,10 @@ impl Actor {
       #[cfg(test)]
       Message::DemandOf(reply) => {
         let _ = reply.send(self.demand());
+      }
+      #[cfg(test)]
+      Message::ReadinessDigestOf(reply) => {
+        let _ = reply.send(self.facts.readiness.digest().clone());
       }
       Message::Sync { reason, waiter } => {
         let decision = self.scheduler.request(reason, waiter, self.is_watched());
@@ -421,6 +452,12 @@ impl Actor {
   fn tell_digest(&mut self) {
     if !self.events.is_taken() || self.subscribers.is_empty() {
       return;
+    }
+    // nothing asked before is nothing asked now, whatever the baseline
+    let readiness = self.facts.readiness.digest();
+    if *readiness != self.told_readiness && !(readiness.subjects.is_empty() && self.told_readiness.subjects.is_empty()) {
+      self.told_readiness = readiness.clone();
+      self.events.emit(&self.key, SessionEventKind::Readiness(readiness.clone()));
     }
     let version = self.view.version();
     let watched = &self.told_demand.watched_robots;
@@ -642,7 +679,11 @@ impl Actor {
   fn flush(&mut self) {
     self.flush_at = None;
     self.last_flush = Some(Instant::now());
+    // the asks of the readiness of what the patch carries: a moved tip comes with its readiness `Stale`
+    let robots = self.facts.robots.view().head.value.as_ref();
+    self.facts.readiness.update(&self.state, self.facts.pull_requests.view(), robots, &self.told_demand);
     let Some(patch) = self.view.diff(&self.state, &self.facts) else {
+      self.tell_digest();
       return;
     };
     let life = &self.life;

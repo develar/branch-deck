@@ -23,7 +23,7 @@ use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::landing::{LandingCheck, LandingGateParams};
-use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotsResult, PatronusStartOptions};
+use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -288,6 +288,21 @@ impl FactSources for AppFactSources {
       self.app.state::<PatronusState>().profiles(&git, &key.worktree, &baseline).await
     })
   }
+
+  fn readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>> {
+    Box::pin(async move {
+      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
+      let patronus = self.app.state::<PatronusState>();
+      patronus.readiness(&git, &repository_state, key, &baseline, asks, recheck).await
+    })
+  }
+
+  fn cached_readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>) -> Read<'a, Vec<Option<BranchReviewReadiness>>> {
+    Box::pin(async move {
+      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
+      self.app.state::<PatronusState>().kept_readiness(&git, &repository_state, key, &baseline, asks).await
+    })
+  }
 }
 
 /// The patches of a session to a window's channel
@@ -475,7 +490,7 @@ pub async fn refresh_facts(
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;
-    Ok(state.sessions.refresh(&key, params.family, params.reason).await)
+    Ok(state.sessions.refresh(&key, params.family, params.reason, params.subject).await)
   })
   .await
 }

@@ -21,12 +21,14 @@
 //!   server)
 //! - `scheduler`: when the facts of each session are read, by the rules of `domain_policy::refresh` on the clock of the
 //!   sessions, and their answers applied to the session (the robots of Patronus: the list, the poll, the failing robots
-//!   and the problems of the failed ones)
+//!   and the problems of the failed ones; the pull requests, the rules of their bases, the merge profiles; the review
+//!   readiness of the subjects the session tells, by demand)
 //!
 //! Patronus:
 //! - `patronus_command`: the `/patronus` comment of a pull request
 //! - `patronus_review`: the commits of the code-owner pre-check of a Safe Push
-//! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
+//! - `review_readiness`: the review readiness of branches, shared by the sessions of the app and `bd safe-push`; the
+//!   answers the object cache keeps, read without Patronus (`kept_review_readiness`)
 //! - `robot_stats`: the Safe Push statistics: the robots of a period, kept in the object cache, read once
 //! - `robot_stats_aggregate`: what the statistics count of them, pure (moves to `domain-policy` in s8)
 

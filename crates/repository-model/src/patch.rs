@@ -131,7 +131,13 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     pull_requests,
     rules,
     profiles,
+    readiness,
+    removed_readiness,
   } = facts.unwrap_or_default();
+  for key in &removed_readiness {
+    view.facts.readiness.remove(key);
+  }
+  view.facts.readiness.extend(readiness);
   if let Some(pull_requests) = pull_requests {
     apply_pull_requests_change(&mut view.facts.pull_requests, pull_requests);
   }

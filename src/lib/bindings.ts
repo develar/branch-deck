@@ -209,11 +209,8 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
-	 *  Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
-	 *  branches, their paths from the object cache, then one pre-check per branch whose kept answer doesn't hold
-	 *  (`remote_facts::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
-	 *  the order of `params.branches`, each with its input.
+	 *  Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows: the
+	 *  session's read (`PatronusState::readiness`) under the prefix the commands resolve
 	 */
 	getBranchReviewReadiness: (params: GetBranchReviewReadinessParams) => typedError<BranchReviewReadiness[], ApiError>(__TAURI_INVOKE("get_branch_review_readiness", { params })),
 	/**
@@ -1353,13 +1350,17 @@ export type Demand = {
 	focused: boolean,
 	/**  The machine is online (`navigator.onLine`): offline, no poll asks */
 	online: boolean,
-	/**  The branches whose rows the window shows */
+	/**
+	 *  The branches whose rows the window shows with a step that waits for the review readiness (the page's rule of a
+	 *  step until the next step is decided in Rust)
+	 */
 	visibleBranches: string[],
-	/**  The whole stacks whose islands the window shows, by root */
+	/**  The whole stacks whose island headers the window shows with such a step, by root */
 	visibleStacks: string[],
 	/**
-	 *  The branches a surface needs a fact of now, asked before the shown ones (the Safe Push popover, the "Create pull
-	 *  request" dialog)
+	 *  The subjects a surface needs a fact of now, asked at once beside whatever is in flight (the Safe Push popover and
+	 *  its click, the "Create pull request" dialog): a branch by name, the whole stack of a root as `stack:<root>`
+	 *  (`stack_readiness_key`)
 	 */
 	needed: string[],
 	/**  The branches whose preview the window shows */
@@ -1790,7 +1791,12 @@ export type FactFamily =
  *  The merge profiles of the target of the baseline (`FactsView::profiles`), asked when unknown, after a failure and
  *  a minute after the last read
  */
-"profiles";
+"profiles" | 
+/**
+ *  The review readiness of a subject (`FactsView::readiness`): Check Approvals Again (`Manual` with the subject) asks
+ *  Patronus again instead of the kept answer; the answer is the version after its patch
+ */
+"readiness";
 
 /**  Why a window asks a fact again */
 export type FactRefreshReason = 
@@ -1829,6 +1835,9 @@ export type FactsChanges = {
 	/**  All the rules, when one of them changed: a handful of bases */
 	rules?: { [key in string]: Fact<BranchRules> } | null,
 	profiles?: Fact<PatronusStartOptions> | null,
+	/**  The readiness of the subjects that changed, and the subjects that went */
+	readiness?: { [key in string]: Fact<SubjectReadiness> },
+	removedReadiness?: string[],
 };
 
 /**
@@ -1848,6 +1857,12 @@ export type FactsView = {
 	 *  (the page's until the policy moves into Rust): `Unknown` until a start or its popover asks for them
 	 */
 	profiles: Fact<PatronusStartOptions>,
+	/**
+	 *  By subject (a branch, `stack:<root>`), the code-owner review a Safe Push would meet: `Loading` until its first
+	 *  answer, `Stale` while it is asked again for other inputs (another tip, start or reviews, Check Approvals Again),
+	 *  `Unavailable` when it can't be asked (Patronus not available, a read that failed); a subject nothing asked has none
+	 */
+	readiness: { [key in string]: Fact<SubjectReadiness> },
 };
 
 /**  A failed build of the dependency chain of a check (never a composite one) */
@@ -2767,7 +2782,12 @@ export type NewsEvent =
  *  (`needsReview`), or not; null when the session doesn't read its problems (a robot of no branch of the table) or
  *  Patronus didn't give them
  */
-{ kind: "robotFailed"; robotId: string; needsReview: boolean | null };
+{ kind: "robotFailed"; robotId: string; needsReview: boolean | null } | 
+/**
+ *  The approvals of a subject that waited for them arrived (`domain_policy::readiness::approval_news`): whose
+ *  approval counts now in the groups that waited (none named: the code owners), in the pull request of its start
+ */
+{ kind: "approvalsArrived"; subject: string; pullRequest: number; approvers: Person[]; groups: string[] };
 
 /**  What the limits of a failure left out */
 export type OmittedFailures = {
@@ -3443,6 +3463,8 @@ export type RefreshFactsParams = {
 	repositoryPath: string,
 	family: FactFamily,
 	reason: FactRefreshReason,
+	/**  The subject of a family read by subject: the readiness of a branch, `stack:<root>` of a whole stack */
+	subject?: string | null,
 };
 
 /**  A login GitHub didn't ask to review: the author, a user without access to the repository */
@@ -4590,6 +4612,17 @@ export type SubWindowOpen = {
 export type SubWindowUpdate = {
 	data: string,
 	open: SubWindowOpen,
+};
+
+/**
+ *  The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the
+ *  reviews of the pull request of the start (`ask.branch_name` is the subject)
+ */
+export type SubjectReadiness = {
+	ask: ReviewReadinessBranch,
+	/**  What Patronus answered; null when it didn't */
+	requirement: PatronusReviewRequirement | null,
+	readiness: ReviewReadiness,
 };
 
 export type SubmitPullRequestReviewParams = {

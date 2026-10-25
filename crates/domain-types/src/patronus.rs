@@ -526,7 +526,7 @@ pub enum UnavailableReadinessReason {
 }
 
 /// A branch whose review readiness the app asks, at the tip it shows
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewReadinessBranch {

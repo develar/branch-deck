@@ -1384,45 +1384,64 @@ fn rejected(rejection: Rejection) -> ApiError {
   }
 }
 
-/// The readiness of each branch as the app reads it (`remote_facts::review_readiness`, without the object cache, so every
-/// call asks): the fake Patronus answers the pre-check of a branch whose tip is the tip of a branch of
-/// `POST /repositories/{id}/review-answers`, else by the owners of its paths (`remote_fixtures::review_check_answer`).
-/// The page's calls are logged with their `recheck`, which only the page knows
+/// The readiness of each branch as the page asks it, the session's read (`readiness_of`)
 pub async fn get_branch_review_readiness(
   State(state): State<Arc<AppState>>,
   Json(params): Json<domain_types::patronus::GetBranchReviewReadinessParams>,
 ) -> CommandResult<Vec<domain_types::patronus::BranchReviewReadiness>> {
+  let prefix = branch_prefix_of(&state, &params.repository_path).await?;
+  let key = SessionKey {
+    worktree: params.repository_path,
+    prefix,
+  };
+  let readiness = readiness_of(&state, &key, params.baseline_branch, params.branches, params.recheck).await;
+  readiness.map(Json).map_err(|error| failed("read the code-owner review", error))
+}
+
+/// The readiness of `asks` as the session of a test repository reads it (`TestFactSources`), as the app reads it
+/// (`remote_facts::review_readiness`) but without the object cache, so every call asks: the fake Patronus answers the
+/// pre-check of a branch whose tip is the tip of a branch of `POST /repositories/{id}/review-answers`, else by the
+/// owners of its paths (`remote_fixtures::review_check_answer`). Each call is logged with its subjects and its
+/// `recheck` (`GET /repositories/{id}/review-answers`)
+pub(crate) async fn readiness_of(
+  state: &AppState,
+  key: &SessionKey,
+  baseline: String,
+  asks: Vec<domain_types::patronus::ReviewReadinessBranch>,
+  recheck: bool,
+) -> Result<Vec<domain_types::patronus::BranchReviewReadiness>, ApiError> {
   let operation = "read the code-owner review";
+  let _command = holding(state, key).await?;
   {
-    let repo = repository_by_path(&state, &params.repository_path)?;
-    let branches: Vec<&str> = params.branches.iter().map(|branch| branch.branch_name.as_str()).collect();
+    let repo = repository_by_path(state, &key.worktree).map_err(rejected)?;
+    let branches: Vec<&str> = asks.iter().map(|ask| ask.branch_name.as_str()).collect();
     repo
       .review_readiness_calls
       .lock()
       .expect("review readiness calls lock")
-      .push(serde_json::json!({"branches": branches, "recheck": params.recheck}));
+      .push(serde_json::json!({"branches": branches, "recheck": recheck}));
   }
-  let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
-  let (_, github) = github_of(&state, &params.repository_path, None).await?;
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let Json((inputs, params)) = {
-    let git_executor = state.git_executor.clone();
+  let (host, space) = required_space_of(state, &key.worktree, operation).map_err(rejected)?;
+  let (_, github) = github_of(state, &key.worktree, None).await.map_err(rejected)?;
+  let Json((inputs, asks)) = {
+    let (git_executor, key) = (state.git_executor.clone(), key.clone());
     run_command(operation, move || {
-      prepare_review_readiness(&git_executor, space, github, &branch_prefix, &params).map(|inputs| (inputs, params))
+      prepare_review_readiness(&git_executor, space, github, &key.prefix, &key.worktree, &baseline, &asks).map(|inputs| (inputs, asks))
     })
-    .await?
+    .await
+    .map_err(rejected)?
   };
   let readiness = branch_review_readiness(
     &state.git_executor,
-    &params.repository_path,
+    &key.worktree,
     &ObjectCache::disabled(),
     &host.patronus_service(),
     &inputs.repository(),
-    &params.branches,
-    params.recheck,
+    &asks,
+    recheck,
   )
   .await;
-  readiness.map(Json).map_err(|e| failed(operation, format!("{e:#}")))
+  readiness.map_err(|error| ApiError::new(ErrorCode::PatronusError, format!("{error:#}")))
 }
 
 /// Starts a Safe Push or a Dry Run from the pull request's comment, as the app does: the checks of a start of the

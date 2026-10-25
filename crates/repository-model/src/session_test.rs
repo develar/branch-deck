@@ -2,6 +2,7 @@ use crate::branch_table::BranchTable;
 use crate::facts::{FactResult, Needs, RobotsDigest, RobotsRead, derive_patronus};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::PullRequestWrite;
+use crate::readiness_facts::ReadinessAnswer;
 use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
 use crate::session::{IDLE_LIMIT, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
@@ -10,10 +11,12 @@ use crate::table::table_test::{branch_status, grouped, grouping, remote_at, sync
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit};
-use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult};
+use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState};
 use domain_types::repository_view::{LandingNeeds, PatronusView, RemoteFacts};
-use domain_types::session::{BranchStatus, Demand, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, ViewPatch};
+use domain_types::session::{
+  BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, ViewPatch,
+};
 use domain_types::stack::BlockReason;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -946,6 +949,7 @@ fn heard(events: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEvent>) -> Vec
       SessionEventKind::PushEnded { heads } => format!("pushed {:?}", heads.iter().map(|head| head.subject.name()).collect::<Vec<_>>()),
       SessionEventKind::PullRequestWritten => "pull request written".to_owned(),
       SessionEventKind::Robots(RobotsDigest { active, .. }) => format!("robots {:?}", active.iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>()),
+      SessionEventKind::Readiness(digest) => format!("readiness {:?}", digest.subjects.iter().map(|subject| subject.key.as_str()).collect::<Vec<_>>()),
       SessionEventKind::Refresh { .. } => "refresh".to_owned(),
     });
   }
@@ -1000,6 +1004,105 @@ async fn the_reads_of_the_facts_reach_the_windows_and_the_scheduler_hears_what_i
   assert_eq!(heard(&mut events), vec!["closed", "watched true"]);
   assert_eq!(sessions.apply_facts(&key, late, FactResult::Robots { read, result: listed }).await, None);
   assert!(snapshot(&sessions, &key).await.facts.robots.robots.is_empty());
+}
+
+/// The readiness: a subject a window needs is in the view at once (`Loading` until Patronus answers), the scheduler hears
+/// what to ask with the tip the row shows; its answer reaches the windows; a new tip makes it `Stale` in the patch that
+/// shows the tip, and Check Approvals Again makes it `Stale` at once and tells the scheduler to recheck it
+#[tokio::test]
+async fn the_readiness_a_window_needs_is_in_its_view_and_stale_in_the_patch_of_a_new_tip() {
+  let host = Arc::new(ScriptedHost::default());
+  host.push(auth_built(), Ok(report(false, &[])));
+  let (sessions, _clock) = scripted(&host);
+  let sessions = Arc::new(sessions);
+  let mut events = sessions.events().unwrap();
+  let key = key("/repo");
+  let window = Window::default();
+  let (id, _) = sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
+  sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
+  let ticket = sessions.begin(&key).await.unwrap();
+  let listed = PatronusRobotsResult::from(PatronusAvailability::Available);
+  sessions
+    .apply_facts(
+      &key,
+      ticket,
+      FactResult::Robots {
+        read: RobotsRead::List { full: true },
+        result: listed,
+      },
+    )
+    .await
+    .unwrap();
+  drop(heard(&mut events));
+
+  let needs = Demand {
+    needed: vec!["auth".to_owned()],
+    ..Demand::default()
+  };
+  sessions.set_demand(id, &needs);
+  assert_eq!(snapshot(&sessions, &key).await.facts.readiness["auth"].state, FactState::Loading);
+  assert_eq!(heard(&mut events), vec!["demand focused false", r#"readiness ["auth"]"#]);
+  let subject = sessions.readiness_digest(&key).await.subjects.remove(0);
+  assert_eq!((subject.ask.tip.as_str(), subject.recheck), ("copy-a1", false));
+
+  let ticket = sessions.begin(&key).await.unwrap();
+  let answer = ReadinessAnswer {
+    result: Ok(BranchReviewReadiness {
+      branch_name: "auth".to_owned(),
+      tip: "copy-a1".to_owned(),
+      requirement: None,
+      readiness: ReviewReadiness::NotRequired,
+    }),
+    subject,
+  };
+  sessions.apply_facts(&key, ticket, FactResult::Readiness(vec![answer])).await.unwrap();
+  let fact = snapshot(&sessions, &key).await.facts.readiness["auth"].clone();
+  assert_eq!(
+    (fact.state, fact.value.map(|value| value.readiness)),
+    (FactState::Fresh, Some(ReviewReadiness::NotRequired))
+  );
+
+  // the copy of a new sync moves the tip: the patch that shows it has the readiness stale
+  drop(window.take());
+  sessions
+    .apply(&key, |state| state.apply(synced("auth", "a1", CommitSyncStatus::Created)))
+    .version()
+    .await
+    .unwrap();
+  sessions
+    .apply(&key, |state| {
+      state.apply(SyncEvent::CommitSynced {
+        branch_name: "auth".to_owned(),
+        commit_hash: "a1".to_owned(),
+        new_hash: "copy-a1-new".to_owned(),
+        status: CommitSyncStatus::Created,
+        resolved: None,
+      });
+    })
+    .version()
+    .await
+    .unwrap();
+  let patch = window.take().pop().unwrap();
+  assert!(patch.changes.branches.contains_key("auth"));
+  assert_eq!(patch.changes.facts.unwrap().readiness["auth"].state, FactState::Stale { reason: None });
+  drop(heard(&mut events));
+
+  // Check Approvals Again: stale at once, the scheduler asks it with the recheck
+  let refresh = tokio::spawn({
+    let (sessions, key) = (Arc::clone(&sessions), key.clone());
+    async move { sessions.refresh(&key, FactFamily::Readiness, FactRefreshReason::Manual, Some("auth".to_owned())).await }
+  });
+  let mut told = Vec::new();
+  while told.len() < 2 {
+    told.push(events.recv().await.unwrap().kind);
+  }
+  assert!(matches!(&told[0], SessionEventKind::Readiness(digest) if digest.subjects[0].recheck));
+  let SessionEventKind::Refresh { subject, reply, .. } = told.remove(1) else {
+    panic!("{told:?}")
+  };
+  assert_eq!(subject.as_deref(), Some("auth"));
+  drop(reply);
+  assert_eq!(refresh.await.unwrap(), None);
 }
 
 /// The pull requests: a listing reaches the windows as a patch and tells the scheduler the bases whose rules it reads; a

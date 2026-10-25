@@ -44,10 +44,14 @@
 //! the bases of the approved ones (`rules`, read once each; a failure `Unavailable` until read again), and the merge
 //! profiles of the target of the baseline (`profiles`, of the baseline they were read for: `Stale` once the table has
 //! another, `Unknown` until a start or its popover asks for them).
+//!
+//! The review readiness (`readiness_facts::ReadinessFact`, the part `facts.readiness` by subject): the asks of the
+//! subjects from the view, set before every patch, so the patch that moves a tip carries the readiness `Stale`.
 
 use crate::branch_table::{BranchTable, remote_fact};
 use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
+use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::table::TableState;
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
@@ -175,6 +179,9 @@ impl<T> FactRecord<T> {
   /// The fact is of `inputs` now (a change of what it is computed from): a value of other inputs is `Stale` until an
   /// answer of these comes, and without a value it is `Loading` again
   pub fn expect(&mut self, inputs: u64) {
+    if inputs == self.expected {
+      return;
+    }
     self.expected = inputs;
     if self.fact.state == FactState::Unknown {
       return;
@@ -187,6 +194,25 @@ impl<T> FactRecord<T> {
     match self.fact.state {
       FactState::Fresh if !of_expected => self.fact.state = FactState::Stale { reason: None },
       FactState::Stale { reason: None } if of_expected => self.fact.state = FactState::Fresh,
+      _ => {}
+    }
+  }
+
+  /// A read the session can't make now (the service doesn't answer the repository): `Unavailable` with `reason`
+  /// without a value, the value kept `Stale` with it
+  pub fn fail(&mut self, reason: ApiError) {
+    self.fact.state = if self.fact.value.is_some() {
+      FactState::Stale { reason: Some(reason) }
+    } else {
+      FactState::Unavailable { reason }
+    };
+  }
+
+  /// The fact is read again after a failure: `Loading` without a value, the value `Stale` of being read
+  pub fn asked_again(&mut self) {
+    match self.fact.state {
+      FactState::Unavailable { .. } => self.fact.state = FactState::Loading,
+      FactState::Stale { reason: Some(_) } => self.fact.state = FactState::Stale { reason: None },
       _ => {}
     }
   }
@@ -261,6 +287,8 @@ pub enum FactResult {
     baseline: String,
     result: Result<PatronusStartOptions, ApiError>,
   },
+  /// The review readiness of subjects, each with the ask it answers
+  Readiness(Vec<ReadinessAnswer>),
 }
 
 /// What applying an answer left: the version of the view after its patch and what the scheduler asks about the robots
@@ -317,6 +345,8 @@ pub struct FactStore {
   pub rules: BTreeMap<String, FactRecord<BranchRules>>,
   /// The merge profiles of the target of the baseline, of the baseline they were read for (`baseline_inputs`)
   pub profiles: FactRecord<PatronusStartOptions>,
+  /// By subject, the review readiness a Safe Push would meet
+  pub readiness: ReadinessFact,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
   /// The number of the last news
@@ -336,6 +366,7 @@ impl FactStore {
       pull_requests: PullRequestsFact::default(),
       rules: BTreeMap::new(),
       profiles: FactRecord::unknown(),
+      readiness: ReadinessFact::default(),
       news: Vec::new(),
       last_news: 0,
       failures: BTreeSet::new(),
@@ -374,6 +405,17 @@ impl FactStore {
           ..observation
         };
         self.profiles.answer(observation, result) == Applied::Applied
+      }
+      FactResult::Readiness(answers) => {
+        let mut changed = false;
+        for answer in answers {
+          let (applied, news) = self.readiness.answer(observation, answer);
+          changed |= applied;
+          if let Some(news) = news {
+            self.tell(news);
+          }
+        }
+        changed
       }
     }
   }
@@ -660,14 +702,9 @@ pub fn robots_digest(table: &TableState, robots: &RobotsView, watched: &[String]
   let index = RobotIndex::new(&listed);
   let branches = table.order().iter().filter_map(|name| {
     let branch = table.branch(name)?;
-    let local = branch
-      .copies
-      .first()
-      .and_then(|copy| copy.hash.as_deref())
-      .or_else(|| branch.commits.first().map(|commit| commit.id.as_str()));
     Some(Tips {
       of: name,
-      local,
+      local: local_tip(branch),
       remote: branch.remote.status.as_ref().and_then(|status| status.remote_tip.as_deref()),
     })
   });

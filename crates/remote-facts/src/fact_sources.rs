@@ -3,11 +3,11 @@
 //! their services: the app over the Patronus service and the GitHub mirror of each repository it keeps (src-tauri,
 //! `AppFactSources`), the E2E server over the fakes of each test repository, counting the reads as its tests check them
 //! (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus, of
-//! GitHub for the pull requests); the reads of what the session asks about its robots, the rules of a base and the
-//! merge profiles answer their failure, which the facts keep.
+//! GitHub for the pull requests); the reads of what the session asks about its robots, the rules of a base, the
+//! merge profiles and the review readiness answer their failure, which the facts keep.
 
 use domain_types::error::ApiError;
-use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobotsResult, PatronusStartOptions};
+use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use repository_model::session::SessionKey;
 use std::future::Future;
@@ -41,4 +41,13 @@ pub trait FactSources: Send + Sync + 'static {
   /// The merge profiles of the target `baseline` pushes to, without the default of a last robot
   /// (`PatronusService::start_options`)
   fn profiles<'a>(&'a self, key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>>;
+
+  /// The code-owner review of `asks` at the tips they name, against `baseline` (`review_readiness::branch_review_readiness`):
+  /// the commits of all of them in one read, a pre-check of Patronus for each whose kept answer doesn't hold; `recheck`
+  /// asks Patronus again, never the kept answer, in the foreground. The answers in the order of `asks`
+  fn readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>>;
+
+  /// Of `asks`, in their order, the answers the object cache keeps that still hold (`review_readiness::kept_review_readiness`),
+  /// read without Patronus; `None` for each it doesn't answer
+  fn cached_readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>) -> Read<'a, Vec<Option<BranchReviewReadiness>>>;
 }

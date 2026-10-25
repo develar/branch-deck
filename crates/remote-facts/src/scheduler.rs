@@ -33,6 +33,11 @@
 //!   { branchRules, afterWrite }`) or by the refresh button;
 //! - the merge profiles of the target of the baseline, when a start or its popover asks (`refresh_facts { profiles }`)
 //!   and they are unknown, failed, a minute old or of another baseline (`profiles_due`).
+//!
+//! The review readiness (`scheduler_readiness.rs`): the subjects the session tells (`ReadinessDigest`: what a surface
+//! needs and Check Approvals Again at once, each in a call of its own; the shown ones, then the hidden ones that wait for
+//! approvals, at most four at a time after one read of the answers the object cache keeps), again five minutes after
+//! Patronus didn't answer.
 
 use crate::fact_sources::{FactSources, Read};
 use domain_policy::refresh::{
@@ -41,6 +46,7 @@ use domain_policy::refresh::{
 use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use github::{GitHubFamily, GitHubSchedule};
+use readiness::ReadinessSchedule;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, RobotsDigest, RobotsRead};
 use repository_model::runtime::sleep_until;
 use repository_model::session::{SessionEvent, SessionEventKind, SessionKey, Sessions};
@@ -127,6 +133,7 @@ impl Scheduler {
       table_committed: false,
       robots: RobotsSchedule::default(),
       github: GitHubSchedule::default(),
+      readiness: ReadinessSchedule::default(),
     };
     let span = tracing::info_span!("session_facts", worktree = %key.worktree, prefix = %key.prefix);
     span.in_scope(|| tokio::spawn(facts.run(messages).in_current_span()));
@@ -174,6 +181,8 @@ enum Input {
     failed: Option<bool>,
     version: Option<Version>,
   },
+  /// A call of the review readiness ended
+  Readiness(readiness::ReadinessEnded),
 }
 
 /// A read of what the session asks about its robots, one of each in flight
@@ -246,12 +255,13 @@ struct SessionFacts {
   table_committed: bool,
   robots: RobotsSchedule,
   github: GitHubSchedule,
+  readiness: ReadinessSchedule,
 }
 
 impl SessionFacts {
   async fn run(mut self, mut inbox: mpsc::UnboundedReceiver<Input>) {
     loop {
-      let timer = [self.robots.poll_at, self.github.timer()].into_iter().flatten().min();
+      let timer = [self.robots.poll_at, self.github.timer(), self.readiness.timer()].into_iter().flatten().min();
       let input = match timer {
         Some(at) => {
           let clock = Arc::clone(&self.scheduler.clock);
@@ -286,6 +296,9 @@ impl SessionFacts {
     if self.github.timer().is_some_and(|at| at <= now) {
       self.recheck_pull_requests();
     }
+    if self.readiness.timer().is_some_and(|at| at <= now) {
+      self.ask_readiness();
+    }
   }
 
   fn handle(&mut self, input: Input) {
@@ -305,6 +318,7 @@ impl SessionFacts {
       Input::PullRequests(listed) => self.pull_requests_listed(&listed),
       Input::Rules { branch, known, version } => self.rule_read(&branch, known, version),
       Input::Profiles { failed, version } => self.profiles_read(failed, version),
+      Input::Readiness(ended) => self.readiness_ended(ended),
     }
   }
 
@@ -322,6 +336,7 @@ impl SessionFacts {
           self.github_table_committed(None);
         }
         self.schedule_poll(false);
+        self.ask_readiness();
       }
       // the dispatcher drops the task of a closed session
       SessionEventKind::Closed => {}
@@ -340,7 +355,8 @@ impl SessionFacts {
         // a change of the table that matched a failed robot anew asks why it failed
         self.read_robot_facts(false);
       }
-      SessionEventKind::Refresh { family, reason, reply } => match family {
+      SessionEventKind::Readiness(digest) => self.readiness_told(digest),
+      SessionEventKind::Refresh { family, reason, subject, reply } => match family {
         FactFamily::Robots => {
           let reason = match reason {
             FactRefreshReason::Manual => RefreshReason::Manual,
@@ -356,6 +372,7 @@ impl SessionFacts {
         FactFamily::PullRequests => self.refresh_github(GitHubFamily::PullRequests, reason, reply),
         FactFamily::BranchRules => self.refresh_github(GitHubFamily::Rules, reason, reply),
         FactFamily::Profiles => self.refresh_github(GitHubFamily::Profiles, reason, reply),
+        FactFamily::Readiness => self.recheck_readiness(subject, reply),
       },
     }
   }
@@ -597,6 +614,8 @@ impl SessionFacts {
 
 #[path = "scheduler_github.rs"]
 mod github;
+#[path = "scheduler_readiness.rs"]
+mod readiness;
 
 #[cfg(test)]
 #[path = "scheduler_test.rs"]

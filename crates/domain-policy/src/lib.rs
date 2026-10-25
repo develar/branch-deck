@@ -4,6 +4,8 @@
 //! by tables of its own:
 //!
 //! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
+//! - `readiness`: the pull request a Safe Push would start from (`start_pull_request`), and when an answer of the review
+//!   readiness is the news that approvals arrived (`approval_news`)
 //! - `refresh`: when a fact of the remote is asked again: the cadence of the robots of Patronus (the list, the poll, the
 //!   failing robots, the problems, the details), of the merge profiles, of the pull requests and the branch rules of
 //!   GitHub, of the review readiness and of the review requests, by the reason that asks and the clock of the session
@@ -11,11 +13,14 @@
 //!   `match_table`)
 
 pub mod landing_needs;
+pub mod readiness;
 pub mod refresh;
 pub mod robot_match;
 
 #[cfg(test)]
 mod landing_needs_test;
+#[cfg(test)]
+mod readiness_test;
 #[cfg(test)]
 mod refresh_test;
 #[cfg(test)]

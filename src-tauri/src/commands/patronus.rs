@@ -13,19 +13,21 @@ use domain_types::landing::{LandingCheck, LandingGateParams};
 use domain_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
   PatronusCommandSubject, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  PostPatronusCommandParams, ReadPatronusCommandReplyParams, ReviewReadinessBranch, StartPatronusRobotParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
 use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
+use object_cache::cache::ObjectCache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
-use remote_facts::review_readiness::{branch_review_readiness, prepare_review_readiness};
+use remote_facts::review_readiness::{ReadinessInputs, branch_review_readiness, kept_review_readiness, prepare_review_readiness};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_model::actions::{NOT_ON_SPACE, RemoteActions};
+use repository_model::session::SessionKey;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
@@ -148,6 +150,63 @@ impl PatronusState {
       .start_options(&repository.project_key, &repository.name, &target, None, None)
       .await
       .map_err(patronus_error)
+  }
+
+  /// The code-owner review of `asks` against `baseline`, for the session of `key` (`AppFactSources`): one `git log`
+  /// for the commits of all, their paths from the object cache, then one pre-check per ask whose kept answer doesn't
+  /// hold (`remote_facts::review_readiness`); `recheck` asks Patronus again, in the foreground. The answers in the
+  /// order of `asks`
+  pub(crate) async fn readiness(
+    &self,
+    git: &GitCommandExecutor,
+    repository_state: &RepositoryStateCache,
+    key: &SessionKey,
+    baseline: &str,
+    asks: Vec<ReviewReadinessBranch>,
+    recheck: bool,
+  ) -> Result<Vec<BranchReviewReadiness>, ApiError> {
+    let (inputs, cache, asks) = self.readiness_inputs(git, repository_state, key, baseline, asks).await?;
+    branch_review_readiness(git, &key.worktree, &cache, &self.service, &inputs.repository(), &asks, recheck)
+      .await
+      .map_err(api_error)
+  }
+
+  /// Of `asks`, the answers the object cache keeps that still hold, without Patronus (`kept_review_readiness`); none when
+  /// the repository is not on Space or its inputs can't be read (the pre-check says why)
+  pub(crate) async fn kept_readiness(
+    &self,
+    git: &GitCommandExecutor,
+    repository_state: &RepositoryStateCache,
+    key: &SessionKey,
+    baseline: &str,
+    asks: Vec<ReviewReadinessBranch>,
+  ) -> Vec<Option<BranchReviewReadiness>> {
+    let count = asks.len();
+    match self.readiness_inputs(git, repository_state, key, baseline, asks).await {
+      Ok((inputs, cache, asks)) => kept_review_readiness(git, &key.worktree, &cache, &self.service, &inputs.repository(), &asks).await,
+      Err(_) => vec![None; count],
+    }
+  }
+
+  /// What the readiness of `asks` is read with: the Space and GitHub repositories, the target of the baseline, the
+  /// object cache of the repository
+  async fn readiness_inputs(
+    &self,
+    git: &GitCommandExecutor,
+    repository_state: &RepositoryStateCache,
+    key: &SessionKey,
+    baseline: &str,
+    asks: Vec<ReviewReadinessBranch>,
+  ) -> Result<(ReadinessInputs, ObjectCache, Vec<ReviewReadinessBranch>), ApiError> {
+    let space = self.required_space_repository(git, &key.worktree).await?;
+    let github = github_repository(git, repository_state, &key.worktree, None).await?;
+    let (git, repository_state, key, baseline) = (git.clone(), repository_state.clone(), key.clone(), baseline.to_owned());
+    run_blocking(move || {
+      let inputs = prepare_review_readiness(&git, space, github, &key.prefix, &key.worktree, &baseline, &asks)?;
+      let cache = repository_state.object_cache(&git, &key.worktree);
+      anyhow::Ok((inputs, cache, asks))
+    })
+    .await
   }
 }
 
@@ -470,11 +529,8 @@ pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, param
   operation(async move { patronus.service.robot_status(&params.robot_id).await.map_err(patronus_error) }).await
 }
 
-/// Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
-/// Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
-/// branches, their paths from the object cache, then one pre-check per branch whose kept answer doesn't hold
-/// (`remote_facts::review_readiness`), one after another; a failure of Patronus backs the others off. The answers are in
-/// the order of `params.branches`, each with its input.
+/// Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows: the
+/// session's read (`PatronusState::readiness`) under the prefix the commands resolve
 // `instrument` must come before `specta::specta`, which rejects the expressions of `fields`
 #[tauri::command]
 #[instrument(skip_all, fields(branches = params.branches.len(), recheck = params.recheck))]
@@ -488,30 +544,14 @@ pub async fn get_branch_review_readiness(
   params: GetBranchReviewReadinessParams,
 ) -> Result<Vec<BranchReviewReadiness>, ApiError> {
   operation(async move {
-    let prefix_inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let space = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
-    let github = github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-    let (inputs, cache, params) = {
-      let (git, repository_state) = ((*git_executor).clone(), (*repository_state).clone());
-      run_blocking(move || {
-        let branch_prefix = prefix_inputs.branch_prefix(&params.repository_path)?;
-        let inputs = prepare_review_readiness(&git, space, github, &branch_prefix, &params)?;
-        let cache = repository_state.object_cache(&git, &params.repository_path);
-        anyhow::Ok((inputs, cache, params))
-      })
-      .await?
+    let prefix = PrefixInputs::new(&git_executor, &settings, &prefixes).resolve(&params.repository_path).await?;
+    let key = SessionKey {
+      worktree: params.repository_path,
+      prefix,
     };
-    branch_review_readiness(
-      &git_executor,
-      &params.repository_path,
-      &cache,
-      &patronus.service,
-      &inputs.repository(),
-      &params.branches,
-      params.recheck,
-    )
-    .await
-    .map_err(api_error)
+    patronus
+      .readiness(&git_executor, &repository_state, &key, &params.baseline_branch, params.branches, params.recheck)
+      .await
   })
   .await
 }

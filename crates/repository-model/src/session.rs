@@ -18,6 +18,7 @@ use crate::branch_table::BranchTable;
 use crate::facts::{AppliedFacts, FactResult, FactTicket, Needs, RobotsDigest, TableFacts};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestWrite, PushedHead};
+use crate::readiness_facts::ReadinessDigest;
 use crate::runtime::{Message, spawn_actor};
 use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
@@ -80,11 +81,14 @@ pub enum SessionEventKind {
   PullRequestWritten,
   /// The robots the poll asks about changed (`facts::robots_digest`)
   Robots(RobotsDigest),
-  /// A window asks to read a fact again (`refresh`); `reply` gets the version of the view after the patch of that read,
-  /// `None` when nothing was asked
+  /// The subjects whose review readiness is asked changed (`ReadinessFact::digest`)
+  Readiness(ReadinessDigest),
+  /// A window asks to read a fact again (`refresh`), of `subject` for a family read by subject; `reply` gets the version
+  /// of the view after the patch of that read, `None` when nothing was asked
   Refresh {
     family: FactFamily,
     reason: FactRefreshReason,
+    subject: Option<String>,
     reply: oneshot::Sender<Option<Version>>,
   },
 }
@@ -362,15 +366,24 @@ impl Sessions {
     }
   }
 
-  /// A window of the open session of `key` asks to read a fact again; answers the version of the view after the patch
-  /// of that read once it is applied, `None` when nothing was asked (the rules held it back, the session is not open,
-  /// nothing takes the events)
-  pub async fn refresh(&self, key: &SessionKey, family: FactFamily, reason: FactRefreshReason) -> Option<Version> {
+  /// A window of the open session of `key` asks to read a fact again, of `subject` for a family read by subject;
+  /// answers the version of the view after the patch of that read once it is applied, `None` when nothing was asked
+  /// (the rules held it back, the session is not open, nothing takes the events). Check Approvals Again (the readiness
+  /// of a subject, `Manual`) goes through the session, whose readiness of it is `Stale` at once
+  pub async fn refresh(&self, key: &SessionKey, family: FactFamily, reason: FactRefreshReason, subject: Option<String>) -> Option<Version> {
     if !self.is_open(key) || !self.events.is_taken() {
       return None;
     }
     let (reply, version) = oneshot::channel();
-    self.events.emit(key, SessionEventKind::Refresh { family, reason, reply });
+    match (family, reason, subject) {
+      (FactFamily::Readiness, FactRefreshReason::Manual, Some(subject)) => {
+        let sent = self.lock().get(key).is_some_and(|entry| entry.mailbox.send(Message::Recheck { subject, reply }).is_ok());
+        if !sent {
+          return None;
+        }
+      }
+      (family, reason, subject) => self.events.emit(key, SessionEventKind::Refresh { family, reason, subject, reply }),
+    }
     version.await.ok().flatten()
   }
 
@@ -435,6 +448,12 @@ impl Sessions {
   #[cfg(test)]
   pub(crate) async fn demand(&self, key: &SessionKey) -> Option<Demand> {
     self.ask(key, Message::DemandOf).await
+  }
+
+  /// What the scheduler asks the readiness of now, of an open session
+  #[cfg(test)]
+  pub(crate) async fn readiness_digest(&self, key: &SessionKey) -> ReadinessDigest {
+    self.ask(key, Message::ReadinessDigestOf).await.unwrap_or_default()
   }
 
   /// Asks the session of `key` for a sync, opening it; the ticket resolves when the run that serves the request ends

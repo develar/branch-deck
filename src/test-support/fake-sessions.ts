@@ -57,6 +57,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
       pullRequests: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, pullRequests: {}, stackPullRequests: {} },
       rules: {},
       profiles: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 },
+      readiness: {},
     },
     news: [],
   }

@@ -54,6 +54,9 @@ export function watchFailingRobots(): () => void {
 export function tellRobotNews(repositoryPath: string, news: readonly News[]): void {
   const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
   for (const { event } of news) {
+    if (event.kind === "approvalsArrived") {
+      continue
+    }
     const repository = patronusStore.getState().repositories[key]
     const robot = repository?.robots[event.robotId]
     if (robot === undefined) {

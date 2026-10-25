@@ -19,7 +19,7 @@ use crate::conflict::WordResolutionSummary;
 use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
-use crate::patronus::{PatronusAvailability, PatronusRobot, PatronusStartOptions};
+use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability};
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, StackPatronus};
 use crate::stack::{BranchStack, StackBranchUpdate};
@@ -111,12 +111,14 @@ pub struct Demand {
   pub focused: bool,
   /// The machine is online (`navigator.onLine`): offline, no poll asks
   pub online: bool,
-  /// The branches whose rows the window shows
+  /// The branches whose rows the window shows with a step that waits for the review readiness (the page's rule of a
+  /// step until the next step is decided in Rust)
   pub visible_branches: Vec<String>,
-  /// The whole stacks whose islands the window shows, by root
+  /// The whole stacks whose island headers the window shows with such a step, by root
   pub visible_stacks: Vec<String>,
-  /// The branches a surface needs a fact of now, asked before the shown ones (the Safe Push popover, the "Create pull
-  /// request" dialog)
+  /// The subjects a surface needs a fact of now, asked at once beside whatever is in flight (the Safe Push popover and
+  /// its click, the "Create pull request" dialog): a branch by name, the whole stack of a root as `stack:<root>`
+  /// (`stack_readiness_key`)
   pub needed: Vec<String>,
   /// The branches whose preview the window shows
   pub previewed: Vec<String>,
@@ -155,6 +157,9 @@ pub enum FactFamily {
   /// The merge profiles of the target of the baseline (`FactsView::profiles`), asked when unknown, after a failure and
   /// a minute after the last read
   Profiles,
+  /// The review readiness of a subject (`FactsView::readiness`): Check Approvals Again (`Manual` with the subject) asks
+  /// Patronus again instead of the kept answer; the answer is the version after its patch
+  Readiness,
 }
 
 /// Why a window asks a fact again
@@ -179,6 +184,25 @@ pub struct RefreshFactsParams {
   pub repository_path: String,
   pub family: FactFamily,
   pub reason: FactRefreshReason,
+  /// The subject of a family read by subject: the readiness of a branch, `stack:<root>` of a whole stack
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub subject: Option<String>,
+}
+
+/// What the readiness key of a whole stack starts with: `stack:<root>` (a ref name has no `:`, so no branch is one)
+pub const STACK_READINESS_PREFIX: &str = "stack:";
+
+/// The readiness key of the whole stack of `root` (`stackReadinessKey` of the page)
+#[must_use]
+pub fn stack_readiness_key(root: &str) -> String {
+  format!("{STACK_READINESS_PREFIX}{root}")
+}
+
+/// The root of the readiness key of a whole stack; `None` for a branch's
+#[must_use]
+pub fn stack_root_of_readiness_key(key: &str) -> Option<&str> {
+  key.strip_prefix(STACK_READINESS_PREFIX)
 }
 
 /// Why a session syncs (`repository_model::sync_scheduler` decides what runs)
@@ -345,6 +369,22 @@ pub struct FactsView {
   /// The merge profiles of the target the baseline pushes to (`targetBranch`), without the default of the last robot
   /// (the page's until the policy moves into Rust): `Unknown` until a start or its popover asks for them
   pub profiles: Fact<PatronusStartOptions>,
+  /// By subject (a branch, `stack:<root>`), the code-owner review a Safe Push would meet: `Loading` until its first
+  /// answer, `Stale` while it is asked again for other inputs (another tip, start or reviews, Check Approvals Again),
+  /// `Unavailable` when it can't be asked (Patronus not available, a read that failed); a subject nothing asked has none
+  pub readiness: BTreeMap<String, Fact<SubjectReadiness>>,
+}
+
+/// The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the
+/// reviews of the pull request of the start (`ask.branch_name` is the subject)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct SubjectReadiness {
+  pub ask: ReviewReadinessBranch,
+  /// What Patronus answered; null when it didn't
+  pub requirement: Option<PatronusReviewRequirement>,
+  pub readiness: ReviewReadiness,
 }
 
 /// The GitHub pull requests of the virtual branches and the whole stacks, as the session listed them and the app's
@@ -410,6 +450,15 @@ pub enum NewsEvent {
     robot_id: String,
     #[serde(rename = "needsReview")]
     needs_review: Option<bool>,
+  },
+  /// The approvals of a subject that waited for them arrived (`domain_policy::readiness::approval_news`): whose
+  /// approval counts now in the groups that waited (none named: the code owners), in the pull request of its start
+  ApprovalsArrived {
+    subject: String,
+    #[serde(rename = "pullRequest")]
+    pull_request: u32,
+    approvers: Vec<Person>,
+    groups: Vec<String>,
   },
 }
 
@@ -739,6 +788,13 @@ pub struct FactsChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub profiles: Option<Fact<PatronusStartOptions>>,
+  /// The readiness of the subjects that changed, and the subjects that went
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub readiness: BTreeMap<String, Fact<SubjectReadiness>>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_readiness: Vec<String>,
 }
 
 /// What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went

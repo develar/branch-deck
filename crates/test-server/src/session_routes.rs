@@ -16,7 +16,7 @@ use crate::state::AppState;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
   CommandResult, Rejection, branch_prefix_now, branch_prefix_of, branch_rules_of, failed, failing_robots, list_pull_requests_of, list_robots, poll_robots, profiles_of,
-  repository_by_path, robot_problems,
+  readiness_of, repository_by_path, robot_problems,
 };
 use app_api::api_error::{api_error, no_branch_prefix};
 use axum::Json;
@@ -24,7 +24,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotsResult, PatronusStartOptions};
+use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use domain_types::{ProgressReporter, RemoteStatusUpdate};
@@ -181,6 +181,18 @@ impl FactSources for TestFactSources {
       let state = self.state.upgrade().ok_or_else(stopped)?;
       profiles_of(&state, key, baseline).await
     })
+  }
+
+  fn readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>> {
+    Box::pin(async move {
+      let state = self.state.upgrade().ok_or_else(stopped)?;
+      readiness_of(&state, key, baseline, asks, recheck).await
+    })
+  }
+
+  /// The test server keeps no answer (no object cache): every readiness is asked
+  fn cached_readiness<'a>(&'a self, _key: &'a SessionKey, _baseline: String, asks: Vec<ReviewReadinessBranch>) -> Read<'a, Vec<Option<BranchReviewReadiness>>> {
+    Box::pin(async move { vec![None; asks.len()] })
   }
 }
 
@@ -348,5 +360,5 @@ pub async fn pushed_in_page(State(state): State<Arc<AppState>>, Json(request): J
 /// of that read, null when nothing was asked
 pub async fn refresh_facts(State(state): State<Arc<AppState>>, Json(params): Json<RefreshFactsParams>) -> CommandResult<Option<Version>> {
   let key = session_key(&state, &params.repository_path).await?;
-  Ok(Json(state.sessions.refresh(&key, params.family, params.reason).await))
+  Ok(Json(state.sessions.refresh(&key, params.family, params.reason, params.subject).await))
 }
