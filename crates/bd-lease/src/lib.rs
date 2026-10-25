@@ -7,6 +7,8 @@ pub mod lease_command;
 pub mod workspace_command;
 
 #[cfg(test)]
+mod clones_lock_test;
+#[cfg(test)]
 mod lease_clean_test;
 #[cfg(test)]
 mod lease_test;

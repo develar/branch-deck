@@ -53,7 +53,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
   (`git_ops::revs::short_id`). When two ids of one output share that prefix, all ids in it get longer.
 - `--no-cache` neither reads nor writes the object cache (see below).
-- `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr stays empty. Each line starts
+- `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr has only the progress lines of
+  the commands that take minutes (the trials of `bd check --fix`, the steps of `bd lease get`). Each line starts
   with the root span of the run, `operation{op=status operation_id=01K…}` (a ULID, `sync_utils::operation_id`), also
   the lines of the threads a sync builds its branches on, so the lines of two runs that interleave stay apart.
 - Git comes from `BD_GIT`, else `git` on `PATH`, else Homebrew's git on macOS. It must be 2.54 or newer. Unlike the
@@ -838,6 +839,21 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   whose holder process is gone. The pool is `~/.branch-deck/pool/<name>-<hash>`, or
   `git config branchdeck.leasePool <dir>`. The ignored files `.worktreeinclude` names are copied in (`seeded`).
   `free_bytes` is the free space before the get.
+- A pool adds one slot at a time (`clones.lock` beside the state): a get that must add a slot while another adds one
+  waits, and a slot a return frees meanwhile is leased instead (`reused: true`); the free space is checked again once
+  its turn comes. `waited_for_clone_ms` says how long it waited (omitted when it waited for none). The wait lasts
+  while the holder lives; a killed holder frees the lock. Each step goes to stderr as it starts, the wait with its
+  holder:
+
+  ```
+  bd lease get: reserving a free slot
+  bd lease get: no free slot; waiting for `bd lease get --holder lane-3` (pid 4242, for 35 s), which adds /Users/me/.branch-deck/pool/idea-1-3f2a9c01/8/idea-1 for lane-3: the pool adds one slot at a time, and a slot freed meanwhile is leased instead
+  bd lease get: reserving a slot freed meanwhile, else a new one
+  bd lease get: cloning /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 into /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  bd lease get: refreshing the index of /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  bd lease get: checking out 3f2a9c01 in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  bd lease get: looking for local changes in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  ```
 - `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
   or the current directory, or, with `--lease-id` and no `--workspace`, the slot of that lease from any checkout of the
   repository: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at

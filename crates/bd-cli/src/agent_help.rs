@@ -360,9 +360,11 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, and `lease_id`; work and commit
    only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
    none free the pool adds one (`created_by`: `clone`, an APFS clone on macOS without what the `delete` clean rules
-   delete, or `checkout`). --branch <name> (-b) creates a branch there. `skipped` names free slots with
-   local changes (`dirty`) or processes in them (`busy`); the get stops the Bazel servers of a free slot itself
-   (`stopped_servers`). `seeded`: ignored local files that `.worktreeinclude` names, copied from the shared checkout.
+   delete, or `checkout`), one at a time: a get waits while another adds a slot, says whom it waits for on stderr,
+   and takes a slot freed meanwhile (`waited_for_clone_ms`). --branch <name> (-b) creates a branch there. `skipped`
+   names free slots with local changes (`dirty`) or processes in them (`busy`); the get stops the Bazel servers of a
+   free slot itself (`stopped_servers`). `seeded`: ignored local files that `.worktreeinclude` names, copied from the
+   shared checkout.
    `low_disk_space` (exit 4): the volume of the pool has less free space than `branchdeck.leaseMinFree` asks; tell the
    user, never pass --min-free 0 on your own. `idle_leases`: leases whose holder process is gone; the user decides.
 

@@ -12,13 +12,14 @@ use git_ops::revs::{RepositoryDirs, repository_dirs};
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::free_space::available_bytes;
 use lease_pool::lease::{
-  Adopted, BusyProcess, CreatedBy, IdleLease, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, Pool, SkipReason, SlotState,
-  StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
+  Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, Pool, SkipReason,
+  SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age, parse_size};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_utils::list_cut::kept;
@@ -202,7 +203,8 @@ pub struct LeaseGetOutput {
   /// The Bazel servers of the free slot that exited on the get's SIGTERM; their output bases stay on disk
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stopped_servers: Vec<StoppedServerOutput>,
-  /// The free bytes of the volume of the pool before the get; omitted where bd can't tell (Windows)
+  /// The free bytes of the volume of the pool before the get, for a new slot measured again once no other get added
+  /// one; omitted where bd can't tell (Windows)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub free_bytes: Option<u64>,
   /// With a new slot: the leases whose holder process is gone, which keep their slots from the pool; the user decides
@@ -211,6 +213,10 @@ pub struct LeaseGetOutput {
   pub idle_leases: Vec<IdleLeaseOutput>,
   /// Whether the processes were checked; false where bd can't see them (Windows)
   pub processes_checked: bool,
+  /// How long the get waited for other gets that added slots (the pool adds one at a time); omitted when it waited for
+  /// none
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub waited_for_clone_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -288,7 +294,16 @@ fn stopped_output(servers: &[StoppedServer]) -> Vec<StoppedServerOutput> {
     .collect()
 }
 
+/// `bd lease get`, each step on stderr as it starts: the JSON goes to stdout at the end, and whoever waits for a get of
+/// minutes (a clone, the wait for another get that adds a slot) sees where it is
 pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &LeaseGetArgs) -> Result<LeaseGetOutput, CliError> {
+  lease_get_reporting(context, environment, args, &|step| {
+    let _ = writeln!(std::io::stderr().lock(), "bd lease get: {step}");
+  })
+}
+
+/// `bd lease get`, each step told to `progress` as it starts
+pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, args: &LeaseGetArgs, progress: &dyn Fn(GetStep)) -> Result<LeaseGetOutput, CliError> {
   let min_free = match &args.min_free {
     Some(size) => Some(parse_size(size).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("--min-free: {error:#}")))?),
     None => None,
@@ -301,6 +316,7 @@ pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &Lease
     min_free,
     server_timeout: context.server_stop_timeout,
     lock_timeout: context.lock_timeout,
+    progress: Some(progress),
   };
   let got = lease_get_core(&context.git, &params).map_err(lease_error)?;
   let lease = got
@@ -348,6 +364,7 @@ pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &Lease
     free_bytes: got.free_bytes,
     idle_leases: idle_output(&got.idle),
     processes_checked: got.process_scan,
+    waited_for_clone_ms: got.waited_for_clone.map(|waited| u64::try_from(waited.as_millis()).unwrap_or(u64::MAX)),
   })
 }
 

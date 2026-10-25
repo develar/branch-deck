@@ -1405,8 +1405,33 @@ the pool lock: a git under load held it for seconds against every get and return
 its 10 s. A `worktree` command of the user or of another tool beside a registration can still read it half written;
 git has no lock for it.
 
+A pool adds one slot at a time, under `clones.lock` beside the state (`Pool::lock_clones`). On 2026-10-24 the idea-1
+pool of the Mac Studio got 14 new slots in 45 minutes, 14 cold clones of the 1.4M-file checkout started together by
+the gets of a remote runner: several ran past the 1800 s deadline of their caller, and the disk stalled for 1.5 hours.
+One after the other, at 40 s each, they would have finished. Nothing limited the gets that clone, since the pool lock
+is never held across a git. A get that finds no free slot takes the clones lock and reserves again under it, so a slot
+that a return freed meanwhile wins over a new one; it holds the lock until its new slot is ready or given back (the
+clone or the registration, the checkout, the seed). A get that reuses a slot never takes it. The lock is beside the
+state, not in the pool directory: the reserve under it reads that state, and the directory is only config
+(`branchdeck.leasePool`). The wait is the one of the app's repository lock (`lock_file_while_held` of
+`history_rewrite::repository_lock`): it lasts while the record of the holder (`clones.lock.holder`, its command, pid,
+start time and since when) names a live process; a holder that is killed frees the file lock with its process, the
+system's release on every platform, and its record then names nobody; a lock no record names a live holder of
+refuses after the lock timeout (`locked`). The waiting get tells it as a step (`GetStep::WaitForClone`, on stderr for
+`bd lease get`) when the wait starts, when the holder or the slot it adds changes, and once a minute: the holder's
+command and pid, how long it holds the lock, and from the state the new slot it adds and the holder of its lease (its
+`preparing` lease of the same pid and start time, no worktree id yet). The output says how long it waited
+(`waited_for_clone_ms`). After a
+wait its turn may come minutes later, so it reads `branchdeck.leaseMinFree` again (one `config`) and scans the
+processes again; every get that adds a slot measures the free space again under the lock, so a queue never adds
+slots past the minimum. The locks of the pool are taken in one order, `clones.lock`, `leases.lock`, `worktrees.lock`:
+a get takes the other two under the clones lock, the move of an adopt the lock of the `worktree` commands under the
+pool lock, and nothing takes the clones lock under another; a return and a clean take only the pool lock, so neither
+waits for a clone.
+
 0. Free space: with `branchdeck.leaseMinFree` (or `--min-free`), a get whose pool volume has less free space
-   (`f_bavail` of one `statfs`, no git) refuses as `low_disk_space` before it reserves anything. The builds of a slot
+   (`f_bavail` of one `statfs`, no git) refuses as `low_disk_space` before it reserves anything, and a get that adds a
+   slot checks again under the clones lock (above). The builds of a slot
    write tens of gigabytes: in idea-1 a Bazel output base of 13 to 46 GB per slot (two with `community/`), next to
    `out/`. The minimum is the machine's, so it is git config (the global one on the user's Mac: `200G`), not
    `.branchdeck.toml`, which every developer of the repository shares; without it nothing is checked.
@@ -1430,7 +1455,8 @@ git has no lock for it.
    marked dirty and skipped, and the next one is reserved. A clean one gets `checkout --force --detach <source HEAD>`
    (or `-b <branch>`), which writes only the paths that differ. `--force` is safe after the clean status: on a
    case-insensitive file system `status` does not see a case-only rename, and a plain checkout then refuses.
-3. No free slot: a new slot at `<pool>/<n>/<repository name>`. The leaf keeps the name of the repository, which tools
+3. No free slot: the clones lock (above), the free space again and the reserve again, then a new slot at
+   `<pool>/<n>/<repository name>`. The leaf keeps the name of the repository, which tools
    derive identity from. On macOS it is an APFS clone of a template (below); elsewhere, or when the clone fails,
    `worktree add --force --no-checkout --detach <path> <source HEAD>` registers it (above), then `checkout --force
    --detach <source HEAD>` (or `-b <branch>`) without the lock writes every file, the only full checkout. The output

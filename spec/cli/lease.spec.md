@@ -42,7 +42,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   slot, never a full checkout and never a scan of the other slots.
 - A slot whose last commit a rewrite of master made unreachable is reused as any other free slot.
 - `bd lease status` answers from the state in milliseconds: no `git status` of any slot.
-- Concurrent gets never get the same slot, and never wait for each other's checkouts or for a `bd update`.
+- Concurrent gets never get the same slot and never wait for a `bd update`; a get that reuses a slot never waits for
+  another's checkout, and a pool adds one slot at a time, so a burst of gets never clones a large checkout many times
+  at once and a slot freed meanwhile wins over a new one.
 - A return never loses work silently: unlanded commits, local changes and a process of another session in the slot
   refuse it. Nothing that cannot hurt the slot refuses it: the session that returns it, git's background maintenance,
   the Bazel servers of the slot, which the return stops itself.
@@ -71,9 +73,12 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `low_disk_space` (exit 4), the message naming the free space and the minimum in GiB, the free slots and the leases
   whose holder process is gone. A size that does not parse is `invalid_arguments`. The minimum is the machine's, so it
   is git config, never `.branchdeck.toml`. A successful get prints `free_bytes`; where the system does not tell it
-  (Windows) nothing is checked.
+  (Windows) nothing is checked. A get that adds a slot must check again under the clones lock (below), before its
+  reserve there, so a queue of gets never adds slots past the minimum: a get that waited for the lock reads
+  `branchdeck.leaseMinFree` again, and refuses with nothing reserved.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_refuses_and_names_it`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_size_is_a_number_and_a_binary_unit`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it`)
 - A free slot must be a linked worktree of the same git common dir whose directory exists, and no process of another
   session may work in it; a busy free slot is skipped (`skipped`, `reason: "busy"`, `processes` [{`pid`, `command`,
   `argv`, `kind`, `workspace`?}]). The source may itself be a leased slot.
@@ -138,12 +143,34 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - Two gets at the same time must never lease the same slot: each records its lease as `preparing` under the pool lock
   (`leases.lock`, not the repository lock), then moves its slot without the lock.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
+- A pool must add one slot at a time: a get that finds no free slot takes the clones lock (`clones.lock` beside the
+  state, an exclusive file lock), reserves again under it, so that a slot a return freed meanwhile wins over a new one
+  (`reused: true`), and holds it until its new slot is ready or given back: the clone of a template or of the source,
+  or the registration and the full checkout, and the seed. On 2026-10-24 fourteen gets cloned the idea-1 checkout at
+  once, several ran past the deadline of their caller, and the disk stalled for 1.5 h. A get that reuses a slot never
+  takes the lock. A get that waits must say so on stderr when the wait starts, when the holder or the slot it adds
+  changes and once a minute, naming the holder's command, pid and how long it holds the lock, and the new slot and
+  the holder of its lease once it reserved one, and must print how long it waited (`waited_for_clone_ms`, omitted when
+  it waited for none). The wait lasts while the record of the holder (`clones.lock.holder`, as the repository lock
+  writes it) names a live process: a holder that is killed frees the lock with its process, on every platform; a lock
+  no record names a live holder of is `locked` after the lock timeout. The order of the locks is `clones.lock`,
+  `leases.lock`, `worktrees.lock`; a return and a clean never take the clones lock.
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_slot_freed_while_a_get_waits_for_the_clones_lock_wins_over_a_new_one`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_killed_holder_frees_the_clones_lock_with_its_process`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
+- A get must print each step on stderr as it starts (`bd lease get: <step>`): the reserve of a free slot, under the
+  clones lock the reserve of a slot freed meanwhile or a new one, the wait for the clones lock, the stop of the Bazel
+  servers, the `status` of a slot, the clone of a template, the refresh of its index, the checkout and the seed; the
+  JSON goes to stdout at the end. The core tells the same steps to its caller (`LeaseGetParams::progress`).
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`the_steps_of_a_get_arrive_in_order`)
 - The `worktree` commands of the pool (the registration of a new slot, its unlock, the move of an adopt) must run one
   at a time, under `worktrees.lock` beside the state; a registration and an unlock without the pool lock, which no
   git holds for a get: git writes the admin directory of a new worktree in several files, and a `worktree` command
   beside it reads them half written (an empty `commondir`) and fails. A new slot is registered with
-  `worktree add --no-checkout` and gets its files after the lock, by a checkout or a clone; a get that can't wait for
-  the lock is `locked`.
+  `worktree add --no-checkout` and gets its files after the lock, by a checkout or a clone; the move of an adopt that
+  can't wait for the lock is refused, naming it. Two gets never register beside each other: the clones lock comes
+  first.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`, `no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot`)
 - A get must run no `worktree prune`: run beside the `worktree add` of another get, it deletes the admin directory that
   add has just made, before git locks it, and that get fails. A new slot is registered with `worktree add --force`,
@@ -347,11 +374,12 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 | Exit | Codes |
 |---|---|
 | 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
-| 3 | `locked` (the pool lock, retryable) |
+| 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
 | 4 | `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits) |
 
 - The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 - The slot writes (`checkout` twice, `reset`, `clean` twice) must stay in `crates/git-ops/src/lease_slot.rs`, with their
@@ -361,8 +389,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 ## Testing / Local Run
 
 - `cargo nextest run -p bd-lease lease_test` runs the commands end to end on `TestRepo` fixtures, the pool in a
-  temporary home directory; `cargo nextest run -p lease-pool lease_test` runs the seed patterns and
-  `cargo nextest run -p sync-utils process_scan_test` the process scan.
+  temporary home directory, `cargo nextest run -p bd-lease clones_lock_test` the gets beside a get that adds a slot
+  (one held at its registration by a wrapped git, one holder a child process that the test kills);
+  `cargo nextest run -p lease-pool lease_test` runs the seed patterns and `cargo nextest run -p sync-utils
+  process_scan_test` the process scan.
 
 ## Open Questions / Risks
 
@@ -376,6 +406,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   for this reason; the source checkout, where the user and the IDE write, is the last one.
 
 - On Windows the scan of the processes is not available: a slot with a shell in it can be leased.
+- The clones lock is per pool: two repositories whose pools share a volume clone at the same time, and the minimum
+  free space of one does not count the clone of the other until it is done.
+- A get that waits behind a queue of clones can still run past the deadline of its caller; the queue makes the clones
+  finish one after the other instead of all failing together, and a freed slot ends the wait of the next get.
 - A seeded path that a later commit tracks is removed by the return, and the slot shows a deletion; the next get skips
   it as dirty.
 - A free slot left dirty stays in the pool, and each get that needs it pays one `status` of it.

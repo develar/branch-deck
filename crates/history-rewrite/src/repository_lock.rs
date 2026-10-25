@@ -174,7 +174,12 @@ pub fn lock_repository_in(git_common_dir: &Path, timeout: Duration, on_wait: &dy
 /// bounded wait (`lock_repository_in`)
 #[instrument(skip(on_holder, canceled))]
 pub fn lock_repository_while_held(git_common_dir: &Path, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
-  let path = git_common_dir.join(LOCK_FILE_NAME);
+  lock_file_while_held(git_common_dir.join(LOCK_FILE_NAME), unknown_timeout, on_holder, canceled)
+}
+
+/// `lock_repository_while_held` of the lock file `path`, created when missing: the lease pool's `clones.lock`, which a
+/// get that adds a slot holds for the whole clone
+pub fn lock_file_while_held(path: PathBuf, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
   let file = open_lock_file(&path)?;
   let started = Instant::now();
   let mut known = Instant::now();

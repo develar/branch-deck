@@ -9,7 +9,7 @@ use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
 use clap::Parser;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
-use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
+use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_get_reporting, lease_return};
 use bd_lease::workspace_command::workspace_with;
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
@@ -27,6 +27,7 @@ use bd_rewrite::rewrite::{GroupArgs, RewriteArgs, group};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use lease_pool::lease::{GetStep, Pool, canonical_path};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
@@ -611,6 +612,50 @@ fn a_lease_get_of_a_new_slot_by_a_clone() {
       ("worktree", 2),
     ],
   );
+}
+
+/// `bd lease get` of a new slot that waited for the clones lock, which the test held: the processes of a new slot (on
+/// macOS a clone, elsewhere the registration and the full checkout) and one `config` more, the minimum free space read
+/// again once its turn came
+#[test]
+fn a_lease_get_that_waited_for_the_clones_lock() {
+  let repo = repo_with_branches();
+  let (_home, environment) = lease_environment(&repo);
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let pool = Pool::new(std::path::Path::new(&canonical_path(std::path::Path::new(&context.dirs.git_common_dir))));
+  let waiting = std::sync::atomic::AtomicBool::new(false);
+  let got = std::thread::scope(|scope| {
+    let held = pool.lock_clones(std::time::Duration::from_secs(10), &mut |_| {}).unwrap();
+    let get = scope.spawn(|| {
+      lease_get_reporting(&context, &environment, &LeaseGetArgs::default(), &|step| {
+        if matches!(step, GetStep::WaitForClone(_)) {
+          waiting.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+      })
+    });
+    while !waiting.load(std::sync::atomic::Ordering::Relaxed) && !get.is_finished() {
+      std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    drop(held);
+    get.join().unwrap().unwrap()
+  });
+  assert!(got.waited_for_clone_ms.is_some(), "{got:?}");
+  if cfg!(target_os = "macos") {
+    assert_git_processes(
+      &context.git,
+      &[
+        ("checkout", 1),
+        ("clean", 1),
+        ("config", 2),
+        ("rev-parse", 2),
+        ("status", 1),
+        ("update-index", 1),
+        ("worktree", 2),
+      ],
+    );
+  } else {
+    assert_git_processes(&context.git, &[("checkout", 1), ("config", 2), ("rev-parse", 2), ("worktree", 1)]);
+  }
 }
 
 /// `bd pick --dry-run` of a commit whose prefix names a branch the target has, a fast-forward: the check without a
