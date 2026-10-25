@@ -83,6 +83,12 @@ in the session wins over both.
   subject branch, `(branch) ` first, a branch of `bd status --brief` reused where it fits, `(parent/leaf)` for a new
   stack; never change either rule.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_description_starts_with_the_first_edit_and_fits_the_limit`)
+- The skill must carry the isolation rules a repository would otherwise repeat in its own agent instructions: a lease is
+  the agent's only worktree, never a `git worktree add` or a clone on its own initiative, also not when a bd command
+  fails (then it works where it is when that is safe, or asks, and names a lease that survived); in a sandbox (Codex) it
+  asks for write access to exactly the lease's `path` (`request_permissions`) before the first edit there, and returns
+  the untouched lease when that is refused. A repository's instructions then say only that it relies on the skill.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 - `bd help worktrees` must lease the worktree only when `bd workspace` says `lease.on`, and write the prefix only when it
   says `subject_branch.on`.

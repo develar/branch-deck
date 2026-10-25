@@ -497,6 +497,11 @@ wins over it:
   the subject as the repository does, without a prefix.
 - Both are the user's settings (Settings → Agents of the app, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`):
   never change them.
+- A lease is the only worktree of your own: never `git worktree add` or a clone for it on your own initiative, also not
+  when a bd command fails. Then work where you are when that is safe, or ask the user, and name a lease that survived
+  (`path`, `lease_id`, `holder`).
+- In a sandbox (Codex) a change of directory does not make `path` writable: before the first edit there, ask for write
+  access to exactly `path` (`request_permissions`), never the pool or full access. Refused, return the untouched lease.
 
 To group or push commits or to start a Safe Push, run `bd help agent` first and follow the workflow it prints: it is the
 contract of the installed version. To update a branch or resolve its update conflicts, run `bd help update` instead.

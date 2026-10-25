@@ -260,3 +260,12 @@ fn the_skill_description_starts_with_the_first_edit_and_fits_the_limit() {
   );
   assert!(description.chars().count() <= 1024, "{} characters", description.chars().count());
 }
+
+/// A repository needs no instructions of its own for the isolation: the skill says that a lease is the only worktree
+/// of the agent's own, also when bd fails, and how a sandbox writes the lease
+#[test]
+fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() {
+  let skill = skill_text("bd");
+  assert!(skill.contains("never `git worktree add` or a clone for it on your own initiative, also not\n  when a bd command fails"));
+  assert!(skill.contains("ask for write\n  access to exactly `path` (`request_permissions`), never the pool or full access. Refused, return the untouched lease."));
+}
