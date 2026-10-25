@@ -251,17 +251,19 @@ impl ReviewFetch<'_> {
     if !self.base_present {
       args.push(&base_refspec);
     }
-    let output = execute_remote_command_with_progress_until(self.git, &args, &self.params.repository_path, &[], self.on_progress, self.stop).map_err(|e| {
-      if e.is::<StoppedCommand>() {
-        return e;
-      }
-      let message = format!("{e:#}");
-      if source.is_github && asks_for_credentials(&message) {
-        return anyhow::Error::new(GitHubCredentials);
-      }
-      // the last line of git's stderr says why, the command line before it does not
-      anyhow!("{}: {}", source.remote, message.lines().last().unwrap_or_default().trim_start_matches("Error: "))
-    })?;
+    let output = execute_remote_command_with_progress_until(self.git, &args, &self.params.repository_path, &[], self.on_progress, self.stop)
+      .map_err(|e| {
+        if e.is::<StoppedCommand>() {
+          return e;
+        }
+        let message = format!("{e:#}");
+        if source.is_github && asks_for_credentials(&message) {
+          return anyhow::Error::new(GitHubCredentials);
+        }
+        // the last line of git's stderr says why, the command line before it does not
+        anyhow!("{}: {}", source.remote, message.lines().last().unwrap_or_default().trim_start_matches("Error: "))
+      })?
+      .into_text();
     if !self.base_present {
       self.base_tip = fetched_tip(&output, &base_ref);
       self.base_present = self.base_tip.as_ref().is_some_and(|tip| *tip == self.params.base_ref_oid);

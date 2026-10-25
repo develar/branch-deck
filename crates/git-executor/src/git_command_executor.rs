@@ -237,7 +237,7 @@ pub struct GitCommand<'a> {
   now: &'a dyn Fn() -> Instant,
 }
 
-/// What git printed and how it exited (`GitCommand::output`, `GitCommand::status`)
+/// What git printed and how it exited (`GitCommand::output`, `GitCommand::status`, `GitCommand::progress`)
 #[derive(Debug)]
 pub struct GitOutput {
   /// stdout untouched
@@ -336,12 +336,13 @@ impl<'a> GitCommand<'a> {
 
   /// For a git that reports progress on stderr (`fetch --progress`): `on_line` gets every stderr line as it arrives,
   /// on the calling thread (`read_progress_lines`), and git is killed when `stop` says so (the error is then a
-  /// `StoppedCommand`). Returns stdout as text, trimmed; the error of a failed command holds only the messages of
-  /// stderr, not the `\r` progress updates
-  pub fn progress(self, on_line: &mut dyn FnMut(&str), stop: &ProgressStop<'_>) -> Result<String> {
+  /// `StoppedCommand`). Returns stdout, the messages of stderr (its lines that end with `\n`, not the `\r` progress
+  /// updates) and the exit code, so an accepted exit code keeps what git said (`push` with a refused ref: the lines of
+  /// the remote); fails as `text`, its error holding the same messages
+  pub fn progress(self, on_line: &mut dyn FnMut(&str), stop: &ProgressStop<'_>) -> Result<GitOutput> {
     let finished = self.run(None, Some(on_line), stop)?;
     self.check(&finished)?;
-    Ok(trim_text(decode(finished.stdout)))
+    Ok(finished.into_output())
   }
 
   /// git with piped stdin, for a line protocol that waits for a reply before the next command

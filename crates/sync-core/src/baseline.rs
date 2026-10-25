@@ -136,7 +136,8 @@ pub fn fetch_baseline(git_executor: &GitCommandExecutor, repo_path: &str, upstre
       execute_remote_command_with_progress(git_executor, &args, repo_path, &[], on_progress)?
     }
     output => output?,
-  };
+  }
+  .into_text();
   Ok(previous_tip_of_forced_update(&output, &upstream.tracking_ref))
 }
 

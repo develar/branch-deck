@@ -1366,8 +1366,9 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   `{"name":"auth","remote":{"exists":true,"unpushed":1,"behind":1,"head":"7c8d9e0f","dropped_commits":[…]}}`.
   Show the `dropped_commits` to the user; only after the user
   approves, `bd push auth --force --expect-remote 7c8d9e0f`.
-- A push the remote refuses while every lease holds (a hook, a protected branch) is `push_refused` with what git
-  said; nothing was pushed. Tell the user: a retry doesn't help.
+- A push the remote refuses while every lease holds (a hook, a protected branch, a pack too large) is
+  `push_refused` with what git said of each ref and what the remote said why; nothing was pushed. Tell the user: a
+  retry doesn't help.
 - `pull_request.base` is the baseline without the remote (`master`), for every branch. `title` and `body` are the
   `bd describe` text, else the text of the commits: the issue key and its YouTrack summary as the title (the summary
   only when the link of `.idea/vcs.xml` is an issue page of the YouTrack you are signed in to), the issues linked, an

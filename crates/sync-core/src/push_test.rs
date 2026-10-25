@@ -5,6 +5,7 @@ use domain_types::RemoteStatusUpdate;
 use domain_types::stack::BlockReason;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
+use std::fmt::Write;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
 
@@ -319,6 +320,20 @@ fn a_branch_deleted_on_the_remote_is_shown_as_not_pushed() {
   assert_eq!(remote_tip(&remote), Some(first));
 }
 
+/// The error of a push of `feature` the remote refuses, leased on `first`
+fn refused_push(local: &TestRepo, first: &str) -> String {
+  let params = PushBranchParams {
+    repository_path: path(local).to_string(),
+    branch_name: "feature".to_string(),
+    my_email: None,
+    baseline_branch: "master".to_string(),
+    parent_branch: None,
+    expected_remote: Some(first.to_string()),
+    tip: None,
+  };
+  push_branch(local.git_executor(), &params, &HashMap::new(), &mut |_| {}).unwrap_err().to_string()
+}
+
 /// The lease held, but the remote refused the push (a hook, a protected branch): an error
 #[test]
 fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
@@ -328,17 +343,34 @@ fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
   let more = local.create_commit("(feature) More", "more.txt", "more");
   set_branch(&local, &more);
 
-  let params = PushBranchParams {
-    repository_path: path(&local).to_string(),
-    branch_name: "feature".to_string(),
-    my_email: None,
-    baseline_branch: "master".to_string(),
-    parent_branch: None,
-    expected_remote: Some(first.clone()),
-    tip: None,
-  };
-  let error = push_branch(local.git_executor(), &params, &HashMap::new(), &mut |_| {}).unwrap_err();
-  assert!(error.to_string().contains("The remote rejected the push"), "{error}");
+  let error = refused_push(&local, &first);
+  assert!(error.contains("The remote rejected the push"), "{error}");
+  assert!(error.contains("pre-receive hook declined"), "the report of the ref: {error}");
+  assert!(error.ends_with(". remote: protected branch"), "what the hook said, why: {error}");
+  assert_eq!(remote_tip(&remote), Some(first));
+}
+
+/// A pack larger than the remote takes fails its unpack: the report of each ref says only `unpacker error`, the error
+/// says why, as the remote and git said it, without git's progress lines
+#[test]
+fn a_push_the_remote_refuses_for_its_size_says_why() {
+  let (remote, local) = local_with_bare_remote();
+  let first = first_push(&remote, &local);
+  remote.git(&["config", "receive.maxInputSize", "2k"]);
+  // hex of a multiplicative hash: no repeats for zlib to fold, 20 KB in the pack
+  let noise = (0..10_000u32).fold(String::new(), |mut noise, index| {
+    let _ = write!(noise, "{:02x}", index.wrapping_mul(2_654_435_761) >> 24);
+    noise
+  });
+  let big = local.create_commit("(feature) Big", "big.txt", &noise);
+  set_branch(&local, &big);
+
+  let error = refused_push(&local, &first);
+  let (_, why) = error.split_once("(unpacker error). ").unwrap_or_else(|| panic!("{error}"));
+  assert_eq!(
+    why,
+    "remote: fatal: pack exceeds maximum allowed size · error: remote unpack failed: unpack-objects abnormal exit"
+  );
   assert_eq!(remote_tip(&remote), Some(first));
 }
 

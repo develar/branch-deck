@@ -418,8 +418,8 @@ fn the_network_push_holds_no_repository_lock() {
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
-/// The leases held, yet the remote refused the push (a hook, a protected branch): `push_refused` with what git said,
-/// nothing pushed, not `lease_rejected`
+/// The leases held, yet the remote refused the push (a hook, a protected branch): `push_refused` with what git and the
+/// remote said, nothing pushed, not `lease_rejected`
 #[test_log::test]
 fn a_push_the_remote_refuses_with_its_leases_holding_is_push_refused() {
   let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
@@ -427,7 +427,9 @@ fn a_push_the_remote_refuses_with_its_leases_holding_is_push_refused() {
 
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_error(&output, exit_code, (4, "push_refused"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("the remote refused the push"), "{output}");
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("the remote refused the push"), "{output}");
+  assert!(message.contains("pre-receive hook declined). remote: protected branch"), "what the hook said: {output}");
   assert_eq!(remote_tip(&remote, AUTH), "");
 }
 

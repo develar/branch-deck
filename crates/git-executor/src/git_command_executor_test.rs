@@ -220,6 +220,23 @@ fn failed_command_reports_messages_without_progress_updates() {
   assert!(error.ends_with("Error: fatal: broken"), "{error}");
 }
 
+/// An accepted exit code keeps the messages of stderr, without the progress updates: a `push` whose ref the remote
+/// refused exits with 1, and what the remote said is in them
+#[test]
+fn an_accepted_failure_keeps_the_messages_of_stderr() {
+  let dir = std::env::temp_dir();
+  let output = GitCommandExecutor::new()
+    .cmd(
+      &["-c", "alias.refuse=!printf 'Writing 1\\rWriting 2\\nremote: refused\\n' >&2; echo report; exit 1", "refuse"],
+      dir.to_str().unwrap(),
+    )
+    .accept(&[1])
+    .progress(&mut |_| {}, &ProgressStop::NEVER)
+    .unwrap();
+  assert_eq!((output.code, output.stderr.as_str()), (1, "Writing 2\nremote: refused"));
+  assert_eq!(output.into_text(), "report");
+}
+
 /// The idle clock of a test: it stands still until the test moves it on an event of git, so the idle timeout follows
 /// the order of the events, not how fast a loaded machine starts git and the shell
 struct TestClock {
@@ -266,7 +283,7 @@ fn run_until(script: &str, dir: &Path, on_line: &mut dyn FnMut(&str), stop: &Pro
   let alias = format!("alias.run=!{script}");
   let args = ["-c", alias.as_str(), "run"];
   let git = GitCommandExecutor::new();
-  git.cmd(&args, dir.to_str().context("a UTF-8 path")?).clock(now).progress(on_line, stop)
+  Ok(git.cmd(&args, dir.to_str().context("a UTF-8 path")?).clock(now).progress(on_line, stop)?.into_text())
 }
 
 fn stopped(result: &anyhow::Result<String>) -> Option<StoppedCommand> {

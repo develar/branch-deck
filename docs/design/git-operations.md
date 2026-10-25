@@ -2584,7 +2584,8 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    statuses (`compute_remote_statuses`) and lists the ones whose fetched head is not their lease in `lease_rejected`
    (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The agent shows what a
    push drops and, once the user approves, pushes with `--force --expect-remote <head>`. When every lease held, the
-   remote refused for another reason (a hook, a protected branch): `push_refused` with what git said. A dry run that
+   remote refused for another reason (a hook, a protected branch, a pack too large): `push_refused` with what git
+   said of each ref and what the remote said why (`PushReport::messages`). A dry run that
    the remote would reject fetches nothing, so it can't tell which lease failed.
 5. After the push, with the lock released, the open pull requests of the pushed branches whose base is a virtual
    branch (`{prefix}/virtual/…`) are retargeted to the baseline over HTTP (`pull_request_retarget.rs`: one search of
@@ -2969,7 +2970,11 @@ either one leaves the next push of the other valid. A push replaces exactly the 
 - `push_branch` returns `PushOutcome::RemoteMoved` with the new remote status when the fetched head differs from the
   expected one: the row turns into the push the remote now needs, and a toast offers it (a push that drops the fetched
   commits confirms in the row's push button first, as any such push does). When the fetched head is the
-  expected one, the lease held and the remote refused for another reason (a hook, a protected branch): an error.
+  expected one, the lease held and the remote refused for another reason (a hook, a protected branch, a pack too
+  large): an error with the report of each refused ref and what the remote said why. The report names only the kind
+  (`n/a (unpacker error)`); the reason is in stderr (`remote: fatal: pack exceeds maximum allowed size`, `error: remote
+  unpack failed: …`), which `push_refs` keeps also when it reads the progress (`GitCommand::progress` returns the
+  messages of stderr with an accepted exit code), without the progress lines (`PushReport::messages`).
   `push_branch` is the stack push of one branch (`push_branches`), so both answer alike.
 
 #### App stack push

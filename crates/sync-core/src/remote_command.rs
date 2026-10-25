@@ -4,7 +4,7 @@
 
 use crate::transfer_progress::{TransferProgress, TransferProgressReporter};
 use anyhow::{Result, anyhow};
-use git_executor::git_command_executor::{GitCommandExecutor, ProgressStop};
+use git_executor::git_command_executor::{GitCommandExecutor, GitOutput, ProgressStop};
 
 /// Config for every git command that talks to a remote (push, fetch).
 /// The user's credential helpers stay in effect (osxkeychain, Git Credential Manager, `gh auth git-credential`):
@@ -43,15 +43,22 @@ pub fn execute_remote_command_accepting(git_executor: &GitCommandExecutor, args:
   git_executor.cmd(&remote_args(args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).text()
 }
 
-/// `execute_remote_command_accepting` with `--progress` (added after the subcommand): `on_progress` gets how far the
-/// transfer is as git reports it, throttled by `TransferProgressReporter`
+/// `execute_remote_command_accepting` that keeps git's stderr and exit code too: an accepted failure (a `push` whose
+/// ref the remote refused) is said in the `remote:` lines of stderr
+pub fn execute_remote_command_output(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<GitOutput> {
+  git_executor.cmd(&remote_args(args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).output()
+}
+
+/// `execute_remote_command_output` with `--progress` (added after the subcommand): `on_progress` gets how far the
+/// transfer is as git reports it, throttled by `TransferProgressReporter`; stderr holds the messages without the
+/// progress updates
 pub fn execute_remote_command_with_progress(
   git_executor: &GitCommandExecutor,
   args: &[&str],
   repository_path: &str,
   ok_exit_codes: &[i32],
   on_progress: &mut dyn FnMut(TransferProgress),
-) -> Result<String> {
+) -> Result<GitOutput> {
   execute_remote_command_with_progress_until(git_executor, args, repository_path, ok_exit_codes, on_progress, &ProgressStop::NEVER)
 }
 
@@ -64,7 +71,7 @@ pub fn execute_remote_command_with_progress_until(
   ok_exit_codes: &[i32],
   on_progress: &mut dyn FnMut(TransferProgress),
   stop: &ProgressStop<'_>,
-) -> Result<String> {
+) -> Result<GitOutput> {
   let (subcommand, rest) = args.split_first().ok_or_else(|| anyhow!("No git subcommand to run"))?;
   let mut progress_args = Vec::with_capacity(args.len() + 1);
   progress_args.extend([*subcommand, "--progress"]);

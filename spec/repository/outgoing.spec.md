@@ -250,8 +250,10 @@ of a part of a branch, up to one of its commits, is Push Up to Here
 - The description must open on hover also while the button is disabled: "Everything is pushed.", why a blocked
   stacked branch can't push, the progress of a running push.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should describe a disabled push on hover`)
-- A push the remote refuses while the lease holds (a hook, a protected branch) must be an error.
-  [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`)
+- A push the remote refuses while the lease holds (a hook, a protected branch, a pack too large) must be an error
+  that says why as the remote said it: the report of a ref names only the kind (`pre-receive hook declined`,
+  `unpacker error`), the remote's `remote:` lines and git's `error:` lines name the reason, without the progress lines.
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`, `a_push_the_remote_refuses_for_its_size_says_why`)
 - A push belongs to the repository it started in. A switch of the repository while it waits (for the sync, the holds,
   a retarget) stops it before it reads the branches again: the branch of the same name there is another branch, so
   nothing of it is pushed, and "Cannot push auth" says "idea-1 is no longer the open repository" (a push of an action

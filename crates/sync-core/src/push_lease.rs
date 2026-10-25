@@ -8,8 +8,8 @@
 //! remote has now. The status, and so the lease, compares with the remote-tracking ref: a background fetch that
 //! moves it shows up as the commits a push drops (`behind`), which a push replaces only once the user saw them.
 
-use crate::remote_command::{execute_remote_command, execute_remote_command_accepting, execute_remote_command_with_progress};
-use crate::transfer_progress::TransferProgress;
+use crate::remote_command::{execute_remote_command, execute_remote_command_accepting, execute_remote_command_output, execute_remote_command_with_progress};
+use crate::transfer_progress::{TransferProgress, TransferProgressAnalyzer};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::ref_transaction::RefTransaction;
@@ -100,8 +100,8 @@ pub struct PushOptions {
 
 /// One `git push --porcelain <remote>` of `refs`, each with its lease (`--force-with-lease=refs/heads/<b>:<lease>`) and
 /// its tip (`<tip>:refs/heads/<b>`), through the remote policy (`remote_command`); `on_progress` gets how far the push is
-/// (`--progress`). Exit 1, a rejected ref, still reports every ref. Remote ref -> its report; a ref git didn't report
-/// is absent. The app's push and `bd push` share it; what they do with a rejection is their own
+/// (`--progress`). Exit 1, a rejected ref, still reports every ref, and what the remote said of it. The app's push and
+/// `bd push` share it; what they do with a rejection is their own
 #[instrument(skip(git_executor, refs, on_progress), fields(refs = refs.len()))]
 pub fn push_refs(
   git_executor: &GitCommandExecutor,
@@ -110,7 +110,7 @@ pub fn push_refs(
   refs: &[PushRef],
   options: PushOptions,
   on_progress: Option<&mut dyn FnMut(TransferProgress)>,
-) -> Result<HashMap<String, PushedRefStatus>> {
+) -> Result<PushReport> {
   let lease_args: Vec<String> = refs.iter().map(PushRef::lease_arg).collect();
   let refspecs: Vec<String> = refs.iter().map(PushRef::refspec).collect();
   let mut args = vec!["push", "--porcelain"];
@@ -125,9 +125,39 @@ pub fn push_refs(
   args.extend(refspecs.iter().map(String::as_str));
   let output = match on_progress {
     Some(on_progress) => execute_remote_command_with_progress(git_executor, &args, repository_path, &[1], on_progress)?,
-    None => execute_remote_command_accepting(git_executor, &args, repository_path, &[1])?,
+    None => execute_remote_command_output(git_executor, &args, repository_path, &[1])?,
   };
-  Ok(parse_push_porcelain(&output))
+  let messages = remote_messages(&output.stderr);
+  Ok(PushReport {
+    refs: parse_push_porcelain(&output.into_text()),
+    messages,
+  })
+}
+
+/// What a `push --porcelain` reported
+#[derive(Debug, Default)]
+pub struct PushReport {
+  /// Remote ref -> its report; a ref git didn't report is absent
+  pub refs: HashMap<String, PushedRefStatus>,
+  /// Why, when the remote refused: the lines of stderr a hook or the server wrote (`remote: …`) and git's own errors
+  /// (`error: remote unpack failed: …`), without the progress lines. The report of a ref says only
+  /// `n/a (unpacker error)` or `pre-receive hook declined`
+  pub messages: Vec<String>,
+}
+
+/// The lines of a push's stderr that say why: `remote: ` lines that are no progress of a stage, and git's `error:` and
+/// `fatal:` lines but its `failed to push some refs`, which the reports say; not `Enumerating objects`, `Total …` or
+/// the other lines of git's own progress
+fn remote_messages(stderr: &str) -> Vec<String> {
+  stderr
+    .lines()
+    .map(str::trim_end)
+    .filter(|line| match line.strip_prefix("remote:") {
+      Some(said) => !said.trim().is_empty() && TransferProgressAnalyzer::new().analyze(line).is_none(),
+      None => (line.starts_with("error: ") || line.starts_with("fatal: ")) && !line.starts_with("error: failed to push some refs"),
+    })
+    .map(str::to_string)
+    .collect()
 }
 
 /// The report of one ref of a `push --porcelain`

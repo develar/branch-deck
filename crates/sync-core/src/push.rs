@@ -14,7 +14,7 @@ use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn};
 
 /// The remote the pushes of the virtual branches go to: the remote-tracking refs `refs/remotes/origin/<full name>` they
 /// move are the ones a session replaces in its sync inputs
@@ -341,8 +341,8 @@ pub enum LeasedPush {
   /// them, so nothing was pushed. Every branch was fetched; `remote_statuses` say what the remote has now, in the order
   /// of the branches
   RemoteMoved { moved: Vec<usize>, remote_statuses: Vec<RemoteStatusUpdate> },
-  /// Every lease held, yet the remote refused the push (a hook, a protected branch): nothing was pushed. `summary` is
-  /// what git said of each refused ref, for an error message
+  /// Every lease held, yet the remote refused the push (a hook, a protected branch, a pack too large): nothing was
+  /// pushed. `summary` is what git said of each refused ref and what the remote said why, for an error message
   Refused { summary: String },
   /// A dry run the remote would refuse: nothing is fetched on a dry run, so which lease failed is not known
   WouldReject,
@@ -363,11 +363,11 @@ pub fn push_leased(
 ) -> Result<LeasedPush> {
   let refs: Vec<PushRef> = branches.iter().map(|branch| branch.push.clone()).collect();
   // the remote policy keeps the user's credential helpers but never prompts: the push must not block on input
-  let reports = push_refs(git_executor, target.repository_path, target.remote, &refs, options, on_progress)?;
-  let report_of = |branch: &LeasedBranch| reports.get(&format!("refs/heads/{}", branch.push.full_name));
+  let report = push_refs(git_executor, target.repository_path, target.remote, &refs, options, on_progress)?;
+  let report_of = |branch: &LeasedBranch| report.refs.get(&format!("refs/heads/{}", branch.push.full_name));
   let refused: Vec<&LeasedBranch> = branches.iter().filter(|branch| report_of(branch).is_none_or(|report| !report.accepted())).collect();
   if refused.is_empty() {
-    return Ok(LeasedPush::Pushed(reports));
+    return Ok(LeasedPush::Pushed(report.refs));
   }
   if options.dry_run {
     return Ok(LeasedPush::WouldReject);
@@ -385,12 +385,17 @@ pub fn push_leased(
     .map(|(index, _)| index)
     .collect();
   if moved.is_empty() {
-    // the leases held: the remote refused the push for another reason, e.g. a hook or a protected branch
-    let summary = refused
+    // the leases held: the remote refused the push for another reason, e.g. a hook, a protected branch or a pack too
+    // large for it; the report of a ref only names the kind, what the remote said names the reason
+    let mut summary = refused
       .iter()
       .map(|branch| format!("{} {}", branch.push.full_name, report_of(branch).map_or("no report", |report| report.summary.as_str())))
       .collect::<Vec<_>>()
       .join("; ");
+    if !report.messages.is_empty() {
+      warn!(messages = ?report.messages, "the remote refused the push");
+      summary = format!("{summary}. {}", report.messages.join(" · "));
+    }
     return Ok(LeasedPush::Refused { summary });
   }
   info!(moved = ?moved.iter().map(|index| &branches[*index].name).collect::<Vec<_>>(), "a remote branch moved, nothing pushed");
