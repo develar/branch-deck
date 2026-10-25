@@ -122,8 +122,8 @@ describe("the whole stack a Safe Push of a branch can land instead", () => {
     const branches = [testBranch("auth", null), testBranch("login", "auth"), testBranch("oauth", "login"), testBranch("session", "auth"), testBranch("docs", null)]
     const branchOrder = branches.map(branch => branch.name)
     branchSyncStore.setState({ ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder }), branchOrder, stacksEnabled: true })
-    // without its stack branch auth heads a chain of its own; login heads none, docs no stack
-    expect(["auth", "login", "oauth", "docs"].map(name => wholeStackRootIn(branchSyncStore.getState(), name))).toEqual(["auth", null, null, null])
+    // the stack forks: without its stack branch it heads no whole stack yet, the sync builds it; docs heads no stack
+    expect(["auth", "login", "oauth", "docs"].map(name => wholeStackRootIn(branchSyncStore.getState(), name))).toEqual([null, null, null, null])
     const stack = {
       root: "auth",
       branchName: "user/stack/auth",
@@ -136,8 +136,18 @@ describe("the whole stack a Safe Push of a branch can land instead", () => {
       error: null,
       remoteStatus: null,
     } as const
-    branchSyncStore.setState({ stackBranches: { auth: stack } })
+    const table = Object.fromEntries(branches.map(branch => [branch.name, branch]))
+    branchSyncStore.setState({ ...placed({ branches: table, branchOrder, stackBranches: { auth: stack } }), stackBranches: { auth: stack } })
     expect(["auth", "login", "oauth", "session", "docs"].map(name => wholeStackRootIn(branchSyncStore.getState(), name))).toEqual(["auth", "auth", "auth", "auth", null])
+    // a straight chain: its root heads it, its other branches none
+    const chain = [testBranch("auth", null), testBranch("login", "auth"), testBranch("oauth", "login")]
+    const chainOrder = chain.map(branch => branch.name)
+    branchSyncStore.setState({
+      ...placed({ branches: Object.fromEntries(chain.map(branch => [branch.name, branch])), branchOrder: chainOrder }),
+      branchOrder: chainOrder,
+      stackBranches: {},
+    })
+    expect(["auth", "login", "oauth"].map(name => wholeStackRootIn(branchSyncStore.getState(), name))).toEqual(["auth", null, null])
   })
 })
 

@@ -277,7 +277,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
 - **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and
   Patronus finds those in the target. So after a piece landed its main line, the Safe Push of the whole stack lands the
   rest and says only the rest ("Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth
-  landed with oauth", `getWholeStackRest`); once every branch of it landed, nothing is left, and it says who landed them
+  landed with oauth", `StackLanding.rest`, `whole_stack_rest`); once every branch of it landed, nothing is left, and it says who landed them
   ("Landed in master with oauth and the whole auth stack").
 - **A pull request that no longer matches.** The pull request of the whole stack shows the stack as it was. A Safe
   Push of a piece that lands the root, or a stack that no longer forks, leaves it showing a stack that is no more. It

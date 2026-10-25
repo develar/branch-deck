@@ -153,7 +153,7 @@ export function needsBranchRobotAttention(robot: PatronusRobot, localTip: string
 /**
  * A failed robot of the whole stack on its stack branch as it is (`needsRobotAttention`), only while the sync built it:
  * a stack branch not rebuilt (kept for its remote branch once the stack no longer forks, blocked, a conflict) is not the
- * stack's commits, its restart is refused (`getStackBranchBlocker`) and the stack lands in pieces, so its old failure
+ * stack's commits, its restart is refused (`getStackNotBuilt`) and the stack lands in pieces, so its old failure
  * asks for nothing; nor while a running Safe Push of a branch of it lands a part of it (`carried`, `getStackLandingMember`: the `landingMember` of the repository view):
  * its restart waits for that robot.
  */
@@ -305,7 +305,7 @@ export type StartPush = { readonly kind: "unknown" } | { readonly kind: "none" }
  * shows it (`pushAction`, Rust's action of the remote status): nothing when the remote branch has the commits of the branch, also when
  * the sync only rebuilt them on a newer baseline (Patronus rebases the remote branch itself; a push would replace it with
  * copies of the same commits and move the head of its pull request for nothing); the stack while its ancestors have work
- * for the remote (`pushesStack`, `stackPushOrder`); `unknown` while the remote status of the branch is not loaded: the
+ * for the remote (`pushesStack`, `PushOrders.action`); `unknown` while the remote status of the branch is not loaded: the
  * start waits for it.
  */
 export function getStartPush(pushAction: PushAction | null, pushesStack: boolean): StartPush {

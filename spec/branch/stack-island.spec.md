@@ -126,7 +126,7 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   No filled button: a push is not what lands the stack.
 - The push is the compact push of a row: "↑ 41", the commits of "Push with Children (7 branches)" of the root, its
   accessible name, as the root's menu names it: the branches of the stack that have work for the remote, each after
-  the branch it is built on (`stackChildrenPushOrder`), the landed ones and the ones a running Safe Push holds left
+  the branch it is built on (`domain_policy::push::push_plan`, the `children` of `RepositoryView.pushes`), the landed ones and the ones a running Safe Push holds left
   out; and the stack branch of the whole stack while it goes along, once it
   is on the remote or its pull request is open ([Stacked Branches](stacked-branches.spec.md#pull-requests)): one more
   branch ("Push with Children (8 branches)", "Push with Children (the whole stack branch)" alone), a commit it and the

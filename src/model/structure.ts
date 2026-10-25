@@ -2,7 +2,7 @@
  * The structure of a branch of the table as the page holds it: what Rust placed it with (`BranchView.structure`), every
  * field present. A module of its own, without the stores, so the fixtures of the page tests read it too
  */
-import type { BranchSection, ParkedMember } from "@/lib/bindings"
+import type { BranchSection, ParkedMember, WholeStackView } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
 
 /**
@@ -25,6 +25,12 @@ export interface BranchStructure {
   readonly parked: ParkedState | null
   /** Of the root of a stack that forks: the first member of its stack branch that is parked */
   readonly stackParked: ParkedMember | null
+  /**
+   * Of the root of a stack: its whole stack, which one Safe Push lands (`domain_policy::stack::whole_stack_of`, by
+   * declared parent): its stack branch while it forks, else the last branch of a straight chain; null for a branch
+   * alone and for one that heads no stack
+   */
+  readonly wholeStack: WholeStackView | null
   readonly section: BranchSection
 }
 
@@ -39,5 +45,6 @@ export const ROOT_STRUCTURE: BranchStructure = {
   mainLine: noBranches,
   parked: null,
   stackParked: null,
+  wholeStack: null,
   section: "main",
 }

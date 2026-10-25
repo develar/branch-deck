@@ -2,7 +2,7 @@ import { FileDiffIcon, FlaskConicalIcon, GitPullRequestClosedIcon, GitPullReques
 import { getPushWithChildrenItem, getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { StackNextStep } from "@/hooks/useStackNextStep"
-import { getCreateStackPullRequestItem, getStackNextStepNow, getWholeStackRest, isForkingStack } from "@/hooks/useStackNextStep"
+import { getCreateStackPullRequestItem, getStackNextStepNow, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import type { PatronusPushMode } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { branchReviewBlocker } from "@/lib/branch-review"
@@ -12,8 +12,9 @@ import { describeStart } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
-import { describeOrphanedStackPullRequest, describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
-import { branchSyncStore, getBranch, getStackBranch, mainLineOf } from "@/stores/branch-sync"
+import { describeOrphanedStackPullRequest, describeWholeStackLanding, formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
+import { formatReasonOrNull } from "@/presenters/reasons"
+import { branchSyncStore, getBranch, getStackBranch, getStackNotBuilt, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { openInline } from "@/stores/inline-row-action"
 import { getStackLandedBy } from "@/stores/landed-stacks"
@@ -31,7 +32,7 @@ export interface WholeStackMenuOptions {
   readonly withPush: boolean
   /**
    * The Safe Push of the last branch of the main line while the sync didn't build the stack branch, so the stack lands in
-   * pieces (`getStackBranchBlocker`): in the "⋯" of the island, at its header; the root's menu has the branches' rows
+   * pieces (`getStackNotBuilt`): in the "⋯" of the island, at its header; the root's menu has the branches' rows
    */
   readonly landInPieces?: boolean
 }
@@ -56,7 +57,7 @@ export interface WholeStackMenuOptions {
  */
 export function getWholeStackMenuItems(root: string, options: WholeStackMenuOptions): MenuItem[] {
   const stack = getStackBranch(root)
-  const forks = isForkingStack(stack)
+  const forks = isForkingRoot(branchSyncStore.getState(), root)
   const items: MenuItem[] = getWholeStackStartItems(root)
   if (options.landInPieces === true) {
     const piece = getLandInPiecesItem(root)
@@ -129,10 +130,9 @@ export function getWholeStackStartItems(root: string, next: StackNextStep | null
   const { step, leaf } = next
   const key = stackReadinessKey(root)
   const lands = (mode: PatronusPushMode): string => {
-    const stack = getStackBranch(root)
     const target = getReadinessTarget()
-    if (leaf === null && stack !== undefined) {
-      const rest = getWholeStackRest(stack)
+    if (leaf === null) {
+      const rest = wholeStackRestOf(root)
       return describeWholeStackLanding(rest.members, rest.commitCount, target, mode, rest.landed)
     }
     return describeStart(mode, leaf ?? root, mainLineOf(branchSyncStore.getState(), root).length, target)
@@ -174,13 +174,13 @@ function getWholeStackRequestReviewItem(root: string): MenuItem | null {
 }
 
 /**
- * "Safe Push deploy": while the sync didn't build the stack branch of a stack that forks (`getStackBranchBlocker`), the
+ * "Safe Push deploy": while the sync didn't build the stack branch of a stack that forks (`getStackNotBuilt`), the
  * stack lands in pieces, the Safe Push of the last branch of its main line the first, its popover at the island's
  * header; null otherwise
  */
 function getLandInPiecesItem(root: string): MenuItem | null {
   const stack = getStackBranch(root)
-  if (!isPatronusAvailable() || !isForkingStack(stack) || getStackBranchBlocker(root, stack) === null) {
+  if (!isPatronusAvailable() || stack === undefined || !isForkingRoot(branchSyncStore.getState(), root) || getStackNotBuilt(root) === null) {
     return null
   }
   const mainLine = mainLineOf(branchSyncStore.getState(), root)
@@ -217,7 +217,7 @@ function getWholeStackReviewItem(root: string, forks: boolean): MenuItem | null 
       disabled: tip === null,
       description:
         tip === null
-          ? (getStackBranchBlocker(root, stack) ?? "The stack branch is not built yet: sync first")
+          ? (formatReasonOrNull(getStackNotBuilt(root)) ?? "The stack branch is not built yet: sync first")
           : `The diff of every commit of ${formatWholeStack(root)}, in a window`,
       onSelect: () => void openWholeStackReviewWindow(root),
     }

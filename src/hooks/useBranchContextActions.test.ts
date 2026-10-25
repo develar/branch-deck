@@ -3,6 +3,7 @@
 // @spec spec/branch/branch-row.spec.md
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import { getBranchContextMenuItems, getBranchReviewItems, getSafePushBlocker } from "@/hooks/useBranchContextActions"
+import type { BranchPush, ChildrenPush } from "@/lib/bindings"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem } from "@/lib/menu"
 import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
@@ -78,7 +79,22 @@ function synced(name: string, parent: string | null, remoteStatus: RemoteStatus,
 
 function setBranches(...branches: Branch[]): void {
   const branchOrder = branches.map(branch => branch.name)
-  branchSyncStore.setState({ ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder }), branchOrder, stacksEnabled: true })
+  branchSyncStore.setState({
+    ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder }),
+    branchOrder,
+    stacksEnabled: true,
+    pushes: {},
+  })
+}
+
+/** What the pushes of the branches send, as Rust orders them over the table the test set (`RepositoryView.pushes`) */
+function setPushes(pushes: Record<string, BranchPush>): void {
+  branchSyncStore.setState({ pushes })
+}
+
+/** Push with Children as Rust orders it: what it pushes (`order`), whether it pushes more than the branch, the rest */
+function withChildren(order: readonly string[], offers: boolean, more: Omit<ChildrenPush, "order" | "offers"> = {}): BranchPush {
+  return { children: { order: [...order], offers, ...more } }
 }
 
 /** The groups of the menu of `name` */
@@ -166,6 +182,7 @@ describe("the push of the branch menu", () => {
 
   it("is one item named as the push button, pushing the stack as far as the button does", () => {
     setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
+    setPushes({ login: { button: true }, auth: { children: { offers: true } } })
     expect(pushItems("login")).toEqual([
       expect.objectContaining({ id: "push", label: "Push Stack (2 branches)", description: "Pushes auth and login, parents first", disabled: false }),
     ])
@@ -174,6 +191,7 @@ describe("the push of the branch menu", () => {
 
   it("offers the push of the branch alone after the push of the stack, as the description of the button does", () => {
     setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
+    setPushes({ login: { button: true }, auth: { children: { offers: true } } })
     const items = menuOf("login")
     const push = items.findIndex(item => item.id === "push")
     expect(items[push + 1]).toMatchObject({ id: "push-branch-only", label: "Push login Only", disabled: false })
@@ -185,6 +203,7 @@ describe("the push of the branch menu", () => {
   it("pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row", () => {
     const dropping = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, unpushedCommits: ["c"], action: forcePush({ drops: true }) })
     setBranches(synced("auth", null, dropping), synced("login", "auth", unpushed))
+    setPushes({ login: { action: [] } })
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", label: "Push (1)" })])
     expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Force Push (1)" })])
   })
@@ -236,6 +255,7 @@ describe("Push with Children in the branch menu", () => {
     })
     setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("session", "auth", pushed))
     branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null, action: CREATE })) } })
+    setPushes({ auth: withChildren([], false, { stackBranch: { kind: "unpublished" } }) })
     // not on the remote and no pull request: the branches are, and "Nothing to push" would not be true
     expect(pushWithChildren("auth")).toMatchObject({
       label: "Push with Children",
@@ -243,24 +263,29 @@ describe("Push with Children in the branch menu", () => {
       description: "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack",
     })
     branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ commitsAhead: 1, unpushedCommits: ["c"], remoteTip: "old", action: PUSH })) } })
+    setPushes({ auth: withChildren([], true, { stackBranch: { kind: "along" } }) })
     expect(pushWithChildren("auth")).toMatchObject({
       label: "Push with Children (the whole stack branch)",
       disabled: false,
       description: "Also pushes the whole stack branch user/stack/auth",
     })
     setBranches(synced("auth", null, pushed), synced("login", "auth", unpushed), synced("session", "auth", pushed))
+    setPushes({ auth: withChildren(["login"], true, { stackBranch: { kind: "along" } }) })
     expect(pushWithChildren("auth")).toMatchObject({ label: "Push with Children (2 branches)", disabled: false })
     // a branch in the middle heads no whole stack
     setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("oauth", "login", unpushed), synced("session", "auth", pushed))
+    setPushes({ login: withChildren(["oauth"], true) })
     expect(pushWithChildren("login")).toMatchObject({ label: "Push with Children (oauth)" })
     expect(pushWithChildren("login")?.description).toBeUndefined()
     branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ remoteTip: "tip" })) } })
     setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("session", "auth", pushed))
+    setPushes({ auth: withChildren([], false, { stackBranch: { kind: "upToDate" } }) })
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Nothing to push: the stack is on the remote" })
   })
 
   it("is offered beside the push on every branch with children, disabled with the reason while it would push nothing beyond the branch", () => {
     setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("docs", null, unpushed))
+    setPushes({ auth: withChildren([], false) })
     // the remote group: the push of the branch, then the push with its children
     const items = menuOf("auth")
     expect(items[items.findIndex(item => item.id === "push") + 1]).toMatchObject({
@@ -274,10 +299,13 @@ describe("Push with Children in the branch menu", () => {
     expect(menuOf("docs").some(item => item.id === "push-with-children")).toBe(false)
 
     setBranches(synced("auth", null, unpushed), synced("login", "auth", pushed))
+    setPushes({ auth: withChildren(["auth"], false) })
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Only auth has commits to push: its own push sends them" })
     setBranches(synced("auth", null, pushed), synced("login", "auth", dropping))
+    setPushes({ auth: withChildren([], false, { askFirst: ["login"] }) })
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "login asks first in its row: the push drops remote commits" })
     setBranches(synced("auth", null, pushed), synced("login", "auth", unpushed))
+    setPushes({ auth: withChildren(["login"], true) })
     expect(pushWithChildren("auth")).toMatchObject({ label: "Push with Children (login)", disabled: false })
     setStackPush("auth", ["login"], "/repo")
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "The stack is being pushed" })
@@ -285,10 +313,12 @@ describe("Push with Children in the branch menu", () => {
 
   it("is offered while a sync runs and while the root is on the remote: the push waits for the sync", () => {
     setBranches(synced("auth", null, pushed), synced("login", "auth", unpushed))
+    setPushes({ auth: withChildren(["login"], true) })
     branchSyncStore.setState({ isSyncing: true })
     expect(pushWithChildren("auth")).toMatchObject({ label: "Push with Children (login)", disabled: false })
     // the sync computes what is left to push
     setBranches(synced("auth", null, pushed), testBranch("login", "auth"))
+    setPushes({ auth: withChildren([], false) })
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Wait for the sync to finish" })
   })
 })

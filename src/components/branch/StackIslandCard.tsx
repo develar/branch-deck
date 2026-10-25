@@ -20,13 +20,11 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
-import { useIsFullyLanded } from "@/hooks/useLandedIn"
 import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
-import { useStackBranchAlong, useStackBranchPushAlone } from "@/hooks/usePushButton"
+import { useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useSettledStackLine } from "@/hooks/useSettledLayout"
-import { isForkingStack } from "@/hooks/useStackNextStep"
 import { useStackStates } from "@/hooks/useStackStates"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
@@ -38,7 +36,7 @@ import { hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
-import { describePushWithChildrenBlocker, formatAskFirst, formatPushWithChildrenLabel, stackAskFirst, stackChildrenPushOrder, stackPushSubject } from "@/lib/stack"
+import { describePushWithChildrenBlocker, formatAskFirst, formatPushWithChildrenLabel, stackPushSubject } from "@/lib/stack"
 import type { StackIsland } from "@/lib/stack-collapse"
 import type { StackStateChip } from "@/lib/stack-state"
 import { getStackStateChips } from "@/lib/stack-state"
@@ -54,9 +52,11 @@ import {
   stackReadinessKey,
 } from "@/lib/whole-stack"
 import { formatPushHoldReason } from "@/presenters/reasons"
-import type { StackBranch } from "@/stores/branch-sync"
+import type { ChildrenPushOrder, StackBranch } from "@/stores/branch-sync"
 import {
+  isForkingRoot,
   mainLineOf,
+  pushOrdersIn,
   structureIn,
   useBranch,
   useBranchPushProgress,
@@ -68,7 +68,7 @@ import {
 } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { landedStacksStore, useStackLandedBy } from "@/stores/landed-stacks"
-import { useBranchRobot, useLandedWithChildrenReason, usePushHold, usePushHolds, useStackRobot } from "@/stores/patronus"
+import { useBranchRobot, useLandedWithChildrenReason, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -76,12 +76,10 @@ import { toggleStackCollapsed } from "@/stores/stack-collapse"
 interface IslandSummary {
   branchCount: number
   commitCount: number
-  /** What a "Push with Children" of the root pushes, parents first, without the branches a Safe Push holds */
-  pushOrder: string[]
+  /** What a "Push with Children" of the root pushes, as Rust orders it (`ChildrenPush`); null with nothing stacked on it to push */
+  children: ChildrenPushOrder | null
   /** The commits that push sends */
   pushCommits: number
-  /** The branches with work whose push drops remote commits: they ask first in their rows */
-  askFirst: string[]
   /**
    * A Safe Push runs in the stack: every one holds the root (`PushHold`), and the header offers no push nor Safe Push. A
    * merged one that landed the root is no such hold: the rest of the stack pushes and lands without it
@@ -98,9 +96,6 @@ interface IslandSummary {
  * doesn't change what the stack holds; the states of its branches are `useStackStates`
  */
 function useIslandSummary(root: string): IslandSummary | null {
-  const isLanded = useIsFullyLanded()
-  const holds = usePushHolds()
-  const isHeld = (name: string): boolean => holds.has(name)
   const rootHold = usePushHold(root)
   // a string, so the store notifies only when the summary changes
   const key = useBranchSync(state => {
@@ -109,23 +104,14 @@ function useIslandSummary(root: string): IslandSummary | null {
     if (state.branches[root] === undefined) {
       return ""
     }
-    // what the rows offer, the landed branches left out
-    const pushOrder = stackChildrenPushOrder(
-      root,
-      descendants,
-      name => state.branches[name],
-      name => isHeld(name) || isLanded(name),
-    )
+    // what the rows offer, as Rust orders it: the landed, held and parked branches left out
+    const children = pushOrdersIn(state, root).children
+    const pushOrder = children?.order ?? []
     return JSON.stringify({
       branchCount: branches.length,
       commitCount: branches.reduce((sum, branch) => sum + branch.commitCount, 0),
-      pushOrder,
+      children,
       pushCommits: pushOrder.reduce((sum, name) => sum + (state.branches[name]?.remoteStatus?.commitsAhead ?? 0), 0),
-      askFirst: stackAskFirst(
-        branches.filter(branch => branch.name !== root && !isLanded(branch.name)).map(branch => branch.name),
-        name => state.branches[name],
-        isHeld,
-      ),
       rootHeld: rootHold !== null && rootHold.kind !== "landed",
       mainLine: mainLineOf(state, root),
       members: branches.map(branch => branch.name),
@@ -422,8 +408,8 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
 
 /**
  * The push of the stack, as the compact push of a row: "↑ 41", the commits of Push with Children of the root (the
- * branches of the stack that have work for the remote, parents first, `stackChildrenPushOrder`, and the stack branch of
- * the whole stack while it goes along, `useStackBranchAlong`), in one push; a commit the branches and the stack branch
+ * branches of the stack that have work for the remote, parents first, and the stack branch of the whole stack while it
+ * goes along, as Rust orders them, `ChildrenPush`), in one push; a commit the branches and the stack branch
  * both send counts once. The hover names it and lists what it sends, and the branches that ask first in their rows; a
  * click pushes and leaves the hover as it is (`HoverDescription`), so it shows the progress while the pointer stays.
  * Disabled, "↑" with the reason in its hover, while it would push nothing beyond the root
@@ -448,17 +434,18 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
   const stackBranchProgress = useStackBranchPushProgress(root)
   const progress = alone ? stackBranchProgress : branchProgress
   const hold = usePushHold(root)
-  const along = useStackBranchAlong(root)
   const landed = useLandedWithChildrenReason(root)
   const stack = useStackBranch(root)
-  const withStackBranch = along?.kind === "along" && stack !== undefined
-  const { pushOrder, askFirst } = summary
+  const { children } = summary
+  const withStackBranch = children?.stackBranch?.kind === "along" && stack !== undefined
+  const pushOrder = children?.order ?? []
+  const askFirst = children?.askFirst ?? []
   let blocker: string | null = null
   if (!busy) {
     if (summary.rootHeld) {
       blocker = hold === null || hold.kind === "landed" ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
     } else {
-      blocker = describePushWithChildrenBlocker(root, pushOrder, askFirst, along, landed)
+      blocker = describePushWithChildrenBlocker(root, children, landed)
     }
   }
   let label = "Push with Children"
@@ -548,7 +535,7 @@ function describeStackSafePush(leaf: string, mainLine: readonly string[], member
  * running" say it.
  */
 function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
-  const forks = useBranchSync(state => isForkingStack(state.stackBranches[root]))
+  const forks = useBranchSync(state => isForkingRoot(state, root))
   const leaf = summary.mainLine.at(-1)
   const branch = useBranch(leaf ?? "")
   if (summary.rootHeld || leaf === undefined || branch === undefined) {

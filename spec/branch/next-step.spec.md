@@ -325,7 +325,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   doesn't), its own pull request (never retargeted: it goes into the target by construction), the readiness of the
   whole stack (`stack:<root>`, below), its stack branch's commits; a branch of it that syncs is its sync. Its texts name
   it "the whole air stack" (`subject`): "Safe Push of the whole air stack waits for Ilya Korennoy". A stack branch the
-  sync didn't build disables its Safe Push and its Dry Run with the reason (`getStackBranchBlocker`: "The stack branch
+  sync didn't build disables its Safe Push and its Dry Run with the reason (`WholeStackView.forking.notBuilt`, `domain_policy::reasons::stack_not_built`: "The stack branch
   conflicts at 0caf9066 in config.js: the stack lands in pieces"); row 7 offers "Create Pull Request of the Stack…"
   ("Create Pull Request…" in the slot of the island header and the landing overview), the code owners of the whole
   stack preselected.
@@ -337,7 +337,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
-- The step of the whole stack knows which branches of it merged Safe Pushes landed already (`getWholeStackRest`, the
+- The step of the whole stack knows which branches of it merged Safe Pushes landed already (`StackLanding.rest`, `domain_policy::stack::whole_stack_rest`, the
   same `getLandedBy` as the rows): a piece that landed its main line leaves the rest, which its Safe Push lands. The
   stack branch still carries the landed commits (Patronus finds them in the target), so the start names and counts
   only the rest: "Safe Push" for one branch left, hover and popover "Lands 1 branch · 2 commits into master in one Safe

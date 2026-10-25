@@ -2,12 +2,12 @@ import { createElement, Fragment } from "react"
 import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { PatronusRobot, PullRequest, Reason } from "@/lib/bindings"
+import type { PatronusRobot, PullRequest, Reason, StackBranchAlong } from "@/lib/bindings"
 import { resetEventToasts } from "@/lib/event-toast"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushBranch, pushForAction } from "@/lib/git/push"
 import { pushStack, pushUpTo, pushWholeStack, pushWithChildren } from "@/lib/git/stack-push"
-import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { Branch, PushOrders, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { operationsStore, runOperation } from "@/stores/operations"
 import { pullRequestsStore } from "@/stores/pull-requests"
@@ -195,25 +195,112 @@ vi.mock("@/lib/bindings", () => ({
   },
 }))
 
-vi.mock("@/stores/branch-sync", () => ({
-  branchSyncStore: { getState: () => ({ baselineBranch: "origin/master", branches: stores.branches }), subscribe: () => () => {} },
-  getBranch: (name: string) => stores.branches[name],
-  getStackBranch: (root: string) => stores.stackBranches[root],
-  getStackDescendants: (name: string) => stores.descendants[name] ?? [],
-  getUnparkedStackDescendants: (name: string) => stores.descendants[name] ?? [],
-  isBranchPushing: () => false,
-  whenSynced: () => stores.synced,
-  whenBranchPushed: async () => {},
-  isStackPushing: (name: string) => Object.hasOwn(stores.stackPushes, name),
-  setBranchPushing: () => {},
-  setStackPush: (startedFrom: string, names: readonly string[] | null) => {
-    const { [startedFrom]: _, ...others } = stores.stackPushes
-    stores.stackPushes = names === null ? others : { ...others, [startedFrom]: names }
-  },
-  setBranchPushProgress: () => {},
-  setBranchesPushProgress: () => {},
-  toRemoteStatus: remoteStatusOf,
-}))
+vi.mock("@/stores/branch-sync", async () => {
+  const { getPushHold } = await import("@/stores/patronus")
+  return {
+    branchSyncStore: { getState: () => ({ baselineBranch: "origin/master", branches: stores.branches }), subscribe: () => () => {} },
+    getBranch: (name: string) => stores.branches[name],
+    getStackBranch: (root: string) => stores.stackBranches[root],
+    // the pushes of a branch as Rust orders them (`domain_policy::push::branch_push`, pinned by push_test.rs), over the
+    // stores of these tests: a fixture, the page decides none of it
+    getPushOrders: (name: string) => pushOrdersOf(name, getPushHold),
+    getStackNotBuilt: (root: string): Reason | null => {
+      const stack = stores.stackBranches[root]
+      if (stack === undefined || stack.members.length === 0) {
+        return { code: "noStackBranch", root }
+      }
+      return stack.state === "Built" && stack.tip !== null
+        ? null
+        : { code: "stackNotBuilt", root, state: stack.state, blockedBy: stack.blockedBy?.member ?? null, conflict: stack.conflict, error: stack.error }
+    },
+    getStackDescendants: (name: string) => stores.descendants[name] ?? [],
+    getUnparkedStackDescendants: (name: string) => stores.descendants[name] ?? [],
+    isBranchPushing: () => false,
+    whenSynced: () => stores.synced,
+    whenBranchPushed: async () => {},
+    isStackPushing: (name: string) => Object.hasOwn(stores.stackPushes, name),
+    setBranchPushing: () => {},
+    setStackPush: (startedFrom: string, names: readonly string[] | null) => {
+      const { [startedFrom]: _, ...others } = stores.stackPushes
+      stores.stackPushes = names === null ? others : { ...others, [startedFrom]: names }
+    },
+    setBranchPushProgress: () => {},
+    setBranchesPushProgress: () => {},
+    toRemoteStatus: remoteStatusOf,
+  }
+})
+
+/**
+ * The pushes of `name` over the stores of these tests, as Rust orders them: the ancestors with work up to the nearest
+ * held one (a landed one left out), the push of an action above the nearest one that asks first, a start over the
+ * robot it replaces, Push with Children of the branch and its descendants with work, and the stack branch along
+ */
+function pushOrdersOf(name: string, holdOf: (name: string) => { kind: string } | null): PushOrders {
+  const work = (it: string) => {
+    const branch = stores.branches[it]
+    const kind = branch?.remoteStatus?.action.kind
+    return branch !== undefined && kind !== undefined && kind !== "upToDate" && branch.status !== "Blocked" && !branch.hasError
+  }
+  const asks = (it: string) => {
+    const action = stores.branches[it]?.remoteStatus?.action
+    return work(it) && action?.kind === "force" && action.drops
+  }
+  const ancestors: string[] = []
+  for (
+    let base = stores.branches[name]?.stack?.effectiveBase ?? null;
+    base !== null && stores.branches[base] !== undefined;
+    base = stores.branches[base]?.stack?.effectiveBase ?? null
+  ) {
+    ancestors.unshift(base)
+  }
+  const chain = ({ holds, stop }: { holds: boolean; stop: boolean }) => {
+    const sent: string[] = []
+    for (const ancestor of [...ancestors].reverse()) {
+      const hold = holdOf(ancestor)
+      if (hold?.kind === "landed") {
+        continue
+      }
+      if ((holds && hold !== null) || (stop && asks(ancestor))) {
+        break
+      }
+      if (work(ancestor)) {
+        sent.unshift(ancestor)
+      }
+    }
+    return [...sent, name]
+  }
+  const action = chain({ holds: true, stop: true })
+  const descendants = stores.descendants[name] ?? []
+  const free = (it: string) => holdOf(it) === null
+  const stack = stores.stackBranches[name]
+  const stackRemote = stack?.remoteStatus ?? null
+  let stackBranch: StackBranchAlong | null = null
+  if (stack !== undefined && stack.members.length > 0) {
+    const hold = stackHoldOf(name)
+    if (stackRemote?.exists !== true && stores.stackPullRequests[name]?.state !== "open") {
+      stackBranch = { kind: "unpublished" }
+    } else if (hold !== null) {
+      stackBranch = { kind: "held", reason: hold }
+    } else if (stack.state !== "Built" || stack.tip === null) {
+      stackBranch = { kind: "notBuilt", reason: { code: "stackNotBuilt", root: name, state: stack.state, blockedBy: null, conflict: stack.conflict, error: stack.error } }
+    } else if (stackRemote?.action.kind === "upToDate") {
+      stackBranch = { kind: "upToDate" }
+    } else {
+      stackBranch = stackRemote?.action.kind === "force" && stackRemote.action.drops ? { kind: "dropsRemote" } : { kind: "along" }
+    }
+  }
+  const order = [...(work(name) && free(name) ? [name] : []), ...descendants.filter(it => work(it) && !asks(it) && free(it))]
+  return {
+    stack: chain({ holds: true, stop: false }),
+    action,
+    button: work(name) && !asks(name) && action.length > 1 ? action : [],
+    start: chain({ holds: false, stop: true }),
+    children:
+      descendants.length === 0
+        ? null
+        : { order, askFirst: descendants.filter(it => asks(it) && free(it)), stackBranch, offers: order.some(it => it !== name) || stackBranch?.kind === "along" },
+  }
+}
 
 /** The remote status of the fields the mocked pushes answer */
 interface RemoteStatusFields {

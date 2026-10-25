@@ -277,13 +277,18 @@ fn states(entries: &[(&'static str, PushState)]) -> impl Fn(&str) -> PushState {
 }
 
 /// Push Stack covers the chain of the effective bases root first up to the nearest held ancestor, whose robot lands
-/// the rest; each branch says what it does: one a merged Safe Push landed is left out, one the sync did not build too
+/// the rest; each branch says what it does: an amended one goes, one a merged Safe Push landed is left out, one the sync
+/// did not build too
 #[test]
 fn push_stack_covers_the_ancestors_up_to_the_nearest_held_one() {
   let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
   let repo = repository(&stacks, &parked);
   let plan = push_plan(&repo, states(&[("auth", PUSH), ("login", PUSH), ("oauth", PUSH)]), "oauth", PushScope::WithAncestors);
   assert_eq!(plan.order(false), ["auth", "login", "oauth"]);
+  // an amended or restacked ancestor goes and asks nothing: its push replaces older versions, it drops nobody's work
+  let replaced = with(force(false, true));
+  let plan = push_plan(&repo, states(&[("auth", PUSH), ("login", replaced), ("oauth", PUSH)]), "oauth", PushScope::WithAncestors);
+  assert_eq!((plan.order(false), plan.ask_first()), (vec!["auth", "login", "oauth"], vec![]));
   let held = kept(Kept::Held);
   let plan = push_plan(&repo, states(&[("auth", PUSH), ("login", held), ("oauth", PUSH)]), "oauth", PushScope::WithAncestors);
   assert_eq!(plan.steps, [("login", Verdict::Held), ("oauth", Verdict::Goes)]);

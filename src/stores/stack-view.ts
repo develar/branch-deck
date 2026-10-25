@@ -1,10 +1,9 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { PushUpToStep } from "@/lib/push-up-to"
-import { buttonStackPushOrder } from "@/lib/stack"
 import { ancestorSegments } from "@/lib/stack-lanes"
 import type { LaneSegmentRow, LaneSegments } from "@/lib/stack-lanes"
-import { getBranch } from "@/stores/branch-sync"
+import { getBranch, getPushOrders } from "@/stores/branch-sync"
 import { getPushHold } from "@/stores/patronus"
 
 /** The branch whose path the graph shows; `push`: from its push button, which marks the nodes the push sends */
@@ -57,7 +56,7 @@ function sameTip(a: StackPathTip | null, b: StackPathTip | null): boolean {
 
 /** The branches a push of `name` sends: the stack its button pushes, else the branch while it has work */
 function pushedBy(name: string): ReadonlySet<string> {
-  const order = buttonStackPushOrder(name, getBranch, it => getPushHold(it) !== null)
+  const order = getPushOrders(name).button
   if (order.length > 0) {
     return new Set(order)
   }

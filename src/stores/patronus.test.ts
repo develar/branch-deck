@@ -263,14 +263,16 @@ vi.mock("@/stores/branch-sync", () => ({
   getBranch: (name: string) => branches.current[name],
   getStackBranch: (root: string) => branches.stacks[root],
   whenSynced: () => branches.synced,
-  // the structure Rust sent: the branches built on `name`, parents first, by the parent each was placed on
+  // the structure Rust sent: the branches built on `name`, parents first, by the parent each was placed on, and those
+  // it is built on, root first
   structureIn: (state: { branches: Record<string, { name: string; stack?: { effectiveBase: string | null } }> }, name: string) => {
     const children = (parent: string): string[] =>
       Object.values(state.branches)
         .filter(branch => branch.stack?.effectiveBase === parent)
         .flatMap(branch => [branch.name, ...children(branch.name)])
-    return { descendants: children(name) }
+    return { descendants: children(name), ancestors: ancestorsOf(state.branches, name) }
   },
+  getStackAncestors: (name: string) => ancestorsOf(branches.current as Record<string, { stack?: { effectiveBase: string | null } }>, name),
   useStackBranch: () => undefined,
   useBranchSync: () => undefined,
   useBranchTip: () => undefined,
@@ -453,6 +455,17 @@ async function list(answer: RobotsAnswer = patronus.list!): Promise<void> {
 async function poll(answer: RobotsAnswer = patronus.poll!): Promise<void> {
   answerRobots(answer, false, true)
   await vi.advanceTimersByTimeAsync(0)
+}
+
+/** The branches `name` is built on, root first, by the effective base each was placed on */
+function ancestorsOf(table: Record<string, { stack?: { effectiveBase: string | null } }>, name: string): string[] {
+  const found: string[] = []
+  let base = table[name]?.stack?.effectiveBase ?? null
+  while (base !== null && !found.includes(base) && table[base] !== undefined) {
+    found.unshift(base)
+    base = table[base]?.stack?.effectiveBase ?? null
+  }
+  return found
 }
 
 function setBranches(...names: string[]): void {

@@ -8,14 +8,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RequestReviewPopover } from "@/components/branch/RequestReviewPopover"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
-import { isForkingStack } from "@/hooks/useStackNextStep"
 import type { PullRequest } from "@/lib/bindings"
 import type { NextStepTone } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { useStackBranch } from "@/stores/branch-sync"
+import { useStackBranch, useWholeStack } from "@/stores/branch-sync"
 import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import { setRequestReviewOpen, useRequestReviewOpen } from "@/stores/request-review-popover"
 import { useReviewReadiness } from "@/stores/review-readiness"
@@ -163,9 +162,9 @@ export function RequestReviewSlot({ owner, pullRequest, step }: { owner: Pick<Br
  */
 function RequestReviewAnchors({ branch, wholeStack }: { branch: Branch; wholeStack: boolean }) {
   const own = usePullRequest(branch.name)?.state === "open"
-  const stack = useStackBranch(branch.name)
+  const forks = useWholeStack(branch.name)?.kind === "forking"
   const stackPullRequest = useStackPullRequest(branch.name)
-  const ofStack = wholeStack && isForkingStack(stack) && stackPullRequest?.state === "open"
+  const ofStack = wholeStack && forks && stackPullRequest?.state === "open"
   if (!own && !ofStack) {
     return null
   }
@@ -197,8 +196,9 @@ export function GaplessAnchors({ children }: { children: ReactNode }) {
  */
 export function WholeStackRequestReviewAnchor({ root }: { root: string }) {
   const stack = useStackBranch(root)
+  const forks = useWholeStack(root)?.kind === "forking"
   const pullRequest = useStackPullRequest(root)
-  if (!isForkingStack(stack)) {
+  if (!forks || stack === undefined) {
     return null
   }
   return <RequestReviewSlot owner={{ name: stackReadinessKey(root), remoteStatus: stack.remoteStatus }} pullRequest={pullRequest} step={null} />

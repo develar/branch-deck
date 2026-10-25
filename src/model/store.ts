@@ -390,6 +390,9 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (changes === null || Object.keys(changes.stacks ?? {}).length > 0 || (changes.removedStacks?.length ?? 0) > 0) {
     update.stackBranches = stackBranchesOf(state.stackBranches, next, changes)
   }
+  if (changes === null || Object.keys(changes.pushes ?? {}).length > 0 || (changes.removedPushes?.length ?? 0) > 0) {
+    update.pushes = next.pushes
+  }
   if (changes === null || changes.unassigned != null) {
     update.unassignedCommits = next.sections.unassigned
   }
@@ -596,6 +599,7 @@ function toStructure(view: StructureView): BranchStructure {
     mainLine: view.mainLine ?? ROOT_STRUCTURE.mainLine,
     parked: view.parked ?? null,
     stackParked: view.stackParked ?? null,
+    wholeStack: view.wholeStack ?? null,
     section: view.section ?? "main",
   }
 }
@@ -711,6 +715,7 @@ function resetTable(): void {
     stackParents: {},
     parked: {},
     stackBranches: {},
+    pushes: {},
   })
   resetArchivedBranches()
   resetUnappliedBranches()

@@ -7,9 +7,8 @@ import { commandFailure, notifyError } from "@/lib/errors"
 import { formatRobotSubject } from "@/lib/patronus"
 import { buildRobotPrompt } from "@/lib/robot-prompt"
 import { openSettings } from "@/lib/settings-window"
-import { stackAncestors } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
-import { branchSyncStore } from "@/stores/branch-sync"
+import { branchSyncStore, structureIn } from "@/stores/branch-sync"
 import { patronusRequest } from "@/stores/patronus"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
 
@@ -23,16 +22,16 @@ export interface RobotPrompt {
 }
 
 /**
- * The branches the robot's branch is built on, root first (`stackAncestors`): the robot of a stacked branch builds the
+ * The branches the robot's branch is built on, root first (`BranchStructure.ancestors`): the robot of a stacked branch builds the
  * whole stack, so the commit map has their commits too; empty for a root branch. For the robot of the whole stack, the
  * branches of the stack, the root first: its stack branch holds the commits of them all.
  */
 export function robotAncestors(robot: PatronusRobot): string[] {
-  const { branches, stackBranches } = branchSyncStore.getState()
+  const state = branchSyncStore.getState()
   if (robot.branchName === null) {
-    return robot.stackRoot == null ? [] : [...(stackBranches[robot.stackRoot]?.members ?? [])]
+    return robot.stackRoot == null ? [] : [...(state.stackBranches[robot.stackRoot]?.members ?? [])]
   }
-  return stackAncestors(robot.branchName, name => branches[name]).map(branch => branch.name)
+  return [...structureIn(state, robot.branchName).ancestors]
 }
 
 async function readAgentCliCommand(repositoryPath: string): Promise<AgentCliCommand | null> {

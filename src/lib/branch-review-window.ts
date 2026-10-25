@@ -7,7 +7,7 @@ import { getCommitMenuGroups } from "@/hooks/useCommitMoveList"
 import { getCreatePullRequestContext, getStackPullRequestContext } from "@/hooks/useCreatePullRequestContext"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { getRewordMenuItem } from "@/hooks/useRewordCommit"
-import { getWholeStackRest, isForkingStack } from "@/hooks/useStackNextStep"
+import { wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { BranchReviewPart, PatronusReviewRequirement } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
@@ -20,12 +20,12 @@ import { formatShortHash } from "@/lib/hash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem, FROM_MENU } from "@/lib/menu"
 import { showRepository } from "@/lib/show-repository"
-import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { showToast } from "@/lib/toast-message"
-import { formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
+import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, showReviewReadiness } from "@/model/demand"
-import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, mainLineOf } from "@/stores/branch-sync"
+import { formatReasonOrNull } from "@/presenters/reasons"
+import { branchSyncStore, getBranch, getStackAncestors, getStackBranch, getStackDescendants, getStackNotBuilt, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { requestCommitForm, requestReveal } from "@/stores/commit-move"
 import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
@@ -111,7 +111,7 @@ function getBranchReviewSource(branchName: string, focus: BranchReviewFocus): Br
   return {
     repositoryPath,
     baselineBranch,
-    chain: [...stackAncestors(branchName, getBranch).map(branch => branch.name), branchName],
+    chain: [...getStackAncestors(branchName), branchName],
     groups: focus.groups ?? reviewGroupsOf(branchName),
   }
 }
@@ -340,12 +340,12 @@ function wholeStackScopeOf(chain: readonly string[], baselineBranch: string): Wh
     return null
   }
   const stack = getStackBranch(root)
-  if (isForkingStack(stack)) {
-    const blocker = stack.tip === null ? (getStackBranchBlocker(root, stack) ?? "The stack branch is not built yet: sync first") : null
+  if (stack !== undefined && isForkingRoot(branchSyncStore.getState(), root)) {
+    const blocker = stack.tip === null ? (formatReasonOrNull(getStackNotBuilt(root)) ?? "The stack branch is not built yet: sync first") : null
     if (blocker !== null) {
       return { root, disabled: true, description: blocker }
     }
-    const rest = getWholeStackRest(stack)
+    const rest = wholeStackRestOf(root)
     return {
       root,
       description: `Every branch of ${formatWholeStack(root)}, its side branches too, on ${baselineBranch}: ${formatBranchesAndCommits(rest.members.length, rest.commitCount)}, what its Safe Push lands`,
@@ -628,7 +628,7 @@ async function moveReview(
     if (scope === null || scope.disabled === true) {
       return refuse(scope?.description ?? `${root} heads no stack beyond ${chain.at(-1)}`)
     }
-    if (isForkingStack(getStackBranch(root))) {
+    if (isForkingRoot(branchSyncStore.getState(), root)) {
       return openWholeStackReviewWindow(root, { from: chain })
     }
     return openBranchReviewWindow(mainLineOf(branchSyncStore.getState(), root).at(-1) ?? root, { range: "all" })

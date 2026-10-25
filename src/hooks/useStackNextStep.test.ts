@@ -1,7 +1,7 @@
 // @spec spec/branch/next-step.spec.md
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { getStackNextStepNow, readinessKeysNeedingAnswer } from "@/hooks/useStackNextStep"
-import type { BranchPatronus, MissingReviewGroup, PatronusRobot, PatronusView, PullRequest, Reason, ReviewReadiness } from "@/lib/bindings"
+import type { BranchPatronus, MissingReviewGroup, PatronusRobot, PatronusView, PullRequest, Reason, ReviewReadiness, RobotOf } from "@/lib/bindings"
 import { robotsById, testRobot } from "@/lib/test-robot"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
@@ -47,7 +47,7 @@ function stackBranch(patch: Partial<StackBranch> = {}): StackBranch {
 function setStack(stack: StackBranch | null, list: readonly Branch[] = branches): void {
   const branchOrder = list.map(it => it.name)
   branchSyncStore.setState({
-    ...placed({ branches: Object.fromEntries(list.map(it => [it.name, it])), branchOrder }),
+    ...placed({ branches: Object.fromEntries(list.map(it => [it.name, it])), branchOrder, stackBranches: stack === null ? {} : { air: stack } }),
     branchOrder,
     stacksEnabled: true,
     baselineBranch: "origin/master",
@@ -241,12 +241,20 @@ describe("the next step of the whole stack", () => {
   it("lands only the rest after a piece landed its main line, and offers nothing once every branch of it landed", () => {
     // the Safe Push of deploy landed air, bazel and deploy: side is left, with its 2 commits
     const byDeploy = { air: landedWholeBy("deploy", "d1"), bazel: landedWholeBy("deploy", "d1"), deploy: landedWholeBy("deploy", "d1", true) }
-    setRobotsAndView([testRobot("d1", "deploy", { status: "success", sourceRevision: "deploy-tip", finishTime: 200 })], { branches: byDeploy })
+    // what is left of it as Rust decides it (`StackLanding.rest`, `whole_stack_rest`)
+    const deploy = robotOf("deploy", "d1")
+    const rest = (members: string[], commitCount: number, landed: string[], by: RobotOf[]) => ({
+      stacks: { air: stackFacts({ landing: { rest: { members, commitCount, landed, by, byOwnRobot: false } } }) },
+    })
+    setRobotsAndView([testRobot("d1", "deploy", { status: "success", sourceRevision: "deploy-tip", finishTime: 200 })], {
+      branches: byDeploy,
+      ...rest(["side"], 2, ["air", "bazel", "deploy"], [deploy]),
+    })
     setReadiness({ kind: "notRequired" })
-    const rest = "Lands 1 branch · 2 commits into master in one Safe Push: side; air, bazel and deploy landed with deploy"
+    const lands = "Lands 1 branch · 2 commits into master in one Safe Push: side; air, bazel and deploy landed with deploy"
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       kind: "safePush",
-      item: { label: "Safe Push", disabled: false, description: rest },
+      item: { label: "Safe Push", disabled: false, description: lands },
       safePushBlocker: null,
     })
     // side landed too, with its own Safe Push: nothing of the whole stack is left
@@ -255,7 +263,7 @@ describe("the next step of the whole stack", () => {
         testRobot("d1", "deploy", { status: "success", sourceRevision: "deploy-tip", finishTime: 200 }),
         testRobot("s1", "side", { status: "success", sourceRevision: "side-tip", finishTime: 300 }),
       ],
-      { branches: { ...byDeploy, side: landedWholeBy("side", "s1", true) } },
+      { branches: { ...byDeploy, side: landedWholeBy("side", "s1", true) }, ...rest([], 0, ["air", "bazel", "deploy", "side"], [deploy, robotOf("side", "s1")]) },
     )
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       kind: "none",

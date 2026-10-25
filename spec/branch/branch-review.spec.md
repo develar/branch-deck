@@ -167,7 +167,7 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   branches outside the chain (`WholeStackScope` of the window state, `wholeStackScopeOf`): one group "Scope" of the
   two, one pressed at most. Of a stack that forks it is the review of its stack branch, its hover "Every branch of the
   whole air stack, its side branches too, on origin/master: 7 branches · 14 commits, what its Safe Push lands" (what is
-  left of it, `getWholeStackRest`), disabled with the reason while the stack branch is not built; of a straight chain
+  left of it, `StackLanding.rest`), disabled with the reason while the stack branch is not built; of a straight chain
   it is the review of its last branch from the root ("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3
   commits, what the Safe Push of perf-part-2 lands"), and its last branch has none: From Root is the whole stack. The
   window asks the main window (`{ scope: "wholeStack" }`), which opens the review with the chain as the way back.

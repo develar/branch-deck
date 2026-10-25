@@ -1,11 +1,10 @@
 import type { PatronusRobot, PullRequest, RobotLandedBranch } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { repositoryName } from "@/lib/repository-config"
-import { stackAncestors } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { getBranch, getStackBranch } from "@/stores/branch-sync"
+import { getBranch, getStackAncestors, getStackBranch } from "@/stores/branch-sync"
 import { rememberLandedStackRoot } from "@/stores/landed-stacks"
 import { closePullRequest, getPullRequest, getStackPullRequest } from "@/stores/pull-requests"
 import { getFullBranchName, getFullStackBranchName } from "@/stores/repository"
@@ -109,7 +108,7 @@ function rememberLandedRoot(robot: PatronusRobot): string | null {
   if (name === null || robot.pushMode === "dryRun") {
     return null
   }
-  const root = stackAncestors(name, getBranch)[0]?.name ?? name
+  const root = getStackAncestors(name)[0] ?? name
   const pullRequest = getStackPullRequest(root)
   if (pullRequest?.state !== "open") {
     return null

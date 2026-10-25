@@ -6,14 +6,17 @@ import type {
   AutosquashPlan,
   BranchError,
   BranchOrigin,
+  BranchPush,
   BranchStack,
   BranchStatus,
   Commit,
   CommitSyncStatus,
   DroppedCommit,
   PushAction,
+  Reason,
   RemoteStatusUpdate,
   RowsView,
+  StackBranchAlong,
   StackBranchConflict,
   StackBranchState,
   StackMemberBlock,
@@ -21,6 +24,7 @@ import type {
   SyncStep,
   UpdateCheck,
   Version,
+  WholeStackView,
   WordResolutionSummary,
 } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
@@ -231,6 +235,11 @@ export interface BranchSyncState {
    * their update comes, and drops the others.
    */
   stackBranches: Readonly<Record<string, StackBranch>>
+  /**
+   * Branch -> what its pushes send besides it, as Rust orders them (`RepositoryView.pushes`, `domain_policy::push`): a
+   * branch not listed pushes alone; read through `pushOrdersIn`
+   */
+  pushes: Readonly<Record<string, BranchPush>>
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -259,6 +268,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   stackParents: {},
   parked: {},
   stackBranches: {},
+  pushes: {},
 }))
 
 /**
@@ -544,6 +554,101 @@ function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> 
  */
 export function mainLineOf(state: BranchSyncState, root: string): string[] {
   return [root, ...structureIn(state, root).mainLine]
+}
+
+/** The branches `name` is built on, root first (`BranchStructure.ancestors`, the chain of its effective bases) */
+export function getStackAncestors(name: string): readonly string[] {
+  return structureIn(branchSyncStore.getState(), name).ancestors
+}
+
+/** The whole stack `root` heads (`BranchStructure.wholeStack`): its stack branch while the stack forks, else the last branch of a straight chain */
+export function getWholeStack(root: string): WholeStackView | null {
+  return structureIn(branchSyncStore.getState(), root).wholeStack
+}
+
+/** `getWholeStack`, re-rendering when it changes */
+export function useWholeStack(root: string): WholeStackView | null {
+  return useStore(branchSyncStore, state => structureIn(state, root).wholeStack)
+}
+
+/**
+ * Why the stack branch of `root` can't be pushed or landed now, as Rust decides it (`WholeStackView.forking.notBuilt`;
+ * `noStackBranch` while the stack doesn't fork); null while the sync built it: only a built stack branch has the commits
+ * of the stack as they are, the stack lands in pieces otherwise
+ */
+export function getStackNotBuilt(root: string): Reason | null {
+  const whole = structureIn(branchSyncStore.getState(), root).wholeStack
+  return whole?.kind === "forking" ? (whole.notBuilt ?? null) : { code: "noStackBranch", root }
+}
+
+/** Whether `root` heads a stack that forks, whose stack branch lands it */
+export function isForkingRoot(state: BranchSyncState, root: string): boolean {
+  return structureIn(state, root).wholeStack?.kind === "forking"
+}
+
+/**
+ * What the pushes of a branch send, root first, the branch last, as Rust orders them (`BranchPush`,
+ * `domain_policy::push::branch_push`); the page decides none of it
+ */
+export interface PushOrders {
+  /** Push Stack: the branches it is built on that have work for the remote, up to the nearest one a Safe Push holds */
+  readonly stack: readonly string[]
+  /** The push of an action (a pull request, a review request): as `stack`, above the nearest branch that asks first */
+  readonly action: readonly string[]
+  /** What the push button pushes when it pushes the stack (`action`); empty: the branch alone */
+  readonly button: readonly string[]
+  /** The push of a Safe Push start, which cancels the robot it replaces and pushes what that one held */
+  readonly start: readonly string[]
+  /** Push with Children; null for a branch nothing but parked branches is stacked on */
+  readonly children: ChildrenPushOrder | null
+}
+
+/** What Push with Children of a branch sends (`ChildrenPush`) */
+export interface ChildrenPushOrder {
+  /** The branch while it has work for the remote, then the branches stacked on it that have work, parents first */
+  readonly order: readonly string[]
+  /** The branches stacked on it whose push drops remote commits: left out, each asks first in its row */
+  readonly askFirst: readonly string[]
+  /** Of the root of a stack that forks: what the push does with the stack branch of the whole stack */
+  readonly stackBranch: StackBranchAlong | null
+  /** It pushes more than the branch itself */
+  readonly offers: boolean
+}
+
+const NO_PUSH: BranchPush = {}
+
+/**
+ * The pushes of `name` (`PushOrders`). A list the view leaves out is the one of the structure (every ancestor, every
+ * branch stacked on it); one the view has not ordered yet, while the first sync runs, sends only what has a remote
+ * status
+ */
+export function pushOrdersIn(state: BranchSyncState, name: string): PushOrders {
+  const push = state.pushes[name] ?? NO_PUSH
+  const structure = structureIn(state, name)
+  const known = (names: readonly string[]) => names.filter(it => state.branches[it]?.remoteStatus != null)
+  const stack = [...(push.stack ?? known(structure.ancestors)), name]
+  const action = push.action == null ? stack : [...push.action, name]
+  const children = push.children
+  return {
+    stack,
+    action,
+    button: push.button === true ? action : [],
+    start: push.start == null ? action : [...push.start, name],
+    children:
+      children == null
+        ? null
+        : {
+            order: children.order ?? [name, ...structure.descendants],
+            askFirst: children.askFirst ?? [],
+            stackBranch: children.stackBranch ?? null,
+            offers: children.offers === true,
+          },
+  }
+}
+
+/** `pushOrdersIn` of the stores now */
+export function getPushOrders(name: string): PushOrders {
+  return pushOrdersIn(branchSyncStore.getState(), name)
 }
 
 /** The branches stacked directly on `name`, newest first */
@@ -879,17 +984,17 @@ export function getStackBranch(root: string): StackBranch | undefined {
 }
 
 /**
- * The root whose whole stack a Safe Push of `name` can land instead (the popover offers it): the root of the stack
- * that forks and holds the branch (`StackBranch.members`), else `name` itself while it heads a straight chain; null for
- * a branch outside a stack and for one inside a straight chain, whose whole stack its last branch's Safe Push lands
+ * The root whose whole stack a Safe Push of `name` can land instead (the popover offers it), as the view places the
+ * whole stacks (`BranchStructure.wholeStack`, by declared parent): the root of the stack of `name` while it forks, else
+ * `name` itself while it heads a straight chain; null for a branch outside a stack and for one inside a straight chain,
+ * whose whole stack its last branch's Safe Push lands
  */
 export function wholeStackRootIn(state: BranchSyncState, name: string): string | null {
-  const forking = Object.values(state.stackBranches).find(stack => stack.members.includes(name))
-  if (forking !== undefined) {
-    return forking.root
+  const root = stackRootIn(state.branches, name)
+  if (isForkingRoot(state, root)) {
+    return root
   }
-  const structure = structureIn(state, name)
-  return structure.parent === null && structure.descendants.length > 0 ? name : null
+  return root === name && structureIn(state, name).wholeStack?.kind === "chain" ? name : null
 }
 
 /** The stack branch of the stack that forks and holds the branch `name` (`StackBranch.members`); undefined otherwise */

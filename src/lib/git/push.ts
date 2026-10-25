@@ -14,7 +14,6 @@ import { describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
-import { buttonStackPushOrder, stackPushOrder } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { pushProgressOf } from "@/lib/transfer-progress"
@@ -22,7 +21,17 @@ import { whenSessionViewAt } from "@/model/store"
 import { formatPushHoldReason, formatReasonOrNull } from "@/presenters/reasons"
 import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, toRemoteStatus, whenBranchPushed, whenSynced } from "@/stores/branch-sync"
+import {
+  branchSyncStore,
+  getBranch,
+  getPushOrders,
+  isBranchPushing,
+  setBranchPushing,
+  setBranchPushProgress,
+  toRemoteStatus,
+  whenBranchPushed,
+  whenSynced,
+} from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchLanding, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
@@ -444,11 +453,11 @@ export function pushOrConfirm(branchName: string, target: PushConfirmTarget, opt
 }
 
 /**
- * What a click on the push button of the branch pushes: the stack while an ancestor has work for the remote
- * (`buttonStackPushOrder`), else the branch
+ * What a click on the push button of the branch pushes: the stack while an ancestor has work for the remote, as Rust
+ * orders it (`PushOrders.button`), else the branch
  */
 export function pushFromButton(branchName: string): void {
-  if (buttonStackPushOrder(branchName, getBranch, name => getPushHold(name) !== null).length > 0) {
+  if (getPushOrders(branchName).button.length > 0) {
     void pushStack(branchName, { stopAtConfirm: true })
   } else {
     void pushBranch(branchName)
@@ -553,11 +562,6 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
   if (blocker !== null) {
     return { pushed: false, reason: blocker }
   }
-  // the robot the start replaces lands nothing once the push cancels it: the branches it held are pushed too
-  const isHeld = (name: string): boolean => {
-    const hold = getPushHold(name)
-    return hold !== null && hold.robot.id !== options.replacesRobot?.id
-  }
   let reason: string | null = null
   let canceled = false
   const report: PushReport = Object.assign(
@@ -567,7 +571,9 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
     { canceled: () => (canceled = true) },
   )
   const replacesRobot = options.replacesRobot
-  const order = stackPushOrder(branchName, getBranch, { stopAtConfirm: true, isHeld })
+  // the robot the start replaces lands nothing once the push cancels it: the branches it held are pushed too
+  const orders = getPushOrders(branchName)
+  const order = replacesRobot === undefined ? orders.action : orders.start
   let pushed: boolean
   if (order.length === 1 && (branch.remoteStatus?.action.kind ?? "upToDate") === "upToDate") {
     // nothing to push: the robot a start replaces is canceled for the start alone

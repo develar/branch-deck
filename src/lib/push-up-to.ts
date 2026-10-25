@@ -4,7 +4,6 @@ import { formatParkedBlocker } from "@/lib/parked"
 import type { LandedBy, PushHold } from "@/lib/patronus"
 import { formatLandingSubject, isLandedCommit } from "@/lib/patronus"
 import { formatForcePushPart } from "@/lib/remote-status"
-import { stackAncestors } from "@/lib/stack"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 
 /** One push of a Push Up to Here, root first */
@@ -83,7 +82,7 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, hol
     return { ok: false, reason: `${name} was rewritten since its push: it pushes whole.` }
   }
   const steps: PushUpToStep[] = []
-  for (const ancestor of stackAncestors(name, branchOf)) {
+  for (const ancestor of branch.structure.ancestors.flatMap(it => branchOf(it) ?? [])) {
     // all of it is in the target: the branch is pushed without it
     if (holdOf(ancestor.name)?.kind === "landed") {
       continue

@@ -1,10 +1,7 @@
 // The app's side of the scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` seeded
 // into the stores, then the app's own readers (`getBranchNextStepOf`, `getStackNextStepNow`, `readSafePush`), today's
 // answer expected; `crates/bd-remote/src/scenario_test.rs` is the side of bd
-import { afterEach, describe, expect, it, vi } from "vite-plus/test"
-import { getStackNextStepNow } from "@/hooks/useStackNextStep"
-import { branchSyncStore, getStackDescendants, mainLineOf } from "@/stores/branch-sync"
-import { testBranch } from "@/stores/test-branch"
+import { describe, expect, it, vi } from "vite-plus/test"
 import type { ExercisedCase, ScenarioCase } from "@/test-support/scenario-case"
 import { appOutcome, bdOutcome, isExercised, scenarioCase } from "@/test-support/scenario-case"
 import { UPDATE_FACTS, factsOf, nextStepOf, safePushReadOf, seedReadiness, seedScenario } from "@/test-support/scenario-facts"
@@ -223,41 +220,4 @@ describe("scenario cases", () => {
       expect(failures, `${failures.length} of ${ofGroup.length} cases of ${group} answer otherwise`).toEqual([])
     })
   }
-})
-
-describe("the whole stack of D8", () => {
-  afterEach(() => {
-    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, stackBranches: {} })
-  })
-
-  // the table the sync of `the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8` answers (its
-  // registry entry `d8-whole-stack-parent`): A its own parent, C declared on B, which has no commits, blocked by A. bd
-  // answers the chain A → C (`whole_stack_of` follows `blocked_by`); the app follows `effectiveBase ?? declaredParent`,
-  // B, which no row has: C is a root of its own, and the island of A has no whole stack
-  it("the whole stack of a blocked branch with an inactive declared parent is d8", () => {
-    const a = testBranch("A", null, {
-      stack: {
-        ...testBranch("A", null).stack!,
-        problems: [
-          {
-            problem: { SelfParent: ["a2"] },
-            label: "its own parent",
-            reason: "A is declared as its own parent",
-            message: "A prefix makes the branch its own parent: a2",
-            commits: [],
-            fixes: ["Unstack"],
-          },
-        ],
-      },
-    })
-    const c = testBranch("C", "B", {
-      stack: { ...testBranch("C", "B").stack!, parentState: "Missing", effectiveBase: null, blockedBy: { parent: "A", reason: "Problem" }, prBaseChanged: true },
-    })
-    branchSyncStore.setState({ branches: { C: c, A: a }, branchOrder: ["C", "A"], stacksEnabled: true, baselineBranch: "origin/master", stackBranches: {} })
-
-    const state = branchSyncStore.getState()
-    expect({ a: mainLineOf(state, "A"), c: mainLineOf(state, "C") }).toEqual({ a: ["A"], c: ["C"] })
-    expect(getStackDescendants("A")).toEqual([])
-    expect(getStackNextStepNow("A")).toBeNull()
-  })
 })

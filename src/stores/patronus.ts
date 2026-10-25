@@ -39,7 +39,6 @@ import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import type { RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
-import { stackAncestors } from "@/lib/stack"
 import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { recordRobot } from "@/stores/activity"
@@ -443,8 +442,7 @@ export function getLandedBy(branchName: string): LandedBy | null {
  * with commits after the landed ones lands them.
  */
 export function getLandingBranchCount(branchName: string): number {
-  const branches = branchSyncStore.getState().branches
-  return stackAncestors(branchName, name => branches[name]).filter(ancestor => !isLandedWhole(getLandedBy(ancestor.name))).length + 1
+  return structureIn(branchSyncStore.getState(), branchName).ancestors.filter(ancestor => !isLandedWhole(getLandedBy(ancestor))).length + 1
 }
 
 /**

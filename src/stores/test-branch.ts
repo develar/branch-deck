@@ -1,4 +1,4 @@
-import type { PushAction, RowsView } from "@/lib/bindings"
+import type { PushAction, RowsView, WholeStackView } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
 import { layoutStack } from "@/lib/stack-lanes"
 import type { BranchStructure } from "@/model/structure"
@@ -85,7 +85,7 @@ export interface TestTable {
 /**
  * `table` placed as `repository_model::derive` places a table for the view, so a page test reads the structure the page
  * gets: of each branch its children, descendants and main line by its `structure.parent`, its ancestors by
- * `stack.effectiveBase`, parked by the chain it is built on, and the rows of each section. A fixture of the page tests
+ * `stack.effectiveBase`, parked by the chain it is built on, the whole stack of each root, and the rows of each section. A fixture of the page tests
  * only: the rules are Rust's (`domain_policy::stack`, `domain_policy::parked`), and their table tests pin them
  */
 export function placed(table: TestTable): { branches: Record<string, Branch>; rows: RowsView } {
@@ -141,6 +141,31 @@ export function placed(table: TestTable): { branches: Record<string, Branch>; ro
     }
     return null
   }
+  // of a root: its stack branch while it forks, else the last branch of a straight chain that is not parked
+  const wholeStack = (name: string): WholeStackView | null => {
+    if (parentOf(name) !== null) {
+      return null
+    }
+    const stack = stackBranches[name]
+    if (stack !== undefined && stack.members.length > 0) {
+      const built = stack.state === "Built" && stack.tip !== null
+      return {
+        kind: "forking",
+        notBuilt: built
+          ? null
+          : { code: "stackNotBuilt", root: name, state: stack.state, blockedBy: stack.blockedBy?.member ?? null, conflict: stack.conflict, error: stack.error },
+      }
+    }
+    const chain = [name]
+    for (let next = children(name); next.length === 1 && !chain.includes(next[0]!); next = children(next[0]!)) {
+      chain.push(next[0]!)
+    }
+    if (children(chain.at(-1)!).length > 1) {
+      return null
+    }
+    const leaf = chain.findLast(it => parkedState(it) === null) ?? name
+    return leaf === name ? null : { kind: "chain", leaf }
+  }
   const placedBranches: Record<string, Branch> = { ...branches }
   for (const name of names) {
     const state = parkedState(name)
@@ -155,6 +180,7 @@ export function placed(table: TestTable): { branches: Record<string, Branch>; ro
         .map(row => row.name),
       parked: state,
       stackParked: member === undefined ? null : { member, parked: parkedState(member)! },
+      wholeStack: wholeStack(name),
       section: state === null ? "main" : "parked",
     }
     placedBranches[name] = { ...branches[name]!, structure }

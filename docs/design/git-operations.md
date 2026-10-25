@@ -3144,7 +3144,7 @@ per branch: a push that stopped at a failure left the stack half pushed, a child
 lacks, and its pull request showing the parent's commits.
 
 1. The page waits for a running sync and for a push of one of the branches from another row, then computes the order
-   on the branches as they are (`stackPushOrder`, `stackChildrenPushOrder`, the steps of Push Up to Here). The holds
+   on the branches as they are (`domain_policy::push::push_plan` in the view, `RepositoryView.pushes`; the steps of Push Up to Here). The holds
    are checked per branch (`checkPushHold`; a held one refuses the whole push, the robot a Safe Push start replaces is
    canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
 2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one sequence,
@@ -3213,7 +3213,7 @@ lacks, and its pull request showing the parent's commits.
    with `wholeStack` (no parent, no tip), leased on the remote head of its remote status, only while the sync built it:
    alone by the start of the Safe Push of the whole stack and the restart of its robot, the creation of its pull
    request and Request Review on it (`pushWholeStack`), the branches of the stack left as they are; and after the
-   branches by Push with Children of the root (`getStackBranchAlong`), once it is on the remote or the pull request of
+   branches by Push with Children of the root (`domain_policy::push::stack_branch_along`), once it is on the remote or the pull request of
    the whole stack is open, so that pull request follows its branches, as `bd push <root> --with-children` does. A
    refusal names it apart from its root's virtual branch (`PushBranchesOutcome::RemoteMoved::whole_stack`). One push
    of it runs at a time: a second request while one runs joins it (`runningStackBranchPushes`) and then pushes only

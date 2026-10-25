@@ -4,7 +4,7 @@ import type { PushHold } from "@/lib/patronus"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import { testRobot } from "@/lib/test-robot"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
+import { CREATE, forcePush, placed, PUSH, testBranch, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
 
 /** `count` commits of `name`, newest first, as a branch lists them: `name-1` the oldest, its virtual id `v-name-1` */
 function commits(name: string, count: number): SyncedCommit[] {
@@ -35,8 +35,9 @@ function branch(name: string, parent: string | null, count: number, overrides: P
 }
 
 function sources(...branches: Branch[]) {
-  const byName = new Map(branches.map(it => [it.name, it]))
-  return { branchOf: (name: string) => byName.get(name), holdOf: () => null, landedOf: () => null, parkedOf: () => null }
+  // placed as the view places them: the ancestors of each by its effective base
+  const table = placed({ branches: Object.fromEntries(branches.map(it => [it.name, it])), branchOrder: branches.map(it => it.name).toReversed() })
+  return { branchOf: (name: string) => table.branches[name], holdOf: () => null, landedOf: () => null, parkedOf: () => null }
 }
 
 describe("pushUpToPlan", () => {

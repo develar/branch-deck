@@ -54,22 +54,10 @@ import { describeStart, formatStartLabel, getPullRequestStart } from "@/lib/patr
 import type { RobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
-import {
-  buttonStackPushOrder,
-  describePushWithChildrenBlocker,
-  formatBlockedReason,
-  formatPushWithChildrenLabel,
-  hasStackFix,
-  offersPushWithChildren,
-  stackAncestors,
-  stackAskFirst,
-  stackChildrenPushOrder,
-  stackOnFixes,
-  stackProblemOf,
-} from "@/lib/stack"
+import { describePushWithChildrenBlocker, formatBlockedReason, formatPushWithChildrenLabel, hasStackFix, stackOnFixes, stackProblemOf } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
-import { describeStackBranchAlong, getStackBranchAlong } from "@/lib/whole-stack"
-import { formatPushHoldReason, formatStackHold } from "@/presenters/reasons"
+import { describeStackBranchAlong } from "@/lib/whole-stack"
+import { formatPushHoldReason } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
@@ -77,6 +65,8 @@ import {
   getBranch,
   getBranchTableOrder,
   getIssueGroups,
+  getPushOrders,
+  getStackAncestors,
   getStackBranch,
   getParkedState,
   getStackChildren,
@@ -97,7 +87,6 @@ import {
   getLandingBranchCount,
   getPatronusGitHubRepository,
   getPushHold,
-  getStackLanding,
   isPatronusAvailable,
   isPatronusOffered,
   isPatronusPending,
@@ -356,7 +345,7 @@ function getPushMenuItems(branch: Branch): MenuItem[] {
   if (!enabled) {
     description = getPushBlocker(branch, { isPushing, stackPushing, processing })
   } else if (button.pushesStack) {
-    description = `Pushes ${joinNames(buttonStackPushOrder(branch.name, getBranch, name => getPushHold(name) !== null))}, parents first`
+    description = `Pushes ${joinNames(getPushOrders(branch.name).button)}, parents first`
   }
   const push: MenuItem = {
     id: "push",
@@ -755,7 +744,7 @@ function getStackViewItems(branch: Branch): MenuItem[] {
     )
   }
   // every branch of a stack is a piece of the whole stack: one submenu, its root's, on each of them
-  const root = stackAncestors(branch.name, getBranch)[0]?.name ?? (getStackDescendants(branch.name).length > 0 ? branch.name : null)
+  const root = getStackAncestors(branch.name)[0] ?? (getStackDescendants(branch.name).length > 0 ? branch.name : null)
   const wholeStack = root === null ? [] : getWholeStackMenuItems(root, { withPush: false })
   if (wholeStack.length > 0) {
     items.push({ id: "whole-stack", label: "Whole Stack", icon: LayersIcon, onSelect: () => {}, children: wholeStack })
@@ -765,54 +754,48 @@ function getStackViewItems(branch: Branch): MenuItem[] {
 
 /**
  * "Push with Children (3 branches)" of a branch, for its menu and the "⋯" of its stack island: the branch and the
- * branches built on it that have work for the remote, parents first (`stackChildrenPushOrder`), in one push; of the root
- * of a stack that forks, the stack branch of its whole stack too, while it goes along (`getStackBranchAlong`), counted
- * and named in the hover. Every branch with children offers it, also during a sync (the push waits for it and pushes
- * what it leaves); null for a branch without children. Disabled with the reason while a running Safe Push holds the
- * branch (`PushHold`: a push of the stack it runs in won't land, and every Safe Push in a stack holds its root), while
- * the stack is being pushed, and while it would push nothing beyond the branch itself (`describePushWithChildrenBlocker`),
- * also once merged Safe Pushes landed it and every branch built on it ("Landed in master with deploy and side-test:
- * nothing of air and its children is left to push"). A branch a merged one landed is only left out: its children push
- * without it.
+ * branches built on it that have work for the remote, parents first, in one push, as Rust orders them
+ * (`ChildrenPush`); of the root of a stack that forks, the stack branch of its whole stack too, while it goes along,
+ * counted and named in the hover. Every branch with children offers it, also during a sync (the push waits for it and
+ * pushes what it leaves); null for a branch without children to land. Disabled with the reason while a running Safe Push
+ * holds the branch (`PushHold`: a push of the stack it runs in won't land, and every Safe Push in a stack holds its
+ * root), while the stack is being pushed, and while it would push nothing beyond the branch itself
+ * (`describePushWithChildrenBlocker`), also once merged Safe Pushes landed it and every branch built on it ("Landed in
+ * master with deploy and side-test: nothing of air and its children is left to push"). A branch a merged one landed is
+ * only left out: its children push without it.
  */
 export function getPushWithChildrenItem(name: string): MenuItem | null {
+  const children = getPushOrders(name).children
   // the parked ones stay local: Push with Children of a branch to land leaves them out
-  const descendants = getUnparkedStackDescendants(name)
-  if (descendants.length === 0) {
+  if (children === null) {
     return null
   }
   const parked = getParkedState(name)
   if (parked !== null) {
     return { id: "push-with-children", label: "Push with Children", icon: UploadIcon, disabled: true, description: formatParkedBlocker(parked), onSelect: () => {} }
   }
-  const isHeld = (it: string): boolean => getPushHold(it) !== null
-  // the children are built on the branch: a push of it alone leaves their remote branches on its old head
-  const order = stackChildrenPushOrder(name, descendants, getBranch, isHeld)
   // a running Safe Push holds the stack; a merged one that landed the branch leaves its children to push
   const landedHold = getPushHold(name)
   const hold = landedHold?.kind === "landed" ? null : landedHold
-  const all = hold === null ? order : stackChildrenPushOrder(name, descendants, getBranch)
   // the pull request of the whole stack follows its branches: its stack branch goes along
   const stack = getStackBranch(name)
-  const stackPullRequest = getStackPullRequest(name)
-  const along = getStackBranchAlong(name, stack, stackPullRequest, formatStackHold(getStackLanding(name).hold))
-  const withStackBranch = along?.kind === "along"
-  const offers = offersPushWithChildren(name, all, along)
+  const withStackBranch = children.stackBranch?.kind === "along"
+  const descendants = getUnparkedStackDescendants(name)
   let reason: string | null
   if (hold !== null) {
     reason = formatPushHoldReason(name, hold)
   } else if (isStackPushing(name)) {
     reason = "The stack is being pushed"
-  } else if (!offers && branchSyncStore.getState().isSyncing && [name, ...descendants].some(it => getBranch(it)?.remoteStatus == null)) {
+  } else if (!children.offers && branchSyncStore.getState().isSyncing && [name, ...descendants].some(it => getBranch(it)?.remoteStatus == null)) {
     // the statuses the sync computes say what is left to push
     reason = "Wait for the sync to finish"
   } else {
-    reason = describePushWithChildrenBlocker(name, order, stackAskFirst(descendants, getBranch, isHeld), along, getLandedWithChildrenReason(name))
+    reason = describePushWithChildrenBlocker(name, children, getLandedWithChildrenReason(name))
   }
-  const description = reason ?? (withStackBranch && stack !== undefined ? describeStackBranchAlong(stack, stackPullRequest) : null)
+  const description = reason ?? (withStackBranch && stack !== undefined ? describeStackBranchAlong(stack, getStackPullRequest(name)) : null)
   return {
     id: "push-with-children",
-    label: offers ? formatPushWithChildrenLabel(all, withStackBranch) : "Push with Children",
+    label: children.offers ? formatPushWithChildrenLabel(children.order, withStackBranch) : "Push with Children",
     icon: UploadIcon,
     disabled: reason !== null,
     ...(description !== null && { description }),

@@ -27,14 +27,13 @@ import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingRev
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import type { StackLandedPart } from "@/lib/whole-stack"
-import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { describeWholeStackLanding, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { formatReasonOrNull } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getParkedState, getStackBranch, mainLineOf, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranch, getStackNotBuilt, getWholeStack, isForkingRoot, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import {
-  getLandedBy,
   getStackLandedReason,
   getStackLanding,
   getStackLandingMember,
@@ -59,66 +58,36 @@ export interface StackNextStep {
   readonly step: BranchNextStep
 }
 
-/**
- * The branches of the whole stack as a sentence names them: its main line first (`mainLineOf`), then the side
- * branches, which only the whole stack lands, each in the order of the stack
- */
-export function getWholeStackMembers(stack: StackBranch): string[] {
-  const mainLine = mainLineOf(branchSyncStore.getState(), stack.root).filter(name => stack.members.includes(name))
-  return [...mainLine, ...stack.members.filter(name => !mainLine.includes(name))]
-}
-
-/**
- * What the Safe Push of the whole stack lands now (`getWholeStackRest`): its branches less those merged Safe Pushes
- * landed whole (`getLandedBy`), each with its commits, one landed with commits after it by those commits only
- */
+/** What the Safe Push of the whole stack lands now, as Rust decides it (`StackLanding.rest`, `whole_stack_rest`) */
 export interface WholeStackRest {
-  /** The branches left, in the order of a sentence (`getWholeStackMembers`) */
+  /** The branches left, as a sentence names them: the main line first, then the side branches */
   readonly members: readonly string[]
   /** Their commits, of a branch landed with commits after it those only */
   readonly commitCount: number
-  /** The branches landed whole and who landed them; null while none is */
+  /** The branches merged Safe Pushes landed whole and who landed them; null while none is */
   readonly landed: StackLandedPart | null
   /** The robot of the whole stack itself landed every branch of it */
   readonly byOwnRobot: boolean
 }
 
 /**
- * What is left of the whole stack after merged Safe Pushes of pieces of it or of the whole stack landed branches of it:
- * its stack branch still carries their commits (Patronus finds them in the target and lands the rest), so the start
- * names, counts and says only the rest; nothing left is the step of a landed branch (row 1)
+ * What is left of the whole stack of `root` after merged Safe Pushes of pieces of it or of the whole stack landed
+ * branches of it (`StackLanding.rest`): its stack branch still carries their commits (Patronus finds them in the target
+ * and lands the rest), so the start names, counts and says only the rest; nothing left is the step of a landed branch
+ * (row 1). Before the view of the robots has it, every branch of its stack branch
  */
-export function getWholeStackRest(stack: StackBranch): WholeStackRest {
-  const members: string[] = []
-  const landedNames: string[] = []
-  const by: string[] = []
-  let commitCount = 0
-  let byOwnRobot = true
-  for (const name of getWholeStackMembers(stack)) {
-    const landed = getLandedBy(name)
-    // a branch landed with commits after it lands those
-    if (landed !== null && landed.after.length === 0) {
-      landedNames.push(name)
-      const subject = formatLandingSubject(landed)
-      if (!by.includes(subject)) {
-        by.push(subject)
-      }
-      byOwnRobot &&= landed.wholeStack === true && landed.branch === stack.root
-      continue
-    }
-    members.push(name)
-    commitCount += landed === null ? (getBranch(name)?.commitCount ?? 0) : landed.after.length
-    byOwnRobot = false
+export function wholeStackRestOf(root: string): WholeStackRest {
+  const rest = getStackLanding(root).rest
+  if (rest.members.length === 0 && rest.landed.length === 0) {
+    const stack = getStackBranch(root)
+    return { members: stack?.members ?? [], commitCount: stack?.commitCount ?? 0, landed: null, byOwnRobot: false }
   }
-  // nothing landed: the commit count of the stack branch, which the sync counted
-  return landedNames.length === 0
-    ? { members, commitCount: stack.commitCount, landed: null, byOwnRobot: false }
-    : { members, commitCount, landed: { names: landedNames, by }, byOwnRobot }
-}
-
-/** The stack forks: its whole stack is its stack branch, which the sync builds (`StackBranch.members`) */
-export function isForkingStack(stack: StackBranch | undefined): stack is StackBranch {
-  return stack !== undefined && stack.members.length > 0
+  return {
+    members: rest.members,
+    commitCount: rest.commitCount,
+    landed: rest.landed.length === 0 ? null : { names: rest.landed, by: rest.by.map(formatLandingSubject) },
+    byOwnRobot: rest.byOwnRobot,
+  }
 }
 
 /**
@@ -129,10 +98,10 @@ export function isForkingStack(stack: StackBranch | undefined): stack is StackBr
  */
 export function getCreateStackPullRequestItem(root: string): MenuItem | null {
   const stack = getStackBranch(root)
-  if (stack === undefined || stack.members.length === 0 || getBranchesGitHubRepository() === null) {
+  if (stack === undefined || !isForkingRoot(branchSyncStore.getState(), root) || getBranchesGitHubRepository() === null) {
     return null
   }
-  const blocker = getStackBranchBlocker(root, stack) ?? getStackLandedReason(root)
+  const blocker = formatReasonOrNull(getStackNotBuilt(root)) ?? getStackLandedReason(root)
   return {
     id: "create-stack-pull-request",
     label: "Create Pull Request of the Stack…",
@@ -180,7 +149,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
   const needsReview = robot !== undefined && isRobotNeedingReview(robot.id)
   const failing = robot !== undefined && isRobotFailing(robot.id)
   const tip = stack.tip ?? undefined
-  const rest = getWholeStackRest(stack)
+  const rest = wholeStackRestOf(root)
   const slot = getSafePushSlot({
     robot,
     localTip: tip,
@@ -312,18 +281,17 @@ export function getStackNextStepNow(root: string): StackNextStep | null {
 
 function computeStackNextStep(root: string): StackNextStep | null {
   const stack = getStackBranch(root)
-  if (isForkingStack(stack)) {
+  const whole = getWholeStack(root)
+  if (whole?.kind === "forking" && stack !== undefined) {
     return { leaf: null, step: getBranchNextStep(stackFactsOf(stack)) }
   }
-  // a straight chain: its last branch lands the whole stack; the parked branches at its end stay local, the island has
-  // them in the Parked card
-  const mainLine = mainLineOf(branchSyncStore.getState(), root).filter(name => getParkedState(name) === null)
-  const leaf = mainLine.at(-1)
-  if (leaf === undefined || mainLine.length < 2) {
+  // a straight chain: its last branch that is not parked lands the whole stack (`WholeStackView.chain`); the parked
+  // branches at its end stay local, the island has them in the Parked card
+  if (whole?.kind !== "chain") {
     return null
   }
-  const step = getBranchNextStepNow(leaf)
-  return step === null ? null : { leaf, step }
+  const step = getBranchNextStepNow(whole.leaf)
+  return step === null ? null : { leaf: whole.leaf, step }
 }
 
 /**
@@ -331,7 +299,7 @@ function computeStackNextStep(root: string): StackNextStep | null {
  * and preview); the readiness of the whole stack is asked while it shows
  */
 export function useStackNextStep(root: string): StackNextStep | null {
-  const forks = useBranchSync(state => isForkingStack(state.stackBranches[root]))
+  const forks = useBranchSync(state => isForkingRoot(state, root))
   useShowReviewReadiness(forks ? stackReadinessKey(root) : "")
   return useNextStepStores(() => getStackNextStepNow(root))
 }

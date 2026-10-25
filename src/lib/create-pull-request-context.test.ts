@@ -15,6 +15,17 @@ vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mock
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ baselineBranch: "origin/master" }) },
   getBranch: (name: string) => branches[name],
+  // the ancestors as the view places them, by the effective base of each
+  getStackAncestors: (name: string) => {
+    const found: string[] = []
+    for (let base = branches[name]?.stack?.effectiveBase ?? null; base !== null; base = branches[base]?.stack?.effectiveBase ?? null) {
+      found.unshift(base)
+    }
+    return found
+  },
+  // the branches on the remote as they are: an action pushes the branch alone
+  getPushOrders: (name: string) => ({ stack: [name], action: [name], button: [], start: [name], children: null }),
+  getStackNotBuilt: () => null,
 }))
 vi.mock("@/stores/patronus", () => ({ getPushHold: () => null, getPatronusGitHubRepository: () => null }))
 vi.mock("@/stores/pull-requests", () => ({ getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }), getPullRequest: () => undefined }))

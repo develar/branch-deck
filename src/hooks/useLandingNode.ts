@@ -1,15 +1,15 @@
 import { getNextStepFacts, nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
-import { isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
+import { stackFactsOf } from "@/hooks/useStackNextStep"
 import type { LandingNode, LandingNodeFacts } from "@/lib/landing-node"
 import { getLandingNode } from "@/lib/landing-node"
 import { formatLandingSubject } from "@/lib/patronus"
 import type { FoundMove, RunningMove } from "@/lib/running-move"
 import { findRunningMove, safePushStartMoves } from "@/lib/running-move"
-import { blockingBranchOf, stackAncestors } from "@/lib/stack"
+import { blockingBranchOf } from "@/lib/stack"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getParkedState, getStackBranch, isBranchPushing, mainLineOf } from "@/stores/branch-sync"
+import { getBranch, getStackAncestors, getStackBranch, getWholeStack, isBranchPushing } from "@/stores/branch-sync"
 import { getOperationMoves } from "@/stores/operations"
 import { getBranchRobot, getLandingSpan, getStackRobot, isPatronusKnown } from "@/stores/patronus"
 import { getSafePushStarts } from "@/stores/safe-push"
@@ -47,7 +47,7 @@ function landedBeside(key: string): readonly string[] {
   if (root !== null) {
     return getStackBranch(root)?.members ?? []
   }
-  return stackAncestors(key, getBranch).map(it => it.name)
+  return getStackAncestors(key)
 }
 
 /** The remote lacks work of the branch, and no push of it runs: once pushing, the push is made */
@@ -62,7 +62,7 @@ function isPushPending(branch: Branch): boolean {
  */
 function computeStackNode(root: string): LandingNode | null {
   const stack = getStackBranch(root)
-  if (isForkingStack(stack)) {
+  if (stack !== undefined && getWholeStack(root)?.kind === "forking") {
     return getLandingNode({
       next: stackFactsOf(stack),
       status: "Unchanged",
@@ -79,11 +79,13 @@ function computeStackNode(root: string): LandingNode | null {
   return leaf === null ? null : getLandingNodeNow(leaf)
 }
 
-/** The last branch of the straight chain of `root`, whose Safe Push lands the whole stack; null for a lone branch */
+/**
+ * The last branch of the straight chain of `root` that is not parked, whose Safe Push lands the whole stack
+ * (`WholeStackView.chain`); null for a lone branch and a stack that forks
+ */
 function mainLineLeaf(root: string): string | null {
-  // the parked branches at its end stay local
-  const mainLine = mainLineOf(branchSyncStore.getState(), root).filter(name => getParkedState(name) === null)
-  return mainLine.length < 2 ? null : (mainLine.at(-1) ?? null)
+  const whole = getWholeStack(root)
+  return whole?.kind === "chain" ? whole.leaf : null
 }
 
 /**
@@ -91,7 +93,7 @@ function mainLineLeaf(root: string): string | null {
  * shows; null while the stack forks: the node is of its stack branch, the robot of the whole stack
  */
 export function getStackNodeBranch(root: string): string | null {
-  return isForkingStack(getStackBranch(root)) ? null : mainLineLeaf(root)
+  return mainLineLeaf(root)
 }
 
 /** By key (a branch, `stack:<root>`): the node shown, and the store states it was computed for */

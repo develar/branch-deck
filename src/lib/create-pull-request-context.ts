@@ -12,16 +12,15 @@ import type { MenuItem } from "@/lib/menu"
 import type { CompareFields, GitHubRepository } from "@/lib/pull-request"
 import { getCompareUrl } from "@/lib/pull-request"
 import type { RunningMove } from "@/lib/running-move"
-import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
-import { formatWholeStackStart, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
+import { formatWholeStackStart, stackReadinessKey } from "@/lib/whole-stack"
+import { formatReasonOrNull } from "@/presenters/reasons"
 import { recordPullRequestCreated } from "@/stores/activity"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
-import { getBranch } from "@/stores/branch-sync"
+import { getBranch, getPushOrders, getStackAncestors, getStackNotBuilt } from "@/stores/branch-sync"
 import { forgetLandedStackRoot } from "@/stores/landed-stacks"
 import { branchSubject, runOperation } from "@/stores/operations"
-import { getPushHold } from "@/stores/patronus"
 import { createPullRequest } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName, getRepositorySwitchReason } from "@/stores/repository"
 
@@ -93,10 +92,8 @@ export interface CreatePullRequestFacts {
 export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequestFacts): CreatePullRequestContext {
   const head = getFullBranchName(branch.name)
   // the remote lacks work of the branch (Rust's action of its remote status), or of an ancestor the push takes along
-  const pushNeeded =
-    (branch.remoteStatus?.action.kind ?? "upToDate") !== "upToDate" ||
-    stackPushOrder(branch.name, getBranch, { stopAtConfirm: true, isHeld: name => getPushHold(name) !== null }).length > 1
-  const ancestors = stackAncestors(branch.name, getBranch)
+  const pushNeeded = (branch.remoteStatus?.action.kind ?? "upToDate") !== "upToDate" || getPushOrders(branch.name).action.length > 1
+  const ancestors = getStackAncestors(branch.name).flatMap(name => getBranch(name) ?? [])
   const existing = facts.pullRequest !== undefined && facts.pullRequest.state !== "closed" ? facts.pullRequest : null
   const withoutReview = facts.withoutReview
   const includes = ancestors.length === 0 ? null : { ancestors: ancestors.map(it => it.name), commitCount: ancestors.reduce((sum, it) => sum + it.commitCount, branch.commitCount) }
@@ -138,7 +135,7 @@ export interface StackPullRequestFacts {
  * The context of the "Create pull request" dialog of the whole stack of `root`: the pull request of its stack branch
  * into the baseline, whose approvals the one robot of the whole stack counts. It holds every commit of the stack
  * ("Holds the commits of every branch of the stack: air, auth and 5 more: 7 branches · 14 commits"); Create and
- * "Continue on GitHub" push the stack branch first, and only a stack branch the sync built (`getStackBranchBlocker`).
+ * "Continue on GitHub" push the stack branch first, and only a stack branch the sync built (`getStackNotBuilt`).
  * The code owners it suggests are those of the whole stack, which its Safe Push needs: the readiness of its stack branch.
  */
 export function toStackPullRequestContext(root: string, stack: StackBranch | undefined, facts: StackPullRequestFacts): CreatePullRequestContext {
@@ -170,7 +167,7 @@ export function toStackPullRequestContext(root: string, stack: StackBranch | und
     pushNeeded: remote === null || !remote.exists || remote.remoteTip !== stack?.tip,
     includes: null,
     includesText: names.length === 0 ? null : `Holds the commits of every branch of the stack: ${joinNames(names)}: ${formatBranchesAndCommits(names.length, commitCount)}`,
-    newPullRequestBlocker: getStackBranchBlocker(root, stack) ?? (existing === null ? null : formatNewPullRequestBlocker(label, existing)),
+    newPullRequestBlocker: formatReasonOrNull(getStackNotBuilt(root)) ?? (existing === null ? null : formatNewPullRequestBlocker(label, existing)),
     existing,
     availability: facts.availability,
     repository: getBranchesGitHubRepository(),

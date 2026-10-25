@@ -17,25 +17,15 @@ import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { getPushColor } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
-import {
-  buttonStackPushOrder,
-  formatBlockedReason,
-  formatPushStackLabel,
-  formatPushWithChildrenLabel,
-  offersPushWithChildren,
-  stackAncestors,
-  stackChildrenPushOrder,
-  stackPushOrder,
-} from "@/lib/stack"
+import { formatBlockedReason, formatPushStackLabel, formatPushWithChildrenLabel } from "@/lib/stack"
 import { cutList } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
-import type { StackBranchAlong } from "@/lib/whole-stack"
-import { getStackBranchAlong, stackReadinessKey } from "@/lib/whole-stack"
-import { formatPushHoldReason, formatStackHold } from "@/presenters/reasons"
-import type { Branch } from "@/stores/branch-sync"
-import { getBranch, getParkedState, structureIn, useBranchSync, useIsStackBranchPushing, useParkedState, useStackBranch } from "@/stores/branch-sync"
-import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold, usePushHolds, useStackLanding } from "@/stores/patronus"
-import { getPullRequest, pullRequestsStore, usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
+import { stackReadinessKey } from "@/lib/whole-stack"
+import { formatPushHoldReason } from "@/presenters/reasons"
+import type { Branch, BranchSyncState, PushOrders } from "@/stores/branch-sync"
+import { branchSyncStore, getParkedState, pushOrdersIn, useBranchSync, useIsStackBranchPushing, useParkedState } from "@/stores/branch-sync"
+import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold } from "@/stores/patronus"
+import { getPullRequest, pullRequestsStore, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
 import { useSafePushStarting } from "@/stores/safe-push"
 
 export interface PushButtonState {
@@ -53,7 +43,7 @@ export interface PushButtonState {
    */
   confirm: boolean
   /**
-   * The button pushes the stack (`buttonStackPushOrder`): the ancestors that have work for the remote, root first, then
+   * The button pushes the stack (`PushOrders.button`): the ancestors that have work for the remote, root first, then
    * the branch; `action` is the push of the branch alone then
    */
   pushesStack: boolean
@@ -100,7 +90,7 @@ export interface UnpushedParent {
   onRemote: boolean
   /** The branches a Push Stack of the branch pushes, the branch included */
   stackSize: number
-  /** The branches the push button pushes, root first (`buttonStackPushOrder`); empty when it pushes the branch alone */
+  /** The branches the push button pushes, root first (`PushOrders.button`); empty when it pushes the branch alone */
   buttonStack: readonly Branch[]
 }
 
@@ -108,11 +98,11 @@ export interface UnpushedParent {
 export interface UnpushedChildren {
   /** Parents first */
   names: readonly string[]
-  /** The branches a Push with Children of the branch pushes, the branch included (`stackChildrenPushOrder`) */
+  /** The branches a Push with Children of the branch pushes, the branch included (`ChildrenPushOrder.order`) */
   pushOrder: readonly string[]
   /**
    * The stack branch of the whole stack of a root (`{prefix}/stack/<root>`) Push with Children takes along
-   * (`getStackBranchAlong`); null otherwise
+   * (`ChildrenPushOrder.stackBranch`); null otherwise
    */
   stackBranch?: string | null
 }
@@ -439,42 +429,42 @@ function usePushRetargets(names: readonly string[]): readonly PushRetarget[] {
  * click pushes, as `usePushButton` renders it
  */
 export function getPushButtonNow(branch: Branch, isPushing: boolean): PushButtonState {
-  const isHeld = (name: string): boolean => getPushHold(name) !== null
-  const unpushedParent = getUnpushedParent(branch.name, getBranch, isHeld)
+  const unpushedParent = unpushedParentIn(branchSyncStore.getState(), branch.name)
   const retargets = getPushRetargets(retargetCandidates(branch.name, unpushedParent))
   return getPushButtonState(branch, { isPushing, unpushedParent, hold: getPushHold(branch.name), parked: getParkedState(branch.name), retargets })
 }
 
-/** The push of an ancestor has work for the remote: Rust's action of its remote status is no `upToDate` */
-function hasWorkForRemote(branch: Branch): boolean {
-  const kind = branch.remoteStatus?.action.kind
-  return kind !== undefined && kind !== "upToDate"
-}
-
-/** `useUnpushedParent` outside a component: the nearest ancestor with work for the remote, and the stack pushes */
-export function getUnpushedParent(name: string, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean): UnpushedParent | null {
-  const parent = stackAncestors(name, branchOf).findLast(it => hasWorkForRemote(it) && !isHeld(it.name))
+/**
+ * The nearest branch `name` is built on that its Push Stack pushes, and its stack pushes, as Rust orders them
+ * (`BranchPush`): null while none of its ancestors has work for the remote (a held one ends them)
+ */
+function unpushedParentIn(state: BranchSyncState, name: string): UnpushedParent | null {
+  const orders = pushOrdersIn(state, name)
+  const parent = parentOf(state, orders)
   if (parent === undefined) {
     return null
   }
   return {
     name: parent.name,
     onRemote: parent.remoteStatus?.exists === true,
-    stackSize: stackPushOrder(name, branchOf, { isHeld }).length,
-    buttonStack: buttonStackPushOrder(name, branchOf, isHeld).map(it => branchOf(it)!),
+    stackSize: orders.stack.length,
+    buttonStack: orders.button.flatMap(it => state.branches[it] ?? []),
   }
+}
+
+/** The nearest ancestor of a Push Stack: the one before the branch */
+function parentOf(state: BranchSyncState, orders: PushOrders): Branch | undefined {
+  const name = orders.stack.at(-2)
+  return name === undefined ? undefined : state.branches[name]
 }
 
 /** The nearest branch a stacked branch is built on that has work for the remote, and the stack pushes of the branch */
 export function useUnpushedParent(branch: Branch): UnpushedParent | null {
   const name = branch.name
-  const holds = usePushHolds()
-  const isHeld = (it: string): boolean => holds.has(it)
-  // each selector returns branch records (compared one by one) or a number, so the store notifies only when they change;
-  // a held ancestor has nothing to push now: its Safe Push lands it
-  const parent = useBranchSync(state => stackAncestors(name, it => state.branches[it]).findLast(it => hasWorkForRemote(it) && !isHeld(it.name)))
-  const stackSize = useBranchSync(state => (parent === undefined ? 1 : stackPushOrder(name, it => state.branches[it], { isHeld }).length))
-  const buttonStack = useBranchSync(useShallow(state => buttonStackPushOrder(name, it => state.branches[it], isHeld).map(it => state.branches[it]!)))
+  // each selector returns branch records (compared one by one) or a number, so the store notifies only when they change
+  const parent = useBranchSync(state => parentOf(state, pushOrdersIn(state, name)))
+  const stackSize = useBranchSync(state => pushOrdersIn(state, name).stack.length)
+  const buttonStack = useBranchSync(useShallow(state => pushOrdersIn(state, name).button.flatMap(it => state.branches[it] ?? [])))
   return useMemo(() => {
     if (parent === undefined) {
       return null
@@ -484,40 +474,20 @@ export function useUnpushedParent(branch: Branch): UnpushedParent | null {
 }
 
 /**
- * The branches stacked on a branch, while a push of them has work for the remote, and of a root the stack branch of its
- * whole stack while Push with Children takes it along (`useStackBranchAlong`)
+ * The branches stacked on a branch, while Push with Children of it has more to push than the branch (`ChildrenPush`,
+ * as Rust orders it), and of a root the stack branch of its whole stack while it goes along
  */
 export function useUnpushedChildren(branchName: string): UnpushedChildren | null {
-  const holds = usePushHolds()
-  // a string, so the store notifies only when the order changes
-  const order = useBranchSync(state =>
-    stackChildrenPushOrder(
-      branchName,
-      structureIn(state, branchName).descendants,
-      name => state.branches[name],
-      name => holds.has(name),
-    ).join("\n"),
-  )
-  const along = useStackBranchAlong(branchName)
-  const stackBranch = useBranchSync(state => (along?.kind === "along" ? (state.stackBranches[branchName]?.branchName ?? null) : null))
-  return useMemo(() => {
-    const pushOrder = order === "" ? [] : order.split("\n")
-    return offersPushWithChildren(branchName, pushOrder, along) ? { names: pushOrder.filter(name => name !== branchName), pushOrder, stackBranch } : null
-  }, [order, branchName, along, stackBranch])
-}
-
-/**
- * What Push with Children of `root` does with the stack branch of its whole stack (`getStackBranchAlong`, held while
- * a member is parked, every branch of the stack landed, its own robot runs or the sync did not build it, `StackLanding.hold`), re-rendering when it changes;
- * null for a branch that heads no stack that forks
- */
-export function useStackBranchAlong(root: string): StackBranchAlong | null {
-  const stack = useStackBranch(root)
-  const pullRequest = useStackPullRequest(root)
-  const held = formatStackHold(useStackLanding(root).hold)
-  // a string, so a new store state with the same answer renders nothing
-  const along = JSON.stringify(getStackBranchAlong(root, stack, pullRequest, held))
-  return useMemo(() => JSON.parse(along) as StackBranchAlong | null, [along])
+  // a string, so the store notifies only when the push changes
+  const key = useBranchSync(state => {
+    const children = pushOrdersIn(state, branchName).children
+    if (children === null || !children.offers) {
+      return ""
+    }
+    const stackBranch = children.stackBranch?.kind === "along" ? (state.stackBranches[branchName]?.branchName ?? null) : null
+    return JSON.stringify({ names: children.order.filter(name => name !== branchName), pushOrder: children.order, stackBranch } satisfies UnpushedChildren)
+  })
+  return useMemo(() => (key === "" ? null : (JSON.parse(key) as UnpushedChildren)), [key])
 }
 
 /**

@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { useStore } from "zustand"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
-import { getStackNextStepNow, getWholeStackRest, isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
+import { getStackNextStepNow, stackFactsOf, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import type { Fact, PatronusProfile, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, PullRequest } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
@@ -17,13 +17,24 @@ import type { DismissFact, ReviewFact, SafePushDecision, SafePushFacts, StartOpt
 import { getSafePushDecision } from "@/lib/safe-push-decision"
 import type { SafePushStart } from "@/lib/safe-push-start"
 import { admitStart, startSafePush } from "@/lib/safe-push-start"
-import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
-import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { formatReadinessSubject, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
 import { formatPushHoldReason } from "@/presenters/reasons"
-import { branchSyncStore, getBranch, getStackBranch, getStackBranchOf, getStackIslandRoots, mainLineOf, structureIn } from "@/stores/branch-sync"
+import {
+  branchSyncStore,
+  getBranch,
+  getPushOrders,
+  getStackAncestors,
+  getStackBranch,
+  getStackBranchOf,
+  getStackIslandRoots,
+  getStackNotBuilt,
+  isForkingRoot,
+  mainLineOf,
+  structureIn,
+} from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import {
   askStartProfiles,
@@ -98,7 +109,7 @@ export interface WholeStackRead {
   readonly root: string
   /**
    * The branches of the stack, the main line first: one robot lands them all; but those merged Safe Pushes landed whole
-   * already (`getWholeStackRest`)
+   * already (`wholeStackRestOf`)
    */
   readonly members: readonly string[]
   /** The branches merged Safe Pushes landed whole already, and who landed them; null while none is */
@@ -108,7 +119,7 @@ export interface WholeStackRead {
   /** The branches of it on the remote, in the order of `members`: they stay as they are there */
   readonly onRemote: readonly string[]
   /**
-   * While the sync didn't build the stack branch (`getStackBranchBlocker`), the last branch of its main line: the stack
+   * While the sync didn't build the stack branch (`getStackNotBuilt`), the last branch of its main line: the stack
    * lands in pieces, the Safe Push of that branch the first; null otherwise
    */
   readonly piece: string | null
@@ -264,12 +275,10 @@ export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "pla
   const hold = getPushHold(branchName)
   const replaced = getBranchLanding(branchName).replaces
   const replaces = mode === "rebaseAutosquash" && hold !== null && hold.robot.id === replaced ? hold.robot : null
-  const isHeld = (name: string): boolean => {
-    const it = getPushHold(name)
-    return it !== null && it.robot.id !== replaces?.id
-  }
-  // the branches the start pushes, root first: the stack while an ancestor has work for the remote, up to a held one
-  const pushOrder = stackPushOrder(branchName, getBranch, { stopAtConfirm: true, isHeld })
+  // the branches the start pushes, root first, as Rust orders them: the stack while an ancestor has work for the remote,
+  // up to a held one; with the robot it replaces, which the push cancels, the branches that robot held
+  const orders = getPushOrders(branchName)
+  const pushOrder = replaces === null ? orders.action : orders.start
   const startPush = getStartPush(remoteStatus?.action ?? null, pushOrder.length > 1)
   const needsPush = startPush.kind === "stack" || startPush.kind === "branch"
   const step = getBranchNextStepOf(branch, { forStart: true })
@@ -291,9 +300,7 @@ export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "pla
 
   const state = branchSyncStore.getState()
   // the ancestors a merged Safe Push landed are in the target: the robot lands the others with the branch
-  const ancestors = stackAncestors(branchName, getBranch)
-    .map(it => it.name)
-    .filter(name => !isLandedWhole(getLandedBy(name)))
+  const ancestors = getStackAncestors(branchName).filter(name => !isLandedWhole(getLandedBy(name)))
   // a Dry Run counts no approval: the pull request of the whole stack doesn't matter to it
   const stackPullRequest = mode === "rebaseAutosquash" ? openWholeStackPullRequestOf(branchName) : null
   const facts: SafePushFacts = {
@@ -358,7 +365,7 @@ function openWholeStackPullRequestOf(branchName: string): { root: string; number
  */
 function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placement">, options: StartOptionsFact): SafePushRead | null {
   const stack = getStackBranch(root)
-  if (!isForkingStack(stack)) {
+  if (stack === undefined || !isForkingRoot(branchSyncStore.getState(), root)) {
     return null
   }
   const key = stackReadinessKey(root)
@@ -401,9 +408,9 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
     // the repository view computes them of the branches: the gate of the start checks the whole stack
     landingRefusals: [],
   }
-  const piece = getStackBranchBlocker(root, stack) === null ? null : (mainLineOf(branchSyncStore.getState(), root).at(-1) ?? null)
+  const piece = getStackNotBuilt(root) === null ? null : (mainLineOf(branchSyncStore.getState(), root).at(-1) ?? null)
   // what merged Safe Pushes landed of it is in the target: the popover names the rest
-  const rest = getWholeStackRest(stack)
+  const rest = wholeStackRestOf(root)
   const members = rest.members
   return {
     facts,
@@ -533,8 +540,7 @@ export async function pushAlone(branchName: string): Promise<boolean> {
 function tellNotice(branchName: string, step: BranchNextStep, notice: { readonly title: string; readonly description: string }, request: SafePushRequest): void {
   const root = stackRootOfReadinessKey(branchName)
   const pullRequest = root === null ? getPullRequest(branchName) : getStackPullRequest(root)
-  const stack = root === null ? undefined : getStackBranch(root)
-  const piece = root === null || getStackBranchBlocker(root, stack) === null ? undefined : mainLineOf(branchSyncStore.getState(), root).at(-1)
+  const piece = root === null || getStackNotBuilt(root) === null ? undefined : mainLineOf(branchSyncStore.getState(), root).at(-1)
   const item = step.item
   let action: { children: string; onClick: () => void } | undefined
   if (piece !== undefined) {
@@ -572,7 +578,7 @@ function currentStepOf(branchName: string): BranchNextStep | undefined {
  */
 export async function requestSafePush(branchName: string, request: SafePushRequest): Promise<void> {
   const root = stackRootOfReadinessKey(branchName)
-  if (root !== null && !isForkingStack(getStackBranch(root))) {
+  if (root !== null && !isForkingRoot(branchSyncStore.getState(), root)) {
     // a straight chain has no stack branch: the Safe Push of its last branch lands the whole stack, at the header of its
     // island as the island's own Safe Push
     const leaf = getStackNextStepNow(root)?.leaf

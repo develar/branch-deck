@@ -12,19 +12,19 @@ import type { VcsRequest } from "@/lib/git/vcs-request"
 import { formatPushMode } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import type { PushUpToStep } from "@/lib/push-up-to"
-import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { pushProgressOf } from "@/lib/transfer-progress"
-import { formatWholeStack, formatWholeStackBranch, getStackBranchAlong, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
+import { formatWholeStack, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import { whenSessionViewAt } from "@/model/store"
-import { formatStackHold, formatStackPushHoldReason } from "@/presenters/reasons"
+import { formatReason, formatStackPushHoldReason } from "@/presenters/reasons"
 import { recordPush } from "@/stores/activity"
-import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { Branch, PushOrders, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
   getBranch,
+  getPushOrders,
   getStackBranch,
-  getUnparkedStackDescendants,
+  getStackNotBuilt,
   isBranchPushing,
   setBranchesPushProgress,
   setBranchPushing,
@@ -35,12 +35,12 @@ import {
   whenSynced,
 } from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
-import { getPushHold, getStackLanding, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
+import { getPushHold, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { isSelectedRepository } from "@/stores/repository"
 
 export interface StackPushOptions {
-  /** The order of the push button: it starts above an ancestor whose push drops remote commits (`stackPushOrder`) */
+  /** The order of the push button: it starts above an ancestor whose push drops remote commits (`PushOrders.action`) */
   stopAtConfirm?: boolean
   /** The push is a step of a Safe Push start: the robot it replaces is canceled, never restarted (`PushOptions`) */
   replacesRobot?: PatronusRobot
@@ -51,17 +51,8 @@ export interface StackPushOptions {
 }
 
 /**
- * A Safe Push holds the branch (`getPushHold`), other than `replaces`, the robot a start replaces: the push cancels it,
- * so the branches it held are pushed too (the order of a stack push until `push_plan` of Rust decides it)
- */
-function isHeldOtherThan(name: string, replaces: PatronusRobot | undefined): boolean {
-  const hold = getPushHold(name)
-  return hold !== null && hold.robot.id !== replaces?.id
-}
-
-/**
  * What a stack push sends: the branches, parents first, the ones pushed up to a commit (Push Up to Here), and the root
- * whose stack branch of the whole stack goes along after them (Push with Children of the root, `getStackBranchAlong`)
+ * whose stack branch of the whole stack goes along after them (Push with Children of the root, `ChildrenPushOrder.stackBranch`)
  */
 interface StackPushOrder {
   names: readonly string[]
@@ -71,41 +62,49 @@ interface StackPushOrder {
 
 /**
  * Push Stack: the ancestors of a stacked branch that have work for the remote, root first, then the branch, in one
- * atomic push (`pushTogether`). Resolves to whether they were pushed.
+ * atomic push (`pushTogether`), as Rust orders them (`PushOrders`): from the push button, above the nearest one that asks
+ * first (`action`), of a Safe Push start the branches the robot it replaces held too (`start`). Resolves to whether they
+ * were pushed.
  */
 export async function pushStack(branchName: string, options: StackPushOptions = {}): Promise<boolean> {
+  const orderOf = (orders: PushOrders): readonly string[] => {
+    if (options.replacesRobot !== undefined) {
+      return orders.start
+    }
+    return options.stopAtConfirm === true ? orders.action : orders.stack
+  }
   return await pushTogether(
     branchName,
     `stack ${options.stopAtConfirm === true} ${options.replacesRobot?.id ?? ""}`,
-    () => ({ names: stackPushOrder(branchName, getBranch, { stopAtConfirm: options.stopAtConfirm, isHeld: name => isHeldOtherThan(name, options.replacesRobot) }) }),
+    () => ({ names: orderOf(getPushOrders(branchName)) }),
     options,
   )
 }
 
 /**
  * Push with Children: the branch if it has work for the remote, then the branches stacked on it that have work, parents
- * first, and for the root of a stack that forks the stack branch of its whole stack (`takesStackBranchAlong`), in one
- * atomic push (`pushTogether`), so the pull request of the whole stack follows its branches
+ * first, and for the root of a stack that forks the stack branch of its whole stack while it goes along, as Rust orders
+ * them (`ChildrenPush`), in one atomic push (`pushTogether`), so the pull request of the whole stack follows its branches
  */
 export async function pushWithChildren(branchName: string): Promise<boolean> {
   return await pushTogether(
     branchName,
     "children",
     () => ({
-      names: stackChildrenPushOrder(branchName, getUnparkedStackDescendants(branchName), getBranch, name => getPushHold(name) !== null),
-      wholeStack: takesStackBranchAlong(branchName) ? branchName : null,
+      names: getPushOrders(branchName).children?.order ?? [],
+      wholeStack: stackBranchGoesAlong(branchName) ? branchName : null,
     }),
     {},
   )
 }
 
 /**
- * Whether Push with Children of `root` takes the stack branch of its whole stack along now (`getStackBranchAlong`):
- * never while it is held (`StackLanding.hold`): the robot of the whole stack runs, a push into its stack branch
- * would fail it, or every branch of the stack landed, a push of it lands nothing
+ * Rust's answer whether Push with Children of `root` takes the stack branch of its whole stack along now
+ * (`stack_branch_along`): never while it is held (`StackLanding.hold`): the robot of the whole stack runs, a push into
+ * its stack branch would fail it, or every branch of the stack landed, a push of it lands nothing
  */
-export function takesStackBranchAlong(root: string): boolean {
-  return getStackBranchAlong(root, getStackBranch(root), getStackPullRequest(root), formatStackHold(getStackLanding(root).hold))?.kind === "along"
+function stackBranchGoesAlong(root: string): boolean {
+  return getPushOrders(root).children?.stackBranch?.kind === "along"
 }
 
 /**
@@ -301,7 +300,7 @@ interface PushedStack {
 
 /** The stack branch of the whole stack of `root` as the push sends it: only while it still goes along; null otherwise */
 function stackBranchAlong(root: string | null): StackBranch | null {
-  return root !== null && takesStackBranchAlong(root) ? (getStackBranch(root) ?? null) : null
+  return root !== null && stackBranchGoesAlong(root) ? (getStackBranch(root) ?? null) : null
 }
 
 /** Why a stack branch whose remote moved isn't pushed: its remote has commits it lacks, and the next sync rebuilds it */
@@ -521,7 +520,7 @@ function joinableStackBranchPush(root: string): () => void {
 /**
  * Pushes the stack branch of the whole stack of `root` (`{prefix}/stack/<root>`), leased on the remote head its status
  * showed, as one more branch of `push_branches` (`wholeStack`): the head of the pull request of the whole stack, the
- * source of its robot. Only a stack branch the sync built (`getStackBranchBlocker`); never once merged Safe Pushes
+ * source of its robot. Only a stack branch the sync built (`getStackNotBuilt`); never once merged Safe Pushes
  * landed every branch of the stack (`getStackLandedReason`: it carries only commits that are in the target), nor while
  * its own Safe Push runs (`getStackPushHold`), unless the push restarts that robot (`restartRobot`, canceled first,
  * restarted on the pushed commit) or a new start replaces it (`replacesRobot`, canceled first). A sync that runs is
@@ -637,9 +636,9 @@ interface StackBranchToSend {
 /** The stack branch of `root` and what its push needs, from the table; undefined when it can't be pushed (it said why) */
 function stackBranchToSend(root: string, report: PushReport): StackBranchToSend | undefined {
   const stack = getStackBranch(root)
-  const blocker = getStackBranchBlocker(root, stack)
-  if (stack === undefined || blocker !== null) {
-    report(`Cannot push ${formatWholeStack(root)}`, blocker ?? "The stack has no stack branch")
+  const notBuilt = getStackNotBuilt(root)
+  if (stack === undefined || notBuilt !== null) {
+    report(`Cannot push ${formatWholeStack(root)}`, notBuilt === null ? "The stack has no stack branch" : formatReason(notBuilt))
     return undefined
   }
   return { root, stack, myEmail: getBranch(root)?.myEmail ?? null, baselineBranch: branchSyncStore.getState().baselineBranch! }

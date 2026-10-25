@@ -1,9 +1,9 @@
-import type { ParentState, PushAction, StackFix, StackProblemView } from "@/lib/bindings"
+import type { ParentState, StackFix, StackProblemView } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { groupFor } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
-import type { StackBranchAlong } from "@/lib/whole-stack"
-import type { Branch } from "@/stores/branch-sync"
+import { formatReason, formatStackHold } from "@/presenters/reasons"
+import type { Branch, ChildrenPushOrder } from "@/stores/branch-sync"
 
 /**
  * The stack problem the sync reports for the branch, the first of its problems, with its label, its reason, its message
@@ -152,103 +152,6 @@ export function passedParentOf(branch: Branch): { parent: string; state: Exclude
 }
 
 /**
- * What a push of the branch does in an order of a stack push (Rust's action of its remote status), null when it has no
- * work for the remote, its remote status is unknown or the sync did not build it (the backend refuses such a push)
- */
-function orderedPush(branch: Branch | undefined): PushAction | null {
-  const action = branch?.remoteStatus?.action ?? null
-  return action === null || action.kind === "upToDate" || branch!.status === "Blocked" || branch!.hasError ? null : action
-}
-
-/** A push that asks first: it drops remote commits the branch lacks */
-function asksFirst(action: PushAction | null): boolean {
-  return action?.kind === "force" && action.drops
-}
-
-/**
- * The branches a stacked branch is built on, root first: the chain of `effectiveBase` in the branch table (an ancestor
- * without commits is not on it, the branch is built past it). `branchOf` looks a branch up.
- */
-export function stackAncestors(name: string, branchOf: (name: string) => Branch | undefined): Branch[] {
-  const ancestors: Branch[] = []
-  const seen = new Set<string>([name])
-  let parentName = branchOf(name)?.stack?.effectiveBase ?? null
-  while (parentName !== null && !seen.has(parentName)) {
-    seen.add(parentName)
-    const parent = branchOf(parentName)
-    if (parent === undefined) {
-      break
-    }
-    ancestors.push(parent)
-    parentName = parent.stack?.effectiveBase ?? null
-  }
-  return ancestors.reverse()
-}
-
-/**
- * The branches a "Push Stack" of `name` pushes, root first: its ancestors in the branch table that have work for the
- * remote, then the branch itself. `branchOf` looks a branch up. With `stopAtConfirm` (the push button), the order starts
- * above the nearest ancestor whose push drops remote commits: that one asks first in its own row, and a stack pushed
- * around it would leave a stale branch in the middle. It always starts above the nearest ancestor a Safe Push holds
- * (`isHeld`, `PushHold`): a push of it won't land, and the robot holds every ancestor below it too.
- */
-export function stackPushOrder(
-  name: string,
-  branchOf: (name: string) => Branch | undefined,
-  { stopAtConfirm = false, isHeld = () => false }: { stopAtConfirm?: boolean; isHeld?: (name: string) => boolean } = {},
-): string[] {
-  const chain = [name]
-  for (const ancestor of stackAncestors(name, branchOf).reverse()) {
-    if (isHeld(ancestor.name) || (stopAtConfirm && asksFirst(orderedPush(ancestor)))) {
-      break
-    }
-    if (orderedPush(ancestor) !== null) {
-      chain.push(ancestor.name)
-    }
-  }
-  return chain.reverse()
-}
-
-/**
- * The branches the push button of `name` pushes when it pushes the stack, root first (`stackPushOrder` with
- * `stopAtConfirm`): only while the branch has work for the remote, its own push asks nothing (a push that drops remote
- * commits confirms the branch alone) and an ancestor has work too; else an empty list, the button pushes the branch alone
- */
-export function buttonStackPushOrder(name: string, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean = () => false): string[] {
-  const action = orderedPush(branchOf(name))
-  if (action === null || asksFirst(action)) {
-    return []
-  }
-  const order = stackPushOrder(name, branchOf, { stopAtConfirm: true, isHeld })
-  return order.length > 1 ? order : []
-}
-
-/**
- * The branches a "Push with Children" of `name` pushes, parents first: the branch if it has work for the remote, then
- * its `descendants` (parents before children) that have work. A child whose push drops remote commits is left out: it
- * asks first in its own row. A branch a Safe Push holds (`isHeld`) is left out too: its push won't land; a held branch
- * holds its ancestors, so the children of a branch that isn't held are held only by a race.
- */
-export function stackChildrenPushOrder(
-  name: string,
-  descendants: readonly string[],
-  branchOf: (name: string) => Branch | undefined,
-  isHeld: (name: string) => boolean = () => false,
-): string[] {
-  const order: string[] = []
-  if (orderedPush(branchOf(name)) !== null && !isHeld(name)) {
-    order.push(name)
-  }
-  for (const descendant of descendants) {
-    const action = orderedPush(branchOf(descendant))
-    if (action !== null && !asksFirst(action) && !isHeld(descendant)) {
-      order.push(descendant)
-    }
-  }
-  return order
-}
-
-/**
  * What a stack push started from `startedFrom` sends, as the texts of its push name it while it runs (`stackPushes`):
  * "7 branches" for its one push of several, the one branch it pushes, `startedFrom` while it waits for a sync
  */
@@ -273,7 +176,7 @@ export function formatPushStackLabel(branchCount: number): string {
 /**
  * "Push with Children (3 branches)", "Push with Children (oauth)" for a push of one child: the branch menu, the
  * description of the push button and the stack header name the action alike. `order` is what it pushes
- * (`stackChildrenPushOrder`); `withStackBranch`: the stack branch of the whole stack goes along (`StackBranchAlong`),
+ * (`ChildrenPushOrder.order`); `withStackBranch`: the stack branch of the whole stack goes along (`StackBranchAlong`),
  * counted as one more branch, "Push with Children (the whole stack branch)" alone.
  */
 export function formatPushWithChildrenLabel(order: readonly string[], withStackBranch = false): string {
@@ -284,22 +187,6 @@ export function formatPushWithChildrenLabel(order: readonly string[], withStackB
   return `Push with Children (${formatBranchCount(count)})`
 }
 
-/**
- * Push with Children pushes more than the branch itself: a child has work, or the stack branch of the whole stack goes
- * along (`along`); else the push of the branch is the push
- */
-export function offersPushWithChildren(name: string, order: readonly string[], along: StackBranchAlong | null = null): boolean {
-  return order.some(it => it !== name) || along?.kind === "along"
-}
-
-/**
- * The branches of `names` (the ones stacked on a branch) whose push has work but drops remote commits: Push with Children
- * leaves them out, they ask first in their own rows. A branch a running Safe Push holds (`isHeld`) has nothing to push.
- */
-export function stackAskFirst(names: readonly string[], branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean = () => false): string[] {
-  return names.filter(name => asksFirst(orderedPush(branchOf(name))) && !isHeld(name))
-}
-
 /** "login asks first in its row: the push drops remote commits", "login and oauth ask first in their rows: …" */
 export function formatAskFirst(names: readonly string[]): string {
   const one = names.length === 1
@@ -308,38 +195,34 @@ export function formatAskFirst(names: readonly string[]): string {
 
 /**
  * Why Push with Children of `name` has nothing to push beyond the branch itself, as its menu item and the push of the
- * island header say it; null while it does (`offersPushWithChildren`). `order` is what it pushes
- * (`stackChildrenPushOrder`), `askFirst` the children left out because their push drops remote commits (`stackAskFirst`),
- * `along` what it does with the stack branch of the whole stack of a root (`getStackBranchAlong`): "Nothing to push"
- * only while that one has nothing to push either. `landed`: merged Safe Pushes landed the branch and every branch built
- * on it whole (`useLandedWithChildrenReason`): "Landed in master with deploy and side-test: nothing of air and its
- * children is left to push".
+ * island header say it; null while it does. `children` is what Rust orders it to push (`ChildrenPush`: its order, the
+ * children left out because their push drops remote commits, what it does with the stack branch of the whole stack of a
+ * root: "Nothing to push" only while that one has nothing to push either). `landed`: merged Safe Pushes landed the
+ * branch and every branch built on it whole (`useLandedWithChildrenReason`): "Landed in master with deploy and
+ * side-test: nothing of air and its children is left to push".
  */
-export function describePushWithChildrenBlocker(
-  name: string,
-  order: readonly string[],
-  askFirst: readonly string[],
-  along: StackBranchAlong | null = null,
-  landed: string | null = null,
-): string | null {
-  if (offersPushWithChildren(name, order, along)) {
+export function describePushWithChildrenBlocker(name: string, children: ChildrenPushOrder | null, landed: string | null = null): string | null {
+  if (children?.offers === true) {
     return null
   }
+  const askFirst = children?.askFirst ?? []
   if (askFirst.length > 0) {
     return formatAskFirst(askFirst)
   }
-  if (order.includes(name)) {
+  if (children?.order.includes(name) === true) {
     return `Only ${name} has commits to push: its own push sends them`
   }
   if (landed !== null) {
     return `${landed}: nothing of ${name} and its children is left to push`
   }
+  const along = children?.stackBranch ?? null
   switch (along?.kind) {
     case "unpublished":
       return "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack"
     case "notBuilt":
+      return `The branches of the stack are on the remote. ${formatReason(along.reason)}`
     case "held":
-      return `The branches of the stack are on the remote. ${along.reason}`
+      return `The branches of the stack are on the remote. ${formatStackHold(along.reason)}`
     case "dropsRemote":
       return "The branches of the stack are on the remote. The whole stack branch stays: its push would drop remote commits it lacks"
     default:

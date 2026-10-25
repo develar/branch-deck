@@ -326,7 +326,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   step of the whole stack when it is the one, else `getRequestReviewItem` with the code owners of the readiness of
   `stack:<root>`; its popover at the header's slot of the island, else at an anchor of the root's slot, also from the
   root's preview, which closes; its stack branch pushed first), else "Create Pull Request of the Stack…" (disabled
-  with the reason while the sync didn't build the stack branch, `getStackBranchBlocker`, and once every branch of the
+  with the reason while the sync didn't build the stack branch, `WholeStackView.forking.notBuilt`, and once every branch of the
   stack landed, `getStackLandedReason`), Push with Children (the
   island's; the root's menu has it beside its push), "Review Whole Stack" ([Branch Review](branch-review.spec.md#opening))
   and the actions of its robot. An open "⋯" of the island follows what the list reads: the pull requests that load
@@ -366,7 +366,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   of the whole stack and the profile of its last one, its pull request and the readiness of the whole stack. It lands
   more than a row, so it always opens its popover ("Safe Push of the whole air stack"): what lands ("Lands 7 branches ·
   14 commits into master in one Safe Push: air, bazel, … side-fix and side-test.", the main line first, then the side
-  branches, `getWholeStackMembers`), "Pushes only its stack branch user-name/stack/air.", and what stays only of the
+  branches, `whole_stack_members`), "Pushes only its stack branch user-name/stack/air.", and what stays only of the
   branches on the remote ("…: the branches of the stack stay as they are on the remote.", "…: air and bazel stay as
   they are on the remote.", `describeStackBranchPush`), with its pull request open and its approvals needed
   "Approvals count in #12, the pull request of the whole stack." (never beside "No code-owner review needed."), the
@@ -392,7 +392,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - After merged Safe Pushes landed branches of it (a piece that landed its main line, `getLandedBy`), it must land only
   the rest and say so: its label counts the rest ("Safe Push" for one branch left), its hover, menu item and popover
   "Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth landed with oauth"
-  (`getWholeStackRest`, `describeWholeStackLanding`); the stack branch still carries the landed commits, which Patronus
+  (`StackLanding.rest`, `describeWholeStackLanding`); the stack branch still carries the landed commits, which Patronus
   finds in the target. Once every branch of it landed, nothing is left: Safe Push Whole Stack and Dry Run Whole Stack
   disabled with "Landed in master with oauth and the whole auth stack" ([Next Step](next-step.spec.md#the-whole-stack)).
   [@test] ../../src/hooks/useStackNextStep.test.ts (`lands only the rest after a piece landed its main line, and offers nothing once every branch of it landed`, `offers nothing once its own robot landed every branch of it`)
