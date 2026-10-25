@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.33.0](https://github.com/develar/branch-deck/compare/v0.32.0...v0.33.0) (2026-10-25)
+
+
+### Features
+
+* **bd:** bd help agent is a 10 KB core, the outputs and refusals of a command in its --help ([173c206](https://github.com/develar/branch-deck/commit/173c20603ae7766d179d876a48f8ac4359c4bd61))
+* **bd:** bd schema without a name is the index of the commands, bd schema &lt;command&gt; their schemas ([6c55202](https://github.com/develar/branch-deck/commit/6c552027f642e512a40c1384dbec096249a09468))
+* **bd:** every refusal names the condition of its bypass, and the error names its next steps ([6197f2b](https://github.com/develar/branch-deck/commit/6197f2b106dab6d4c96b0ef4c131bceef2ec7a95))
+* **bd:** the round of a twin drops its commit with --landed, and bd says when to ask the user ([d67df12](https://github.com/develar/branch-deck/commit/d67df129e448c68a9348e4c797f6ad3c055a376c))
+* **bd:** the skill carries the isolation rules a repository repeated: a lease is the only worktree, also when bd fails, and a sandbox writes only its path ([01e8461](https://github.com/develar/branch-deck/commit/01e846197cc47b15307081e15b719d523a759b82))
+* **onboarding:** no empty window while a sync runs, a failed sync not repeated on every focus, agents on the way to the first branches ([17ae011](https://github.com/develar/branch-deck/commit/17ae011fa0ee844797998a417f8b8099a2dbab95))
+* **prompt:** the conflict prompt asks the user only where bd says ask_user ([8dcf0ca](https://github.com/develar/branch-deck/commit/8dcf0ca8f48a9d2d8ccbdfe72d1c32327c4be59a))
+* **ui:** an unchecked checkbox and switch have a 3:1 edge, the control-edge token; text fields stay filled ([bef6b60](https://github.com/develar/branch-deck/commit/bef6b607658c7e88a61d370b2e6be016b47036a5))
+* **ui:** the theme tokens map the Islands variables that the IntelliJ monorepo generates, with a contrast test ([482f31a](https://github.com/develar/branch-deck/commit/482f31a35155bbad343c64a3cbe6f3933707b199))
+* **ui:** the ui primitives move to the base-mira style: 28px controls and bordered fields as in the IDE ([e2b689d](https://github.com/develar/branch-deck/commit/e2b689d4ee6e09a7f78132a95643b0f4fe31e2a1))
+* **update:** a ladder of proofs leaves out the landed twins, and the check keeps one replay plan ([04cdc8b](https://github.com/develar/branch-deck/commit/04cdc8bc46de4ada82bb52f684c0cec3d7343fab))
+* **update:** the check names the first conflicting commit, and the session opens its round there ([b1c2323](https://github.com/develar/branch-deck/commit/b1c23236c2b09dace80b4f4ad4726cb8301f0362))
+
+
+### Bug Fixes
+
+* **e2e:** the mock script polls for no mockIPC, which starved the Playwright clock of a window just opened ([f63ddb9](https://github.com/develar/branch-deck/commit/f63ddb9f373e9b693936304b55a909c1a6e09906))
+* **e2e:** the press of a start or a restart goes into its answer wait, and a restart waits for each step of its chain ([8bd354a](https://github.com/develar/branch-deck/commit/8bd354a31276534926bf7fea119fa3598858e6b6))
+* **e2e:** the push toast journey pushes through the test server, so no page answer is added to the pin ([f3d0fa0](https://github.com/develar/branch-deck/commit/f3d0fa0eca1523023727275abf841acfc7b24dea))
+* **push:** a click on a push leaves its hover open, also a click half a second after the hover opened it ([6b48b11](https://github.com/develar/branch-deck/commit/6b48b113c30ea655a6324b800ab9bffb08ddc42e))
+* **review:** an answer with the requests prunes the review refs once per refs kept, not once per poll ([b769890](https://github.com/develar/branch-deck/commit/b7698906bfd89764e6006b387b0191e833a14380))
+* **scan:** the output table of `bd schema` is no push of a git ([bf3db0b](https://github.com/develar/branch-deck/commit/bf3db0beabe46f2438bd8ab359f29b7d21af0328))
+* **screenshots:** the pull requests of the README are of the signed-in user, the only ones the fake GitHub answers ([1e4b371](https://github.com/develar/branch-deck/commit/1e4b371593fd4f3b0097e78c4ec4ed49c579edad))
+* **ui:** a hover description follows the pointer: the click of its trigger does its action, never pins or closes it ([dd9c73b](https://github.com/develar/branch-deck/commit/dd9c73bfc097a8076675165bc74ef369d4a65ca7))
+* **ui:** outline buttons draw the IDE button border, xs controls are 24px, menu labels are text-xs, the Settings sidebar selects as an IDE list ([383fbcb](https://github.com/develar/branch-deck/commit/383fbcbe916a491d7b1a5e4aedccc0aa12755263))
+* **ui:** the shortcut of a menu item is text-xs muted, as its group label ([dbdfb28](https://github.com/develar/branch-deck/commit/dbdfb28d6cb9041ed05540a73d5419ce9284f6af))
+
 ## [0.32.0](https://github.com/develar/branch-deck/compare/v0.31.1...v0.32.0) (2026-10-25)
 
 
