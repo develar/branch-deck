@@ -262,13 +262,13 @@ vi.mock("@/stores/branch-sync", () => ({
   getBranch: (name: string) => branches.current[name],
   getStackBranch: (root: string) => branches.stacks[root],
   whenSynced: () => branches.synced,
-  // the branches built on `name`, parents first, by the parent each was placed on
-  stackDescendantsIn: (state: { branches: Record<string, { name: string; stack?: { effectiveBase: string | null } }> }, name: string) => {
+  // the structure Rust sent: the branches built on `name`, parents first, by the parent each was placed on
+  structureIn: (state: { branches: Record<string, { name: string; stack?: { effectiveBase: string | null } }> }, name: string) => {
     const children = (parent: string): string[] =>
       Object.values(state.branches)
         .filter(branch => branch.stack?.effectiveBase === parent)
         .flatMap(branch => [branch.name, ...children(branch.name)])
-    return children(name)
+    return { descendants: children(name) }
   },
   useStackBranch: () => undefined,
   useBranchSync: () => undefined,

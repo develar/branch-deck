@@ -22,18 +22,19 @@
 use crate::actions::RemoteActions;
 use crate::landing::LandingGate;
 use crate::patronus_view::{branch_start_refusal, landed_commits, stack_start_refusal};
-use crate::push_guard::{GuardFacts, guard_facts, row_refusal};
+use crate::push_guard::{GuardFacts, guard_facts, parked_words, row_refusal};
 use anyhow::{Result, anyhow, bail};
+use domain_policy::parked::whole_stack_parked;
 use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::landing::{LandingCheck, LandingGateParams, Subject, ensure_landing_starts};
 use domain_types::patronus::{PatronusCommandSubject, PatronusPushMode, PatronusRobot, PatronusRobotParams, PostPatronusCommandParams, StartPatronusRobotParams};
 use domain_types::repository_view::StartRefusal;
+use domain_types::session::ParkedMember;
 use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;
 use std::sync::Arc;
-use sync_core::parked::parked_state;
 use sync_core::patronus::required_target_branch;
 use sync_core::patronus_start::{carried_ids, carried_words, is_robot_active, join_names, push_mode_name};
 use sync_core::push::not_synced_refusal;
@@ -203,12 +204,8 @@ fn stack_refusal(facts: &GuardFacts, root: &str, dry_run: bool, excluded: Option
   let Some(stack) = table.stack(root) else {
     return Some(format!("{what} has no stack branch: the stack doesn't fork"));
   };
-  let parked = stack
-    .members
-    .iter()
-    .find_map(|member| parked_state(&table.branches, &table.parked, member).map(|parked| parked.reason(member)));
-  if let Some(reason) = parked {
-    return Some(format!("{what} holds what is parked: {reason}; land the stack in pieces"));
+  if let Some(ParkedMember { member, parked }) = whole_stack_parked(&table.repository(), stack.members.iter().map(String::as_str)) {
+    return Some(format!("{what} holds what is parked: {}; land the stack in pieces", parked_words(&member, &parked)));
   }
   if let Some(landed) = facts.stack_landed_whole(root) {
     return Some(format!("{landed}: nothing of it is left to land"));

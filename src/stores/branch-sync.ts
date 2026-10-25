@@ -13,6 +13,7 @@ import type {
   DroppedCommit,
   PushAction,
   RemoteStatusUpdate,
+  RowsView,
   StackBranchConflict,
   StackBranchState,
   StackMemberBlock,
@@ -23,7 +24,6 @@ import type {
   WordResolutionSummary,
 } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
-import { collectParkedStates } from "@/lib/parked"
 import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
@@ -31,6 +31,8 @@ import type { SyncDeferral } from "@/lib/sync-deferred"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { nextRunNumber, requestSessionSync } from "@/model/store"
+import type { BranchStructure } from "@/model/structure"
+import { ROOT_STRUCTURE } from "@/model/structure"
 import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
 
 /** Commit augmented with its sync outcome. */
@@ -107,6 +109,13 @@ export interface Branch {
   readonly issueKey: string | null
   /** Where the branch sits in its stack; null without stacked branches */
   readonly stack: BranchStack | null
+  /** Where the branch is among the others, as Rust placed it (`BranchView.structure`) */
+  readonly structure: BranchStructure
+}
+
+/** The structure of `name` as the view placed it; `ROOT_STRUCTURE` for a branch the table lacks */
+export function structureIn(state: BranchSyncState, name: string): BranchStructure {
+  return state.branches[name]?.structure ?? ROOT_STRUCTURE
 }
 
 /**
@@ -180,6 +189,8 @@ export interface BranchSyncState {
   baselineBranch: string | null
   /** Branch names in backend order */
   branchOrder: string[]
+  /** The branches of the main table and of the Parked card, in branch order, as Rust placed them (`RepositoryView.rows`) */
+  rows: RowsView
   branches: Record<string, Branch>
   /**
    * Branches with a push in flight, and the stack branch of the whole stack of a root under its key `stack:<root>`
@@ -235,6 +246,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   inputsCheckedAt: null,
   baselineBranch: null,
   branchOrder: [],
+  rows: { main: [], parked: [] },
   branches: {},
   pushingBranches: {},
   stackPushes: {},
@@ -322,71 +334,38 @@ function branchRow(name: string, depth: number, showIssueKey: boolean, familyInd
   return internRow({ kind: "branch", key, name, depth, showIssueKey, familyIndent, lanes, dimmed })
 }
 
-/** The branch of the table that `name` stacks on; null for a root or a parent without a branch here */
-function stackParentIn(branches: Record<string, Branch>, name: string): string | null {
-  const parent = branches[name]?.stack?.declaredParent ?? null
-  return parent !== null && parent !== name && branches[parent] !== undefined ? parent : null
+/** The branch of `branches` that `name` stacks on, as Rust placed it; null for a root or a parent `branches` lacks */
+function parentIn(branches: Record<string, Branch>, name: string): string | null {
+  const parent = branches[name]?.structure.parent ?? null
+  return parent !== null && branches[parent] !== undefined ? parent : null
 }
 
 /**
- * What the table rows and the stack lookups are computed from: the order, per branch its parent and issue, and the parked
- * branches. A sync event (a commit synced, a remote status) changes the `branches` record but not this.
+ * What the table rows are laid out from: the order, of each branch its parent, its issue and its section. A sync event
+ * (a commit synced, a remote status) changes the `branches` record but not this.
  */
-interface BranchStructure {
-  readonly branchOrder: readonly string[]
+interface TableLayout {
+  readonly rows: RowsView
   readonly branches: Record<string, Branch>
-  readonly parked: Readonly<Record<string, string>>
   readonly key: string
-  /** The branches stacked directly on each branch, in branch order; cycles included */
-  readonly children: ReadonlyMap<string, readonly string[]>
-  /** The parked branches and those built on one, which carry its commits (`collectParkedStates`) */
-  readonly parkedStates: ReadonlyMap<string, ParkedState>
-  /** The branches of the main table, in branch order: the others are parked */
-  readonly mainOrder: readonly string[]
 }
 
-/** The branch `name` is built on, whose commits it carries: its effective base, else the declared parent of a blocked one */
-function buildParentIn(branches: Record<string, Branch>, name: string): string | null {
-  const stack = branches[name]?.stack
-  return stack?.effectiveBase ?? stack?.declaredParent ?? null
-}
+let lastLayout: TableLayout | null = null
 
-let lastStructure: BranchStructure | null = null
-
-/** The structure of `state`, the same object while the structure stays the same */
-function structureOf(state: BranchSyncState): BranchStructure {
-  const { branchOrder, branches, parked } = state
-  const last = lastStructure
-  if (last !== null && last.branchOrder === branchOrder && last.branches === branches && last.parked === parked) {
+/** The layout of `state`, the same object while its rows and branches stay the same */
+function layoutOf(state: BranchSyncState): TableLayout {
+  const { rows, branches } = state
+  const last = lastLayout
+  if (last !== null && last.rows === rows && last.branches === branches) {
     return last
   }
-  const parkedStates = collectParkedStates(branchOrder, parked, name => buildParentIn(branches, name))
   let key = ""
-  for (const name of branchOrder) {
+  for (const name of state.branchOrder) {
     const branch = branches[name]
-    const state = parkedStates.get(name)
-    const parkedKey = state === undefined ? "" : `${state.with ?? ""}\0${state.note}`
-    key += branch === undefined ? `${name}\0?\n` : `${name}\0${stackParentIn(branches, name) ?? ""}\0${branch.issueKey ?? ""}\0${parkedKey}\n`
+    key += branch === undefined ? `${name}\0?\n` : `${name}\0${branch.structure.parent ?? ""}\0${branch.issueKey ?? ""}\0${branch.structure.section}\n`
   }
-  if (last !== null && last.key === key) {
-    lastStructure = { ...last, branchOrder, branches, parked }
-    return lastStructure
-  }
-  const children = new Map<string, string[]>()
-  for (const name of branchOrder) {
-    const parent = stackParentIn(branches, name)
-    if (parent !== null) {
-      const siblings = children.get(parent)
-      if (siblings === undefined) {
-        children.set(parent, [name])
-      } else {
-        siblings.push(name)
-      }
-    }
-  }
-  const mainOrder = parkedStates.size === 0 ? branchOrder : branchOrder.filter(name => !parkedStates.has(name))
-  lastStructure = { branchOrder, branches, parked, key, children, parkedStates, mainOrder }
-  return lastStructure
+  lastLayout = last !== null && last.key === key ? { ...last, rows, branches } : { rows, branches, key }
+  return lastLayout
 }
 
 /** The branches of `visible` and the branches they stack on, in branch order */
@@ -396,7 +375,7 @@ function withStackAncestors(state: BranchSyncState, visible: ReadonlySet<string>
     let current: string | null = state.branches[name] === undefined ? null : name
     while (current !== null && !kept.has(current)) {
       kept.add(current)
-      current = stackParentIn(state.branches, current)
+      current = parentIn(state.branches, current)
     }
   }
   return state.branchOrder.filter(name => kept.has(name))
@@ -405,37 +384,35 @@ function withStackAncestors(state: BranchSyncState, visible: ReadonlySet<string>
 /** The table of a branch: the main one, or the Parked card of the branches kept local */
 export type BranchTableSection = "main" | "parked"
 
-/** The branches of `section` among `branches`: the same record without parked branches */
-function sectionBranches(structure: BranchStructure, section: BranchTableSection): Record<string, Branch> {
-  if (structure.parkedStates.size === 0) {
-    return structure.branches
+/** The branches of `section`: all of them without a parked branch */
+function sectionBranches(state: BranchSyncState, section: BranchTableSection): Record<string, Branch> {
+  if (state.rows.parked.length === 0) {
+    return state.branches
   }
-  const parked = section === "parked"
-  return Object.fromEntries(Object.entries(structure.branches).filter(([name]) => structure.parkedStates.has(name) === parked))
+  return Object.fromEntries(Object.entries(state.branches).filter(([, branch]) => branch.structure.section === section))
 }
 
 /** The rows of `branchTableRowsIn`, computed: the stack graph is laid out over the rows that remain */
 function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<string> | null, section: BranchTableSection = "main"): BranchTableRow[] {
-  const structure = structureOf(state)
   // a branch parked with its parent stays under it in the Parked card; a parked child of a branch to land is a root there
-  const branches = sectionBranches(structure, section)
+  const branches = sectionBranches(state, section)
   const branchOrder = (visible === null ? state.branchOrder : withStackAncestors(state, visible)).filter(name => branches[name] !== undefined)
   // the branches stacked on each branch, newest first; a branch in a cycle of parents is a root
   const children = new Map<string, string[]>()
   const isRoot = (name: string) => {
     const seen = new Set<string>([name])
-    let parent = stackParentIn(branches, name)
+    let parent = parentIn(branches, name)
     while (parent !== null) {
       if (seen.has(parent)) {
         return true
       }
       seen.add(parent)
-      parent = stackParentIn(branches, parent)
+      parent = parentIn(branches, parent)
     }
     return false
   }
   for (const name of branchOrder) {
-    const parent = stackParentIn(branches, name)
+    const parent = parentIn(branches, name)
     if (parent !== null && !isRoot(name)) {
       const siblings = children.get(parent)
       if (siblings === undefined) {
@@ -445,7 +422,7 @@ function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<str
       }
     }
   }
-  const roots = branchOrder.filter(name => stackParentIn(branches, name) === null || isRoot(name))
+  const roots = branchOrder.filter(name => parentIn(branches, name) === null || isRoot(name))
   const rootSet = new Set(roots)
   // without a branch stacked on another the table has no graph: a lane for the node of each branch
   const hasStacks = children.size > 0
@@ -521,7 +498,7 @@ function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<str
 }
 
 interface RowsCache {
-  readonly structure: BranchStructure
+  readonly layout: TableLayout
   readonly visible: ReadonlySet<string> | null
   readonly rows: BranchTableRow[]
 }
@@ -534,11 +511,11 @@ let parkedRowsCache: RowsCache | null = null
 
 /** The rows of the Parked card: the parked branches and those built on one, as a stack graph of their own */
 function parkedTableRowsIn(state: BranchSyncState): BranchTableRow[] {
-  const structure = structureOf(state)
-  if (parkedRowsCache !== null && parkedRowsCache.structure.key === structure.key) {
+  const layout = layoutOf(state)
+  if (parkedRowsCache !== null && parkedRowsCache.layout.key === layout.key) {
     return parkedRowsCache.rows
   }
-  parkedRowsCache = { structure, visible: null, rows: structure.parkedStates.size === 0 ? [] : computeBranchTableRows(state, null, "parked") }
+  parkedRowsCache = { layout, visible: null, rows: state.rows.parked.length === 0 ? [] : computeBranchTableRows(state, null, "parked") }
   return parkedRowsCache.rows
 }
 
@@ -547,12 +524,12 @@ function parkedTableRowsIn(state: BranchSyncState): BranchTableRow[] {
  * visible themselves; computed again only when the structure or `visible` changes.
  */
 function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> | null): BranchTableRow[] {
-  const structure = structureOf(state)
+  const layout = layoutOf(state)
   const cache = visible === null ? allRowsCache : visibleRowsCache
-  if (cache !== null && cache.visible === visible && cache.structure.key === structure.key) {
+  if (cache !== null && cache.visible === visible && cache.layout.key === layout.key) {
     return cache.rows
   }
-  const next: RowsCache = { structure, visible, rows: computeBranchTableRows(state, visible) }
+  const next: RowsCache = { layout, visible, rows: computeBranchTableRows(state, visible) }
   if (visible === null) {
     allRowsCache = next
   } else {
@@ -561,56 +538,28 @@ function branchTableRowsIn(state: BranchSyncState, visible: ReadonlySet<string> 
   return next.rows
 }
 
-const noBranches: readonly string[] = []
-
-/** The branches stacked on `name`, directly or further down, each after its parent */
-export function stackDescendantsIn(state: BranchSyncState, name: string): string[] {
-  const { children } = structureOf(state)
-  const descendants: string[] = []
-  if (children.size === 0) {
-    return descendants
-  }
-  const seen = new Set<string>([name])
-  const pending = [name]
-  while (pending.length > 0) {
-    for (const child of children.get(pending.pop()!) ?? noBranches) {
-      if (!seen.has(child)) {
-        seen.add(child)
-        descendants.push(child)
-        pending.push(child)
-      }
-    }
-  }
-  return descendants
-}
-
 /**
- * The main line of the stack on `root`, root first: the longest chain, lane 0 of the stack graph (`layoutStack`). A Safe
- * Push of its last branch lands the whole line in one robot: the Safe Push of a stack island's header.
+ * The main line of the stack on `root`, root first (`BranchStructure.mainLine`): the longest chain, lane 0 of the stack
+ * graph. A Safe Push of its last branch lands the whole line in one robot: the Safe Push of a stack island's header
  */
-export function stackMainLineIn(state: BranchSyncState, root: string): string[] {
-  const { children } = structureOf(state)
-  return layoutStack(root, name => children.get(name) ?? noBranches)
-    .filter(row => row.lanes.lane === 0)
-    .map(row => row.name)
+export function mainLineOf(state: BranchSyncState, root: string): string[] {
+  return [root, ...structureIn(state, root).mainLine]
 }
 
 /** The branches stacked directly on `name`, newest first */
-export function getStackChildren(name: string): string[] {
-  return (structureOf(branchSyncStore.getState()).children.get(name) ?? noBranches).filter(child => child !== name)
+export function getStackChildren(name: string): readonly string[] {
+  return structureIn(branchSyncStore.getState(), name).children
 }
 
 /** The branches stacked on `name`, directly or further down */
-export function getStackDescendants(name: string): string[] {
-  return stackDescendantsIn(branchSyncStore.getState(), name)
+export function getStackDescendants(name: string): readonly string[] {
+  return structureIn(branchSyncStore.getState(), name).descendants
 }
 
 /** `getStackDescendants` without the parked ones and those parked with them: what lands with the stack of `name` */
 export function getUnparkedStackDescendants(name: string): string[] {
   const state = branchSyncStore.getState()
-  const { parkedStates } = structureOf(state)
-  const descendants = stackDescendantsIn(state, name)
-  return parkedStates.size === 0 ? descendants : descendants.filter(it => !parkedStates.has(it))
+  return structureIn(state, name).descendants.filter(it => structureIn(state, it).parked === null)
 }
 
 /** Whether the last grouping read prefixes as stacked branches */
@@ -678,17 +627,17 @@ export function getParkedTableRows(): BranchTableRow[] {
 
 /** The branches of the main table, in branch order: every branch but the parked ones and those parked with them */
 export function getMainBranchOrder(): readonly string[] {
-  return structureOf(branchSyncStore.getState()).mainOrder
+  return branchSyncStore.getState().rows.main
 }
 
 /** Why the branch stays local: its own line in the parked branches, or a parked branch it is built on; null otherwise */
 export function getParkedState(name: string): ParkedState | null {
-  return structureOf(branchSyncStore.getState()).parkedStates.get(name) ?? null
+  return structureIn(branchSyncStore.getState(), name).parked
 }
 
 /** `getParkedState` of the row, re-rendered only when it changes */
 export function useParkedState(name: string): ParkedState | null {
-  return useStore(branchSyncStore, state => structureOf(state).parkedStates.get(name) ?? null)
+  return useStore(branchSyncStore, state => structureIn(state, name).parked)
 }
 
 /** The parked branches of the last grouping: branch -> note, the lines of branches without commits here too */
@@ -939,7 +888,8 @@ export function wholeStackRootIn(state: BranchSyncState, name: string): string |
   if (forking !== undefined) {
     return forking.root
   }
-  return stackParentIn(state.branches, name) === null && stackDescendantsIn(state, name).length > 0 ? name : null
+  const structure = structureIn(state, name)
+  return structure.parent === null && structure.descendants.length > 0 ? name : null
 }
 
 /** The stack branch of the stack that forks and holds the branch `name` (`StackBranch.members`); undefined otherwise */
@@ -951,11 +901,11 @@ export function getStackBranchOf(name: string): StackBranch | undefined {
 function stackRootIn(branches: Record<string, Branch>, name: string): string {
   const seen = new Set<string>([name])
   let root = name
-  let parent = stackParentIn(branches, root)
+  let parent = parentIn(branches, root)
   while (parent !== null && !seen.has(parent)) {
     seen.add(parent)
     root = parent
-    parent = stackParentIn(branches, root)
+    parent = parentIn(branches, root)
   }
   return root
 }

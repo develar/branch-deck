@@ -1,5 +1,9 @@
-import type { PushAction } from "@/lib/bindings"
-import type { Branch, RemoteStatus } from "@/stores/branch-sync"
+import type { PushAction, RowsView } from "@/lib/bindings"
+import type { ParkedState } from "@/lib/parked"
+import { layoutStack } from "@/lib/stack-lanes"
+import type { BranchStructure } from "@/model/structure"
+import { ROOT_STRUCTURE } from "@/model/structure"
+import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 
 /**
  * The actions of a push as Rust decides them of a remote status (`domain_policy::push::action`): a test of the page
@@ -65,6 +69,101 @@ export function testBranch(name: string, parent: string | null, overrides: Parti
       prBaseChanged: false,
       childPrecedesParent: false,
     },
+    structure: { ...ROOT_STRUCTURE, parent },
     ...overrides,
+  }
+}
+
+/** The tables of the page tests: the branches, their order, the parked lines and the stack branches */
+export interface TestTable {
+  readonly branches: Record<string, Branch>
+  readonly branchOrder: readonly string[]
+  readonly parked?: Readonly<Record<string, string>>
+  readonly stackBranches?: Readonly<Record<string, StackBranch>>
+}
+
+/**
+ * `table` placed as `repository_model::derive` places a table for the view, so a page test reads the structure the page
+ * gets: of each branch its children, descendants and main line by its `structure.parent`, its ancestors by
+ * `stack.effectiveBase`, parked by the chain it is built on, and the rows of each section. A fixture of the page tests
+ * only: the rules are Rust's (`domain_policy::stack`, `domain_policy::parked`), and their table tests pin them
+ */
+export function placed(table: TestTable): { branches: Record<string, Branch>; rows: RowsView } {
+  const { branches, branchOrder, parked = {}, stackBranches = {} } = table
+  const names = branchOrder.filter(name => branches[name] !== undefined)
+  const parentOf = (name: string) => {
+    const parent = branches[name]?.structure.parent ?? null
+    return parent !== null && parent !== name && branches[parent] !== undefined ? parent : null
+  }
+  const children = (name: string) => names.filter(child => parentOf(child) === name)
+  const descendants = (name: string) => {
+    const found: string[] = []
+    const seen = new Set([name])
+    const pending = [name]
+    while (pending.length > 0) {
+      for (const child of children(pending.pop()!)) {
+        if (!seen.has(child)) {
+          seen.add(child)
+          found.push(child)
+          pending.push(child)
+        }
+      }
+    }
+    return found
+  }
+  const ancestors = (name: string) => {
+    const found: string[] = []
+    let base = branches[name]?.stack?.effectiveBase ?? null
+    while (base !== null && base !== name && !found.includes(base) && branches[base] !== undefined) {
+      found.push(base)
+      base = branches[base]?.stack?.effectiveBase ?? null
+    }
+    return found.reverse()
+  }
+  const parkedState = (name: string): ParkedState | null => {
+    const own = parked[name]
+    if (own !== undefined) {
+      return { note: own, with: null }
+    }
+    const seen = [name]
+    const builtOn = (branch: string) => {
+      const stack = branches[branch]?.stack
+      return stack == null ? null : (stack.effectiveBase ?? stack.declaredParent)
+    }
+    let parent = builtOn(name)
+    while (parent !== null && !seen.includes(parent)) {
+      const note = parked[parent]
+      if (note !== undefined) {
+        return { note, with: parent }
+      }
+      seen.push(parent)
+      parent = builtOn(parent)
+    }
+    return null
+  }
+  const placedBranches: Record<string, Branch> = { ...branches }
+  for (const name of names) {
+    const state = parkedState(name)
+    const member = stackBranches[name]?.members.find(it => parkedState(it) !== null)
+    const structure: BranchStructure = {
+      parent: parentOf(name),
+      children: children(name),
+      ancestors: ancestors(name),
+      descendants: descendants(name),
+      mainLine: layoutStack(name, children)
+        .filter(row => row.lanes.lane === 0 && row.name !== name)
+        .map(row => row.name),
+      parked: state,
+      stackParked: member === undefined ? null : { member, parked: parkedState(member)! },
+      section: state === null ? "main" : "parked",
+    }
+    placedBranches[name] = { ...branches[name]!, structure }
+  }
+  return {
+    branches: placedBranches,
+    rows: {
+      main: names.filter(name => placedBranches[name]!.structure.section === "main"),
+      parked: names.filter(name => placedBranches[name]!.structure.section === "parked"),
+    },
   }
 }

@@ -20,7 +20,7 @@ import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/b
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
-import { wholeStackParkedState } from "@/lib/parked"
+import { stackParkedState } from "@/lib/parked"
 import { canStartStackRobot, formatLandingSubject, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
@@ -30,7 +30,7 @@ import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import type { StackBranch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getParkedState, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getParkedState, getStackBranch, mainLineOf, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import {
   getLandedBy,
@@ -58,11 +58,11 @@ export interface StackNextStep {
 }
 
 /**
- * The branches of the whole stack as a sentence names them: its main line first (`stackMainLineIn`), then the side
+ * The branches of the whole stack as a sentence names them: its main line first (`mainLineOf`), then the side
  * branches, which only the whole stack lands, each in the order of the stack
  */
 export function getWholeStackMembers(stack: StackBranch): string[] {
-  const mainLine = stackMainLineIn(branchSyncStore.getState(), stack.root).filter(name => stack.members.includes(name))
+  const mainLine = mainLineOf(branchSyncStore.getState(), stack.root).filter(name => stack.members.includes(name))
   return [...mainLine, ...stack.members.filter(name => !mainLine.includes(name))]
 }
 
@@ -214,7 +214,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
     landingPart: landingMember,
     held: getStackPushHold(root) !== null,
-    parked: wholeStackParkedState(stack.members, getParkedState),
+    parked: stackParkedState(getBranch(stack.root)?.structure.stackParked ?? null),
     landedIn,
     // merged Safe Pushes, of pieces of it or its own, landed every branch of it: nothing is left to land
     landedWith: getStackLandedReason(root),
@@ -315,7 +315,7 @@ function computeStackNextStep(root: string): StackNextStep | null {
   }
   // a straight chain: its last branch lands the whole stack; the parked branches at its end stay local, the island has
   // them in the Parked card
-  const mainLine = stackMainLineIn(branchSyncStore.getState(), root).filter(name => getParkedState(name) === null)
+  const mainLine = mainLineOf(branchSyncStore.getState(), root).filter(name => getParkedState(name) === null)
   const leaf = mainLine.at(-1)
   if (leaf === undefined || mainLine.length < 2) {
     return null

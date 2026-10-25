@@ -1,6 +1,5 @@
-use crate::parked::{ParkBranchLine, ParkBranchesParams, UnparkBranchesParams, park_branches, parked_state, unpark_branches};
+use crate::parked::{ParkBranchLine, ParkBranchesParams, UnparkBranchesParams, park_branches, unpark_branches};
 use crate::regroup_test::{commits, entries, path, plant_store, sync};
-use domain_types::GroupedBranchInfo;
 use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, RewriteOptions, lock_repository};
@@ -10,7 +9,6 @@ use pretty_assertions::assert_eq;
 use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, baseline_repo};
-use test_utils::sync_fixtures::placed_branch;
 
 fn parked(repo: &TestRepo) -> StoreLines {
   read_grouping_inputs(repo.git_executor(), path(repo)).unwrap().parked
@@ -227,30 +225,4 @@ fn a_sync_keeps_every_line_it_can_not_prove_dead() {
   assert_eq!(history(&repo), before.1);
   drop_integrated_parked(repo.git_executor(), path(&repo), &["ghost"]);
   assert_eq!((parked(&repo).entries, history(&repo)), (entries(&[("auth", "")]), before.1 + 1));
-}
-
-fn branch(name: &str, effective_base: Option<&str>, declared_parent: Option<&str>) -> GroupedBranchInfo {
-  placed_branch(name, effective_base, declared_parent)
-}
-
-#[test]
-fn a_branch_built_on_a_parked_one_is_parked_with_it() {
-  let branches = [
-    branch("auth", None, None),
-    branch("login", Some("auth"), Some("auth")),
-    branch("oauth", Some("login"), Some("login")),
-    // blocked: no effective base, its declared parent places it
-    branch("sso", None, Some("oauth")),
-    branch("docs", None, None),
-  ];
-  let parked = entries(&[("auth", "IJPL-1")]);
-  let state = |name: &str| parked_state(&branches, &parked, name).map(|parked| (parked.note, parked.with));
-  assert_eq!(state("auth"), Some(("IJPL-1".to_string(), None)));
-  assert_eq!(state("oauth"), Some(("IJPL-1".to_string(), Some("auth".to_string()))));
-  assert_eq!(state("sso"), Some(("IJPL-1".to_string(), Some("auth".to_string()))));
-  assert_eq!(state("docs"), None);
-  // the nearest parked ancestor names it
-  let both = entries(&[("auth", "IJPL-1"), ("login", "")]);
-  assert_eq!(parked_state(&branches, &both, "oauth").and_then(|parked| parked.with).as_deref(), Some("login"));
-  assert_eq!(parked_state(&branches, &parked, "oauth").unwrap().reason("oauth"), "oauth is built on parked auth: IJPL-1");
 }

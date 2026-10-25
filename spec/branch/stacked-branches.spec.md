@@ -17,6 +17,13 @@ targets:
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/trial-check/src/check.rs
   - ../../crates/domain-types/src/stack.rs
+  - ../../crates/domain-types/src/session.rs
+  - ../../crates/domain-policy/src/facts.rs
+  - ../../crates/domain-policy/src/stack.rs
+  - ../../crates/repository-model/src/derive.rs
+  - ../../crates/repository-model/src/table.rs
+  - ../../src/model/structure.ts
+  - ../../src/model/store.ts
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/stack-lanes.ts
@@ -486,6 +493,16 @@ menu stacks, unstacks and renames branches.
   branch whose parent has no row, or whose parents form a cycle, stays at the top level.
   [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a branch whose parent has no row, or whose parents form a cycle, at the top level`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should carry the commits of a branch on its lane, into the lines of its children`)
+- Where each branch is must be Rust's, for the page and `bd` alike (`domain_policy::stack`, placed once per grouping
+  by `repository_model::derive` as the structure of the branch in the session's view): its parent is the branch of the
+  table it declares (a `(parent/child)` prefix or its stored parent), so a branch whose declared parent has no commits
+  is a root of its own; its children in the order of the table, and its descendants, each after its parent; its
+  ancestors, the chain of its effective bases among the branches of the table; the main line below it, at each fork
+  the child with the longest chain, the last of children with equal ones. The page lays the rows, their depth and
+  their lanes out of it and decides none of it; a patch carries the structure of a branch only when it changed.
+  [@test] ../../crates/domain-policy/src/stack_test.rs (`children_and_descendants_follow_the_declared_parents_in_the_order_of_the_table`, `a_declared_parent_the_table_lacks_makes_a_root`, `the_ancestors_are_the_chain_of_the_effective_bases_in_the_table`, `the_main_line_takes_the_longest_chain_at_each_fork_and_the_last_of_equal_ones`, `a_cycle_of_declared_parents_ends_the_descendants_and_the_main_line`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`a_grouping_places_every_branch_and_the_rows_of_each_section`, `a_patch_carries_only_the_structures_that_changed`)
+  [@test] ../../src/stores/branch-table-rows.test.ts (`lists the children and the descendants of a branch`)
 - Each row must carry its place in the stack graph (`lanes`, `src/lib/stack-lanes.ts`): its lane, the lane a side
   child forks from, the line up into its node and down from it, and the lanes passing it. A straight chain stays on
   lane 0; at a fork the last child continues the parent's lane and each other child takes the lowest free lane for

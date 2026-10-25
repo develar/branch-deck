@@ -8,6 +8,10 @@ targets:
   - ../../crates/history-rewrite/src/snapshot.rs
   - ../../crates/history-rewrite/src/regroup.rs
   - ../../crates/sync-core/src/parked.rs
+  - ../../crates/domain-policy/src/parked.rs
+  - ../../crates/domain-policy/src/facts.rs
+  - ../../crates/repository-model/src/derive.rs
+  - ../../crates/domain-types/src/session.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/domain-types/src/lib.rs
@@ -21,6 +25,7 @@ targets:
   - ../../src-tauri/src/commands/parked_branches.rs
   - ../../src/lib/parked.ts
   - ../../src/stores/branch-sync.ts
+  - ../../src/model/structure.ts
   - ../../src/lib/branch-next-step.ts
   - ../../src/lib/landing-node.ts
   - ../../src/lib/branch-filter.ts
@@ -111,8 +116,16 @@ branch built on it carries its commits, so it is parked with it.
 
 - A branch built on a parked branch (its effective base, or the declared parent of a blocked branch, up the chain)
   must be parked too, with the note of the nearest parked ancestor, which it names. Only the parked branch itself has
-  a line.
-  [@test] ../../crates/sync-core/src/parked_test.rs (`a_branch_built_on_a_parked_one_is_parked_with_it`)
+  a line. The chain is the one its commits are built on, not the declared one: a branch whose declared parent has no
+  commits is built on that parent's parent, carries its commits, and is parked with it; a chain that loops parks
+  nothing.
+  [@test] ../../crates/domain-policy/src/parked_test.rs (`a_branch_built_on_a_parked_one_is_parked_with_it`, `a_branch_is_parked_by_the_chain_it_is_built_on_not_the_declared_one`)
+- The app and `bd` must read one rule (`domain_policy::parked`): the session's view places each branch with its
+  parked state and its section (`BranchView.structure`, `RepositoryView.rows`), and the stack branch of a whole stack
+  with the first of its members that is parked (`stackParked` of its root); `bd status`, `bd push` and
+  `bd safe-push` and the app's checks in Rust ask the same rule over their grouping.
+  [@test] ../../crates/domain-policy/src/parked_test.rs (`the_first_parked_member_keeps_a_stack_branch_local`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`a_grouping_places_every_branch_and_the_rows_of_each_section`, `a_patch_carries_only_the_structures_that_changed`)
 
 ### Rename and cleanup
 

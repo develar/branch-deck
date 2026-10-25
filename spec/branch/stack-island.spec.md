@@ -6,6 +6,7 @@ targets:
   - ../../src/lib/stack-collapse.ts
   - ../../src/stores/stack-collapse.ts
   - ../../src/stores/branch-sync.ts
+  - ../../crates/domain-policy/src/stack.rs
   - ../../src/lib/stack-state.ts
   - ../../src/hooks/useStackStates.ts
   - ../../src/components/branch/BranchTableCard.tsx
@@ -160,7 +161,8 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   its hover what it lands, "Lands 7 branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and
   side-test" (the main line first, then the side branches, which only it lands); else the restart of its robot,
   "Create Pull Request…" (of the Stack, as its menus say it), Request Review… or the wait in its pull request. Of a straight chain, which has
-  no stack branch, it is the slot of the last branch of the main line (`stackMainLineIn`), whose one robot lands it all:
+  no stack branch, it is the slot of the last branch of the main line (`BranchStructure.mainLine` of its root, which
+Rust places: at each fork the child with the longest chain), whose one robot lands it all:
   "Safe Push deploy · lands 5 branches into master". A click asks the start (`requestSafePush` of `stack:<root>`,
   placement `stack-header`); it lands more than a row, so it opens its popover at the header's slot (`SafePushPopover`),
   also while the island is collapsed: nothing expands, nothing scrolls. Its title is what lands, then "Pushes only its
@@ -175,6 +177,7 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   and "Land it in pieces" of the popover open that Safe Push at the header's slot. The rows keep their own popovers at
   their slots, one popover at a time (`SafePushAsk`). The header shows no key hints: it is no row.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
+  [@test] ../../crates/domain-policy/src/stack_test.rs (`the_main_line_takes_the_longest_chain_at_each_fork_and_the_last_of_equal_ones`)
 - While a Safe Push runs in the stack (each one lands the root: [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs))
   the header's push is disabled with the reason of the hold and it offers no Safe Push: the landing line and "4
   landing" say why, as the Status cell of a row whose robot runs; the branches it holds and doesn't land are "2

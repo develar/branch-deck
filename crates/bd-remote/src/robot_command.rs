@@ -11,7 +11,9 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::stack_summary::{WholeStack, whole_stack_of};
+use domain_policy::facts::Repository;
 use domain_policy::robot_match::RobotIndex;
+use domain_policy::stack::build_ancestors;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
@@ -19,7 +21,6 @@ use domain_types::patronus::{PatronusRobot, PatronusRobotDetails, PatronusRobotS
 use domain_types::robot_failure::{FailedBuild, FailedCheck, OmittedFailures, RobotCommit, RobotCommitState, RobotFailure, RobotFailureKind, RobotFailureProblem};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
-use repository_model::branch_table::stack_ancestors;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -316,12 +317,8 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   };
 
   // the branch and those stacked on it: the robot of a descendant builds this branch too
-  let descendants: Vec<&str> = grouping
-    .branches
-    .iter()
-    .map(|branch| branch.name.as_str())
-    .filter(|candidate| stack_ancestors(&grouping.branches, candidate).iter().any(|ancestor| ancestor == name))
-    .collect();
+  let repo = Repository::of_grouping(&grouping.branches, &grouping.grouping.parked.entries);
+  let descendants: Vec<&str> = repo.order().filter(|candidate| build_ancestors(&repo, candidate).contains(&name)).collect();
   // the stack branches as they stand, without a sync (no git): the whole stack of a stack that forks
   let stacks = if has_row {
     read_stack_branches(&context.prefix, &grouping, &context.cache(), context.config()?.resolve_mode()?)
@@ -390,7 +387,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     stacks.iter().find(|stack| stack.root == root).map_or_default(|stack| stack.members.clone())
   } else {
     let robot_branch = failure.robot.branch_name.get_or_insert_with(|| name.to_string()).clone();
-    stack_ancestors(&grouping.branches, &robot_branch)
+    build_ancestors(&repo, &robot_branch).into_iter().map(str::to_string).collect()
   };
   let report = robot_failure_report(&context.git, &context.repository, &context.prefix, &ancestors, &grouping.baseline_branch, failure)?;
   if let Some(map) = report.commits {

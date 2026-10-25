@@ -7,6 +7,8 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use bd_core::stack_summary::StackSummary;
+use domain_policy::facts::Repository;
+use domain_policy::parked::parked_state;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use domain_types::landing::{LandingFix, LandingRefusal};
 use domain_types::repository_view::LandingNeeds;
@@ -21,7 +23,6 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use sync_core::grouping::BranchGrouping;
-use sync_core::parked::parked_state;
 use sync_core::stack_branch::read_stack_branches;
 use tracing::debug;
 use trial_check::landing_gate::landing_needs_of;
@@ -568,6 +569,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   } else {
     HashMap::new()
   };
+  let repo = Repository::of_grouping(&grouping.branches, &grouping.grouping.parked.entries);
   let branches = (!args.unassigned).then(|| {
     listed
       .iter()
@@ -601,7 +603,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
               .get(&branch.name)
               .map_or_default(|refusals| refusals.iter().map(|refusal| LandingNeed::new(context, refusal, &short)).collect())
           }),
-          parked: parked_state(&grouping.branches, &grouping.grouping.parked.entries, &branch.name).map(|parked| ParkedSummary {
+          parked: parked_state(&repo, &branch.name).map(|parked| ParkedSummary {
             note: parked.note,
             with: parked.with,
           }),

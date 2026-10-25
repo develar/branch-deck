@@ -24,6 +24,7 @@ import { Channel } from "@tauri-apps/api/core"
 import type {
   ApiError,
   BranchChange,
+  BranchStructure as StructureView,
   BranchView,
   Commit,
   CommitSync,
@@ -51,6 +52,8 @@ import { addTiming } from "@/lib/update-progress"
 import { isMainWindow } from "@/lib/window-label"
 import { setDemandFocused, setDemandSubscription } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
+import type { BranchStructure } from "@/model/structure"
+import { ROOT_STRUCTURE } from "@/model/structure"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore, toRemoteStatus } from "@/stores/branch-sync"
@@ -378,6 +381,9 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (changes === null || changes.order != null) {
     update.branchOrder = next.order
   }
+  if (changes === null || changes.rows != null) {
+    update.rows = next.rows
+  }
   if (changes === null || Object.keys(changes.branches ?? {}).length > 0 || (changes.removedBranches?.length ?? 0) > 0) {
     update.branches = branchesOf(state.branches, next, changes)
   }
@@ -556,6 +562,7 @@ function branchOf(shown: Branch | undefined, view: BranchView, change: BranchCha
   const { head, sync } = view
   const keepCommits = shown !== undefined && change !== null && change.commits == null && change.copies == null
   const keepRemote = shown !== undefined && change !== null && change.remote == null
+  const keepStructure = shown !== undefined && change !== null && change.structure == null
   return {
     name: head.name,
     commits: keepCommits ? shown.commits : syncedCommits(view.commits, view.copies),
@@ -575,6 +582,21 @@ function branchOf(shown: Branch | undefined, view: BranchView, change: BranchCha
     origin: head.origin,
     issueKey: head.issueKey ?? null,
     stack: head.stack ?? null,
+    structure: keepStructure ? shown.structure : toStructure(view.structure),
+  }
+}
+
+/** The structure Rust placed the branch with, every field present; a field absent on the wire is empty */
+function toStructure(view: StructureView): BranchStructure {
+  return {
+    parent: view.parent ?? null,
+    children: view.children ?? ROOT_STRUCTURE.children,
+    ancestors: view.ancestors ?? ROOT_STRUCTURE.ancestors,
+    descendants: view.descendants ?? ROOT_STRUCTURE.descendants,
+    mainLine: view.mainLine ?? ROOT_STRUCTURE.mainLine,
+    parked: view.parked ?? null,
+    stackParked: view.stackParked ?? null,
+    section: view.section ?? "main",
   }
 }
 
@@ -679,6 +701,7 @@ function resetTable(): void {
     viewVersion: null,
     baselineBranch: null,
     branchOrder: [],
+    rows: { main: [], parked: [] },
     branches: {},
     unassignedCommits: [],
     autosquashPlan: null,

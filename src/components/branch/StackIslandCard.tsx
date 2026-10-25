@@ -55,8 +55,8 @@ import {
 } from "@/lib/whole-stack"
 import type { StackBranch } from "@/stores/branch-sync"
 import {
-  stackDescendantsIn,
-  stackMainLineIn,
+  mainLineOf,
+  structureIn,
   useBranch,
   useBranchPushProgress,
   useBranchSync,
@@ -86,7 +86,7 @@ interface IslandSummary {
    * merged one that landed the root is no such hold: the rest of the stack pushes and lands without it
    */
   rootHeld: boolean
-  /** The main line, root first (`stackMainLineIn`): its last branch is the Safe Push of the header */
+  /** The main line, root first (`mainLineOf`): its last branch is the Safe Push of the header */
   mainLine: string[]
   /** The branches of the stack, the root first, parents before children */
   members: string[]
@@ -103,7 +103,7 @@ function useIslandSummary(root: string): IslandSummary | null {
   const rootHold = usePushHold(root)
   // a string, so the store notifies only when the summary changes
   const key = useBranchSync(state => {
-    const descendants = stackDescendantsIn(state, root)
+    const descendants = structureIn(state, root).descendants
     const branches = [root, ...descendants].flatMap(name => state.branches[name] ?? [])
     if (state.branches[root] === undefined) {
       return ""
@@ -126,7 +126,7 @@ function useIslandSummary(root: string): IslandSummary | null {
         isHeld,
       ),
       rootHeld: rootHold !== null && rootHold.kind !== "landed",
-      mainLine: stackMainLineIn(state, root),
+      mainLine: mainLineOf(state, root),
       members: branches.map(branch => branch.name),
     } satisfies IslandSummary)
   })
@@ -542,7 +542,7 @@ function describeStackSafePush(leaf: string, mainLine: readonly string[], member
 /**
  * The Safe Push of the stack, the whole stack in one robot: of a stack that forks, the slot of its stack branch
  * (`WholeStackSlot`); of a straight chain, which has none, the slot of the last branch of its main line
- * (`stackMainLineIn`), whose one robot lands it all, its hover saying whose it is and what it lands. Its popover opens
+ * (`mainLineOf`), whose one robot lands it all, its hover saying whose it is and what it lands. Its popover opens
  * at the header's slot (placement `stack-header`). Empty while a Safe Push runs in the stack: the landing line and "1
  * running" say it.
  */

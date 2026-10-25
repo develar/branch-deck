@@ -25,7 +25,7 @@ import { createWindowLink } from "@/lib/sub-window-link"
 import { showToast } from "@/lib/toast-message"
 import { formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, showReviewReadiness } from "@/model/demand"
-import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, stackMainLineIn } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, mainLineOf } from "@/stores/branch-sync"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { requestCommitForm, requestReveal } from "@/stores/commit-move"
 import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
@@ -246,7 +246,7 @@ function tellDialogOpen(subject: string, dialogBranch: string): void {
  * whole stack (the Safe Push popover). Resolves to whether the window opened; a failure is told.
  */
 export async function openWholeStackReviewWindow(root: string, options: { readonly from?: readonly string[]; readonly groups?: BranchReviewGroup[] } = {}): Promise<boolean> {
-  const from = options.from ?? stackMainLineIn(branchSyncStore.getState(), root)
+  const from = options.from ?? mainLineOf(branchSyncStore.getState(), root)
   const source = getBranchReviewSource(root, {})
   if (source === null) {
     return false
@@ -354,7 +354,7 @@ function wholeStackScopeOf(chain: readonly string[], baselineBranch: string): Wh
   if (getStackDescendants(last).length === 0) {
     return null
   }
-  const mainLine = stackMainLineIn(branchSyncStore.getState(), root)
+  const mainLine = mainLineOf(branchSyncStore.getState(), root)
   const leaf = mainLine.at(-1)
   if (leaf === undefined || leaf === last) {
     return null
@@ -631,7 +631,7 @@ async function moveReview(
     if (isForkingStack(getStackBranch(root))) {
       return openWholeStackReviewWindow(root, { from: chain })
     }
-    return openBranchReviewWindow(stackMainLineIn(branchSyncStore.getState(), root).at(-1) ?? root, { range: "all" })
+    return openBranchReviewWindow(mainLineOf(branchSyncStore.getState(), root).at(-1) ?? root, { range: "all" })
   }
   const branch = getBranch(branchName)
   if (branch === undefined) {

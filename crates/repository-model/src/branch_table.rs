@@ -3,7 +3,9 @@
 //! tips, the copies the sync wrote, the stack branches and the parked branches. The app keeps the one of its last sync
 //! per repository; `bd` builds it from the report of its sync.
 
+use domain_policy::facts::Repository;
 use domain_policy::push::needs_push;
+use domain_policy::stack::build_ancestors;
 use domain_types::GroupedBranchInfo;
 use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
@@ -72,9 +74,15 @@ impl BranchTable {
     self.copies.get(&commit.id).map(String::as_str).or_else(|| mapped_virtual(commit))
   }
 
-  /// The branches `name` is built on, root first (`stack_ancestors`)
+  /// The input of the rules over this table, read from its grouped branches
+  #[must_use]
+  pub fn repository(&self) -> Repository<'_> {
+    Repository::of_grouping(&self.branches, &self.parked)
+  }
+
+  /// The branches `name` is built on, root first (`domain_policy::stack::build_ancestors`)
   pub fn ancestors_of(&self, name: &str) -> Vec<String> {
-    stack_ancestors(&self.branches, name)
+    build_ancestors(&self.repository(), name).into_iter().map(str::to_string).collect()
   }
 
   /// The stack branch of the stack of `root`, while the stack forks (it has members)
@@ -138,30 +146,6 @@ pub fn remote_fact(remote: &RemoteStatusUpdate) -> RemoteFact {
     remote_tip: remote.remote_tip.clone(),
     up_to_date: !needs_push(remote),
   }
-}
-
-/// The branches `name` is built on, root first: the chain of `effective_base` as a sync places them, of the branches of
-/// the table only (a parent the table lacks ends the chain, as the page's `stackAncestors` does); empty with stacked
-/// branches off or for a root
-pub fn stack_ancestors(branches: &[GroupedBranchInfo], name: &str) -> Vec<String> {
-  let parent_of = |name: &str| {
-    branches
-      .iter()
-      .find(|branch| branch.name == name)
-      .and_then(|branch| branch.stack.as_ref())
-      .and_then(|stack| stack.effective_base.clone())
-  };
-  let mut ancestors = Vec::new();
-  let mut parent = parent_of(name);
-  while let Some(ancestor) = parent {
-    if ancestors.contains(&ancestor) || ancestor == name || !branches.iter().any(|branch| branch.name == ancestor) {
-      break;
-    }
-    parent = parent_of(&ancestor);
-    ancestors.push(ancestor);
-  }
-  ancestors.reverse();
-  ancestors
 }
 
 #[cfg(test)]

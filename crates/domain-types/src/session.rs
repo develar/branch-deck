@@ -2,7 +2,8 @@
 //! патчи"): a snapshot of its view (`RepositoryView`) and the patches that follow it (`ViewPatch`). The table is cut
 //! into parts that change for different reasons: of each branch its head and its commits (with a grouping), its sync
 //! state (with its status and progress), the copies of its commits (with each commit the sync reports) and its remote
-//! status; the stack branches by root; the sections below the table. A patch carries a part only when it differs from the one sent last, so the page
+//! status, its structure (its stack and whether it is parked, with a grouping); the rows of each section of the table;
+//! the stack branches by root; the sections below the table. A patch carries a part only when it differs from the one sent last, so the page
 //! keeps the identity of every part it did not get.
 //!
 //! The names on the wire are the ones the page reads today (`branch-sync.ts`). The statuses are data: the texts, the
@@ -329,6 +330,8 @@ pub struct RepositoryView {
   /// The names of the branches in the order of the table, as the sync grouped them (newest first)
   pub order: Vec<String>,
   pub branches: BTreeMap<String, BranchView>,
+  /// The branches of each section of the table, as the structure of the branches places them (`BranchStructure`)
+  pub rows: RowsView,
   /// The stack branches the last sync reported, by the root of their stack
   pub stacks: BTreeMap<String, StackBranchUpdate>,
   pub sections: TableSections,
@@ -554,6 +557,99 @@ pub struct BranchView {
   /// What the sync made of each commit, in the order of `commits`
   pub copies: Vec<CommitSync>,
   pub remote: BranchRemote,
+  /// Where the branch is among the others: its stack and whether it is parked; it changes only with a grouping (and,
+  /// of the root of a whole stack, with its stack branch)
+  pub structure: BranchStructure,
+}
+
+/// Where a branch is among the branches of the table, as the rules of `domain_policy::stack` and `domain_policy::parked`
+/// decide it for the app and `bd` alike (`repository_model::derive`)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BranchStructure {
+  /// The branch of the table it stacks on, its declared parent; absent for a root or a parent the table lacks
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub parent: Option<String>,
+  /// The branches stacked directly on it, in the order of the table
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub children: Vec<String>,
+  /// The branches it is built on, root first: the chain of its effective bases among the branches of the table
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub ancestors: Vec<String>,
+  /// The branches stacked on it, directly or further down, each after its parent
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub descendants: Vec<String>,
+  /// The main line of its stack below it: at each fork the child with the longest chain (lane 0 of the stack graph),
+  /// empty when nothing is stacked on it. A Safe Push of its last branch lands the branch and the line in one robot
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub main_line: Vec<String>,
+  /// Why it stays local: its own line of the parked branches, or a parked branch it is built on; absent otherwise
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub parked: Option<Parked>,
+  /// Of the root of a stack that forks: the first member of its stack branch that is parked, which keeps the stack
+  /// branch local; absent otherwise
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack_parked: Option<ParkedMember>,
+  /// The table it is a row of; absent for the main one
+  #[serde(skip_serializing_if = "BranchSection::is_main")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub section: BranchSection,
+}
+
+/// Why a branch is parked (spec/branch/parked-branches.spec.md)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct Parked {
+  /// The note of its line, or of the line of `with`; empty without one
+  pub note: String,
+  /// The parked branch it is built on, whose commits it carries; `None` when its own line parks it
+  pub with: Option<String>,
+}
+
+/// A member of a whole stack and why it is parked
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ParkedMember {
+  pub member: String,
+  pub parked: Parked,
+}
+
+/// The table a branch is a row of: the main one, or the Parked card of the branches kept local
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum BranchSection {
+  #[default]
+  Main,
+  Parked,
+}
+
+impl BranchSection {
+  #[must_use]
+  pub const fn is_main(&self) -> bool {
+    matches!(self, Self::Main)
+  }
+}
+
+/// The branches of each section of the table, in the order of the table
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RowsView {
+  /// Every branch but the parked ones and those parked with them
+  pub main: Vec<String>,
+  /// The parked branches and those built on one
+  pub parked: Vec<String>,
 }
 
 /// What the grouping says of a branch; a field without a value is absent
@@ -738,9 +834,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub order: Option<Vec<String>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub rows: Option<RowsView>,
   /// The branches whose parts changed. A branch the view lacks comes with its head and its commits; without its sync
   /// part it is `BranchSync::SYNCING`, without its copies none of its commits is reported, without its remote part it
-  /// has no remote status
+  /// has no remote status, without its structure it is a root of the main table with nothing stacked on it
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub branches: BTreeMap<String, BranchChange>,
@@ -920,6 +1019,9 @@ pub struct BranchChange {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub remote: Option<BranchRemote>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub structure: Option<BranchStructure>,
 }
 
 /// The parts of the archived section that changed

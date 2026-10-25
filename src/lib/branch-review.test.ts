@@ -16,7 +16,7 @@ import {
 import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
-import { testBranch } from "@/stores/test-branch"
+import { placed, testBranch } from "@/stores/test-branch"
 import type { BranchReviewWindowData } from "@/types/sub-window"
 
 function segment(name: string, base: string, head: string): BranchReviewSegment {
@@ -147,11 +147,14 @@ describe("settledReviewTable", () => {
     ...branchSyncStore.getInitialState(),
     baselineBranch: "origin/master",
     branchOrder: ["auth", "login", "ui"],
-    branches: {
-      auth: testBranch("auth", null, { commits: [commit("auth", "a1")] }),
-      login: testBranch("login", "auth", { commits: [commit("login", undefined)] }),
-      ui: testBranch("ui", "auth", { commits: [commit("ui", "u1")] }),
-    },
+    ...placed({
+      branchOrder: ["auth", "login", "ui"],
+      branches: {
+        auth: testBranch("auth", null, { commits: [commit("auth", "a1")] }),
+        login: testBranch("login", "auth", { commits: [commit("login", undefined)] }),
+        ui: testBranch("ui", "auth", { commits: [commit("ui", "u1")] }),
+      },
+    }),
     stackBranches: { auth: stack },
   }
 

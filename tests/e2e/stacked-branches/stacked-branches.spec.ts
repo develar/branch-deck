@@ -55,6 +55,7 @@ import {
   popoverStart,
   safePushPopover,
   slotSafePush,
+  waitForStepFacts,
 } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -968,7 +969,9 @@ test.describe("Stacked branches", () => {
         await openSubmenu(page, "Whole Stack")
       }
 
-      // the steps of the start take the place of the root's own step: "⋯" of the row stays where it is
+      // the steps of the start take the place of the root's own step: "⋯" of the row stays where it is, measured once the
+      // facts that place it answered (under load they come after the sync, and the step they answer moves it)
+      await waitForStepFacts(rootSlot)
       const more = getMoreButton(findBranchRow(page, "auth"))
       const moreX = (await more.boundingBox())!.x
       const expectMoreInPlace = async () => expect((await more.boundingBox())!.x).toBe(moreX)

@@ -750,6 +750,7 @@ export type BranchChange = {
 	sync?: BranchSync | null,
 	copies?: CommitSync[] | null,
 	remote?: BranchRemote | null,
+	structure?: BranchStructure | null,
 };
 
 /**  Branch operation errors. */
@@ -878,6 +879,9 @@ export type BranchRules = {
 	dismissStaleReviewsOnPush: boolean,
 };
 
+/**  The table a branch is a row of: the main one, or the Parked card of the branches kept local */
+export type BranchSection = "main" | "parked";
+
 /**  Where a virtual branch sits in its stack; sent only with stacked branches on */
 export type BranchStack = {
 	declaredParent: string | null,
@@ -906,6 +910,35 @@ export type BranchStack = {
 /**  The status of a branch in the table: `Syncing` until the sync reports how it ended */
 export type BranchStatus = "Syncing" | "Created" | "Updated" | "Unchanged" | "Error" | "MergeConflict" | "AnalyzingConflict" | "Blocked";
 
+/**
+ *  Where a branch is among the branches of the table, as the rules of `domain_policy::stack` and `domain_policy::parked`
+ *  decide it for the app and `bd` alike (`repository_model::derive`)
+ */
+export type BranchStructure = {
+	/**  The branch of the table it stacks on, its declared parent; absent for a root or a parent the table lacks */
+	parent?: string | null,
+	/**  The branches stacked directly on it, in the order of the table */
+	children?: string[],
+	/**  The branches it is built on, root first: the chain of its effective bases among the branches of the table */
+	ancestors?: string[],
+	/**  The branches stacked on it, directly or further down, each after its parent */
+	descendants?: string[],
+	/**
+	 *  The main line of its stack below it: at each fork the child with the longest chain (lane 0 of the stack graph),
+	 *  empty when nothing is stacked on it. A Safe Push of its last branch lands the branch and the line in one robot
+	 */
+	mainLine?: string[],
+	/**  Why it stays local: its own line of the parked branches, or a parked branch it is built on; absent otherwise */
+	parked?: Parked | null,
+	/**
+	 *  Of the root of a stack that forks: the first member of its stack branch that is parked, which keeps the stack
+	 *  branch local; absent otherwise
+	 */
+	stackParked?: ParkedMember | null,
+	/**  The table it is a row of; absent for the main one */
+	section?: BranchSection,
+};
+
 /**  What the sync made of a branch */
 export type BranchSync = {
 	status: BranchStatus,
@@ -927,6 +960,11 @@ export type BranchView = {
 	/**  What the sync made of each commit, in the order of `commits` */
 	copies: CommitSync[],
 	remote: BranchRemote,
+	/**
+	 *  Where the branch is among the others: its stack and whether it is parked; it changes only with a grouping (and,
+	 *  of the root of a whole stack, with its stack branch)
+	 */
+	structure: BranchStructure,
 };
 
 /**  Result of browsing for a repository */
@@ -2902,6 +2940,14 @@ export type ParkResult = {
 	changed: boolean,
 };
 
+/**  Why a branch is parked (spec/branch/parked-branches.spec.md) */
+export type Parked = {
+	/**  The note of its line, or of the line of `with`; empty without one */
+	note: string,
+	/**  The parked branch it is built on, whose commits it carries; `None` when its own line parks it */
+	with: string | null,
+};
+
 /**  What a park or an unpark did to one branch */
 export type ParkedBranchChange = {
 	branchName: string,
@@ -2909,6 +2955,12 @@ export type ParkedBranchChange = {
 	note: string | null,
 	/**  The note before; `None` when it was not parked */
 	previousNote: string | null,
+};
+
+/**  A member of a whole stack and why it is parked */
+export type ParkedMember = {
+	member: string,
+	parked: Parked,
 };
 
 /**  Whether Patronus can be asked for the repository */
@@ -3672,6 +3724,8 @@ export type RepositoryView = {
 	/**  The names of the branches in the order of the table, as the sync grouped them (newest first) */
 	order: string[],
 	branches: { [key in string]: BranchView },
+	/**  The branches of each section of the table, as the structure of the branches places them (`BranchStructure`) */
+	rows: RowsView,
 	/**  The stack branches the last sync reported, by the root of their stack */
 	stacks: { [key in string]: StackBranchUpdate },
 	sections: TableSections,
@@ -4190,6 +4244,14 @@ export type RobotsView = {
 	needsReview: { [key in string]: boolean },
 	/**  By id, the failed robots of the table whose problems Patronus didn't give, with why */
 	problemsFailed: { [key in string]: string },
+};
+
+/**  The branches of each section of the table, in the order of the table */
+export type RowsView = {
+	/**  Every branch but the parked ones and those parked with them */
+	main: string[],
+	/**  The parked branches and those built on one */
+	parked: string[],
 };
 
 /**  An action of a row of Settings → Tools */
@@ -4793,10 +4855,11 @@ export type TableChanges = {
 	sync?: SyncState | null,
 	header?: TableHeader | null,
 	order?: string[] | null,
+	rows?: RowsView | null,
 	/**
 	 *  The branches whose parts changed. A branch the view lacks comes with its head and its commits; without its sync
 	 *  part it is `BranchSync::SYNCING`, without its copies none of its commits is reported, without its remote part it
-	 *  has no remote status
+	 *  has no remote status, without its structure it is a root of the main table with nothing stacked on it
 	 */
 	branches?: { [key in string]: BranchChange },
 	removedBranches?: string[],

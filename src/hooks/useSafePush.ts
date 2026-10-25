@@ -33,7 +33,7 @@ import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
-import { branchSyncStore, getBranch, getStackBranch, getStackBranchOf, getStackIslandRoots, stackDescendantsIn, stackMainLineIn } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranch, getStackBranchOf, getStackIslandRoots, mainLineOf, structureIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import {
   askStartProfiles,
@@ -338,7 +338,7 @@ export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "pla
       wholeStack: null,
     },
     ancestors,
-    children: stackDescendantsIn(state, branchName),
+    children: structureIn(state, branchName).descendants,
     commitCount: [...ancestors, branchName].reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0),
     pushOrder,
     profiles,
@@ -407,7 +407,7 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
     // the repository view computes them of the branches: the gate of the start checks the whole stack
     landingRefusals: [],
   }
-  const piece = getStackBranchBlocker(root, stack) === null ? null : (stackMainLineIn(branchSyncStore.getState(), root).at(-1) ?? null)
+  const piece = getStackBranchBlocker(root, stack) === null ? null : (mainLineOf(branchSyncStore.getState(), root).at(-1) ?? null)
   // what merged Safe Pushes landed of it is in the target: the popover names the rest
   const rest = getWholeStackRest(stack)
   const members = rest.members
@@ -540,7 +540,7 @@ function tellNotice(branchName: string, step: BranchNextStep, notice: { readonly
   const root = stackRootOfReadinessKey(branchName)
   const pullRequest = root === null ? getPullRequest(branchName) : getStackPullRequest(root)
   const stack = root === null ? undefined : getStackBranch(root)
-  const piece = root === null || getStackBranchBlocker(root, stack) === null ? undefined : stackMainLineIn(branchSyncStore.getState(), root).at(-1)
+  const piece = root === null || getStackBranchBlocker(root, stack) === null ? undefined : mainLineOf(branchSyncStore.getState(), root).at(-1)
   const item = step.item
   let action: { children: string; onClick: () => void } | undefined
   if (piece !== undefined) {

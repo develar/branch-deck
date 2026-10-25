@@ -31,7 +31,7 @@ export interface StackLandingInput {
   readonly ancestors: readonly string[]
   /** The commits the robot lands: those of the branch and of its ancestors */
   readonly commitCount: number
-  /** The branches built on the branch (`stackDescendantsIn`) */
+  /** The branches built on the branch (`BranchStructure.descendants`) */
   readonly children: readonly string[]
   /** The trial build of the branch alone (`get_stack_independence`); null before it answers, when it failed, or for a root */
   readonly independence: StackIndependence | null

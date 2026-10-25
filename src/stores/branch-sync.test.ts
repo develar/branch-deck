@@ -15,7 +15,7 @@ import {
   setStackPush,
   wholeStackRootIn,
 } from "@/stores/branch-sync"
-import { testBranch } from "@/stores/test-branch"
+import { placed, testBranch } from "@/stores/test-branch"
 
 const { repository } = vi.hoisted(() => ({
   /** The repository the window shows */
@@ -120,7 +120,8 @@ describe("the whole stack a Safe Push of a branch can land instead", () => {
 
   it("is the stack that forks and holds the branch, else the straight chain the branch heads", () => {
     const branches = [testBranch("auth", null), testBranch("login", "auth"), testBranch("oauth", "login"), testBranch("session", "auth"), testBranch("docs", null)]
-    branchSyncStore.setState({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder: branches.map(branch => branch.name), stacksEnabled: true })
+    const branchOrder = branches.map(branch => branch.name)
+    branchSyncStore.setState({ ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder }), branchOrder, stacksEnabled: true })
     // without its stack branch auth heads a chain of its own; login heads none, docs no stack
     expect(["auth", "login", "oauth", "docs"].map(name => wholeStackRootIn(branchSyncStore.getState(), name))).toEqual(["auth", null, null, null])
     const stack = {

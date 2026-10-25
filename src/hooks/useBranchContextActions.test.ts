@@ -10,7 +10,7 @@ import { branchSyncStore, setStackPush } from "@/stores/branch-sync"
 import { operationsStore } from "@/stores/operations"
 import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
-import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { testPatronusRepository } from "@/test-support/patronus-repository"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
@@ -77,7 +77,8 @@ function synced(name: string, parent: string | null, remoteStatus: RemoteStatus,
 }
 
 function setBranches(...branches: Branch[]): void {
-  branchSyncStore.setState({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder: branches.map(branch => branch.name), stacksEnabled: true })
+  const branchOrder = branches.map(branch => branch.name)
+  branchSyncStore.setState({ ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder }), branchOrder, stacksEnabled: true })
 }
 
 /** The groups of the menu of `name` */

@@ -13,7 +13,7 @@ import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { describeOrphanedStackPullRequest, describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
-import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranch, mainLineOf } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { openInline } from "@/stores/inline-row-action"
 import { getStackLandedBy } from "@/stores/landed-stacks"
@@ -135,7 +135,7 @@ export function getWholeStackStartItems(root: string, next: StackNextStep | null
       const rest = getWholeStackRest(stack)
       return describeWholeStackLanding(rest.members, rest.commitCount, target, mode, rest.landed)
     }
-    return describeStart(mode, leaf ?? root, stackMainLineIn(branchSyncStore.getState(), root).length, target)
+    return describeStart(mode, leaf ?? root, mainLineOf(branchSyncStore.getState(), root).length, target)
   }
   return [
     {
@@ -183,7 +183,7 @@ function getLandInPiecesItem(root: string): MenuItem | null {
   if (!isPatronusAvailable() || !isForkingStack(stack) || getStackBranchBlocker(root, stack) === null) {
     return null
   }
-  const mainLine = stackMainLineIn(branchSyncStore.getState(), root)
+  const mainLine = mainLineOf(branchSyncStore.getState(), root)
   const leaf = mainLine.at(-1)
   const branch = leaf === undefined ? undefined : getBranch(leaf)
   if (leaf === undefined || branch === undefined) {
@@ -222,7 +222,7 @@ function getWholeStackReviewItem(root: string, forks: boolean): MenuItem | null 
       onSelect: () => void openWholeStackReviewWindow(root),
     }
   }
-  const mainLine = stackMainLineIn(branchSyncStore.getState(), root)
+  const mainLine = mainLineOf(branchSyncStore.getState(), root)
   const leaf = mainLine.at(-1)
   if (leaf === undefined || mainLine.length < 2) {
     return null

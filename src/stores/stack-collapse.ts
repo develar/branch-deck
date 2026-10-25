@@ -12,7 +12,7 @@ import {
   getBranchTableRows,
   getParkedTableRows,
   getStackIslandRoots,
-  stackDescendantsIn,
+  structureIn,
   useBranchSync,
   useStackIslandRoots,
   useVisibleBranchTableRows,
@@ -142,7 +142,7 @@ const sideStackStore = createStore<{ readonly overrides: ReadonlyMap<string, boo
 
 /** A side stack whose branches have nothing for the remote and nothing wrong: collapsed until the user expands it */
 function isQuiet(state: BranchSyncState, root: string): boolean {
-  const branches = [root, ...stackDescendantsIn(state, root)].flatMap(name => state.branches[name] ?? [])
+  const branches = [root, ...structureIn(state, root).descendants].flatMap(name => state.branches[name] ?? [])
   const push = summarizePushState(branches)
   return branches.every(branch => !branch.hasError && branch.status !== "Blocked") && push.branches.length === 0 && push.notLoaded === 0
 }

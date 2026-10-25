@@ -2683,7 +2683,7 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    a robot lands stays out of the push, and so does the stack branch of `--with-children` while the Safe Push of the
    whole stack runs on it. A branch a merged Safe Push landed whole is refused as `landed`; with `--with-children` it is only left out,
    and so is the stack branch of a stack every branch of which landed, the push refused only when nothing else is
-   left. A parked branch, or one built on a parked branch (`sync_core::parked::parked_state` on the report's grouping),
+   left. A parked branch, or one built on a parked branch (`domain_policy::parked::parked_state` over the report's grouping),
    is refused as `parked` when named; with `--all` or `--with-children` it is only left out (`skipped`, `code:
    parked`), and so is the stack branch of a stack with a parked member. `--restart-running` cancels the
    robot of a named branch over HTTP before the push and restarts it after it, as the app's restart that pushes first does.

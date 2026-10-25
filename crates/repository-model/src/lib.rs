@@ -22,8 +22,10 @@
 //!   robots of Patronus (`RobotsFact`, by id) with the details a window demands, and the Patronus view with the landing
 //!   needs (`PatronusFact`, `derive_patronus`), and what the poll of the robots asks about (`robots_digest`)
 //! - `branch_table`: the branch table a sync left: the branches in the order of the table, their tips and copies, the
-//!   stack branches, the parked branches, the remote facts of the sync (`RemoteFacts`, `remote_facts`),
-//!   `stack_ancestors`
+//!   stack branches, the parked branches, the remote facts of the sync (`RemoteFacts`, `remote_facts`), the input of
+//!   the rules over them (`repository`)
+//! - `derive`: what the view derives of the table by the rules of `domain-policy`: the input of the rules
+//!   (`repository`), the structure of each branch and the rows of each section (`place`)
 //! - `landing`: the landing gate a start and its popover check through (`LandingGate`), which the hosts answer with the
 //!   trial check
 //! - `patch`: the patches of a view by part, and the contract of applying one (`apply_patch`): only to the view at its
@@ -64,6 +66,7 @@
 
 pub mod actions;
 pub mod branch_table;
+pub mod derive;
 pub mod facts;
 pub mod landing;
 pub mod patch;

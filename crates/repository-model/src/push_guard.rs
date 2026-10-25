@@ -14,7 +14,7 @@
 //! branch that moved meanwhile without commits a branch lacks takes the whole sequence once more over its new head
 //! (`PushBranchesParams::over_moved`, `domain_policy::push::over_moved_remote`, as `bd push` does). The words of
 //! the holds are `bd`'s too (`bd push`, `bd safe-push`):
-//! `landed_words`, `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`.
+//! `parked_words`, `landed_words`, `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`.
 //!
 //! The lock is held only while the push is decided: the pushes of the app run side by side, each sending the commits it
 //! checked (`<commit>:refs/heads/<name>`, leased on the remote head the user saw), whatever moves the local branches
@@ -27,11 +27,12 @@ use crate::facts::{TableFacts, derive_patronus};
 use crate::start_guard::{stack_conflict_words, stack_not_built_words};
 use crate::table::RemoteSubject;
 use anyhow::{Result, anyhow, bail};
+use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{Carried, HoldKind, PatronusView};
-use domain_types::session::ViewAnswer;
+use domain_types::session::{Parked, ParkedMember, ViewAnswer};
 use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository_while_held};
@@ -39,7 +40,6 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
-use sync_core::parked::parked_state;
 use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
 use sync_core::push::{NOT_SYNCED_YET, PushBranchesOutcome, PushBranchesParams, StackPushBranch, prepare_push_branches, push_ref_names};
 use sync_core::transfer_progress::TransferProgress;
@@ -93,6 +93,16 @@ impl GuardFacts {
   }
 }
 
+/// "auth is parked: waits for IJPL-1", "oauth is built on parked auth": why `name` stays local
+#[must_use]
+pub fn parked_words(name: &str, parked: &Parked) -> String {
+  let note = if parked.note.is_empty() { String::new() } else { format!(": {}", parked.note) };
+  match &parked.with {
+    None => format!("{name} is parked{note}"),
+    Some(parent) => format!("{name} is built on parked {parent}{note}"),
+  }
+}
+
 /// Why the push of `branches` is refused: "Nothing was pushed: …" with every refusal, `bd push`'s words; `Ok` when
 /// nothing refuses. An unapplied branch is no branch of the table
 pub fn check_push(facts: &GuardFacts, branches: &[StackPushBranch]) -> Result<(), String> {
@@ -121,8 +131,8 @@ pub(crate) fn row_refusal(facts: &GuardFacts, name: &str, left: &str) -> Option<
   if table.branch(name).is_none() {
     return Some(format!("{name} is no branch of the last sync"));
   }
-  if let Some(parked) = parked_state(&table.branches, &table.parked, name) {
-    return Some(format!("{}; it stays local until the user unparks it", parked.reason(name)));
+  if let Some(parked) = parked_state(&table.repository(), name) {
+    return Some(format!("{}; it stays local until the user unparks it", parked_words(name, &parked)));
   }
   let (by, robot) = facts.landed_whole(name)?;
   Some(format!("{}: nothing of it is left to {left}", landed_words(name, &by, robot)))
@@ -156,8 +166,8 @@ fn stack_refusal(facts: &GuardFacts, root: &str) -> Option<String> {
     return Some(format!("{} has no stack branch of the last sync", Subject::whole_stack(root).words()));
   };
   let branch = &stack.branch_name;
-  if let Some(parked) = stack.members.iter().find(|member| table.parked.contains_key(*member)) {
-    return Some(format!("{branch} holds parked {parked}; land the stack in pieces"));
+  if let Some(ParkedMember { member, parked }) = whole_stack_parked(&table.repository(), stack.members.iter().map(String::as_str)) {
+    return Some(format!("{branch} holds parked {}; land the stack in pieces", parked.with.unwrap_or(member)));
   }
   if let Some(landed) = facts.stack_landed_whole(root) {
     return Some(format!("{branch}: {landed}: nothing of it is left to push"));

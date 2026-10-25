@@ -40,16 +40,16 @@ flowchart LR
     P -->|"Channel of subscribe_view"| A[src/model/store.ts: base and epoch checked]
     A -->|one setState, the records of changed parts only| S[branchSyncStore]
     A -->|the sections| O[project, archived, landed, unapplied stores]
-    S --> R[structureOf: key of order, parents, issues]
+    S --> R[layoutOf: key of order, parents, issues, sections]
     R --> W[table rows, cached on the key]
-    R --> K[stack children index]
 ```
 
 - **Batching in Rust.** The session of a worktree and its prefix (`repository_model::session`, its actor in
   `runtime.rs`) folds the events of its sync into `TableState` (`table.rs`) and sends its subscribers a `ViewPatch`
   of what changed (`state.rs`): at most one every 16 ms, at once on the start of a run, on its step from building to
   detection and on its end. A patch names the parts of a branch that changed (`head`, `commits`, `sync`, `copies`,
-  `remote`), so the first sync of `branch_table_large` sends fewer bytes in its patches than its events had, and a
+  `remote`, `structure`: its stack and whether it is parked, placed once per grouping by `repository_model::derive`,
+  the fields it lacks left out) and the rows of each section (`rows`), so the first sync of `branch_table_large` sends fewer bytes in its patches than its events had, and a
   sync that changes nothing sends the state of its run only (`patch_bytes_test.rs` measures them). Late events of a
   run that ended are dropped by its run id; a session opened again starts another epoch.
 - **Applying in the page.** `src/model/store.ts` subscribes the main window to the session of the selected repository
@@ -73,11 +73,12 @@ flowchart LR
   - `isSyncing` is true from the request (`sync`, `requestSessionSync`) until the store holds the version its answer
     names (`SyncAnswer.version`), the last patch of the run that served it; a request of a session the window left
     counts for that session only.
-- **Structure.** `structureOf` builds a key from the order and each branch's parent and issue, and reuses the previous
-  structure while the key is the same.
+- **Structure.** Where each branch is (its parent, children, descendants, ancestors, main line, parked state and
+  section) is Rust's, a part of its view that keeps its identity while no patch carries it. `layoutOf` builds a key from
+  the order and each branch's parent, issue and section, and reuses the previous layout while the key is the same.
   - `branchTableRowsIn` keeps one cache for all rows and one for a filter's `visible` set, so the ten subscribers share
-    one computation per structure.
-  - `stackDescendantsIn` and `getStackChildren` walk a children index instead of the whole order.
+    one computation per layout; depth and lanes are the page's presentation of the parents.
+  - `getStackChildren`, `getStackDescendants` and `mainLineOf` read the structure: no walk of the order.
 - **Push progress** has its own store (`pushProgressStore`). Its ticks, every 100 ms, reach only
   `useBranchPushProgress`, not every selector of the branch store. The one push of a stack writes the tick of all
   its branches in one update (`setBranchesPushProgress`).
@@ -332,8 +333,9 @@ output); `Symbol.for("react.memo_cache_sentinel")` in a build with `build.minify
 
 - `vite.config.ts`: the plugin and its options
 - `crates/repository-model/src/runtime.rs`, `state.rs`, `table.rs`: the session's fold of the events and its patches
+- `crates/repository-model/src/derive.rs`: the structure of each branch and the rows of each section
 - `src/model/store.ts`, `src/model/patch.ts`: the page's applier of the patches
-- `src/stores/branch-sync.ts`: `structureOf`, `branchTableRowsIn`
+- `src/stores/branch-sync.ts`: `layoutOf`, `branchTableRowsIn`
 - `src/stores/file-merges.ts`: `useFileMerges`, the merges of the shown conflicts
 - `src/stores/patronus.ts`: `useBranchRobot`, `useRowRobots`, the robot of a row from the view
 - `src/router.ts`, `src/App.tsx`, `src/pages/IndexPage.tsx`: the lazy main page and dialogs

@@ -39,6 +39,8 @@ use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use bd_core::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
+use domain_policy::facts::Repository;
+use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::push::{drops_remote_commits, needs_push};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
@@ -49,6 +51,7 @@ use domain_types::patronus::{
   UnknownReadinessReason,
 };
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
+use domain_types::session::ParkedMember;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
@@ -64,6 +67,7 @@ use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_req
 use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
 use repository_model::branch_table::BranchTable;
+use repository_model::push_guard::parked_words;
 use repository_model::start_guard::{stack_conflict_words, stack_not_built_words, start_refusal_text};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -71,7 +75,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::github_repository::GitHubRepository;
-use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, is_robot_active, join_names, push_mode_name};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
@@ -1033,18 +1036,16 @@ fn plan(
   }
   // a parked branch stays local, and so does what carries its commits: a branch built on it, the whole stack
   let report = &synced.report;
+  let repo = Repository::of_grouping(&report.branches, &report.grouping.parked.entries);
   let parked = match start {
-    Start::Branch(name) => parked_state(&report.branches, &report.grouping.parked.entries, name).map(|parked| parked.reason(name)),
-    Start::WholeStack(update) => update
-      .members
-      .iter()
-      .find_map(|member| parked_state(&report.branches, &report.grouping.parked.entries, member).map(|parked| parked.reason(member)))
-      .map(|reason| {
-        format!(
-          "{} holds what is parked: {reason}; land the stack in pieces",
-          Subject::WholeStack { root: update.root.clone() }.words()
-        )
-      }),
+    Start::Branch(name) => parked_state(&repo, name).map(|parked| parked_words(name, &parked)),
+    Start::WholeStack(update) => whole_stack_parked(&repo, update.members.iter().map(String::as_str)).map(|ParkedMember { member, parked }| {
+      format!(
+        "{} holds what is parked: {}; land the stack in pieces",
+        Subject::WholeStack { root: update.root.clone() }.words(),
+        parked_words(&member, &parked)
+      )
+    }),
   };
   if let Some(reason) = parked {
     return Err(CliError::new(

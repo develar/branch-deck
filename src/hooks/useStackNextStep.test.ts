@@ -9,7 +9,7 @@ import { branchSyncStore } from "@/stores/branch-sync"
 import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
 import { reviewReadinessStore } from "@/stores/review-readiness"
-import { forcePush, testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { forcePush, placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { branchFacts, landedWhole, robotOf, testPatronusRepository } from "@/test-support/patronus-repository"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
@@ -45,9 +45,10 @@ function stackBranch(patch: Partial<StackBranch> = {}): StackBranch {
 }
 
 function setStack(stack: StackBranch | null, list: readonly Branch[] = branches): void {
+  const branchOrder = list.map(it => it.name)
   branchSyncStore.setState({
-    branches: Object.fromEntries(list.map(it => [it.name, it])),
-    branchOrder: list.map(it => it.name),
+    ...placed({ branches: Object.fromEntries(list.map(it => [it.name, it])), branchOrder }),
+    branchOrder,
     stacksEnabled: true,
     baselineBranch: "origin/master",
     stackBranches: stack === null ? {} : { air: stack },

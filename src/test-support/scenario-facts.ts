@@ -21,7 +21,7 @@ import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { readinessInputOf, reviewReadinessStore } from "@/stores/review-readiness"
-import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, placed, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { testPatronusRepository } from "@/test-support/patronus-repository"
 import type { Given, GivenRobot } from "@/test-support/scenario-case"
 import { robotsOf } from "@/test-support/scenario-case"
@@ -232,14 +232,16 @@ function seedSync(given: Given, facts: ScenarioFacts): void {
   const roots = [...structure.keys()].filter(name => structure.get(name)?.parent === null)
   const stackBranches = Object.fromEntries(roots.filter(root => isForking(given, root)).map(root => [root, stackBranchOf(given, facts, root, membersOf(given, root))]))
   const parked = parkedBranchOf(given)
+  const branchOrder = [...structure.keys()]
+  const parkedLines = parked === undefined ? {} : { [parked]: "" }
   branchSyncStore.setState({
-    branches,
-    branchOrder: [...structure.keys()],
+    ...placed({ branches, branchOrder, parked: parkedLines, stackBranches }),
+    branchOrder,
     stacksEnabled: [...structure.values()].some(({ parent }) => parent !== null),
     baselineBranch: BASELINE,
     baselineStatus: { repositoryPath: REPOSITORY_PATH, baselineBranch: BASELINE, update: null, checkError: null },
     stackBranches,
-    parked: parked === undefined ? {} : { [parked]: "" },
+    parked: parkedLines,
     isSyncing: given.sync === "running",
     pushingBranches: {},
     stackPushes: {},

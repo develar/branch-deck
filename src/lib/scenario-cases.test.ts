@@ -3,7 +3,7 @@
 // answer expected; `crates/bd-remote/src/scenario_test.rs` is the side of bd
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import { getStackNextStepNow } from "@/hooks/useStackNextStep"
-import { branchSyncStore, getStackDescendants, stackMainLineIn } from "@/stores/branch-sync"
+import { branchSyncStore, getStackDescendants, mainLineOf } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
 import type { ExercisedCase, ScenarioCase } from "@/test-support/scenario-case"
 import { appOutcome, bdOutcome, isExercised, scenarioCase } from "@/test-support/scenario-case"
@@ -256,7 +256,7 @@ describe("the whole stack of D8", () => {
     branchSyncStore.setState({ branches: { C: c, A: a }, branchOrder: ["C", "A"], stacksEnabled: true, baselineBranch: "origin/master", stackBranches: {} })
 
     const state = branchSyncStore.getState()
-    expect({ a: stackMainLineIn(state, "A"), c: stackMainLineIn(state, "C") }).toEqual({ a: ["A"], c: ["C"] })
+    expect({ a: mainLineOf(state, "A"), c: mainLineOf(state, "C") }).toEqual({ a: ["A"], c: ["C"] })
     expect(getStackDescendants("A")).toEqual([])
     expect(getStackNextStepNow("A")).toBeNull()
   })

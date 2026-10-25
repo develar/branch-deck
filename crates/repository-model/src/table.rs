@@ -21,11 +21,13 @@
 //! (`begin_push`), a sync shows no remote status of it: the status it computed is kept aside and shown only when the
 //! push fails, as the newest the session knows; a push that waits for a sync is not running yet.
 
+use crate::derive;
 use crate::facts::{Seq, Sequence};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{
-  ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchSync, BranchView, CommitSync, LandedSection, SyncState, SyncStep, TableHeader, TableSections,
+  ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchStructure, BranchSync, BranchView, CommitSync, LandedSection, RowsView, SyncState, SyncStep,
+  TableHeader, TableSections,
 };
 use domain_types::stack::StackBranchUpdate;
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
@@ -38,6 +40,8 @@ pub(crate) struct TableParts {
   pub(crate) header: TableHeader,
   pub(crate) order: Vec<String>,
   pub(crate) branches: BTreeMap<String, BranchView>,
+  /// The branches of each section, as `derive::place` placed them with the structure of each branch
+  pub(crate) rows: RowsView,
   pub(crate) stacks: BTreeMap<String, StackBranchUpdate>,
   pub(crate) sections: TableSections,
   /// Not a part of the view, which keys the stack branches by root: the roots in the order the grouping announced
@@ -273,6 +277,7 @@ impl TableState {
         self.parts.stack_roots = stack_branches;
         // every branch builds anew
         self.parts.blocked.clear();
+        derive::place(&mut self.parts);
       }
       SyncEvent::UnassignedCommits { commits } => self.parts.sections.unassigned = commits,
       SyncEvent::CommitSynced {
@@ -349,7 +354,9 @@ impl TableState {
         if !self.parts.stack_roots.contains(&update.root) {
           self.parts.stack_roots.push(update.root.clone());
         }
-        self.parts.stacks.insert(update.root.clone(), update);
+        let root = update.root.clone();
+        self.parts.stacks.insert(root.clone(), update);
+        derive::place_stack(&mut self.parts, &root);
       }
       SyncEvent::BaselineStatus {
         baseline_branch,
@@ -572,6 +579,7 @@ fn fresh_branch(info: GroupedBranchInfo, remote: BranchRemote) -> BranchView {
     copies: vec![CommitSync::default(); info.commits.len()],
     commits: info.commits,
     remote,
+    structure: BranchStructure::default(),
   }
 }
 
@@ -590,6 +598,7 @@ fn keep_shown_state(shown: BranchView, info: GroupedBranchInfo) -> BranchView {
     sync: shown.sync,
     copies: shown.copies,
     remote: shown.remote,
+    structure: shown.structure,
   }
 }
 

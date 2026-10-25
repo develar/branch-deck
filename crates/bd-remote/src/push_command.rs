@@ -21,12 +21,15 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
+use domain_policy::facts::Repository;
+use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::push::{drops_remote_commits, needs_push, over_moved_remote};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{PullRequestState, PullRequestsResult};
+use domain_types::session::ParkedMember;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
@@ -35,13 +38,13 @@ use history_rewrite::repository_lock::RepositoryLock;
 use remote_facts::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
 use remote_facts::pull_requests::list_pull_requests;
 use remote_facts::stack_pull_request::{StackMemberText, stack_pull_request_text};
+use repository_model::push_guard::parked_words;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use sync_core::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use sync_core::issue_navigation::load_issue_navigation_config;
-use sync_core::parked::parked_state;
 use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, prepare_push_branches, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
@@ -306,6 +309,7 @@ pub fn push_locked(
   repository_lock: &mut Option<RepositoryLock>,
 ) -> Result<PushOutput, CliError> {
   let report = &synced.report;
+  let repo = Repository::of_grouping(&report.branches, &report.grouping.parked.entries);
   let remote = match &args.remote {
     Some(remote) => remote.clone(),
     None => synced
@@ -410,11 +414,11 @@ pub fn push_locked(
       continue;
     };
     // a parked branch stays local, and so does a branch built on one, which carries its commits
-    if let Some(parked) = parked_state(&report.branches, &report.grouping.parked.entries, name) {
+    if let Some(parked) = parked_state(&repo, name) {
       if args.branches.iter().any(|named| named == name) {
-        parked_named.push(parked.reason(name));
+        parked_named.push(parked_words(name, &parked));
       } else if !implicit.contains(*name) {
-        parked_skipped.push((name, parked.reason(name)));
+        parked_skipped.push((name, parked_words(name, &parked)));
       }
       continue;
     }
@@ -763,6 +767,7 @@ fn stack_branches_to_push<'a>(
   open_stack_pull_requests: &HashSet<String>,
   holds: &PushHolds,
 ) -> (Vec<&'a StackBranchUpdate>, Vec<String>) {
+  let repo = Repository::of_grouping(&report.branches, &report.grouping.parked.entries);
   let mut stacks = Vec::new();
   let mut warnings = Vec::new();
   for stack in report.stack_branches.iter().filter(|stack| !stack.members.is_empty() && named.contains(&stack.root)) {
@@ -772,8 +777,9 @@ fn stack_branches_to_push<'a>(
     }
     let landed: Option<Vec<&LandedBranch>> = stack.members.iter().map(|member| holds.get(member).and_then(|hold| hold.landed.as_ref())).collect();
     // the stack branch holds the commits of every member: a parked one keeps it local
-    let parked = stack.members.iter().find(|member| report.grouping.parked.entries.contains_key(*member));
-    if let Some(parked) = parked {
+    let parked = whole_stack_parked(&repo, stack.members.iter().map(String::as_str));
+    if let Some(ParkedMember { member, parked }) = parked {
+      let parked = parked.with.unwrap_or(member);
       warnings.push(format!("{} was not pushed: it holds parked {parked}; land the stack in pieces", stack.branch_name));
     } else if let Some(landed) = landed {
       warnings.push(format!(

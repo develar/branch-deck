@@ -8,7 +8,7 @@ import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
 import { isMac } from "@/lib/platform"
 import { getStackStateChips } from "@/lib/stack-state"
 import { textColorClassName } from "@/lib/ui-types"
-import { stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
+import { structureIn, useBranchSync } from "@/stores/branch-sync"
 
 /** "⌥←" on macOS, "Alt+←" elsewhere */
 function stackKeyLabel(collapse: boolean): string {
@@ -24,7 +24,7 @@ interface StackSummary {
 function useStackSummary(root: string): StackSummary | null {
   // a string, so the store notifies only when the summary changes
   const key = useBranchSync(state => {
-    const descendants = stackDescendantsIn(state, root).flatMap(name => state.branches[name] ?? [])
+    const descendants = structureIn(state, root).descendants.flatMap(name => state.branches[name] ?? [])
     const self = state.branches[root]
     if (descendants.length === 0 || self === undefined) {
       return ""

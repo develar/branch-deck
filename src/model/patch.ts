@@ -46,6 +46,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     sync: changes.sync ?? view.sync,
     header: changes.header ?? view.header,
     order: changes.order ?? view.order,
+    rows: changes.rows ?? view.rows,
     branches,
     stacks,
     sections: {
@@ -137,6 +138,7 @@ function patchedBranch(branch: BranchView | undefined, change: BranchChange): Br
       sync: change.sync ?? branch.sync,
       copies: change.copies ?? branch.copies,
       remote: change.remote ?? branch.remote,
+      structure: change.structure ?? branch.structure,
     }
   }
   if (change.head == null || change.commits == null) {
@@ -148,5 +150,6 @@ function patchedBranch(branch: BranchView | undefined, change: BranchChange): Br
     sync: change.sync ?? { status: "Syncing", processedCount: 0, hasError: false },
     copies: change.copies ?? change.commits.map(() => ({})),
     remote: change.remote ?? { status: null },
+    structure: change.structure ?? {},
   }
 }

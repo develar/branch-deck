@@ -5,8 +5,8 @@
 
 use domain_types::commit::Commit;
 use domain_types::session::{
-  BranchChange, BranchRemote, BranchSync, BranchView, CommitSync, FactsChanges, NEWS_KEPT, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView,
-  RobotsChange, TableChanges, Version, ViewPatch,
+  BranchChange, BranchRemote, BranchStructure, BranchSync, BranchView, CommitSync, FactsChanges, NEWS_KEPT, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView,
+  RepositoryView, RobotsChange, TableChanges, Version, ViewPatch,
 };
 use std::collections::BTreeMap;
 
@@ -56,6 +56,7 @@ pub(crate) fn branch_change(last: Option<&BranchView>, now: &BranchView) -> Opti
       sync: changed(&BranchSync::SYNCING, &now.sync),
       copies: changed(&vec![CommitSync::default(); now.commits.len()], &now.copies),
       remote: changed(&BranchRemote::default(), &now.remote),
+      structure: changed(&BranchStructure::default(), &now.structure),
     },
     Some(last) => BranchChange {
       head: changed(&last.head, &now.head),
@@ -63,6 +64,7 @@ pub(crate) fn branch_change(last: Option<&BranchView>, now: &BranchView) -> Opti
       sync: changed(&last.sync, &now.sync),
       copies: changed(&last.copies, &now.copies),
       remote: changed(&last.remote, &now.remote),
+      structure: changed(&last.structure, &now.structure),
     },
   };
   (change != BranchChange::default()).then_some(change)
@@ -76,6 +78,7 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     sync,
     header,
     order,
+    rows,
     branches,
     removed_branches,
     stacks,
@@ -100,6 +103,7 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
   set_if_some(&mut view.sync, sync);
   set_if_some(&mut view.header, header);
   set_if_some(&mut view.order, order);
+  set_if_some(&mut view.rows, rows);
   for name in &removed_branches {
     view.branches.remove(name);
   }
@@ -206,6 +210,7 @@ fn apply_branch_change(branches: &mut BTreeMap<String, BranchView>, name: String
     sync,
     copies,
     remote,
+    structure,
   } = change;
   match branches.get_mut(&name) {
     Some(branch) => {
@@ -214,6 +219,7 @@ fn apply_branch_change(branches: &mut BTreeMap<String, BranchView>, name: String
       set_if_some(&mut branch.sync, sync);
       set_if_some(&mut branch.copies, copies);
       set_if_some(&mut branch.remote, remote);
+      set_if_some(&mut branch.structure, structure);
     }
     // the head and the commits are checked by `apply_patch`
     None => {
@@ -227,6 +233,7 @@ fn apply_branch_change(branches: &mut BTreeMap<String, BranchView>, name: String
             sync: sync.unwrap_or(BranchSync::SYNCING),
             copies,
             remote: remote.unwrap_or_default(),
+            structure: structure.unwrap_or_default(),
           },
         );
       }

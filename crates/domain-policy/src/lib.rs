@@ -3,7 +3,11 @@
 //! architecture test keeps the crate away from git, the network, tokio, Tauri and clap). One file per rule, each tested
 //! by tables of its own:
 //!
+//! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
+//!   session or from the grouped branches of a sync
 //! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
+//! - `parked`: why a branch stays local (`parked_state`: its own line, or a parked branch it is built on), and the
+//!   parked member that keeps a stack branch local (`whole_stack_parked`)
 //! - `push`: what a push of a branch does to its remote branch (`action`: create, push, force, up to date), whether it
 //!   has work, replaces older versions or drops remote commits, and whether a push over a remote that moved goes again
 //!   (`over_moved_remote`)
@@ -15,15 +19,22 @@
 //!   GitHub, of the review readiness and of the review requests, by the reason that asks and the clock of the session
 //! - `robot_match`: which robot belongs to a virtual branch and which to the whole stack of a root (`RobotIndex`,
 //!   `match_table`)
+//! - `stack`: the stacks of a table: the declared parent (D8), the branch a branch is built on, the ancestors by
+//!   effective base, the children and the descendants, the main line
 
+pub mod facts;
 pub mod landing_needs;
+pub mod parked;
 pub mod push;
 pub mod readiness;
 pub mod refresh;
 pub mod robot_match;
+pub mod stack;
 
 #[cfg(test)]
 mod landing_needs_test;
+#[cfg(test)]
+mod parked_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]
@@ -32,3 +43,5 @@ mod readiness_test;
 mod refresh_test;
 #[cfg(test)]
 mod robot_match_test;
+#[cfg(test)]
+mod stack_test;

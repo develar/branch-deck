@@ -41,7 +41,7 @@ import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { recordRobot } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
-import { branchSyncStore, stackDescendantsIn, useBranchSync, whenSynced } from "@/stores/branch-sync"
+import { branchSyncStore, structureIn, useBranchSync, whenSynced } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -459,7 +459,7 @@ export function getLandedWithChildrenReason(name: string): string | null {
 }
 
 function landedWithChildrenIn(landed: ReadonlyMap<string, LandedBy>, state: BranchSyncState, name: string): string | null {
-  const descendants = stackDescendantsIn(state, name)
+  const descendants = structureIn(state, name).descendants
   if (descendants.length === 0) {
     return null
   }

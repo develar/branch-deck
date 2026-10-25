@@ -33,7 +33,7 @@ import type { UIColor } from "@/lib/ui-types"
 import type { StackBranchAlong } from "@/lib/whole-stack"
 import { getStackBranchAlong, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { getBranch, getParkedState, stackDescendantsIn, useBranchSync, useIsStackBranchPushing, useParkedState, useStackBranch } from "@/stores/branch-sync"
+import { getBranch, getParkedState, structureIn, useBranchSync, useIsStackBranchPushing, useParkedState, useStackBranch } from "@/stores/branch-sync"
 import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold, usePushHolds, useStackBranchHoldReason } from "@/stores/patronus"
 import { getPullRequest, pullRequestsStore, usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
 import { useSafePushStarting } from "@/stores/safe-push"
@@ -493,7 +493,7 @@ export function useUnpushedChildren(branchName: string): UnpushedChildren | null
   const order = useBranchSync(state =>
     stackChildrenPushOrder(
       branchName,
-      stackDescendantsIn(state, branchName),
+      structureIn(state, branchName).descendants,
       name => state.branches[name],
       name => holds.has(name),
     ).join("\n"),

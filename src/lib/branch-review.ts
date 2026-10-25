@@ -3,7 +3,7 @@ import type { DiffSubject } from "@/lib/commit-files"
 import { sameStringRecord } from "@/lib/record"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { formatBlockedReason, stackProblemOf } from "@/lib/stack"
-import { stackDescendantsIn } from "@/stores/branch-sync"
+import { structureIn } from "@/stores/branch-sync"
 import type { Branch, BranchSyncState } from "@/stores/branch-sync"
 import type { BranchReviewGroup, BranchReviewWindowData } from "@/types/sub-window"
 
@@ -211,7 +211,7 @@ export function settledReviewTable(state: BranchSyncState, chain: readonly strin
     if (tip != null) {
       tips[root] = tip
     }
-    for (const name of [root, ...stackDescendantsIn(state, root)]) {
+    for (const name of [root, ...structureIn(state, root).descendants]) {
       for (const commit of state.branches[name]?.commits ?? []) {
         stackCommits[reviewCommitKey({ ...commit, subject: commit.strippedSubject })] = name
       }

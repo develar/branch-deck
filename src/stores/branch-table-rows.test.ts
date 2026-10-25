@@ -15,7 +15,7 @@ import {
   getUnparkedStackDescendants,
 } from "@/stores/branch-sync"
 import { getCollapsedSideStacks } from "@/stores/stack-collapse"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/api/core", () => ({ Channel: Object }))
 vi.mock("@/lib/bindings", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/bindings")>()), commands: {} }))
@@ -29,7 +29,14 @@ function setBranches(...specs: [name: string, parent: string | null, issueKey?: 
   for (const [name, parent, issueKey = null] of specs) {
     branches[name] = testBranch(name, parent, { issueKey, origin: issueKey === name ? "Issue" : "Prefix" })
   }
-  branchSyncStore.setState({ branches, branchOrder: specs.map(([name]) => name), stacksEnabled: true })
+  const branchOrder = specs.map(([name]) => name)
+  branchSyncStore.setState({ ...placed({ branches, branchOrder }), branchOrder, stacksEnabled: true })
+}
+
+/** The branches as they are with `parked`: Rust places them again (`placed`) */
+function setParked(parked: Record<string, string>): void {
+  const { branches, branchOrder } = branchSyncStore.getState()
+  branchSyncStore.setState({ ...placed({ branches, branchOrder, parked }), parked })
 }
 
 /** `name@depth`, `+` for an issue chip, `#key/count` for an issue row */
@@ -54,12 +61,12 @@ function graph(visible: ReadonlySet<string> | null = null): string[] {
 
 describe("branch table rows with stacked branches", () => {
   beforeEach(() => {
-    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, parked: {} })
+    branchSyncStore.setState({ branches: {}, branchOrder: [], rows: { main: [], parked: [] }, stacksEnabled: false, parked: {} })
   })
 
   it("moves a parked branch and the branches built on it into the Parked card, a stack graph of their own", () => {
     setBranches(["oauth", "login"], ["docs", null], ["login", "auth"], ["session", "auth"], ["auth", null])
-    branchSyncStore.setState({ parked: { login: "waits for IJPL-1", ghost: "" } })
+    setParked({ login: "waits for IJPL-1", ghost: "" })
     expect(rows()).toEqual(["docs@0", "auth@0", "session@1"])
     expect(getParkedTableRows().map(row => (row.kind === "branch" ? `${row.name}@${row.depth}` : row.key))).toEqual(["login@0", "oauth@1"])
     expect(getMainBranchOrder()).toEqual(["docs", "session", "auth"])
@@ -68,7 +75,7 @@ describe("branch table rows with stacked branches", () => {
     // the stack of auth lands without them
     expect(getUnparkedStackDescendants("auth")).toEqual(["session"])
     expect(getStackDescendants("auth")).toHaveLength(3)
-    branchSyncStore.setState({ parked: {} })
+    setParked({})
     expect(getParkedTableRows()).toEqual([])
     expect(rows()).toHaveLength(5)
   })
@@ -188,7 +195,7 @@ describe("branch table rows with stacked branches", () => {
   it("lists the children and the descendants of a branch", () => {
     setBranches(["oauth", "login"], ["login", "auth"], ["session", "auth"], ["auth", null])
     expect(getStackChildren("auth")).toEqual(["login", "session"])
-    expect(getStackDescendants("auth").sort()).toEqual(["login", "oauth", "session"])
+    expect([...getStackDescendants("auth")].sort()).toEqual(["login", "oauth", "session"])
   })
 
   it("makes a stack of five branches or forty commits an island, not one in an issue family or on an issue branch that heads one", () => {

@@ -4,7 +4,7 @@ import { getLandingNodeNow, getStackLandingNodeNow, getStackNodeBranch } from "@
 import type { LandingNodeKind } from "@/lib/landing-node"
 import type { StackState } from "@/lib/stack-state"
 import { firstBranchOfEachState, summarizeStackState } from "@/lib/stack-state"
-import { branchSyncStore, stackDescendantsIn } from "@/stores/branch-sync"
+import { branchSyncStore, structureIn } from "@/stores/branch-sync"
 
 export interface StackStates {
   readonly state: StackState
@@ -29,7 +29,7 @@ export function useStackStates(root: string, { withRoot, enabled = true }: { wit
     if (!enabled) {
       return ""
     }
-    const descendants = stackDescendantsIn(branchSyncStore.getState(), root)
+    const descendants = structureIn(branchSyncStore.getState(), root).descendants
     const names = withRoot ? [root, ...descendants] : descendants
     // the node of the stack branch while the stack forks; of a straight chain it is its last row's, counted already
     const stackNode = withRoot && getStackNodeBranch(root) === null ? (getStackLandingNodeNow(root)?.kind ?? null) : null

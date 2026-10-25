@@ -129,8 +129,8 @@ of every case: the file exists, the slug after `#` is a heading of it (GitHub's 
 hyphens), a `#the-table:<row>` names a row of the table. D8 is recorded: the vocabulary has no stored stack parent, so its case is a test of each side
 of its own, `the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8` (Rust: the placement, the
 sync of the fixture, `whole_stack_of`, `bd safe-push A --whole-stack --check`) and `the whole stack of a blocked branch
-with an inactive declared parent is d8` (Vitest: the same table in `branchSyncStore`, `stackMainLineIn`,
-`getStackNextStepNow`).
+with an inactive declared parent is d8` (Vitest: the same table in `branchSyncStore`, placed as the view places it,
+`mainLineOf`, `getStackNextStepNow`).
 
 ## `given`: the closed vocabulary
 
@@ -157,7 +157,7 @@ request of a whole stack #12.
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | `--profile`; the last robot's options | `ask.profileId`; `options` |
 | `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` | the flags of the same names | `withoutApprovals` = `ask.bypassReview`; the others have no input of the decision |
 | `rules` | `keep` · `dismiss` · `unknown` · `loading` [`keep`] | the fake GitHub's `GET rules/branches/master`: `keep` none (`fake_github`), `dismiss` the pull request rule `dismiss_stale_reviews_on_push`, `unknown` 500; `loading` is `keep` (bd waits for its own read) | the rules of the target as the session read them (`facts.rules`, `seedRules` of `scenario-facts.ts`): `unknown` a failed answer (the start confirms `rulesUnknown`), `loading` no answer yet |
-| `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named | `parked`; of the whole stack `wholeStackParkedState` |
+| `parked` | `self` · `builtOn` · a branch | `bd park` of the branch, of its parent or of the branch named | `parked` (`domain_policy::parked`); of the whole stack the `stackParked` of its root |
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) | the stack branch `Blocked` by it |
 | `landed` | `inBaseline` · `byContent` | `origin/master` at HEAD; `land_auth_by_content` after `bd push` (`LANDED_SUBJECTS` only) | the landing report of the baseline check (`inBaseline`); one commit left (`byContent`) |
 | `landingNeeds` | `true` | `(codec) Add controlUrl`, then the branch uses it (Kotlin) | `landingNeeds` of the branch in the view of the facts, known |

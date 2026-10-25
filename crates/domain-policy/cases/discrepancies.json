@@ -156,7 +156,10 @@
     ],
     "discrepancy": "D8",
     "today": {
-      "app": ["src/stores/branch-sync.ts#function buildParentIn", "src/lib/scenario-cases.test.ts#the whole stack of a blocked branch with an inactive declared parent is d8"],
+      "app": [
+        "crates/domain-policy/src/stack.rs#pub fn declared_parent",
+        "src/lib/scenario-cases.test.ts#the whole stack of a blocked branch with an inactive declared parent is d8"
+      ],
       "bd": [
         "crates/bd-core/src/stack_summary.rs#stack.blocked_by.as_ref().map(|block| block.parent.as_str())",
         "crates/bd-remote/src/scenario_test.rs#fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8"

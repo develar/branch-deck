@@ -48,6 +48,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
     sync: { kind: "idle" },
     header: { baselineBranch: "", stacksEnabled: false, issueGroups: {}, stackParents: {}, parked: {}, issueNavigationConfig: null },
     order: [],
+    rows: { main: [], parked: [] },
     branches: {},
     stacks: {},
     sections: { unassigned: [], archived: { names: [], newlyArchived: [], integration: {} }, unapplied: [], landed: { baseline: null, landing: [], landed: [] } },
