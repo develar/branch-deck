@@ -88,6 +88,7 @@
             "state": "Blocked"
           },
           "replaces": null,
+          "rest": {"by": [], "byOwnRobot": false, "commitCount": 4, "landed": [], "members": ["auth", "login", "session"]},
           "start": {
             "blockedBy": "session",
             "code": "stackNotBuilt",

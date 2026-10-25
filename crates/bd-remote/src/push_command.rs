@@ -23,12 +23,14 @@ use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_policy::facts::Repository;
 use domain_policy::parked::parked_state;
-use domain_policy::push::{drops_remote_commits, needs_push, over_moved_remote};
+use domain_policy::push::{drops_remote_commits, over_moved_remote, stack_branch_along};
+use domain_policy::stack::descendants;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::ErrorCode;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{PullRequestState, PullRequestsResult};
 use domain_types::reason::Reason;
+use domain_types::session::StackBranchAlong;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
@@ -352,20 +354,20 @@ pub fn push_locked(
       }
       implicit.retain(|name| !args.branches.contains(name));
     }
-    let mut selected: Vec<&str> = Vec::new();
-    for name in &order {
-      // a blocked child has no effective base: its declared parent places it, and the push refuses it as not synced
-      let parent = placement(name).and_then(|stack| stack.effective_base.as_deref().or(stack.declared_parent.as_deref()));
-      // the order is parents first: a child comes after its parent was selected
-      if args.branches.iter().any(|named| named == name)
-        || implicit.contains(*name)
-        // a branch taken along brings no children: only the named ones do
-        || (args.with_children && parent.is_some_and(|parent| selected.contains(&parent) && !implicit.contains(parent)))
-      {
-        selected.push(name);
-      }
-    }
-    selected
+    // the branches Push with Children of a named one covers, as the app's: those stacked on it by declared parent
+    // (`push::push_plan`, `PushScope::WithChildren`); a blocked one is refused below as not synced. A branch taken along
+    // brings no children: only the named ones do
+    let children: HashSet<&str> = if args.with_children {
+      args.branches.iter().flat_map(|name| descendants(&repo, name)).collect()
+    } else {
+      HashSet::new()
+    };
+    // parents first
+    order
+      .iter()
+      .copied()
+      .filter(|name| args.branches.iter().any(|named| named == name) || implicit.contains(*name) || children.contains(name))
+      .collect()
   };
 
   // the robots the push restarts: of the named branches with --restart-running; the ancestors they land go along
@@ -751,10 +753,10 @@ pub fn push_locked(
   })
 }
 
-/// The stack branches of the stacks that fork whose root `--with-children` names, in the order of the sync, as the
-/// app's Push with Children takes one along: once it is on the remote (`origin`) or its pull request is open
-/// (`open_stack_pull_requests`, by root), the `built` ones the remote lacks (by content, as the sync's remote status
-/// compares), and a warning per one of them left out. One neither on the remote nor with an open pull request is no
+/// The stack branches of the stacks that fork whose root `--with-children` names, in the order of the sync, by the rule
+/// of the app's Push with Children (`push::stack_branch_along`): once it is on the remote (`origin`) or its pull request
+/// is open (`open_stack_pull_requests`, by root), the `built` ones the remote lacks (by content, as the sync's remote
+/// status compares), and a warning per one of them left out. One neither on the remote nor with an open pull request is no
 /// branch to publish by itself: `bd safe-push --whole-stack` and its pull request put it there. A stack branch in
 /// another state is not the stack's commits, and its remote status is of `origin` only. One whose every branch merged
 /// Safe Pushes landed whole (`holds`) carries only commits that are in the target: a push of it lands nothing. One the
@@ -768,22 +770,31 @@ fn stack_branches_to_push<'a>(
 ) -> (Vec<&'a StackBranchUpdate>, Vec<String>) {
   let mut stacks = Vec::new();
   let mut warnings = Vec::new();
-  for stack in report.stack_branches.iter().filter(|stack| !stack.members.is_empty() && named.contains(&stack.root)) {
-    let on_remote = stack.remote.as_ref().is_some_and(|remote| remote.remote_exists);
-    if !on_remote && !open_stack_pull_requests.contains(&stack.root) {
-      continue;
-    }
+  for stack in report.stack_branches.iter().filter(|stack| named.contains(&stack.root)) {
     // a parked member, every member landed, its own robot, a build the sync did not make (`stack_hold`)
-    match holds.stack_hold(stack) {
-      Some(Reason::StackNotBuilt { state, .. }) => warnings.push(format!(
+    let hold = holds.stack_hold(stack);
+    match stack_branch_along(stack, open_stack_pull_requests.contains(&stack.root), hold.as_ref()) {
+      // no stack that forks, or one neither on the remote nor in a pull request: no branch to publish by itself
+      None | Some(StackBranchAlong::Unpublished) => {}
+      Some(
+        StackBranchAlong::Held {
+          reason: Reason::StackNotBuilt { state, .. },
+        }
+        | StackBranchAlong::NotBuilt {
+          reason: Reason::StackNotBuilt { state, .. },
+        },
+      ) => warnings.push(format!(
         "{} was not pushed: this sync didn't build it ({}; `stacks` of `bd sync` says why)",
         stack.branch_name,
         state_word(state)
       )),
-      Some(hold) => warnings.push(format!("{} was not pushed: {}", stack.branch_name, holds.stack_hold_words(&stack.root, &hold))),
-      None if remote != "origin" => warnings.push(format!("{} was not pushed: its remote status is of origin, not of {remote}", stack.branch_name)),
-      None if stack.remote.as_ref().is_none_or(needs_push) => stacks.push(stack),
-      None => {}
+      Some(StackBranchAlong::Held { reason } | StackBranchAlong::NotBuilt { reason }) => {
+        warnings.push(format!("{} was not pushed: {}", stack.branch_name, holds.stack_hold_words(&stack.root, &reason)));
+      }
+      Some(_) if remote != "origin" => warnings.push(format!("{} was not pushed: its remote status is of origin, not of {remote}", stack.branch_name)),
+      Some(StackBranchAlong::UpToDate) => {}
+      // one that drops remote commits goes with --force, as a branch does
+      Some(StackBranchAlong::Along | StackBranchAlong::DropsRemote) => stacks.push(stack),
     }
   }
   (stacks, warnings)

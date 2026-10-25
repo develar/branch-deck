@@ -39,6 +39,10 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
   if (Object.keys(changes.stacks ?? {}).length > 0 || (changes.removedStacks?.length ?? 0) > 0) {
     stacks = { ...withoutKeys(stacks, changes.removedStacks ?? []), ...changes.stacks }
   }
+  let pushes = view.pushes
+  if (Object.keys(changes.pushes ?? {}).length > 0 || (changes.removedPushes?.length ?? 0) > 0) {
+    pushes = { ...withoutKeys(pushes, changes.removedPushes ?? []), ...changes.pushes }
+  }
   const sections = view.sections
   const archived = changes.archived
   return {
@@ -49,6 +53,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     rows: changes.rows ?? view.rows,
     branches,
     stacks,
+    pushes,
     sections: {
       unassigned: changes.unassigned ?? sections.unassigned,
       unapplied: changes.unapplied ?? sections.unapplied,

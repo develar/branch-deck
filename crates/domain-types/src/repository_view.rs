@@ -169,6 +169,31 @@ pub struct StackLanding {
   pub dry_run: Option<Reason>,
   /// The running robot of the whole stack a Safe Push start replaces, by id: on an older commit of its stack branch
   pub replaces: Option<String>,
+  /// What its Safe Push lands now (`domain_policy::stack::whole_stack_rest`): every branch of it, less those merged Safe
+  /// Pushes landed whole
+  pub rest: WholeStackRest,
+}
+
+/// What the Safe Push of a whole stack lands: every branch of it, less those merged Safe Pushes of pieces of it, or of
+/// the whole stack, landed whole: its stack branch still carries their commits (Patronus finds them in the target and
+/// lands the rest), so its start names, counts and says only the rest
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct WholeStackRest {
+  /// The branches left, as a sentence names them: the main line of the root first, then the side branches, which only
+  /// the whole stack lands
+  pub members: Vec<String>,
+  /// Their commits: of the stack branch while none landed, else of each branch, of one landed with commits after it
+  /// those only
+  pub commit_count: u32,
+  /// The branches landed whole, in the same order; empty while none did
+  pub landed: Vec<String>,
+  /// What landed them, each robot once, in the order of the branches
+  pub by: Vec<RobotOf>,
+  /// The robot of the whole stack itself landed every branch of it: nothing is left, and a rebuild gives new hashes,
+  /// not new work
+  pub by_own_robot: bool,
 }
 
 /// What a restart of a robot does (`holds::restart_action`): Patronus restarts it on the newest commit of its remote

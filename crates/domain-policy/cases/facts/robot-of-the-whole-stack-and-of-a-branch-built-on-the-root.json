@@ -172,6 +172,7 @@
           "dryRun": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"},
           "hold": {"code": "stackHeld", "mode": "rebaseAutosquash", "robotId": "robot-0", "root": "auth"},
           "replaces": null,
+          "rest": {"by": [], "byOwnRobot": false, "commitCount": 3, "landed": [], "members": ["auth", "login", "oauth"]},
           "start": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"}
         },
         "landingMember": {"branch": "login", "robotId": "robot-1", "wholeStack": false},

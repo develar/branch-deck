@@ -4,12 +4,13 @@
 //! version of the last patch, for a window that opens or lost a patch. Rust decides equality, so the page keeps the
 //! identity of every part a patch does not carry.
 
+use crate::derive::push_view;
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
 use domain_types::session::{
-  ArchivedChanges, Fact, FactsChanges, FactsView, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, RobotsChange, RobotsView, TableChanges,
-  Version, ViewPatch,
+  ArchivedChanges, Fact, FactsChanges, FactsView, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, RobotsChange, RobotsView, SyncState,
+  TableChanges, Version, ViewPatch,
 };
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
@@ -55,6 +56,13 @@ impl View {
     }
     let removed_branches = last.branches.keys().filter(|name| !parts.branches.contains_key(*name)).cloned().collect();
     let (stacks, removed_stacks) = diff_keyed(&last.stacks, &parts.stacks);
+    // the remote statuses of a running sync come one by one: the pushes are ordered over the table it leaves, in the
+    // patch that ends it (a push waits for the sync), never resent with every status
+    let (pushes, removed_pushes) = if matches!(state.sync, SyncState::Running { .. }) {
+      (BTreeMap::new(), Vec::new())
+    } else {
+      diff_keyed(&last.pushes, &push_view(parts, &facts.patronus.part().view, facts.pull_requests.view()))
+    };
     let (last_archived, archived) = (&last.sections.archived, &parts.sections.archived);
     let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
     let archived_changes = ArchivedChanges {
@@ -72,6 +80,8 @@ impl View {
       removed_branches,
       stacks,
       removed_stacks,
+      pushes,
+      removed_pushes,
       unassigned: changed_commits(&last.sections.unassigned, &parts.sections.unassigned),
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),

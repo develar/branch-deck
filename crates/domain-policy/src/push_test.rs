@@ -1,6 +1,14 @@
-use crate::push::{action, drops_remote_commits, needs_push, over_moved_remote, replaces_older_versions};
+use crate::push::{
+  HeadedStack, Kept, PushScope, PushState, Verdict, action, branch_push, drops_remote_commits, needs_push, over_moved_remote, push_plan, replaces_older_versions,
+  stack_branch_along,
+};
+use crate::stack_test::{Spec, repository, stacks_of};
+use domain_types::reason::Reason;
+use domain_types::session::{ChildrenPush, StackBranchAlong};
+use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{DroppedCommit, PushAction, RemoteStatusUpdate};
 use pretty_assertions::assert_eq;
+use std::collections::{BTreeMap, HashMap};
 
 /// The counts of a remote status a case sets; the rest is a pushed branch the remote has as it is
 #[derive(Clone, Copy, Default)]
@@ -241,4 +249,188 @@ fn pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost() {
   let answers: Vec<(&str, bool)> = cases.iter().map(|(case, counts, _)| (*case, over_moved_remote(&status(*counts)))).collect();
   let expected: Vec<(&str, bool)> = cases.iter().map(|(case, _, expected)| (*case, *expected)).collect();
   assert_eq!(answers, expected);
+}
+
+/// A branch built on its declared parent
+const fn on(name: &'static str, parent: Option<&'static str>) -> Spec {
+  (name, parent, parent)
+}
+
+/// auth ← login ← oauth, auth ← session, in the order of the table (newest first)
+const STACK: [Spec; 4] = [on("oauth", Some("login")), on("session", Some("auth")), on("login", Some("auth")), on("auth", None)];
+
+const fn with(action: PushAction) -> PushState {
+  PushState { action: Some(action), kept: None }
+}
+
+const fn kept(kept: Kept) -> PushState {
+  PushState { kept: Some(kept), ..PUSH }
+}
+
+const UP_TO_DATE: PushState = with(PushAction::UpToDate);
+const PUSH: PushState = with(PushAction::Push);
+const DROPS: PushState = with(force(true, false));
+
+fn states(entries: &[(&'static str, PushState)]) -> impl Fn(&str) -> PushState {
+  let map: HashMap<&str, PushState> = entries.iter().copied().collect();
+  move |name: &str| map.get(name).copied().unwrap_or(UP_TO_DATE)
+}
+
+/// Push Stack covers the chain of the effective bases root first up to the nearest held ancestor, whose robot lands
+/// the rest; each branch says what it does: one a merged Safe Push landed is left out, one the sync did not build too
+#[test]
+fn push_stack_covers_the_ancestors_up_to_the_nearest_held_one() {
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let plan = push_plan(&repo, states(&[("auth", PUSH), ("login", PUSH), ("oauth", PUSH)]), "oauth", PushScope::WithAncestors);
+  assert_eq!(plan.order(false), ["auth", "login", "oauth"]);
+  let held = kept(Kept::Held);
+  let plan = push_plan(&repo, states(&[("auth", PUSH), ("login", held), ("oauth", PUSH)]), "oauth", PushScope::WithAncestors);
+  assert_eq!(plan.steps, [("login", Verdict::Held), ("oauth", Verdict::Goes)]);
+  let landed = kept(Kept::Landed);
+  let not_built = kept(Kept::NotBuilt);
+  let plan = push_plan(
+    &repo,
+    states(&[("auth", not_built), ("login", landed), ("oauth", DROPS)]),
+    "oauth",
+    PushScope::WithAncestors,
+  );
+  assert_eq!(plan.steps, [("auth", Verdict::NotBuilt), ("login", Verdict::Landed), ("oauth", Verdict::AsksFirst)]);
+  assert_eq!((plan.order(false), plan.order(true), plan.ask_first()), (vec![], vec!["oauth"], vec!["oauth"]));
+}
+
+/// Push with Children covers the branch and every branch stacked on it by declared parent, each after its parent
+#[test]
+fn push_with_children_covers_the_branch_and_its_descendants() {
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let parked_state = kept(Kept::Parked);
+  let plan = push_plan(
+    &repo,
+    states(&[("login", PUSH), ("session", DROPS), ("oauth", parked_state)]),
+    "auth",
+    PushScope::WithChildren,
+  );
+  assert_eq!(
+    plan.steps,
+    [
+      ("auth", Verdict::UpToDate),
+      ("session", Verdict::AsksFirst),
+      ("login", Verdict::Goes),
+      ("oauth", Verdict::Parked)
+    ]
+  );
+  assert_eq!(push_plan(&repo, states(&[]), "gone", PushScope::WithChildren).steps, []);
+}
+
+/// The pushes of a branch the view sends: Push Stack sends every ancestor with work, the push of the button and of an
+/// action starts above the nearest one that asks first, and the button pushes the stack only while the branch has work
+/// and asks nothing; a start that replaces a robot pushes what that robot held
+#[test]
+fn the_push_button_and_an_action_start_above_the_nearest_ancestor_that_asks_first() {
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let push = branch_push(&repo, states(&[("auth", PUSH), ("login", DROPS), ("oauth", PUSH)]), None, None, "oauth");
+  // every ancestor goes: the stack of its structure
+  assert_eq!((push.stack, push.action, push.button), (None, Some(vec![]), false));
+  // none asks first: the push of the button is Push Stack
+  let push = branch_push(&repo, states(&[("auth", PUSH), ("login", PUSH), ("oauth", PUSH)]), None, None, "oauth");
+  assert_eq!((push.stack, push.action, push.button, push.start), (None, None, true, None));
+  // the branch alone asks first: the button confirms it alone
+  let push = branch_push(&repo, states(&[("login", PUSH), ("oauth", DROPS)]), None, None, "oauth");
+  assert_eq!((push.stack, push.action, push.button), (Some(vec!["login".to_string()]), None, false));
+  // the robot a start replaces holds login: the start pushes it
+  let held = kept(Kept::Held);
+  let start = states(&[("login", PUSH), ("oauth", PUSH)]);
+  let push = branch_push(&repo, states(&[("login", held), ("oauth", PUSH)]), Some(&start), None, "oauth");
+  assert_eq!((push.stack, push.action, push.start), (Some(vec![]), None, Some(vec!["login".to_string()])));
+  // a branch alone sends nothing more
+  assert_eq!(branch_push(&repo, states(&[("auth", PUSH)]), None, None, "auth").stack, None);
+}
+
+/// Push with Children sends the branch while it has work and the branches stacked on it that have work; one that asks
+/// first is left out to its row, one held or landed is left out, and a branch only parked branches are stacked on
+/// offers none
+#[test]
+fn push_with_children_leaves_out_what_asks_first_is_held_or_landed() {
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let held = kept(Kept::Held);
+  let push = branch_push(&repo, states(&[("auth", DROPS), ("login", held), ("session", DROPS), ("oauth", PUSH)]), None, None, "auth");
+  assert_eq!(
+    push.children,
+    Some(ChildrenPush {
+      order: Some(vec!["auth".to_string(), "oauth".to_string()]),
+      ask_first: vec!["session".to_string()],
+      stack_branch: None,
+      offers: true,
+    })
+  );
+  let parked_state = kept(Kept::Parked);
+  assert_eq!(branch_push(&repo, states(&[("oauth", parked_state)]), None, None, "login").children, None);
+  let push = branch_push(&repo, states(&[("auth", PUSH)]), None, None, "auth");
+  assert_eq!(
+    push.children.map(|children| (children.order, children.offers)),
+    Some((Some(vec!["auth".to_string()]), false))
+  );
+}
+
+fn forking(state: StackBranchState, remote: Option<RemoteStatusUpdate>) -> StackBranchUpdate {
+  StackBranchUpdate {
+    root: "auth".to_string(),
+    branch_name: "user/stack/auth".to_string(),
+    members: vec!["auth".to_string(), "login".to_string(), "session".to_string()],
+    commit_count: 3,
+    state,
+    tip: Some("tip".to_string()),
+    blocked_by: None,
+    conflict: None,
+    error: None,
+    remote,
+  }
+}
+
+/// The stack branch of a whole stack goes along with Push with Children of its root once it is on the remote or its pull
+/// request is open, built, not held, while its remote lacks it and drops nothing; a stack that doesn't fork has none
+#[test]
+fn the_stack_branch_goes_along_once_published_built_not_held_and_behind() {
+  let ahead = status(Counts { ahead: 2, ..Counts::default() });
+  let built = forking(StackBranchState::Built, Some(ahead.clone()));
+  assert_eq!(stack_branch_along(&built, false, None), Some(StackBranchAlong::Along));
+  let unpublished = forking(
+    StackBranchState::Built,
+    Some(status(Counts {
+      absent: true,
+      ahead: 2,
+      ..Counts::default()
+    })),
+  );
+  assert_eq!(stack_branch_along(&unpublished, false, None), Some(StackBranchAlong::Unpublished));
+  assert_eq!(stack_branch_along(&forking(StackBranchState::Built, None), true, None), Some(StackBranchAlong::Along));
+  let hold = Reason::StackParked {
+    root: "auth".to_string(),
+    member: "login".to_string(),
+  };
+  assert_eq!(stack_branch_along(&built, false, Some(&hold)), Some(StackBranchAlong::Held { reason: hold.clone() }));
+  let stale = forking(StackBranchState::Stale, Some(ahead));
+  assert!(matches!(stack_branch_along(&stale, false, None), Some(StackBranchAlong::NotBuilt { .. })));
+  let up_to_date = forking(StackBranchState::Built, Some(status(Counts::default())));
+  assert_eq!(stack_branch_along(&up_to_date, false, None), Some(StackBranchAlong::UpToDate));
+  let drops = forking(StackBranchState::Built, Some(status(Counts { behind: 1, ..Counts::default() })));
+  assert_eq!(stack_branch_along(&drops, false, None), Some(StackBranchAlong::DropsRemote));
+  let alone = StackBranchUpdate {
+    members: Vec::new(),
+    ..forking(StackBranchState::Stale, None)
+  };
+  assert_eq!(stack_branch_along(&alone, true, None), None);
+  // Push with Children of the root offers the stack branch along by itself
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let headed = HeadedStack {
+    stack: &built,
+    pull_request_open: false,
+    hold: None,
+  };
+  let push = branch_push(&repo, states(&[]), None, Some(headed), "auth");
+  assert_eq!(push.children.map(|children| (children.order, children.offers)), Some((Some(vec![]), true)));
 }

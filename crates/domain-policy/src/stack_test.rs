@@ -1,5 +1,6 @@
 use crate::facts::{Placed, Repository};
-use crate::stack::{build_ancestors, build_parent, children, declared_parent, descendants, main_line};
+use crate::stack::{WholeStack, build_ancestors, build_parent, children, declared_parent, descendants, main_line, root_of, whole_stack_members, whole_stack_of, whole_stack_rest};
+use domain_types::repository_view::{LandedByView, RobotOf};
 use domain_types::stack::BranchStack;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -114,4 +115,91 @@ fn a_cycle_of_declared_parents_ends_the_descendants_and_the_main_line() {
   let repo = repository(&stacks, &parked);
   assert_eq!(descendants(&repo, "a"), ["b"]);
   assert_eq!(main_line(&repo, "a"), ["b"]);
+}
+
+/// The whole stack of a branch is the stack of its root by declared parent: the stack branch of the root while the
+/// stack forks, else the chain down from the root, which its last branch not parked lands; a fork without a stack branch
+/// waits for the sync that builds it
+#[test]
+fn the_whole_stack_of_a_branch_is_the_stack_of_its_declared_root() {
+  let (stacks, parked) = (stacks_of(&TREE), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  assert_eq!(root_of(&repo, "oauth"), "auth");
+  assert_eq!(whole_stack_of(&repo, |root| root == "auth", "oauth"), Some(WholeStack::Forking { root: "auth" }));
+  assert_eq!(whole_stack_of(&repo, |_| false, "session"), Some(WholeStack::Unbuilt { root: "auth", fork: "auth" }));
+  assert_eq!(whole_stack_of(&repo, |_| false, "docs"), Some(WholeStack::Chain { root: "docs", leaf: "docs" }));
+  assert_eq!(whole_stack_of(&repo, |_| false, "gone"), None);
+
+  // a straight chain: its last branch lands it, a parked one at its end stays local
+  let chain = [on("oauth", Some("login")), on("login", Some("auth")), on("auth", None)];
+  let (stacks, parked) = (stacks_of(&chain), BTreeMap::from([("oauth".to_string(), "later".to_string())]));
+  let repo = repository(&stacks, &parked);
+  assert_eq!(whole_stack_of(&repo, |_| false, "auth"), Some(WholeStack::Chain { root: "auth", leaf: "login" }));
+  let no_parked = BTreeMap::new();
+  assert_eq!(
+    whole_stack_of(&repository(&stacks, &no_parked), |_| false, "login"),
+    Some(WholeStack::Chain { root: "auth", leaf: "oauth" })
+  );
+  // a cycle of declared parents ends the chain
+  let (stacks, parked) = (stacks_of(&[on("a", Some("b")), on("b", Some("a"))]), BTreeMap::new());
+  assert_eq!(whole_stack_of(&repository(&stacks, &parked), |_| false, "a").map(|whole| whole.root()), Some("b"));
+}
+
+/// D8: a blocked branch whose declared parent has no commits is the root of its own whole stack, as the user declared
+/// it; the branch that blocks its build heads a whole stack without it
+#[test]
+fn the_whole_stack_of_a_blocked_branch_follows_its_declared_parent_not_what_blocks_it() {
+  // C declares B, which has no commits (stacked on A), blocked by A; A is its own parent
+  let (stacks, parked) = (stacks_of(&[("C", None, Some("B")), ("A", None, Some("A"))]), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  assert_eq!(whole_stack_of(&repo, |_| false, "C"), Some(WholeStack::Chain { root: "C", leaf: "C" }));
+  assert_eq!(whole_stack_of(&repo, |_| false, "A"), Some(WholeStack::Chain { root: "A", leaf: "A" }));
+}
+
+/// A sentence names the branches of a whole stack by the main line of its root first, then the side branches, which
+/// only the whole stack lands
+#[test]
+fn the_members_of_a_whole_stack_name_its_main_line_first() {
+  let (stacks, parked) = (stacks_of(&TREE), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let members = ["auth", "session", "login", "oauth"].map(str::to_string);
+  assert_eq!(whole_stack_members(&repo, "auth", &members), ["auth", "login", "oauth", "session"]);
+}
+
+fn landed_by(branch: &str, whole_stack: bool, after: &[&str]) -> LandedByView {
+  LandedByView {
+    by: RobotOf {
+      branch: branch.to_string(),
+      robot_id: format!("robot-{branch}"),
+      whole_stack,
+    },
+    own: false,
+    landed: vec!["c1".to_string()],
+    after: after.iter().map(|id| (*id).to_string()).collect(),
+  }
+}
+
+/// What is left of a whole stack once merged Safe Pushes landed branches of it whole: the rest and its commits (of a
+/// branch landed with commits after it those only), what landed the others, each subject once, and whether the robot of
+/// the whole stack itself landed all of it; every branch and the commits of the stack branch while none landed
+#[test]
+fn the_rest_of_a_whole_stack_is_what_merged_safe_pushes_left_of_it() {
+  let members = ["auth", "login", "oauth", "session"];
+  let by_login = landed_by("login", false, &[]);
+  let with_after = landed_by("login", false, &["o1"]);
+  let rest = whole_stack_rest("auth", &members, 9, |name| match name {
+    "auth" | "login" => (Some(&by_login), 2),
+    "oauth" => (Some(&with_after), 5),
+    _ => (None, 3),
+  });
+  assert_eq!(
+    (rest.members, rest.commit_count, rest.landed, rest.by.len(), rest.by_own_robot),
+    (vec!["oauth".to_string(), "session".to_string()], 4, vec!["auth".to_string(), "login".to_string()], 1, false)
+  );
+  // none landed: every branch, the commits of the stack branch
+  let all = whole_stack_rest("auth", &members, 9, |_| (None, 1));
+  assert_eq!((all.members.len(), all.commit_count, all.landed.len(), all.by_own_robot), (4, 9, 0, false));
+  let by_own = landed_by("auth", true, &[]);
+  let rest = whole_stack_rest("auth", &members, 9, |_| (Some(&by_own), 1));
+  assert!(rest.members.is_empty() && rest.by_own_robot, "{rest:?}");
 }

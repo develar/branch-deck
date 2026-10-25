@@ -10,11 +10,11 @@ use bd_core::branch_view::read_grouping;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::{SchemaVersion, ShortIds};
-use bd_core::stack_summary::{WholeStack, whole_stack_of};
+use bd_core::stack_summary::whole_stack;
 use domain_policy::facts::Repository;
 use domain_policy::holds::is_active;
 use domain_policy::robot_match::RobotIndex;
-use domain_policy::stack::build_ancestors;
+use domain_policy::stack::{WholeStack, build_ancestors};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
@@ -326,7 +326,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     Vec::new()
   };
   let whole = if args.whole_stack {
-    Some(whole_stack_of(&grouping.branches, &stacks, name)?)
+    Some(whole_stack(&grouping.branches, &grouping.grouping.parked.entries, &stacks, name)?)
   } else {
     None
   };
@@ -344,8 +344,8 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     };
     let stack_robot = stack.and_then(|stack| index.stack_robot(&stack.root, stack.tip.as_deref(), grouping.remote_tips.get(&stack.branch_name).map(String::as_str)));
     let found = match &whole {
-      Some(WholeStack::Forking(_)) => stack_robot.map(|robot| (None, robot)),
-      Some(WholeStack::Chain { leaf, .. }) => robot_of(leaf).map(|robot| ((leaf != name).then_some(leaf.as_str()), robot)),
+      Some(WholeStack::Forking { .. } | WholeStack::Unbuilt { .. }) => stack_robot.map(|robot| (None, robot)),
+      Some(WholeStack::Chain { leaf, .. }) => robot_of(leaf).map(|robot| ((*leaf != name).then_some(*leaf), robot)),
       None => {
         let own = robot_of(name);
         // the newest robot of a descendant or of the whole stack, when it started after the branch's own
@@ -406,10 +406,10 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
 fn check_robot_of(robot: &PatronusRobot, name: &str, descendants: &[&str], stack_root: Option<&str>, whole: Option<&WholeStack<'_>>) -> Result<(), CliError> {
   let id = &robot.id;
   let builds = match (&robot.stack_root, &robot.branch_name, whole) {
-    (Some(root), _, Some(WholeStack::Forking(update))) => *root == update.root,
+    (Some(root), _, Some(WholeStack::Forking { root: whole_root } | WholeStack::Unbuilt { root: whole_root, .. })) => root == whole_root,
     (Some(root), _, _) => stack_root == Some(root.as_str()),
     (None, Some(other), Some(WholeStack::Chain { leaf, .. })) => other == leaf,
-    (None, Some(_), Some(WholeStack::Forking(_))) => false,
+    (None, Some(_), Some(WholeStack::Forking { .. } | WholeStack::Unbuilt { .. })) => false,
     (None, Some(other), None) => other == name || descendants.contains(&other.as_str()),
     // a temporary ref, matched by its tip
     (None, None, _) => true,

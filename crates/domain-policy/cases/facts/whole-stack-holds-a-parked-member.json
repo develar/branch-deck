@@ -74,6 +74,7 @@
           "dryRun": null,
           "hold": {"code": "stackParked", "member": "session", "root": "auth"},
           "replaces": null,
+          "rest": {"by": [], "byOwnRobot": false, "commitCount": 3, "landed": [], "members": ["auth", "login", "session"]},
           "start": null
         },
         "landingMember": null,

@@ -83,6 +83,8 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     removed_branches,
     stacks,
     removed_stacks,
+    pushes,
+    removed_pushes,
     unassigned,
     archived,
     unapplied,
@@ -114,6 +116,10 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     view.stacks.remove(root);
   }
   view.stacks.extend(stacks);
+  for name in &removed_pushes {
+    view.pushes.remove(name);
+  }
+  view.pushes.extend(pushes);
   let sections = &mut view.sections;
   set_if_some(&mut sections.unassigned, unassigned);
   set_if_some(&mut sections.unapplied, unapplied);

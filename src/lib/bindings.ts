@@ -853,6 +853,35 @@ export type BranchPatronus = {
 	landing: BranchLanding,
 };
 
+/**
+ *  What the pushes of a branch send besides the branch, root first, as `domain_policy::push::push_plan` orders them over
+ *  the table and the holds of the robots: the branch goes last in each, and an empty list sends it alone. A list absent
+ *  is the one of its structure, most of the time: the view sends only what differs (`RepositoryView::pushes`)
+ */
+export type BranchPush = {
+	/**
+	 *  Push Stack: the branches it is built on that have work for the remote, root first, up to the nearest one a running
+	 *  Safe Push holds; one a merged Safe Push landed whole, or the fetched baseline has whole, is left out. Absent while
+	 *  it is every branch it is built on (`BranchStructure::ancestors`)
+	 */
+	stack?: string[] | null,
+	/**
+	 *  The push of the push button and of an action that needs the branch on the remote (a pull request, a review
+	 *  request): as `stack`, starting above the nearest branch whose push drops remote commits, which asks first in its
+	 *  row; absent while none of `stack` asks first (`stack` then)
+	 */
+	action?: string[] | null,
+	/**  The push button pushes the stack, `action` and then the branch: the branch has work for the remote and asks nothing */
+	button?: boolean,
+	/**
+	 *  The push of a Safe Push start that replaces a running robot of the branch (`BranchLanding::replaces`): as `action`,
+	 *  with the branches that robot holds, which the start cancels; absent while it replaces none (`action` then)
+	 */
+	start?: string[] | null,
+	/**  Push with Children; absent for a branch nothing but parked branches is stacked on */
+	children?: ChildrenPush | null,
+};
+
 /**  What the remote has of a branch */
 export type BranchRemote = {
 	/**  The last remote status a sync computed; `None` until one did, kept while the branch is rebuilt */
@@ -947,6 +976,11 @@ export type BranchStructure = {
 	 *  branch local; absent otherwise
 	 */
 	stackParked?: ParkedMember | null,
+	/**
+	 *  Of the root of a stack: its whole stack, which one Safe Push lands (`domain_policy::stack::whole_stack_of`, by
+	 *  declared parent); absent for a branch alone and for a branch that heads no stack
+	 */
+	wholeStack?: WholeStackView | null,
 	/**  The table it is a row of; absent for the main one */
 	section?: BranchSection,
 };
@@ -1021,6 +1055,22 @@ export type ChecksSummary = {
 	pending: number,
 	/**  The names of the failed checks, at most a few */
 	failedNames: string[],
+};
+
+/**  What Push with Children of a branch sends, in one atomic push, parents first */
+export type ChildrenPush = {
+	/**
+	 *  The branch while it has work for the remote, then the branches stacked on it that have work, each after its
+	 *  parent: none parked, none a Safe Push holds or a merged one landed, none whose push drops remote commits. Absent
+	 *  while it is the branch and every branch stacked on it (`BranchStructure::descendants`)
+	 */
+	order?: string[] | null,
+	/**  The branches stacked on it whose push drops remote commits they lack: left out, each asks first in its row */
+	askFirst?: string[],
+	/**  Of the root of a stack that forks: what the push does with the stack branch of the whole stack */
+	stackBranch?: StackBranchAlong | null,
+	/**  It pushes more than the branch itself: a branch stacked on it, or the stack branch along */
+	offers?: boolean,
 };
 
 /**  A CLI that agents and the app use */
@@ -3789,6 +3839,11 @@ export type RepositoryView = {
 	rows: RowsView,
 	/**  The stack branches the last sync reported, by the root of their stack */
 	stacks: { [key in string]: StackBranchUpdate },
+	/**
+	 *  What the pushes of each branch send, as the rules order them over the table and the holds of the robots
+	 *  (`domain_policy::push`); a branch whose pushes send it alone is not listed
+	 */
+	pushes: { [key in string]: BranchPush },
 	sections: TableSections,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
@@ -4507,6 +4562,31 @@ export type StackBlock = {
 };
 
 /**
+ *  What Push with Children of the root of a stack that forks does with the stack branch of its whole stack
+ *  (`domain_policy::push::stack_branch_along`): `along` pushes it in the same atomic push, after the branches, so the
+ *  pull request of the whole stack follows them; any other kind leaves it as it is, and says why
+ */
+export type StackBranchAlong = 
+/**  Built, on the remote or with its pull request open, its remote lacking commits of it */
+{ kind: "along" } | 
+/**  On the remote as it is */
+{ kind: "upToDate" } | 
+/**
+ *  Neither on the remote nor with an open pull request: the pull request or the Safe Push of the whole stack puts it
+ *  there
+ */
+{ kind: "unpublished" } | 
+/**  The sync did not build it: never pushed */
+{ kind: "notBuilt"; reason: Reason } | 
+/**  Its remote branch has commits it lacks: a push would drop them, as a child that asks first in its row */
+{ kind: "dropsRemote" } | 
+/**
+ *  Its push is held (`StackLanding::hold`): a member is parked, every branch of the stack landed, its own robot runs,
+ *  or the sync did not build it
+ */
+{ kind: "held"; reason: Reason };
+
+/**
  *  The commit of a stack branch whose copy conflicts with the commits of the stack before it, and the conflicting
  *  paths
  */
@@ -4639,6 +4719,11 @@ export type StackLanding = {
 	dryRun: Reason | null,
 	/**  The running robot of the whole stack a Safe Push start replaces, by id: on an older commit of its stack branch */
 	replaces: string | null,
+	/**
+	 *  What its Safe Push lands now (`domain_policy::stack::whole_stack_rest`): every branch of it, less those merged Safe
+	 *  Pushes landed whole
+	 */
+	rest: WholeStackRest,
 };
 
 /**
@@ -4934,6 +5019,8 @@ export type TableChanges = {
 	removedBranches?: string[],
 	stacks?: { [key in string]: StackBranchUpdate },
 	removedStacks?: string[],
+	pushes?: { [key in string]: BranchPush },
+	removedPushes?: string[],
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,
@@ -5463,6 +5550,46 @@ export type WhitespacePolicy =
  *  (`IGNORE_WHITESPACES_CHUNKS`)
  */
 "ignoreBlankLines";
+
+/**
+ *  What the Safe Push of a whole stack lands: every branch of it, less those merged Safe Pushes of pieces of it, or of
+ *  the whole stack, landed whole: its stack branch still carries their commits (Patronus finds them in the target and
+ *  lands the rest), so its start names, counts and says only the rest
+ */
+export type WholeStackRest = {
+	/**
+	 *  The branches left, as a sentence names them: the main line of the root first, then the side branches, which only
+	 *  the whole stack lands
+	 */
+	members: string[],
+	/**
+	 *  Their commits: of the stack branch while none landed, else of each branch, of one landed with commits after it
+	 *  those only
+	 */
+	commitCount: number,
+	/**  The branches landed whole, in the same order; empty while none did */
+	landed: string[],
+	/**  What landed them, each robot once, in the order of the branches */
+	by: RobotOf[],
+	/**
+	 *  The robot of the whole stack itself landed every branch of it: nothing is left, and a rebuild gives new hashes,
+	 *  not new work
+	 */
+	byOwnRobot: boolean,
+};
+
+/**
+ *  The whole stack of a root (spec/branch/whole-stack.spec.md): the stack branch of a stack that forks, or the last
+ *  branch of a straight chain, which carries every commit of it
+ */
+export type WholeStackView = 
+/**
+ *  The stack forks: its stack branch `{prefix}/stack/<root>` lands it (what of it is left to land:
+ *  `StackLanding::rest`); `not_built` why the sync did not build it, the stack lands in pieces then
+ */
+{ kind: "forking"; notBuilt?: Reason | null } | 
+/**  A straight chain of two branches or more: `leaf`, its last branch that is not parked, lands it */
+{ kind: "chain"; leaf: string };
 
 export type WindowFocusParams = {
 	repositoryPath: string,

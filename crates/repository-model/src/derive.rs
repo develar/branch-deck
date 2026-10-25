@@ -2,8 +2,12 @@
 //! s8-policy), so the page and `bd` read one answer and the page decides nothing: `repository` is the input of the rules
 //! read from a table (`domain_policy::facts::Repository`), `place` the structure of each branch (its stack by declared
 //! parent, its ancestors by effective base, its main line, whether it is parked and its section) and the rows of each
-//! section. The table places its branches once per grouping (`TableState::apply`), the root of a whole stack again when
-//! its stack branch is reported; a patch carries a structure only when it changed.
+//! section, with the whole stack of each root (`domain_policy::stack::whole_stack_of`, by declared parent). The table
+//! places its branches once per grouping (`TableState::apply`), the root of a whole stack again when its stack branch is
+//! reported; a patch carries a structure only when it changed. `push_view` is what the pushes of each branch send
+//! (`domain_policy::push::branch_push`) over the table, the holds of the Patronus view and the pull requests of the
+//! whole stacks: the view derives it with each patch (`state::View::diff`), so a push button, a menu and an island read
+//! one order.
 //!
 //! `decide_landing` is what the rules decide over the Patronus facts of a table (`patronus_view`), for the view of the
 //! session, the guards of the app and `bd` alike: the hold of each branch (`domain_policy::holds::branch_hold`) and of
@@ -18,14 +22,16 @@ use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, push_blocker, restart_action, stack_branch_hold};
 use domain_policy::land::{BranchStart, StackStart, Start, on_last_commit, restart_refusal, start_refusal};
 use domain_policy::parked::{parked_state, whole_stack_parked};
-use domain_policy::reasons::{landed, stack_landed};
-use domain_policy::stack::{build_ancestors, children, declared_parent, descendants, main_line};
+use domain_policy::push::{HeadedStack, Kept, PushState, branch_push};
+use domain_policy::reasons::{landed, stack_landed, stack_not_built};
+use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot};
+use domain_types::pull_request::PullRequestState;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, PatronusView, RobotOf, RobotRestart, SpanView, StackLanding};
-use domain_types::session::{BranchSection, BranchStructure, ParkedMember, RowsView};
+use domain_types::session::{BranchPush, BranchSection, BranchStatus, BranchStructure, ParkedMember, PullRequestsView, RowsView, WholeStackView};
 use domain_types::stack::StackBranchUpdate;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The input of the rules over the table of `table`, as its view has it
 #[must_use]
@@ -61,12 +67,29 @@ pub(crate) fn place(parts: &mut TableParts) {
   parts.rows = rows;
 }
 
-/// The parked member of the stack branch of `root` written into the structure of `root`, once its stack branch is
-/// reported
+/// The parked member of the stack branch of `root` and its whole stack written into the structure of `root`, once its
+/// stack branch is reported
 pub(crate) fn place_stack(parts: &mut TableParts, root: &str) {
-  let stack_parked = stack_parked(&parts_repository(parts), parts.stacks.get(root));
+  let (stack_parked, whole_stack) = {
+    let repo = parts_repository(parts);
+    (stack_parked(&repo, parts.stacks.get(root)), whole_stack_view(&repo, &parts.stacks, root))
+  };
   if let Some(branch) = parts.branches.get_mut(root) {
     branch.structure.stack_parked = stack_parked;
+    branch.structure.whole_stack = whole_stack;
+  }
+}
+
+/// The whole stack of `name` while it heads one (`whole_stack_of`): its stack branch while the stack forks, the last
+/// branch of a straight chain of two or more
+fn whole_stack_view(repo: &Repository<'_>, stacks: &BTreeMap<String, StackBranchUpdate>, name: &str) -> Option<WholeStackView> {
+  let forking = |root: &str| stacks.get(root).is_some_and(|stack| !stack.members.is_empty());
+  match whole_stack_of(repo, forking, name)? {
+    WholeStack::Forking { root } if root == name => Some(WholeStackView::Forking {
+      not_built: stacks.get(root).and_then(stack_not_built),
+    }),
+    WholeStack::Chain { root, leaf } if root == name && leaf != root => Some(WholeStackView::Chain { leaf: leaf.to_string() }),
+    _ => None,
   }
 }
 
@@ -83,11 +106,84 @@ fn structure_of(repo: &Repository<'_>, stacks: &BTreeMap<String, StackBranchUpda
     section: if parked.is_some() { BranchSection::Parked } else { BranchSection::Main },
     parked,
     stack_parked: stack_parked(repo, stacks.get(name)),
+    whole_stack: whole_stack_view(repo, stacks, name),
   }
 }
 
 fn stack_parked(repo: &Repository<'_>, stack: Option<&StackBranchUpdate>) -> Option<ParkedMember> {
   whole_stack_parked(repo, stack?.members.iter().map(String::as_str))
+}
+
+/// What the pushes of each branch of `parts` send (`domain_policy::push::branch_push`), over the holds of the robots in
+/// `patronus` and the pull requests of the whole stacks in `pull_requests`; a branch whose pushes send it alone is not
+/// listed. A branch the fetched baseline has whole is landed: the update archives it, its push lands nothing
+pub(crate) fn push_view(parts: &TableParts, patronus: &PatronusView, pull_requests: &PullRequestsView) -> BTreeMap<String, BranchPush> {
+  let repo = parts_repository(parts);
+  let facts = PushFacts {
+    parts,
+    patronus,
+    fully_landed: parts
+      .sections
+      .landed
+      .landing
+      .iter()
+      .filter(|branch| branch.remaining == 0)
+      .filter_map(|branch| branch.name.as_deref())
+      .collect(),
+  };
+  let facts = &facts;
+  let held = |name: &str| facts.state(name, None);
+  repo
+    .order()
+    .filter_map(|name| {
+      // the robot a Safe Push start replaces: the start cancels it, and pushes what it held
+      let replaces = patronus.branches.get(name).and_then(|facts| facts.landing.replaces.as_deref());
+      let start = replaces.map(|replaces| move |branch: &str| facts.state(branch, Some(replaces)));
+      let stack = parts.stacks.get(name).map(|stack| HeadedStack {
+        stack,
+        pull_request_open: pull_requests
+          .stack_pull_requests
+          .get(name)
+          .is_some_and(|pull_request| pull_request.state == PullRequestState::Open),
+        hold: patronus.stacks.get(name).and_then(|facts| facts.landing.hold.as_ref()),
+      });
+      let push = branch_push(&repo, held, start.as_ref().map(|start| start as &dyn Fn(&str) -> PushState), stack, name);
+      (push != BranchPush::default()).then(|| (name.to_string(), push))
+    })
+    .collect()
+}
+
+/// What `push_view` reads of a branch
+struct PushFacts<'a> {
+  parts: &'a TableParts,
+  patronus: &'a PatronusView,
+  /// The branches the fetched baseline has whole
+  fully_landed: HashSet<&'a str>,
+}
+
+impl PushFacts<'_> {
+  /// The state of `name` for a push; `replaces`: the robot the push cancels, which holds nothing then
+  fn state(&self, name: &str, replaces: Option<&str>) -> PushState {
+    let Some(branch) = self.parts.branches.get(name) else {
+      return PushState::default();
+    };
+    let hold = self.patronus.branches.get(name).and_then(|facts| facts.landing.hold.as_ref());
+    let kept = if branch.structure.parked.is_some() {
+      Some(Kept::Parked)
+    } else if hold.is_some_and(|hold| hold.kind == HoldKind::Landed) || self.fully_landed.contains(name) {
+      Some(Kept::Landed)
+    } else if hold.is_some_and(|hold| Some(hold.by.robot_id.as_str()) != replaces) {
+      Some(Kept::Held)
+    } else if branch.sync.status == BranchStatus::Blocked || branch.sync.has_error {
+      Some(Kept::NotBuilt)
+    } else {
+      None
+    };
+    PushState {
+      action: branch.remote.status.as_ref().map(|status| status.action),
+      kept,
+    }
+  }
 }
 
 /// What the rules read of a table and its Patronus facts: the robots by id, the holds of the branches
@@ -270,11 +366,17 @@ impl<'a> LandingFacts<'a> {
       .stack_robot(stack)
       .filter(|robot| holds_pushes(robot) && robot.stack_root.as_deref() == Some(stack.root.as_str()) && last_commit.is_none())
       .map(|robot| robot.id.clone());
+    let members = whole_stack_members(&self.repo, &stack.root, &stack.members);
+    let rest = whole_stack_rest(&stack.root, &members, stack.commit_count, |name| {
+      let landed = self.view.branches.get(name).and_then(|facts| facts.landed_by.as_ref());
+      (landed, self.table.branch(name).map_or(0, |branch| u32::try_from(branch.commits.len()).unwrap_or(u32::MAX)))
+    });
     StackLanding {
       hold: self.stack_hold(stack),
       start: start_refusal(&start, PatronusPushMode::RebaseAutosquash, &self.robots),
       dry_run: start_refusal(&start, PatronusPushMode::DryRun, &self.robots),
       replaces,
+      rest,
     }
   }
 

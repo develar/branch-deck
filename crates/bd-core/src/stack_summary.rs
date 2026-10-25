@@ -1,11 +1,14 @@
 //! The stack branches in the output of `bd status` and `bd sync` (`stacks`): of each stack that forks, the branch of
 //! all its commits, `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md); and the whole stack of a branch, which
-//! `bd safe-push --whole-stack` lands and `bd robot --whole-stack` watches
+//! `bd safe-push --whole-stack` lands and `bd robot --whole-stack` watches, by the rule of the app
+//! (`domain_policy::stack::whole_stack_of`)
 
-use crate::branch_view::{block_reason_name, placement};
+use crate::branch_view::block_reason_name;
 use crate::error::CliError;
 use crate::output::ShortIds;
 use crate::sync_command::{ConflictSummary, RemoteSummary};
+use domain_policy::facts::Repository;
+use domain_policy::stack::{WholeStack, whole_stack_of};
 use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
@@ -13,6 +16,7 @@ use domain_types::error::ErrorCode;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -130,79 +134,43 @@ pub struct WholeStackSummary {
   pub state: Option<StackStateName>,
 }
 
-/// The whole stack of a branch, as the sync placed it
-pub enum WholeStack<'a> {
-  /// A stack that forks: its stack branch, as the sync reported it
-  Forking(&'a StackBranchUpdate),
-  /// A straight chain, a branch alone included: its last branch carries every commit of it
-  Chain { root: String, leaf: String },
-}
-
-impl WholeStack<'_> {
-  /// The top-level root of the stack
-  pub fn root(&self) -> &str {
-    match self {
-      Self::Forking(update) => &update.root,
-      Self::Chain { root, .. } => root,
-    }
-  }
-
-  pub fn summary(&self, prefix: &str) -> WholeStackSummary {
-    match self {
-      Self::Forking(update) => WholeStackSummary {
-        root: update.root.clone(),
-        source: update.branch_name.clone(),
-        state: Some(update.state.into()),
-      },
-      Self::Chain { root, leaf } => WholeStackSummary {
-        root: root.clone(),
-        source: to_final_branch_name(prefix, leaf).unwrap_or_default(),
-        state: None,
-      },
-    }
+/// The whole stack of `name` among the grouped `branches` (`domain_policy::stack::whole_stack_of`, D8): the stack of its
+/// root by declared parent, its stack branch of `stacks` while it forks, else the straight chain from its root, which its
+/// last branch not parked lands. A branch the table lacks and a fork no stack branch is known of are refused. No git
+pub fn whole_stack<'a>(branches: &'a [GroupedBranchInfo], parked: &'a BTreeMap<String, String>, stacks: &[StackBranchUpdate], name: &str) -> Result<WholeStack<'a>, CliError> {
+  let repo = Repository::of_grouping(branches, parked);
+  match whole_stack_of(&repo, |root| stack_branch_of(stacks, root).is_some(), name) {
+    None => Err(CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}"))),
+    Some(WholeStack::Unbuilt { root, fork }) => Err(CliError::new(
+      ErrorCode::StackNotBuilt,
+      format!("The stack of {root} forks at {fork}, but no stack branch of it is known; `bd sync` builds it"),
+    )),
+    Some(whole) => Ok(whole),
   }
 }
 
-/// The whole stack of `name` among the grouped `branches`: the stack that forks it is a branch of (the `members` of a
-/// stack branch of `stacks`), else the straight chain from its top-level root down, by the parent each branch is built
-/// on or blocked by. No git process
-pub fn whole_stack_of<'a>(branches: &[GroupedBranchInfo], stacks: &'a [StackBranchUpdate], name: &str) -> Result<WholeStack<'a>, CliError> {
-  if !branches.iter().any(|branch| branch.name == name) {
-    return Err(CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")));
+/// The stack branch of the stack of `root` that forks, as the sync reported it
+pub fn stack_branch_of<'s>(stacks: &'s [StackBranchUpdate], root: &str) -> Option<&'s StackBranchUpdate> {
+  stacks.iter().find(|stack| stack.root == root && !stack.members.is_empty())
+}
+
+/// What `--whole-stack` lands, as the outputs print it
+pub fn whole_stack_summary(whole: &WholeStack<'_>, stacks: &[StackBranchUpdate], prefix: &str) -> WholeStackSummary {
+  match (whole, stack_branch_of(stacks, whole.root())) {
+    (WholeStack::Forking { .. }, Some(update)) => WholeStackSummary {
+      root: update.root.clone(),
+      source: update.branch_name.clone(),
+      state: Some(update.state.into()),
+    },
+    (WholeStack::Chain { root, leaf }, _) => WholeStackSummary {
+      root: (*root).to_string(),
+      source: to_final_branch_name(prefix, leaf).unwrap_or_default(),
+      state: None,
+    },
+    _ => WholeStackSummary {
+      root: whole.root().to_string(),
+      source: String::new(),
+      state: None,
+    },
   }
-  if let Some(update) = stacks.iter().find(|stack| stack.members.iter().any(|member| member == name)) {
-    return Ok(WholeStack::Forking(update));
-  }
-  let parent_of =
-    |branch: &str| placement(branches, branch).and_then(|stack| stack.effective_base.as_deref().or_else(|| stack.blocked_by.as_ref().map(|block| block.parent.as_str())));
-  // bounded: a broken stack may have a cycle
-  let mut root = name;
-  for _ in 0..branches.len() {
-    match parent_of(root) {
-      Some(parent) if parent != name => root = parent,
-      _ => break,
-    }
-  }
-  let mut leaf = root;
-  for _ in 0..branches.len() {
-    let children: Vec<&str> = branches
-      .iter()
-      .map(|branch| branch.name.as_str())
-      .filter(|branch| parent_of(branch) == Some(leaf))
-      .collect();
-    match children.as_slice() {
-      [] => break,
-      [only] => leaf = only,
-      _ => {
-        return Err(CliError::new(
-          ErrorCode::StackNotBuilt,
-          format!("The stack of {root} forks at {leaf}, but no stack branch of it is known; `bd sync` builds it"),
-        ));
-      }
-    }
-  }
-  Ok(WholeStack::Chain {
-    root: root.to_string(),
-    leaf: leaf.to_string(),
-  })
 }

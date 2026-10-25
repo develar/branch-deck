@@ -79,7 +79,12 @@ export function branchFacts(patch: Partial<Omit<BranchPatronus, "landing">> & { 
 /** The facts of the whole stack of a root in a view and what the rules decide of them, nothing but `patch` */
 export function stackFacts(patch: Partial<Omit<StackPatronus, "landing">> & { readonly landing?: Partial<StackLanding> }): StackPatronus {
   const { landing, ...facts } = patch
-  return { robotId: null, landingMember: null, ...facts, landing: { hold: null, start: null, dryRun: null, replaces: null, ...landing } }
+  return {
+    robotId: null,
+    landingMember: null,
+    ...facts,
+    landing: { hold: null, start: null, dryRun: null, replaces: null, rest: { members: [], commitCount: 0, landed: [], by: [], byOwnRobot: false }, ...landing },
+  }
 }
 
 /** The landing of the whole stack of `root` whose own robot `robotId` runs on its stack branch */

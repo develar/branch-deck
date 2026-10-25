@@ -2,9 +2,9 @@ use crate::derive::repository;
 use crate::facts::FactStore;
 use crate::state::View;
 use crate::table::TableState;
-use crate::table::table_test::grouped;
+use crate::table::table_test::{grouped, remote_status};
 use domain_policy::parked::parked_state;
-use domain_types::session::{BranchSection, BranchStructure, Parked, ParkedMember, RowsView};
+use domain_types::session::{BranchPush, BranchSection, BranchStructure, ChildrenPush, Parked, ParkedMember, RowsView, StackBranchAlong, WholeStackView};
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, SyncEvent};
 use pretty_assertions::assert_eq;
@@ -81,6 +81,8 @@ fn a_grouping_places_every_branch_and_the_rows_of_each_section() {
       main_line: names(&["login", "oauth"]),
       parked: None,
       stack_parked: None,
+      // the stack forks, and no stack branch of it is known yet
+      whole_stack: None,
       section: BranchSection::Main,
     }
   );
@@ -140,5 +142,76 @@ fn a_patch_carries_only_the_structures_that_changed() {
       member: "session".to_string(),
       parked: Parked { note: String::new(), with: None },
     })
+  );
+}
+
+/// The root of a stack carries its whole stack: its stack branch once the sync reported it; the last branch of a
+/// straight chain, a parked one at its end left local
+#[test]
+fn the_root_of_a_stack_carries_its_whole_stack() {
+  let mut table = TableState::new();
+  table.begin_sync();
+  table.apply(grouping(tree(), &[], &["auth"]));
+  table.apply(stack_branch("auth", &["auth", "session", "login", "oauth"]));
+  let whole_stack = |table: &TableState, name: &str| table.branch(name).and_then(|branch| branch.structure.whole_stack.clone());
+  assert_eq!(whole_stack(&table, "auth"), Some(WholeStackView::Forking { not_built: None }));
+  assert_eq!((whole_stack(&table, "login"), whole_stack(&table, "docs")), (None, None));
+
+  let chain = vec![on("oauth", Some("login")), on("login", Some("auth")), on("auth", None)];
+  let mut table = TableState::new();
+  table.begin_sync();
+  table.apply(grouping(chain.clone(), &[], &[]));
+  assert_eq!(whole_stack(&table, "auth"), Some(WholeStackView::Chain { leaf: "oauth".to_string() }));
+  table.apply(grouping(chain, &[("login", "")], &[]));
+  assert_eq!(whole_stack(&table, "auth"), None);
+}
+
+/// The view sends what the pushes of each branch send, as the rules order them over its table: Push Stack of a stacked
+/// branch takes the ancestors with work along, Push with Children of the root the children with work; a branch whose
+/// pushes send it alone is not listed
+#[test]
+fn the_view_orders_the_pushes_of_each_branch() {
+  let mut table = TableState::new();
+  table.begin_sync();
+  table.apply(grouping(tree(), &[], &["auth"]));
+  for (branch, unpushed) in [("auth", &["a"][..]), ("login", &["l"]), ("oauth", &["o"]), ("session", &[]), ("docs", &["d"])] {
+    table.apply(SyncEvent::RemoteStatusUpdate(remote_status(branch, unpushed)));
+  }
+  let mut view = View::new(1);
+  // a running sync sends none: its remote statuses come one by one
+  assert_eq!(view.diff(&table, &FactStore::new()).map(|patch| patch.changes.pushes.len()), Some(0));
+  table.finish_sync(Ok(()));
+  let patch = view.diff(&table, &FactStore::new()).unwrap();
+  let pushes = patch.changes.pushes;
+  assert_eq!(
+    pushes["oauth"],
+    BranchPush {
+      button: true,
+      ..BranchPush::default()
+    }
+  );
+  assert_eq!(
+    pushes["auth"].children,
+    Some(ChildrenPush {
+      // session has nothing to push
+      order: Some(names(&["auth", "login", "oauth"])),
+      offers: true,
+      ..ChildrenPush::default()
+    })
+  );
+  assert!(!pushes.contains_key("docs"), "{pushes:?}");
+
+  // the stack branch of the whole stack goes along once it is on the remote
+  let SyncEvent::StackBranchUpdate(mut update) = stack_branch("auth", &["auth", "session", "login", "oauth"]) else {
+    unreachable!()
+  };
+  update.remote = Some(remote_status("test/stack/auth", &["s"]));
+  table.begin_sync();
+  table.apply(SyncEvent::StackBranchUpdate(update));
+  table.finish_sync(Ok(()));
+  let patch = view.diff(&table, &FactStore::new()).unwrap();
+  assert_eq!(
+    patch.changes.pushes["auth"].children.as_ref().and_then(|children| children.stack_branch.clone()),
+    Some(StackBranchAlong::Along)
   );
 }

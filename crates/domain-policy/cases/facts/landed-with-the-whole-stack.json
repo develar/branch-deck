@@ -135,6 +135,13 @@
             "target": "master"
           },
           "replaces": null,
+          "rest": {
+            "by": [{"branch": "auth", "robotId": "robot-0", "wholeStack": true}],
+            "byOwnRobot": true,
+            "commitCount": 0,
+            "landed": ["auth", "login", "session"],
+            "members": []
+          },
           "start": null
         },
         "landingMember": null,

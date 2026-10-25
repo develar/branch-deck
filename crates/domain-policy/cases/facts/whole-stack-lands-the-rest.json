@@ -106,6 +106,24 @@
     },
     "landedByRobot": {"robot-0": [{"after": [], "branch": "auth", "own": false}, {"after": [], "branch": "login", "own": true}]},
     "restarts": {},
-    "stacks": {}
+    "stacks": {
+      "auth": {
+        "landing": {
+          "dryRun": null,
+          "hold": null,
+          "replaces": null,
+          "rest": {
+            "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+            "byOwnRobot": false,
+            "commitCount": 1,
+            "landed": ["auth", "login"],
+            "members": ["session"]
+          },
+          "start": null
+        },
+        "landingMember": null,
+        "robotId": null
+      }
+    }
   }
 }

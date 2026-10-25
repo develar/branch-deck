@@ -13,6 +13,9 @@ targets:
   - ../../crates/object-cache/src/stack_branch.rs
   - ../../crates/branch-integration/src/common.rs
   - ../../crates/bd-core/src/stack_summary.rs
+  - ../../crates/domain-policy/src/stack.rs
+  - ../../crates/domain-policy/src/push.rs
+  - ../../crates/repository-model/src/derive.rs
   - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-core/src/sync_command.rs
   - ../../crates/bd-remote/src/safe_push_command.rs
@@ -172,13 +175,28 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 
 ### The Safe Push of the whole stack
 
+- The whole stack of a branch must be the stack of its root by declared parent, for the app and `bd` alike
+  (`domain_policy::stack::whole_stack_of`, D8, the owner's decision: the stack as the user declared it; the parent that
+  blocks a branch is a detail of its build): the stack branch of the root while the stack forks, else the straight
+  chain from the root, which its last branch that is not parked lands (a parked one at its end stays local). A blocked
+  branch whose declared parent has no commits heads a whole stack of its own, never the chain of the branch that blocks
+  it; a fork no stack branch is known of yet waits for the sync that builds it (`bd` refuses it as `stack_not_built`).
+  The view places the whole stack on the structure of its root (`BranchStructure.wholeStack`), and what its Safe Push
+  lands, the branches as a sentence names them (the main line first) less those merged Safe Pushes landed whole, on its
+  landing (`StackLanding.rest`, `whole_stack_rest`).
+  [@test] ../../crates/domain-policy/src/stack_test.rs (`the_whole_stack_of_a_branch_is_the_stack_of_its_declared_root`, `the_whole_stack_of_a_blocked_branch_follows_its_declared_parent_not_what_blocks_it`, `the_members_of_a_whole_stack_name_its_main_line_first`, `the_rest_of_a_whole_stack_is_what_merged_safe_pushes_left_of_it`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_root_of_a_stack_carries_its_whole_stack`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
 - `bd safe-push <branch> --whole-stack` must land the whole stack of the branch in one robot from its stack branch,
   the only branch it pushes; a straight chain from its last branch; refused unless the stack branch is `built`
   (`conflict`, `stack_not_built`, exit 1), and both ways while a robot of the stack or of a branch of it runs
   ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)). Push with Children of the root, the app's and `bd push <root>
   --with-children`, must take the stack branch along after the branches once it is on the remote or its pull request
   is open, only when the sync built it, so its pull request follows the branches
-  ([Stacked Branches](stacked-branches.spec.md#pull-requests)); `bd robot --whole-stack` must print its robot.
+  ([Stacked Branches](stacked-branches.spec.md#pull-requests)), by one rule (`domain_policy::push::stack_branch_along`:
+  not while its push is held, nor while its remote has commits it lacks, which `bd` pushes over only with `--force`);
+  `bd robot --whole-stack` must print its robot.
+  [@test] ../../crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`, `push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
   [@test] ../../src/lib/git/push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`)

@@ -491,7 +491,13 @@ function stackLandedIn(landed: ReadonlyMap<string, LandedBy>, state: BranchSyncS
 }
 
 const NO_BRANCH_LANDING: BranchLanding = { hold: null, start: null, dryRun: null, replaces: null, push: null }
-const NO_STACK_LANDING: StackLanding = { hold: null, start: null, dryRun: null, replaces: null }
+const NO_STACK_LANDING: StackLanding = {
+  hold: null,
+  start: null,
+  dryRun: null,
+  replaces: null,
+  rest: { members: [], commitCount: 0, landed: [], by: [], byOwnRobot: false },
+}
 
 function branchLandingIn(repository: RepositoryPatronus | undefined, branchName: string): BranchLanding {
   return repository?.view?.branches[branchName]?.landing ?? NO_BRANCH_LANDING

@@ -37,13 +37,14 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep, regroup_error};
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
-use bd_core::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
+use bd_core::stack_summary::{WholeStackSummary, stack_branch_of, whole_stack, whole_stack_summary};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_policy::facts::Repository;
 use domain_policy::holds::is_active;
 use domain_policy::land::{Start as LandStart, start_refusal};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::push::{drops_remote_commits, needs_push};
+use domain_policy::stack::WholeStack;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit, Subject};
@@ -563,9 +564,15 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   // a check writes nothing after its sync: the trial builds and Patronus don't keep the other bd writers waiting
   let mut lock = (!args.check).then_some(lock);
   let whole_stack = whole_stack_arg(context, args, &synced)?;
-  let start = start_of(args, whole_stack.as_ref());
+  let start = start_of(args, &synced, whole_stack.as_ref());
   let plan = plan(context, args, &service, &github, runtime, &synced, mode, &start, target_fetch)?;
-  let mut output = start_output(context, args, mode, whole_stack.as_ref(), &plan);
+  let mut output = start_output(
+    context,
+    args,
+    mode,
+    whole_stack.as_ref().map(|whole| (whole, synced.report.stack_branches.as_slice())),
+    &plan,
+  );
   if args.check {
     return Ok(check_output(output, plan));
   }
@@ -688,13 +695,14 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   Ok(output)
 }
 
-/// The whole stack `--whole-stack` lands, from the sync; a stack branch the sync doesn't know is `stack_not_built`,
-/// which the next sync builds
+/// The whole stack `--whole-stack` lands, from the sync (`whole_stack`: the rule of the app, by declared parent); a
+/// stack branch the sync doesn't know is `stack_not_built`, which the next sync builds
 fn whole_stack_arg<'s>(context: &RepoContext, args: &SafePushArgs, synced: &'s SyncOutput) -> Result<Option<WholeStack<'s>>, CliError> {
   if !args.whole_stack {
     return Ok(None);
   }
-  whole_stack_of(&synced.report.branches, &synced.report.stack_branches, &args.branch)
+  let report = &synced.report;
+  whole_stack(&report.branches, &report.grouping.parked.entries, &report.stack_branches, &args.branch)
     .map(Some)
     .map_err(|error| match error.code {
       ErrorCode::StackNotBuilt => error.with_next_step(format!("{} sync", context.bd), false),
@@ -704,16 +712,19 @@ fn whole_stack_arg<'s>(context: &RepoContext, args: &SafePushArgs, synced: &'s S
 
 /// What the start lands, and from which branch: the branch; of the whole stack, a stack that forks from its stack
 /// branch, a straight chain from its last branch
-fn start_of<'a>(args: &SafePushArgs, whole_stack: Option<&'a WholeStack<'_>>) -> Start<'a> {
+fn start_of<'a>(args: &SafePushArgs, synced: &'a SyncOutput, whole_stack: Option<&WholeStack<'_>>) -> Start<'a> {
   match whole_stack {
-    None => Start::Branch(args.branch.clone()),
-    Some(WholeStack::Chain { leaf, .. }) => Start::Branch(leaf.clone()),
-    Some(WholeStack::Forking(update)) => Start::WholeStack(update),
+    Some(WholeStack::Chain { leaf, .. }) => Start::Branch((*leaf).to_string()),
+    Some(WholeStack::Forking { root }) => match stack_branch_of(&synced.report.stack_branches, root) {
+      Some(update) => Start::WholeStack(update),
+      None => Start::Branch(args.branch.clone()),
+    },
+    _ => Start::Branch(args.branch.clone()),
   }
 }
 
 /// The output of a start as `plan` decides it, before anything is pushed or started
-fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMode, whole_stack: Option<&WholeStack>, plan: &Plan) -> SafePushOutput {
+fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMode, whole_stack: Option<(&WholeStack, &[StackBranchUpdate])>, plan: &Plan) -> SafePushOutput {
   SafePushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -722,7 +733,7 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
     mode: mode_name(mode),
     target: plan.target.clone(),
     lands: plan.lands.clone(),
-    whole_stack: whole_stack.map(|whole| whole.summary(&context.prefix)),
+    whole_stack: whole_stack.map(|(whole, stacks)| whole_stack_summary(whole, stacks, &context.prefix)),
     profile: plan.profile.as_ref().map(profile_summary),
     profiles: plan.profiles.iter().map(profile_summary).collect(),
     review: plan

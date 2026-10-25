@@ -14,8 +14,9 @@ use bd_cli::remote_fixture_test::{
 };
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
-use bd_core::stack_summary::{WholeStack, whole_stack_of};
+use bd_core::stack_summary::whole_stack;
 use bd_core::sync_command::{SyncOutput, lock, sync_locked};
+use domain_policy::stack::WholeStack;
 use domain_types::commit::Commit;
 use domain_types::patronus::{ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState as ListedPullRequestState, PullRequestsResult};
@@ -1018,11 +1019,11 @@ impl Situation {
       asks.push(ask(&format!("stack:{root}"), Some(stack.branch_name.clone()), tip, listed.stack_pull_requests.get(root)));
     }
     if given.subject == GivenSubject::WholeStack
-      && let Ok(WholeStack::Chain { leaf, .. }) = whole_stack_of(&synced.report.branches, &synced.report.stack_branches, name)
+      && let Ok(WholeStack::Chain { leaf, .. }) = whole_stack(&synced.report.branches, &synced.report.grouping.parked.entries, &synced.report.stack_branches, name)
       && leaf != name
-      && let Some(tip) = synced.report.tips.get(&virtual_branch(&leaf))
+      && let Some(tip) = synced.report.tips.get(&virtual_branch(leaf))
     {
-      asks.push(ask(&leaf, None, tip, listed.pull_requests.get(leaf.as_str())));
+      asks.push(ask(leaf, None, tip, listed.pull_requests.get(leaf)));
     }
     let answers = runtime
       .block_on(branch_review_readiness(
@@ -1537,9 +1538,10 @@ fn assert_d8_placement(stack: Option<&BranchStack>) {
   );
 }
 
-/// D8 (the registry's entry `d8-whole-stack-parent` says what the app answers): the whole stack of C, whose declared
-/// parent B has no commits and is stacked on A by `bd restack`, while A has a stack problem. bd follows `blocked_by`: C's
-/// whole stack is the chain A → C; the app follows `declaredParent`, which no row has: C is a root of its own
+/// D8, closed (the registry's entry `d8-whole-stack-parent`): the whole stack of C, whose declared parent B has no
+/// commits and is stacked on A by `bd restack`, while A has a stack problem, is the stack as the user declared it (the
+/// owner's decision 5): B, which no row has, makes C a root of its own, never the chain A → C its block names. The app
+/// reads the same rule (`domain_policy::stack::whole_stack_of`, the whole stack of each root in the view)
 #[test_log::test]
 fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() {
   // the placement alone, as stack_test.rs places branches
@@ -1589,16 +1591,19 @@ fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() 
   assert_eq!(branches.iter().map(|branch| branch.name.as_str()).collect::<Vec<_>>(), ["C", "A"]);
   assert_d8_placement(branches.iter().find(|branch| branch.name == "C").and_then(|branch| branch.stack.as_ref()));
 
-  // bd: `effective_base ?? blocked_by.parent`, the chain from A down to C
-  let whole_stack = whole_stack_of(branches, &synced.report.stack_branches, "C").unwrap();
-  assert!(
-    matches!(&whole_stack, WholeStack::Chain { root, leaf } if root == "A" && leaf == "C"),
-    "{:?}",
-    whole_stack.summary(PREFIX)
+  // by declared parent: C heads a whole stack of its own, and A one without C
+  let parked = &synced.report.grouping.parked.entries;
+  let stacks = &synced.report.stack_branches;
+  assert_eq!(
+    (whole_stack(branches, parked, stacks, "C").unwrap(), whole_stack(branches, parked, stacks, "A").unwrap()),
+    (WholeStack::Chain { root: "C", leaf: "C" }, WholeStack::Chain { root: "A", leaf: "A" })
   );
-  // and the Safe Push of the whole stack of A lands C, its leaf, which the block refuses
+  // so the Safe Push of the whole stack of A lands A alone, its own stack problem refusing it, never C's block
   let (exit_code, output) = safe_push(&environment, &["A", "--whole-stack", "--check"]);
   assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("push_refused")), "{output}");
   let message = output["error"]["message"].as_str().unwrap();
-  assert!(message.contains("C is not synced (Blocked: parent A has a stack problem"), "{message}");
+  assert!(
+    message.contains("A is not synced (A prefix makes the branch its own parent") && !message.contains("C is not synced"),
+    "{message}"
+  );
 }

@@ -16,8 +16,10 @@
 //! - `parked`: why a branch stays local (`parked_state`: its own line, or a parked branch it is built on), and the
 //!   parked member that keeps a stack branch local (`whole_stack_parked`)
 //! - `push`: what a push of a branch does to its remote branch (`action`: create, push, force, up to date), whether it
-//!   has work, replaces older versions or drops remote commits, and whether a push over a remote that moved goes again
-//!   (`over_moved_remote`)
+//!   has work, replaces older versions or drops remote commits, whether a push over a remote that moved goes again
+//!   (`over_moved_remote`), what a push of several branches covers and what each of them does (`push_plan`: Push Stack,
+//!   Push with Children), the pushes of a branch the view sends (`branch_push`) and the stack branch Push with Children
+//!   of a root takes along (`stack_branch_along`)
 //! - `reasons`: the reasons the rules give (`domain_types::reason::Reason`), with the facts their words need
 //! - `readiness`: the pull request a Safe Push would start from (`start_pull_request`), when an answer of the review
 //!   readiness is the news that approvals arrived (`approval_news`), and whether a subject waits for them
@@ -28,7 +30,8 @@
 //! - `robot_match`: which robot belongs to a virtual branch and which to the whole stack of a root (`RobotIndex`,
 //!   `match_table`)
 //! - `stack`: the stacks of a table: the declared parent (D8), the branch a branch is built on, the ancestors by
-//!   effective base, the children and the descendants, the main line
+//!   effective base, the children and the descendants, the main line, the whole stack of a branch by declared parent
+//!   (`whole_stack_of`), its branches as a sentence names them and what is left of it to land (`whole_stack_rest`)
 
 pub mod facts;
 pub mod holds;

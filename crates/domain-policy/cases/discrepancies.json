@@ -148,20 +148,21 @@
     "id": "d8-whole-stack-parent",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the whole stack of C, blocked by A, whose declared parent B has no commits (stacked on A by bd restack): bd follows blocked_by and lands the chain A → C, the app follows declaredParent B, which no row has, and C is a root of its own",
+    "title": "the whole stack of C, blocked by A, whose declared parent B has no commits (stacked on A by bd restack): bd followed blocked_by and landed the chain A → C, the app followed declaredParent B, which no row has. Since s8-policy both read one rule by the declared parent (the owner's decision 5): C is a root of its own, and the whole stack of A is A alone",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/stacked-branches.spec.md#placement",
       "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack"
     ],
     "discrepancy": "D8",
+    "closed": "s8-policy",
     "today": {
       "app": [
-        "crates/domain-policy/src/stack.rs#pub fn declared_parent",
-        "src/lib/scenario-cases.test.ts#the whole stack of a blocked branch with an inactive declared parent is d8"
+        "crates/repository-model/src/derive.rs#match whole_stack_of(repo, forking, name)? {",
+        "crates/domain-policy/src/stack_test.rs#fn the_whole_stack_of_a_blocked_branch_follows_its_declared_parent_not_what_blocks_it"
       ],
       "bd": [
-        "crates/bd-core/src/stack_summary.rs#stack.blocked_by.as_ref().map(|block| block.parent.as_str())",
+        "crates/bd-core/src/stack_summary.rs#match whole_stack_of(&repo, |root| stack_branch_of(stacks, root).is_some(), name) {",
         "crates/bd-remote/src/scenario_test.rs#fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8"
       ]
     }

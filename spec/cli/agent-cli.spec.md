@@ -912,9 +912,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   pushed branch (with `--dry-run` too) names them with their baseline commits. One remote commit the baseline lacks
   keeps the refusal, and `dropped_commits` names only such commits.
   [@test] ../../crates/bd-remote/src/push_test.rs (`all_needs_yes_and_unsynced_branches_are_refused`, `amended_and_restacked_commits_push_without_force`, `a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `a_push_replaces_the_remote_commits_the_baseline_landed_without_force`, `a_remote_commit_the_baseline_lacks_still_refuses_the_push`)
-- `--with-children` must add the branches stacked on the named ones, directly or further down, parents first, to the
-  same atomic push, as the app's Push with Children does ([Stacked Branches](../branch/stacked-branches.spec.md)); a
-  blocked child must refuse the push as a named branch that didn't sync does. It must need named branches and must
+- `--with-children` must add the branches stacked on the named ones by declared parent, directly or further down,
+  parents first, to the same atomic push, the branches the app's Push with Children covers (`domain_policy::stack::
+  descendants`, the steps of `push::push_plan`; [Stacked Branches](../branch/stacked-branches.spec.md)); a blocked
+  child must refuse the push as a named branch that didn't sync does, where the app's push leaves it out to its row. It must need named branches and must
   not go with `--expect-remote`.
   [@test] ../../crates/bd-remote/src/push_test.rs (`with_children_pushes_the_branches_stacked_on_the_named_ones`, `with_children_refuses_a_blocked_child`)
 - `--with-children` of a named root of a stack that forks must also push its stack branch
@@ -1177,8 +1178,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   branch of its top-level root, `refs/heads/<prefix>/stack/<root>`, the only branch pushed, leased on the remote head
   of its remote status in the sync's report, with nothing read again; `lands` must name every branch of the stack, and
   `whole_stack` the `root`, the `source` and the `state` of the stack branch, in the start, in `--check` and in a dry
-  run. A straight chain, which has no stack branch, must start from its last branch (`source` its virtual branch).
+  run. A straight chain, which has no stack branch, must start from its last branch that is not parked (`source` its
+  virtual branch). The whole stack is the app's, by declared parent (D8): a blocked branch whose declared parent has no
+  commits heads one of its own.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_the_whole_stack`)
 - A stack branch that is not `built` must refuse the start, nothing pushed or started: `stack_conflict` (exit 4) with the
   commit (`error.commits`) and the files (`error.paths`) when a commit of it conflicts with the commits of the stack

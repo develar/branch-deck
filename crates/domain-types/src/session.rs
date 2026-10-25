@@ -22,6 +22,7 @@ use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability};
+use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
 use crate::review_request::ReviewRequest;
 use crate::stack::{BranchStack, StackBranchUpdate};
@@ -334,6 +335,9 @@ pub struct RepositoryView {
   pub rows: RowsView,
   /// The stack branches the last sync reported, by the root of their stack
   pub stacks: BTreeMap<String, StackBranchUpdate>,
+  /// What the pushes of each branch send, as the rules order them over the table and the holds of the robots
+  /// (`domain_policy::push`); a branch whose pushes send it alone is not listed
+  pub pushes: BTreeMap<String, BranchPush>,
   pub sections: TableSections,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
@@ -598,10 +602,32 @@ pub struct BranchStructure {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack_parked: Option<ParkedMember>,
+  /// Of the root of a stack: its whole stack, which one Safe Push lands (`domain_policy::stack::whole_stack_of`, by
+  /// declared parent); absent for a branch alone and for a branch that heads no stack
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub whole_stack: Option<WholeStackView>,
   /// The table it is a row of; absent for the main one
   #[serde(skip_serializing_if = "BranchSection::is_main")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub section: BranchSection,
+}
+
+/// The whole stack of a root (spec/branch/whole-stack.spec.md): the stack branch of a stack that forks, or the last
+/// branch of a straight chain, which carries every commit of it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum WholeStackView {
+  /// The stack forks: its stack branch `{prefix}/stack/<root>` lands it (what of it is left to land:
+  /// `StackLanding::rest`); `not_built` why the sync did not build it, the stack lands in pieces then
+  Forking {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    not_built: Option<Reason>,
+  },
+  /// A straight chain of two branches or more: `leaf`, its last branch that is not parked, lands it
+  Chain { leaf: String },
 }
 
 /// Why a branch is parked (spec/branch/parked-branches.spec.md)
@@ -650,6 +676,88 @@ pub struct RowsView {
   pub main: Vec<String>,
   /// The parked branches and those built on one
   pub parked: Vec<String>,
+}
+
+/// What the pushes of a branch send besides the branch, root first, as `domain_policy::push::push_plan` orders them over
+/// the table and the holds of the robots: the branch goes last in each, and an empty list sends it alone. A list absent
+/// is the one of its structure, most of the time: the view sends only what differs (`RepositoryView::pushes`)
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BranchPush {
+  /// Push Stack: the branches it is built on that have work for the remote, root first, up to the nearest one a running
+  /// Safe Push holds; one a merged Safe Push landed whole, or the fetched baseline has whole, is left out. Absent while
+  /// it is every branch it is built on (`BranchStructure::ancestors`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack: Option<Vec<String>>,
+  /// The push of the push button and of an action that needs the branch on the remote (a pull request, a review
+  /// request): as `stack`, starting above the nearest branch whose push drops remote commits, which asks first in its
+  /// row; absent while none of `stack` asks first (`stack` then)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub action: Option<Vec<String>>,
+  /// The push button pushes the stack, `action` and then the branch: the branch has work for the remote and asks nothing
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub button: bool,
+  /// The push of a Safe Push start that replaces a running robot of the branch (`BranchLanding::replaces`): as `action`,
+  /// with the branches that robot holds, which the start cancels; absent while it replaces none (`action` then)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub start: Option<Vec<String>>,
+  /// Push with Children; absent for a branch nothing but parked branches is stacked on
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub children: Option<ChildrenPush>,
+}
+
+/// What Push with Children of a branch sends, in one atomic push, parents first
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ChildrenPush {
+  /// The branch while it has work for the remote, then the branches stacked on it that have work, each after its
+  /// parent: none parked, none a Safe Push holds or a merged one landed, none whose push drops remote commits. Absent
+  /// while it is the branch and every branch stacked on it (`BranchStructure::descendants`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub order: Option<Vec<String>>,
+  /// The branches stacked on it whose push drops remote commits they lack: left out, each asks first in its row
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub ask_first: Vec<String>,
+  /// Of the root of a stack that forks: what the push does with the stack branch of the whole stack
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack_branch: Option<StackBranchAlong>,
+  /// It pushes more than the branch itself: a branch stacked on it, or the stack branch along
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub offers: bool,
+}
+
+/// What Push with Children of the root of a stack that forks does with the stack branch of its whole stack
+/// (`domain_policy::push::stack_branch_along`): `along` pushes it in the same atomic push, after the branches, so the
+/// pull request of the whole stack follows them; any other kind leaves it as it is, and says why
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StackBranchAlong {
+  /// Built, on the remote or with its pull request open, its remote lacking commits of it
+  Along,
+  /// On the remote as it is
+  UpToDate,
+  /// Neither on the remote nor with an open pull request: the pull request or the Safe Push of the whole stack puts it
+  /// there
+  Unpublished,
+  /// The sync did not build it: never pushed
+  NotBuilt { reason: Reason },
+  /// Its remote branch has commits it lacks: a push would drop them, as a child that asks first in its row
+  DropsRemote,
+  /// Its push is held (`StackLanding::hold`): a member is parked, every branch of the stack landed, its own robot runs,
+  /// or the sync did not build it
+  Held { reason: Reason },
 }
 
 /// What the grouping says of a branch; a field without a value is absent
@@ -852,6 +960,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_stacks: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub pushes: BTreeMap<String, BranchPush>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_pushes: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,

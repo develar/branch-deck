@@ -67,6 +67,18 @@
     },
     "landedByRobot": {},
     "restarts": {},
-    "stacks": {}
+    "stacks": {
+      "auth": {
+        "landing": {
+          "dryRun": null,
+          "hold": null,
+          "replaces": null,
+          "rest": {"by": [], "byOwnRobot": false, "commitCount": 3, "landed": [], "members": ["auth", "login", "session"]},
+          "start": null
+        },
+        "landingMember": null,
+        "robotId": null
+      }
+    }
   }
 }
