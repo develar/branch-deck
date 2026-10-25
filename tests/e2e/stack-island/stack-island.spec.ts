@@ -215,10 +215,15 @@ test.describe("Stack island", () => {
     const push = island(page, "air").getByTestId("stack-island-push")
     await expect(push).toHaveAccessibleName("Push with Children (7 branches)")
     await push.hover()
-    await expect(page.getByTestId("stack-island-push-description")).toContainText("Pushes 7 branches, parents first:")
+    const description = page.getByTestId("stack-island-push-description")
+    await expect(description).toContainText("Pushes 7 branches, parents first:")
+    // read, then pushed: the click, later than half a second after the hover opened, leaves it open with the progress
+    await page.clock.fastForward(1000)
     await push.click()
     // one push of the 7 branches: the header names it, and every row of it shows the one progress
     await expect(push).toHaveAccessibleName("Pushing 7 branches 45%")
+    await expect(description).toContainText("Writing objects: 45% (2/4)")
+    await expect(description).toHaveAttribute("data-open", "")
     for (const name of ["air", "bazel", "side-test"]) {
       await expect(findBranchRow(page, name).getByTestId("push-button")).toHaveAccessibleName("Pushing 45%")
     }
@@ -230,9 +235,7 @@ test.describe("Stack island", () => {
     await expect(push).toBeDisabled()
     await expect(push).toHaveAccessibleName("Push with Children")
     await push.hover()
-    await expect(page.getByTestId("stack-island-push-description")).toContainText(
-      "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack",
-    )
+    await expect(description).toContainText("The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack")
   })
 
   test("should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu", async ({

@@ -419,7 +419,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   ("Push (2)", "Force Push (1)", "Push Stack (3 branches)", "Pushing 45%"; one name for the first push too, whose description
   says "The branch isn't on the remote yet: the push creates it.") is its accessible name and the
   first line of its description on hover, which shows also while it is disabled, with the remote commits a force push
-  drops, the question before a push that drops them, and the progress of a running push. Its colour is the push colour
+  drops, the question before a push that drops them, and the progress of a running push. A click pushes and leaves
+  the hover as it is: open while the pointer stays, also after a click well after it opened. Its colour is the push colour
   of the branch as the text of a ghost button (the arrow for `primary`), neutral when landed. A branch up to date with
   its remote has no button: the status text says it, and a disabled arrow in every pushed row would only repeat it; so has a branch a running Safe Push holds, whose Status cell shows the robot or
   "lands with oauth", and its Safe Push slot is empty too ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs));

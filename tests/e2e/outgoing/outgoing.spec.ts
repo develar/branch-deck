@@ -27,12 +27,17 @@ test.describe("Push progress", () => {
     // the row shows the count, the label is its name and leads its description
     await expect(button).toHaveText("3")
     await expect(button).toHaveAccessibleName("Push (3)")
+    await button.hover()
+    await expect(page.getByTestId("push-description")).toContainText("Push (3)")
 
+    // read, then pushed: the click, later than half a second after the hover opened, leaves it open with the progress
+    await page.clock.fastForward(1000)
     await button.click()
     await expect(button).toHaveText("55%")
     await expect(button).toHaveAccessibleName("Pushing 55%")
     await expect(button).toHaveAttribute("aria-busy", "true")
     // the pointer stays on the button after the click: its popover is open
+    await expect(page.getByTestId("push-description")).toHaveAttribute("data-open", "")
     const progress = page.getByTestId("push-progress")
     await expect(progress).toContainText("Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s")
     // git's line says the amount already: no second line repeats it
