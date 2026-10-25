@@ -1,7 +1,7 @@
 //! The clock of the timers that decide what to ask and when to drop something (docs/design/rust-domain-authority.md,
 //! "Факты", "Какие часы"): the life of a repository session without subscribers, the cadence of the polls of its facts
 //! and the age of the registry's entries later. `SystemClock` is the monotonic clock of the process; `TestClock` stands
-//! still until a test (or the E2E server, `POST /clock/advance`) moves it, so no test sleeps for a timer. What only
+//! still until a test (or the E2E server, `POST /repositories/{id}/clock/advance`) moves it, so no test sleeps for a timer. What only
 //! bounds the delay of a delivery (the 16 ms merge of the patches, the bounded wait of a file lock) runs on `Instant`
 //! directly, never on this clock.
 //!

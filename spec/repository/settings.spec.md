@@ -429,7 +429,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   in the robot list, the old requests while Patronus has them off ([Patronus](../branch/patronus.spec.md)). `bd` reads
   the setting from the settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
 
 ### Agents
 

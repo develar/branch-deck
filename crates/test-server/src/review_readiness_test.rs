@@ -2,7 +2,7 @@ use crate::review_fixtures::fixture_review_answer;
 use crate::session_routes_test::{subscribe, subscription};
 use crate::state::AppState;
 use crate::tauri_command_bridge::{branch_prefix_of, readiness_of};
-use crate::test_support::{Named, create_repository, post, post_as, start_test_server, start_test_server_with_state, sync};
+use crate::test_support::{Named, create_repository, post, post_as, start_test_server, start_test_server_with_state, sync, view_when};
 use domain_types::patronus::PatronusReviewRequirement;
 use domain_types::patronus::ReviewReadinessBranch;
 use patronus::client::PreMergeCheckResponse;
@@ -194,18 +194,6 @@ async fn the_session_asks_the_readiness_a_window_needs_from_the_fake_patronus() 
   assert_eq!(view["facts"]["readiness"][&branch]["value"]["readiness"], json!({"kind": "notRequired"}));
   assert_eq!(review_log(&client, addr, &id).await["calls"], json!([{"branches": [branch], "recheck": false}]));
   post_as(&client, addr, Named::Id(&id), "/invoke/unsubscribe_view", json!({ "id": subscribed["id"] })).await;
-}
-
-/// The view of the session of `path` once `done` says it is, asked again until then
-async fn view_when(client: &reqwest::Client, addr: std::net::SocketAddr, path: &str, done: impl Fn(&Value) -> bool) -> Value {
-  for _ in 0..2000 {
-    let view = post(client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
-    if done(&view) {
-      return view;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-  }
-  panic!("the view of {path} never came")
 }
 
 /// A commit on `HEAD~1` that adds the `OWNERSHIP` file `text` at the root, built in a temporary index

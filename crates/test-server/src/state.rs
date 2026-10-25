@@ -24,8 +24,9 @@ pub struct AppState {
   /// The sessions of the repositories (`session_routes`), as the app hosts them; their facts are read by the scheduler
   /// of the facts over the fakes (`TestFactSources`)
   pub sessions: std::sync::Arc<repository_model::session::Sessions>,
-  /// The clock the sessions age on: it stands still, so no session of a test goes away by itself
-  pub session_clock: sync_utils::clock::TestClock,
+  /// The clocks the sessions age on, one per test repository: each stands still, so no session of a test goes away by
+  /// itself, and moves only by its test
+  pub session_clocks: std::sync::Arc<WorktreeClocks>,
   /// The landing gate the starts and the popovers check through, as the app's (`TestLandingGate`)
   pub landing_gate: std::sync::Arc<dyn repository_model::landing::LandingGate>,
 }
@@ -94,7 +95,7 @@ pub struct TestRepository {
   /// By id, the robots the lists and the polls of the session answered last: a robot of a fixture without its revision
   /// has the one the fake resolved (`robots` of `GET /repositories/{id}/patronus`)
   pub patronus_answered: std::sync::Mutex<std::collections::BTreeMap<String, domain_types::patronus::PatronusRobot>>,
-  /// How often the app asked for the details of a robot: the build progress of its checks comes only with them
+  /// How often the session read the details of a robot a window shows: the build progress of its checks comes only with them
   pub patronus_detail_calls: AtomicU32,
   /// The readiness reads of the sessions (`readiness_of`), in order: the subjects asked and whether it was a recheck
   pub review_readiness_calls: std::sync::Mutex<Vec<serde_json::Value>>,
@@ -165,4 +166,28 @@ pub struct BranchNameSuggestionFixture {
 
 const fn default_suggestion_delay_ms() -> u64 {
   100
+}
+
+/// The clocks of the sessions and of the scheduler of their facts, one per worktree (a test repository's path): each
+/// stands still until its test moves it (`POST /repositories/{id}/clock/advance`), so a test that moves the time of its
+/// sessions (their polls, their retries) moves no session of a test beside it
+#[derive(Default)]
+pub struct WorktreeClocks(DashMap<String, sync_utils::clock::TestClock>);
+
+impl WorktreeClocks {
+  /// The clock of the sessions of `worktree`
+  pub fn of_worktree(&self, worktree: &str) -> sync_utils::clock::TestClock {
+    self.0.entry(worktree.to_owned()).or_default().clone()
+  }
+
+  /// The repository went: its clock with it
+  pub fn forget(&self, worktree: &str) {
+    self.0.remove(worktree);
+  }
+}
+
+impl repository_model::session::SessionClocks for WorktreeClocks {
+  fn of(&self, key: &repository_model::session::SessionKey) -> std::sync::Arc<dyn sync_utils::clock::Clock> {
+    std::sync::Arc::new(self.of_worktree(&key.worktree))
+  }
 }

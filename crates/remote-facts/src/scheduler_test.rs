@@ -8,8 +8,8 @@ use domain_policy::refresh::ReadinessPriority;
 use domain_types::error::ApiError;
 use domain_types::fixtures::pull_request;
 use domain_types::patronus::{
-  BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, ReviewReadiness,
-  ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
+  BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
@@ -17,7 +17,7 @@ use pretty_assertions::assert_eq;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, ProblemsRead, RobotsDigest, RobotsRead, Seq};
 use repository_model::pull_request_facts::{PullRequestSubject, PushedHead};
 use repository_model::readiness_facts::{ReadinessDigest, ReadinessSubject};
-use repository_model::session::{SessionEvent, SessionEventKind, SessionKey};
+use repository_model::session::{OneClock, SessionEvent, SessionEventKind, SessionKey};
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -37,6 +37,7 @@ enum Call {
   Poll(Vec<String>),
   Failing(Vec<String>),
   Problems(String),
+  Details(String),
 }
 
 /// A read of GitHub or of the merge profiles the host was asked for
@@ -115,6 +116,11 @@ impl FactSources for ScriptedSources {
   fn problems<'a>(&'a self, _key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
     lock(&self.calls).push(Call::Problems(id));
     Box::pin(async move { Ok(Vec::new()) })
+  }
+
+  fn robot_details<'a>(&'a self, _key: &'a SessionKey, id: String) -> Read<'a, Result<PatronusRobotDetails, ApiError>> {
+    lock(&self.calls).push(Call::Details(id));
+    Box::pin(async move { Err(ApiError::internal("the details are the session's")) })
   }
 
   fn pull_requests<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
@@ -263,7 +269,7 @@ impl Harness {
     let scheduler = Scheduler {
       port: Arc::clone(&port) as Arc<dyn FactsPort>,
       sources: Arc::clone(&sources) as Arc<dyn FactSources>,
-      clock: Arc::new(clock.clone()),
+      clocks: Arc::new(OneClock(Arc::new(clock.clone()))),
     };
     scheduler.start(&tokio::runtime::Handle::current(), receiver);
     let key = SessionKey {
@@ -287,11 +293,16 @@ impl Harness {
     harness
   }
 
-  /// Sends the event and lets the scheduler and its reads run until they wait; the robots the session tells it ask the
-  /// same after the next answers, unless the test says otherwise (`after_answer`)
-  async fn send(&self, kind: SessionEventKind) {
-    if let SessionEventKind::Robots(digest) = &kind {
+  /// Sends the event and lets the scheduler and its reads run until they wait; the robots the session tells it (`told`)
+  /// are of the view after the reads applied so far, and ask the same after the next answers, unless the test says
+  /// otherwise (`after_answer`)
+  async fn send(&self, mut kind: SessionEventKind) {
+    if let SessionEventKind::Robots { digest, version } = &mut kind {
       self.after_answer(digest.clone());
+      *version = Version {
+        epoch: 1,
+        seq: self.port.seq.load(Ordering::SeqCst),
+      };
     }
     self.events.send(SessionEvent { key: self.key.clone(), kind }).unwrap();
     settle().await;
@@ -394,9 +405,17 @@ fn focused(focused: bool) -> SessionEventKind {
   })
 }
 
+/// The session tells what the scheduler asks about the robots (`Harness::send` dates it)
+fn told(digest: RobotsDigest) -> SessionEventKind {
+  SessionEventKind::Robots {
+    digest,
+    version: Version::default(),
+  }
+}
+
 /// The running robots the poll asks about, `pushing` when one of them is no dry run
 fn running(ids: &[&str], pushing: bool) -> SessionEventKind {
-  SessionEventKind::Robots(running_digest(ids, pushing))
+  told(running_digest(ids, pushing))
 }
 
 fn running_digest(ids: &[&str], pushing: bool) -> RobotsDigest {
@@ -526,6 +545,87 @@ async fn asks_nothing_for_a_session_no_window_watches() {
   assert_eq!(session.calls(), vec![since(3720)]);
 }
 
+/// The robots whose details a window shows, with the status the session knows (`RobotsDigest::details`)
+fn details(robots: &[(&str, PatronusRobotStatus)]) -> SessionEventKind {
+  told(RobotsDigest {
+    details: robots
+      .iter()
+      .map(|(id, status)| KnownRobotStatus {
+        id: (*id).to_owned(),
+        status: *status,
+      })
+      .collect(),
+    ..RobotsDigest::default()
+  })
+}
+
+/// The reads of the details asked since the last call, sorted (they start side by side)
+fn details_calls(session: &Harness) -> Vec<Call> {
+  let mut calls = session.calls();
+  calls.sort_by_key(|call| format!("{call:?}"));
+  calls
+}
+
+/// The details of the robots a window shows them of are asked at once, a running robot's again a minute after (61 s:
+/// the backend keeps them a minute) while they are shown, a robot's again once its status changed, a finished robot's
+/// never again; a robot no window shows them of asks nothing, and shown again it is asked anew
+#[tokio::test]
+async fn reads_the_details_a_window_shows_at_once_and_of_a_running_robot_every_minute_while_shown() {
+  use PatronusRobotStatus::{Running, Success};
+  let session = Harness::watched().await;
+  session.calls();
+  session.send(details(&[("running", Running), ("done", Success)])).await;
+  assert_eq!(details_calls(&session), vec![Call::Details("done".into()), Call::Details("running".into())]);
+  session.advance(60).await;
+  assert_eq!(session.calls(), vec![]);
+  session.advance(1).await;
+  assert_eq!(session.calls(), vec![Call::Details("running".into())]);
+
+  // the poll saw it finish: its details once more, then never
+  session.send(details(&[("running", Success), ("done", Success)])).await;
+  assert_eq!(session.calls(), vec![Call::Details("running".into())]);
+  session.advance(600).await;
+  assert_eq!(session.calls(), vec![]);
+
+  // the popover closed: nothing, not even while it runs; opened again: asked anew
+  session.send(details(&[])).await;
+  session.advance(600).await;
+  assert_eq!(session.calls(), vec![]);
+  session.send(details(&[("done", Success)])).await;
+  assert_eq!(session.calls(), vec![Call::Details("done".into())]);
+  // no window watches the session: nothing
+  session.send(SessionEventKind::Watched(false)).await;
+  session.send(details(&[("new", Running)])).await;
+  assert_eq!(session.calls(), vec![]);
+}
+
+/// A list applied before the session told a newer digest (a window let go of the details of a robot while it ran) asks
+/// by the newer one: the details of the robot no window shows any more are not read again
+#[tokio::test]
+async fn an_answer_applied_before_a_newer_digest_asks_by_the_newer_one() {
+  use PatronusRobotStatus::Running;
+  let session = Harness::watched().await;
+  session.send(details(&[("running", Running)])).await;
+  session.calls();
+  session.hold_lists(true);
+  let refresh = session.ask_refresh(FactRefreshReason::Manual).await;
+  session.send(details(&[])).await;
+  // the digest of the list's patch is of the view before the popover closed
+  session.after_answer(RobotsDigest {
+    details: vec![KnownRobotStatus {
+      id: "running".to_owned(),
+      status: Running,
+    }],
+    ..RobotsDigest::default()
+  });
+  session.hold_lists(false);
+  session.release().await;
+  refresh.await.unwrap();
+  assert_eq!(session.calls(), vec![full(false)]);
+  session.advance(120).await;
+  assert_eq!(session.calls(), vec![]);
+}
+
 #[tokio::test]
 async fn a_closed_session_asks_nothing_and_answers_a_refresh_with_none() {
   let session = Harness::watched().await;
@@ -643,7 +743,7 @@ async fn an_idle_poll_asks_one_request_and_problems_only_for_changed_robots() {
     ..running_digest(&["known-failing"], true)
   };
   session.after_answer(unread.clone());
-  session.send(SessionEventKind::Robots(unread)).await;
+  session.send(told(unread)).await;
   assert_eq!(session.calls(), vec![]);
   session.advance(60).await;
   assert_eq!(session.calls(), vec![poll(&["known-failing"]), Call::Problems("failed".to_owned())]);
@@ -655,7 +755,7 @@ async fn a_change_of_the_table_asks_the_problems_of_a_failed_robot_it_matched_an
   let session = Harness::watched().await;
   session.calls();
   session
-    .send(SessionEventKind::Robots(RobotsDigest {
+    .send(told(RobotsDigest {
       problems: vec![problems("matched", ReadState::Never)],
       ..RobotsDigest::default()
     }))

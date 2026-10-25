@@ -5,8 +5,8 @@
 //! repository (`delete_repository` closes its sessions, so the stream ends and the deletion does not wait for it); a
 //! failure answers `{"result": {"status": "error", "error": <ApiError>}}` on the stream, the JSON of the app. The next run
 //! of a session takes the overrides a test set for its repository (`sync_overrides`). A push the page answered (the
-//! templates have no remote) reaches the session through `pushed_in_page`. The clock of the sessions stands still until
-//! a test moves it (`POST /clock/advance`, `advance_clock`). The facts of the sessions are read by the scheduler of the
+//! templates have no remote) reaches the session through `pushed_in_page`. The clock of the sessions of a repository stands
+//! still until its test moves it (`POST /repositories/{id}/clock/advance`, `advance_clock`). The facts of the sessions are read by the scheduler of the
 //! facts, as the app reads them, over the fakes of each test repository (`TestFactSources`); a window asks one again with
 //! `refresh_facts`.
 
@@ -16,7 +16,7 @@ use crate::state::AppState;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
   CommandResult, Rejection, branch_prefix_now, branch_prefix_of, branch_rules_of, failed, failing_robots, list_pull_requests_of, list_robots, poll_robots, profiles_of,
-  readiness_of, repository_by_path, robot_problems,
+  readiness_of, repository_by_path, robot_details_of, robot_problems,
 };
 use app_api::api_error::{api_error, no_branch_prefix};
 use axum::Json;
@@ -24,7 +24,9 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
-use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
+use domain_types::patronus::{
+  BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
+};
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use domain_types::{ProgressReporter, RemoteStatusUpdate};
@@ -160,6 +162,13 @@ impl FactSources for TestFactSources {
     })
   }
 
+  fn robot_details<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<PatronusRobotDetails, ApiError>> {
+    Box::pin(async move {
+      let state = self.state.upgrade().ok_or_else(stopped)?;
+      robot_details_of(&state, key, &id).await
+    })
+  }
+
   fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
     Box::pin(async move {
       let Some(state) = self.state.upgrade() else {
@@ -284,13 +293,15 @@ pub async fn close_sessions(Path(id): Path<String>, State(state): State<Arc<AppS
   Ok(StatusCode::OK)
 }
 
-/// Moves the clock of the sessions (`AppState::session_clock`) by `ms`: the timers of the sessions that decide what to
-/// ask and when wake (`advanceBackendClock` of wait-helpers.ts), and the sessions idle for `IDLE_LIMIT` since go
-/// (`Sessions::sweep`). The time of the page (`page.clock`) and the 16 ms merge of the patches do not move with it
-pub async fn advance_clock(State(state): State<Arc<AppState>>, Json(request): Json<ClockAdvanceRequest>) -> Json<()> {
-  state.session_clock.advance(Duration::from_millis(request.ms));
+/// Moves the clock of the sessions of the repository `id` (`AppState::session_clocks`) by `ms`: the timers of its
+/// sessions that decide what to ask and when wake (`advanceBackendClock` of wait-helpers.ts), and the sessions idle for
+/// `IDLE_LIMIT` since go (`Sessions::sweep`). The sessions of the other repositories, the time of the page
+/// (`page.clock`) and the 16 ms merge of the patches do not move with it
+pub async fn advance_clock(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<ClockAdvanceRequest>) -> Result<Json<()>, StatusCode> {
+  let path = state.repositories.get(&id).map(|repository| repository.path.clone()).ok_or(StatusCode::NOT_FOUND)?;
+  state.session_clocks.of_worktree(&path).advance(Duration::from_millis(request.ms));
   state.sessions.sweep();
-  Json(())
+  Ok(Json(()))
 }
 
 #[derive(Deserialize)]

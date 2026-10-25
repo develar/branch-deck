@@ -162,13 +162,6 @@ export const commands = {
 	 */
 	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, ApiError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
 	/**
-	 *  The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover. With the
-	 *  new API of Settings → Patronus the progress of a running robot comes in one request (`GET /robots/progress`, behind
-	 *  the `robot.progress.enabled` flag of Patronus) instead of one per running check; the builds are asked as before
-	 *  while Patronus answers 404
-	 */
-	getPatronusRobotDetails: (params: PatronusRobotParams) => typedError<PatronusRobotDetails, ApiError>(__TAURI_INVOKE("get_patronus_robot_details", { params })),
-	/**
 	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
 	 *  stack; the frontend pushes it first. The whole sequence is `RemoteActions::start_robot` (`start_guard`), which the test
 	 *  server runs too: the user's robots (one list; a failed list fails the start), the checks of the kept table (parked,
@@ -1824,6 +1817,9 @@ export type FactsChanges = {
 	/**  The readiness of the subjects that changed, and the subjects that went */
 	readiness?: { [key in string]: Fact<SubjectReadiness> },
 	removedReadiness?: string[],
+	/**  The details of the robots that changed, and the robots no window demands any more */
+	robotDetails?: { [key in string]: Fact<PatronusRobotDetails> },
+	removedRobotDetails?: string[],
 };
 
 /**
@@ -1849,6 +1845,13 @@ export type FactsView = {
 	 *  `Unavailable` when it can't be asked (Patronus not available, a read that failed); a subject nothing asked has none
 	 */
 	readiness: { [key in string]: Fact<SubjectReadiness> },
+	/**
+	 *  By robot id, the details of the robots a window shows them of (`Demand::robot_details`: the robot popover, a row of
+	 *  the landing overview, a toast that names the failed checks): the checks, the problems, the merge profile and, of a
+	 *  running robot, the estimate of the CI; `Loading` until the first answer, read again when the robot's status
+	 *  changes and every `RUNNING_DETAILS_REFRESH` while it runs; a robot no window demands any more has none
+	 */
+	robotDetails: { [key in string]: Fact<PatronusRobotDetails> },
 };
 
 /**  A failed build of the dependency chain of a check (never a composite one) */

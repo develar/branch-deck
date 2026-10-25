@@ -21,7 +21,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { advanceBackendClock, holdCommand, routeCommandError } from "../helpers/wait-helpers"
+import { holdCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -645,7 +645,7 @@ test.describe("Review window", () => {
     const merged = page.locator("[data-slot=toast]", { hasText: "#101 Rework the session store merged into master" })
     await expect
       .poll(async () => {
-        await advanceBackendClock(60_000)
+        await repo.advanceBackendClock(60_000)
         return merged.count()
       })
       .toBe(1)

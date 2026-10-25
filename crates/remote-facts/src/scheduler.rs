@@ -34,12 +34,16 @@
 //! - the merge profiles of the target of the baseline, when a start or its popover asks (`refresh_facts { profiles }`)
 //!   and they are unknown, failed, a minute old or of another baseline (`profiles_due`).
 //!
+//! The details of the robots a window shows them of (`scheduler_details.rs`, `Demand::robot_details`): at once, again when
+//! the robot's status changes and every `RUNNING_DETAILS_REFRESH` while it runs, never once no window demands them.
+//!
 //! The review readiness (`scheduler_readiness.rs`): the subjects the session tells (`ReadinessDigest`: what a surface
 //! needs and Check Approvals Again at once, each in a call of its own; the shown ones, then the hidden ones that wait for
 //! approvals, at most four at a time after one read of the answers the object cache keeps), again five minutes after
 //! Patronus didn't answer.
 
 use crate::fact_sources::{FactSources, Read};
+use details::DetailsSchedule;
 use domain_policy::refresh::{
   FactTiming, ListWindow, RefreshReason, ServiceState, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
 };
@@ -49,7 +53,7 @@ use github::{GitHubFamily, GitHubSchedule};
 use readiness::ReadinessSchedule;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, RobotsDigest, RobotsRead};
 use repository_model::runtime::sleep_until;
-use repository_model::session::{SessionEvent, SessionEventKind, SessionKey, Sessions};
+use repository_model::session::{SessionClocks, SessionEvent, SessionEventKind, SessionKey, Sessions};
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -86,7 +90,8 @@ impl FactsPort for Sessions {
 pub struct Scheduler {
   pub port: Arc<dyn FactsPort>,
   pub sources: Arc<dyn FactSources>,
-  pub clock: Arc<dyn Clock>,
+  /// The clock of each session, as the sessions have them
+  pub clocks: Arc<dyn SessionClocks>,
 }
 
 impl Scheduler {
@@ -126,12 +131,14 @@ impl Scheduler {
     let (inbox, messages) = mpsc::unbounded_channel();
     let facts = SessionFacts {
       key: key.clone(),
+      clock: self.clocks.of(key),
       scheduler: self.clone(),
       inbox: inbox.downgrade(),
       watched: false,
       focused: None,
       table_committed: false,
       robots: RobotsSchedule::default(),
+      details: DetailsSchedule::default(),
       github: GitHubSchedule::default(),
       readiness: ReadinessSchedule::default(),
     };
@@ -192,6 +199,8 @@ enum RobotRead {
   Failing,
   /// The problems of a failed robot
   Problems(String),
+  /// The details of a robot a window shows
+  Details(String),
 }
 
 /// What an answer of a list says of asking again
@@ -231,8 +240,10 @@ struct RobotsSchedule {
   follow_up_waiters: Vec<Reply>,
   /// The last list said the repository is not on Space
   off_service: bool,
-  /// What the poll asks about (`Sessions` tells it after every patch that changed it)
+  /// What the poll asks about (`Sessions` tells it after every patch that changed it), as of the view at
+  /// `digest_version`
   digest: RobotsDigest,
+  digest_version: Option<Version>,
   polling: bool,
   last_poll_started: Option<Duration>,
   /// When the timer polls next
@@ -244,6 +255,8 @@ struct RobotsSchedule {
 /// The facts of one session as its task asks them
 struct SessionFacts {
   key: SessionKey,
+  /// The clock of the session, which its timers wait on
+  clock: Arc<dyn Clock>,
   scheduler: Scheduler,
   /// For the answers of its reads; weak, so the task ends once the dispatcher dropped it and its reads answered
   inbox: mpsc::WeakUnboundedSender<Input>,
@@ -254,6 +267,7 @@ struct SessionFacts {
   /// A sync of the session committed its table: the first list waits for it, as the robots are matched to its branches
   table_committed: bool,
   robots: RobotsSchedule,
+  details: DetailsSchedule,
   github: GitHubSchedule,
   readiness: ReadinessSchedule,
 }
@@ -261,10 +275,12 @@ struct SessionFacts {
 impl SessionFacts {
   async fn run(mut self, mut inbox: mpsc::UnboundedReceiver<Input>) {
     loop {
-      let timer = [self.robots.poll_at, self.github.timer(), self.readiness.timer()].into_iter().flatten().min();
+      // nothing is asked for a session no window watches: its timers wait for one
+      let timers = [self.robots.poll_at, self.details_timer(), self.github.timer(), self.readiness.timer()];
+      let timer = timers.into_iter().flatten().min().filter(|_| self.watched);
       let input = match timer {
         Some(at) => {
-          let clock = Arc::clone(&self.scheduler.clock);
+          let clock = Arc::clone(&self.clock);
           tokio::select! {
             input = inbox.recv() => input,
             () = sleep_until(&*clock, at) => {
@@ -283,15 +299,19 @@ impl SessionFacts {
   }
 
   fn now(&self) -> Duration {
-    self.scheduler.clock.now()
+    self.clock.now()
   }
 
-  /// The timers whose time came: the poll of the robots, the look again at the pull requests after a push
+  /// The timers whose time came: the poll of the robots, the details of a running robot a window shows, the look
+  /// again at the pull requests after a push, the readiness Patronus didn't give
   fn timers(&mut self) {
     let now = self.now();
     if self.robots.poll_at.is_some_and(|at| at <= now) {
       self.robots.poll_at = None;
       self.poll();
+    }
+    if self.details_timer().is_some_and(|at| at <= now) {
+      self.read_details();
     }
     if self.github.timer().is_some_and(|at| at <= now) {
       self.recheck_pull_requests();
@@ -308,7 +328,7 @@ impl SessionFacts {
       Input::Polled { answered, applied } => {
         self.robots.polling = false;
         if let Some(applied) = applied.filter(|_| answered) {
-          self.answered(applied.robots);
+          self.answered(applied);
         }
         self.schedule_poll(true);
       }
@@ -336,6 +356,7 @@ impl SessionFacts {
           self.github_table_committed(None);
         }
         self.schedule_poll(false);
+        self.read_details();
         self.ask_readiness();
       }
       // the dispatcher drops the task of a closed session
@@ -349,11 +370,14 @@ impl SessionFacts {
       }
       SessionEventKind::PushEnded { heads } => self.pull_requests_pushed(heads),
       SessionEventKind::PullRequestWritten => self.ask_pull_requests(RefreshReason::Push, None),
-      SessionEventKind::Robots(digest) => {
+      SessionEventKind::Robots { digest, version } => {
         self.robots.digest = digest;
+        self.robots.digest_version = Some(version);
         self.schedule_poll(false);
         // a change of the table that matched a failed robot anew asks why it failed
         self.read_robot_facts(false);
+        // a window shows the details of another robot, or a robot it shows them of moved on
+        self.read_details();
       }
       SessionEventKind::Readiness(digest) => self.readiness_told(digest),
       SessionEventKind::Refresh { family, reason, subject, reply } => match family {
@@ -488,7 +512,7 @@ impl SessionFacts {
       let _ = waiter.send(version);
     }
     if let Some(applied) = applied.filter(|_| answer == Some(ListAnswer::Listed)) {
-      self.answered(applied.robots);
+      self.answered(applied);
     }
     let robots = &mut self.robots;
     if let Some(reason) = robots.follow_up.take() {
@@ -498,11 +522,17 @@ impl SessionFacts {
     self.schedule_poll(false);
   }
 
-  /// Patronus answered a list or a poll with robots: what the session asks about them now is `digest`, and the facts of
-  /// the robots it brought are read
-  fn answered(&mut self, digest: RobotsDigest) {
-    self.robots.digest = digest;
+  /// Patronus answered a list or a poll with robots: what the session asks about them now is the digest of `applied`,
+  /// unless the session told a newer one meanwhile (a window let go of the details of a robot while the answer was
+  /// applied), and the facts of the robots it brought are read
+  fn answered(&mut self, applied: AppliedFacts) {
+    let robots = &mut self.robots;
+    if robots.digest_version.is_none_or(|told| applied.version.seq > told.seq) {
+      robots.digest = applied.robots;
+      robots.digest_version = Some(applied.version);
+    }
     self.read_robot_facts(true);
+    self.read_details();
   }
 
   /// Reads what the session asks about its robots: after an answer (`after_answer`) whether the running ones not known
@@ -612,6 +642,8 @@ impl SessionFacts {
   }
 }
 
+#[path = "scheduler_details.rs"]
+mod details;
 #[path = "scheduler_github.rs"]
 mod github;
 #[path = "scheduler_readiness.rs"]

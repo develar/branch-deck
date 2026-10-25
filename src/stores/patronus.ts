@@ -713,25 +713,6 @@ export function useFailingRobots(): Readonly<Record<string, true>> {
   return useStore(patronusStore, state => state.repositories[key]?.failing ?? EMPTY.failing)
 }
 
-/**
- * The details of a running robot said that it will fail (`PatronusRobotDetails.failing`): the open popover knows it
- * before the next poll
- */
-export function markRobotFailing(robotId: string): void {
-  const key = currentKey()
-  if (key !== null) {
-    markFailing(key, [robotId])
-  }
-}
-
-function markFailing(key: string, robotIds: readonly string[]): void {
-  const known = patronusStore.getState().repositories[key]?.failing ?? EMPTY.failing
-  const added = robotIds.filter(id => known[id] !== true)
-  if (added.length > 0) {
-    update(key, previous => ({ failing: { ...previous.failing, ...Object.fromEntries(added.map(id => [id, true] as const)) } }))
-  }
-}
-
 /** Non-hook variant of `useRobotNeedsReview`, for menus built on open */
 export function isRobotNeedingReview(robotId: string): boolean {
   const key = currentKey()
@@ -980,9 +961,9 @@ function applyPatronusPart(repositoryPath: string, part: PatronusPart): void {
  * The robots of the session of `repositoryPath` as its view has them now (`facts.robots`), with the patch that brought
  * them (`change`; null for a snapshot, which replaces them): the session lists and polls them by its rules
  * (`remote_facts::scheduler`) and asks which running ones will fail and why the failed ones of the table failed; the
- * page only stores them. A patch replaces the robots it names, the merge profile kept when it names none (the details
- * named it), and removes those it drops; a robot it doesn't name keeps its object, so the chips of other branches don't
- * render again. A running robot the details said failing (`markRobotFailing`) stays failing while it runs
+ * page only stores them. A patch replaces the robots it names, the merge profile kept when it names none, and removes
+ * those it drops; a robot it doesn't name keeps its object, so the chips of other branches don't render again. The
+ * failing ones are the session's: those a list's answer and the details of a running robot said will fail
  */
 export function applyRobotsFacts(repositoryPath: string, view: RobotsView, change: RobotsChange | null): void {
   const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
@@ -1001,7 +982,7 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
   if (robots === entry.robots && !answered && !asked) {
     return
   }
-  const failing = change === null || change.failing != null ? failingOf(view.failing, entry.failing, robots) : entry.failing
+  const failing = change === null || change.failing != null ? failingOf(view.failing, entry.failing) : entry.failing
   update(key, previous => ({
     robots,
     availability,
@@ -1018,16 +999,10 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
   }
 }
 
-/** The failing robots of the session, with those the details of a running robot said failing (`markRobotFailing`) */
-function failingOf(session: readonly string[], shown: Readonly<Record<string, true>>, robots: Readonly<Record<string, PatronusRobot>>): Readonly<Record<string, true>> {
-  const ids = new Set(session)
-  for (const id of Object.keys(shown)) {
-    if (robots[id]?.status === "running") {
-      ids.add(id)
-    }
-  }
-  const same = ids.size === Object.keys(shown).length && [...ids].every(id => shown[id] === true)
-  return same ? shown : Object.fromEntries([...ids].map(id => [id, true] as const))
+/** The failing robots of the session by id, the object kept while they are the same */
+function failingOf(session: readonly string[], kept: Readonly<Record<string, true>>): Readonly<Record<string, true>> {
+  const same = session.length === Object.keys(kept).length && session.every(id => kept[id] === true)
+  return same ? kept : Object.fromEntries(session.map(id => [id, true] as const))
 }
 
 /**
@@ -1224,18 +1199,6 @@ export function watchRobot(robot: PatronusRobot, label: string): void {
 export function upsertPatronusRobot(robot: PatronusRobot, key: string | null = currentKey()): void {
   if (key !== null) {
     storeRobot(key, robot)
-  }
-}
-
-/**
- * The merge profile an answer named for a robot (its details), for the estimate of its time: kept on the stored robot,
- * as a list never names it. Asks nothing.
- */
-export function rememberRobotProfile(robot: PatronusRobot): void {
-  const key = currentKey()
-  const known = key === null ? undefined : patronusStore.getState().repositories[key]?.robots[robot.id]
-  if (key !== null && known !== undefined && robot.profile != null && known.profile == null) {
-    storeRobot(key, { ...known, profile: robot.profile })
   }
 }
 

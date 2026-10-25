@@ -15,6 +15,7 @@ import { applyPullRequestsFacts, refreshPullRequests } from "@/stores/pull-reque
 import { applyReadinessFacts, hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
 import { onReviewRequestsPoll, refreshReviewRequests } from "@/stores/review-requests"
 import { watchRobotCoverage } from "@/stores/robot-coverage"
+import { applyRobotDetailsFacts } from "@/stores/robot-details"
 
 /** A row or the header of a whole stack waits for an approval (Awaiting) */
 function isAwaiting(): boolean {
@@ -44,6 +45,7 @@ export function useReviewStatusRefresh(): void {
         applySessionFacts(repositoryPath, view, changes)
         applyPullRequestsFacts(repositoryPath, view.facts, changes?.facts ?? null)
         applyReadinessFacts(repositoryPath, view.facts, changes?.facts ?? null)
+        applyRobotDetailsFacts(repositoryPath, view.facts, changes?.facts ?? null)
         tellRobotNews(repositoryPath, news)
         approvalNewsOf(news).forEach(tellReadinessNews)
       }),

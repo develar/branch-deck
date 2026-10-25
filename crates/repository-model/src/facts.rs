@@ -58,7 +58,7 @@ use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::LandingRefusal;
 use domain_types::patronus::{
-  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
   REVIEW_APPROVAL_SUBSYSTEM,
 };
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
@@ -289,6 +289,11 @@ pub enum FactResult {
   },
   /// The review readiness of subjects, each with the ask it answers
   Readiness(Vec<ReadinessAnswer>),
+  /// The details of the robot `id` (boxed: the largest answer by far)
+  RobotDetails {
+    id: String,
+    result: Result<Box<PatronusRobotDetails>, ApiError>,
+  },
 }
 
 /// What applying an answer left: the version of the view after its patch and what the scheduler asks about the robots
@@ -347,6 +352,8 @@ pub struct FactStore {
   pub profiles: FactRecord<PatronusStartOptions>,
   /// By subject, the review readiness a Safe Push would meet
   pub readiness: ReadinessFact,
+  /// By robot id, the details of the robots the windows demand (`demand_details`)
+  pub robot_details: BTreeMap<String, FactRecord<PatronusRobotDetails>>,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
   /// The number of the last news
@@ -367,6 +374,7 @@ impl FactStore {
       rules: BTreeMap::new(),
       profiles: FactRecord::unknown(),
       readiness: ReadinessFact::default(),
+      robot_details: BTreeMap::new(),
       news: Vec::new(),
       last_news: 0,
       failures: BTreeSet::new(),
@@ -417,6 +425,26 @@ impl FactStore {
         }
         changed
       }
+      FactResult::RobotDetails { id, result } => {
+        // the answer of a robot no window demands any more is dropped with its record
+        let Some(record) = self.robot_details.get_mut(&id) else {
+          return false;
+        };
+        let robots = match &result {
+          Ok(details) => self.robots.details_answer(details),
+          Err(_) => false,
+        };
+        (record.answer(observation, result.map(|details| *details)) == Applied::Applied) | robots
+      }
+    }
+  }
+
+  /// The robots the windows demand the details of now (`Demand::robot_details`): a new one is `Loading` until its first
+  /// answer, one no window demands any more goes with its details
+  pub fn demand_details(&mut self, demanded: &[String]) {
+    self.robot_details.retain(|id, _| demanded.contains(id));
+    for id in demanded {
+      self.robot_details.entry(id.clone()).or_insert_with(FactRecord::loading);
     }
   }
 
@@ -601,6 +629,25 @@ impl RobotsFact {
     before != (self.view.needs_review.get(id).copied(), self.view.problems_failed.get(id).cloned())
   }
 
+  /// The details of a robot, which name what a list doesn't: its merge profile, kept on the robot when it has none (the
+  /// estimate of its time and the default profile of a start read it), and whether a failed required check dooms it while
+  /// it runs (failing until it finishes); whether it changed the robots
+  pub fn details_answer(&mut self, details: &PatronusRobotDetails) -> bool {
+    let Some(robot) = self.view.robots.get_mut(&details.robot.id) else {
+      return false;
+    };
+    let named = robot.profile.is_none() && details.robot.profile.is_some();
+    if named {
+      robot.profile.clone_from(&details.robot.profile);
+    }
+    let failing = details.failing && robot.status == PatronusRobotStatus::Running && !self.view.failing.contains(&robot.id);
+    if failing {
+      self.view.failing.push(robot.id.clone());
+      self.view.failing.sort();
+    }
+    named || failing
+  }
+
   /// Only a running robot is failing, and only a robot kept has problems
   fn prune(&mut self) {
     let robots = &self.view.robots;
@@ -664,13 +711,15 @@ fn availability_error(availability: &PatronusAvailability) -> ApiError {
 
 /// What the scheduler asks about the robots: the running robots (a cancel included) of the branches and whole stacks of
 /// the table and the watched ones, by id with the status the session knows, whether one of them pushes, those of them
-/// running (not canceling) not known failing yet, and the failed robots of the table whose problems are not known
+/// running (not canceling) not known failing yet, the failed robots of the table whose problems are not known, and the
+/// robots the windows demand the details of, with their status
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RobotsDigest {
   pub active: Vec<KnownRobotStatus>,
   pub pushing: bool,
   pub unknown_failing: Vec<String>,
   pub problems: Vec<ProblemsRead>,
+  pub details: Vec<KnownRobotStatus>,
 }
 
 /// A failed robot of the table whose problems are not known: never read, or not given (`ReadState::Failed`)
@@ -691,13 +740,24 @@ impl RobotsDigest {
   }
 }
 
-/// The robots of `robots` the poll asks about (`RobotsDigest`): those of the branches and stacks of `table` on the tips
-/// it has now (the virtual copy of the newest commit, else the commit; the remote tip of its status) and `watched`
+/// What the robots the windows ask about are of a digest (`robots_digest`)
+#[derive(Clone, Copy, Debug)]
+pub struct AskedRobots<'a> {
+  /// The robots of no branch a window follows until they finish (`Demand::watched_robots`)
+  pub watched: &'a [String],
+  /// The robots a window shows the details of (`Demand::robot_details`)
+  pub details: &'a [String],
+}
+
+/// The robots of `robots` the scheduler asks about (`RobotsDigest`): those of the branches and stacks of `table` on the
+/// tips it has now (the virtual copy of the newest commit, else the commit; the remote tip of its status) and the
+/// watched ones of `asked` to poll, and the robots of `asked` whose details a window shows
 #[must_use]
-pub fn robots_digest(table: &TableState, robots: &RobotsView, watched: &[String]) -> RobotsDigest {
+pub fn robots_digest(table: &TableState, robots: &RobotsView, asked: AskedRobots<'_>) -> RobotsDigest {
   if robots.robots.is_empty() {
     return RobotsDigest::default();
   }
+  let watched = asked.watched;
   let listed = listed_robots(robots);
   let index = RobotIndex::new(&listed);
   let branches = table.order().iter().filter_map(|name| {
@@ -745,6 +805,15 @@ pub fn robots_digest(table: &TableState, robots: &RobotsView, watched: &[String]
       })
       .collect(),
     problems,
+    details: asked
+      .details
+      .iter()
+      .filter_map(|id| robots.robots.get(id))
+      .map(|robot| KnownRobotStatus {
+        id: robot.id.clone(),
+        status: robot.status,
+      })
+      .collect(),
   }
 }
 

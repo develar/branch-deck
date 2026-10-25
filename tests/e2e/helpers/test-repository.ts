@@ -429,6 +429,16 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * Moves the clock of the backend's sessions of this repository by `ms` (`POST …/clock/advance`): the timers that
+   * decide what its sessions ask and when (their polls, their retries, the sweep of a session no window shows) wake as
+   * if that much time went by. The sessions of the other tests, the page's own timers (`page.clock`) and the 16 ms merge
+   * of the patches do not move with it: a test waits for the patch the advance causes (its DOM state), never for time
+   */
+  async advanceBackendClock(ms: number): Promise<void> {
+    await this.setFixture("clock/advance", { ms })
+  }
+
+  /**
    * The app quits: the sessions of the repository go with the subscriptions of their windows (`POST …/sessions/close`),
    * so a reload opens a new session whose facts are asked anew, as the next start of the app does
    */

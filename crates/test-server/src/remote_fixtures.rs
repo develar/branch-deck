@@ -360,8 +360,8 @@ pub async fn set_patronus_history(Path(id): Path<String>, State(state): State<Ar
   Ok(StatusCode::OK)
 }
 
-/// What the app asked (`listCalls`, `pollCalls`: the lists and polls of the session, `detailCalls`: the page's commands,
-/// which the caches of the service may answer), the robots the lists and polls answered by id (`robots`), what reached
+/// What the app asked (`listCalls`, `pollCalls`, `detailCalls`: the lists, the polls and the reads of the details of the
+/// session, which the caches of the service may answer), the robots the lists and polls answered by id (`robots`), what reached
 /// the fake Patronus (`requests`), and the actions it took, in order: the bodies of the start requests (`starts`), the
 /// robots restarted (`restarts`), canceled (`cancels`) and whose status was read (`statusReads`)
 pub async fn get_patronus_fixture(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {

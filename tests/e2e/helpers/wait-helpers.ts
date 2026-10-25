@@ -1,7 +1,6 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "@playwright/test"
 import type { ApiError } from "../../../src/lib/bindings"
-import { TEST_SERVER_URL } from "./test-server-url"
 
 /**
  * Wait for processing state to complete (animate-pulse class removed)
@@ -285,21 +284,4 @@ export async function holdWithProgress(page: Page, command: string): Promise<{ s
     await route.continue()
   })
   return { send: async (...messages) => sendProgress(page, await channel, messages), release }
-}
-
-/**
- * Moves the clock of the backend's sessions by `ms` (`POST /clock/advance` of the test server): the timers that decide
- * what a session asks and when (its polls, its retries, the sweep of a session no window shows) wake as if that much
- * time went by. The page's own timers move with `page.clock`, and neither moves the 16 ms merge of the patches: a test
- * waits for the patch the advance causes (its DOM state), never for time
- */
-export async function advanceBackendClock(ms: number): Promise<void> {
-  const response = await fetch(`${TEST_SERVER_URL}/clock/advance`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ms }),
-  })
-  if (!response.ok) {
-    throw new Error(`The test server did not move its clock: ${response.status} ${await response.text()}`)
-  }
 }

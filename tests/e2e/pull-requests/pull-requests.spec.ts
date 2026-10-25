@@ -22,7 +22,7 @@ import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { advanceBackendClock, recordCommand } from "../helpers/wait-helpers"
+import { recordCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
@@ -341,7 +341,7 @@ test.describe("Pull request chip", () => {
 
     // a refresh on focus finds the pull request someone made meanwhile: the session lists them on a focus two minutes on
     await repo.setPullRequests(availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, OUTDATED, pullRequest("feature-auth", 905)))
-    await advanceBackendClock(121_000)
+    await repo.advanceBackendClock(121_000)
     await emitTauriEvent(page, "tauri://focus")
     await expect(dialog.getByTestId("create-pull-request-exists")).toContainText("feature-auth already has pull request #905.")
     await expect(submit).toBeDisabled()

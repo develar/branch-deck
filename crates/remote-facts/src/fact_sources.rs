@@ -3,11 +3,11 @@
 //! their services: the app over the Patronus service and the GitHub mirror of each repository it keeps (src-tauri,
 //! `AppFactSources`), the E2E server over the fakes of each test repository, counting the reads as its tests check them
 //! (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus, of
-//! GitHub for the pull requests); the reads of what the session asks about its robots, the rules of a base, the
-//! merge profiles and the review readiness answer their failure, which the facts keep.
+//! GitHub for the pull requests); the reads of what the session asks about its robots (their details too), the rules of
+//! a base, the merge profiles and the review readiness answer their failure, which the facts keep.
 
 use domain_types::error::ApiError;
-use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
+use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use repository_model::session::SessionKey;
 use std::future::Future;
@@ -30,6 +30,11 @@ pub trait FactSources: Send + Sync + 'static {
 
   /// The error problems of the finished robot `id`
   fn problems<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>>;
+
+  /// The robot `id` with its merge profile, CI checks, error problems and whether it will fail, of a running one the
+  /// estimate of the CI for its running checks (`PatronusService::robot_details`, with the new API of the settings when
+  /// they turn it on)
+  fn robot_details<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<PatronusRobotDetails, ApiError>>;
 
   /// The GitHub pull requests of the branches and whole stacks of `key` (`pull_requests::list_pull_requests`, one
   /// search), in the GitHub repository of its worktree; `NotGitHub` without one

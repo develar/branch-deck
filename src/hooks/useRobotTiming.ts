@@ -3,7 +3,7 @@ import type { PatronusRobot } from "@/lib/bindings"
 import type { RobotTiming } from "@/lib/robot-eta"
 import { getRobotTiming, withCheckProgress } from "@/lib/robot-eta"
 import { useRobotEstimate } from "@/stores/patronus"
-import { useReadRobotProgress } from "@/stores/robot-progress"
+import { useReadRobotProgress } from "@/stores/robot-details"
 
 /**
  * The timing of a running robot (`getRobotTiming`), renewed with the relative times: its text changes by the minute, so

@@ -46,7 +46,7 @@ targets:
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/lib/robot-eta.ts
   - ../../src/stores/robot-history.ts
-  - ../../src/stores/robot-progress.ts
+  - ../../src/stores/robot-details.ts
   - ../../src/lib/patronus-icons.ts
   - ../../src/hooks/useRobotTiming.ts
   - ../../src/components/branch/ReviewCommitNotice.tsx
@@ -72,7 +72,8 @@ targets:
   - ../../src/hooks/usePatronusReviewRequirement.ts
   - ../../src/hooks/useStackIndependence.ts
   - ../../src/hooks/useStackActions.ts
-  - ../../src/hooks/usePatronusRobotDetails.ts
+  - ../../src/hooks/useRobotDetails.ts
+  - ../../crates/remote-facts/src/scheduler_details.rs
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useClosePreview.ts
   - ../../src/components/branch/SafePushButton.tsx
@@ -254,10 +255,12 @@ reports in it and closes it once merged.
   for a build, as the robot page of the web UI shows it) is asked only with the details of a running robot, while they
   are open: the popover of the robot in the row, the Patronus section of the branch preview, or a running row of the
   landing overview. One request per running check, for the build of its current attempt (the running attempt
-  with the highest number), in parallel, after the details' checks, and so 300 ms after the details opened; again once
-  a minute while they stay open (61 s, as Patronus caches the progress for a minute: never faster), never after they
-  closed. The backend caches the progress of each build for 60 s, so two windows don't ask it twice. No request comes
-  from the row, the landing indicator, the Dock or a timer of its own. The request goes through the request
+  with the highest number), in parallel, after the details' checks; again once a minute while they stay open (61 s on
+  the clock of the session, as Patronus caches the progress for a minute: never faster), never after they closed. The
+  details are a fact of the session of the repository (`facts.robotDetails`): a window demands them while a surface
+  shows them (`robotDetails` of its demand), the session reads them by its scheduler and drops them once no window
+  demands them, so two windows ask them once; the backend caches the progress of each build for 60 s. No request comes
+  from the row, the landing indicator, the Dock or a timer of the page. The request goes through the request
   policy above (the token, the backoff, the user agent, a GET asked once more after a transient failure, the log line
   "read the build progress" with its duration).
   [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_running_robot_have_the_estimate_of_its_running_checks`, `the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished_robot`)
@@ -272,7 +275,7 @@ reports in it and closes it once merged.
   for the user, then the builds are asked as above and the endpoint rests for 10 minutes. `bd robot` reads the setting
   from the app's settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
   [@test] ../../crates/patronus/src/actions_test.rs (`with_the_new_api_the_progress_of_a_running_robot_is_one_request_kept_for_a_minute`, `while_patronus_has_no_progress_of_robots_the_builds_are_asked_and_the_endpoint_rests`, `the_progress_patronus_folded_reads_as_the_one_from_the_builds`)
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
   [@test] ../../crates/bd-core/src/context_test.rs (`the_new_patronus_api_setting_of_the_app_is_read_from_its_settings_file`)
 - One HTTP client with a kept-alive connection (connect timeout 5 s, list, poll and details 15 s, the review pre-check
   20 s, actions and merge requests 30 s) and the user agent
@@ -465,14 +468,19 @@ reports in it and closes it once merged.
 
 ### Details
 
-- The popover asks for the details of the robot 300 ms after it opened (a popover that only flashes asks nothing): the
-  merge profile, the TeamCity checks ("1 failing (Fast Tests), 9 passed") and the problems of severity error. They are
-  `GET /robots/{id}`, `/teamcity-checks` and `/problems` (every severity: the errors are shown, the warning
-  `robot_is_failing` marks the robot failing, [below](#failing)) in parallel, cached by the backend: a finished
-  robot for the session, a running one for a minute. A check is named as Patronus names it in the profile ("IntelliJ
-  Aggregator"), its build configuration ("Aggregator") only without that name. Of a running robot, the progress of its running checks follows
-  ([Load on Patronus](#load-on-patronus)), and the details are asked again every 61 s while open. When Patronus can't
-  answer, the popover shows the list data.
+- While the popover is open the window demands the details of the robot of the session (the demand goes out at most
+  four times a second): the merge profile, the TeamCity checks ("1 failing (Fast Tests), 9 passed") and the problems
+  of severity error. They are `GET /robots/{id}`, `/teamcity-checks` and `/problems` (every severity: the errors are
+  shown, the warning `robot_is_failing` marks the robot failing, [below](#failing)) in parallel, cached by the
+  backend: a finished robot for the session, a running one for a minute. The session reads them at once, again when
+  a poll changed the robot's status, and of a running robot every 61 s while they are demanded; what they name beyond
+  the list goes onto the robot of the session: its merge profile (when the robot has none) and that it will fail (while
+  it runs). A check is named as Patronus names it in the profile ("IntelliJ Aggregator"), its build configuration
+  ("Aggregator") only without that name. Of a running robot, the progress of its running checks follows
+  ([Load on Patronus](#load-on-patronus)). When Patronus can't answer, the popover shows the list data.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`reads_the_details_a_window_shows_at_once_and_of_a_running_robot_every_minute_while_shown`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`the_details_of_a_demanded_robot_name_its_profile_and_go_with_its_demand`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each`)
   [@test] ../../crates/patronus/src/actions_test.rs (`details_have_the_profile_the_checks_and_the_error_problems`)
   [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_finished_robot_are_asked_once`)
   [@test] ../../crates/patronus/src/actions_test.rs (`the_problems_of_a_finished_robot_are_its_errors`)

@@ -3,7 +3,6 @@ import { useStore } from "zustand"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
 import { getStackNextStepNow, getWholeStackRest, isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
 import type { Fact, PatronusProfile, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, PullRequest } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
@@ -48,15 +47,14 @@ import {
   getStackRobot,
   getStartProfiles,
   isPatronusAvailable,
-  patronusRequest,
   patronusStore,
-  rememberRobotProfile,
   useStartProfiles,
 } from "@/stores/patronus"
 import { askBranchRulesAgain, getPullRequest, getPullRequestListing, getStackPullRequest, peekBranchRules, pullRequestsStore } from "@/stores/pull-requests"
 import { getRepositorySwitchReason } from "@/stores/repository"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
+import { readRobotDetails } from "@/stores/robot-details"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { getSafePushStarting, openSafePushPopover, safePushStore, setSafePushStarting } from "@/stores/safe-push"
 import { getShownBranchTableOrder } from "@/stores/stack-collapse"
@@ -143,9 +141,9 @@ function lastRobotProfile(branchName: string): PatronusRobotProfile | null {
 const profileReads = new Set<string>()
 
 /**
- * The profile of the last robot of the branch, which a list doesn't name: read from its details once
- * (`get_patronus_robot_details`, cached by the backend; `rememberRobotProfile` keeps it on the robot), as the default
- * profile of a start is the last robot's
+ * The profile of the last robot of the branch, which a list doesn't name: read from its details once (the session reads
+ * them while demanded and keeps the profile they name on the robot), as the default profile of a start is the last
+ * robot's
  */
 async function readLastRobotProfile(branchName: string): Promise<void> {
   const robot = lastRobotOf(branchName)
@@ -153,10 +151,7 @@ async function readLastRobotProfile(branchName: string): Promise<void> {
     return
   }
   profileReads.add(robot.id)
-  const result = await commands.getPatronusRobotDetails({ ...patronusRequest(), robotId: robot.id }).catch(() => null)
-  if (result?.status === "ok") {
-    rememberRobotProfile(result.data.robot)
-  }
+  await readRobotDetails(robot.id)
 }
 
 /**

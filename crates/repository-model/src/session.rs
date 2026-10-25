@@ -79,8 +79,9 @@ pub enum SessionEventKind {
   /// The app wrote a pull request that the next step reads (a retarget, the reviewers asked, one created): the pull
   /// requests are listed again, as after a push
   PullRequestWritten,
-  /// The robots the poll asks about changed (`facts::robots_digest`)
-  Robots(RobotsDigest),
+  /// What the scheduler asks about the robots changed (`facts::robots_digest`), as of the view at `version`: an answer
+  /// applied before it (`AppliedFacts::version` not newer) carries an older digest
+  Robots { digest: RobotsDigest, version: Version },
   /// The subjects whose review readiness is asked changed (`ReadinessFact::digest`)
   Readiness(ReadinessDigest),
   /// A window asks to read a fact again (`refresh`), of `subject` for a family read by subject; `reply` gets the version
@@ -300,24 +301,40 @@ impl Entry {
   }
 }
 
+/// The clock of each session (`Clock`), which it ages on and its facts are asked by: one for every session in the app
+/// (`OneClock`), one per worktree in the E2E server, so a test that moves the time of its repository moves no session
+/// of another test
+pub trait SessionClocks: Send + Sync + 'static {
+  fn of(&self, key: &SessionKey) -> Arc<dyn Clock>;
+}
+
+/// The one clock of every session
+pub struct OneClock(pub Arc<dyn Clock>);
+
+impl SessionClocks for OneClock {
+  fn of(&self, _key: &SessionKey) -> Arc<dyn Clock> {
+    Arc::clone(&self.0)
+  }
+}
+
 /// The sessions of the process, by key
 pub struct Sessions {
   runtime: Handle,
   host: Arc<dyn SessionHost>,
-  clock: Arc<dyn Clock>,
+  clocks: Arc<dyn SessionClocks>,
   entries: Mutex<HashMap<SessionKey, Entry>>,
   next_subscription: AtomicU32,
   events: Arc<EventSink>,
 }
 
 impl Sessions {
-  /// The sessions run their actors on `runtime`, their syncs through `host`, and age on `clock`
+  /// The sessions run their actors on `runtime`, their syncs through `host`, and each ages on its clock of `clocks`
   #[must_use]
-  pub fn new(runtime: Handle, host: Arc<dyn SessionHost>, clock: Arc<dyn Clock>) -> Self {
+  pub fn new(runtime: Handle, host: Arc<dyn SessionHost>, clocks: Arc<dyn SessionClocks>) -> Self {
     Self {
       runtime,
       host,
-      clock,
+      clocks,
       entries: Mutex::new(HashMap::new()),
       next_subscription: AtomicU32::new(1),
       events: Arc::new(EventSink::default()),
@@ -600,7 +617,7 @@ impl Sessions {
       self.events.emit(key, SessionEventKind::Closed);
     }
     let entry = entries.entry(key.clone()).or_insert_with(|| {
-      let life = Arc::new(SessionLife::new(Arc::clone(&self.clock)));
+      let life = Arc::new(SessionLife::new(self.clocks.of(key)));
       let mailbox = spawn_actor(&self.runtime, key.clone(), Arc::clone(&self.host), Arc::clone(&life), Arc::clone(&self.events));
       Entry { mailbox, life }
     });

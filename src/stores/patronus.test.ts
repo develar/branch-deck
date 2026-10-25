@@ -18,7 +18,7 @@ import { notifyError, setErrorRecorder } from "@/lib/errors"
 import { setWindowFocus } from "@/lib/os-notification"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { formatFailedRobotToast, resetFailingAnnouncements, tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
-import { currentDemand } from "@/model/demand"
+import { currentDemand, resetDemand } from "@/model/demand"
 import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
 import {
   COMMAND_REPLY_INTERVAL_MS,
@@ -40,7 +40,6 @@ import {
   getPatronusViewFailure,
   hasPatronusListed,
   isRobotProblemsPending,
-  markRobotFailing,
   patronusStore,
   resetPatronus,
   findCommentRobot,
@@ -53,6 +52,7 @@ import {
   whenRepositoryViewCurrent,
 } from "@/stores/patronus"
 import { robotCoverageStore, watchRobotCoverage } from "@/stores/robot-coverage"
+import { applyRobotDetailsFacts, resetRobotDetails } from "@/stores/robot-details"
 import { testRemoteStatus } from "@/stores/test-branch"
 import { emptyView } from "@/test-support/fake-sessions"
 import { branchFacts, landedWhole, robotOf, withRowRobots } from "@/test-support/patronus-repository"
@@ -126,10 +126,6 @@ vi.mock("@/lib/bindings", async importOriginal => ({
     getPatronusFailingRobots: async (params: { robotIds: string[] }) => {
       patronus.failingCalls.push(params.robotIds)
       return { status: "ok", data: params.robotIds.filter(id => patronus.failing.includes(id)) }
-    },
-    getPatronusRobotDetails: async (params: { robotId: string }) => {
-      patronus.detailCalls.push(params.robotId)
-      return { status: "ok", data: { checks: { failed: 1, failedNames: ["Fast Tests"], running: 2, passed: 3, canceled: 0 } } }
     },
     getRobotFailure: async () => ({ status: "ok", data: { failure: { kind: patronus.failureKind }, commits: null, headBranch: "master" } }),
     getRobotCommitMap: async (params: GetRobotCommitMapParams) => {
@@ -385,6 +381,28 @@ function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
   derive()
   // the main window tells the failures with the failing robots (`useReviewStatusRefresh`): a test that tells them watches
   tellRobotNews("/repo", failuresWatched ? news : news.filter(item => item.event.kind === "robotMerged"))
+  answerDetails()
+}
+
+/**
+ * The session reads the details of the robots the window demands (a toast that names the failed checks): Fast Tests
+ * failed, as its view has them then
+ */
+function answerDetails(): void {
+  const demanded = currentDemand().robotDetails.filter(id => !patronus.detailCalls.includes(id) && sessionRobots.robots[id] !== undefined)
+  if (demanded.length === 0) {
+    return
+  }
+  patronus.detailCalls.push(...demanded)
+  const view = emptyView()
+  const checks = { failed: 1, failedNames: ["Fast Tests"], running: 2, passed: 3, canceled: 0 }
+  const robotDetails = Object.fromEntries(
+    demanded.map(id => {
+      const value = { robot: sessionRobots.robots[id]!, profileId: null, profileName: null, checks, problems: [], failing: false, progress: null }
+      return [id, { value, state: { kind: "fresh" as const }, seq: 1, observedAt: 0 }]
+    }),
+  )
+  applyRobotDetailsFacts("/repo", { ...view.facts, robotDetails }, { robotDetails })
 }
 
 /** The Patronus view of the session of /repo, as its view has it */
@@ -473,6 +491,8 @@ beforeEach(() => {
   patronus.failing = []
   patronus.failureKind = "checks"
   patronus.detailCalls = []
+  resetRobotDetails()
+  resetDemand()
   resetFailingAnnouncements()
   patronus.commands = []
   patronus.postFailure = null
@@ -1179,10 +1199,8 @@ describe("failing robots", () => {
     expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
       ["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "Open in Patronus"],
     ])
-    // marked again by the details of an open popover: told once
-    markRobotFailing("r1")
-    patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
-    await vi.advanceTimersByTimeAsync(0)
+    // still failing in the next answer: told once
+    await list()
     expect(notices.toasts).toHaveLength(1)
     stop()
   })

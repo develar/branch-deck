@@ -274,8 +274,9 @@ async fn a_deletion_of_an_archived_branch_answers_the_version_of_its_patch_and_r
   assert_eq!((view["sync"].clone(), view["version"].clone()), (json!({ "kind": "idle" }), deleted), "no sync ran: {view}");
 }
 
-/// The clock of the sessions moves only by a test (`POST /clock/advance`): a session no window shows any more goes once
-/// it was idle for two minutes on it, not before. A window tells its session what it shows by its subscription
+/// The clock of the sessions of a repository moves only by its test (`POST /repositories/{id}/clock/advance`): a session
+/// no window shows any more goes once it was idle for two minutes on it, not before; another repository's clock moves
+/// none of its sessions. A window tells its session what it shows by its subscription
 /// (`set_demand`)
 #[tokio::test]
 async fn the_clock_of_the_sessions_moves_only_by_a_test_and_sweeps_the_idle_ones() {
@@ -306,9 +307,11 @@ async fn the_clock_of_the_sessions_moves_only_by_a_test_and_sweeps_the_idle_ones
   assert_eq!(set, Value::Null);
   post_as(&client, addr, Named::Id(&id), "/invoke/unsubscribe_view", json!({ "id": subscribed["id"] })).await;
 
-  post(&client, addr, "/clock/advance", json!({ "ms": 119_000 })).await;
+  let (other, _) = create_repository(&client, addr).await;
+  post(&client, addr, &format!("/repositories/{other}/clock/advance"), json!({ "ms": 600_000 })).await;
+  post(&client, addr, &format!("/repositories/{id}/clock/advance"), json!({ "ms": 119_000 })).await;
   let snapshot = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
   assert!(snapshot.is_object(), "idle for 119 s of 120: {snapshot}");
-  post(&client, addr, "/clock/advance", json!({ "ms": 1_000 })).await;
+  post(&client, addr, &format!("/repositories/{id}/clock/advance"), json!({ "ms": 1_000 })).await;
   assert_eq!(post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await, Value::Null);
 }

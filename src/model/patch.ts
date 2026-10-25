@@ -83,6 +83,7 @@ function patchedFacts(facts: FactsView, change: FactsChanges): FactsView {
     rules: change.rules ?? facts.rules,
     profiles: change.profiles ?? facts.profiles,
     readiness: keyed(facts.readiness, change.readiness, change.removedReadiness),
+    robotDetails: keyed(facts.robotDetails, change.robotDetails, change.removedRobotDetails),
   }
 }
 

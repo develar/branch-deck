@@ -33,7 +33,7 @@
 
 use crate::branch_table::BranchTable;
 use crate::facts::{
-  AppliedFacts, FactResult, FactStore, FactTicket, Needs, Observation, RobotsDigest, Seq, TableFacts, derive_patronus, listed_robots, patronus_inputs, robots_digest,
+  AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, RobotsDigest, Seq, TableFacts, derive_patronus, listed_robots, patronus_inputs, robots_digest,
   session_remote,
 };
 use crate::patronus_view::{ContentMemo, lock_memo};
@@ -209,8 +209,9 @@ struct Actor {
   events: Arc<EventSink>,
   /// The union of the demands the scheduler was told last
   told_demand: Demand,
-  /// The robots of the poll the scheduler was told last, with the version of the view and the demand they are of
-  told_digest: Option<(Version, Vec<String>, RobotsDigest)>,
+  /// The robots the scheduler was told last (`facts::robots_digest`), with the version of the view and the watched
+  /// robots and the robots of the details of the demand they are of
+  told_digest: Option<(Version, [Vec<String>; 2], RobotsDigest)>,
   /// The subjects of the readiness the scheduler was told last
   told_readiness: ReadinessDigest,
   /// When the pending patch goes out
@@ -460,22 +461,23 @@ impl Actor {
       self.events.emit(&self.key, SessionEventKind::Readiness(readiness.clone()));
     }
     let version = self.view.version();
-    let watched = &self.told_demand.watched_robots;
-    if self.told_digest.as_ref().is_some_and(|(at, of, _)| *at == version && of == watched) {
+    let demand = &self.told_demand;
+    let of = [demand.watched_robots.clone(), demand.robot_details.clone()];
+    if self.told_digest.as_ref().is_some_and(|(at, told_of, _)| *at == version && *told_of == of) {
       return;
     }
-    let digest = robots_digest(&self.state, self.facts.robots.view(), watched);
+    let digest = robots_digest(&self.state, self.facts.robots.view(), asked_robots(demand));
     // the scheduler starts from no running robot
     let changed = self.told_digest.as_ref().map_or_else(|| digest != RobotsDigest::default(), |(_, _, told)| *told != digest);
-    self.told_digest = Some((version, watched.clone(), digest.clone()));
+    self.told_digest = Some((version, of, digest.clone()));
     if changed {
-      self.events.emit(&self.key, SessionEventKind::Robots(digest));
+      self.events.emit(&self.key, SessionEventKind::Robots { digest, version });
     }
   }
 
-  /// What the scheduler asks about the robots now (`facts::robots_digest`), with the watched robots of the demand
+  /// What the scheduler asks about the robots now (`facts::robots_digest`), with the robots the demand asks about
   fn robots_digest(&self) -> RobotsDigest {
-    robots_digest(&self.state, self.facts.robots.view(), &self.demand().watched_robots)
+    robots_digest(&self.state, self.facts.robots.view(), asked_robots(&self.demand()))
   }
 
   /// The demand of all the windows of the session: focused or online when one of them is, each list the union of
@@ -682,6 +684,8 @@ impl Actor {
     // the asks of the readiness of what the patch carries: a moved tip comes with its readiness `Stale`
     let robots = self.facts.robots.view().head.value.as_ref();
     self.facts.readiness.update(&self.state, self.facts.pull_requests.view(), robots, &self.told_demand);
+    // the details a window asks for are `Loading` in the patch of its demand, and go with the demand
+    self.facts.demand_details(&self.told_demand.robot_details);
     let Some(patch) = self.view.diff(&self.state, &self.facts) else {
       self.tell_digest();
       return;
@@ -708,6 +712,14 @@ impl Actor {
   }
 }
 
+/// The robots `demand` asks about: the watched ones and those whose details a window shows
+fn asked_robots(demand: &Demand) -> AskedRobots<'_> {
+  AskedRobots {
+    watched: &demand.watched_robots,
+    details: &demand.robot_details,
+  }
+}
+
 /// A sync refused while git is in the middle of something or HEAD is detached (`SyncDeferred`), or under a prefix the
 /// git config no longer names (`prefix_changed`): nothing failed
 const fn is_deferred(error: &ApiError) -> bool {
@@ -727,7 +739,7 @@ async fn read_inputs(host: Arc<dyn SessionHost>, key: SessionKey) -> Option<Sync
 }
 
 /// Waits until `at` on `clock`: the wall time left on the system clock (tokio's timer), the advance of a test clock that
-/// reaches it (`TestClock::advance`, which the E2E server's `POST /clock/advance` makes); at once for a time that has
+/// reaches it (`TestClock::advance`, which the E2E server's `POST /repositories/{id}/clock/advance` makes); at once for a time that has
 /// come. The timers of a session that decide what to ask and when wait with it
 pub async fn sleep_until(clock: &dyn Clock, at: Duration) {
   match clock.until(at) {

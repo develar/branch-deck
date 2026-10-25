@@ -19,7 +19,7 @@ use crate::conflict::WordResolutionSummary;
 use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
-use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
+use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability};
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, StackPatronus};
 use crate::stack::{BranchStack, StackBranchUpdate};
@@ -373,6 +373,11 @@ pub struct FactsView {
   /// answer, `Stale` while it is asked again for other inputs (another tip, start or reviews, Check Approvals Again),
   /// `Unavailable` when it can't be asked (Patronus not available, a read that failed); a subject nothing asked has none
   pub readiness: BTreeMap<String, Fact<SubjectReadiness>>,
+  /// By robot id, the details of the robots a window shows them of (`Demand::robot_details`: the robot popover, a row of
+  /// the landing overview, a toast that names the failed checks): the checks, the problems, the merge profile and, of a
+  /// running robot, the estimate of the CI; `Loading` until the first answer, read again when the robot's status
+  /// changes and every `RUNNING_DETAILS_REFRESH` while it runs; a robot no window demands any more has none
+  pub robot_details: BTreeMap<String, Fact<PatronusRobotDetails>>,
 }
 
 /// The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the
@@ -795,6 +800,13 @@ pub struct FactsChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_readiness: Vec<String>,
+  /// The details of the robots that changed, and the robots no window demands any more
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub robot_details: BTreeMap<String, Fact<PatronusRobotDetails>>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_robot_details: Vec<String>,
 }
 
 /// What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went

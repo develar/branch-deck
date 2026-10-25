@@ -58,6 +58,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
       rules: {},
       profiles: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 },
       readiness: {},
+      robotDetails: {},
     },
     news: [],
   }

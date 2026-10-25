@@ -35,7 +35,7 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { HeldAnswer, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { advanceBackendClock, holdCommand, recordCommand } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
@@ -987,7 +987,7 @@ test.describe("Whole stack", () => {
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Whole auth stack merged into master" })
     await expect
       .poll(async () => {
-        await advanceBackendClock(61_000)
+        await repo.advanceBackendClock(61_000)
         return toast.count()
       })
       .toBe(1)

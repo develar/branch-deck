@@ -5,7 +5,7 @@ use crate::pull_request_facts::PullRequestWrite;
 use crate::readiness_facts::ReadinessAnswer;
 use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
-use crate::session::{IDLE_LIMIT, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
+use crate::session::{IDLE_LIMIT, OneClock, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
 use crate::table::RemoteSubject;
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
 use domain_types::error::{ApiError, ErrorCode};
@@ -149,7 +149,11 @@ fn key(worktree: &str) -> SessionKey {
 
 fn scripted(host: &Arc<ScriptedHost>) -> (Sessions, TestClock) {
   let clock = TestClock::new();
-  let sessions = Sessions::new(tokio::runtime::Handle::current(), Arc::clone(host) as Arc<dyn SessionHost>, Arc::new(clock.clone()));
+  let sessions = Sessions::new(
+    tokio::runtime::Handle::current(),
+    Arc::clone(host) as Arc<dyn SessionHost>,
+    Arc::new(OneClock(Arc::new(clock.clone()))),
+  );
   (sessions, clock)
 }
 
@@ -396,7 +400,7 @@ fn with_git_facts(git: GitCommandExecutor, facts: Arc<HostFacts>) -> (Sessions, 
 fn with_environment(git: GitCommandExecutor, environment: TestEnvironment) -> (Sessions, TestClock) {
   let clock = TestClock::new();
   let host = Arc::new(GitSessionHost::new(git, environment));
-  (Sessions::new(tokio::runtime::Handle::current(), host, Arc::new(clock.clone())), clock)
+  (Sessions::new(tokio::runtime::Handle::current(), host, Arc::new(OneClock(Arc::new(clock.clone())))), clock)
 }
 
 /// The processes `git` started since its counts were `before`, by subcommand
@@ -912,6 +916,12 @@ async fn the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each(
   sessions.unsubscribe(review);
   assert_eq!(sessions.demand(&repo).await, Some(Demand::default()), "gone with the subscription");
   assert_eq!(sessions.demand(&other).await, Some(details));
+  // the details a window shows are in the view from its demand on, `Loading` until read, and go with it
+  let shown_details = |view: RepositoryView| view.facts.robot_details.into_iter().map(|(id, fact)| (id, fact.state)).collect::<Vec<_>>();
+  assert_eq!(shown_details(snapshot(&sessions, &other).await), vec![("robot-1".to_owned(), FactState::Loading)]);
+  sessions.set_demand(elsewhere, &Demand::default());
+  assert_eq!(sessions.demand(&other).await, Some(Demand::default()));
+  assert_eq!(shown_details(snapshot(&sessions, &other).await), vec![]);
 }
 
 /// A timer of a session waits on the session clock: on a test clock until an advance reaches its time, not before; a
@@ -948,7 +958,10 @@ fn heard(events: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEvent>) -> Vec
       SessionEventKind::TableCommitted { .. } => "table committed".to_owned(),
       SessionEventKind::PushEnded { heads } => format!("pushed {:?}", heads.iter().map(|head| head.subject.name()).collect::<Vec<_>>()),
       SessionEventKind::PullRequestWritten => "pull request written".to_owned(),
-      SessionEventKind::Robots(RobotsDigest { active, .. }) => format!("robots {:?}", active.iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>()),
+      SessionEventKind::Robots {
+        digest: RobotsDigest { active, .. },
+        ..
+      } => format!("robots {:?}", active.iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>()),
       SessionEventKind::Readiness(digest) => format!("readiness {:?}", digest.subjects.iter().map(|subject| subject.key.as_str()).collect::<Vec<_>>()),
       SessionEventKind::Refresh { .. } => "refresh".to_owned(),
     });

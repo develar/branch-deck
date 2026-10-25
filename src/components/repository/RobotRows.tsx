@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
-import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
+import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatFailedChecks } from "@/lib/check-counts"
@@ -204,7 +204,7 @@ function RunningTime({ entry }: { entry: RobotOverviewEntry }) {
  */
 function RunningProgress({ entry }: { entry: RobotOverviewEntry }) {
   const timing = useRobotTiming(entry.robot, true)
-  const details = usePatronusRobotDetails(entry.robot.id, entry.robot.status, true)
+  const details = useRobotDetails(entry.robot.id, true)
   const checks = details?.progress ?? null
   const failed = details?.checks == null ? null : formatFailedChecks(details.checks)
   const checkText = checks === null ? null : formatCheckProgress(checks, { remaining: false })

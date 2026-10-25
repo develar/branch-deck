@@ -1,6 +1,6 @@
 use crate::remote_fixtures::{HistoryRobotFixture, fixture_history_robot, fixture_progress, fixture_robot};
 use crate::session_routes_test::{subscribe, subscription};
-use crate::test_support::{create_repository, create_repository_from, post, start_test_server, sync};
+use crate::test_support::{Named, create_repository, create_repository_from, post, post_as, start_test_server, sync, view_when};
 use domain_types::patronus::{
   PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
@@ -195,20 +195,43 @@ async fn the_robots_of_the_fixture_come_through_the_real_service() {
   assert_eq!(log["robots"]["r1"]["sourceRevision"], tip.as_str());
 }
 
-/// Settings → Patronus, the new API, is read in Rust from the settings of the repository, never sent by the page: the
-/// details of a running robot ask Patronus for its folded progress (`robots/progress`) only once the setting is on
+/// The details of a robot a window shows come through the real service from the fake Patronus as a fact of the
+/// session, read when the window demands them (`robotDetails`), counted by the fake. Settings → Patronus, the new API,
+/// is read in Rust from the settings of the repository, never sent by the page: the details of a running robot ask
+/// Patronus for its folded progress (`robots/progress`) only once the setting is on
 #[tokio::test]
-async fn the_details_ask_the_folded_progress_only_with_the_new_api_of_the_settings() {
+async fn the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings() {
   let (addr, client, id, repository_path, _) = repository_with_branch("feature", "HEAD~1").await;
   post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("feature")).await;
-  let details = json!({"repositoryPath": repository_path, "robotId": "r1"});
-  let progress_calls = || async {
+  let mut messages = subscribe(&client, addr, &id, &repository_path, 41).await;
+  let subscribed = subscription(&mut messages).await;
+  sync(&client, addr, &repository_path).await;
+  let patronus = || async {
     let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
-    log["requests"]["progress"].clone()
+    (log["detailCalls"].clone(), log["requests"]["progress"].clone())
+  };
+  view_when(&client, addr, &repository_path, |view| view["facts"]["robots"]["robots"]["r1"].is_object()).await;
+  assert_eq!(patronus().await, (json!(0), json!([])), "no window shows the details");
+  let show = |robots: serde_json::Value| {
+    let demand = json!({
+      "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [], "previewed": [], "reviewWindows": [],
+      "robotDetails": robots, "watchedRobots": [],
+    });
+    post_as(
+      &client,
+      addr,
+      Named::Id(&id),
+      "/invoke/set_demand",
+      json!({ "subscription": subscribed["id"], "demand": demand }),
+    )
   };
 
-  assert_eq!(post(&client, addr, "/invoke/get_patronus_robot_details", details.clone()).await["robot"]["id"], "r1");
-  assert_eq!(progress_calls().await, json!([]));
+  show(json!(["r1"])).await;
+  let view = view_when(&client, addr, &repository_path, |view| view["facts"]["robotDetails"]["r1"]["state"]["kind"] == "fresh").await;
+  assert_eq!(view["facts"]["robotDetails"]["r1"]["value"]["robot"]["id"], "r1");
+  assert_eq!(patronus().await, (json!(1), json!([])));
+  show(json!([])).await;
+  view_when(&client, addr, &repository_path, |view| view["facts"]["robotDetails"].get("r1").is_none()).await;
 
   let saved = client
     .post(format!("http://{addr}/store/{id}/appSettings"))
@@ -217,8 +240,9 @@ async fn the_details_ask_the_folded_progress_only_with_the_new_api_of_the_settin
     .await
     .unwrap();
   assert_eq!(saved.status(), 200);
-  assert_eq!(post(&client, addr, "/invoke/get_patronus_robot_details", details).await["robot"]["id"], "r1");
-  assert_eq!(progress_calls().await, json!(["r1"]));
+  show(json!(["r1"])).await;
+  view_when(&client, addr, &repository_path, |view| view["facts"]["robotDetails"]["r1"]["state"]["kind"] == "fresh").await;
+  assert_eq!(patronus().await, (json!(2), json!(["r1"])));
 }
 
 /// A server with a repository of the simple template on Space (a Patronus fixture without robots), its branches parked

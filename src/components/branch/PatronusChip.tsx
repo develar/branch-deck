@@ -11,7 +11,7 @@ import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import { PendingSection } from "@/components/shared/PendingSection"
 import { getGatedRobotActions, robotProblemsReason, useNextStepStores } from "@/hooks/useBranchNextStep"
-import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
+import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatPendingFact } from "@/lib/branch-next-step"
@@ -127,7 +127,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const remote = useBranchRemoteStatus(branchName)
   const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
   const Icon = patronusChipIcons[chip.kind]
-  const details = usePatronusRobotDetails(robot.id, robot.status, loadDetails)
+  const details = useRobotDetails(robot.id, loadDetails)
   const restart = getRobotRestartAction(robot, branchName, localTip, remote, needsReview)
   const notice = formatRobotCommitNotice(robot, chip, localTip, restart)
   const branch = useBranch(branchName)

@@ -134,6 +134,18 @@ pub(crate) fn head(path: &str) -> String {
   String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
+/// The view of the session of `path` once `done` says it is, asked again until then
+pub(crate) async fn view_when(client: &reqwest::Client, addr: SocketAddr, path: &str, done: impl Fn(&Value) -> bool) -> Value {
+  for _ in 0..2000 {
+    let view = post(client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
+    if done(&view) {
+      return view;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+  }
+  panic!("the view of {path} never came")
+}
+
 /// Syncs the repository at `path` as the page does (`/invoke/sync` of its session), under the prefix the server resolves
 /// (the `user-name` of the template), to the end of its run: the server keeps the branch table of it, which the checks
 /// of a push or a start read

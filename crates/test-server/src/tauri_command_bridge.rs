@@ -1334,16 +1334,15 @@ pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): J
   ))
 }
 
-/// The robot with its profile, checks, problems and progress, as the app reads them
-pub async fn get_patronus_robot_details(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobotDetails> {
-  repository_by_path(&state, &params.repository_path)?.patronus_detail_calls.fetch_add(1, Ordering::SeqCst);
-  let host = remote_of(&state, &params.repository_path)?;
-  let (branch_prefix, new_api) = (
-    branch_prefix_of(&state, &params.repository_path).await?,
-    patronus_new_api_of(&state, &params.repository_path)?,
-  );
-  let details = host.patronus_service().robot_details(&branch_prefix, &params.robot_id, new_api).await;
-  details.map(Json).map_err(|e| failed("read the Patronus robot", patronus_error(e)))
+/// The robot `id` with its profile, checks, problems and progress, as the session of a test repository reads them
+/// (`TestFactSources`), under the prefix of its key, with the new API of the repository's settings; counted
+pub(crate) async fn robot_details_of(state: &AppState, key: &SessionKey, id: &str) -> Result<PatronusRobotDetails, ApiError> {
+  let repository = repository_by_path(state, &key.worktree).map_err(rejected)?;
+  repository.patronus_detail_calls.fetch_add(1, Ordering::SeqCst);
+  let new_api = repository.store.app().patronus_new_api;
+  let host = repository.remote(&state.git_executor);
+  drop(repository);
+  host.patronus_service().robot_details(&key.prefix, id, new_api).await.map_err(patronus_error)
 }
 
 /// Why the robot failed, with the commit map of its branch, as the app reads it; there is no `teamcity` CLI

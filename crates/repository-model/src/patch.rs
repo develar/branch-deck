@@ -133,11 +133,17 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     profiles,
     readiness,
     removed_readiness,
+    robot_details,
+    removed_robot_details,
   } = facts.unwrap_or_default();
   for key in &removed_readiness {
     view.facts.readiness.remove(key);
   }
   view.facts.readiness.extend(readiness);
+  for id in &removed_robot_details {
+    view.facts.robot_details.remove(id);
+  }
+  view.facts.robot_details.extend(robot_details);
   if let Some(pull_requests) = pull_requests {
     apply_pull_requests_change(&mut view.facts.pull_requests, pull_requests);
   }

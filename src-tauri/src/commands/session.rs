@@ -23,7 +23,9 @@ use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::landing::{LandingCheck, LandingGateParams};
-use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
+use domain_types::patronus::{
+  BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
+};
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -34,14 +36,14 @@ use remote_facts::scheduler::Scheduler;
 use repository_model::facts::Needs;
 use repository_model::landing::LandingGate;
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
-use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
+use repository_model::session::{OneClock, SessionClocks, SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
-use sync_utils::clock::{Clock, SystemClock};
+use sync_utils::clock::SystemClock;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Webview};
 use tracing::instrument;
@@ -114,13 +116,13 @@ impl SessionsState {
   pub fn new(app: &AppHandle, git: GitCommandExecutor) -> Self {
     let host = GitSessionHost::new(git, AppEnvironment { app: app.clone() });
     let runtime = tauri::async_runtime::handle().inner().clone();
-    let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
-    let sessions = Arc::new(Sessions::new(runtime.clone(), Arc::new(host), Arc::clone(&clock)));
+    let clocks: Arc<dyn SessionClocks> = Arc::new(OneClock(Arc::new(SystemClock::new())));
+    let sessions = Arc::new(Sessions::new(runtime.clone(), Arc::new(host), Arc::clone(&clocks)));
     if let Some(events) = sessions.events() {
       let scheduler = Scheduler {
         port: Arc::clone(&sessions) as Arc<dyn remote_facts::scheduler::FactsPort>,
         sources: Arc::new(AppFactSources { app: app.clone() }),
-        clock,
+        clocks,
       };
       scheduler.start(&runtime, events);
     }
@@ -257,6 +259,13 @@ impl FactSources for AppFactSources {
 
   fn problems<'a>(&'a self, _key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
     Box::pin(async move { self.app.state::<PatronusState>().problems(&id).await })
+  }
+
+  fn robot_details<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<PatronusRobotDetails, ApiError>> {
+    Box::pin(async move {
+      let new_api = self.app.state::<SettingsService>().app().patronus_new_api;
+      self.app.state::<PatronusState>().details(&key.prefix, &id, new_api).await
+    })
   }
 
   fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {

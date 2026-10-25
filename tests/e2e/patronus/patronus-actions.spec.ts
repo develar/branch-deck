@@ -8,7 +8,6 @@ import type {
   PatronusProfile,
   PatronusReviewRequirement,
   PatronusRobot,
-  PatronusRobotDetails,
   PullRequest,
   TargetCheck,
 } from "../../../src/lib/bindings"
@@ -25,7 +24,18 @@ import {
   verifyBranchState,
   verifyCommitCount,
 } from "../helpers/branch-helpers"
-import { availableRobots, missingApprovals, robot, robotUrl, setupRobots, setupRobotsWith, startRequest, setupApprovalsDismissedByPush } from "../helpers/patronus-helpers"
+import {
+  availableRobots,
+  missingApprovals,
+  passedChecks,
+  robot,
+  robotChecks,
+  robotUrl,
+  setupRobots,
+  setupRobotsWith,
+  startRequest,
+  setupApprovalsDismissedByPush,
+} from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
   createPullRequestDialog,
@@ -761,21 +771,13 @@ test.describe("Patronus actions", () => {
   })
 
   test("should show the profile, the checks and the problems in the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRobots(page, setupRepo, syncAndWaitForBranches, FAILED)
-    await routeCommand(
-      page,
-      "get_patronus_robot_details",
-      () =>
-        ({
-          robot: { ...FAILED, sourceRevision: null },
-          profileId: "lsc",
-          profileName: "Large Scale Change",
-          checks: { failed: 1, running: 0, passed: 9, canceled: 0, failedNames: ["Fast Tests"] },
-          problems: [{ title: "Tests failed", subsystem: "TEAMCITY" }],
-          failing: false,
-          progress: null,
-        }) satisfies PatronusRobotDetails,
-    )
+    // a list doesn't name the profile: the details do, which the session reads while the popover is open
+    const details = {
+      ...robotChecks(FAILED.id, [["Fast Tests", "FAILURE"], ...passedChecks(9)]),
+      problems: { [FAILED.id]: [{ id: "p", uniqueId: null, title: "Tests failed", detailsMarkdown: null, severity: "ERROR", subsystem: "TEAMCITY" }] },
+    }
+    const profiled = { ...FAILED, profile: { id: "lsc", name: "Large Scale Change", skipsReview: null } }
+    await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: details }, profiled)
 
     const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
     await expect(popover.getByTestId("patronus-profile-name")).toHaveText("Large Scale Change")

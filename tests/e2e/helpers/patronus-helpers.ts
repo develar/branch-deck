@@ -196,6 +196,23 @@ export function robotUrl(id: string): string {
   return `https://patronus.labs.jb.gg/robot/${id}`
 }
 
+/**
+ * The TeamCity checks Patronus answers of a robot (`TestRepositoryBuilder.setPatronusDetails`): each by its name with its
+ * status (`FAILURE`, `RUNNING`, `SUCCESS`), without builds
+ */
+export function robotChecks(robotId: string, checks: readonly (readonly [name: string, status: string])[]) {
+  return {
+    checks: {
+      [robotId]: checks.map(([name, status], index) => ({ id: String(index + 1), name, buildConfigurationName: name, status, attempts: [] })),
+    },
+  }
+}
+
+/** `count` checks that passed, `Check 1`… */
+export function passedChecks(count: number): (readonly [string, string])[] {
+  return Array.from({ length: count }, (_, index) => [`Check ${index + 1}`, "SUCCESS"] as const)
+}
+
 /** The warning Patronus registers on a running robot once a required check failed: the robot will fail */
 export function willFail(robotId: string) {
   return {

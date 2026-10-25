@@ -246,10 +246,10 @@ Mock implementation:
   plugins, the sub-window handlers) do not. `pnpm perf:table` reads it
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
 - **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
-  `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` that stands still, so no session of a test
-  goes away by itself until the test moves it, `advanceBackendClock`): `get_snapshot`, `sync`, `set_window_focus`,
+  `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` per repository that stands still, so no
+  session of a test goes away by itself until the test moves it, `repo.advanceBackendClock`): `get_snapshot`, `sync`, `set_window_focus`,
   `set_demand` (what the window of a subscription shows, `src/model/demand.ts`), `refresh_facts` and
-  `unsubscribe_view` answer JSON; the scheduler of the facts runs on the same clock and reads the fakes of each
+  `unsubscribe_view` answer JSON; the scheduler of the facts runs on the same clocks and reads the fakes of each
   repository (`TestFactSources`: the lists and polls of the robots, counted in `listCalls` and `pollCalls`);
   `subscribe_view` is a long-lived event stream of its channel (`X-Progress-Channel`, the `patches` of the command):
   `{ result }` with the subscription and its view first, then each `ViewPatch` as `{ progress }`, until
@@ -385,10 +385,12 @@ State isolation:
 - **Time**: two clocks, each moved by a test, never waited out. The page's: `base-test.ts` installs the Playwright
   clock at a fixed time; it runs at real speed, and a test that waits for a timer of the page (the 2 s "Copied" state
   of `useCopyToClipboard`) runs it past with `page.clock.fastForward` instead of a real wait, which a loaded machine
-  overruns. The backend's: the sessions of the test server age on one `TestClock` (`AppState::session_clock`), which
-  stands still; the timers that decide what a session asks and when (its polls, retries and backoffs, the sweep of a
-  session no window shows) wake only when a test moves it with `advanceBackendClock(ms)` (wait-helpers.ts, `POST
-  /clock/advance { ms }`, which also sweeps the idle sessions): the poll of the robots a minute after the last one
+  overruns. The backend's: the sessions of each test repository age on a `TestClock` of their own
+  (`AppState::session_clocks`, `WorktreeClocks`: `Sessions` and the scheduler take the clock of a session by its
+  worktree), which stands still; the timers that decide what a session asks and when (its polls, retries and backoffs,
+  the sweep of a session no window shows) wake only when its test moves it with `repo.advanceBackendClock(ms)`
+  (test-repository.ts, `POST /repositories/{id}/clock/advance { ms }`, which also sweeps the idle sessions), so a test
+  that moves its time moves no session of a test beside it: the poll of the robots a minute after the last one
   while the window is focused, so a test that waits for a merge a poll tells moves it in a loop until the toast shows;
   a focus (`tauri://focus`) polls at once, unless a poll ran less than 50 s ago on that clock; a focus lists the pull
   requests only two minutes after their last answer on it, and the look again five seconds after a push that GitHub
@@ -442,9 +444,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`PatronusClient::with_web_url`), so a robot links where the app links it. The service is replaced on each Patronus
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
   so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
-- **Bridge**: the reads of the session's robots (`TestFactSources`: `list_robots`, `poll_robots`, `failing_robots` and
-  `robot_problems` of the bridge, the merge profiles, `profiles_of`, and the review readiness, `readiness_of`), `get_patronus_robot_details`,
-  `get_robot_failure`, `get_patronus_target_branch`, `start_patronus_robot`,
+- **Bridge**: the reads of the session's robots (`TestFactSources`: `list_robots`, `poll_robots`, `failing_robots`,
+  `robot_problems` and `robot_details_of` of the bridge, the merge profiles, `profiles_of`, and the review readiness,
+  `readiness_of`), `get_robot_failure`, `get_patronus_target_branch`, `start_patronus_robot`,
   `restart_patronus_robot`, `cancel_patronus_robot` and `get_patronus_robot_status` call the service as
   `src-tauri/src/commands/patronus.rs` does (a start, a restart and a cancel give their robot to the session, as the
   app's commands do): the list answers `notPatronus` while the repository is not on Space and names the GitHub

@@ -1,5 +1,6 @@
 use crate::facts::{
-  Applied, FactRecord, FactResult, FactStore, Needs, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence, robots_digest, session_remote,
+  Applied, AskedRobots, FactRecord, FactResult, FactStore, Needs, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence, robots_digest,
+  session_remote,
 };
 use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
@@ -10,7 +11,7 @@ use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::robot;
 use domain_types::landing::Subject;
 use domain_types::patronus::{
-  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
+  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
   REVIEW_APPROVAL_SUBSYSTEM,
 };
 use domain_types::repository_view::{BranchPatronus, LandedByView, LandingNeeds, PatronusView, RemoteFact};
@@ -306,9 +307,13 @@ fn synced_table() -> TableState {
   state
 }
 
+/// What a digest asks about with no robot watched nor shown
+const NOTHING_ASKED: AskedRobots<'static> = AskedRobots { watched: &[], details: &[] };
+
 /// The poll asks about the running robots of the branches (on the copy of their newest commit or their remote tip), of
 /// the whole stacks and the watched robots of no branch; a finished robot and one of no branch nobody watches not.
-/// Those running and not known failing are asked whether a failed required check dooms them
+/// Those running and not known failing are asked whether a failed required check dooms them. The details are asked of
+/// the robots a window shows them of, with the status the session knows, whatever their branch; of none it doesn't know
 #[test]
 fn the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones() {
   let state = synced_table();
@@ -328,7 +333,11 @@ fn the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones() {
     robot("stranger", None, PatronusRobotStatus::Running, 7),
   ];
   fact.answer(at(1, 0, 1), FULL_LIST, listed(robots), &mut Vec::new());
-  let digest = robots_digest(&state, fact.view(), &["watched".to_owned()]);
+  let asked = AskedRobots {
+    watched: &["watched".to_owned()],
+    details: &["absent".to_owned(), "done".to_owned(), "stranger".to_owned()],
+  };
+  let digest = robots_digest(&state, fact.view(), asked);
   let known = |id: &str, status| KnownRobotStatus { id: id.into(), status };
   assert_eq!(
     digest,
@@ -341,12 +350,13 @@ fn the_poll_asks_about_the_running_robots_of_the_table_and_the_watched_ones() {
       pushing: true,
       unknown_failing: vec!["auth-robot".to_owned(), "ui-robot".to_owned()],
       problems: Vec::new(),
+      details: vec![known("done", PatronusRobotStatus::Success), known("stranger", PatronusRobotStatus::Running)],
     }
   );
   // known failing: not asked again; a robot that finished meanwhile is no longer failing
   fact.failing_answer(Ok(vec!["ui-robot".to_owned(), "done".to_owned()]));
   assert_eq!(fact.view().failing, vec!["ui-robot".to_owned()]);
-  assert_eq!(robots_digest(&state, fact.view(), &[]).unknown_failing, vec!["auth-robot".to_owned()]);
+  assert_eq!(robots_digest(&state, fact.view(), NOTHING_ASKED).unknown_failing, vec!["auth-robot".to_owned()]);
 }
 
 /// The problems of a failed robot of the table are asked until known; a read that failed says why and is asked again
@@ -360,7 +370,7 @@ fn the_problems_of_a_failed_robot_of_the_table_are_asked_until_known() {
     robot("stray", None, PatronusRobotStatus::Failure, 5),
   ];
   fact.answer(at(1, 0, 1), FULL_LIST, listed(failed), &mut Vec::new());
-  let problems = |fact: &RobotsFact| robots_digest(&state, fact.view(), &[]).problems;
+  let problems = |fact: &RobotsFact| robots_digest(&state, fact.view(), NOTHING_ASKED).problems;
   assert_eq!(
     problems(&fact),
     vec![ProblemsRead {
@@ -423,7 +433,7 @@ fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
       result: listed(poll),
     },
   );
-  facts.tell_failures(&robots_digest(&state, facts.robots.view(), &[]));
+  facts.tell_failures(&robots_digest(&state, facts.robots.view(), NOTHING_ASKED));
   let events = |facts: &FactStore| facts.news().iter().map(|news| (news.id, news.event.clone())).collect::<Vec<_>>();
   assert_eq!(
     events(&facts),
@@ -529,4 +539,60 @@ fn the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next() {
   assert_eq!(fact.publish(&table), None, "a failure is no reason to compute again");
   assert_eq!(fact.part().landing_needs, FactState::Unavailable { reason: failure() });
   assert_eq!(fact.part().view.branches["auth"].landing_needs, LandingNeeds::Unknown);
+}
+
+/// The details of a robot a window demands: `Loading` from its demand, its answer kept; they name what a list doesn't,
+/// which goes onto the robot (its merge profile, kept when it has one) and into the failing ones (while it runs). A
+/// robot no window demands any more goes with its details, and an answer that comes after drops
+#[test]
+fn the_details_of_a_demanded_robot_name_its_profile_and_go_with_its_demand() {
+  let mut facts = FactStore::new();
+  facts.apply(
+    at(1, 0, 1),
+    FactResult::Robots {
+      read: FULL_LIST,
+      result: listed(vec![robot("running", Some("auth"), PatronusRobotStatus::Running, 20)]),
+    },
+  );
+  facts.demand_details(&["running".to_owned()]);
+  assert_eq!(facts.robot_details["running"].fact().state, FactState::Loading);
+
+  let profile = PatronusRobotProfile {
+    id: Some("lsc".into()),
+    name: Some("Large Scale Change".into()),
+    skips_review: None,
+  };
+  let details = PatronusRobotDetails {
+    robot: PatronusRobot {
+      profile: Some(profile.clone()),
+      ..robot("running", Some("auth"), PatronusRobotStatus::Running, 20)
+    },
+    profile_id: profile.id.clone(),
+    profile_name: profile.name.clone(),
+    checks: None,
+    problems: Vec::new(),
+    failing: true,
+    progress: None,
+  };
+  let answer = |details: Result<PatronusRobotDetails, ApiError>| FactResult::RobotDetails {
+    id: "running".into(),
+    result: details.map(Box::new),
+  };
+  assert!(facts.apply(at(2, 0, 2), answer(Ok(details.clone()))));
+  let fact = facts.robot_details["running"].fact();
+  assert_eq!((&fact.state, fact.value.as_ref()), (&FactState::Fresh, Some(&details)));
+  let robots = facts.robots.view();
+  assert_eq!(
+    (robots.robots["running"].profile.as_ref(), robots.failing.clone()),
+    (Some(&profile), vec!["running".to_owned()])
+  );
+
+  // a failure keeps them, stale
+  facts.apply(at(3, 0, 3), answer(Err(failure())));
+  assert_eq!(facts.robot_details["running"].fact().state, FactState::Stale { reason: Some(failure()) });
+
+  facts.demand_details(&[]);
+  assert!(facts.robot_details.is_empty());
+  assert!(!facts.apply(at(4, 0, 4), answer(Ok(details))), "an answer of a robot no window demands is dropped");
+  assert!(facts.robot_details.is_empty());
 }

@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 119;
+const COMMAND_COUNT: usize = 118;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -110,13 +110,12 @@ const MUTATING: &[&str] = &[
 
 /// The read commands that E2E tests still answer in the page, with the number of answers in `tests/e2e` (a call of a
 /// helper that answers counts as its answers): a state that neither the fixtures of the fakes nor the templates make
-/// yet (a running robot's details with the build progress, a refused landing gate). The numbers only go down: a new
+/// yet (a refused landing gate, a conflict of the target). The numbers only go down: a new
 /// answer of a command in the page fails, so it comes from a fixture of the fake; a removed one lowers its number
 const ROUTED_IN_PAGE: &[(&str, usize)] = &[
   ("agent_cli_status", 2),
   ("check_landing_gate", 1),
   ("check_target_conflict", 1),
-  ("get_patronus_robot_details", 2),
   ("get_repository_config", 3),
   ("prefetch_branch_review", 1),
 ];

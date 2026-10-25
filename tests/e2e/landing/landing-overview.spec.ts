@@ -1,5 +1,4 @@
 // @spec spec/repository/landing-overview.spec.md
-import type { PatronusRobotDetails } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
@@ -12,7 +11,9 @@ import {
   availableRobots,
   expectPatronusStarts,
   minutes,
+  passedChecks,
   robot,
+  robotChecks,
   setupRobots,
   setupRobotsWith,
   startRequest,
@@ -22,7 +23,6 @@ import { availablePullRequests, createPullRequestDialog, getOpenedUrls } from ".
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
-import { routeCommand } from "../helpers/wait-helpers"
 
 const NOW = ROBOTS_NOW
 const { running: RUNNING, failed: FAILED, merged: MERGED } = DAY_ROBOTS
@@ -153,22 +153,10 @@ test.describe("Landing overview", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await routeCommand(
-      page,
-      "get_patronus_robot_details",
-      () =>
-        ({
-          robot: RUNNING,
-          profileId: null,
-          profileName: null,
-          checks: { failed: 1, failedNames: ["Bazel Community Build Aggregator"], running: 2, passed: 9, canceled: 0 },
-          problems: [],
-          failing: true,
-          progress: { remainingSeconds: 1500, checkName: "IntelliJ Aggregator", checkPercent: 36, overtimeSeconds: null, queued: 0, probablyHanging: false },
-        }) satisfies PatronusRobotDetails,
-    )
-    // Patronus warns that a required check failed: the session asks it after its list
-    const repo = await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: willFail(RUNNING.id) }, RUNNING)
+    // Patronus warns that a required check failed: the session asks it after its list, and the toast names the check
+    // from the details
+    const checks = robotChecks(RUNNING.id, [["Bazel Community Build Aggregator", "FAILURE"], ["IntelliJ Aggregator", "RUNNING"], ["Unit Tests", "RUNNING"], ...passedChecks(9)])
+    const repo = await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: { ...willFail(RUNNING.id), ...checks } }, RUNNING)
     const toast = page.locator("[data-slot=toast]", { hasText: "A required check of JIRA-456 failed" })
     await expect(toast).toContainText("Bazel Community Build Aggregator · the Safe Push will fail")
     const indicator = page.getByTestId("landing-indicator")

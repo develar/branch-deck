@@ -14,7 +14,7 @@ targets:
   - ../../src/lib/landing-node.ts
   - ../../src/lib/robot-overview.ts
   - ../../src/lib/patronus-actions.ts
-  - ../../src/hooks/usePatronusRobotDetails.ts
+  - ../../src/hooks/useRobotDetails.ts
   - ../../src/lib/check-counts.ts
   - ../../src/components/repository/UpdateProjectButton.tsx
   - ../../src/components/repository/PullRequestStatusLine.tsx

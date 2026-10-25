@@ -127,7 +127,7 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
   };
 
   // Create shared application state
-  let session_clock = sync_utils::clock::TestClock::new();
+  let session_clocks = Arc::new(state::WorktreeClocks::default());
   let state = Arc::new_cyclic(|state| {
     let environment = session_routes::TestSessionEnvironment {
       state: std::sync::Weak::clone(state),
@@ -148,17 +148,17 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       sessions: Arc::new(repository_model::session::Sessions::new(
         tokio::runtime::Handle::current(),
         Arc::new(host),
-        Arc::new(session_clock.clone()),
+        Arc::clone(&session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
       )),
-      session_clock,
+      session_clocks,
     }
   });
-  // the facts of the sessions, read on the same clock from the fakes of each test repository
+  // the facts of the sessions, read on the same clocks from the fakes of each test repository
   if let Some(events) = state.sessions.events() {
     let scheduler = remote_facts::scheduler::Scheduler {
       port: Arc::clone(&state.sessions) as Arc<dyn remote_facts::scheduler::FactsPort>,
       sources: Arc::new(session_routes::TestFactSources { state: Arc::downgrade(&state) }),
-      clock: Arc::new(state.session_clock.clone()),
+      clocks: Arc::clone(&state.session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
     };
     scheduler.start(&tokio::runtime::Handle::current(), events);
   }
@@ -220,7 +220,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     )
     .route("/repositories/{id}/sessions/close", post(session_routes::close_sessions))
     .route("/sessions/pushed-in-page", post(session_routes::pushed_in_page))
-    .route("/clock/advance", post(session_routes::advance_clock))
+    .route("/repositories/{id}/clock/advance", post(session_routes::advance_clock))
     // Store endpoints
     .route("/store/{repo_id}", get(get_store_snapshot))
     .route("/store/{repo_id}/{key}", get(get_store_value))
@@ -295,7 +295,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/prefetch_branch_review", post(tauri_command_bridge::prefetch_branch_review))
     .route("/invoke/get_file_owners", post(tauri_command_bridge::get_file_owners))
     .route("/invoke/get_robot_stats", post(tauri_command_bridge::get_robot_stats))
-    .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
     .route("/invoke/post_patronus_command", post(tauri_command_bridge::post_patronus_command))
@@ -885,6 +884,7 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   state.path_to_id.remove(&repo.path);
   // a window's subscription streams until its session closes, and holds the repository while it does
   state.sessions.close_worktree(&repo.path);
+  state.session_clocks.forget(&repo.path);
   // a sign-in the page left waiting on GitHub would hold the repository until its code expires
   if let Some(host) = repo.existing_remote() {
     host.end_sign_ins();

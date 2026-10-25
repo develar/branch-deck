@@ -216,8 +216,9 @@ baseTest.describe("Patronus robot timing", () => {
     await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
     const chip = getChip(page, "JIRA-456")
     await expect(chip).toHaveText("18m · ~22m")
-    // no details open: the row, the indicator, the Dock and the timers ask nothing
+    // no details open: the row, the indicator, the Dock and the timers of the page and of the session ask nothing
     await page.clock.fastForward("02:00")
+    await repo.advanceBackendClock(120_000)
     await expect(chip).toHaveText("20m · ~20m")
     expect((await repo.getPatronusLog()).detailCalls).toBe(0)
 
@@ -228,16 +229,18 @@ baseTest.describe("Patronus robot timing", () => {
     // while they are open the slot takes it
     await expect(chip).toHaveText("20m · ~9m")
     expect((await repo.getPatronusLog()).detailCalls).toBe(1)
-    // asked again once a minute while open
+    // the session asks them again once a minute of its clock while they are open
     await page.clock.fastForward("01:01")
+    await repo.advanceBackendClock(61_000)
     await expect.poll(async () => (await repo.getPatronusLog()).detailCalls).toBe(2)
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
     await page.mouse.move(0, 0)
 
-    // closed: the estimate from history again, and nothing asked
+    // closed: the estimate from history again, the session dropped them and asks nothing more
     await expect(chip).toHaveText("21m · ~19m")
     await page.clock.fastForward("03:00")
+    await repo.advanceBackendClock(180_000)
     expect((await repo.getPatronusLog()).detailCalls).toBe(2)
 
     // the robots of the landing overview asks while it is open

@@ -135,6 +135,14 @@ impl PatronusState {
     self.service.robot_problems(id).await.map_err(patronus_error)
   }
 
+  /// The robot with its merge profile, CI checks, error problems and whether it will fail, for a window that shows them
+  /// (the robot popover, a row of the landing overview). With the new API of Settings → Patronus the progress of a
+  /// running robot comes in one request (`GET /robots/progress`, behind the `robot.progress.enabled` flag of Patronus)
+  /// instead of one per running check; the builds are asked as before while Patronus answers 404
+  pub(crate) async fn details(&self, branch_prefix: &str, id: &str, new_api: bool) -> Result<PatronusRobotDetails, ApiError> {
+    self.service.robot_details(branch_prefix, id, new_api).await.map_err(patronus_error)
+  }
+
   /// The Space repository, for an action: not on Space is an error
   async fn required_space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<SpaceRepository, ApiError> {
     self.space_repository(git_executor, repository_path).await?.ok_or_else(not_on_space)
@@ -270,29 +278,6 @@ pub async fn get_robot_stats(
       }
     };
     Ok(robot_stats_core(&source, &calendar, unix_now(), params.period, params.refresh, &send).await)
-  })
-  .await
-}
-
-/// The robot with its merge profile, CI checks, error problems and whether it will fail, for the chip popover. With the
-/// new API of Settings → Patronus the progress of a running robot comes in one request (`GET /robots/progress`, behind
-/// the `robot.progress.enabled` flag of Patronus) instead of one per running check; the builds are asked as before
-/// while Patronus answers 404
-#[tauri::command]
-#[instrument(skip(git_executor, patronus, settings, prefixes))]
-#[specta::specta]
-pub async fn get_patronus_robot_details(
-  git_executor: State<'_, GitCommandExecutor>,
-  patronus: State<'_, PatronusState>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
-  params: PatronusRobotParams,
-) -> Result<PatronusRobotDetails, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let new_api = inputs.patronus_new_api();
-    let branch_prefix = inputs.resolve(&params.repository_path).await?;
-    patronus.service.robot_details(&branch_prefix, &params.robot_id, new_api).await.map_err(patronus_error)
   })
   .await
 }
