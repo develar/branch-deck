@@ -333,7 +333,7 @@ flowchart TD
 | Когда обновлять факт (каденция, demand, батчи) | `domain-policy/src/refresh.rs` | константы и таймеры `patronus.ts:56-72`, `pull-requests.ts`, `review-readiness.ts`, `review-requests.ts` |
 | PR, с которого стартует Safe Push; пришли ли approvals; ждёт ли subject approvals | `domain-policy/src/readiness.rs` (s7) | `findApprovalNews`, правило `getPullRequestStart` для readiness сессии (страница держит своё до s8) |
 | Какой работающий Safe Push несёт недостающее объявление | `domain-policy/src/landing_needs.rs` (s7) | `name_landing_robots` в `sync-core` |
-| Новости (approvals пришли, робот слился или упал, запрошен review) | `domain-policy/src/news.rs` | переходы аппликаторов фактов сессии (s7: `News` вида, `readiness::approval_news`) |
+| Новости (approvals пришли, робот слился или упал, запрошен review), каждая с ключом события своего объекта | `domain-policy/src/news.rs` | переходы аппликаторов фактов сессии (s7: `News` вида, `readiness::approval_news`); ключи `toastKeys` (`src/lib/event-toast.ts`) |
 | Порядок эффектов каждого действия | `operations/src/<family>.rs` | `safe-push-start.ts`, `git/push.ts`, `git/stack-push.ts`, `landed-stack.ts`, `create-pull-request-context.ts`, `patronus-actions.ts`; `safe_push()`, `push_locked` |
 | Коды ошибок | `domain-types/src/error.rs` | `command_error.rs`, `bd-core/src/error.rs` |
 | Настройки, которые читает Rust: схема и defaults | `domain-types/src/settings.rs` (создаёт s5) | `appSettings.ts` (для этих ключей), ручные читатели |
@@ -545,7 +545,9 @@ Activity) подписывается на ту же сессию по пути �
 3. Поповер рендерит `plan.confirmations`; без подтверждений и не с клавиши старт идёт сразу.
 4. `execute` по порядку фаз выше; `RunningOperation { moves }` появляется в представлении при допуске, так что узел
    уходит из Your Move при клике, на всех поверхностях и во всех окнах (`operations.md`, Moves).
-5. Toast и запись Activity строятся из `Outcome` и несут `operation_id`.
+5. Toast и запись Activity строятся из `Outcome` и несут `operation_id`. Toast — следующее состояние события
+   объекта: открытый toast того же ключа (робота subject'а, его approvals) обновляется на месте, второго нет
+   ([s9](#s9-engine-remote), «Toast из `Outcome`»).
 
 ### Регруппировка (Move, Unstack, Rename…)
 
@@ -1978,6 +1980,16 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `tests/e2e/next-step/landing-needs.spec.ts` (`should check what a branch needs to land before it offers its Safe
   Push, S and the popover waiting for the answer`) и кейс `row-11-not-asked-yet` таблицы сценариев (`asymmetry:
   byDesign`: `bd` спрашивает readiness до плана).
+- **Новость — состояние события объекта.** `domain-policy::news` отдаёт каждую новость с ключом события её объекта
+  (`NewsKey`): робот; роботы subject'а в одном режиме push (рестарт и новый старт — более новый робот того же
+  ключа); слияние, которое приносит Update Project репозитория; approvals subject'а; запрос review PR, — те же ключи,
+  что сегодня `toastKeys` страницы (`src/lib/event-toast.ts`). Более позднее состояние того же ключа заменяет
+  прежнее, а не объявляется вторым: падение робота, о котором уже сказал «A required check of auth failed», — тот же
+  toast, пока он открыт, и только запись Activity, когда его нет; старт subject'а занимает место toast'а его
+  approvals. Новость не несёт действий: их считает `actions` над текущими фактами на каждом рендере, так что
+  кнопка toast'а — действие текущего состояния объекта, не того, в котором он показан
+  ([One toast per event](../guidelines/ux-writing.md#one-toast-per-event)). Какой toast открыт, знает окно, не
+  сессия: правило ключа — в `news`, замена на месте — в презентере.
 - **Удаляется:** `branch-next-step.ts`, `landing-node.ts`, `safe-push-decision.ts`, правила `whole-stack.ts`,
   `parked.ts`, `push-summary.ts`; в `patronus.ts`: `canStartRobot`, `isStartBlocked`, `allowsPushMode`,
   `getRobotRestartAction`; в `stack.ts`: `needsPush`, `stackPushOrder`, `stackAskFirst`, `stackAncestors`; в
@@ -2055,6 +2067,31 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `crates/operations/src/land_test.rs`. `operations.md` переписан (реестр в Rust, раздел «Outside the registry»
   удалён, индикатор — только TS), `landing.md` (bd и приложение идентичны, закрытие PR), `patronus.spec`,
   `pull-requests.spec`, «Agent push»/«Agent Safe Push»/«App stack push» в `git-operations.md` слиты в «Push and land».
+- **Toast из `Outcome` — следующее состояние события.** `Outcome` несёт ключ события своего объекта (`NewsKey` s8).
+  Outcome того же ключа, что открытый toast новости или прежнего outcome, обновляет этот toast на месте, а не
+  добавляет второй, и действия toast'а считаются из текущего состояния (`actions` представления после патча
+  outcome), никогда не переносятся из прежнего: `RestartRobot` и `CancelRobot` — на месте toast'а упавшего или
+  работающего робота («Safe Push restarted», «Safe Push is canceling»), `Land` — на месте toast'а approvals своего
+  subject'а и прежнего робота, `Push` — на месте прежнего push'а ветки, `SubmitReview` — на месте запроса review, а
+  старт его `then_land` — на месте approve, `SetIssueState` и его undo — один toast задачи. Так же `UpdateProject`
+  (в движке с s11): отчёт о приземлении для ветки слившегося робота — следующее состояние toast'а слияния: «auth
+  merged into master» с Update Project — «Updating…», пока update идёт с любой поверхности (toast, заголовок, ⌘T), —
+  «auth landed in origin/master, squashed» / «Updated master: rebased 104 commits» без Update Project; несколько
+  слияний — один toast update'а на месте новейшего. Состояние, которое не новость само по себе (приземление, которое
+  sync нашёл после `bd update` или IDE), только заменяет открытый toast своего ключа и ничего не показывает без
+  него. Activity хранит запись каждого состояния. Rust-версия держит зелёными:
+  `tests/e2e/update-project/landing-toast.spec.ts` (`should turn the toast of a merge into what the update landed, in
+  place, when its Update Project is pressed`, `should turn the toast of a merge into what the update landed, in
+  place, when the update starts from the header`, `should say in the toast of a merge what a sync found landed after
+  an update outside the app`), `tests/e2e/patronus/patronus.spec.ts` (`should restart from the toast a Safe Push
+  whose builds never started`), `tests/e2e/landing/landing-overview.spec.ts` (`should count a running Safe Push whose
+  required check failed as a move, show it failing and cancel it from the toast`),
+  `tests/e2e/next-step/next-step.spec.ts` (`should turn the toast of the approval into the start of the branch, in
+  place, when the row starts it`), `tests/e2e/outgoing/outgoing.spec.ts` (`should tell a later push of the branch in
+  the toast of the first, in place: one toast per branch`), `tests/e2e/youtrack/issue-popover.spec.ts` (`should show
+  the issue of a key on hover, mark it fixed, and undo it from the toast`),
+  `tests/e2e/patronus/patronus-actions.spec.ts` (`should refuse the click with the push alone in its toast`); пока
+  механизм в TS — и `src/lib/event-toast.test.ts`, `src/lib/landing-toast.test.ts`.
 - **Удаляется** (по шагам выше; здесь — сумма этапа): IPC `start_patronus_robot`, `restart_patronus_robot`, `cancel_patronus_robot`,
   `get_patronus_robot_status`, `post_patronus_command`, `read_patronus_command_reply`, `check_target_conflict`,
   `check_landing_gate`, `push_branch`, `push_branches`, `retarget_pull_request`, `create_pull_request`,
@@ -2123,7 +2160,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
 - **Зависит от:** s10-registry-journal (допуск rewrite между процессами и приёмка «приложение + `bd`» идут через
   файл реестра), s9-engine-remote (движок, `Intent`, `Outcome.undo`).
 - **Объём и файлы:** `Rewrite(…)` и `UpdateProject`, `FetchBaseline`, `DismissLanded` оборачивают существующие
-  `*_core`; «длится до своего sync» — в движке; undo-токены; допуск rewrite в процессе и между процессами (rewrites
+  `*_core`; `Outcome` `UpdateProject` — следующее состояние toast'а слияния его репозитория (правило «Toast из
+  `Outcome`» [s9](#s9-engine-remote)); «длится до своего sync» — в движке; undo-токены; допуск rewrite в процессе и между процессами (rewrites
   `bd` регистрируются — закрывает пробел решения 4 `operations.md`); `preview_group` (R8), тело PR (R9), валидация
   имени (R10, debounce IPC; при заметной задержке — TS-проверка против оракула `src/test-support/branch-names.cases.json`,
   который пишет Rust-тест); `SignIn`/`SignOut` с `Channel<SignInEvent>` (`crates/github/src/device_flow.rs` уже есть).
