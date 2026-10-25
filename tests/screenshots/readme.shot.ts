@@ -8,20 +8,20 @@ import type { PullRequest } from "../../src/lib/bindings"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { expandBranch, findBranchRow } from "../e2e/helpers/branch-helpers"
 import type { PullRequestsFixture } from "../e2e/helpers/pull-request-helpers"
-import { pullRequest, reviewer } from "../e2e/helpers/pull-request-helpers"
+import { pullRequest, reviewer, VIEWER_LOGIN } from "../e2e/helpers/pull-request-helpers"
 import { routePush } from "../e2e/helpers/push-helpers"
 import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
 
 const SHOTS_DIR = process.env.SHOTS_DIR ?? path.join(import.meta.dirname, "../../docs/screenshots")
 const REPOSITORY = { owner: "acme", name: "notes" }
 
-/** A pull request of the branch `branch` of alex on acme/notes */
+/** A pull request of the branch `branch` of alex on acme/notes, by the signed-in user: the fake GitHub answers only those */
 function showcasePullRequest(branch: string, number: number, title: string, patch: Partial<PullRequest>): PullRequest {
   return pullRequest(branch, number, {
     title,
     url: `https://github.com/${REPOSITORY.owner}/${REPOSITORY.name}/pull/${number}`,
     headRefName: `alex/virtual/${branch}`,
-    author: "alex",
+    author: VIEWER_LOGIN,
     ...patch,
   })
 }
