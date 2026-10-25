@@ -11,6 +11,7 @@ use git_ops::lease_slot::lease_config;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::free_space::available_bytes;
+use lease_pool::host_slots::{HostSlotsParams, clean_host_slots};
 use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, Pool, SkipReason,
   SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
@@ -43,9 +44,11 @@ pub enum LeaseCommand {
   Status(LeaseStatusArgs),
   /// Add existing linked worktrees of this repository to the pool as free slots, where they are
   Adopt(LeaseAdoptArgs),
-  /// Apply the clean rules of `.branchdeck.toml` now: to the free slots, to worktrees, or to this checkout
+  /// Apply the clean rules of `.branchdeck.toml` now: to the free slots, to the idle host slots, to worktrees, or to
+  /// this checkout
   ///
-  /// It deletes what the rules name; --dry-run only reports. A slot with a lease or with a process in it is skipped
+  /// It deletes what the rules name; --dry-run only reports. A slot with a lease or with a process in it is skipped, and
+  /// a host slot that a run has
   Clean(LeaseCleanArgs),
 }
 
@@ -115,6 +118,9 @@ pub struct LeaseCleanArgs {
   /// Every free slot of the pool
   #[arg(long)]
   pub free: bool,
+  /// Every idle host slot (`bd host`), each with the rules of its own `.branchdeck.toml`
+  #[arg(long, conflicts_with_all = ["free", "dirs"])]
+  pub host: bool,
   /// Only say what the rules would free; nothing is deleted
   #[arg(long)]
   pub dry_run: bool,
@@ -781,17 +787,29 @@ pub struct CleanTargetOutput {
 /// `context` is of the checkout whose rules apply; a file that does not parse is `invalid_arguments`
 pub fn lease_clean(context: &LeaseContext, environment: &Environment, args: &LeaseCleanArgs) -> Result<LeaseCleanOutput, CliError> {
   let dirs: Vec<PathBuf> = args.dirs.iter().map(|dir| environment.cwd.join(dir)).collect();
-  let params = LeaseCleanParams {
-    repository: &context.dirs,
-    free: args.free,
-    dirs: &dirs,
-    apply: !args.dry_run,
-    overrides: args.overrides.overrides()?,
-    lock_timeout: context.lock_timeout,
-  };
+  let overrides = args.overrides.overrides()?;
   let volume = Path::new(&context.dirs.top_level);
   let before = available_bytes(volume);
-  let (targets, process_scan) = lease_clean_core(&context.git, &params).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+  let cleaned = if args.host {
+    let params = HostSlotsParams {
+      repository: &context.dirs,
+      home: environment.home.as_deref(),
+      lock_timeout: context.lock_timeout,
+      server_timeout: context.server_stop_timeout,
+    };
+    clean_host_slots(&context.git, &params, !args.dry_run, overrides)
+  } else {
+    let params = LeaseCleanParams {
+      repository: &context.dirs,
+      free: args.free,
+      dirs: &dirs,
+      apply: !args.dry_run,
+      overrides,
+      lock_timeout: context.lock_timeout,
+    };
+    lease_clean_core(&context.git, &params)
+  };
+  let (targets, process_scan) = cleaned.map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
   let volume_freed_bytes = match (before, available_bytes(volume)) {
     (Some(before), Some(after)) if !args.dry_run => Some(after.saturating_sub(before)),
     _ => None,
@@ -839,13 +857,14 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
     LeaseRefusal::UnlandedCommits { .. } => ErrorCode::UnlandedCommits,
     LeaseRefusal::DirtyWorktree { .. } | LeaseRefusal::DirtyCandidate { .. } => ErrorCode::DirtyWorktree,
     LeaseRefusal::BranchExists(_) => ErrorCode::BranchExists,
-    LeaseRefusal::InvalidBranch(_) | LeaseRefusal::InvalidSize { .. } => ErrorCode::InvalidArguments,
+    LeaseRefusal::InvalidBranch(_) | LeaseRefusal::InvalidSize { .. } | LeaseRefusal::ReservedHolder(_) => ErrorCode::InvalidArguments,
     LeaseRefusal::LowDiskSpace { .. } => ErrorCode::LowDiskSpace,
     LeaseRefusal::NotASlot { .. } => ErrorCode::NotASlot,
     LeaseRefusal::InPool(_) => ErrorCode::SlotInPool,
     LeaseRefusal::NoCommits(_) => ErrorCode::NoBaseline,
     LeaseRefusal::OtherVolume { .. } => ErrorCode::OtherVolume,
     LeaseRefusal::CannotMove { .. } => ErrorCode::GitError,
+    LeaseRefusal::HostSlot { .. } => ErrorCode::HostSlot,
   };
   let mut error = CliError::new(code, refusal.to_string());
   match refusal {
@@ -856,6 +875,7 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
         let _ = write!(error.message, "; `paths` lists the first {} of {}: `git status` lists all", error.paths.len(), paths.len());
       }
     }
+    LeaseRefusal::HostSlot { path, .. } => error.paths = vec![path.clone()],
     LeaseRefusal::SlotBusy { processes, .. } | LeaseRefusal::ServersRunning { processes, .. } => {
       error.extra = Some(Box::new(ErrorExtra {
         processes: processes_output(processes),

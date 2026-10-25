@@ -419,7 +419,8 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
    content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
    `processes`: each with `argv` and `kind`): a process of another session works in it (a shell, a build, a test run);
-   read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. A repeat after a timed-out call is
+   read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. `host_slot` (exit 4, `paths`):
+   the worktree is a host slot (holder `bd-host/<n>`) that the host lends to the runs of other machines, never yours. A repeat after a timed-out call is
    safe: it waits for the running return and answers `joined: true`. Not counted: your own session (bd, its ancestors
    and their process groups: the `jq` of `bd lease return | jq`), git's background maintenance (`maintenance`: a
    repack after a commit, which writes only the shared object store; `maintenance_started`: the return started it
@@ -433,7 +434,7 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    trash and deletes them once the slot is free; `clean_error` when the file does not parse, the return still
    succeeds); notes that must outlive the return go outside the paths of the rules:
    `bd lease return --no-clean` applies none, and `bd lease return --keep <n> --age <duration>` changes every cargo
-   rule for this call. `bd lease clean` applies the rules now (--free: the free slots; --dry-run only reports;
+   rule for this call. `bd lease clean` applies the rules now (--free: the free slots; --host: the idle host slots; --dry-run only reports;
    --keep, --age as for the return). The rules are the user's choice: pass `bd lease return --no-clean` only when
    the user asks. `bd lease adopt <dir>...` adds clean linked worktrees of the repository as
    free slots, where they are, or with --move in the pool directory (`moved_from`; the same volume only,

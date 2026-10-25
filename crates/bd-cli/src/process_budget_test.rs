@@ -27,6 +27,7 @@ use bd_rewrite::rewrite::{GroupArgs, RewriteArgs, group};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use domain_types::{ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use lease_pool::host_slots::{HostSlotsParams, LendAnswer, LendRequest, ShrinkOutcome, fill, give_back, lend, shrink};
 use lease_pool::lease::{GetStep, Pool, canonical_path};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -567,6 +568,56 @@ fn a_lease_return_that_starts_the_maintenance() {
   let returned = lease_return(&context, &LeaseReturnArgs::default()).unwrap();
   assert!(returned.maintenance_started, "{returned:?}");
   assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("maintenance", 1), ("rev-parse", 2), ("status", 1)]);
+}
+
+/// The host slots of `bd host`, each step after the `rev-parse` of its context: a fill of a free slot reads the config of
+/// the host slots, then gets the slot as `bd lease get` does; a lend runs no git; a give-back reads the config and one `status`, and only a dirty slot adds `reset` and
+/// `clean`; a shrink reads the config, one `status` and one `checkout` of the leased commit, then returns the slot as
+/// `bd lease return` does
+#[test]
+fn the_host_slots_lend_give_back_and_shrink() {
+  let repo = repo_with_branches();
+  let path = repo.path().to_str().unwrap();
+  repo.git_executor().execute_command(&["config", "branchdeck.hostSlots", "1"], path).unwrap();
+  let (home, environment) = lease_environment(&repo);
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let added = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  lease_return(
+    &LeaseContext::resolve(&environment, Some(std::path::Path::new(&added.path))).unwrap(),
+    &LeaseReturnArgs::default(),
+  )
+  .unwrap();
+  let host = |run: &dyn Fn(&GitCommandExecutor, &HostSlotsParams<'_>)| {
+    let context = LeaseContext::resolve(&environment, None).unwrap();
+    let params = HostSlotsParams {
+      repository: &context.dirs,
+      home: Some(home.path()),
+      lock_timeout: context.lock_timeout,
+      server_timeout: context.server_stop_timeout,
+    };
+    run(&context.git, &params);
+    context.git
+  };
+  let pid = std::process::id();
+  let request = LendRequest {
+    run: "run-1",
+    pid,
+    process_started: sync_utils::process_scan::process_started(pid),
+    affinity: None,
+  };
+
+  let git = host(&|git, params| assert!(fill(git, params, None).unwrap()[0].reused));
+  assert_git_processes(&git, &[("checkout", 1), ("config", 2), ("rev-parse", 2), ("status", 1)]);
+  let git = host(&|_, params| assert!(matches!(lend(params, &request).unwrap(), LendAnswer::Lent(_))));
+  assert_git_processes(&git, &[("rev-parse", 1)]);
+  let git = host(&|git, params| assert_eq!(give_back(git, params, 1, "run-1").unwrap().discarded, Vec::<String>::new()));
+  assert_git_processes(&git, &[("config", 1), ("rev-parse", 1), ("status", 1)]);
+  host(&|_, params| assert!(matches!(lend(params, &request).unwrap(), LendAnswer::Lent(_))));
+  std::fs::write(std::path::Path::new(&added.path).join("untracked.txt"), "x\n").unwrap();
+  let git = host(&|git, params| assert_eq!(give_back(git, params, 1, "run-1").unwrap().discarded, ["untracked.txt"]));
+  assert_git_processes(&git, &[("clean", 1), ("config", 1), ("reset", 1), ("rev-parse", 1), ("status", 1)]);
+  let git = host(&|git, params| assert!(matches!(shrink(git, params, 0).unwrap()[0].outcome, ShrinkOutcome::Returned(_))));
+  assert_git_processes(&git, &[("checkout", 1), ("config", 2), ("log", 1), ("rev-parse", 2), ("status", 2)]);
 }
 
 /// `bd workspace` in the shared checkout: the repository, the `branchdeck.*` config, the pool config and one `status` of

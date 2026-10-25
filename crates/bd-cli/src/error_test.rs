@@ -69,6 +69,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::NotASlot, 2, false),
   (ErrorCode::SlotInPool, 2, false),
   (ErrorCode::SlotBusy, 4, false),
+  (ErrorCode::HostSlot, 4, false),
   (ErrorCode::UnlandedCommits, 4, false),
   (ErrorCode::DirtyWorktree, 4, false),
   (ErrorCode::BranchExists, 4, false),

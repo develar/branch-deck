@@ -9,6 +9,8 @@ pub mod workspace_command;
 #[cfg(test)]
 mod clones_lock_test;
 #[cfg(test)]
+mod host_slots_test;
+#[cfg(test)]
 mod lease_clean_test;
 #[cfg(test)]
 mod lease_test;

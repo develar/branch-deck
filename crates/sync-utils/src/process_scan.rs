@@ -264,8 +264,20 @@ pub fn processes_with_open_file(path: &Path) -> Option<Vec<u32>> {
 
 /// Ask the process `pid` to exit with SIGTERM; false when the signal could not be sent (gone, another user's, no
 /// signals on this platform)
+#[cfg_attr(
+  not(any(target_os = "macos", target_os = "linux")),
+  expect(clippy::missing_const_for_fn, reason = "const only where there are no signals")
+)]
 pub fn terminate(pid: u32) -> bool {
-  scan::terminate(pid)
+  signal(pid, false)
+}
+
+/// Kill the process `pid` with SIGKILL, only while it still has the start time `started`: between a scan and the
+/// signal the process can exit and the system can give its pid to an unrelated one. A start time is required, since
+/// `is_running` without one counts any live process of the pid. False when it was not signalled (gone, another
+/// process now, another user's, no signals on this platform)
+pub fn kill(pid: u32, started: u64) -> bool {
+  is_running(pid, Some(started)) && signal(pid, true)
 }
 
 /// Whether the process that had `pid` and started at `started` still runs. A process whose start the system won't tell
@@ -290,7 +302,7 @@ use platform as scan;
 use unscanned as scan;
 
 /// What only the scans of macOS and Linux tell, where a platform has none (Windows and the rest): no wall clock of a
-/// start without a `ProcessInfo`, no holders of a file, no signals
+/// start without a `ProcessInfo`, no holders of a file (no signals either: `signal`)
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod unscanned {
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
@@ -301,11 +313,6 @@ mod unscanned {
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
   pub(super) fn processes_with_open_file(_path: &std::path::Path) -> Option<Vec<u32>> {
     None
-  }
-
-  #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
-  pub(super) fn terminate(_pid: u32) -> bool {
-    false
   }
 }
 
@@ -325,13 +332,20 @@ fn unix_exists(pid: u32) -> bool {
   unsafe { libc::kill(pid, 0) == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
 }
 
-/// SIGTERM through `kill(2)`
+/// SIGTERM, or with `kill` SIGKILL, through `kill(2)`
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[expect(unsafe_code, reason = "kill(2), which std offers only as SIGKILL of a child")]
-fn unix_terminate(pid: u32) -> bool {
+fn signal(pid: u32, kill: bool) -> bool {
   let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+  let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
   // SAFETY: kill(2) takes plain integers and touches no memory of this process
-  unsafe { libc::kill(pid, libc::SIGTERM) == 0 }
+  unsafe { libc::kill(pid, signal) == 0 }
+}
+
+/// No signals elsewhere
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const fn signal(_pid: u32, _kill: bool) -> bool {
+  false
 }
 
 #[cfg(target_os = "macos")]
@@ -392,10 +406,6 @@ mod platform {
 
   const fn start_time(info: &libc::proc_bsdinfo) -> u64 {
     info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
-  }
-
-  pub(super) fn terminate(pid: u32) -> bool {
-    super::unix_terminate(pid)
   }
 
   /// The arguments of `pid` from `sysctl(KERN_PROCARGS2)`: `argc`, the executable path, padding, then `argc` strings,
@@ -559,10 +569,6 @@ mod platform {
   /// but this process runs where a sandbox hides `/proc` from it
   pub(super) fn runs_unseen(pid: u32) -> bool {
     super::process_info_denied() && pid == std::process::id()
-  }
-
-  pub(super) fn terminate(pid: u32) -> bool {
-    super::unix_terminate(pid)
   }
 
   /// The fields of `/proc/<pid>/stat` the scan needs

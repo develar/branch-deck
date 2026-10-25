@@ -1629,6 +1629,56 @@ process is told apart there too.
 Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/clone_dir.rs`,
 `crates/lease-pool/src/free_space.rs`, `crates/sync-utils/src/process_scan.rs`, `crates/bd-lease/src/lease_command.rs`.
 
+##### Host slots
+
+`bd host` (IJAI-4792) runs a command of a checkout on another Mac in a slot of that host's pool. Its predecessor,
+yonder, made a host slot the property of one local checkout for 8 hours. So the slot count had no bound, and on
+2026-10-24 fourteen gets cloned the monorepo at once (the clones lock above now prevents that). A remote slot holds no
+state of its own: the commit comes from the client, and the outputs go back to it. So a slot is free once its run
+ended, and the host keeps a fixed set of warm slots that runs borrow (`crates/lease-pool/src/host_slots.rs`; its agent
+and the network come with `bd host`).
+
+The slots are plain `ready` leases of the holders `bd-host/<n>`, so `leases.json` keeps its format. A get never takes
+them, a clean of the free slots skips them, and an older bd or the app reads the pool as before. Who has a slot now is
+the lend table, `branch-deck/host-slots.json`, a file of its own beside the pool state (`state_file`, the same atomic
+writes):
+
+| State | Meaning | Taken up when its process is gone |
+|---|---|---|
+| `idle` | ready for a run | — |
+| `lent` | a run has it, since `since_ms` | `reclaim` gives it back |
+| `filling` | its get runs | the record goes |
+| `giving_back` | the processes of the run stop, the changes go | `reclaim` gives it back again |
+| `cleaning` | the clean rules run | `reclaim` cleans it again |
+| `shrinking` | it goes back to the pool | `reclaim` returns it again |
+| `quarantined` | a process older than the lend, or one that outlived SIGKILL, works in it | `reclaim` once that process is gone |
+
+Its lock, `host-slots.lock`, is a leaf: it is held while the table changes, never across git, a get, a scan or another
+lock of the pool. So the order host slots, clones, pool, worktrees holds by itself. The hand return reads the table
+without the lock. A lend is lent again only after a give-back, never straight away when its process died: the run may
+have left processes and changes, which is why `reclaim` gives an abandoned lend back first. The table names a slot by
+its lease id, never by its path, since a record that a crashed shrink left behind would otherwise refuse the return of
+a session that leased the same path since.
+
+A lend gives the run the idle slot of its affinity (the checkout it comes from), else the idle slot used longest ago,
+else a first-come queue. It does not rank slots by the distance between trees, because the commit can arrive after the
+start. The give-back runs off the client's path:
+1. It stops the processes that started in the slot after the lend: SIGTERM, then after 10 s SIGKILL
+   (`process_scan::kill`, which signals a pid only while it has the start time of the scan).
+2. It keeps the Bazel servers of the slot, and never signals an older process. On Linux the start of a process is
+   known to the second, so a process counts as the run's only a second after the lend.
+3. What is left quarantines the slot. Else the changes go, only when `status` shows any (`discard_slot_changes`: on
+   the monorepo an unconditional `reset --hard` stats 1.4M files), and the ignored files stay as the warm cache.
+4. Then the clean rules of the slot run when they are due. They are due when what they would free (`Measure`, not the
+   size of the directories, whose kept units would stay above any limit) passes `branchdeck.hostSlotMaxSize`, or when
+   the volume runs low. Without that size, they run after 50 runs or 7 days.
+
+A shrink checks the slot out at the commit it was leased at. That commit is the base of `unlanded_commits`, so the
+snapshot commits of the runs never refuse the return, and the return needs no `--confirm-preserved`. A shrink also
+works without the agent: an abandoned state is free to it. A hand `bd lease return` of a host slot is refused as
+`host_slot` before any git. The slot git stays `checkout_slot` and `discard_slot_changes` of `lease_slot.rs`, and no
+new call joins the working-tree scan.
+
 #### Virtual branch sync
 
 Virtual branches never touch HEAD, the index or the working tree.

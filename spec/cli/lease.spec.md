@@ -1,6 +1,6 @@
 ---
 name: bd lease
-description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand.
+description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand; the host slots of bd host are leases of the pool that a lend table lends to one run at a time.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/lease_command.rs
@@ -8,6 +8,8 @@ targets:
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/lease-pool/src/lease.rs
+  - ../../crates/lease-pool/src/host_slots.rs
+  - ../../crates/lease-pool/src/state_file.rs
   - ../../crates/lease-pool/src/lease_clean.rs
   - ../../crates/lease-pool/src/clone_dir.rs
   - ../../crates/lease-pool/src/free_space.rs
@@ -369,13 +371,70 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   path, so a moved slot starts with a new, cold output base, and the old one stays on disk until the user deletes it.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`adopt_with_move_moves_the_worktree_into_the_pool`)
 
+### Host slots
+
+The slots that `bd host` keeps for the runs of other machines (IJAI-4792): its agent (`bd host serve`, to come) calls
+these functions of `lease_pool::host_slots` on the host. A remote slot holds no state of its own, since the commit
+comes from the client and the outputs go back to it, so a slot is lent to one run for the duration of that run only.
+
+- A fill must lease the missing host slots up to `branchdeck.hostSlots` (git config of the host, 4 by default) as plain
+  `ready` leases of the holders `bd-host/1`, `bd-host/2`, … at the HEAD of the host checkout, detached, through the get
+  of the pool (a free slot reused, one clone at a time). `leases.json` keeps its format, so another bd and the app read
+  the pool as before. A plain `bd lease get` never takes a host slot, `bd lease clean --free` skips it, the hint at idle
+  leases does not name it, and a get with a holder `bd-host/…` is refused as `invalid_arguments`.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_alone`)
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_lease_keeps_the_format_of_leases_json`)
+- The lend table is `$GIT_COMMON_DIR/branch-deck/host-slots.json`, written only under `host-slots.lock`, a leaf lock:
+  held while the table changes, never across git, a clone, a process scan or another lock of the pool. Every state of
+  a slot but `idle` and `quarantined` names the process that acts on it (`lent`, `filling`, `giving_back`, `cleaning`,
+  `shrinking`); once that process is gone, the state is abandoned.
+- A lend must give the run the idle slot that its affinity (`checkout-<12 hex>` of the client's checkout) used last,
+  else the idle slot used longest ago, else put the run in a first-come queue; a run gets a slot when fewer runs wait
+  before it than slots are idle. A repeat of a lend gets the same slot. A ticket of a gone process leaves the queue.
+  An abandoned lend is not lent again before `reclaim` gave it back. Each waiting run must be a process of its own
+  (the supervisor of the run), since its ticket lasts as long as its process.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_run_gets_the_slot_of_its_affinity_else_the_one_used_longest_ago_else_waits_in_line`)
+- A give-back must stop the processes in the slot that started after the lend (SIGTERM, up to 10 s, then SIGKILL, each
+  only while its pid has the start time of the scan), leave its Bazel servers, and never signal a process older than
+  the lend. A process left after that quarantines the slot: no run gets it, the queue answer names the process, and
+  `reclaim` gives the slot back once the process is gone. Else the changes are discarded (`reset --hard`, `clean -fd`,
+  only when `status` shows any; the ignored files stay as the warm cache). Without a process scan (Windows) it goes on
+  and answers `processes_checked: false`.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_give_back_stops_the_processes_of_the_run_and_quarantines_the_slot_for_an_older_one`)
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`an_abandoned_lend_is_given_back_by_reclaim_before_another_run_gets_the_slot`)
+- After a give-back, the clean rules of the slot's own `.branchdeck.toml` must run when they are due: with
+  `branchdeck.hostSlotMaxSize`, when what they would free passes it, or when the volume has less free space than
+  `branchdeck.leaseMinFree` plus it; without it, after 50 runs or 7 days since the last clean, or when the volume has
+  less than `branchdeck.leaseMinFree`. `bd lease clean --host` cleans every idle host slot now (`--dry-run` only
+  measures) and skips a slot that is not idle or has a process in it, with the reason; it conflicts with `--free` and
+  `DIR`.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs`)
+- A shrink to a count must give the host slots past it back to the pool and keep the count as the limit of later
+  fills until it is lifted. It takes a slot that is idle, in quarantine or abandoned, also without a running
+  `bd host serve`, and refuses a slot that a live process has. It signals no process (a process in the slot refuses
+  it), discards the changes, checks the slot out at the commit it was leased at, so the snapshot commits of the runs
+  count as landed, and returns it through the return of the pool without `--confirm-preserved`.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_shrink_returns_the_host_slots_past_the_count_also_without_the_agent`)
+- `reclaim` must take up what no process acts on: drop the record of a fill that died before its get, give back an
+  abandoned lend or give-back, run an abandoned clean or shrink again, and return a `bd-host/<n>` lease that the table
+  does not name and whose number no live fill holds.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`reclaim_drops_a_dead_fill_and_returns_a_lease_the_table_does_not_name`)
+- A hand `bd lease return` of a host slot (its holder is `bd-host/<n>`, or the table names its lease id) must be refused
+  as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `bd host slots --shrink`, which comes with
+  `bd host`.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_hand_return_of_a_host_slot_is_refused`)
+- A lend runs no git, a give-back one `status` (plus `reset` and `clean` for a dirty slot), a shrink one `status`, one
+  `checkout` and the processes of a return.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
+  [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_kill_signals_only_the_process_that_has_the_start_time`)
+
 ### Error codes
 
 | Exit | Codes |
 |---|---|
 | 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
-| 4 | `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits) |
+| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits) |
 
 - The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
@@ -390,7 +449,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 - `cargo nextest run -p bd-lease lease_test` runs the commands end to end on `TestRepo` fixtures, the pool in a
   temporary home directory, `cargo nextest run -p bd-lease clones_lock_test` the gets beside a get that adds a slot
-  (one held at its registration by a wrapped git, one holder a child process that the test kills);
+  (one held at its registration by a wrapped git, one holder a child process that the test kills),
+  `cargo nextest run -p bd-lease host_slots_test` the host slots;
   `cargo nextest run -p lease-pool lease_test` runs the seed patterns and `cargo nextest run -p sync-utils
   process_scan_test` the process scan.
 

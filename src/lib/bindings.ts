@@ -1676,6 +1676,11 @@ export type ErrorCode =
  */
 "slot_busy" | 
 /**
+ *  `bd lease return`: the slot is one of the host slots that `bd host` keeps for its runs (`n`); `bd host slots
+ *  --shrink <n>` gives it back to the pool. Nothing was changed
+ */
+"host_slot" | 
+/**
  *  `bd lease return`: HEAD has commits that no branch, tag or remote branch holds (`commits`): land them first
  *  (`bd pick --from <worktree> --follow` in the shared checkout), or `--confirm-preserved` gives them up
  */

@@ -153,3 +153,18 @@ fn the_session_is_the_ancestors_and_their_groups() {
   };
   assert_eq!(scan.session().map(|process| process.pid), Some(100));
 }
+
+/// A kill names the start time of the process it means: another start time (the pid of a process that exited, given to
+/// another one) is never signalled, the right one is killed at once
+#[cfg(unix)]
+#[test]
+fn a_kill_signals_only_the_process_that_has_the_start_time() {
+  use crate::process_scan::kill;
+  let mut child = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+  let started = process_started(child.id()).unwrap();
+  assert!(!kill(child.id(), started + 1), "another start time is another process");
+  assert!(is_running(child.id(), Some(started)));
+  assert!(kill(child.id(), started));
+  let status = child.wait().unwrap();
+  assert!(!status.success());
+}

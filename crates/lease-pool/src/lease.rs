@@ -7,11 +7,15 @@
 //! pool adds one slot at a time. The `worktree` commands of the pool, which git can't run two at once, take a lock of
 //! their own (`worktrees.lock`, `Pool::worktree_command`). The order is `clones.lock`, `leases.lock`, `worktrees.lock`:
 //! a get takes the other two under the clones lock, the move of an adopt the lock of the `worktree` commands under the
-//! pool lock; nothing takes the clones lock under another lock of the pool, and a return or a clean never takes it.
+//! pool lock; nothing takes the clones lock under another lock of the pool, and a return or a clean never takes it. The
+//! lock of the lend table of the host slots (`host-slots.lock`, `host_slots`) comes before all three and is a leaf: it is
+//! never held while another is taken.
 
 use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::available_bytes;
+use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, parse_size, read_clean_rules, remove_together};
+use crate::state_file::StateFile;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
@@ -20,7 +24,7 @@ use git_ops::lease_slot::{
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, short_id};
-use history_rewrite::repository_lock::{LockHolder, RepositoryLock, lock_file, lock_file_while_held};
+use history_rewrite::repository_lock::{LockHolder, RepositoryLock, lock_file_while_held};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -29,13 +33,11 @@ use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::baseline::baseline_tracking_ref;
-use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use tracing::{debug, instrument, warn};
 
-const STATE_DIR: &str = "branch-deck";
 const STATE_FILE: &str = "leases.json";
 const LOCK_FILE: &str = "leases.lock";
 /// The trash of the returns and the cleans, in `branch-deck/` of the common dir (`lease_clean::Trash`)
@@ -191,7 +193,8 @@ fn idle_leases(store: &LeaseStore) -> Vec<IdleLease> {
     .iter()
     .filter_map(|slot| {
       let lease = slot.lease.as_ref()?;
-      (lease.state == LeaseState::Ready && lease.holder_alive() == Some(false)).then(|| IdleLease {
+      // a host slot is idle between runs by design: `bd host slots --shrink` gives it back, never a hand return
+      (lease.state == LeaseState::Ready && lease.holder_alive() == Some(false) && !lease.holder.starts_with(HOST_HOLDER_PREFIX)).then(|| IdleLease {
         path: slot.path.clone(),
         holder: lease.holder.clone(),
       })
@@ -253,6 +256,12 @@ pub enum LeaseRefusal {
   OtherVolume { path: String, pool: String },
   #[error("Cannot move {path} into the pool: {reason}")]
   CannotMove { path: String, reason: String },
+  #[error(
+    "{path} is host slot {n}, which `bd host` lends to the runs of other machines; `bd host slots --shrink <count>` on this host gives the host slots past the count back to the pool"
+  )]
+  HostSlot { path: String, n: u32 },
+  #[error("The holder {0:?} is reserved: `bd host` names its host slots `{HOST_HOLDER_PREFIX}<n>`")]
+  ReservedHolder(String),
 }
 
 fn describe_processes(processes: &[BusyProcess]) -> String {
@@ -285,31 +294,26 @@ fn describe_idle(idle: &[IdleLease]) -> String {
 
 /// The pool state of one repository: its file and its lock in `$GIT_COMMON_DIR/branch-deck/`
 pub struct Pool {
-  dir: PathBuf,
+  state: StateFile,
 }
 
 impl Pool {
   /// The pool of the repository whose `$GIT_COMMON_DIR` is `git_common_dir`
   pub fn new(git_common_dir: &Path) -> Self {
     Self {
-      dir: git_common_dir.join(STATE_DIR),
+      state: StateFile::new(git_common_dir, STATE_FILE, LOCK_FILE, "the lease state"),
     }
   }
 
   /// The state, without the lock: the file is replaced by a rename, so a read sees one whole state. A missing file is an
   /// empty pool
   pub fn read(&self) -> Result<LeaseStore> {
-    let path = self.dir.join(STATE_FILE);
-    match std::fs::read(&path) {
-      Ok(bytes) => serde_json::from_slice(&bytes).with_context(|| format!("Cannot read the lease state {}", path.display())),
-      Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(LeaseStore::default()),
-      Err(error) => Err(anyhow!(error).context(format!("Cannot read the lease state {}", path.display()))),
-    }
+    self.state.read()
   }
 
   /// The trash of the returns and the cleans (`lease_clean::Trash`)
   pub fn trash_dir(&self) -> PathBuf {
-    self.dir.join(TRASH_DIR)
+    self.state.dir().join(TRASH_DIR)
   }
 
   /// The bytes on disk of what the trash holds: what a run killed before its delete left behind
@@ -319,14 +323,7 @@ impl Pool {
 
   /// Run `change` on the state under the pool lock and write the state it leaves; the lock is released at once
   pub fn update<T>(&self, timeout: Duration, change: impl FnOnce(&mut LeaseStore) -> Result<T>) -> Result<T> {
-    let _lock = self.lock(timeout)?;
-    let mut store = self.read()?;
-    let before = store.clone();
-    let result = change(&mut store)?;
-    if store != before {
-      self.write(&store)?;
-    }
-    Ok(result)
+    self.state.update(timeout, change)
   }
 
   /// Run the `worktree` command `command` under the lock of the pool's `worktree` commands (`worktrees.lock`): git
@@ -337,7 +334,7 @@ impl Pool {
   /// every get and return; the move of an adopt takes this lock inside the pool lock, and nothing takes the pool lock
   /// inside this one
   pub fn worktree_command<T>(&self, timeout: Duration, command: impl FnOnce() -> Result<T>) -> Result<T> {
-    let _lock = self.lock_at(WORKTREES_LOCK_FILE, timeout, "waiting for the lock of the pool's worktree commands")?;
+    let _lock = self.state.lock_at(WORKTREES_LOCK_FILE, timeout, "waiting for the lock of the pool's worktree commands")?;
     command()
   }
 
@@ -349,23 +346,9 @@ impl Pool {
   /// killed meanwhile frees the lock with its process, and a lock no record names a live holder of refuses after
   /// `unknown_timeout` (`RepositoryLocked`). `on_holder` hears the holder when it changes and about once a second
   pub fn lock_clones(&self, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder)) -> Result<RepositoryLock> {
-    std::fs::create_dir_all(&self.dir).with_context(|| format!("Cannot create {}", self.dir.display()))?;
-    lock_file_while_held(self.dir.join(CLONES_LOCK_FILE), unknown_timeout, on_holder, &|| false)
-  }
-
-  fn lock(&self, timeout: Duration) -> Result<RepositoryLock> {
-    self.lock_at(LOCK_FILE, timeout, "waiting for the lease pool lock")
-  }
-
-  fn lock_at(&self, name: &str, timeout: Duration, waiting: &str) -> Result<RepositoryLock> {
-    std::fs::create_dir_all(&self.dir).with_context(|| format!("Cannot create {}", self.dir.display()))?;
-    lock_file(self.dir.join(name), timeout, &|| debug!("{waiting}"))
-  }
-
-  /// A temporary file and a rename (`write_atomically`): a reader sees the old state or the new one
-  fn write(&self, store: &LeaseStore) -> Result<()> {
-    let path = self.dir.join(STATE_FILE);
-    write_atomically(&path, &serde_json::to_vec_pretty(store)?, AtomicWrite::default()).with_context(|| format!("Cannot write {}", path.display()))
+    let dir = self.state.dir();
+    std::fs::create_dir_all(dir).with_context(|| format!("Cannot create {}", dir.display()))?;
+    lock_file_while_held(dir.join(CLONES_LOCK_FILE), unknown_timeout, on_holder, &|| false)
   }
 }
 
@@ -567,8 +550,23 @@ enum Reserved {
 /// meanwhile wins. Else, under the lock until the slot is ready, a clone of a template without what the `delete` rules
 /// delete (`add_cloned_slot`), else a registration and the only full checkout. A failure after the lease was recorded
 /// gives the slot back
+///
+/// The holders `bd-host/<n>` are the host slots' (`host_slots`), which only `host_slots::fill` gets: another get with
+/// such a holder is refused (`ReservedHolder`)
 #[instrument(skip_all, fields(source = %params.source.top_level))]
 pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
+  if let Some(holder) = params.holder.as_ref().filter(|holder| holder.starts_with(HOST_HOLDER_PREFIX)) {
+    bail!(LeaseRefusal::ReservedHolder(holder.clone()));
+  }
+  get_lease(git_executor, params)
+}
+
+/// The get of a host slot (`host_slots::fill`), with its holder `bd-host/<n>`
+pub(crate) fn get_host_slot(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
+  get_lease(git_executor, params)
+}
+
+fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
   let report = |step: GetStep| {
     if let Some(progress) = params.progress {
       progress(step);
@@ -1462,7 +1460,28 @@ pub struct LeaseReturned {
 /// A repeat joins: while another return of the same lease runs (a retry after a timeout), this one waits for it and
 /// answers `joined` once it freed the slot, or returns the lease itself once it failed; a return that another return
 /// of its lease overtook answers `joined` too and changes nothing
+///
+/// A host slot (`host_slots`: its holder is `bd-host/<n>`, or the lend table names its lease) is refused (`HostSlot`):
+/// `bd host` lends it to its runs, and only its shrink gives it back
 pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>) -> Result<LeaseReturned> {
+  return_lease(git_executor, params, ReturnAs::Hand)
+}
+
+/// The return of a host slot by `host_slots::shrink`, which a hand return is refused
+pub(crate) fn return_host_slot(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>) -> Result<LeaseReturned> {
+  return_lease(git_executor, params, ReturnAs::HostSlot)
+}
+
+/// Who returns a lease
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReturnAs {
+  /// `bd lease return`: a host slot is refused
+  Hand,
+  /// The shrink of the host slots
+  HostSlot,
+}
+
+fn return_lease(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>, returning_as: ReturnAs) -> Result<LeaseReturned> {
   let mut path = canonical_path(Path::new(&params.workspace.top_level));
   let pool = Pool::new(Path::new(&canonical_path(Path::new(&params.workspace.git_common_dir))));
   if let (true, Some(lease_id)) = (params.find_by_lease_id, params.lease_id)
@@ -1474,7 +1493,7 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
   let mut waited_for: Option<Slot> = None;
   loop {
     let mut checked = None;
-    let step = match return_once(git_executor, params, &pool, &path, waited_for.as_ref(), &mut checked) {
+    let step = match return_once(git_executor, params, returning_as, &pool, &path, waited_for.as_ref(), &mut checked) {
       Ok(step) => step,
       // a check refused the slot after another return of the lease gave it back (a get may have leased it again):
       // the refusal is of the next lease, the lease of this return was returned
@@ -1565,6 +1584,7 @@ fn wait_while_returning(pool: &Pool, path: &str, lease_id: &str) -> Result<()> {
 fn return_once(
   git_executor: &GitCommandExecutor,
   params: &LeaseReturnParams<'_>,
+  returning_as: ReturnAs,
   pool: &Pool,
   path: &str,
   waited_for: Option<&Slot>,
@@ -1592,6 +1612,11 @@ fn return_once(
       expected: expected.to_string(),
       actual: lease.id,
     });
+  }
+  if returning_as == ReturnAs::Hand
+    && let Some(n) = host_slot_number(Path::new(&params.workspace.git_common_dir), &lease)?
+  {
+    bail!(LeaseRefusal::HostSlot { path, n });
   }
   match refusal_to_return(&path, &lease) {
     Some(LeaseRefusal::Returning { .. }) => return Ok(ReturnStep::WaitFor(Box::new(slot))),
