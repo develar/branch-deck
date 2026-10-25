@@ -54,14 +54,16 @@ not (measured on the same page, Islands Light, 13px Inter):
 Two local changes apply to every primitive:
 
 - **No text size.** The stock Mira sets 10 and 12px (`text-xs/relaxed`, `text-[0.625rem]`) on its parts. Branch Deck's
-  UI text is 13px: `body` is `text-sm`, and a container sets another step of the type scale where it needs one. Only a
-  chip (`Badge`), a key hint (`Kbd`) and the labels of a chart keep `text-xs`, their step of the type scale; a 20px chip
-  clips the descenders of 13px text. The icons of a button are one step larger than the stock for the 13px text.
+  UI text is 13px: `body` is `text-sm`, and a container sets another step of the type scale where it needs one. A chip
+  (`Badge`), a key hint (`Kbd`), an `xs` button, the group label of a menu or a select and the labels of a chart keep
+  `text-xs`, their step of the type scale; a 20px chip clips the descenders of 13px text. A tooltip is 13px, the UI font,
+  as in the IDE. The icons of a button are one step larger than the stock for the 13px text.
 - **No field fill.** Mira fills a field with `bg-input/20` (`dark:bg-input/30`) inside its border. Here `--input` is the
   border, and a field is its edge only, as in the IDE ([Palette](#palette)).
 
-A branch row stays 36px: its folder button is the 24px `icon-sm`, so the names and the commit subjects under them stay
-where they were.
+An `xs` control is 24px, the compact size of the IDE (`Button.minimumSize.compact`), not the 20px of the stock; `sm` is
+24px too, the default 28px. So a branch row stays 36px around its 24px folder button (`icon-xs`), and the names and the
+commit subjects under them stay where they were.
 
 ### Layering
 
@@ -116,6 +118,7 @@ The palette comes from the Islands themes of the IDE, not from hand-copied value
 | `--border` | `separatorColor`: `dialog-border`, `popup-border` | `#E9EAEE` | `#33353B` |
 | `--input` | `gray-80` | `#73767C` | `#73767C` |
 | `--control-edge` | `--input`; `gray-90` | `#73767C` | `#8B8E94` |
+| `--button-border` | `control-border` (`Button.startBorderColor`) | `#D1D3D9` | `#40434A` |
 | `--primary` | `text-link` | `#2F5EB9` | `#71A1FE` |
 | `--success` | `green-70`; `text-success` | `#2A6E47` | `#6DB083` |
 | `--warning` | `yellow-70`; `text-warning` | `#875817` | `#D59637` |
@@ -149,8 +152,10 @@ Where the tokens leave the Islands keys, and why (the ratios measured on the val
     diff), in a popup (a dialog, the review request) and on the hover of a row in a popup (the code owners of a review
     request), never on the canvas. In light it is `--input`, 4.1:1 on the hover. In dark it is one step lighter,
     `gray-90`: `gray-80` has 2.7:1 on the hover, `gray-90` 5.3:1 on the island, 4.5:1 in a popup and 3.8:1 on the hover.
-  - An outline button keeps the faint `border-border` of the stock and its solid `bg-background`: its label identifies
-    it, and its fill keeps it a field on the canvas.
+  - An outline button has the border of an IDE button, `--button-border` (`control-border`), and a solid
+    `bg-background`, on the canvas and on an island alike. Its label identifies it, so it needs no 3:1 edge, but on the
+    canvas its white fill alone is 1.2:1, and the stock `border-border` is the colour of the canvas: the border shows the
+    button there (1.3:1 on the canvas, 1.5:1 on the island in light).
 - **An `Alert` mixes the tint of its tone with the card** (`color-mix(in srgb, var(--destructive) 10%, var(--card))`),
   and its description has the full tone. An alert lies on the canvas: the translucent tint over `#E9EAEE` gave its title
   3.4:1 and its description, at 90% of the tone, 3.0:1. On the card colour they have 5.3:1. A `Callout` and a `Badge`
@@ -421,6 +426,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 - **Anything that opens on hover or click is a button**: a help icon, a hash or a time with a popover, the AI toggle.
   Base UI triggers render a `button` by default; never a `span` trigger with `nativeButton={false}`, which the keyboard
   cannot reach.
+- **A sidebar selects as an IDE list** (the pages of Settings, the `list` variant of `TabsList`): the selected page is
+  `bg-primary/15`, and `bg-primary/25` while the list has the focus, without a focus ring. With `activateOnFocus` the
+  focus is always on the selected page, and the window focuses it when it opens.
 - **Focus ring**: `outline-none focus-visible:ring-3 focus-visible:ring-ring/30` with a radius (`rounded-sm` on inline
   text, `rounded-lg` on a row or a header), as the shadcn controls draw it.
 - **`data-state` is Base UI's open/closed vocabulary** (set by hand where E2E reads it); the domain state of a component

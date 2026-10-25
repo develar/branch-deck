@@ -1,4 +1,4 @@
-// local customisation: no text size (the container sets it)
+// local customisation: no text size (the container sets it); a group label `text-xs`, the meta step of the type scale
 "use client"
 
 import * as React from "react"
@@ -151,7 +151,7 @@ function MenubarLabel({
 }: React.ComponentProps<typeof DropdownMenuLabel> & {
   inset?: boolean
 }) {
-  return <DropdownMenuLabel data-slot="menubar-label" data-inset={inset} className={cn("px-2 py-1.5 text-muted-foreground data-inset:pl-7.5", className)} {...props} />
+  return <DropdownMenuLabel data-slot="menubar-label" data-inset={inset} className={cn("px-2 py-1.5 text-xs text-muted-foreground data-inset:pl-7.5", className)} {...props} />
 }
 
 function MenubarSeparator({ className, ...props }: React.ComponentProps<typeof DropdownMenuSeparator>) {

@@ -1,4 +1,4 @@
-// local customisation: no text size (the container sets it)
+// local customisation: no text size (the container sets it); a group label `text-xs`, the meta step of the type scale
 import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { cn } from "cn"
@@ -51,7 +51,14 @@ function DropdownMenuLabel({
 }: MenuPrimitive.GroupLabel.Props & {
   inset?: boolean
 }) {
-  return <MenuPrimitive.GroupLabel data-slot="dropdown-menu-label" data-inset={inset} className={cn("px-2 py-1.5 text-muted-foreground data-inset:pl-7.5", className)} {...props} />
+  return (
+    <MenuPrimitive.GroupLabel
+      data-slot="dropdown-menu-label"
+      data-inset={inset}
+      className={cn("px-2 py-1.5 text-xs text-muted-foreground data-inset:pl-7.5", className)}
+      {...props}
+    />
+  )
 }
 
 function DropdownMenuItem({

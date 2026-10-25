@@ -1,7 +1,8 @@
 // local customisation: `font-normal` on the `outline` and `ghost` variants; `outline` is a solid field with a solid hover that keeps it
 // a field on the canvas (the translucent `muted` would show the canvas through it), not the `bg-input` fills of the stock (`--input`
-// is the border of a field); no text size (the container sets it) but `text-xs` on `xs`, the step of the type scale for a
-// 20px control (the stock has 10px there), and the icons one step larger for the 13px text
+// is the border of a field), its edge `border-button-border`, the IDE button border; no text size (the container sets it) but
+// `text-xs` on `xs`, the step of the type scale for a compact control (the stock has 10px there); `xs` and `icon-xs` 24px, the
+// compact size of the IDE (`Button.minimumSize.compact`), not the 20px of the stock; the icons one step larger for the 13px text
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
@@ -13,7 +14,7 @@ const buttonVariants = cva(
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/80",
         outline:
-          "border-border bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-muted dark:aria-expanded:bg-muted",
+          "border-button-border bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-muted dark:aria-expanded:bg-muted",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost: "font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
@@ -23,11 +24,11 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-7 gap-1 px-2 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5",
-        xs: "h-5 gap-1 rounded-sm px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        xs: "h-6 gap-1 rounded-sm px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-6 gap-1 px-2 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-8 gap-1 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-4",
         icon: "size-7",
-        "icon-xs": "size-5 rounded-sm [&_svg:not([class*='size-'])]:size-3",
+        "icon-xs": "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-6 [&_svg:not([class*='size-'])]:size-3.5",
         "icon-lg": "size-8 [&_svg:not([class*='size-'])]:size-4",
       },

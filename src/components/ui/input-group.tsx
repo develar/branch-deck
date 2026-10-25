@@ -1,4 +1,4 @@
-// local customisation: no text size (the container sets it); no `bg-input` fill: a field is its `border-input` edge, as in the IDE
+// local customisation: no text size (the container sets it); no `bg-input` fill: a field is its `border-input` edge, as in the IDE; an `xs` button 24px, as the `xs` of `Button`
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
@@ -58,7 +58,7 @@ function InputGroupAddon({ className, align = "inline-start", ...props }: React.
 const inputGroupButtonVariants = cva("flex items-center gap-2 rounded-md shadow-none", {
   variants: {
     size: {
-      xs: "h-5 gap-1 rounded-[calc(var(--radius-sm)-2px)] px-1 [&>svg:not([class*='size-'])]:size-3",
+      xs: "h-6 gap-1 rounded-[calc(var(--radius-sm)-2px)] px-1 [&>svg:not([class*='size-'])]:size-3",
       sm: "gap-1",
       "icon-xs": "size-6 p-0 has-[>svg]:p-0",
       "icon-sm": "size-7 p-0 has-[>svg]:p-0",

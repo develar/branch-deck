@@ -56,8 +56,7 @@ export function BranchNameCell({
             render={
               <Button
                 variant="ghost"
-                // 24px: the row is 36px around it (`--bd-cell-y`), and the names and subjects below line up after it
-                size="icon-sm"
+                size="icon-xs"
                 className="shrink-0 text-muted-foreground aria-expanded:text-foreground"
                 // every row has one: the label names the branch
                 aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}

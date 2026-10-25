@@ -258,6 +258,7 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-control-edge: var(--control-edge);
+  --color-button-border: var(--button-border);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -356,6 +357,12 @@
    * surface they lie on (WCAG 1.4.11). The edge of a field in light; a step more in dark (below)
    */
   --control-edge: var(--input);
+  /*
+   * The border of an outline button: control-border, the border IDE buttons draw (Button.startBorderColor). Its label
+   * identifies a button, so it needs no 3:1 edge, but the edge shows the button on the canvas, where its white fill alone
+   * is 1.2:1
+   */
+  --button-border: var(--islands-control-border-light);
   --ring: var(--primary);
   --radius: 0.25rem;
   /*
@@ -495,6 +502,7 @@
      * request), where gray-80 has 2.7:1
      */
     --control-edge: var(--islands-gray-90);
+    --button-border: var(--islands-control-border-dark);
     --window-button-glyph: #ced0d6;
     --window-button-shade: #ffffff;
     --window-button-kde-glyph: #ced0d6;
