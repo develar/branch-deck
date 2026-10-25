@@ -16,7 +16,7 @@ use crate::state::AppState;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
   CommandResult, Rejection, branch_prefix_now, branch_prefix_of, branch_rules_of, failed, failing_robots, list_pull_requests_of, list_robots, poll_robots, profiles_of,
-  readiness_of, repository_by_path, robot_details_of, robot_problems,
+  readiness_of, repository_by_path, review_requests_of, robot_details_of, robot_problems,
 };
 use app_api::api_error::{api_error, no_branch_prefix};
 use axum::Json;
@@ -166,6 +166,16 @@ impl FactSources for TestFactSources {
     Box::pin(async move {
       let state = self.state.upgrade().ok_or_else(stopped)?;
       robot_details_of(&state, key, &id).await
+    })
+  }
+
+  fn review_requests<'a>(&'a self, key: &'a SessionKey, _github_repository: Option<String>) -> Read<'a, domain_types::review_request::ReviewRequestsResult> {
+    Box::pin(async move {
+      let failure = |message: String| domain_types::review_request::ReviewRequestsResult::unavailable(PullRequestAvailability::Error { message });
+      let Some(state) = self.state.upgrade() else {
+        return failure(stopped().message);
+      };
+      review_requests_of(&state, key).await.unwrap_or_else(|error| failure(error.message))
     })
   }
 

@@ -1,7 +1,7 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
-import type { PullRequestAvailability, PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
+import type { FactsChanges, FactsView, News, PullRequestAvailability, PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
@@ -10,13 +10,12 @@ import { describeRobot, openRobotUrl } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import type { ReviewFeedback } from "@/lib/pull-request-review"
 import { reviewToastActionLabel } from "@/lib/pull-request-review"
-import type { RefreshReason } from "@/lib/refresh-gate"
-import { createRefreshGates } from "@/lib/refresh-gate"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { isApprovedCommit } from "@/lib/review-request-actions"
-import { MIN_POLL_GAP_MS, POLL_INTERVAL_MS, describeNewRequests, findNewRequests, mergeReviewRequests, nextPollDelay, reviewRequestKey } from "@/lib/review-requests"
+import { describeNewRequests, mergeReviewRequests, reviewRequestKey } from "@/lib/review-requests"
 import { showRepository } from "@/lib/show-repository"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
+import { refreshSessionFacts } from "@/model/store"
 import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
 import type { Operations } from "@/stores/operations"
 import { operationsStore, runOperation } from "@/stores/operations"
@@ -26,13 +25,11 @@ import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
 /*
  * "Your Turn": the pull requests of others that wait for the user's review in the selected repository
- * (spec/repository/review-requests.spec.md). GitHub is polled every five minutes, focused or not; news is told once.
+ * (spec/repository/review-requests.spec.md). The session of the repository lists them (after a sync, on a focus, every
+ * five minutes focused or not, by the refresh button: `remote_facts::scheduler`) and tells which are new (its news,
+ * `reviewRequested`); the store keeps them as its view has them (`applyReviewRequestsFacts`), with what is the page's:
+ * which are unread, the reviews the user submitted from the app, the toasts of the news.
  */
-
-/** Syncs closer together than this ask nothing more: the poll keeps the requests current */
-export const MIN_SYNC_GAP_MS = 60_000
-/** On window focus, requests older than this are asked for */
-export const FOCUS_REFRESH_AGE_MS = 120_000
 
 /** The review requests of one repository */
 export interface RepositoryReviewRequests {
@@ -42,10 +39,9 @@ export interface RepositoryReviewRequests {
   readonly requests: readonly ReviewRequest[]
   /** All that wait, also beyond the 50 GitHub returns */
   readonly totalCount: number
-  /** `Date.now()` of the last answer, 0 = never */
-  readonly fetchedAt: number
   /** `Date.now()` of the last answer with the requests, 0 = never: the age of the rows after a failure */
   readonly checkedAt: number
+  /** The refresh button asked, and the answer is not in yet */
   readonly isRefreshing: boolean
   /** `reviewRequestKey`s of the requests that came after the first answer and were not opened yet */
   readonly unread: ReadonlySet<string>
@@ -74,7 +70,6 @@ const EMPTY: RepositoryReviewRequests = {
   availability: null,
   requests: [],
   totalCount: 0,
-  fetchedAt: 0,
   checkedAt: 0,
   isRefreshing: false,
   unread: new Set(),
@@ -168,56 +163,8 @@ function runReviewWrite(
   )
 }
 
-// ---- refresh ----
+// ---- the facts ----
 
-/**
- * A poll asks every five minutes (not closer than 4.5 min to the last request), a sync at most once a minute, a focus
- * when the requests are older than two minutes; the refresh button always, after the request in flight if any.
- */
-const gates = createRefreshGates({
-  isDue: (reason, sinceStart, sinceAnswer) => {
-    switch (reason) {
-      case "manual":
-        return true
-      case "poll":
-        return sinceStart >= MIN_POLL_GAP_MS
-      case "sync":
-        return sinceStart >= MIN_SYNC_GAP_MS
-      case "focus":
-        return sinceStart >= MIN_SYNC_GAP_MS && sinceAnswer >= FOCUS_REFRESH_AGE_MS
-      case "push":
-        return false
-    }
-  },
-  followUpReasons: new Set<RefreshReason>(["manual"]),
-})
-
-let pollTimer: ReturnType<typeof setTimeout> | undefined
-/** Runs on every poll tick too (`onReviewRequestsPoll`) */
-let pollListener: () => void = () => {}
-
-/**
- * Runs `listener` on each poll tick (every five minutes, later after failures): the main window refreshes the user's
- * pull requests then while a row waits for an approval. Returns the unsubscribe.
- */
-export function onReviewRequestsPoll(listener: () => void): () => void {
-  pollListener = listener
-  return () => {
-    if (pollListener === listener) {
-      pollListener = () => {}
-    }
-  }
-}
-/** The repository the last refresh asked for: another one is a switch */
-let lastRepositoryPath: string | null = null
-/** The repositories whose next answer tells nothing new: the first one after a switch */
-const silentRepositories = new Set<string>()
-/** The failed answers in a row, by repository */
-const failures = new Map<string, number>()
-/** No request before this (`Date.now()`) but the refresh button: GitHub's rate limit */
-const retryAt = new Map<string, number>()
-/** A pull request was opened on GitHub from the card: the next focus asks at once (an approved one leaves the list) */
-let refreshOnFocus = false
 /** The repositories whose review refs were pruned and none was written since */
 const prunedRepositories = new Set<string>()
 
@@ -234,127 +181,55 @@ function update(repositoryPath: string, patch: Partial<RepositoryReviewRequests>
 }
 
 /**
- * Asks GitHub for the requests of the selected repository, if the reason allows it now (see the policy above). One
- * request per repository at a time; another repository than the last one cancels the poll of that one, and its answer
- * tells nothing new. Never fails: what went wrong is the availability, and the rows stay.
+ * The review requests of the session of `repositoryPath` as its view has them now (`facts.reviewRequests`, with the
+ * patch that brought them, `change`; null for a snapshot) and the news of the session the window tells now: the
+ * requests a listing added are unread until opened and told once. A row keeps its object where nothing changed, so a
+ * poll that brings nothing new re-renders nothing; an answer with the requests prunes the review refs. Nothing is
+ * stored for a session GitHub has not answered yet
  */
-export function refreshReviewRequests(reason: RefreshReason): Promise<void> {
+export function applyReviewRequestsFacts(repositoryPath: string, facts: FactsView, change: FactsChanges | null, news: readonly News[]): void {
+  const part = facts.reviewRequests
+  const entry = reviewRequestsStore.getState().repositories[repositoryPath]
+  if ((change === null || change.reviewRequests != null) && !(entry === undefined && part.head.value === null)) {
+    const known = entry ?? EMPTY
+    const requests = mergeReviewRequests(known.requests, part.requests)
+    const keys = new Set(requests.map(reviewRequestKey))
+    const unread = [...known.unread].every(key => keys.has(key)) ? known.unread : new Set([...known.unread].filter(key => keys.has(key)))
+    update(repositoryPath, { availability: part.head.value, requests, totalCount: part.totalCount, checkedAt: part.checkedAt * 1000, unread })
+    if (part.head.value?.status === "available") {
+      pruneReviewRefs(repositoryPath)
+    }
+  }
+  const requested = new Set(news.flatMap(({ event }) => (event.kind === "reviewRequested" ? event.numbers : [])))
+  if (requested.size > 0) {
+    const requests = (reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY).requests.filter(request => requested.has(request.number))
+    update(repositoryPath, latest => ({ unread: new Set([...latest.unread, ...requests.map(reviewRequestKey)]) }))
+    tellNews(repositoryPath, requests)
+  }
+}
+
+/**
+ * Asks the session of the selected repository to list the review requests again (the refresh button, a review the user
+ * submitted, a sign-in), `isRefreshing` until the answer is in the store; never fails: what went wrong is the
+ * availability, and the rows stay
+ */
+export async function refreshReviewRequests(): Promise<void> {
   const repositoryPath = currentRepositoryPath()
   if (repositoryPath === null) {
-    return Promise.resolve()
+    return
   }
-  if (repositoryPath !== lastRepositoryPath) {
-    if (lastRepositoryPath !== null) {
-      silentRepositories.add(repositoryPath)
-    }
-    lastRepositoryPath = repositoryPath
-    clearTimeout(pollTimer)
-    pollTimer = undefined
+  update(repositoryPath, { isRefreshing: true })
+  try {
+    await refreshSessionFacts(repositoryPath, "reviewRequests", "manual")
+  } finally {
+    update(repositoryPath, { isRefreshing: false })
   }
-  if (reason === "focus" && refreshOnFocus) {
-    refreshOnFocus = false
-    reason = "manual"
-  }
-  const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
-  if (reason !== "manual" && (entry.availability?.status === "notGitHub" || Date.now() < (retryAt.get(repositoryPath) ?? 0))) {
-    return Promise.resolve()
-  }
-  return gates.refresh(repositoryPath, reason, entry.fetchedAt, async () => {
-    update(repositoryPath, { isRefreshing: true })
-    let availability: PullRequestAvailability
-    try {
-      const result = await commands.getReviewRequests({ repositoryPath, githubRepository: githubRepositoryOfPullRequests() })
-      if (result.status === "ok") {
-        availability = result.data.availability
-        if (availability.status === "available") {
-          applyRequests(repositoryPath, result.data.requests, result.data.totalCount)
-        }
-      } else {
-        availability = { status: "error", message: result.error.message }
-      }
-    } catch (error) {
-      availability = { status: "error", message: error instanceof Error ? error.message : String(error) }
-    }
-    applyAvailability(repositoryPath, availability)
-  })
 }
 
 /** `owner/name` while GitHub lists the user's pull requests of the repository: the backend need not resolve it again */
 function githubRepositoryOfPullRequests(): string | null {
   const repository = getGitHubRepository()
   return repository === null ? null : `${repository.owner}/${repository.name}`
-}
-
-/** Stores the requests of an answer and tells the new ones */
-function applyRequests(repositoryPath: string, incoming: readonly ReviewRequest[], totalCount: number): void {
-  const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
-  const requests = mergeReviewRequests(entry.requests, incoming)
-  const switched = silentRepositories.delete(repositoryPath)
-  const news = findNewRequests(entry.checkedAt === 0 || switched ? null : entry.requests, requests)
-  const keys = new Set(requests.map(reviewRequestKey))
-  const unread = new Set([...entry.unread].filter(key => keys.has(key)))
-  for (const request of news) {
-    unread.add(reviewRequestKey(request))
-  }
-  const now = Date.now()
-  update(repositoryPath, {
-    requests,
-    totalCount: Math.max(totalCount, requests.length),
-    checkedAt: now,
-    unread: unread.size === entry.unread.size && [...unread].every(key => entry.unread.has(key)) ? entry.unread : unread,
-  })
-  if (news.length > 0) {
-    tellNews(repositoryPath, news)
-  }
-  pruneReviewRefs(repositoryPath)
-}
-
-/**
- * Stores the availability of an answer and arms the next poll: every five minutes, later after failures (`nextPollDelay`),
- * none without a token GitHub accepts or off GitHub. Signed out the rows go (the card hides); after an error, or
- * without access to the repository, they stay with the hint.
- */
-function applyAvailability(repositoryPath: string, availability: PullRequestAvailability): void {
-  const now = Date.now()
-  const failed = availability.status === "error" || availability.status === "rateLimited"
-  const failureCount = failed ? (failures.get(repositoryPath) ?? 0) + 1 : 0
-  failures.set(repositoryPath, failureCount)
-  const delay = nextPollDelay(availability, failureCount)
-  if (availability.status === "rateLimited" && delay !== null) {
-    retryAt.set(repositoryPath, now + delay)
-  } else {
-    retryAt.delete(repositoryPath)
-  }
-  const gone = availability.status === "notGitHub" || availability.status === "signedOut" || availability.status === "notAuthenticated"
-  update(repositoryPath, {
-    availability,
-    fetchedAt: now,
-    isRefreshing: false,
-    ...(gone && { requests: EMPTY.requests, totalCount: 0, unread: EMPTY.unread }),
-  })
-  schedulePoll(repositoryPath, delay)
-}
-
-/** Arms the poll of the repository, replacing a pending one; null disarms it */
-function schedulePoll(repositoryPath: string, delay: number | null): void {
-  clearTimeout(pollTimer)
-  pollTimer = undefined
-  if (delay === null || repositoryPath !== currentRepositoryPath()) {
-    return
-  }
-  pollTimer = setTimeout(() => {
-    pollTimer = undefined
-    if (repositoryPath !== currentRepositoryPath()) {
-      return
-    }
-    // offline: nothing to ask, the next poll may be online
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      schedulePoll(repositoryPath, POLL_INTERVAL_MS)
-      return
-    }
-    void refreshReviewRequests("poll")
-    pollListener()
-  }, delay)
 }
 
 // ---- news ----
@@ -364,11 +239,14 @@ function schedulePoll(repositoryPath: string, delay: number | null): void {
  * one; in the background an OS notification and the toast on focus. Each is an Activity entry.
  */
 function tellNews(repositoryPath: string, news: readonly ReviewRequest[]): void {
+  const first = news[0]
+  if (first === undefined) {
+    return
+  }
   for (const request of news) {
     recordReviewRequest(repositoryPath, request)
   }
   const { title, description } = describeNewRequests(news)
-  const first = news[0]!
   announce("reviewRequests", { title, body: description }, () => {
     const id = toast.add({
       type: "info",
@@ -414,8 +292,8 @@ export function openRequestOnGitHub(request: ReviewRequest, path = ""): void {
   const repositoryPath = currentRepositoryPath()
   if (repositoryPath !== null) {
     markRead(repositoryPath, request)
+    void refreshSessionFacts(repositoryPath, "reviewRequests", "afterWrite")
   }
-  refreshOnFocus = true
   openPullRequestUrl(`${request.url}${path}`)
 }
 
@@ -501,7 +379,7 @@ export async function submitReview(
   const title = describeReview(event, number)
   feedback.toast({ title, description: request.title, target: { kind: "pullRequest", url: request.url } })
   recordReview(repositoryPath, title, request)
-  void refreshReviewRequests("manual")
+  void refreshReviewRequests()
   return true
 }
 
@@ -645,16 +523,8 @@ function pruneReviewRefs(repositoryPath: string): void {
   )
 }
 
-/** Forgets the gates, the timer and the data (tests) */
+/** Forgets the data (tests) */
 export function resetReviewRequests(): void {
-  gates.reset()
-  clearTimeout(pollTimer)
-  pollTimer = undefined
-  lastRepositoryPath = null
-  silentRepositories.clear()
-  failures.clear()
-  retryAt.clear()
-  refreshOnFocus = false
   prunedRepositories.clear()
   reviewRequestsStore.setState({ repositories: {} })
 }

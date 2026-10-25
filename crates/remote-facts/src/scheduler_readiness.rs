@@ -89,6 +89,11 @@ impl SessionFacts {
   }
 
   /// Asks what is due (the module's header)
+  /// The last answer of a subject the session asks about waits for approvals in its pull request
+  pub(super) const fn readiness_awaits_approval(&self) -> bool {
+    self.readiness.digest.awaits_approval
+  }
+
   pub(super) fn ask_readiness(&mut self) {
     if !self.watched {
       return;

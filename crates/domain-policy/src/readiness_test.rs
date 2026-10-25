@@ -1,4 +1,4 @@
-use crate::readiness::{Answered, ApprovalNews, approval_news, start_pull_request};
+use crate::readiness::{Answered, ApprovalNews, approval_news, awaits_approval, start_pull_request};
 use domain_types::fixtures::pull_request;
 use domain_types::patronus::{
   ApprovedReviewGroup, MissingApprovalsReason, MissingReviewGroup, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason, UnknownReadinessReason,
@@ -200,4 +200,26 @@ fn a_safe_push_starts_from_the_open_pull_request_into_the_target_while_patronus_
   assert_eq!(start_pull_request(Some(&closed), "master", Some("acme/monorepo")), None);
   assert_eq!(start_pull_request(None, "master", Some("acme/monorepo")), None);
   assert_eq!(start_pull_request(Some(&open), "master", None), None);
+}
+
+/// A subject waits for approvals when its last answer, of the same tip and pull request, misses them, or when Patronus
+/// can't judge them while GitHub waits for a reviewer; never for another tip or start, nor for a start through the API
+#[test]
+fn a_subject_awaits_approvals_while_patronus_misses_them_or_github_waits_for_a_reviewer() {
+  let unknown = ReviewReadiness::Unknown {
+    reason: UnknownReadinessReason::ApprovalsNotEvaluated,
+  };
+  let requested = ask("t1", vec![reviewer("ikorennoy", ReviewerState::Requested, true)]);
+  let nobody = ask("t1", vec![reviewer("ikorennoy", ReviewerState::Approved, false)]);
+  let awaits = |last: &ReviewReadinessBranch, readiness: &ReviewReadiness, now: &ReviewReadinessBranch| awaits_approval(Answered { ask: last, readiness }, now);
+  assert!(awaits(&nobody, &waiting(&["IJPL Code Platform"]), &nobody));
+  assert!(awaits(&requested, &unknown, &requested));
+  assert!(!awaits(&nobody, &unknown, &nobody), "GitHub waits for nobody");
+  assert!(!awaits(&nobody, &ReviewReadiness::NotRequired, &nobody));
+  assert!(!awaits(&nobody, &waiting(&["IJPL Code Platform"]), &ask("t2", Vec::new())), "another tip");
+  let api = ReviewReadinessBranch {
+    start: ReviewStart::Rest,
+    ..nobody
+  };
+  assert!(!awaits(&api, &waiting(&["IJPL Code Platform"]), &api), "a start through the API counts no approval");
 }

@@ -224,8 +224,13 @@ A sync on the `SyncEvent` channel sent every branch again, changed or not: one `
 carries only the parts of a branch that changed (`TableState`, [Git Operations](git-operations.md#repository-view)):
 a sync that changes nothing sends the state of the run and the build and copies of each branch, no commit, 24 KB in
 5 patches by the mock server's own count (`patch_bytes_test.rs`: the first sync 46 patches, 195 KB, the snapshot
-177 KB). The rest of a row (its menu, its robot's popover) reads the stores; its hover reads ahead the review of the
-branch (`prefetch_branch_review`).
+177 KB). The facts of the remote services come in the patches of the session too (`facts`: the robots, the pull
+requests, the readiness, the review requests, the details of a robot): no store asks them and none polls on a timer of
+its own (`poll-timer` of `pnpm lint:arch`), so the menu of a row invokes nothing and the popover of its robot one
+`set_demand` (the details it shows, which the session reads and sends as a patch, again every minute of a running
+robot while it is open); the hover of a row reads ahead the review of the branch (`prefetch_branch_review`) and no fact.
+An E2E test pins these numbers.
+[@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
 
 ### Loading
 

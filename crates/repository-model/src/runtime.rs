@@ -252,6 +252,8 @@ impl Actor {
         // the patches after this snapshot follow it
         let _ = reply.send(self.view.snapshot());
         if self.subscribers.len() == 1 {
+          // the window that watches anew hears no news of the requests that came while none did
+          self.facts.review_requests.watched_anew();
           self.events.emit(&self.key, SessionEventKind::Watched(true));
           if let Some(table) = self.facts.table.value() {
             let baseline = table.baseline.clone();

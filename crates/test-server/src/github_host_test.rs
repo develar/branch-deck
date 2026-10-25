@@ -1,6 +1,6 @@
 use crate::remote_fixtures::fixture_pulls;
 use crate::session_routes_test::{subscribe, subscription};
-use crate::tauri_command_bridge::list_pull_requests_of;
+use crate::tauri_command_bridge::{list_pull_requests_of, review_requests_of};
 use crate::test_support::{Messages, Named, command, create_repository, delete_repository, head, post, post_as, start_test_server, start_test_server_with_state};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
@@ -341,18 +341,21 @@ fn branch_at_head(path: &str, name: &str) -> String {
 /// Starts the command `name` of the repository `id` at `repository_path` in a task of its own: its answer, once given.
 /// It names the repository as the page does, so the deletion of the repository waits for it before it removes the
 /// files
-fn invoke(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, name: &'static str, repository_path: &str) -> tokio::task::JoinHandle<Value> {
-  let request = command(client, addr, Named::Id(id), name, &json!({"repositoryPath": repository_path}));
-  tokio::spawn(async move {
-    let response = request.send().await.unwrap();
-    assert_eq!(response.status(), 200, "{name}");
-    response.json().await.unwrap()
-  })
+/// The refresh button of the review requests of the session at `path`, in flight
+fn refresh_review_requests(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, path: &str) -> tokio::task::JoinHandle<reqwest::Response> {
+  let request = command(
+    client,
+    addr,
+    Named::Id(id),
+    "refresh_facts",
+    &json!({"repositoryPath": path, "family": "reviewRequests", "reason": "manual"}),
+  );
+  tokio::spawn(async move { request.send().await.unwrap() })
 }
 
-/// A held answer (`/remote-gates`): the page's request reaches the fake and waits there, the fixture names it as
-/// arrived, and a release lets it through with what GitHub holds; the review requests, which the bridge answers from
-/// its fixture, are held there
+/// A held answer (`/remote-gates`): the session's request reaches the fake and waits there, the fixture names it as
+/// arrived, and a release lets it through with what GitHub holds; the review requests, which the session reads from
+/// the fixture, are held there
 #[tokio::test]
 async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
   let (addr, client, id, repository_path) = listing_login().await;
@@ -368,7 +371,7 @@ async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
   let _window = window(&client, addr, &id, &repository_path).await;
   let listing = tokio::spawn(refresh(&client, addr, &id, &repository_path).send());
   until_arrived(&client, addr, &id, "pullRequests").await;
-  let requests = invoke(&client, addr, &id, "get_review_requests", &repository_path);
+  let requests = refresh_review_requests(&client, addr, &id, &repository_path);
   until_arrived(&client, addr, &id, "reviewRequests").await;
   assert!(!listing.is_finished() && !requests.is_finished(), "a held answer came");
 
@@ -378,7 +381,9 @@ async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
   assert_eq!(view["facts"]["pullRequests"]["pullRequests"]["login"]["number"], 7);
   assert!(!requests.is_finished(), "the review requests are still held");
   post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({"release": ["reviewRequests"]})).await;
-  assert!(requests.await.unwrap().get("availability").is_some());
+  assert_eq!(requests.await.unwrap().status(), 200);
+  let view = post(&client, addr, "/invoke/get_snapshot", json!({"repositoryPath": repository_path})).await;
+  assert!(view["facts"]["reviewRequests"]["head"]["value"].is_object(), "{view}");
   assert_eq!(get(&client, addr, &format!("/repositories/{id}/remote-gates")).await, json!({"arrived": []}));
   delete_repository(&client, addr, &id, &repository_path).await;
 }
@@ -398,14 +403,17 @@ async fn a_deleted_repository_releases_the_answers_its_test_held() {
     json!({"hold": ["pullRequests", "reviewRequests"]}),
   )
   .await;
-  // the session's listing held at the fake, the review requests in the bridge
+  // the session's listings held: the pull requests at the fake, the review requests at the fixture
   let key = SessionKey {
     worktree: repository_path.clone(),
     prefix: "user-name".to_owned(),
   };
-  let listing = tokio::spawn(async move { list_pull_requests_of(&state, &key).await });
+  let listing = tokio::spawn({
+    let (state, key) = (std::sync::Arc::clone(&state), key.clone());
+    async move { list_pull_requests_of(&state, &key).await }
+  });
   until_arrived(&client, addr, &id, "pullRequests").await;
-  let requests = invoke(&client, addr, &id, "get_review_requests", &repository_path);
+  let requests = tokio::spawn(async move { review_requests_of(&state, &key).await });
   until_arrived(&client, addr, &id, "reviewRequests").await;
   delete_repository(&client, addr, &id, &repository_path).await;
   let listed = tokio::time::timeout(std::time::Duration::from_mins(1), listing)

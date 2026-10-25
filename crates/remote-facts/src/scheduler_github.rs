@@ -1,7 +1,7 @@
 //! The pull requests of GitHub, the rules of their bases and the merge profiles, as the task of a session asks them
 //! (the parent module's header)
 
-use super::{Input, Reply, SessionFacts};
+use super::{InFlight, Input, Reply, SessionFacts};
 use domain_policy::refresh::{
   FactTiming, ProfilesRead, ReadState, RefreshReason, ServiceState, branch_rules_due, profiles_due, pull_requests_due, pull_requests_follows_up, pull_requests_push_recheck_at,
 };
@@ -27,11 +27,8 @@ pub(super) struct GitHubSchedule {
 #[derive(Default)]
 struct PullRequestsSchedule {
   list: FactTiming,
-  listing: bool,
-  /// A push or the refresh button asked during the list in flight: one more after it
-  follow_up: bool,
-  waiters: Vec<Reply>,
-  follow_up_waiters: Vec<Reply>,
+  /// A push or the refresh button during the list in flight asks one more after it
+  in_flight: InFlight,
   /// The last answer said the branches are not on GitHub: only the refresh button asks again
   off_service: bool,
   /// GitHub refused the last list for its rate limit: only the refresh button asks before this
@@ -112,13 +109,8 @@ impl SessionFacts {
   pub(super) fn ask_pull_requests(&mut self, reason: RefreshReason, reply: Option<Reply>) {
     let now = self.now();
     let schedule = &mut self.github.pull_requests;
-    if schedule.listing {
-      if pull_requests_follows_up(reason) {
-        schedule.follow_up = true;
-        schedule.follow_up_waiters.extend(reply);
-      } else {
-        schedule.waiters.extend(reply);
-      }
+    if schedule.in_flight.listing {
+      schedule.in_flight.join(pull_requests_follows_up(reason), reply);
       return;
     }
     let service = ServiceState {
@@ -141,8 +133,8 @@ impl SessionFacts {
   /// The list that looks again after a push: once, as a push asks
   pub(super) fn recheck_pull_requests(&mut self) {
     self.github.pull_requests.recheck_at = None;
-    if self.github.pull_requests.listing {
-      self.github.pull_requests.follow_up = true;
+    if self.github.pull_requests.in_flight.listing {
+      self.github.pull_requests.in_flight.follow_up = true;
     } else if self.watched {
       self.start_pull_requests(Vec::new(), true);
     }
@@ -155,9 +147,8 @@ impl SessionFacts {
     };
     let now = self.now();
     let schedule = &mut self.github.pull_requests;
-    schedule.listing = true;
+    schedule.in_flight.start(waiters);
     schedule.list.started_at = Some(now);
-    schedule.waiters = waiters;
     let pushed = std::mem::take(&mut schedule.pushed);
     let (scheduler, key) = (self.scheduler.clone(), self.key.clone());
     tokio::spawn(
@@ -191,20 +182,19 @@ impl SessionFacts {
   pub(super) fn pull_requests_listed(&mut self, listed: &PullRequestsListed) {
     let now = self.now();
     let schedule = &mut self.github.pull_requests;
-    schedule.listing = false;
     schedule.list.answered_at = Some(now);
+    let follow_up = schedule.in_flight.end(listed.version);
     match &listed.availability {
-      Some(PullRequestAvailability::Available { .. }) => {
+      Some(PullRequestAvailability::Available { owner, name }) => {
         schedule.off_service = false;
         schedule.retry_at = None;
+        // the review requests are of the same repository: it need not be resolved again
+        self.review_requests.github_repository = Some(format!("{owner}/{name}"));
       }
       Some(PullRequestAvailability::NotGitHub) => schedule.off_service = true,
       // the time of the rate limit on the session clock
       Some(PullRequestAvailability::RateLimited { retry_at }) => schedule.retry_at = Some(now + Duration::from_secs(u64::from(retry_at.saturating_sub(unix_now())))),
       Some(_) | None => {}
-    }
-    for waiter in schedule.waiters.drain(..) {
-      let _ = waiter.send(listed.version);
     }
     if let Some(at) = pull_requests_push_recheck_at(now, !listed.shows_old_head) {
       schedule.recheck_at = Some(at);
@@ -212,9 +202,7 @@ impl SessionFacts {
     if listed.availability.is_some() && self.watched {
       self.read_rules(&listed.approved_bases, RefreshReason::Sync);
     }
-    let schedule = &mut self.github.pull_requests;
-    if std::mem::take(&mut schedule.follow_up) {
-      let waiters = std::mem::take(&mut schedule.follow_up_waiters);
+    if let Some(waiters) = follow_up {
       self.start_pull_requests(waiters, false);
     }
   }

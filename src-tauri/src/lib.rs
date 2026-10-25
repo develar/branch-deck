@@ -59,7 +59,7 @@ use commands::pull_requests::{
 use commands::push::{push_branch, push_branches};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
-use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_review_requests, prune_review_refs};
+use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, prune_review_refs};
 use commands::reword::reword;
 use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
@@ -128,7 +128,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       sign_out_of_youtrack,
       get_youtrack_issue,
       set_youtrack_issue_state,
-      get_review_requests,
       fetch_review_head,
       cancel_review_fetch,
       prune_review_refs,

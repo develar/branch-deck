@@ -11,7 +11,8 @@ use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
   ReviewReadiness, ReviewReadinessBranch, ReviewStart, UnavailableReadinessReason,
 };
-use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
+use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult, TokenSource};
+use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use pretty_assertions::assert_eq;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, ProblemsRead, RobotsDigest, RobotsRead, Seq};
@@ -72,6 +73,10 @@ struct ScriptedSources {
   hold_readiness: AtomicBool,
   /// Patronus doesn't answer the pre-checks
   readiness_unavailable: AtomicBool,
+  /// The lists of the review requests: the GitHub repository each named
+  review_request_calls: Mutex<Vec<Option<String>>>,
+  /// What the lists of the review requests answer; available without requests unless a test says otherwise
+  review_requests: Mutex<Option<ReviewRequestsResult>>,
 }
 
 impl ScriptedSources {
@@ -121,6 +126,16 @@ impl FactSources for ScriptedSources {
   fn robot_details<'a>(&'a self, _key: &'a SessionKey, id: String) -> Read<'a, Result<PatronusRobotDetails, ApiError>> {
     lock(&self.calls).push(Call::Details(id));
     Box::pin(async move { Err(ApiError::internal("the details are the session's")) })
+  }
+
+  fn review_requests<'a>(&'a self, _key: &'a SessionKey, github_repository: Option<String>) -> Read<'a, ReviewRequestsResult> {
+    lock(&self.review_request_calls).push(github_repository);
+    let answer = lock(&self.review_requests).clone().unwrap_or_else(|| ReviewRequestsResult {
+      availability: available_on_github(),
+      total_count: 0,
+      requests: Vec::new(),
+    });
+    Box::pin(async move { answer })
   }
 
   fn pull_requests<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
@@ -482,8 +497,8 @@ async fn lists_the_full_window_on_the_refresh_button_asked_by_the_user() {
   session.calls();
   let version = session.refresh(FactRefreshReason::Manual).await;
   assert_eq!(session.calls(), vec![full(false)]);
-  // the first list of the robots and of the pull requests were 1 and 2
-  assert_eq!(version, Some(Version { epoch: 1, seq: 3 }), "the version of the view after the list's patch");
+  // the first lists of the robots, the pull requests and the review requests were 1, 2 and 3
+  assert_eq!(version, Some(Version { epoch: 1, seq: 4 }), "the version of the view after the list's patch");
 }
 
 #[tokio::test]
@@ -505,7 +520,7 @@ async fn does_not_ask_again_for_a_repository_that_is_not_on_space_until_the_refr
 async fn lists_the_robot_a_start_needs_at_once_since_shortly_before_the_last_list() {
   let session = Harness::watched().await;
   session.calls();
-  assert_eq!(session.refresh(FactRefreshReason::AfterWrite).await, Some(Version { epoch: 1, seq: 3 }));
+  assert_eq!(session.refresh(FactRefreshReason::AfterWrite).await, Some(Version { epoch: 1, seq: 4 }));
   assert_eq!(session.calls(), vec![since(120)]);
 }
 
@@ -527,8 +542,9 @@ async fn the_refresh_button_and_a_start_during_a_list_ask_once_more_after_it() {
   assert_eq!(session.calls(), vec![full(false)]);
   assert_eq!(
     (start.await.unwrap(), manual.await.unwrap()),
-    // after the robots and the pull requests the table listed (1, 2), the pull requests of the focus (3)
-    (Some(Version { epoch: 1, seq: 4 }), Some(Version { epoch: 1, seq: 4 }))
+    // after the robots, the pull requests and the review requests the table listed (1, 2, 3), the pull requests and
+    // the review requests of the focus (4, 5)
+    (Some(Version { epoch: 1, seq: 6 }), Some(Version { epoch: 1, seq: 6 }))
   );
 }
 
@@ -963,6 +979,7 @@ fn readiness_told(subjects: Vec<ReadinessSubject>) -> SessionEventKind {
   SessionEventKind::Readiness(ReadinessDigest {
     baseline: "origin/master".to_owned(),
     subjects,
+    awaits_approval: false,
   })
 }
 
@@ -1107,4 +1124,170 @@ async fn a_repository_change_during_a_batch_does_not_wait_for_it() {
   }
   settle().await;
   assert_eq!(session.readiness_calls(), calls_of(&["x"], false));
+}
+
+impl Harness {
+  /// The lists of the review requests since the last call: the GitHub repository each named
+  fn review_request_calls(&self) -> Vec<Option<String>> {
+    std::mem::take(&mut *lock(&self.sources.review_request_calls))
+  }
+
+  fn answer_review_requests(&self, availability: PullRequestAvailability) {
+    *lock(&self.sources.review_requests) = Some(ReviewRequestsResult::unavailable(availability));
+  }
+}
+
+/// A list of the review requests of the repository the pull requests named (the one before them resolves it)
+fn of_github(count: usize) -> Vec<Option<String>> {
+  vec![Some("acme/monorepo".to_owned()); count]
+}
+
+/// A sync asks the review requests at most once a minute, a focus when they are older than two minutes and at least a
+/// minute after the last request, the refresh button always; the GitHub repository is the one the pull requests named
+#[tokio::test]
+async fn lists_the_review_requests_after_a_sync_on_a_focus_and_by_the_refresh_button() {
+  let session = Harness::watched().await;
+  assert_eq!(session.review_request_calls(), vec![None], "the first list before the pull requests answered");
+  session.advance(30).await;
+  session.send(committed()).await;
+  assert_eq!(session.review_request_calls(), vec![]);
+  session.advance(30).await;
+  session.send(committed()).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+  session.advance(60).await;
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.review_request_calls(), vec![], "answered a minute ago");
+  session.advance(60).await;
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+  session.refresh_family(FactFamily::ReviewRequests, FactRefreshReason::Manual).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+}
+
+/// The review requests are polled five minutes after each answer, focused or not; a failure doubles the interval up to
+/// 30 minutes, an answer polls every five minutes again
+#[tokio::test]
+async fn polls_every_five_minutes_focused_or_not_and_backs_off_while_github_fails() {
+  let session = Harness::watched().await;
+  session.send(focused(false)).await;
+  session.review_request_calls();
+  session.advance(299).await;
+  assert_eq!(session.review_request_calls(), vec![]);
+  session.advance(1).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+
+  session.answer_review_requests(PullRequestAvailability::Error { message: "offline".to_owned() });
+  session.advance(300).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+  // ten minutes after the first failure, twenty after the second, thirty at most
+  for minutes in [10, 20, 30, 30] {
+    session.advance(minutes * 60 - 1).await;
+    assert_eq!(session.review_request_calls(), vec![], "{minutes} minutes");
+    session.advance(1).await;
+    assert_eq!(session.review_request_calls(), of_github(1), "{minutes} minutes");
+  }
+  *lock(&session.sources.review_requests) = None;
+  session.advance(1800).await;
+  session.review_request_calls();
+  session.advance(300).await;
+  assert_eq!(session.review_request_calls(), of_github(1), "five minutes after an answer again");
+}
+
+/// Offline a poll asks nothing and waits a whole interval more
+#[tokio::test]
+async fn skips_a_poll_while_offline() {
+  let session = Harness::watched().await;
+  session.review_request_calls();
+  let online = |online| SessionEventKind::Demand(Demand { online, ..Demand::default() });
+  session.send(online(false)).await;
+  session.advance(300).await;
+  assert_eq!(session.review_request_calls(), vec![]);
+  session.send(online(true)).await;
+  session.advance(299).await;
+  assert_eq!(session.review_request_calls(), vec![]);
+  session.advance(1).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+}
+
+/// Without a token GitHub accepts nothing is polled, but a focus asks again (the user may have signed in), and the
+/// answer polls again; off GitHub only the refresh button asks
+#[tokio::test]
+async fn stops_while_github_rejects_the_token_until_a_focus_asks_again() {
+  let session = Harness::new();
+  session.answer_review_requests(PullRequestAvailability::NotAuthenticated { source: TokenSource::Gh });
+  session.send(SessionEventKind::Watched(true)).await;
+  session.send(committed()).await;
+  session.review_request_calls();
+  session.advance(900).await;
+  assert_eq!(session.review_request_calls(), vec![]);
+  *lock(&session.sources.review_requests) = None;
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+  session.advance(300).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+
+  session.answer_review_requests(PullRequestAvailability::NotGitHub);
+  session.refresh_family(FactFamily::ReviewRequests, FactRefreshReason::Manual).await;
+  session.review_request_calls();
+  session.advance(3600).await;
+  session.send(committed()).await;
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.review_request_calls(), vec![], "off GitHub");
+  session.refresh_family(FactFamily::ReviewRequests, FactRefreshReason::Manual).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+}
+
+/// After GitHub's rate limit nothing but the refresh button asks for 15 minutes at least (more by the backoff), and
+/// the poll waits as long
+#[tokio::test]
+async fn waits_out_the_rate_limit_but_the_refresh_button_asks() {
+  let session = Harness::watched().await;
+  session.answer_review_requests(PullRequestAvailability::RateLimited { retry_at: unix_now() + 60 });
+  session.refresh_family(FactFamily::ReviewRequests, FactRefreshReason::Manual).await;
+  session.review_request_calls();
+  session.advance(14 * 60).await;
+  session.send(committed()).await;
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.review_request_calls(), vec![], "within the wait");
+  *lock(&session.sources.review_requests) = None;
+  session.refresh_family(FactFamily::ReviewRequests, FactRefreshReason::Manual).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+  session.advance(300).await;
+  assert_eq!(session.review_request_calls(), of_github(1), "polled again after an answer");
+}
+
+/// A request opened on GitHub, where the user may answer it, makes the next focus ask at once (an approved one leaves
+/// the list), and only that one
+#[tokio::test]
+async fn a_request_opened_on_github_asks_on_the_next_focus_at_once() {
+  let session = Harness::watched().await;
+  session.review_request_calls();
+  assert_eq!(session.refresh_family(FactFamily::ReviewRequests, FactRefreshReason::AfterWrite).await, None);
+  assert_eq!(session.review_request_calls(), vec![], "nothing asked until the focus");
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.review_request_calls(), of_github(1));
+  session.advance(60).await;
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.review_request_calls(), vec![]);
+}
+
+/// While the last answer of a subject waits for approvals in its pull request, each poll of the review requests lists
+/// the pull requests too: their new reviews ask its readiness again, whose approval is news
+#[tokio::test]
+async fn a_poll_lists_the_pull_requests_while_a_subject_waits_for_approvals() {
+  let session = Harness::watched().await;
+  let digest = |awaits_approval| {
+    SessionEventKind::Readiness(ReadinessDigest {
+      baseline: "origin/master".to_owned(),
+      subjects: Vec::new(),
+      awaits_approval,
+    })
+  };
+  session.send(digest(true)).await;
+  session.github_calls();
+  session.advance(300).await;
+  assert_eq!((session.review_request_calls().len(), session.github_calls()), (2, vec![GitHubCall::PullRequests]));
+  session.send(digest(false)).await;
+  session.advance(300).await;
+  assert_eq!((session.review_request_calls().len(), session.github_calls()), (1, vec![]));
 }

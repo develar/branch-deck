@@ -192,7 +192,7 @@ function YourTurnMenu({ requests, returned }: { requests: readonly ReviewRequest
             icon: RefreshCwIcon,
             disabled: isRefreshing,
             ...(checkedAt !== null && { description: `Checked ${formatRelativeTime(checkedAt)}` }),
-            onSelect: () => void refreshReviewRequests("manual"),
+            onSelect: () => void refreshReviewRequests(),
           },
         ],
         repository === null || requests.length === 0
@@ -378,7 +378,7 @@ function YourTurnStatusLine() {
         checkedAt={checkedAt}
         ageWithHint
         isRefreshing={isRefreshing}
-        onRefresh={() => void refreshReviewRequests("manual")}
+        onRefresh={() => void refreshReviewRequests()}
         refreshLabel="Refresh review requests"
         testId="review-requests-status-line"
         refreshTestId="review-requests-refresh"

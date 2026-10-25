@@ -286,8 +286,8 @@ fn mark_requested(reviewers: &mut Vec<Reviewer>, requested: &[String]) {
   }
 }
 
-/// Why GitHub gave no listing, as the error of the fact
-fn availability_error(availability: &PullRequestAvailability) -> ApiError {
+/// Why GitHub gave no listing, as the error of the fact (of the pull requests, of the review requests)
+pub(crate) fn availability_error(availability: &PullRequestAvailability) -> ApiError {
   let message = match availability {
     PullRequestAvailability::Error { message } => return ApiError::new(ErrorCode::NetworkError, message.clone()),
     PullRequestAvailability::RateLimited { .. } => "GitHub refused the request for its rate limit",

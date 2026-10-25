@@ -6,6 +6,9 @@ targets:
   - ../../crates/domain-types/src/review_request.rs
   - ../../src/lib/approval-news.ts
   - ../../crates/remote-facts/src/review_requests.rs
+  - ../../crates/repository-model/src/review_request_facts.rs
+  - ../../crates/remote-facts/src/scheduler_review_requests.rs
+  - ../../crates/domain-policy/src/refresh.rs
   - ../../crates/sync-core/src/review_fetch.rs
   - ../../crates/remote-facts/src/pull_requests.rs
   - ../../crates/remote-facts/src/pull_request_writes.rs
@@ -108,8 +111,10 @@ there, in the preview and in the review alike, on the commit the review shows; t
   draft:false user-review-requested:@me`, `first: 50` with the `issueCount`, and `repository(owner, name)`, whose null
   is "no access" as for the pull requests; the repository is the one of [Pull
   Requests](../branch/pull-requests.spec.md#reading-pull-requests) (configured, `origin`, or the Space mirror). When the
-  pull requests already named it, the frontend passes `owner/name`, and it is not resolved again. A repository outside
-  GitHub never asks GitHub.
+  listing of the pull requests named it, the session passes `owner/name`, and it is not resolved again. A repository
+  outside GitHub never asks GitHub. The requests are a fact of the session of the repository (`facts.reviewRequests`,
+  `repository_model::review_request_facts`), which its scheduler reads (`remote_facts::scheduler`); the page only
+  shows them.
   [@test] ../../crates/remote-facts/src/review_requests_test.rs (`asks_for_the_direct_requests_of_the_repository`, `a_known_github_repository_skips_resolving_it`)
 - A request waits since the newest review request event whose reviewer is the user, else since the pull request was
   opened; who asked is that event's actor, not the author. It is re-requested when the user's latest submitted review
@@ -134,42 +139,56 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - A partial answer (`data` with `errors`) is read; GitHub's rate limit is `rateLimited`; every other failure is
   classified as for the pull requests and never thrown.
   [@test] ../../crates/remote-facts/src/review_requests_test.rs (`a_partial_answer_is_read`, `a_rate_limit_is_rate_limited`, `classifies_the_other_failures`)
-- The requests are kept in memory per repository, sorted by how long they wait, then by number. An answer that changes
-  nothing keeps the objects and the list, so a poll re-renders nothing.
-  [@test] ../../src/lib/review-requests.test.ts (`sorts waiting the longest first`, `keeps the objects and the list of an answer that changed nothing`)
-  [@test] ../../src/stores/review-requests.test.ts (`tells a re-request, keeps the list of an answer that changed nothing`)
+- The session keeps the requests in memory, sorted by how long they wait, then by number; a failure of GitHub keeps the
+  rows of the last listing (`Stale` with the reason), no token, a token GitHub rejects and a repository off GitHub drop
+  them. An answer that changes nothing sends no patch, and the page keeps the objects of the rows a patch doesn't
+  change, so a poll re-renders nothing.
+  [@test] ../../crates/repository-model/src/review_request_facts_test.rs (`the_requests_wait_the_longest_first_and_a_new_one_is_news_once`, `a_failure_keeps_the_rows_and_a_rejected_token_drops_them`)
+  [@test] ../../src/lib/review-requests.test.ts (`keeps the objects and the list of an answer that changed nothing`)
+  [@test] ../../src/stores/review-requests.test.ts (`keeps the list and the rows of an answer that changed nothing`)
 
 ### Polling
 
-- The selected repository is asked after a sync (at most once a minute), on a focus when its requests are older than
-  two minutes, by the Refresh button always, and by a poll every five minutes, focused or not; the poll timer restarts
-  after any answer, and a poll closer than 4.5 min to the last request asks nothing. A poll is skipped offline
-  (`navigator.onLine`). One request per repository is in flight; a Refresh during it asks once more after it.
-  [@test] ../../src/stores/review-requests.test.ts (`polls every five minutes, focused or not, and backs off while GitHub fails`, `skips a poll while offline`)
+- The session of the selected repository asks after a sync (at most once a minute), on a focus when its requests are
+  older than two minutes (at least a minute after the last request), by the Refresh button always, and by a poll five
+  minutes after each answer, focused or not, on the clock of the session; a poll closer than 4.5 min to the last
+  request asks nothing. A poll is skipped offline (`online` of the window's demand, `navigator.onLine`): it waits a
+  whole interval more. One request is in flight; a Refresh during it asks once more after it. While the last answer of
+  a subject waits for approvals in its pull request (`domain_policy::readiness::awaits_approval`), each poll lists the
+  pull requests too, whose new reviews ask its readiness again ([Approval news](#approval-news)). No store of the page
+  polls on a timer of its own (`poll-timer` of `pnpm lint:arch`).
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`lists_the_review_requests_after_a_sync_on_a_focus_and_by_the_refresh_button`, `polls_every_five_minutes_focused_or_not_and_backs_off_while_github_fails`, `skips_a_poll_while_offline`, `a_poll_lists_the_pull_requests_while_a_subject_waits_for_approvals`)
+  [@test] ../../crates/domain-policy/src/refresh_test.rs (`the_review_requests_are_polled_every_five_minutes_and_listed_after_a_sync_every_minute`)
+  [@test] ../../crates/domain-policy/src/readiness_test.rs (`a_subject_awaits_approvals_while_patronus_misses_them_or_github_waits_for_a_reviewer`)
+  [@test] ../../scripts/lint-arch.test.mjs (`a timer of a store or a hook is a poll, of its test or another module not`)
 - A failure doubles the interval, up to 30 min; the rate limit waits 15 min at least (nothing but Refresh asks before);
   without a token, with one GitHub rejects, or without access to the repository (no access, SAML SSO) nothing is
   polled until a focus or Refresh; a repository not on GitHub is asked again only by Refresh.
-  [@test] ../../src/lib/review-requests.test.ts (`polls every five minutes, backs off on errors, waits out the rate limit and stops without a token`)
-  [@test] ../../src/stores/review-requests.test.ts (`stops while GitHub rejects the token, until a focus asks again`)
+  [@test] ../../crates/domain-policy/src/refresh_test.rs (`the_review_requests_poll_backs_off_after_failures_waits_out_a_rate_limit_and_stops_without_access`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`stops_while_github_rejects_the_token_until_a_focus_asks_again`, `waits_out_the_rate_limit_but_the_refresh_button_asks`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`)
-- Another repository selected cancels the poll of the last one.
-- Opening a pull request on GitHub from the card or the review makes the next focus ask at once: an approved one
-  leaves the list.
+- A session no window watches asks nothing: another repository selected leaves the session of the last one without
+  the main window, and its polls stop (a review window of it keeps them).
+- Opening a pull request on GitHub from the card or the review tells the session (`refresh_facts { reviewRequests,
+  afterWrite }`): its next focus asks at once, an approved one leaves the list.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_request_opened_on_github_asks_on_the_next_focus_at_once`)
+  [@test] ../../src/stores/review-requests.test.ts (`tells the session a request was opened on GitHub: the next focus asks at once`)
 
 ### New requests
 
 - A request is new when its number and the time of its request event (`requestedAt`) are not in the last answer: a
   re-request is new. A request back to the user after their answer is not new, and keeps its key, read or unread as
-  the user left it: the user commented, they know it. The first answer after a start, and the first one after a
-  repository switch, are silent.
-  [@test] ../../src/lib/review-requests.test.ts (`is silent for the first answer after a start or a repository switch`, `tells the requests not known yet, a re-request too`, `tells no request back to the user after their answer, which keeps its key`)
-  [@test] ../../src/stores/review-requests.test.ts (`is silent for the first answer after a repository switch`, `tells nothing when a request the user answered comes back by a reply, read as it was`)
+  the user left it: the user commented, they know it. The session tells them as news (`reviewRequested`, the numbers);
+  its first listing, and the first one after a window watches it anew (a start, the repository selected again), are
+  silent, and so are the news of a view the window subscribes to.
+  [@test] ../../crates/repository-model/src/review_request_facts_test.rs (`the_requests_wait_the_longest_first_and_a_new_one_is_news_once`, `the_first_listing_after_a_window_watches_anew_is_silent`)
+  [@test] ../../src/lib/review-requests.test.ts (`keeps the key of a request back to the user after their answer`)
 - While a Branch Deck window has the focus (a conflict window counts), one toast tells the new requests of an answer:
   "dave requested your review" / "#104 Document the CLI", or "3 reviews requested" / "#1 … · #2 … · #3 …" (four of
   four named, from five on the first three and "2 more", `cutList`), with the action "Review", which opens the first
   one, for 10 s.
   [@test] ../../src/lib/review-requests.test.ts (`tells one request by who asked, several in one notice`)
-  [@test] ../../src/stores/review-requests.test.ts (`tells nothing for the first answer, then one toast with Review for what is new, recorded in Activity`)
+  [@test] ../../src/stores/review-requests.test.ts (`tells the requests the session tells new in one toast with Review, unread until opened, recorded in Activity`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
 - In the background an OS notification says it at once, with the words of the toast, when "Review requests" is on in
   Settings; the toast shows on the next focus. The permission is asked on the first notification, never at start. A
@@ -186,10 +205,13 @@ The other side of the review: the user waits for the code owners of their own pu
 ([Next Step](../branch/next-step.spec.md), "Awaiting Review", whom in its hover). An approval that makes it ready is news, with the
 Safe Push it allows.
 
-- While a row waits for an approval (Awaiting), each poll of the review requests (every five minutes, later after
-  failures) asks the session for the user's pull requests too (`onReviewRequestsPoll`, `refreshPullRequests`, the
-  refresh button's reason): they bring the latest reviews and the review requests, no other query. A new review changes the input of the readiness, which
-  asks Patronus once.
+- While the last answer of a subject waits for approvals (`missing`, or Patronus can't judge them while GitHub waits
+  for a reviewer: `domain_policy::readiness::awaits_approval`), each poll of the review requests of its session (every
+  five minutes, later after failures) lists the user's pull requests too (the refresh button's reason): they bring the
+  latest reviews, no other query. A new review changes the input of the readiness, which asks Patronus once.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_poll_lists_the_pull_requests_while_a_subject_waits_for_approvals`)
+  [@test] ../../crates/domain-policy/src/readiness_test.rs (`a_subject_awaits_approvals_while_patronus_misses_them_or_github_waits_for_a_reviewer`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push of the branch first`)
 - An approval is news when the readiness of a branch goes from `missing` to `approved` (or `notRequired`) for the same
   tip and the same pull request with other reviews (`approval_news`): a new review, not a new commit of the user,
   nor a recheck of a kept answer; an unavailable answer between the two hides nothing (the last answer Patronus gave
@@ -281,7 +303,8 @@ Safe Push it allows.
 - No footer while GitHub answers: the island is its rows, Refresh and when it was checked are in "⋯". A failed refresh
   keeps the rows, and a footer says why and how old the rows are, with Refresh (`ReviewStatusLine`): "GitHub: offline
   · checked 5 minutes ago". The card never turns into an error.
-  [@test] ../../src/stores/review-requests.test.ts (`keeps the rows when a refresh fails, drops them without a token`)
+  [@test] ../../crates/repository-model/src/review_request_facts_test.rs (`a_failure_keeps_the_rows_and_a_rejected_token_drops_them`)
+  [@test] ../../src/stores/review-requests.test.ts (`asks the session on the refresh button, refreshing until its answer is in`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should refresh from the menu, and keep the rows when a refresh fails, with the reason in the footer`)
 
 ### Badge
@@ -520,12 +543,15 @@ Safe Push it allows.
   (polling, notifications, pruning), `src/lib/os-notification.test.ts`, `src/lib/dock.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/file-diffs.test.ts`.
 - `cargo nextest run`: `crates/remote-facts/src/review_requests_test.rs` (a fake GitHub),
+  `crates/repository-model/src/review_request_facts_test.rs`, `crates/remote-facts/src/scheduler_test.rs` (the cadence),
   `crates/sync-core/src/review_fetch_test.rs` (local bare remotes), `crates/git-ops/src/commit_files_test.rs`, `crates/git-executor/src/git_command_executor_test.rs`,
   `crates/test-server/src/review_requests_test.rs`.
   [@test] ../../crates/test-server/src/review_requests_test.rs (`review_routes_answer_the_fixture_without_a_network`)
 - `pnpm e2e`: `tests/e2e/review-requests/review-requests.spec.ts` with the `issue_links` template.
-  `POST /repositories/{id}/review-requests` sets what `get_review_requests` answers (`availableReviewRequests` for
-  `acme/monorepo`) and, with `fetchError`, makes `fetch_review_head` fail; `GET` returns `{ calls, fetchCalls, prunes }`.
+  `POST /repositories/{id}/review-requests` sets what the session of the repository reads of GitHub
+  (`availableReviewRequests` for `acme/monorepo`) and, with `fetchError`, makes `fetch_review_head` fail; `GET` returns
+  `{ calls, fetchCalls, prunes }`; a poll comes when the test moves the clock of its sessions
+  (`repo.advanceBackendClock`).
   Its pull requests are in the fake GitHub of the test server too: `submit_pull_request_review`,
   `get_pull_request_head`, `post_patronus_command` and `read_patronus_command_reply` run the real cores against it, and
   a test asserts the requests GitHub got (`gitHubRequests`: the review with its event and commit, the `/patronus merge`

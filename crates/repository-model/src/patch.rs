@@ -135,7 +135,9 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     removed_readiness,
     robot_details,
     removed_robot_details,
+    review_requests,
   } = facts.unwrap_or_default();
+  set_if_some(&mut view.facts.review_requests, review_requests);
   for key in &removed_readiness {
     view.facts.readiness.remove(key);
   }

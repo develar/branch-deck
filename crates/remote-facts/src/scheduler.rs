@@ -34,6 +34,13 @@
 //! - the merge profiles of the target of the baseline, when a start or its popover asks (`refresh_facts { profiles }`)
 //!   and they are unknown, failed, a minute old or of another baseline (`profiles_due`).
 //!
+//! The review requests of others (`scheduler_review_requests.rs`) by `review_requests_due`: a committed table at most
+//! once a minute, a focus when they are older than two minutes (at once after a request was opened on GitHub), the
+//! refresh button always (once more after a list in flight), and a poll five minutes after each answer, focused or not,
+//! later after failures (`review_requests_poll_delay`), none offline (the demand) or without a token GitHub accepts;
+//! after the rate limit nothing but the refresh button before its wait ends, off GitHub only the refresh button. While
+//! a subject waits for approvals (`ReadinessDigest::awaits_approval`), each poll lists the pull requests too.
+//!
 //! The details of the robots a window shows them of (`scheduler_details.rs`, `Demand::robot_details`): at once, again when
 //! the robot's status changes and every `RUNNING_DETAILS_REFRESH` while it runs, never once no window demands them.
 //!
@@ -48,12 +55,14 @@ use domain_policy::refresh::{
   FactTiming, ListWindow, RefreshReason, ServiceState, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
 };
 use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus};
+use domain_types::pull_request::PullRequestAvailability;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use github::{GitHubFamily, GitHubSchedule};
 use readiness::ReadinessSchedule;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, RobotsDigest, RobotsRead};
 use repository_model::runtime::sleep_until;
 use repository_model::session::{SessionClocks, SessionEvent, SessionEventKind, SessionKey, Sessions};
+use review_requests::ReviewRequestsSchedule;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -140,6 +149,8 @@ impl Scheduler {
       robots: RobotsSchedule::default(),
       details: DetailsSchedule::default(),
       github: GitHubSchedule::default(),
+      review_requests: ReviewRequestsSchedule::default(),
+      online: None,
       readiness: ReadinessSchedule::default(),
     };
     let span = tracing::info_span!("session_facts", worktree = %key.worktree, prefix = %key.prefix);
@@ -157,6 +168,43 @@ fn answer_unasked(kind: SessionEventKind) {
 
 /// A refresh asked by a window: answered with the version of the view after the read that serves it
 type Reply = oneshot::Sender<Option<Version>>;
+
+/// The list of a family in flight (the pull requests, the review requests) and the refreshes that wait for it
+#[derive(Default)]
+struct InFlight {
+  listing: bool,
+  /// A reason that follows up asked during the list: one more after it
+  follow_up: bool,
+  waiters: Vec<Reply>,
+  follow_up_waiters: Vec<Reply>,
+}
+
+impl InFlight {
+  /// A reason while the list is in flight: one that `follows_up` asks once more after it, any other joins it
+  fn join(&mut self, follows_up: bool, reply: Option<Reply>) {
+    if follows_up {
+      self.follow_up = true;
+      self.follow_up_waiters.extend(reply);
+    } else {
+      self.waiters.extend(reply);
+    }
+  }
+
+  /// A list starts, which `waiters` wait for
+  fn start(&mut self, waiters: Vec<Reply>) {
+    self.listing = true;
+    self.waiters = waiters;
+  }
+
+  /// The list ended with the view at `version`, which its waiters hear; the waiters of the follow-up when one asked
+  fn end(&mut self, version: Option<Version>) -> Option<Vec<Reply>> {
+    self.listing = false;
+    for waiter in self.waiters.drain(..) {
+      let _ = waiter.send(version);
+    }
+    std::mem::take(&mut self.follow_up).then(|| std::mem::take(&mut self.follow_up_waiters))
+  }
+}
 
 /// What the task of a session takes: the events of its session, and the answers of its own reads
 enum Input {
@@ -190,6 +238,12 @@ enum Input {
   },
   /// A call of the review readiness ended
   Readiness(readiness::ReadinessEnded),
+  /// A list of the review requests ended: how GitHub answered (`None`: the session was gone), the version after its
+  /// patch
+  ReviewRequests {
+    availability: Option<PullRequestAvailability>,
+    version: Option<Version>,
+  },
 }
 
 /// A read of what the session asks about its robots, one of each in flight
@@ -269,14 +323,23 @@ struct SessionFacts {
   robots: RobotsSchedule,
   details: DetailsSchedule,
   github: GitHubSchedule,
+  review_requests: ReviewRequestsSchedule,
   readiness: ReadinessSchedule,
+  /// The machine is online, by the demand of the windows; `None` until a window said it
+  online: Option<bool>,
 }
 
 impl SessionFacts {
   async fn run(mut self, mut inbox: mpsc::UnboundedReceiver<Input>) {
     loop {
       // nothing is asked for a session no window watches: its timers wait for one
-      let timers = [self.robots.poll_at, self.details_timer(), self.github.timer(), self.readiness.timer()];
+      let timers = [
+        self.robots.poll_at,
+        self.details_timer(),
+        self.github.timer(),
+        self.review_requests.timer(),
+        self.readiness.timer(),
+      ];
       let timer = timers.into_iter().flatten().min().filter(|_| self.watched);
       let input = match timer {
         Some(at) => {
@@ -302,6 +365,11 @@ impl SessionFacts {
     self.clock.now()
   }
 
+  /// Whether a poll may ask: offline none does; online until a window said otherwise
+  fn online(&self) -> bool {
+    self.online.unwrap_or(true)
+  }
+
   /// The timers whose time came: the poll of the robots, the details of a running robot a window shows, the look
   /// again at the pull requests after a push, the readiness Patronus didn't give
   fn timers(&mut self) {
@@ -315,6 +383,9 @@ impl SessionFacts {
     }
     if self.github.timer().is_some_and(|at| at <= now) {
       self.recheck_pull_requests();
+    }
+    if self.review_requests.timer().is_some_and(|at| at <= now) {
+      self.poll_review_requests();
     }
     if self.readiness.timer().is_some_and(|at| at <= now) {
       self.ask_readiness();
@@ -339,6 +410,7 @@ impl SessionFacts {
       Input::Rules { branch, known, version } => self.rule_read(&branch, known, version),
       Input::Profiles { failed, version } => self.profiles_read(failed, version),
       Input::Readiness(ended) => self.readiness_ended(ended),
+      Input::ReviewRequests { availability, version } => self.review_requests_listed(availability.as_ref(), version),
     }
   }
 
@@ -349,11 +421,14 @@ impl SessionFacts {
         if !watched {
           self.robots.poll_at = None;
           self.github_unwatched();
+          self.review_requests_unwatched();
           return;
         }
+        self.review_requests_watched();
         if self.table_committed {
           self.ask_list(RefreshReason::Sync, None);
           self.github_table_committed(None);
+          self.ask_review_requests(RefreshReason::Sync, None);
         }
         self.schedule_poll(false);
         self.read_details();
@@ -367,6 +442,7 @@ impl SessionFacts {
         self.table_committed = true;
         self.ask_list(RefreshReason::Sync, None);
         self.github_table_committed(Some(baseline));
+        self.ask_review_requests(RefreshReason::Sync, None);
       }
       SessionEventKind::PushEnded { heads } => self.pull_requests_pushed(heads),
       SessionEventKind::PullRequestWritten => self.ask_pull_requests(RefreshReason::Push, None),
@@ -397,6 +473,7 @@ impl SessionFacts {
         FactFamily::BranchRules => self.refresh_github(GitHubFamily::Rules, reason, reply),
         FactFamily::Profiles => self.refresh_github(GitHubFamily::Profiles, reason, reply),
         FactFamily::Readiness => self.recheck_readiness(subject, reply),
+        FactFamily::ReviewRequests => self.refresh_review_requests(reason, reply),
       },
     }
   }
@@ -411,6 +488,7 @@ impl SessionFacts {
     }
     self.ask_list(RefreshReason::Focus, None);
     self.ask_pull_requests(RefreshReason::Focus, None);
+    self.review_requests_focused();
     self.robots.poll_at = None;
     if robots_poll_due(self.now(), self.robots.last_poll_started, self.robots.digest.active_robots()) {
       self.poll();
@@ -419,8 +497,10 @@ impl SessionFacts {
     }
   }
 
-  /// The windows of the session: the focus of one of them sets the cadence of the poll; the first demand only tells it
+  /// The windows of the session: the focus of one of them sets the cadence of the poll, the first demand only tells
+  /// it; offline no poll asks
   fn demand(&mut self, demand: &Demand) {
+    self.online = Some(demand.online);
     if self.focused != Some(demand.focused) {
       self.focused = Some(demand.focused);
       self.schedule_poll(true);
@@ -648,6 +728,8 @@ mod details;
 mod github;
 #[path = "scheduler_readiness.rs"]
 mod readiness;
+#[path = "scheduler_review_requests.rs"]
+mod review_requests;
 
 #[cfg(test)]
 #[path = "scheduler_test.rs"]

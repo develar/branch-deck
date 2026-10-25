@@ -244,7 +244,10 @@ Mock implementation:
   (`subscribe_view` until its answer, not its last patch); `reset()` zeroes the counts, not `pending`. It counts at the fetch of `/invoke/<cmd>`,
   so an answer of a `routeCommand` counts too; the commands the page answers itself (the store, event, window and log
   plugins, the sub-window handlers) do not. `pnpm perf:table` reads it
-  ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
+  ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view)), and so do the tests that pin the IPC
+  of a step (`resetIpc`, `settledInvokes` of ipc-helpers.ts): the hover of a row reads no fact, its menu invokes
+  nothing, the popover of its robot one `set_demand`
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
 - **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
   `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` per repository that stands still, so no
   session of a test goes away by itself until the test moves it, `repo.advanceBackendClock`): `get_snapshot`, `sync`, `set_window_focus`,
@@ -288,9 +291,11 @@ Mock implementation:
   functions; Patronus and GitHub are asked through the app's own services behind fakes
   ([Remote services](#remote-services)); an answer that claude would give, and the review requests, come from a
   fixture of the repository, or from a route of the test
-- **Review requests**: `get_review_requests` answers `NotGitHub` until a test posts a fixture to
-  `/repositories/{id}/review-requests` (a `ReviewRequestsResult` plus an optional `fetchError`; `GET` returns the
-  counts of asks and fetches, and the `keep` of every prune). `fetch_review_head` never fetches: an empty `headRefOid`
+- **Review requests**: the session of a repository reads `NotGitHub` (`TestFactSources::review_requests`,
+  `review_requests_of`) until a test posts a fixture to `/repositories/{id}/review-requests` (a `ReviewRequestsFixture`
+  plus an optional `fetchError`; `GET` returns the counts of the session's lists and of the fetches, and the `keep` of
+  every prune); it lists them after a sync, on a focus and five minutes after its last answer on the clock of the
+  repository (`repo.advanceBackendClock`). `fetch_review_head` never fetches: an empty `headRefOid`
   is the tip of the local branch `headRefName` (else of `HEAD`),
   an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
   answers a range of source `local`; `fetchError` fails it instead. `get_range_files` and
@@ -560,8 +565,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   requests, `POST /graphql` whose body has `author:@me`), `robots` (the list of Patronus, `GET /app/rest/v1/robots`),
   `readiness` (the pre-check, `POST /app/rest/v1/pre-merge-approval-required-check`), `robotProblems` (why a robot
   failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold` matches any one) and
-  the answers the bridge gives itself, which wait in their command: `reviewRequests` (`get_review_requests`, from their
-  fixture), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
+  the answers the server gives itself, which wait in their read: `reviewRequests` (the session's list, from their
+  fixture, `review_requests_of`), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
   session's read of the rules of a base, `branch_rules_of`), `profiles` (its read of the merge profiles,
   `profiles_of`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`

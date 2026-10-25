@@ -106,7 +106,7 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 - A new review request ([Review Requests](review-requests.spec.md#new-requests)), one entry per request also when one
   toast told several: "dave requested your review on #104" / its title, kind `review`, with "Open Pull Request", the
   name of the action everywhere ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
-  [@test] ../../src/stores/review-requests.test.ts (`tells nothing for the first answer, then one toast with Review for what is new, recorded in Activity`)
+  [@test] ../../src/stores/review-requests.test.ts (`tells the requests the session tells new in one toast with Review, unread until opened, recorded in Activity`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
 - An approval of the user's pull request that made a branch ready ([Review Requests](review-requests.spec.md#approval-news)):
   "Ilya Korennoy approved auth" / "#1078 · IJPL Code Platform", kind `review`, with "Open Pull Request".

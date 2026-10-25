@@ -120,11 +120,6 @@ export const commands = {
 	 */
 	setYoutrackIssueState: (key: string, state: string, expected: string | null) => typedError<YouTrackStateChange, ApiError>(__TAURI_INVOKE("set_youtrack_issue_state", { key, state, expected })),
 	/**
-	 *  The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
-	 *  can't answer, the availability says why. A known `github_repository` skips resolving it.
-	 */
-	getReviewRequests: (params: GetReviewRequestsParams) => typedError<ReviewRequestsResult, ApiError>(__TAURI_INVOKE("get_review_requests", { params })),
-	/**
 	 *  Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
 	 *  commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call of the
 	 *  same window, `cancel_review_fetch` of it, or its close kills the fetch.
@@ -1775,7 +1770,13 @@ export type FactFamily =
  *  The review readiness of a subject (`FactsView::readiness`): Check Approvals Again (`Manual` with the subject) asks
  *  Patronus again instead of the kept answer; the answer is the version after its patch
  */
-"readiness";
+"readiness" | 
+/**
+ *  The pull requests of others that wait for the user's review (`FactsView::review_requests`): the refresh button
+ *  asks them (`Manual`); a request opened on GitHub, where the user may answer it, makes the next focus ask at once
+ *  (`AfterWrite`, answered at once)
+ */
+"reviewRequests";
 
 /**  Why a window asks a fact again */
 export type FactRefreshReason = 
@@ -1820,6 +1821,8 @@ export type FactsChanges = {
 	/**  The details of the robots that changed, and the robots no window demands any more */
 	robotDetails?: { [key in string]: Fact<PatronusRobotDetails> },
 	removedRobotDetails?: string[],
+	/**  The whole part when it changed: at most 50 requests */
+	reviewRequests?: ReviewRequestsView | null,
 };
 
 /**
@@ -1852,6 +1855,7 @@ export type FactsView = {
 	 *  changes and every `RUNNING_DETAILS_REFRESH` while it runs; a robot no window demands any more has none
 	 */
 	robotDetails: { [key in string]: Fact<PatronusRobotDetails> },
+	reviewRequests: ReviewRequestsView,
 };
 
 /**  A failed build of the dependency chain of a check (never a composite one) */
@@ -2228,12 +2232,6 @@ export type GetRangeParams = {
 
 export type GetRepositoryConfigParams = {
 	repositoryPath: string,
-};
-
-export type GetReviewRequestsParams = {
-	repositoryPath: string,
-	/**  `owner/name` when the pull requests already resolved it: skips resolving the repository again */
-	githubRepository: string | null,
 };
 
 /**  The commit map of a running robot, for the commit rows of the branches it tests: which commits it covers */
@@ -2763,6 +2761,13 @@ export type NewsEvent =
  *  Patronus didn't give them
  */
 { kind: "robotFailed"; robotId: string; needsReview: boolean | null } | 
+/**
+ *  Pull requests of others asked the user for a review since the last listing (`numbers`, of the requests of
+ *  `FactsView::review_requests`): a request whose number and request time the listing before lacked, a re-request
+ *  too; never one back to the user after their answer, and nothing in the first listing of a session a window
+ *  watches anew
+ */
+{ kind: "reviewRequested"; numbers: number[] } | 
 /**
  *  The approvals of a subject that waited for them arrived (`domain_policy::readiness::approval_news`): whose
  *  approval counts now in the groups that waited (none named: the code owners), in the pull request of its start
@@ -3815,15 +3820,24 @@ export type ReviewRequest = {
 	baseIsDefault: boolean,
 };
 
-export type ReviewRequestsResult = {
-	availability: PullRequestAvailability,
+/**
+ *  The pull requests of others that wait for the user's review ("Your Turn"), as the session listed them: the
+ *  availability of the last answer with how the listing stands (`head`: `Loading` until the first answer; `Fresh` while
+ *  GitHub lists them, and for a repository not on GitHub; `Stale` with the reason when GitHub failed for a while after a
+ *  listing, whose requests stay; `Unavailable` when none stands: a failure before any listing, no token, a token GitHub
+ *  rejects, no access), the requests waiting the longest first, how many wait in all, and when GitHub gave them
+ */
+export type ReviewRequestsView = {
+	head: Fact<PullRequestAvailability>,
 	/**
-	 *  All pull requests waiting for the user, also those beyond `requests`: GitHub's `issueCount` without the requests
-	 *  of the answer that don't wait (reviewed, or answered with a comment)
+	 *  Waiting the longest first, then by number; those of the last listing, kept through a failure, none without a token
+	 *  GitHub accepts or off GitHub
 	 */
-	totalCount: number,
-	/**  At most 50, as GitHub returns them; empty unless available */
 	requests: ReviewRequest[],
+	/**  All that wait, also beyond the 50 GitHub returns */
+	totalCount: number,
+	/**  Unix seconds of the last answer with the requests, 0 = never: how old the rows are after a failure */
+	checkedAt: number,
 };
 
 /**  Where the review of a pull request was fetched from */

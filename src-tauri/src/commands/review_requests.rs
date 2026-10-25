@@ -1,15 +1,10 @@
-use crate::commands::github::GitHubState;
-use crate::commands::pull_requests::github_repository;
 use crate::operation::{operation, run_blocking};
-use crate::repository_state::RepositoryStateCache;
 use crate::window_requests::WindowRequests;
 use domain_types::error::ApiError;
-use domain_types::pull_request::PullRequestAvailability;
-use domain_types::review_request::{FetchReviewHeadParams, GetRangeParams, GetReviewRequestsParams, PruneReviewRefsParams, ReviewRange, ReviewRequestsResult};
+use domain_types::review_request::{FetchReviewHeadParams, GetRangeParams, PruneReviewRefsParams, ReviewRange};
 use file_diffs::range_files::RangeFilesCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::{CommitFiles, DiffSubject};
-use remote_facts::review_requests::list_review_requests;
 use std::sync::Arc;
 use sync_core::review_fetch::{fetch_review_head as core_fetch_review_head, prune_review_refs as core_prune_review_refs};
 use sync_core::transfer_progress::TransferProgress;
@@ -21,26 +16,6 @@ use tracing::{instrument, warn};
 /// the one in flight. The review window fetches the pull request it shows; windows fetch apart.
 #[derive(Default)]
 pub struct ReviewFetchState(pub WindowRequests);
-
-/// The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
-/// can't answer, the availability says why. A known `github_repository` skips resolving it.
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
-#[specta::specta]
-pub async fn get_review_requests(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  github: State<'_, GitHubState>,
-  params: GetReviewRequestsParams,
-) -> Result<ReviewRequestsResult, ApiError> {
-  operation(async move {
-    let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await? else {
-      return Ok(ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
-    };
-    Ok(list_review_requests(&github.service, &params.repository_path, &repository).await)
-  })
-  .await
-}
 
 /// Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
 /// commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call of the

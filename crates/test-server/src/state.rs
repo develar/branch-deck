@@ -79,7 +79,7 @@ pub struct TestRepository {
   pub store: app_settings::service::SettingsService,
   /// How often the app asked for pull requests, so a test can check the refresh policy
   pub pull_request_calls: AtomicU32,
-  /// What `get_review_requests` answers and how `fetch_review_head` fails (E2E never runs gh); not on GitHub until a
+  /// What the session reads of the review requests and how `fetch_review_head` fails (E2E never runs gh); not on GitHub until a
   /// test sets it
   pub review_requests: RwLock<ReviewRequestsFixture>,
   /// How often the app asked for review requests and fetched a review

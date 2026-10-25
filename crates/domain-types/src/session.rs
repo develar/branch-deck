@@ -22,6 +22,7 @@ use crate::landed::LandedBranch;
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability};
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, StackPatronus};
+use crate::review_request::ReviewRequest;
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
 use crate::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate, UnappliedBranchInfo};
@@ -160,6 +161,10 @@ pub enum FactFamily {
   /// The review readiness of a subject (`FactsView::readiness`): Check Approvals Again (`Manual` with the subject) asks
   /// Patronus again instead of the kept answer; the answer is the version after its patch
   Readiness,
+  /// The pull requests of others that wait for the user's review (`FactsView::review_requests`): the refresh button
+  /// asks them (`Manual`); a request opened on GitHub, where the user may answer it, makes the next focus ask at once
+  /// (`AfterWrite`, answered at once)
+  ReviewRequests,
 }
 
 /// Why a window asks a fact again
@@ -378,6 +383,26 @@ pub struct FactsView {
   /// running robot, the estimate of the CI; `Loading` until the first answer, read again when the robot's status
   /// changes and every `RUNNING_DETAILS_REFRESH` while it runs; a robot no window demands any more has none
   pub robot_details: BTreeMap<String, Fact<PatronusRobotDetails>>,
+  pub review_requests: ReviewRequestsView,
+}
+
+/// The pull requests of others that wait for the user's review ("Your Turn"), as the session listed them: the
+/// availability of the last answer with how the listing stands (`head`: `Loading` until the first answer; `Fresh` while
+/// GitHub lists them, and for a repository not on GitHub; `Stale` with the reason when GitHub failed for a while after a
+/// listing, whose requests stay; `Unavailable` when none stands: a failure before any listing, no token, a token GitHub
+/// rejects, no access), the requests waiting the longest first, how many wait in all, and when GitHub gave them
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewRequestsView {
+  pub head: Fact<PullRequestAvailability>,
+  /// Waiting the longest first, then by number; those of the last listing, kept through a failure, none without a token
+  /// GitHub accepts or off GitHub
+  pub requests: Vec<ReviewRequest>,
+  /// All that wait, also beyond the 50 GitHub returns
+  pub total_count: u32,
+  /// Unix seconds of the last answer with the requests, 0 = never: how old the rows are after a failure
+  pub checked_at: u32,
 }
 
 /// The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the
@@ -456,6 +481,11 @@ pub enum NewsEvent {
     #[serde(rename = "needsReview")]
     needs_review: Option<bool>,
   },
+  /// Pull requests of others asked the user for a review since the last listing (`numbers`, of the requests of
+  /// `FactsView::review_requests`): a request whose number and request time the listing before lacked, a re-request
+  /// too; never one back to the user after their answer, and nothing in the first listing of a session a window
+  /// watches anew
+  ReviewRequested { numbers: Vec<u32> },
   /// The approvals of a subject that waited for them arrived (`domain_policy::readiness::approval_news`): whose
   /// approval counts now in the groups that waited (none named: the code owners), in the pull request of its start
   ApprovalsArrived {
@@ -807,6 +837,10 @@ pub struct FactsChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_robot_details: Vec<String>,
+  /// The whole part when it changed: at most 50 requests
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub review_requests: Option<ReviewRequestsView>,
 }
 
 /// What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went

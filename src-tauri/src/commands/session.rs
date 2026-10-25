@@ -27,11 +27,13 @@ use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
+use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::branch_rules::read_branch_rules;
 use remote_facts::fact_sources::{FactSources, Read};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
+use remote_facts::review_requests::list_review_requests;
 use remote_facts::scheduler::Scheduler;
 use repository_model::facts::Needs;
 use repository_model::landing::LandingGate;
@@ -265,6 +267,17 @@ impl FactSources for AppFactSources {
     Box::pin(async move {
       let new_api = self.app.state::<SettingsService>().app().patronus_new_api;
       self.app.state::<PatronusState>().details(&key.prefix, &id, new_api).await
+    })
+  }
+
+  fn review_requests<'a>(&'a self, key: &'a SessionKey, known: Option<String>) -> Read<'a, ReviewRequestsResult> {
+    Box::pin(async move {
+      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
+      match github_repository(&git, &repository_state, &key.worktree, known.as_deref()).await {
+        Ok(Some(repository)) => list_review_requests(&self.app.state::<GitHubState>().service, &key.worktree, &repository).await,
+        Ok(None) => ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
+        Err(error) => ReviewRequestsResult::unavailable(PullRequestAvailability::Error { message: error.message }),
+      }
     })
   }
 

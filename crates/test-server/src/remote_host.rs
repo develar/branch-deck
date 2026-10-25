@@ -109,7 +109,7 @@ pub struct RemoteHost {
 pub enum HeldAnswer {
   /// GitHub's search of the user's pull requests (the session's list, `author:@me` of `remote_facts::pull_requests`)
   PullRequests,
-  /// The review requests (`get_review_requests`, which the bridge answers from its fixture: held there)
+  /// The review requests (`review_requests_of`, which the session reads from the fixture: held there)
   ReviewRequests,
   /// The list of the robots (`get_patronus_robots`, `GET /app/rest/v1/robots`)
   Robots,
@@ -394,7 +394,7 @@ impl RemoteHost {
     }
   }
 
-  /// Waits while `answer` is held: an answer the bridge gives itself (`get_review_requests`)
+  /// Waits while `answer` is held: an answer the server gives itself (`review_requests_of`)
   pub async fn pass_held(&self, answer: HeldAnswer) {
     let gate = self.held.lock().expect("held answers lock").get(&answer).cloned();
     if let Some(gate) = gate {

@@ -1,14 +1,15 @@
 // @spec spec/repository/review-requests.spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { ReviewRequest, ReviewRequestsResult } from "@/lib/bindings"
+import type { News, PullRequestAvailability, ReviewRequest } from "@/lib/bindings"
 import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
-import { MAX_BACKOFF_MS, POLL_INTERVAL_MS } from "@/lib/review-requests"
 import { getOperations } from "@/stores/operations"
 import {
+  applyReviewRequestsFacts,
   approveAndSafePush,
   connectReviewWindow,
   getReviewBusy,
   noteReviewRefsWritten,
+  openRequestOnGitHub,
   openReviewRequest,
   pruneReviewRefsOf,
   refreshReviewRequests,
@@ -16,13 +17,22 @@ import {
   reviewRequestsStore,
   submitReview,
 } from "@/stores/review-requests"
+import { emptyView } from "@/test-support/fake-sessions"
 import { reviewRequest as request } from "@/test-support/review-request"
+
+/** What GitHub answers of the review requests, as the session reads it */
+interface Listing {
+  readonly availability: PullRequestAvailability
+  readonly totalCount: number
+  readonly requests: readonly ReviewRequest[]
+}
 
 const { gh } = vi.hoisted(() => ({
   gh: {
     selected: "/repo",
-    result: null as ReviewRequestsResult | null,
-    calls: [] as { repositoryPath: string; githubRepository: string | null }[],
+    result: null as Listing | null,
+    /** The refreshes the page asked the session for: the family and the reason of each */
+    refreshes: [] as string[],
     prunes: [] as { repositoryPath: string; keep: number[] }[],
     toasts: [] as { title: string; description?: string; actionProps?: { children: string; onClick: () => void } }[],
     notifications: [] as { title: string; body: string }[],
@@ -40,10 +50,6 @@ vi.mock("@/lib/bindings", async importOriginal => ({
   // the constants of the bindings (the defaults of the settings Rust reads); the commands are the test's
   ...(await importOriginal<typeof import("@/lib/bindings")>()),
   commands: {
-    getReviewRequests: async (params: { repositoryPath: string; githubRepository: string | null }) => {
-      gh.calls.push(params)
-      return { status: "ok", data: gh.result }
-    },
     getPullRequestHead: async () => ({ status: "ok", data: gh.head }),
     submitPullRequestReview: async (params: unknown) => {
       gh.reviews.push(params)
@@ -114,8 +120,38 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 
-function available(...requests: ReviewRequest[]): ReviewRequestsResult {
+// the session lists the review requests again for the refresh button: what GitHub answers now
+vi.mock("@/model/store", () => ({
+  refreshSessionFacts: async (repositoryPath: string, family: string, reason: string) => {
+    gh.refreshes.push(`${family} ${reason}`)
+    if (reason === "manual") {
+      listed(gh.result!, [], repositoryPath)
+    }
+    return true
+  },
+}))
+
+function available(...requests: ReviewRequest[]): Listing {
   return { availability: { status: "available", owner: "acme", name: "monorepo" }, totalCount: requests.length, requests }
+}
+
+let lastNews = 0
+
+/**
+ * The session listed the review requests of `repositoryPath` (`listing`, as its view has them: the rows of the last
+ * answer with requests) and tells the requests of `told` as new
+ */
+function listed(listing: Listing, told: number[] = [], repositoryPath = "/repo"): void {
+  const view = emptyView()
+  const available = listing.availability.status === "available"
+  const reviewRequests = {
+    head: { value: listing.availability, state: { kind: "fresh" as const }, seq: lastNews + 1, observedAt: 1_000_000 },
+    requests: [...(available ? listing.requests : (reviewRequestsStore.getState().repositories[repositoryPath]?.requests ?? []))],
+    totalCount: listing.totalCount,
+    checkedAt: available ? 1_000_000 : 0,
+  }
+  const news: News[] = told.length === 0 ? [] : [{ id: ++lastNews, event: { kind: "reviewRequested", numbers: told } }]
+  applyReviewRequestsFacts(repositoryPath, { ...view.facts, reviewRequests }, { reviewRequests }, news)
 }
 
 function entry(path = "/repo") {
@@ -141,7 +177,8 @@ beforeEach(() => {
   reviewWindow.shown = null
   gh.selected = "/repo"
   gh.result = available()
-  gh.calls = []
+  gh.refreshes = []
+  lastNews = 0
   gh.prunes = []
   gh.toasts = []
   gh.notifications = []
@@ -155,14 +192,10 @@ beforeEach(() => {
 })
 
 describe("answers", () => {
-  it("tells nothing for the first answer, then one toast with Review for what is new, recorded in Activity", async () => {
-    gh.result = available(request(1))
-    await refreshReviewRequests("sync")
-    expect(gh.calls).toEqual([{ repositoryPath: "/repo", githubRepository: "acme/monorepo" }])
+  it("tells the requests the session tells new in one toast with Review, unread until opened, recorded in Activity", async () => {
+    listed(available(request(1)))
     expect(gh.toasts).toEqual([])
-
-    gh.result = available(request(1), request(2), request(3))
-    await refreshReviewRequests("manual")
+    listed(available(request(1), request(2), request(3)), [2, 3])
     expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["2 reviews requested", "#2 Change 2 · #3 Change 3", "Review"]])
     expect(gh.activity).toEqual(["#2", "#3"])
     expect([...entry().unread]).toEqual(["2@1002", "3@1003"])
@@ -171,134 +204,64 @@ describe("answers", () => {
     gh.toasts[0]!.actionProps!.onClick()
     expect(reviewWindow.opens).toEqual([{ number: 2, index: 1, intent: null }])
     expect([...entry().unread]).toEqual(["3@1003"])
-  })
-
-  it("tells a re-request, keeps the list of an answer that changed nothing", async () => {
-    gh.result = available(request(1))
-    await refreshReviewRequests("sync")
-    const first = entry().requests
-    await refreshReviewRequests("manual")
-    expect(entry().requests).toBe(first)
-
-    gh.result = available(request(1, { waitingSince: 5_000, reRequested: true }))
-    await refreshReviewRequests("manual")
-    expect(gh.toasts.map(it => it.title)).toEqual(["bob requested your review"])
-  })
-
-  it("tells nothing when a request the user answered comes back by a reply, read as it was", async () => {
-    gh.result = available(request(1), request(2))
-    await refreshReviewRequests("sync")
-    // the user answered #2 with a comment: gone
-    gh.result = available(request(1))
-    await refreshReviewRequests("manual")
-    gh.result = available(request(1), request(2, { requestedAt: 1_002, waitingSince: 9_000, backToYou: { at: 9_000, repliedBy: "alice" } }))
-    await refreshReviewRequests("manual")
-    expect(entry().requests.map(it => it.number)).toEqual([1, 2])
-    expect(gh.toasts).toEqual([])
-    expect(gh.activity).toEqual([])
+    // a request that left the list is unread no more
+    listed(available(request(1)))
     expect([...entry().unread]).toEqual([])
   })
 
+  it("keeps the list and the rows of an answer that changed nothing", async () => {
+    listed(available(request(1), request(2)))
+    const first = entry().requests
+    listed(available(request(1), request(2)))
+    expect(entry().requests).toBe(first)
+    listed(available(request(1), request(2, { title: "Renamed" })))
+    expect(entry().requests[0]).toBe(first[0])
+    expect(entry().requests[1]!.title).toBe("Renamed")
+  })
+
   it("tells in the background by an OS notification, and in a toast on focus", async () => {
-    await refreshReviewRequests("sync")
+    listed(available())
     setWindowFocus(false)
-    gh.result = available(request(7))
-    await refreshReviewRequests("manual")
+    listed(available(request(7)), [7])
     await vi.waitFor(() => expect(gh.notifications).toEqual([{ title: "bob requested your review", body: "#7 Change 7" }]))
     expect(gh.toasts).toEqual([])
     setWindowFocus(true)
     expect(gh.toasts.map(it => it.title)).toEqual(["bob requested your review"])
   })
-
-  it("keeps the rows when a refresh fails, drops them without a token", async () => {
-    gh.result = available(request(1))
-    await refreshReviewRequests("sync")
-    const checkedAt = entry().checkedAt
-    gh.result = { availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] }
-    vi.advanceTimersByTime(1_000)
-    await refreshReviewRequests("manual")
-    expect(entry().requests.map(it => it.number)).toEqual([1])
-    expect(entry().availability).toEqual({ status: "error", message: "offline" })
-    expect(entry().checkedAt).toBe(checkedAt)
-
-    gh.result = { availability: { status: "notAuthenticated", source: "gh" }, totalCount: 0, requests: [] }
-    await refreshReviewRequests("manual")
-    expect(entry().requests).toEqual([])
-  })
-
-  it("is silent for the first answer after a repository switch", async () => {
-    gh.result = available(request(1))
-    await refreshReviewRequests("sync")
-    gh.selected = "/other"
-    gh.result = available(request(5))
-    await refreshReviewRequests("sync")
-    gh.selected = "/repo"
-    gh.result = available(request(1), request(2))
-    await refreshReviewRequests("sync")
-    expect(gh.toasts).toEqual([])
-  })
 })
 
-describe("polling", () => {
-  it("polls every five minutes, focused or not, and backs off while GitHub fails", async () => {
-    await refreshReviewRequests("sync")
-    setWindowFocus(false)
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(gh.calls).toHaveLength(2)
-
-    gh.result = { availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] }
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(gh.calls).toHaveLength(3)
-    // the first failure doubles the interval
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(gh.calls).toHaveLength(3)
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(gh.calls).toHaveLength(4)
-    await vi.advanceTimersByTimeAsync(MAX_BACKOFF_MS)
-    expect(gh.calls).toHaveLength(5)
+describe("refresh", () => {
+  it("asks the session on the refresh button, refreshing until its answer is in", async () => {
+    listed(available(request(1)))
+    gh.result = available(request(1), request(2))
+    const refresh = refreshReviewRequests()
+    expect(entry().isRefreshing).toBe(true)
+    await refresh
+    expect((({ isRefreshing, requests }) => [isRefreshing, requests.map(it => it.number)])(entry())).toEqual([false, [1, 2]])
+    expect(gh.refreshes).toEqual(["reviewRequests manual"])
   })
 
-  it("stops while GitHub rejects the token, until a focus asks again", async () => {
-    gh.result = { availability: { status: "notAuthenticated", source: "gh" }, totalCount: 0, requests: [] }
-    await refreshReviewRequests("sync")
-    await vi.advanceTimersByTimeAsync(3 * POLL_INTERVAL_MS)
-    expect(gh.calls).toHaveLength(1)
-    gh.result = available(request(1))
-    await refreshReviewRequests("focus")
-    expect(gh.calls).toHaveLength(2)
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(gh.calls).toHaveLength(3)
-  })
-
-  it("skips a poll while offline", async () => {
-    await refreshReviewRequests("sync")
-    vi.stubGlobal("navigator", { onLine: false })
-    try {
-      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-      expect(gh.calls).toHaveLength(1)
-    } finally {
-      vi.unstubAllGlobals()
-    }
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(gh.calls).toHaveLength(2)
+  it("tells the session a request was opened on GitHub: the next focus asks at once", () => {
+    listed(available(request(1)), [1])
+    openRequestOnGitHub(request(1))
+    expect(gh.refreshes).toEqual(["reviewRequests afterWrite"])
+    expect([...entry().unread]).toEqual([])
   })
 })
 
 describe("review refs", () => {
   it("prunes once after an answer with the requests, never after a failure, and keeps the window's", async () => {
-    gh.result = { availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] }
-    await refreshReviewRequests("sync")
+    listed({ availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] })
     expect(gh.prunes).toEqual([])
 
-    gh.result = available(request(4))
-    await refreshReviewRequests("manual")
-    await refreshReviewRequests("manual")
+    listed(available(request(4)))
+    listed(available(request(4)))
     expect(gh.prunes).toEqual([{ repositoryPath: "/repo", keep: [] }])
 
     // the window fetched #4: the next answer keeps its refs, its close deletes them
     openReviewRequest("/repo", 4)
     noteReviewRefsWritten("/repo")
-    await refreshReviewRequests("manual")
+    listed(available(request(4)))
     expect(gh.prunes.at(-1)).toEqual({ repositoryPath: "/repo", keep: [4] })
     reviewWindow.shown = null
     pruneReviewRefsOf("/repo")
@@ -310,8 +273,7 @@ describe("reviews", () => {
   const HEAD = "0123456789abcdef0123456789abcdef01234567"
 
   it("approves the commit the user saw, says so with Open Pull Request, and asks GitHub again", async () => {
-    gh.result = available(request(7), request(8))
-    await refreshReviewRequests("sync")
+    listed(available(request(7), request(8)))
     openReviewRequest("/repo", 7)
 
     gh.result = available(request(8))
@@ -327,8 +289,7 @@ describe("reviews", () => {
   })
 
   it("requests changes with the comment, and says why GitHub refused", async () => {
-    gh.result = available(request(7))
-    await refreshReviewRequests("sync")
+    listed(available(request(7)))
     expect(await submitReview("/repo", request(7), "requestChanges", HEAD, "Sort by the snapshot")).toBe(true)
     expect(gh.reviews).toMatchObject([{ event: "requestChanges", body: "Sort by the snapshot" }])
     expect(gh.toasts.at(-1)?.title).toBe("Requested changes on #7")
@@ -344,8 +305,7 @@ describe("Safe Push of a reviewed pull request", () => {
   const HEAD = "0123456789abcdef0123456789abcdef01234567"
 
   it("approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start", async () => {
-    gh.result = available(request(7))
-    await refreshReviewRequests("sync")
+    listed(available(request(7)))
     gh.head = HEAD
     expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(true)
     expect(gh.reviews).toMatchObject([{ event: "approve", commitId: HEAD }])
@@ -369,8 +329,7 @@ describe("Safe Push of a reviewed pull request", () => {
   })
 
   it("refuses a pull request that got commits since the review, and says the reason of the bot", async () => {
-    gh.result = available(request(7))
-    await refreshReviewRequests("sync")
+    listed(available(request(7)))
     gh.head = "f".repeat(40)
     expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(false)
     expect(gh.safePushes).toEqual([])
@@ -383,8 +342,7 @@ describe("Safe Push of a reviewed pull request", () => {
   })
 
   it("tells the window that asked, records Activity in the main window, and switches it to the request's repository first", async () => {
-    gh.result = available(request(7))
-    await refreshReviewRequests("sync")
+    listed(available(request(7)))
     gh.head = HEAD
     const told: unknown[] = []
     const feedback = { toast: (toast: unknown) => told.push(toast), error: (title: string, error: unknown) => told.push({ title, error }) }

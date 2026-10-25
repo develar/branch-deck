@@ -1,10 +1,20 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "@playwright/test"
-import type { ReviewRequest, ReviewRequestsResult } from "../../../src/lib/bindings"
+import type { PullRequestAvailability, ReviewRequest } from "../../../src/lib/bindings"
 import type { PullRequestReviewWindowData } from "../../../src/lib/pull-request-review"
 import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 import { sendProgress } from "./wait-helpers"
+
+/**
+ * What GitHub answers of the review requests of a test repository (`TestRepositoryBuilder.setReviewRequests`), as the
+ * session reads it (`ReviewRequestsResult`): the availability, how many wait in all, the requests
+ */
+export interface ReviewRequestsFixture {
+  readonly availability: PullRequestAvailability
+  readonly totalCount: number
+  readonly requests: readonly ReviewRequest[]
+}
 
 /** The GitHub repository of the review requests of the E2E repositories */
 export const REVIEW_REPOSITORY = "acme/monorepo"
@@ -50,8 +60,8 @@ export function reviewRequest(branch: string, number: number, hoursAgo: number, 
   }
 }
 
-/** The answer of `get_review_requests` with these requests; `totalCount` beyond them when GitHub has more */
-export function availableReviewRequests(requests: ReviewRequest[], totalCount = requests.length): ReviewRequestsResult {
+/** What GitHub answers with these requests; `totalCount` beyond them when GitHub has more */
+export function availableReviewRequests(requests: ReviewRequest[], totalCount = requests.length): ReviewRequestsFixture {
   const [owner, name] = REVIEW_REPOSITORY.split("/") as [string, string]
   return { availability: { status: "available", owner, name }, totalCount, requests }
 }

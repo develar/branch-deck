@@ -75,15 +75,6 @@ impl ReviewRequestsResult {
   }
 }
 
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetReviewRequestsParams {
-  pub repository_path: String,
-  /// `owner/name` when the pull requests already resolved it: skips resolving the repository again
-  pub github_repository: Option<String>,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

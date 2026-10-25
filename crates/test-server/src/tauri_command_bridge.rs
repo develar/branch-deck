@@ -20,6 +20,7 @@ use domain_types::patronus::{
 use domain_types::pull_request::{
   BranchRules, CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
 };
+use domain_types::review_request::ReviewRequestsResult;
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::session::{Version, ViewAnswer};
@@ -1129,13 +1130,11 @@ pub async fn set_youtrack_issue_state(
   change.map(Json).map_err(|e| failed("set the state of the issue", e))
 }
 
-/// The fixture set by `POST /repositories/{id}/review-requests`; GitHub is never asked in E2E
-pub async fn get_review_requests(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<domain_types::review_request::GetReviewRequestsParams>,
-) -> CommandResult<domain_types::review_request::ReviewRequestsResult> {
+/// The review requests of the fixture set by `POST /repositories/{id}/review-requests`, as the session of a test
+/// repository reads them (`TestFactSources`): GitHub is never asked in E2E; counted
+pub(crate) async fn review_requests_of(state: &AppState, key: &SessionKey) -> Result<ReviewRequestsResult, ApiError> {
   let host = {
-    let repo = repository_by_path(&state, &params.repository_path)?;
+    let repo = repository_by_path(state, &key.worktree).map_err(rejected)?;
     repo.review_request_calls.fetch_add(1, Ordering::SeqCst);
     repo.existing_remote()
   };
@@ -1144,8 +1143,8 @@ pub async fn get_review_requests(
   if let Some(host) = host {
     host.pass_held(HeldAnswer::ReviewRequests).await;
   }
-  let repo = repository_by_path(&state, &params.repository_path)?;
-  Ok(Json(repo.review_requests.read().expect("review request fixture lock").result.clone()))
+  let repo = repository_by_path(state, &key.worktree).map_err(rejected)?;
+  Ok(repo.review_requests.read().expect("review request fixture lock").result.clone())
 }
 
 /// The range of the test repository without a network: an empty head is the tip of the local branch `headRefName`

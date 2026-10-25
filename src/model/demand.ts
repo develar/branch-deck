@@ -13,8 +13,8 @@
  *
  * A change goes out at most four times a second (`DEMAND_SEND_INTERVAL_MS`), without waiting for an answer, and only
  * when it differs from what was sent; a new subscription (another repository, a session opened again) gets it again.
- * The session asks the robots, the review readiness and the details by it; the review requests are still asked by
- * their store until their family moves into the session.
+ * The session asks the robots, the review readiness and the details by it, and polls nothing while the machine is
+ * offline (the review requests).
  */
 import { useEffect } from "react"
 import type { Demand } from "@/lib/bindings"

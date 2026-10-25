@@ -52,7 +52,7 @@ export const SetupRepoOptionsSchema = z.object({
   pullRequests: z.any().optional(),
 
   /**
-   * What `get_review_requests` answers (a `ReviewRequestsResult`, see `review-request-helpers.ts`), set before the first sync
+   * What GitHub answers of the review requests (a `ReviewRequestsFixture`, see `review-request-helpers.ts`), set before the first sync
    * Default: undefined - the repository is not on GitHub
    */
   reviewRequests: z.any().optional(),

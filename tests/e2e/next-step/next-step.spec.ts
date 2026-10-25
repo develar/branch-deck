@@ -332,7 +332,8 @@ test.describe("Next step", () => {
 
     // ikorennoy approves: GitHub waits for nobody, Patronus still can't judge, the approval is news
     await repo.setPullRequests(availablePullRequests(pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })))
-    await page.clock.fastForward("05:00")
+    // the session's poll of the review requests lists the pull requests while a subject waits for approvals
+    await repo.advanceBackendClock(300_000)
     const toast = page.locator("[data-slot=toast]", { hasText: `ikorennoy approved ${BRANCH}` })
     await expect(toast).toBeVisible()
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
@@ -670,14 +671,14 @@ test.describe("Next step", () => {
   })
 
   test("should tell the approval that arrives with a poll, with Safe Push of the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // the review requests are polled: the poll asks for the user's pull requests too while a row waits
+    // the session polls the review requests: the poll asks for the user's pull requests too while a subject waits
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED], availableRobots(), { reviewRequests: availableReviewRequests([]) })
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
 
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })
     await repo.setPullRequests(availablePullRequests(approved))
     await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
-    await page.clock.fastForward("05:00")
+    await repo.advanceBackendClock(300_000)
     const toast = page.locator("[data-slot=toast]", { hasText: `Ilya Korennoy approved ${BRANCH}` })
     await expect(toast).toBeVisible()
     await expect(toast).toContainText("#1078 · IJPL Code Platform")

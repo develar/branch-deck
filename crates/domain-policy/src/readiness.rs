@@ -1,7 +1,7 @@
 //! What the review readiness of a subject is asked with, and when an answer is news (spec/branch/patronus.spec.md,
 //! "Code-owner review"): the pull request a Safe Push would start from (`start_pull_request`, the rule of
 //! `getPullRequestStart` of the page), and the approvals that arrived between two answers of the same commits
-//! (`approval_news`, which the session tells once).
+//! (`approval_news`, which the session tells once), and whether a subject waits for them (`awaits_approval`).
 
 use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState};
@@ -68,6 +68,21 @@ pub fn approval_news(previous: Answered<'_>, next: Answered<'_>) -> Option<Appro
     approvers,
     groups: waited,
   })
+}
+
+/// Whether the approvals of a subject asked as `ask` can be news (`approval_news`): its last answer, of the same tip and
+/// the pull request it starts from now, misses approvals, or Patronus can't judge them while GitHub waits for
+/// reviewers. Such a subject is asked again when its reviews change, also while nothing shows it, and each poll of the
+/// review requests lists the pull requests for its new reviews
+#[must_use]
+pub fn awaits_approval(last: Answered<'_>, ask: &ReviewReadinessBranch) -> bool {
+  matches!(last.ask.start, ReviewStart::PullRequest { .. })
+    && last.ask.tip == ask.tip
+    && last.ask.start == ask.start
+    && match last.readiness {
+      ReviewReadiness::Missing { .. } => true,
+      readiness => is_unjudged(readiness) && !waiting_reviewers(&last.ask.reviewers).is_empty(),
+    }
 }
 
 const fn is_unjudged(readiness: &ReviewReadiness) -> bool {

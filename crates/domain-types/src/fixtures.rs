@@ -3,6 +3,7 @@
 
 use crate::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use crate::pull_request::{PullRequest, PullRequestState};
+use crate::review_request::ReviewRequest;
 
 /// A Safe Push of the virtual branch `branch_name` (`None`: of a temporary ref, matched by its revision) at the revision
 /// `tip`, started at `start_time` (Unix seconds)
@@ -51,5 +52,36 @@ pub fn pull_request(branch: &str, number: u32) -> PullRequest {
     updated_at: 1_704_139_200,
     reviewers: Vec::new(),
     author: Some("user".to_string()),
+  }
+}
+
+/// The request of `number` (alice's, asked by bob) to the user, made at `requested_at` and waiting since then (Unix
+/// seconds)
+pub fn review_request(number: u32, requested_at: u32) -> ReviewRequest {
+  ReviewRequest {
+    number,
+    title: format!("Change {number}"),
+    url: format!("https://github.com/acme/monorepo/pull/{number}"),
+    body_text: String::new(),
+    author: Some("alice".to_string()),
+    requested_by: Some("bob".to_string()),
+    created_at: requested_at,
+    updated_at: requested_at,
+    requested_at,
+    waiting_since: requested_at,
+    back_to_you: None,
+    additions: 1,
+    deletions: 0,
+    changed_files: 1,
+    checks_state: None,
+    review_decision: None,
+    re_requested: false,
+    reviewed_commit: None,
+    head_ref_name: format!("alice/change-{number}"),
+    head_ref_oid: String::new(),
+    base_ref_name: "master".to_string(),
+    base_ref_oid: String::new(),
+    is_cross_repository: false,
+    base_is_default: true,
   }
 }

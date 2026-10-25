@@ -1,4 +1,5 @@
-use crate::test_support::{Named, create_repository, post, post_as, start_test_server};
+use crate::session_routes_test::{subscribe, subscription};
+use crate::test_support::{Named, create_repository, post, post_as, start_test_server, sync, view_when};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -24,7 +25,8 @@ fn request(head_ref_oid: &str) -> Value {
   })
 }
 
-/// Quiet by default, then the fixture: the requests, a range of the test repository without a network, its failure
+/// Quiet by default, then the fixture: the requests the session of a window reads (after its sync, by the refresh
+/// button), a range of the test repository without a network, its failure
 #[tokio::test]
 async fn review_routes_answer_the_fixture_without_a_network() {
   let addr = start_test_server().await;
@@ -32,25 +34,22 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   let (id, repository_path) = create_repository(&client, addr).await;
   let ids = GitCommandExecutor::new().execute_command_lines(&["rev-list", "HEAD"], &repository_path).unwrap();
 
-  let answer = post(
-    &client,
-    addr,
-    "/invoke/get_review_requests",
-    json!({ "repositoryPath": repository_path, "githubRepository": null }),
-  )
-  .await;
-  assert_eq!(answer, json!({ "availability": { "status": "notGitHub" }, "totalCount": 0, "requests": [] }));
+  let mut messages = subscribe(&client, addr, &id, &repository_path, 51).await;
+  subscription(&mut messages).await;
+  sync(&client, addr, &repository_path).await;
+  let view = view_when(&client, addr, &repository_path, |view| view["facts"]["reviewRequests"]["head"]["value"].is_object()).await;
+  assert_eq!(view["facts"]["reviewRequests"]["head"]["value"], json!({ "status": "notGitHub" }));
 
   let result = json!({ "availability": { "status": "available", "owner": "acme", "name": "monorepo" }, "totalCount": 1, "requests": [request("")] });
   post(&client, addr, &format!("/repositories/{id}/review-requests"), result.clone()).await;
-  let answer = post(
-    &client,
-    addr,
-    "/invoke/get_review_requests",
-    json!({ "repositoryPath": repository_path, "githubRepository": null }),
-  )
-  .await;
-  assert_eq!(answer, result);
+  let refresh = json!({ "repositoryPath": repository_path, "family": "reviewRequests", "reason": "manual" });
+  post_as(&client, addr, Named::Id(&id), "/invoke/refresh_facts", refresh).await;
+  let view = view_when(&client, addr, &repository_path, |view| view["facts"]["reviewRequests"]["requests"][0].is_object()).await;
+  let part = &view["facts"]["reviewRequests"];
+  assert_eq!(
+    (&part["head"]["value"], &part["requests"], &part["totalCount"]),
+    (&result["availability"], &result["requests"], &json!(1))
+  );
 
   // an empty head is HEAD, an empty base the baseline, else the commit before: both local, nothing fetched
   let fetch = json!({

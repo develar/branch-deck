@@ -47,11 +47,17 @@
 //!
 //! The review readiness (`readiness_facts::ReadinessFact`, the part `facts.readiness` by subject): the asks of the
 //! subjects from the view, set before every patch, so the patch that moves a tip carries the readiness `Stale`.
+//!
+//! The details of the robots the windows demand (`robot_details`, the part `facts.robotDetails` by robot): `Loading`
+//! from the demand on, gone with it; what they name beyond a list goes onto the robots (`RobotsFact::details_answer`).
+//! The review requests of others (`review_request_facts::ReviewRequestsFact`, the part `facts.reviewRequests`) with
+//! the news of the new ones.
 
 use crate::branch_table::{BranchTable, remote_fact};
 use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
+use crate::review_request_facts::ReviewRequestsFact;
 use crate::table::TableState;
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
@@ -63,6 +69,7 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use domain_types::repository_view::{PatronusView, RemoteFacts};
+use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::Version;
 use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -289,6 +296,8 @@ pub enum FactResult {
   },
   /// The review readiness of subjects, each with the ask it answers
   Readiness(Vec<ReadinessAnswer>),
+  /// A listing of the review requests of others
+  ReviewRequests(ReviewRequestsResult),
   /// The details of the robot `id` (boxed: the largest answer by far)
   RobotDetails {
     id: String,
@@ -354,6 +363,8 @@ pub struct FactStore {
   pub readiness: ReadinessFact,
   /// By robot id, the details of the robots the windows demand (`demand_details`)
   pub robot_details: BTreeMap<String, FactRecord<PatronusRobotDetails>>,
+  /// The pull requests of others that wait for the user's review
+  pub review_requests: ReviewRequestsFact,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
   /// The number of the last news
@@ -375,6 +386,7 @@ impl FactStore {
       profiles: FactRecord::unknown(),
       readiness: ReadinessFact::default(),
       robot_details: BTreeMap::new(),
+      review_requests: ReviewRequestsFact::default(),
       news: Vec::new(),
       last_news: 0,
       failures: BTreeSet::new(),
@@ -422,6 +434,13 @@ impl FactStore {
           if let Some(news) = news {
             self.tell(news);
           }
+        }
+        changed
+      }
+      FactResult::ReviewRequests(result) => {
+        let (changed, news) = self.review_requests.answer(observation, result);
+        if let Some(news) = news {
+          self.tell(news);
         }
         changed
       }

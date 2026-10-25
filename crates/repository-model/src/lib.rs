@@ -33,6 +33,8 @@
 //! - `readiness_facts`: the review readiness of a session by subject: the ask of each from the view (its tip, the pull
 //!   request it starts from, the reviews), what the scheduler asks by the demand (`ReadinessDigest`), the answers in
 //!   their order, the news that approvals arrived
+//! - `review_request_facts`: the pull requests of others that wait for the user's review, as the listings leave them,
+//!   and the news of the requests a listing added
 //! - `runtime`: the actor of a session: its mailbox, the runs of its syncs with the mailbox as their reporter, the
 //!   patches at most every 16 ms; `GitSessionHost`, the syncs, the Patronus views and the landing needs of the app's
 //!   sessions with git
@@ -67,6 +69,7 @@ pub mod patronus_view;
 pub mod pull_request_facts;
 pub mod push_guard;
 pub mod readiness_facts;
+pub mod review_request_facts;
 pub mod runtime;
 pub mod session;
 pub mod start_guard;

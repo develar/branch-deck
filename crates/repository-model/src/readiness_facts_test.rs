@@ -199,6 +199,7 @@ fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_ne
   assert_eq!(state_of(&fact, "auth"), FactState::Stale { reason: None });
   assert_eq!(subject(&fact, "auth").priority, ReadinessPriority::HiddenAwaiting);
   assert_ne!(subject(&fact, "auth").inputs, asked.inputs);
+  assert!(fact.digest().awaits_approval, "each poll of the review requests lists the pull requests for it");
 
   // another tip: stale, and not asked until a window shows it
   let mut moved = state.clone();
@@ -211,6 +212,7 @@ fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_ne
   });
   fact.update(&moved, &reviewed, Some(&available()), &Demand::default());
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Stale { reason: None }, 0));
+  assert!(!fact.digest().awaits_approval);
 }
 
 /// Check Approvals Again makes the readiness `Stale` at once and asks it at once with `recheck`; an answer of an ask that

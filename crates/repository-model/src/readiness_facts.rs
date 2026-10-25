@@ -20,7 +20,7 @@
 
 use crate::facts::{Applied, FactRecord, Observation};
 use crate::table::TableState;
-use domain_policy::readiness::{Answered, approval_news, start_pull_request};
+use domain_policy::readiness::{Answered, approval_news, awaits_approval, start_pull_request};
 use domain_policy::refresh::{ReadinessPriority, readiness_priority};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::error::{ApiError, ErrorCode};
@@ -53,6 +53,9 @@ pub struct ReadinessDigest {
   /// The baseline the commits of each subject are read against (`origin/master`)
   pub baseline: String,
   pub subjects: Vec<ReadinessSubject>,
+  /// The last answer of one of them waits for approvals in the pull request it starts from: each poll of the review
+  /// requests lists the pull requests too, whose new reviews ask its readiness again (the approval is news)
+  pub awaits_approval: bool,
 }
 
 /// The answer of the readiness of a subject, with the ask it answers
@@ -139,6 +142,7 @@ impl ReadinessFact {
     let github = robots.and_then(|head| head.github_repository.as_deref());
     let availability = robots.map(|head| &head.availability);
     let mut subjects = Vec::new();
+    let mut awaiting = false;
     for name in state.order() {
       let stack = state.stack(name).map(|_| stack_readiness_key(name));
       for key in stack.into_iter().chain(std::iter::once(name.clone())) {
@@ -157,7 +161,7 @@ impl ReadinessFact {
         let awaits = record
           .and_then(|record| record.last_answered.as_ref())
           .zip(ask.as_ref())
-          .is_some_and(|(last, ask)| awaits_approval(last, ask));
+          .is_some_and(|(last, ask)| awaits_approval(answered_of(last), ask));
         let priority = readiness_priority(demanded, shown, awaits);
         let record = self.subjects.entry(key.clone()).or_insert_with(SubjectRecord::new);
         let Some(ask) = ask else {
@@ -176,6 +180,7 @@ impl ReadinessFact {
             if std::mem::take(&mut record.blocked) {
               record.fact.asked_again();
             }
+            awaiting |= awaits;
             subjects.push(ReadinessSubject {
               key,
               ask,
@@ -192,7 +197,11 @@ impl ReadinessFact {
         }
       }
     }
-    self.digest = ReadinessDigest { baseline, subjects };
+    self.digest = ReadinessDigest {
+      baseline,
+      subjects,
+      awaits_approval: awaiting,
+    };
   }
 
   /// Applies `answer` of the read of `observation`; whether it changed the readiness, and the news it is
@@ -282,11 +291,6 @@ fn subject_ask(state: &TableState, pull_requests: &PullRequestsView, github: Opt
   let tip = state.branch(key)?.copies.first()?.hash.as_deref().filter(|tip| !tip.is_empty())?;
   let start = start_pull_request(pull_requests.pull_requests.get(key), target, github);
   Some(ReviewReadinessBranch::starting_from(key.to_owned(), None, tip.to_owned(), start))
-}
-
-/// The last answer waits for approvals in the pull request the subject starts from at the same tip
-fn awaits_approval(last: &SubjectReadiness, ask: &ReviewReadinessBranch) -> bool {
-  matches!(last.readiness, ReviewReadiness::Missing { .. }) && matches!(last.ask.start, ReviewStart::PullRequest { .. }) && last.ask.tip == ask.tip && last.ask.start == ask.start
 }
 
 /// The inputs of an ask with its rechecks

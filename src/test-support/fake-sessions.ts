@@ -59,6 +59,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
       profiles: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 },
       readiness: {},
       robotDetails: {},
+      reviewRequests: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, requests: [], totalCount: 0, checkedAt: 0 },
     },
     news: [],
   }

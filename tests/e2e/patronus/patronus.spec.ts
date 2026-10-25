@@ -6,6 +6,7 @@ import { openActivityWindow } from "../helpers/activity-helpers"
 import { expectNothingToPush, findBranchRow, getBranchCells, getLandingNode, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
+import { INTENT_DWELL_PAST_MS, resetIpc, settledInvokes } from "../helpers/ipc-helpers"
 import { availableRobots, buildsNeverStarted, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
@@ -38,6 +39,14 @@ const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
     { auto: true },
   ],
 })
+
+/** What the app invokes on its own timers, wherever they fire: the debounced writes of the settings, the check for updates after the start */
+const APP_TIMERS: ReadonlySet<string> = new Set(["set_setting", "check_for_updates"])
+
+/** The commands of the page but those of the app's own timers */
+function withoutAppTimers(invokes: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(invokes).filter(([name]) => !APP_TIMERS.has(name)))
+}
 
 function getChip(page: Page, branchName: string): Locator {
   return findBranchRow(page, branchName).getByTestId("patronus-chip")
@@ -184,6 +193,29 @@ test.describe("Patronus chip", () => {
     const popover = await hoverChip(page, "feature-api")
     await expect(popover.getByTestId("patronus-rebased")).toHaveText("Started on an earlier build of the same commits.")
     await expect(popover.getByTestId("patronus-outdated")).toHaveCount(0)
+  })
+
+  test("should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens", async ({ page, repo }) => {
+    const row = findBranchRow(page, "JIRA-456")
+    // the hover reads the review of the branch ahead and no fact: the facts are the session's, which sends them
+    await resetIpc(page)
+    await row.hover()
+    await page.clock.fastForward(INTENT_DWELL_PAST_MS)
+    expect(withoutAppTimers(await settledInvokes(page))).toEqual({ prefetch_branch_review: 1 })
+
+    await resetIpc(page)
+    await row.click({ button: "right" })
+    await expect(page.getByRole("menu")).toBeVisible()
+    expect(withoutAppTimers(await settledInvokes(page))).toEqual({})
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+
+    // the popover tells the session what it shows, once, and the session reads the details
+    await resetIpc(page)
+    const calls = (await repo.getPatronusLog()).detailCalls
+    await hoverChip(page, "JIRA-456")
+    await expect.poll(async () => (await repo.getPatronusLog()).detailCalls).toBe(calls + 1)
+    expect(withoutAppTimers(await settledInvokes(page))).toEqual({ set_demand: 1 })
   })
 
   test("should show the robot in the branch preview", async ({ page }) => {

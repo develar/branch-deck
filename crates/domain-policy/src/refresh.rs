@@ -4,12 +4,12 @@
 //! of the fact's requests and the reason that asks. A request in flight takes no second one of its family; a reason
 //! that `*_follows_up` names asks once more after it.
 //!
-//! These are the rules of today's stores (`src/stores/patronus.ts`, `pull-requests.ts`, `review-readiness.ts`,
-//! `review-requests.ts`, `src/lib/review-requests.ts`, `src/hooks/useSafePush.ts`, `usePatronusRobotDetails.ts`), and
-//! the constants keep the names of the TypeScript ones, with the family in front where two stores have one each; the
-//! focus rule, the same in three stores, is one. The scheduler of the sessions (`remote_facts::scheduler`) asks the
-//! robots by them; the other stores keep their timers until their families move into the session (stage
-//! s7-session-facts). Two rules are the design's, not the stores': the
+//! These were the rules of the page's stores (`src/stores/patronus.ts`, `pull-requests.ts`, `review-readiness.ts`,
+//! `review-requests.ts`, `src/hooks/useSafePush.ts`, `usePatronusRobotDetails.ts`), and the constants keep the names
+//! of the TypeScript ones, with the family in front where two stores had one each; the focus rule, the same in three
+//! stores, is one. The scheduler of the sessions (`remote_facts::scheduler`) asks every family by them: no store of
+//! the page polls on a timer of its own (`poll-timer` of `pnpm lint:arch`). Two rules are the design's, not the
+//! stores': the
 //! readiness asks 4 subjects in parallel instead of batches of 8 one after another, and the hidden subjects that wait
 //! for an approval come after the shown ones.
 

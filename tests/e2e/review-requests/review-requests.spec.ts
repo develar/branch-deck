@@ -21,7 +21,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, routeCommandError } from "../helpers/wait-helpers"
+import { holdCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -75,7 +75,8 @@ test.describe("Your Turn card", () => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
     await expect(getYourTurnCard(page)).toHaveCount(0)
-    await page.clock.fastForward("02:01")
+    // the session asks a focus two minutes after the last answer, but never off GitHub
+    await repo.advanceBackendClock(121_000)
     await emitTauriEvent(page, "tauri://focus")
     await expect(getYourTurnCard(page)).toHaveCount(0)
     expect(await repo.getReviewRequestCalls()).toBe(1)
@@ -88,13 +89,13 @@ test.describe("Your Turn card", () => {
 
     // a rejected token: no poll, the next focus asks again
     await repo.setReviewRequests(availableReviewRequests([]))
-    await page.clock.fastForward("02:01")
+    await repo.advanceBackendClock(121_000)
     await emitTauriEvent(page, "tauri://focus")
     await expect.poll(() => repo.getReviewRequestCalls()).toBe(2)
     await expect(getYourTurnCard(page)).toHaveCount(0)
 
     await repo.setReviewRequests(availableReviewRequests([OLD]))
-    await page.clock.fastForward("02:01")
+    await repo.advanceBackendClock(121_000)
     await emitTauriEvent(page, "tauri://focus")
     await expect(getReviewRow(page, 101)).toBeVisible()
   })
@@ -160,8 +161,8 @@ test.describe("Your Turn card", () => {
 
     // two listed of 63: no Show More, and the list still says it
     await repo.setReviewRequests(availableReviewRequests([OLD, RECENT], 63))
-    await page.clock.fastForward("05:01")
-    await emitTauriEvent(page, "tauri://focus")
+    // the poll five minutes after the last answer
+    await repo.advanceBackendClock(300_000)
     await expect(card.getByTestId("review-request-row")).toHaveCount(2)
     await expect(card.getByTestId("review-requests-show-more")).toHaveCount(0)
     await expect(more).toHaveText("2 of 63Open All on GitHub")
@@ -238,10 +239,10 @@ test.describe("Your Turn card", () => {
   })
 
   test("should refresh from the menu, and keep the rows when a refresh fails, with the reason in the footer", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
+    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
     // nothing to say: no footer, the island is its rows
     await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveCount(0)
-    await routeCommandError(page, "get_review_requests", { code: "internal", message: "offline" })
+    await repo.setReviewRequests({ availability: { status: "error", message: "offline" }, totalCount: 0, requests: [] })
     await getYourTurnCard(page).getByRole("button", { name: "More actions for Your Turn" }).click()
     await page.getByRole("menuitem", { name: "Refresh" }).click()
     await expect(getYourTurnCard(page).getByTestId("review-requests-status-line")).toHaveText("GitHub: offline · checked just nowRefresh")
@@ -258,7 +259,8 @@ test.describe("New review requests", () => {
     await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
 
     await repo.setReviewRequests(availableReviewRequests([OLD, RECENT, RELEASE, FOURTH]))
-    await page.clock.fastForward("05:00")
+    // the session polls five minutes after the last answer, focused or not
+    await repo.advanceBackendClock(300_000)
     const toast = reviewToast(page, "dave requested your review")
     await expect(toast).toBeVisible()
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("#104 Document the CLI")
@@ -675,7 +677,7 @@ test.describe("Review window", () => {
     const { review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await repo.setReviewRequests(availableReviewRequests([RECENT]))
-    await page.clock.fastForward("05:00")
+    await repo.advanceBackendClock(300_000)
     await expect(review.getByTestId("review-withdrawn")).toHaveText("No longer waiting for your review")
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
     await expect(review.getByTestId("review-dialog-position")).toHaveCount(0)

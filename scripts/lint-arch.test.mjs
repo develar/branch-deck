@@ -111,6 +111,15 @@ test("a routed command error names its code", () => {
   assert.deepEqual(rulesOf(source), ["3 route-error-code", "6 route-error-code"])
 })
 
+test("a timer of a store or a hook is a poll, of its test or another module not", () => {
+  const source = ["const timer = setTimeout(ask, 300_000)", "const every = window.setInterval(read, 60_000)", "// setTimeout(ask) in a comment", "clearTimeout(timer)"].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("src/stores/example.ts"), ["1 poll-timer", "2 poll-timer"])
+  assert.deepEqual(rules("src/hooks/useExample.tsx"), ["1 poll-timer", "2 poll-timer"])
+  assert.deepEqual(rules("src/stores/example.test.ts"), [])
+  assert.deepEqual(rules("src/lib/example.ts"), [])
+})
+
 test("an allowlist entry needs its reason and a finding to hold", t => {
   const root = mkdtempSync(join(tmpdir(), "lint-arch-"))
   t.after(() => rmSync(root, { recursive: true, force: true }))

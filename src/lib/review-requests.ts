@@ -1,20 +1,14 @@
-import type { PullRequestAvailability, ReviewRequest } from "@/lib/bindings"
+import type { ReviewRequest } from "@/lib/bindings"
 import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 
 /*
  * The pull requests of others that wait for the user's review ("Your Turn", spec/repository/review-requests.spec.md):
- * their ages, their order, what is new in an answer, and how often GitHub is asked.
+ * their ages, their words, the rows the card shows. The session lists them in their order, waiting the longest first,
+ * and decides when GitHub is asked and which requests are new (`repository_model::review_request_facts`,
+ * `remote_facts::scheduler`).
  */
 
-/** GitHub is asked this often, focused or not */
-export const POLL_INTERVAL_MS = 5 * 60_000
-/** A poll closer than this to the last request asks nothing: a sync or a focus asked meanwhile */
-export const MIN_POLL_GAP_MS = 4.5 * 60_000
-/** A failing GitHub is asked at most this rarely: the interval doubles per failure up to it */
-export const MAX_BACKOFF_MS = 30 * 60_000
-/** After GitHub's rate limit, the next request waits at least this long */
-export const RATE_LIMIT_WAIT_MS = 15 * 60_000
 /** The rows of the card before "Show N More" */
 export const VISIBLE_ROW_CAP = 3
 
@@ -42,11 +36,6 @@ export function hasWaitedWorkingDay(since: number, now: number): boolean {
     cursor = end
   }
   return false
-}
-
-/** The requests, waiting the longest first; the same time by number */
-export function sortReviewRequests(requests: readonly ReviewRequest[]): ReviewRequest[] {
-  return requests.toSorted((a, b) => a.waitingSince - b.waitingSince || a.number - b.number)
 }
 
 /** "5 minutes", "3 hours", "2 days": how long from `since` to `now` (both ms), at least a minute */
@@ -86,19 +75,6 @@ export function reviewRequestKey(request: Pick<ReviewRequest, "number" | "reques
   return `${request.number}@${request.requestedAt}`
 }
 
-/**
- * The requests of `next` the user was not told about yet: those whose key (`reviewRequestKey`) `previous` lacks; one
- * back to the user after their answer (`backToYou`) is no request. `previous` is null for the first answer after a
- * start or a repository switch, which is silent: nothing is new then.
- */
-export function findNewRequests(previous: readonly ReviewRequest[] | null, next: readonly ReviewRequest[]): ReviewRequest[] {
-  if (previous === null) {
-    return []
-  }
-  const known = new Set(previous.map(reviewRequestKey))
-  return next.filter(request => request.backToYou === null && !known.has(reviewRequestKey(request)))
-}
-
 /** The new requests one toast names; one more is named too (`cutList`) */
 const NAMED_REQUESTS = 3
 
@@ -132,12 +108,12 @@ function sameRequest(a: ReviewRequest, b: ReviewRequest): boolean {
 }
 
 /**
- * The sorted requests of an answer with the objects of `previous` kept where nothing changed, and `previous` itself
- * when the whole list is the same: a poll that brings nothing new re-renders nothing
+ * The requests of an answer (in the session's order) with the objects of `previous` kept where nothing changed, and
+ * `previous` itself when the whole list is the same: a poll that brings nothing new re-renders nothing
  */
 export function mergeReviewRequests(previous: readonly ReviewRequest[], incoming: readonly ReviewRequest[]): readonly ReviewRequest[] {
   const byNumber = new Map(previous.map(request => [request.number, request]))
-  const next = sortReviewRequests(incoming).map(request => {
+  const next = incoming.map(request => {
     const known = byNumber.get(request.number)
     return known !== undefined && sameRequest(known, request) ? known : request
   })
@@ -159,33 +135,6 @@ export function pickVisibleRequests(sorted: readonly ReviewRequest[], unread: Re
     return readSlots-- > 0
   })
   return visible.length === sorted.length ? sorted : visible
-}
-
-/**
- * When to ask GitHub again after an answer, ms; null to wait for a focus or the refresh button. `failures` counts the
- * failed answers in a row, this one included: an error doubles the interval up to 30 min, the rate limit waits 15 min
- * at least; without a token GitHub accepts, without access to the repository or off GitHub nothing is polled (a focus or
- * the refresh button asks again).
- */
-export function nextPollDelay(availability: PullRequestAvailability, failures: number): number | null {
-  switch (availability.status) {
-    case "available":
-      return POLL_INTERVAL_MS
-    case "notGitHub":
-    case "signedOut":
-    case "notAuthenticated":
-    case "ssoRequired":
-    case "noAccess":
-      return null
-    case "rateLimited":
-      return Math.max(RATE_LIMIT_WAIT_MS, backoff(failures))
-    case "error":
-      return backoff(failures)
-  }
-}
-
-function backoff(failures: number): number {
-  return Math.min(MAX_BACKOFF_MS, POLL_INTERVAL_MS * 2 ** Math.max(0, failures))
 }
 
 /** `owner/name` of a pull request URL (`https://github.com/acme/monorepo/pull/12`); null for another URL */

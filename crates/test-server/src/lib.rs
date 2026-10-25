@@ -265,7 +265,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/push_branch", post(tauri_command_bridge::push_branch))
     .route("/invoke/cancel_lock_wait", post(tauri_command_bridge::cancel_lock_wait))
     .route("/invoke/push_branches", post(tauri_command_bridge::push_branches))
-    .route("/invoke/get_review_requests", post(tauri_command_bridge::get_review_requests))
     .route("/invoke/get_github_auth_status", post(tauri_command_bridge::get_github_auth_status))
     .route("/invoke/start_github_sign_in", post(tauri_command_bridge::start_github_sign_in))
     .route("/invoke/wait_github_sign_in", post(tauri_command_bridge::wait_github_sign_in))
@@ -844,7 +843,7 @@ pub async fn get_branch_name_suggestion_fixture(
   Ok(Json(serde_json::json!({ "calls": repo.branch_name_suggestion_calls.load(Ordering::SeqCst) })))
 }
 
-/// Sets what `get_review_requests` answers for the repository and how `fetch_review_head` fails (`fetchError`)
+/// Sets what the session of the repository reads of its review requests and how `fetch_review_head` fails (`fetchError`)
 pub async fn set_review_requests(
   axum::extract::Path(id): axum::extract::Path<String>,
   State(state): State<Arc<AppState>>,

@@ -8,11 +8,11 @@ import type {
   PatronusRobot,
   PatronusRobotProgress,
   RemoteStatusUpdate,
-  ReviewRequestsResult,
   StackBranchUpdate,
 } from "../../../src/lib/bindings"
 import type { PatronusRobotsFixture } from "./patronus-helpers"
 import type { GitHubFixture, GitHubLog } from "./pull-request-helpers"
+import type { ReviewRequestsFixture } from "./review-request-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 /**
@@ -277,14 +277,14 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * Sets what `get_review_requests` answers from now on (E2E never runs gh); `fetchError` fails `fetch_review_head`
-   * with that message
+   * Sets what GitHub answers the session of the review requests from now on (E2E never runs gh); `fetchError` fails
+   * `fetch_review_head` with that message
    */
-  async setReviewRequests(result: ReviewRequestsResult, fetchError?: string): Promise<void> {
+  async setReviewRequests(result: ReviewRequestsFixture, fetchError?: string): Promise<void> {
     await this.setFixture("review-requests", fetchError === undefined ? result : { ...result, fetchError })
   }
 
-  /** How often the app asked for the review requests */
+  /** How often the session listed the review requests */
   async getReviewRequestCalls(): Promise<number> {
     return (await this.getReviewRequestsFixture()).calls
   }

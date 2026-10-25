@@ -3,12 +3,13 @@
 //! their services: the app over the Patronus service and the GitHub mirror of each repository it keeps (src-tauri,
 //! `AppFactSources`), the E2E server over the fakes of each test repository, counting the reads as its tests check them
 //! (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus, of
-//! GitHub for the pull requests); the reads of what the session asks about its robots (their details too), the rules of
+//! GitHub for the pull requests and the review requests); the reads of what the session asks about its robots (their details too), the rules of
 //! a base, the merge profiles and the review readiness answer their failure, which the facts keep.
 
 use domain_types::error::ApiError;
 use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
+use domain_types::review_request::ReviewRequestsResult;
 use repository_model::session::SessionKey;
 use std::future::Future;
 use std::pin::Pin;
@@ -35,6 +36,11 @@ pub trait FactSources: Send + Sync + 'static {
   /// estimate of the CI for its running checks (`PatronusService::robot_details`, with the new API of the settings when
   /// they turn it on)
   fn robot_details<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<PatronusRobotDetails, ApiError>>;
+
+  /// The pull requests of others that wait for the user's review in the GitHub repository of the worktree of `key`
+  /// (`review_requests::list_review_requests`, one search); `github_repository` (`owner/name`, as the last listing of
+  /// the pull requests named it) skips resolving it; `NotGitHub` without one
+  fn review_requests<'a>(&'a self, key: &'a SessionKey, github_repository: Option<String>) -> Read<'a, ReviewRequestsResult>;
 
   /// The GitHub pull requests of the branches and whole stacks of `key` (`pull_requests::list_pull_requests`, one
   /// search), in the GitHub repository of its worktree; `NotGitHub` without one

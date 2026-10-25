@@ -1,22 +1,16 @@
 import { describe, expect, it } from "vite-plus/test"
 import {
-  MAX_BACKOFF_MS,
-  POLL_INTERVAL_MS,
-  RATE_LIMIT_WAIT_MS,
   describeNewRequests,
   describeRequestActivity,
-  findNewRequests,
   formatOldestWaiting,
   formatRequestMeta,
   formatWaiting,
   hasWaitedWorkingDay,
   mergeReviewRequests,
-  nextPollDelay,
   pickVisibleRequests,
   repositoryOfPullRequestUrl,
   reviewRequestKey,
   reviewRequestsSearchUrl,
-  sortReviewRequests,
 } from "@/lib/review-requests"
 import { reviewRequest as request } from "@/test-support/review-request"
 
@@ -65,13 +59,8 @@ describe("formatRequestMeta", () => {
 })
 
 describe("order and rows", () => {
-  it("sorts waiting the longest first", () => {
-    const sorted = sortReviewRequests([request(1, { waitingSince: 30 }), request(2, { waitingSince: 10 }), request(3, { waitingSince: 10 })])
-    expect(sorted.map(it => it.number)).toEqual([2, 3, 1])
-  })
-
   it("keeps the objects and the list of an answer that changed nothing", () => {
-    const first = mergeReviewRequests([], [request(2), request(1)])
+    const first = mergeReviewRequests([], [request(1), request(2)])
     expect(first.map(it => it.number)).toEqual([1, 2])
     expect(mergeReviewRequests(first, [request(1), request(2)])).toBe(first)
 
@@ -82,7 +71,7 @@ describe("order and rows", () => {
   })
 
   it("shows the oldest three and every unread request, an unread one in the place of a read one", () => {
-    const sorted = sortReviewRequests([1, 2, 3, 4, 5].map(it => request(it)))
+    const sorted = [1, 2, 3, 4, 5].map(it => request(it))
     expect(pickVisibleRequests(sorted, new Set()).map(it => it.number)).toEqual([1, 2, 3])
     expect(pickVisibleRequests(sorted, new Set([reviewRequestKey(sorted[4]!)])).map(it => it.number)).toEqual([1, 2, 5])
     const unread = new Set(sorted.slice(1).map(reviewRequestKey))
@@ -94,22 +83,9 @@ describe("order and rows", () => {
 })
 
 describe("new requests", () => {
-  it("is silent for the first answer after a start or a repository switch", () => {
-    expect(findNewRequests(null, [request(1)])).toEqual([])
-  })
-
-  it("tells the requests not known yet, a re-request too", () => {
-    const previous = [request(1), request(2)]
-    const reRequested = request(2, { waitingSince: 9_000, reRequested: true })
-    expect(findNewRequests(previous, [request(1), reRequested, request(3)]).map(it => it.number)).toEqual([2, 3])
-    expect(findNewRequests(previous, [request(1)])).toEqual([])
-  })
-
-  it("tells no request back to the user after their answer, which keeps its key", () => {
+  it("keeps the key of a request back to the user after their answer", () => {
     const back = request(2, { requestedAt: 1_002, waitingSince: 9_000, backToYou: { at: 9_000, repliedBy: "alice" } })
     expect(reviewRequestKey(back)).toBe(reviewRequestKey(request(2)))
-    // answered, so gone from the last answer: its move is no request
-    expect(findNewRequests([request(1)], [request(1), back])).toEqual([])
   })
 
   it("tells one request by who asked, several in one notice", () => {
@@ -123,21 +99,7 @@ describe("new requests", () => {
   })
 })
 
-describe("polling", () => {
-  it("polls every five minutes, backs off on errors, waits out the rate limit and stops without a token", () => {
-    expect(nextPollDelay({ status: "available", owner: "acme", name: "monorepo" }, 0)).toBe(POLL_INTERVAL_MS)
-    expect(nextPollDelay({ status: "error", message: "offline" }, 1)).toBe(2 * POLL_INTERVAL_MS)
-    expect(nextPollDelay({ status: "error", message: "offline" }, 2)).toBe(4 * POLL_INTERVAL_MS)
-    expect(nextPollDelay({ status: "error", message: "offline" }, 3)).toBe(MAX_BACKOFF_MS)
-    expect(nextPollDelay({ status: "error", message: "offline" }, 10)).toBe(MAX_BACKOFF_MS)
-    expect(nextPollDelay({ status: "rateLimited", retryAt: 0 }, 1)).toBe(RATE_LIMIT_WAIT_MS)
-    expect(nextPollDelay({ status: "rateLimited", retryAt: 0 }, 3)).toBe(MAX_BACKOFF_MS)
-    expect(nextPollDelay({ status: "notAuthenticated", source: "gh" }, 1)).toBeNull()
-    expect(nextPollDelay({ status: "signedOut" }, 1)).toBeNull()
-    expect(nextPollDelay({ status: "noAccess", source: "gh", message: "Not Found" }, 1)).toBeNull()
-    expect(nextPollDelay({ status: "notGitHub" }, 0)).toBeNull()
-  })
-
+describe("links", () => {
   it("links the search of all requests of the repository of a pull request", () => {
     const repository = repositoryOfPullRequestUrl("https://github.com/acme/monorepo/pull/12")
     expect(repository).toEqual({ owner: "acme", name: "monorepo" })
