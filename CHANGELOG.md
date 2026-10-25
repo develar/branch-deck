@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.31.1](https://github.com/develar/branch-deck/compare/v0.31.0...v0.31.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **push:** a push the remote refuses says why, as the remote said it ([7d058fc](https://github.com/develar/branch-deck/commit/7d058fc0bc70c6459d3a2fa222f8acd5d8b74692))
+* **remote-status:** the push times of a push read only the remote branches that exist ([2226ee8](https://github.com/develar/branch-deck/commit/2226ee8ca64db86608a225e14608e8f9cd0ab005))
+* **settings:** a failed save reports its error before the pass ends, so a flush returns after the report ([4d9ee9b](https://github.com/develar/branch-deck/commit/4d9ee9b9e4552f87374276aa0eba38adcefac2cc))
+
 ## [0.31.0](https://github.com/develar/branch-deck/compare/v0.30.0...v0.31.0) (2026-10-25)
 
 
