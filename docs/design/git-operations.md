@@ -3546,7 +3546,11 @@ an answer shows is news of the session (`News { id, event }`: a robot merged or 
 requests came, each decided by `domain_policy::news`; the last 32 in the view, with growing ids), which the page tells
 once (a toast, an OS notification). What landed each branch and whole stack (`landedStates`,
 `domain_policy::landed::landed_state`: the landing report of the sync, the Patronus view, the pull requests listed) the
-view derives with each patch but while a sync runs, as `lands`.
+view derives with each patch but while a sync runs, as `lands`. The next step and the node of every row and whole stack
+that forks (`nextSteps`, `domain_policy::next_step` and `domain_policy::landing_node` over `derive::StepSources`: the
+table of the last sync, its rows as they are, the Patronus view, the robots, the pull requests, the readiness, what
+landed) it derives with every patch, a sync included (a branch that syncs is row 1); `bd status` and `bd safe-push
+--check` derive the same over what they read (`derive::grouped_rows`), the facts they don't read unknown.
 
 | Family | Part of the view | Read through `FactSources` | Asked by `domain_policy::refresh` | Written by the commands |
 |---|---|---|---|---|
@@ -3590,7 +3594,10 @@ on a test clock with scripted sources; `session_test.rs` pins the order of the a
 A window tells its session what it shows and needs (`set_demand { subscription, demand }`, at most four times a second
 and only a change, `src/model/demand.ts`): `Demand { focused, online, visibleBranches, visibleStacks, needed,
 robotDetails, watchedRobots }`, each list held by the surfaces that show it (`needBranch`, `showRobotDetails`, the rows
-whose step waits for the readiness). The session keeps the demand of each subscription, gone with it, and asks by their
+whose step waits for the readiness). Of the visible subjects the session asks the readiness only of those whose own next
+step waits for it (`derive::wanted_readiness`, `domain_policy::readiness::wanted`, computed before each update of the
+asks: whether a step waits for the readiness never depends on its answer). The session keeps the demand of each
+subscription, gone with it, and asks by their
 union (`SessionEventKind::Demand`): the focus sets the cadence of the polls, offline polls nothing, `needed` (the Safe
 Push popover and its click, the "Create pull request" dialog) is asked at once in a call of its own, the visible rows
 and stacks are asked before the hidden ones, `robotDetails` are read only while demanded and dropped after, and

@@ -5,19 +5,25 @@ use crate::robot_list::read_robots;
 use bd_core::branch_view::{ParentSourceName, StackBlockSummary, StackIssue, read_grouping, stack_issues};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
+use bd_core::next_step_summary::NextStepSummary;
 use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use bd_core::stack_summary::StackSummary;
-use domain_policy::facts::Repository;
+use domain_policy::facts::{Repository, Robots};
+use domain_policy::landed::LandedFacts;
+use domain_policy::next_step::PatronusStanding;
 use domain_policy::parked::parked_state;
-use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
-use domain_types::landing::{LandingFix, LandingRefusal};
+use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_namespace, to_final_branch_name};
+use domain_types::landing::{LandingFix, LandingRefusal, Subject};
+use domain_types::next_step::StepKind;
 use domain_types::repository_view::LandingNeeds;
+use domain_types::session::{Fact, FactState, LandedSection, PullRequestsView, RobotsHead, RobotsView, stack_readiness_key, stack_root_of_readiness_key};
 use domain_types::settings::PrefixSource;
 use domain_types::stack::{ParentState, StackBranchUpdate};
 use domain_types::{BranchOrigin, GroupedBranchInfo};
 use git_ops::commit_utils::get_commits_info;
 use history_rewrite::store_lines::StoreLineProblem;
 use repository_model::branch_table::{BranchTable, RemoteFact, RemoteFacts};
+use repository_model::derive::{StepSources, grouped_rows, landed_states, next_steps};
 use repository_model::patronus_view::{landed_commits, with_landing_needs};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -380,6 +386,12 @@ pub struct BranchStatus {
   /// Never push or unpark it on your own
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parked: Option<ParkedSummary>,
+  /// What the app's row offers next (`domain_policy::next_step`, spec/branch/next-step.spec.md): the row of the table, the
+  /// step, the fact it waits for, its pull request, why a Safe Push or a Dry Run can't start. `bd status` reads no pull
+  /// request, readiness or why a robot failed: a step that needs them waits for them (row 0); `bd safe-push --check`
+  /// reads them. Omitted off Space (the row has no slot) and with --unassigned
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub next_step: Option<NextStepSummary>,
   /// With --stats
   #[serde(skip_serializing_if = "Option::is_none")]
   pub stats: Option<BranchStats>,
@@ -493,11 +505,12 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   let all_stacks = read_stack_branches(&context.prefix, &grouping, &context.cache(), context.config()?.resolve_mode()?);
   // what merged Safe Pushes landed, until the update archives it, by content: the robots kept in the object cache while
   // they hold, else one list and one poll (`robot_list`)
-  let (landed, landing_needs) = if args.unassigned || grouping.branches.is_empty() {
-    (HashMap::new(), None)
+  let (landed, landing_needs, mut steps) = if args.unassigned || grouping.branches.is_empty() {
+    (HashMap::new(), None, HashMap::new())
   } else {
     let table = grouping_table(context, &grouping, &all_stacks);
-    let mut facts = PatronusFacts::read(context, &table, read_robots(context, environment));
+    let read = read_robots(context, environment);
+    let mut facts = PatronusFacts::read(context, &table, read.robots);
     // what the Safe Push of each branch needs, where a Safe Push lands it: one trial session of every branch
     let needs = if args.brief || context.space_repository()?.is_none() {
       None
@@ -518,7 +531,12 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
         })
         .collect::<HashMap<String, Vec<LandingRefusal>>>()
     });
-    (landed_branches(&facts), landing_needs)
+    let steps = if args.brief {
+      HashMap::new()
+    } else {
+      next_steps_of_status(&grouping, &table, &facts, read.head, landing_needs.is_some())
+    };
+    (landed_branches(&facts), landing_needs, steps)
   };
   let stacks = if args.branch.is_some() || args.unassigned { Vec::new() } else { all_stacks };
   let descriptions = if args.brief { HashMap::new() } else { context.config()?.descriptions().clone() };
@@ -613,6 +631,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
             note: parked.note,
             with: parked.with,
           }),
+          next_step: steps.remove(&branch.name),
           commits: page(&branch.commits, commit_page).map(summary).collect(),
         }
       })
@@ -638,7 +657,10 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     unassigned,
     stacks: stacks
       .iter()
-      .map(|stack| StackSummary::new(stack, grouping.branches.iter().flat_map(|branch| &branch.commits), &short))
+      .map(|stack| StackSummary {
+        next_step: steps.remove(&stack_readiness_key(&stack.root)),
+        ..StackSummary::new(stack, grouping.branches.iter().flat_map(|branch| &branch.commits), &short)
+      })
       .collect(),
     idle_issue_groups: grouping.idle_issue_groups.clone(),
     issue_group_problems: store_lines(&issue_groups.problems),
@@ -658,6 +680,60 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       .collect(),
     unapplied: unapplied_summaries(context, &grouping)?,
   })
+}
+
+/// The next step of every branch and whole stack of `table`, as the app's rows show it, over what `bd status` read:
+/// the robots and how Patronus answered (`head`), the Patronus view and its landing needs (`needs_known`: the check ran);
+/// no pull request, readiness or why a robot failed, which the steps that need them wait for
+fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &PatronusFacts, head: Fact<RobotsHead>, needs_known: bool) -> HashMap<String, NextStepSummary> {
+  let rows = grouped_rows(table);
+  let robots = RobotsView {
+    head,
+    robots: facts.robots.iter().map(|robot| (robot.id.clone(), robot.clone())).collect(),
+    ..RobotsView::default()
+  };
+  let view_state = FactState::Fresh;
+  let patronus = PatronusStanding::of(&robots.head, &view_state);
+  let landing_needs = if needs_known { FactState::Fresh } else { FactState::Unknown };
+  let pull_requests = PullRequestsView {
+    head: Fact {
+      state: FactState::Unknown,
+      ..Fact::default()
+    },
+    ..PullRequestsView::default()
+  };
+  let robots_of = Robots::new(&facts.robots);
+  let baseline = LandedSection::default();
+  let landed = LandedFacts {
+    baseline: &baseline,
+    view: Some(&facts.view),
+    robots: &robots_of,
+  };
+  let landed = landed_states(table, &table.remote, &landed, &pull_requests);
+  let readiness = |_: &str| None;
+  let sources = StepSources {
+    table,
+    remote: &table.remote,
+    rows: &rows,
+    view: &facts.view,
+    robots: &robots,
+    patronus: &patronus,
+    landing_needs: &landing_needs,
+    pull_requests: &pull_requests,
+    open_pull_requests: &BTreeMap::new(),
+    landed: &landed,
+    readiness: &readiness,
+    target: baseline_on_remote(&grouping.baseline_branch),
+  };
+  next_steps(&sources)
+    .into_iter()
+    // off Space a row has no slot: nothing to say
+    .filter(|(_, view)| view.step.kind != StepKind::Hidden)
+    .map(|(key, view)| {
+      let what = stack_root_of_readiness_key(&key).map_or_else(|| key.clone(), |root| Subject::whole_stack(root).words());
+      (key, NextStepSummary::new(&view.step, &what, &facts.robots))
+    })
+    .collect()
 }
 
 fn store_lines(problems: &[StoreLineProblem]) -> Vec<StoreLine> {

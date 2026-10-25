@@ -11,6 +11,7 @@
 //! - `check_summary`: the summaries of a check that `bd check` and `bd safe-push` print, the dangling references and
 //!   the refusal of a start they fail
 //! - `review_summary`: the code-owner review of a branch as the outputs print it
+//! - `next_step_summary`: the next step of a branch or a whole stack as the outputs print it
 //! - `suggest_plan`: the plan of `bd suggest`, read by `bd check --plan` and `bd pick`
 
 pub mod bd_command;
@@ -18,6 +19,7 @@ pub mod branch_view;
 pub mod check_summary;
 pub mod context;
 pub mod error;
+pub mod next_step_summary;
 pub mod output;
 pub mod review_summary;
 pub mod stack_summary;

@@ -5,6 +5,7 @@
 
 use crate::branch_view::block_reason_name;
 use crate::error::CliError;
+use crate::next_step_summary::NextStepSummary;
 use crate::output::ShortIds;
 use crate::sync_command::{ConflictSummary, RemoteSummary};
 use domain_policy::facts::Repository;
@@ -73,6 +74,10 @@ pub struct StackSummary {
   /// omits it
   #[serde(skip_serializing_if = "Option::is_none")]
   pub remote: Option<RemoteSummary>,
+  /// `bd status`: the next step of the whole stack of a stack that forks, as the header of its island shows it (the
+  /// rows of its stack branch); omitted for one kept for its remote branch, and by `bd sync`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub next_step: Option<NextStepSummary>,
 }
 
 impl StackSummary {
@@ -106,6 +111,7 @@ impl StackSummary {
         .remote
         .as_ref()
         .map(|remote| RemoteSummary::new(remote, usize::try_from(update.commit_count).unwrap_or(usize::MAX), short)),
+      next_step: None,
     }
   }
 

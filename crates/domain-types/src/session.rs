@@ -21,6 +21,7 @@ use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::landing::{LandDecisions, Landed, LandedPullRequest};
+use crate::next_step::NextStepView;
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView};
 use crate::reason::Reason;
@@ -350,6 +351,10 @@ pub struct RepositoryView {
   /// decides it over the landing report, the Patronus view and the pull requests: the fetched baseline, merged Safe
   /// Pushes (also a part of it), its pull request merged with its commits; a subject nothing landed is not listed
   pub landed_states: BTreeMap<String, Landed>,
+  /// The next step and the node of each subject (a branch, `stack:<root>` the whole stack of a root that forks), as
+  /// `domain_policy::next_step` and `domain_policy::landing_node` decide them over the table and the facts; none before
+  /// the first sync
+  pub next_steps: BTreeMap<String, NextStepView>,
   pub sections: TableSections,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
@@ -999,6 +1004,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_landed_states: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub next_steps: BTreeMap<String, NextStepView>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_next_steps: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,

@@ -1,7 +1,9 @@
 //! Whether a subject waits for the approvals of the review readiness (spec/branch/patronus.spec.md, "Code-owner review";
-//! `awaits_approval`), the news they make when they arrive being `news::approval_news`. What it is asked with is
-//! `pull_request::start_pull_request`.
+//! `awaits_approval`), the news they make when they arrive being `news::approval_news`, and which of the subjects a
+//! window shows the session asks it for (`wanted`: those whose next step waits for it, spec/branch/next-step.spec.md,
+//! "The readiness store"). What it is asked with is `pull_request::start_pull_request`.
 
+use domain_types::next_step::NextStep;
 use domain_types::patronus::{ReviewReadiness, ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{Reviewer, ReviewerState};
 
@@ -27,6 +29,13 @@ pub fn awaits_approval(last: Answered<'_>, ask: &ReviewReadinessBranch) -> bool 
     }
 }
 
+/// Of the subjects a window shows (`shown`, a branch or `stack:<root>`), those whose next step depends on the readiness
+/// (`NextStep::needs_readiness`: on GitHub with the pull requests listed, past rows 1 to 6, pushed or not): the session
+/// asks Patronus for them; a subject without a step (not in the table, a whole stack that doesn't fork) is not wanted
+pub fn wanted<'s, 'v>(shown: impl IntoIterator<Item = &'s str>, step: impl Fn(&str) -> Option<&'v NextStep>) -> Vec<&'s str> {
+  shown.into_iter().filter(|key| step(key).is_some_and(|step| step.needs_readiness)).collect()
+}
+
 pub(crate) const fn is_unjudged(readiness: &ReviewReadiness) -> bool {
   matches!(readiness, ReviewReadiness::Unknown { .. } | ReviewReadiness::Unavailable { .. })
 }
@@ -41,6 +50,6 @@ pub(crate) fn waiting_reviewers(reviewers: &[Reviewer]) -> Vec<&String> {
     .collect()
 }
 
-fn is_bot(login: &str) -> bool {
+pub(crate) fn is_bot(login: &str) -> bool {
   login.ends_with("[bot]") || login.get(..7).is_some_and(|start| start.eq_ignore_ascii_case("copilot"))
 }

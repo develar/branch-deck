@@ -59,6 +59,7 @@ pub mod fixtures;
 pub mod issue_navigation;
 pub mod landed;
 pub mod landing;
+pub mod next_step;
 pub mod patronus;
 pub mod pull_request;
 pub mod reason;

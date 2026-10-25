@@ -34,7 +34,7 @@
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::BranchTable;
-use crate::derive::land_answer_of;
+use crate::derive::{land_answer_of, wanted_readiness};
 use crate::facts::{
   AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, Seq, TableFacts, derive_patronus, listed_robots, patronus_inputs,
   robots_digest, session_remote,
@@ -709,11 +709,13 @@ impl Actor {
     self.flush_at = None;
     self.last_flush = Some(Instant::now());
     // the asks of the readiness of what the patch carries: a moved tip comes with its readiness `Stale`
+    // of the shown subjects, those whose next step waits for the readiness: it doesn't depend on the answer itself
+    let wanted = wanted_readiness(&self.state, &self.facts, &self.key.prefix, &self.told_demand);
     let robots = self.facts.robots.view().head.value.as_ref();
     self
       .facts
       .readiness
-      .update(&self.state, self.facts.pull_requests.view(), robots, &self.told_demand, &self.key.prefix);
+      .update(&self.state, self.facts.pull_requests.view(), robots, &self.told_demand, &self.key.prefix, &wanted);
     // the details a window asks for are `Loading` in the patch of its demand, and go with the demand
     self.facts.demand_details(&self.told_demand.robot_details);
     let Some(patch) = self.view.diff(&self.state, &self.facts) else {

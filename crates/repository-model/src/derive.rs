@@ -24,32 +24,44 @@
 //! the profiles, the pull requests, the readiness, the rules and the landing needs as the session holds them), which the
 //! view derives with each patch but while a sync runs; `land_answer_of` the decision of another intent (a chosen
 //! profile, a start without approvals) with the profiles it offers, which the app reads by `decide_land`.
+//!
+//! `next_steps` is the next step and the node of every row and of every whole stack that forks
+//! (`domain_policy::next_step`, `domain_policy::landing_node` over `StepSources`: the table of the last sync, its rows as
+//! they are now, the Patronus view, the robots and the facts of the remote services), which the view derives with
+//! every patch, a sync of a branch included (row 1), and `bd status` and `bd safe-push --check` over what they read
+//! (`grouped_rows`); `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
+//! session asks it of.
 
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::table::{TableParts, TableState};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
-use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, push_blocker, restart_action, stack_branch_hold};
+use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, is_pushing, push_blocker, restart_action, stack_branch_hold};
 use domain_policy::land::{
   BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, decide, offered_profiles, on_last_commit, restart_refusal, standing,
   start_refusal,
 };
 use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
+use domain_policy::landing_node::{NodeFacts, landing_node};
+use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
 use domain_policy::push::{HeadedStack, Kept, PushState, branch_push};
+use domain_policy::readiness::wanted;
 use domain_policy::reasons::stack_not_built;
 use domain_policy::review::candidates;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
+use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::landing::{Land, LandAnswer, LandDecision, LandDecisions, Landed, ProfileChoice, Subject};
-use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, ReviewReadiness};
-use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
+use domain_types::next_step::{NextStepView, StackPullRequest};
+use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
+use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, LandingNeeds, PatronusView, RobotOf, RobotRestart, SpanView, StackLanding};
+use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStatus, BranchStructure, Fact, FactState, LandedSection, ParkedMember, PullRequestsView, RowsView, SubjectReadiness, WholeStackView,
-  stack_readiness_key,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RobotsView, RowsView,
+  SubjectReadiness, WholeStackView, stack_readiness_key,
 };
 use domain_types::stack::StackBranchUpdate;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -774,6 +786,342 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
   Some((decide(&facts, land), last))
 }
 
+/// What a row of the table says of its subject for its next step and its node: the sync of it, its failure, its
+/// commits, its block and whether it stays local. A session reads it of its rows (`row_of_view`), `bd status` of the
+/// grouping it read without a sync (`grouped_rows`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RowFacts {
+  pub syncing: bool,
+  pub status: BranchStatus,
+  pub sync_failed: bool,
+  /// The reason of its stack problem, where the sync says it
+  pub problem: Option<String>,
+  pub commit_count: usize,
+  /// The parent of a blocked branch
+  pub blocked_by: Option<String>,
+  pub parked: Option<Parked>,
+  /// Of a root: the parked member its stack branch holds, with the branch it is parked with
+  pub stack_parked: Option<Parked>,
+}
+
+/// The row facts of a branch of a session
+#[must_use]
+pub fn row_of_view(branch: &BranchView) -> RowFacts {
+  let stack = branch.head.stack.as_ref();
+  RowFacts {
+    syncing: branch.sync.status == BranchStatus::Syncing,
+    status: branch.sync.status,
+    sync_failed: branch.sync.has_error,
+    problem: stack.and_then(|stack| stack.problems.first()).map(|problem| problem.reason.clone()),
+    commit_count: branch.commits.len(),
+    blocked_by: stack.and_then(|stack| stack.blocked_by.as_ref()).map(|block| block.parent.clone()),
+    parked: branch.structure.parked.clone(),
+    stack_parked: branch.structure.stack_parked.as_ref().map(member_parked),
+  }
+}
+
+/// The rows of `table` as a grouping read without a sync has them (`bd status`, `bd safe-push --check` over the table of
+/// its sync), in its order
+#[must_use]
+pub fn grouped_rows(table: &BranchTable) -> Vec<(String, RowFacts)> {
+  let repo = Repository::of_grouping(&table.branches, &table.parked);
+  table
+    .branches
+    .iter()
+    .map(|branch| (branch.name.clone(), row_of_grouped(&repo, branch, table.stack(&branch.name))))
+    .collect()
+}
+
+/// The row facts of a grouped branch of `repo`: nothing syncs, a failure is not known; `stack` the stack branch of a
+/// root
+fn row_of_grouped(repo: &Repository<'_>, branch: &GroupedBranchInfo, stack: Option<&StackBranchUpdate>) -> RowFacts {
+  let placed = branch.stack.as_ref();
+  let blocked_by = placed.and_then(|placed| placed.blocked_by.as_ref()).map(|block| block.parent.clone());
+  RowFacts {
+    syncing: false,
+    status: if blocked_by.is_some() { BranchStatus::Blocked } else { BranchStatus::Unchanged },
+    sync_failed: false,
+    problem: placed.and_then(|placed| placed.problems.first()).map(|problem| problem.reason.clone()),
+    commit_count: branch.commits.len(),
+    blocked_by,
+    parked: parked_state(repo, &branch.name),
+    stack_parked: stack_parked(repo, stack).as_ref().map(member_parked),
+  }
+}
+
+/// The parked member a stack branch holds, as the step of the whole stack names it: the branch it is parked with
+fn member_parked(member: &ParkedMember) -> Parked {
+  Parked {
+    note: member.parked.note.clone(),
+    with: Some(member.parked.with.clone().unwrap_or_else(|| member.member.clone())),
+  }
+}
+
+/// What the next steps and the nodes of a table are decided on (`next_steps`): the table of the last sync with the
+/// remote branches as the deciding side knows them, its rows as they are now, the Patronus view and the robots, and the
+/// facts of the remote services as the session holds them (`bd` holds its own reads, those it didn't read unknown)
+pub struct StepSources<'a> {
+  pub table: &'a BranchTable,
+  pub remote: &'a RemoteFacts,
+  /// The rows, in the order of the table, by branch
+  pub rows: &'a [(String, RowFacts)],
+  pub view: &'a PatronusView,
+  pub robots: &'a RobotsView,
+  /// How Patronus stands for the repository (`PatronusStanding::of` its head and the state of the view)
+  pub patronus: &'a PatronusStanding,
+  /// How the landing needs of `view` stand
+  pub landing_needs: &'a FactState,
+  pub pull_requests: &'a PullRequestsView,
+  /// Where each open pull request goes (`open_pull_requests_view`), by subject key
+  pub open_pull_requests: &'a BTreeMap<String, PullRequestView>,
+  /// What landed each subject (`landed_states`), by subject key
+  pub landed: &'a BTreeMap<String, Landed>,
+  /// The review readiness of a subject (`stack:<root>` the whole stack); `None` while nobody asked
+  pub readiness: &'a dyn Fn(&str) -> Option<&'a Fact<SubjectReadiness>>,
+  /// The branch of origin the robots push into ("master")
+  pub target: &'a str,
+}
+
+impl StepSources<'_> {
+  fn robot(&self, id: Option<&str>) -> Option<&PatronusRobot> {
+    self.robots.robots.get(id?)
+  }
+
+  /// The robot of a subject with what the session learned of it; `restart` whether its restart is offered
+  fn step_robot(&self, id: Option<&str>, restart: impl Fn(&PatronusRobot) -> bool) -> Option<StepRobot<'_>> {
+    let robot = self.robot(id)?;
+    let offered = self
+      .view
+      .restarts
+      .get(&robot.id)
+      .is_some_and(|offered| offered.action == RestartAction::Restart || restart(robot));
+    Some(StepRobot {
+      robot,
+      needs_review: self.robots.needs_review.get(&robot.id).copied(),
+      problems_failed: self.robots.problems_failed.get(&robot.id).map(String::as_str),
+      failing: self.robots.failing.contains(&robot.id),
+      restart: offered,
+    })
+  }
+
+  /// The open pull request of the whole stack `name` is a branch of
+  fn stack_pull_request_of(&self, name: &str) -> Option<StackPullRequest> {
+    let stack = self.table.stack_branches.iter().find(|stack| stack.members.iter().any(|member| member == name))?;
+    let pull_request = self.pull_requests.stack_pull_requests.get(&stack.root).filter(|it| it.state == PullRequestState::Open)?;
+    Some(StackPullRequest {
+      number: pull_request.number,
+      root: stack.root.clone(),
+    })
+  }
+
+  /// The GitHub repository of the branches is known: GitHub lists it, or Patronus names the mirror
+  fn repository(&self) -> bool {
+    matches!(self.pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) || self.robots.head.value.as_ref().is_some_and(|head| head.github_repository.is_some())
+  }
+}
+
+/// The next step and the node of every branch of the rows of `sources` and of every whole stack that forks, by subject
+/// key (`domain_policy::next_step`, `domain_policy::landing_node`)
+#[must_use]
+pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
+  let repo = Repository::of_grouping(&sources.table.branches, &sources.table.parked);
+  let repository = sources.repository();
+  let patronus = sources.patronus.answer();
+  let listing = Listing::of(&sources.pull_requests.head);
+  let rows: HashMap<&str, &RowFacts> = sources.rows.iter().map(|(name, row)| (name.as_str(), row)).collect();
+  let mut steps = BTreeMap::new();
+  for (name, row) in sources.rows {
+    let facts = sources.view.branches.get(name);
+    let landing = facts.map(|facts| &facts.landing);
+    let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |_| true);
+    let landed_by = facts.and_then(|facts| facts.landed_by.as_ref());
+    let own_robot_landed = landed_by
+      .zip(robot)
+      .is_some_and(|(landed, robot)| landed.own && landed.after.is_empty() && landed.by.robot_id == robot.robot.id);
+    let hold = landing.and_then(|landing| landing.hold.as_ref()).filter(|hold| {
+      sources.robot(Some(&hold.by.robot_id)).is_some_and(|robot| match hold.kind {
+        HoldKind::Landed => robot.status == PatronusRobotStatus::Success,
+        HoldKind::Own | HoldKind::Span => holds_pushes(robot),
+      })
+    });
+    let subject = Subject::branch(name);
+    let stack_pull_request = sources.stack_pull_request_of(name);
+    let remote = sources.remote.branches.get(name.as_str()).and_then(RemoteFact::branch);
+    let step = StepFacts {
+      subject: &subject,
+      patronus,
+      syncing: row.syncing,
+      sync_failed: row.sync_failed,
+      problem: row.problem.as_deref(),
+      commit_count: row.commit_count,
+      blocked: row.status == BranchStatus::Blocked,
+      start: landing.and_then(|landing| landing.start.as_ref()),
+      dry_run_start: landing.and_then(|landing| landing.dry_run.as_ref()),
+      landing_part: facts
+        .and_then(|facts| facts.landing_ancestor.as_ref())
+        .is_some_and(|ancestor| sources.robot(Some(&ancestor.robot_id)).is_some_and(is_active)),
+      held: hold.is_some(),
+      parked: row.parked.as_ref(),
+      landed: sources.landed.get(name.as_str()),
+      tip: sources.table.tip_of(name),
+      remote,
+      robot,
+      own_robot_landed,
+      listing,
+      pull_request: sources.pull_requests.pull_requests.get(name.as_str()).map(|pull_request| StepPullRequest {
+        pull_request,
+        base: sources.open_pull_requests.get(name.as_str()).map(|open| &open.base),
+      }),
+      target: sources.target,
+      needs: Needs::of(facts.map(|facts| &facts.landing_needs), sources.landing_needs),
+      readiness: (sources.readiness)(name),
+      stack_pull_request: stack_pull_request.as_ref(),
+      repository,
+    };
+    let landed_whole = |ancestor: &&str| {
+      let landed = sources.view.branches.get(*ancestor).and_then(|facts| facts.landed_by.as_ref());
+      landed.is_some_and(|landed| landed.after.is_empty() && sources.robot(Some(&landed.by.robot_id)).is_some_and(|robot| robot.status == PatronusRobotStatus::Success))
+    };
+    let ancestors = build_ancestors(&repo, name);
+    let node = NodeFacts {
+      step,
+      status: row.status,
+      blocked_by: row.blocked_by.as_deref(),
+      lands_with: facts
+        .and_then(|facts| facts.span.as_ref())
+        .filter(|span| sources.robot(Some(&span.by.robot_id)).is_some_and(is_pushing))
+        .map(|span| &span.by),
+      push_pending: remote.is_some_and(|remote| !remote.up_to_date),
+      lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
+    };
+    let view = NextStepView {
+      step: next_step(&step),
+      node: landing_node(&node),
+    };
+    steps.insert(name.clone(), view);
+  }
+  for stack in sources.table.stack_branches.iter().filter(|stack| !stack.members.is_empty()) {
+    let key = stack_readiness_key(&stack.root);
+    let facts = sources.view.stacks.get(&stack.root);
+    let landing = facts.map(|facts| &facts.landing);
+    let rest = landing.map(|landing| &landing.rest);
+    let robot = sources.step_robot(facts.and_then(|facts| facts.robot_id.as_deref()), |robot| {
+      robot.branch_name.is_none() && robot.stack_root.is_some()
+    });
+    let subject = Subject::whole_stack(&stack.root);
+    let root_row = rows.get(stack.root.as_str());
+    let held = matches!(landing.and_then(|landing| landing.hold.as_ref()), Some(Reason::StackHeld { robot_id, .. }) if sources.robot(Some(robot_id)).is_some_and(holds_pushes));
+    let step = StepFacts {
+      subject: &subject,
+      patronus,
+      syncing: stack.members.iter().any(|member| rows.get(member.as_str()).is_some_and(|row| row.syncing)),
+      sync_failed: false,
+      problem: None,
+      commit_count: usize::try_from(stack.commit_count).unwrap_or(usize::MAX),
+      blocked: false,
+      start: landing.and_then(|landing| landing.start.as_ref()),
+      dry_run_start: landing.and_then(|landing| landing.dry_run.as_ref()),
+      landing_part: facts
+        .and_then(|facts| facts.landing_member.as_ref())
+        .is_some_and(|member| sources.robot(Some(&member.robot_id)).is_some_and(is_active)),
+      held,
+      parked: root_row.and_then(|row| row.stack_parked.as_ref()),
+      landed: sources.landed.get(&key),
+      tip: stack.tip.as_deref(),
+      remote: sources.remote.stacks.get(&stack.root).and_then(RemoteFact::branch),
+      robot,
+      own_robot_landed: rest.is_some_and(|rest| rest.by_own_robot && rest.members.is_empty()),
+      listing,
+      pull_request: sources.pull_requests.stack_pull_requests.get(&stack.root).map(|pull_request| StepPullRequest {
+        pull_request,
+        base: sources.open_pull_requests.get(&key).map(|open| &open.base),
+      }),
+      target: sources.target,
+      // the landing needs are of the branches: the gate of the start checks the whole stack
+      needs: Needs::Unknown,
+      readiness: (sources.readiness)(&key),
+      stack_pull_request: None,
+      repository,
+    };
+    // before the view names what is left of it, every branch of its stack branch
+    let lands = rest
+      .filter(|rest| !rest.members.is_empty() || !rest.landed.is_empty())
+      .map_or(stack.members.len(), |rest| rest.members.len());
+    let node = NodeFacts {
+      step,
+      status: BranchStatus::Unchanged,
+      blocked_by: None,
+      lands_with: None,
+      push_pending: false,
+      lands: u32::try_from(lands).unwrap_or(u32::MAX),
+    };
+    let view = NextStepView {
+      step: next_step(&step),
+      node: landing_node(&node),
+    };
+    steps.insert(key, view);
+  }
+  steps
+}
+
+/// The open pull request of each subject of `state` as the rules read it (`open_pull_requests_view`), over the pull
+/// requests and the readiness of the session of `prefix`
+#[must_use]
+pub fn session_open_pull_requests(state: &TableState, facts: &FactStore, prefix: &str) -> BTreeMap<String, PullRequestView> {
+  let parts = &state.parts;
+  let readiness = |key: &str| facts.readiness.fact(key)?.value.as_ref().map(|subject| &subject.readiness);
+  open_pull_requests_view(
+    baseline_on_remote(&parts.header.baseline_branch),
+    |name| parts.branches.contains_key(name),
+    |root| parts.stacks.contains_key(root),
+    facts.pull_requests.view(),
+    readiness,
+    prefix,
+  )
+}
+
+/// The next step and the node of every row of `state` and of every whole stack that forks (`next_steps`), over the
+/// facts of the session: where each open pull request goes (`open`, `open_pull_requests_view`) and what landed each
+/// subject (`landed`, `landed_states_of`); none before the first sync
+#[must_use]
+pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<String, PullRequestView>, landed: &BTreeMap<String, Landed>) -> BTreeMap<String, NextStepView> {
+  let Some(table) = facts.table_facts(state) else {
+    return BTreeMap::new();
+  };
+  let parts = &state.parts;
+  let rows: Vec<(String, RowFacts)> = parts.order.iter().filter_map(|name| Some((name.clone(), row_of_view(parts.branches.get(name)?)))).collect();
+  let part = facts.patronus.part();
+  let robots = facts.robots.view();
+  let patronus = PatronusStanding::of(&robots.head, &part.state);
+  let readiness = |key: &str| facts.readiness.fact(key);
+  let sources = StepSources {
+    table: &table.table,
+    remote: &table.remote,
+    rows: &rows,
+    view: &part.view,
+    robots,
+    patronus: &patronus,
+    landing_needs: &part.landing_needs,
+    pull_requests: facts.pull_requests.view(),
+    open_pull_requests: open,
+    landed,
+    readiness: &readiness,
+    target: baseline_on_remote(&parts.header.baseline_branch),
+  };
+  next_steps(&sources)
+}
+
+/// The subjects a window shows (`Demand::visible_branches`, `visible_stacks` by root) whose next step waits for the
+/// readiness (`domain_policy::readiness::wanted`): the session asks only those of them, by subject key
+#[must_use]
+pub fn wanted_readiness(state: &TableState, facts: &FactStore, prefix: &str, demand: &Demand) -> HashSet<String> {
+  let open = session_open_pull_requests(state, facts, prefix);
+  let steps = next_steps_of(state, facts, &open, &landed_states_of(state, facts));
+  let stacks: Vec<String> = demand.visible_stacks.iter().map(|root| stack_readiness_key(root)).collect();
+  let shown = demand.visible_branches.iter().chain(&stacks).map(String::as_str);
+  wanted(shown, |key| steps.get(key).map(|view| &view.step)).into_iter().map(str::to_owned).collect()
+}
+
 /// What the rules decide of `table` over the Patronus facts of `view` (module docs), written into it. `running_spans`:
 /// by branch, the first running robot that lands it; `needs_review`: by robot id, the robots that failed for missing
 /// approvals
@@ -816,3 +1164,7 @@ pub(crate) fn decide_landing(
 #[cfg(test)]
 #[path = "derive_test.rs"]
 mod derive_test;
+
+#[cfg(test)]
+#[path = "derive_budget_test.rs"]
+pub(crate) mod derive_budget_test;

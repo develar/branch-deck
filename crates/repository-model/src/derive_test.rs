@@ -9,6 +9,7 @@ use domain_policy::parked::parked_state;
 use domain_types::error::ApiError;
 use domain_types::fixtures::pull_request;
 use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, PlannedEffect, ProfileChoice, StartRoute, Subject};
+use domain_types::next_step::{LandingNodeKind, StepKind, StepRow};
 use domain_types::patronus::{
   LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusProfile, PatronusPushMode, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch,
 };
@@ -472,4 +473,43 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     ..land
   };
   assert_eq!(land_answer(&sources, &gone), None);
+}
+
+/// The view carries the next step and the node of every row and of every whole stack that forks
+/// (`domain_policy::next_step`, `domain_policy::landing_node`), over the table and the facts of the session; a patch
+/// carries only the subjects whose step or node changed
+#[test]
+fn the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_those_that_changed() {
+  let (state, mut facts) = crate::derive::derive_budget_test::session();
+  let mut view = View::new(1, "user");
+  let first = view.diff(&state, &facts).unwrap();
+  assert_eq!(first.changes.next_steps.len(), 141 + 3);
+  let running = &first.changes.next_steps["lone001"];
+  assert_eq!((running.step.row, running.node.kind), (StepRow::Eleven, LandingNodeKind::Ready), "approved: ready to land");
+  let stack = &first.changes.next_steps["stack:stack0"];
+  assert!(
+    matches!(stack.step.kind, StepKind::SafePush | StepKind::CreatePullRequest { .. }),
+    "the whole stack takes the rows of its stack branch: {:?}",
+    stack.step
+  );
+  // the robot of a branch finishes merged: only its step changes
+  let robot = facts.robots.view().robots["r0"].clone();
+  let branch = robot.branch_name.clone().unwrap();
+  facts.apply(
+    crate::derive::derive_budget_test::at(9),
+    crate::facts::FactResult::Robots {
+      read: crate::facts::RobotsRead::Poll,
+      result: domain_types::patronus::PatronusRobotsResult {
+        availability: domain_types::patronus::PatronusAvailability::Available,
+        robots: vec![domain_types::patronus::PatronusRobot {
+          status: domain_types::patronus::PatronusRobotStatus::Success,
+          ..robot
+        }],
+        github_repository: None,
+      },
+    },
+  );
+  let second = view.diff(&state, &facts).unwrap();
+  assert_eq!(second.changes.next_steps.keys().collect::<Vec<_>>(), [&branch]);
+  assert_eq!(second.changes.next_steps[&branch].node.kind, LandingNodeKind::InMaster, "merged by its robot");
 }

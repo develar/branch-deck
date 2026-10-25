@@ -2836,6 +2836,45 @@ export type LandingNeeds = { state: "unknown" } |
 /**  Empty: the start lands what its build needs */
 { state: "known"; refusals: LandingRefusal[] };
 
+/**  The node of a subject */
+export type LandingNode = {
+	kind: LandingNodeKind,
+	label: NodeLabel,
+	/**  It waits for the first answer of a fact: the header counts no move of it yet */
+	pending: boolean,
+	/**  The label tells the state of the robot of the subject: its hover shows the robot with its actions */
+	robot: boolean,
+	/**
+	 *  The branch the label names, which the hover offers to show (the parent a blocked branch waits for, the branch whose
+	 *  robot lands a part of it)
+	 */
+	shows: string | null,
+	/**
+	 *  A running move of the row (a start, a review request) shows in place of this node, the state after the move; a
+	 *  node of the subject itself (parked, a failure, landed, blocked, its robot running) stays
+	 */
+	moveShows: boolean,
+};
+
+/**
+ *  Where a subject is on its way into master, the node of its row (docs/design/landing.md): filled while the next step
+ *  is the user's and on this row, hollow while it waits for others, is done, or stays local
+ */
+export type LandingNodeKind = 
+/**  Patronus counts the approvals, a Safe Push lands it */
+"ready" | 
+/**
+ *  The user's step first: a pull request, a review, a retarget, a branch its build needs, a Safe Push whose
+ *  approvals Patronus checks at the start
+ */
+"yourStep" | 
+/**  A conflict, a failed robot, changes requested */
+"needsFix" | "landing" | 
+/**  Waits for others: reviewers, its parent, a robot, an answer */
+"waiting" | 
+/**  Kept local, never pushed */
+"parked" | "inMaster";
+
 /**  Why a start is refused */
 export type LandingRefusal = 
 /**
@@ -3127,6 +3166,93 @@ export type NewsEvent =
  *  approval counts now in the groups that waited (none named: the code owners), in the pull request of its start
  */
 { kind: "approvalsArrived"; subject: string; pullRequest: number; approvers: Person[]; groups: string[] };
+
+/**  The next step of a subject (spec/branch/next-step.spec.md, "The table"), the first row that matches */
+export type NextStep = {
+	row: StepRow,
+	kind: StepKind,
+	/**  Why "Safe Push" can't open now; `None` when it can */
+	safePush: StepBlocker | null,
+	/**  Why a Dry Run can't start: never the approvals, a draft, another base or a robot that lands an ancestor */
+	dryRun: StepBlocker | null,
+	/**  The step depends on the readiness of the subject: the session asks Patronus for it */
+	needsReadiness: boolean,
+	/**  The step stands on a stale answer of the readiness: it stays while the new one loads, its action waits for it */
+	staleReadiness: boolean,
+	/**
+	 *  What landed all of the subject (row 1): what disables its starts and its Create Pull Request…; `None` while work
+	 *  is left
+	 */
+	landed: Landed | null,
+	/**  The retarget of an open pull request into another base, for "⋯" */
+	retarget: StepRetarget | null,
+	/**
+	 *  Rows 7 and 11 while GitHub doesn't list the pull requests: a Safe Push without review is offered beside, with why
+	 *  it can't start now (the reasons of the subject, never the approvals)
+	 */
+	withoutReview: WithoutReview | null,
+};
+
+/**  The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`) */
+export type NextStepView = {
+	step: NextStep,
+	node: LandingNode,
+};
+
+/**  Why the node is what it is, with the facts its words need */
+export type NodeLabel = 
+/**  It stays local (`parked`), `conflict`: it doesn't build either */
+{ kind: "parked"; parked: Parked; conflict: boolean } | 
+/**  The sync failed (`status`), `problem` the reason of its stack problem */
+{ kind: "syncFailed"; status: BranchStatus; problem: string | null } | 
+/**  Nothing of it is left to land */
+{ kind: "landed"; landed: Landed } | { kind: "noCommits" } | 
+/**  Its parent `by` doesn't build */
+{ kind: "blocked"; by: string | null } | 
+/**  Its own robot runs: a Dry Run checks it, a Safe Push lands it (`failing`: a required check failed) */
+{ kind: "robotRunning"; dryRun: boolean; failing: boolean } | 
+/**  A running Safe Push of a branch built on it, or of the whole stack, lands it */
+{ kind: "landsWith"; by: RobotOf } | 
+/**  A fact has no answer yet */
+{ kind: "waits"; fact: StepFact } | 
+/**  A read of Patronus failed */
+{ kind: "unavailable"; failure: StepFailure } | 
+/**  A running Safe Push holds it */
+{ kind: "held" } | 
+/**  Its robot failed on it as it is; `problems` why Patronus didn't tell why */
+{ kind: "robotFailed"; problems: string | null } | 
+/**  A start can't now (`reason`): it lands with a robot that lands a part of it, later */
+{ kind: "startWaits"; reason: Reason } | 
+/**  Patronus counts the approvals: a Safe Push of `lands` branches lands it */
+{ kind: "ready"; lands: number } | 
+/**
+ *  A Safe Push of `lands` branches, whose approvals Patronus checks when the robot starts; `unlisted` why GitHub
+ *  lists no pull request
+ */
+{ kind: "atStart"; lands: number; unlisted: PullRequestAvailability | null } | 
+/**
+ *  The reason of the step of the node (the step with no start refused by the robots): a pull request, a review, a
+ *  retarget, a draft, a wait
+ */
+{ kind: "step"; step: NextStep } | 
+/**  Off Space: not on the remote yet, push it */
+{ kind: "pushIt" } | 
+/**  Off Space: pushed, it lands through its pull request (GitHub doesn't list them) */
+{ kind: "pushed" } | 
+/**  Off Space: no open pull request */
+{ kind: "noPullRequest" } | 
+/**  Off Space: the pull request `number` is a draft */
+{ kind: "draft"; number: number } | 
+/**  Off Space: `by` requested changes on `number` */
+{ kind: "changesRequestedBy"; number: number; by: string[] } | 
+/**  Off Space: GitHub's decision on `number` requests changes */
+{ kind: "changesRequested"; number: number } | 
+/**  Off Space: the checks of `number` fail */
+{ kind: "checksFail"; number: number } | 
+/**  Off Space: `number` waits for `reviewers` */
+{ kind: "waitsFor"; number: number; reviewers: string[] } | 
+/**  Off Space: it lands through `number` */
+{ kind: "landsThrough"; number: number };
 
 /**  What the limits of a failure left out */
 export type OmittedFailures = {
@@ -4163,6 +4289,12 @@ export type RepositoryView = {
 	 *  Pushes (also a part of it), its pull request merged with its commits; a subject nothing landed is not listed
 	 */
 	landedStates: { [key in string]: Landed },
+	/**
+	 *  The next step and the node of each subject (a branch, `stack:<root>` the whole stack of a root that forks), as
+	 *  `domain_policy::next_step` and `domain_policy::landing_node` decide them over the table and the facts; none before
+	 *  the first sync
+	 */
+	nextSteps: { [key in string]: NextStepView },
 	sections: TableSections,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
@@ -5124,6 +5256,15 @@ export type StackProblemView = {
 	fixes: StackFix[],
 };
 
+/**
+ *  The open pull request of the whole stack a branch is in, whose approvals count for the Safe Push of the whole stack
+ *  only (row 7, "In #12")
+ */
+export type StackPullRequest = {
+	number: number,
+	root: string,
+};
+
 /**  One branch of a stack push (`PushBranchesParams`) */
 export type StackPushBranch = {
 	branchName: string,
@@ -5217,6 +5358,119 @@ export type StatsWindow = {
 	/**  The branch the robots push into, e.g. `master` */
 	target: string,
 };
+
+/**  Why "Safe Push" (or a Dry Run) can't open now, the same on every surface */
+export type StepBlocker = 
+/**  A reason of the rules: the robots (`landing.start` of the view), what landed it, its build blocked, parked */
+{ code: "rule"; reason: Reason } | 
+/**  The sync runs */
+{ code: "syncing" } | 
+/**  The branch failed to sync: `problem` the reason of its stack problem, where the sync says it */
+{ code: "syncFailed"; problem: string | null } | { code: "noCommits" } | 
+/**  The step's own reason (row 0's fact, 5′'s base, 6's draft, 7 to 10's approvals): its words are the step's */
+{ code: "step" } | 
+/**  The step stands on a stale answer of the readiness: its action waits for the new one */
+{ code: "staleReadiness" };
+
+/**  A fact of the remote the next step decides on, in the order the step waits for them */
+export type StepFact = 
+/**  Whether Patronus lands the repository, its robots and the view of what they hold and land */
+"patronus" | 
+/**  The pull requests GitHub lists */
+"pullRequests" | 
+/**  What the Safe Push of the branch needs of a branch outside what it lands (the landing needs of the view) */
+"landingNeeds" | 
+/**  Why the robot of the subject failed: for the approvals or not */
+"robotProblems" | 
+/**  The review readiness of the subject as it is */
+"readiness";
+
+/**  Why a read the next step decides on failed: no start is decided on it */
+export type StepFailure = 
+/**  The Safe Push CLI is not logged in to Patronus */
+{ kind: "notLoggedIn" } | 
+/**  Patronus fails, and it never listed the robots of the repository */
+{ kind: "patronusError"; message: string } | 
+/**  The session couldn't derive what the robots hold and land, and no earlier view stands */
+{ kind: "viewFailed"; reason: ApiError } | 
+/**  Patronus didn't give why the robot of the subject failed (`message`) */
+{ kind: "problemsFailed"; message: string };
+
+/**  What helps after a read failed: the step of row 0 instead of a start */
+export type StepHelp = 
+/**  The login of the Safe Push CLI, for a terminal */
+"copyLoginCommand" | 
+/**  Ask Patronus again */
+"refreshPatronus";
+
+/**  What the step is, with the facts its words need (the table's rows) */
+export type StepKind = 
+/**  The repository is not on Space: no slot, the reasons of the subject stay */
+{ kind: "hidden" } | 
+/**
+ *  Row 1: nothing to start now, the Status cell says why (a sync, a failure, a block, a hold, parked, landed, a
+ *  robot that runs or merged)
+ */
+{ kind: "settled" } | 
+/**  Row 0: `fact` has no answer yet: "Checking…", never a step a later answer turns into another */
+{ kind: "pending"; fact: StepFact } | 
+/**
+ *  Row 0: the read of a fact failed: what helps (`help`), else the start (the restart of the robot `robot_id`)
+ *  disabled with the failure
+ */
+{ kind: "unavailable"; failure: StepFailure; help: StepHelp | null; robotId: string | null } | 
+/**
+ *  Row 1′: the build of what the Safe Push lands needs a commit of a branch outside it, as the landing gate refuses
+ *  the start
+ */
+{ kind: "needsBranch"; refusals: LandingRefusal[] } | 
+/**  Rows 2 and 3: restart the robot `robot_id` (`RepositoryView.patronus.view.restarts` says how) */
+{ kind: "restart"; robotId: string } | 
+/**
+ *  Row 3 while nobody can tell whether the approvals count: the pull request collects them, a restart may fail
+ *  again; `number` the open one, `None` a pull request to create
+ */
+{ kind: "robotPullRequest"; number: number | null } | 
+/**  Row 5: the open pull request goes into the virtual branch `base`: retarget it into the target */
+{ kind: "retarget"; number: number; base: string } | 
+/**  Row 5′: the open pull request goes into another base, which may be meant: it opens */
+{ kind: "otherBase"; number: number; base: string } | 
+/**  Row 6: an open draft, which Patronus merges once it is ready for review */
+{ kind: "draft"; number: number } | 
+/**
+ *  Row 7: the approvals of `groups` are missing and no pull request is open; `stack` the open pull request of the
+ *  whole stack the branch is in ("In #12"); `repository` whether the GitHub repository of the branches is known (a
+ *  pull request can be created)
+ */
+{ kind: "createPullRequest"; groups: MissingReviewGroup[]; stack: StackPullRequest | null; repository: boolean } | 
+/**  Row 8: a member of a missing group requested changes on `number` */
+{ kind: "changesRequested"; number: number; groups: MissingReviewGroup[] } | 
+/**
+ *  Row 9: missing groups ask fewer people than the approvals they need (`groups`, the ones short of requests, or all
+ *  of them); `no_eligible`: nobody of a group can approve, no request helps
+ */
+{ kind: "requestReview"; number: number; groups: MissingReviewGroup[]; noEligible: boolean } | 
+/**  Row 10: someone of every missing group is asked: the wait (`groups` with whom the pull request asks) */
+{ kind: "awaiting"; number: number; groups: MissingReviewGroup[] } | 
+/**  Row 8′: Patronus can't judge the approvals, and `by` requested changes on `number` (bots left out) */
+{ kind: "changesRequestedUnjudged"; number: number; by: string[] } | 
+/**  Row 10′: Patronus can't judge the approvals, and `number` waits for `reviewers` (bots left out) */
+{ kind: "awaitingUnjudged"; number: number; reviewers: string[] } | 
+/**  Row 11: "Safe Push" (also row 2 where Patronus can't restart, row 3 approved outside the robot's pull request) */
+{ kind: "safePush" };
+
+/**  The retarget "⋯" offers of an open pull request into another base than the target */
+export type StepRetarget = {
+	number: number,
+	base: string,
+	target: string,
+};
+
+/**
+ *  The row of the table that decided the step (spec/branch/next-step.spec.md, "The table"); `NoSlot` a repository that
+ *  is not on Space, which has no slot
+ */
+export type StepRow = "noSlot" | "0" | "1" | "1′" | "2" | "3" | "5" | "5′" | "6" | "7" | "8" | "9" | "10" | "8′" | "10′" | "11";
 
 /**  What the page of a sub-window gets when it loaded (`sub_window_loaded`) */
 export type SubWindowLoaded = {
@@ -5382,6 +5636,8 @@ export type TableChanges = {
 	removedLands?: string[],
 	landedStates?: { [key in string]: Landed },
 	removedLandedStates?: string[],
+	nextSteps?: { [key in string]: NextStepView },
+	removedNextSteps?: string[],
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,
@@ -5955,6 +6211,11 @@ export type WholeStackView =
 export type WindowFocusParams = {
 	repositoryPath: string,
 	focused: boolean,
+};
+
+/**  The Safe Push without review a step offers beside it */
+export type WithoutReview = {
+	blocker: StepBlocker | null,
 };
 
 /**

@@ -10,7 +10,8 @@
 //!   Its inputs are the hash of the ask and of the rechecks (Check Approvals Again): a new tip, start or review, and a
 //!   recheck, make the readiness `Stale` in the patch that changes them, until the answer of the new inputs.
 //! - Asked (`domain_policy::refresh::readiness_priority`): what a surface needs now and what a recheck asks, at once;
-//!   what a window shows with a step that waits for it; then the hidden subjects whose last answer waits for approvals
+//!   what a window shows with a step that waits for it (`domain_policy::readiness::wanted` over the next steps of the
+//!   session, `derive::wanted_readiness`); then the hidden subjects whose last answer waits for approvals
 //!   in the pull request of the same tip and start (only a review changed: its approval is news). A hidden subject of
 //!   another tip or start stays `Stale` until it shows. Nothing while Patronus doesn't answer for the repository: the
 //!   subjects a window asks for are `Unavailable` with why, so nothing waits for an answer that can't come.
@@ -31,7 +32,7 @@ use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, Review
 use domain_types::session::{BranchView, Demand, Fact, FactState, NewsEvent, PullRequestsView, RobotsHead, SubjectReadiness, stack_readiness_key, stack_root_of_readiness_key};
 use domain_types::stack::StackBranchState;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hash::{Hash, Hasher};
 use std::mem::discriminant;
 
@@ -137,9 +138,10 @@ impl ReadinessFact {
 
   /// The asks of the subjects for the table, the pull requests and the robots as the session has them now, with the
   /// demand of its windows: what is gone from the table is dropped, a subject a window asks for has a record, each
-  /// record expects the inputs of its ask, and the digest names what the scheduler asks. `prefix`: the branch prefix of
-  /// the session, whose virtual branches a pull request a start retargets may go into
-  pub fn update(&mut self, state: &TableState, pull_requests: &PullRequestsView, robots: Option<&RobotsHead>, demand: &Demand, prefix: &str) {
+  /// record expects the inputs of its ask, and the digest names what the scheduler asks. A subject a window shows counts
+  /// as shown only while its next step waits for the readiness (`wanted`, `derive::wanted_readiness`). `prefix`: the
+  /// branch prefix of the session, whose virtual branches a pull request a start retargets may go into
+  pub fn update(&mut self, state: &TableState, pull_requests: &PullRequestsView, robots: Option<&RobotsHead>, demand: &Demand, prefix: &str, wanted: &HashSet<String>) {
     self.subjects.retain(|key, _| exists(state, key));
     let baseline = state.header().baseline_branch.clone();
     let target = baseline_on_remote(&baseline).to_owned();
@@ -153,10 +155,7 @@ impl ReadinessFact {
         let record = self.subjects.get(&key);
         let rechecking = record.is_some_and(|record| record.rechecks > record.answered_rechecks);
         let demanded = rechecking || demand.needed.contains(&key);
-        let shown = match stack_root_of_readiness_key(&key) {
-          Some(root) => demand.visible_stacks.iter().any(|shown| shown == root),
-          None => demand.visible_branches.contains(&key),
-        };
+        let shown = wanted.contains(&key);
         // a subject nothing asks for and the session has no answer of costs nothing
         if !demanded && !shown && record.is_none() {
           continue;

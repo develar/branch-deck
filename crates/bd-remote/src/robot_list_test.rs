@@ -56,7 +56,7 @@ impl Fixture {
       cache: &self.cache,
       new_api: false,
     };
-    read_robots_at(&source, now).iter().map(|robot| format!("{} {:?}", robot.id, robot.status)).collect()
+    read_robots_at(&source, now).robots.iter().map(|robot| format!("{} {:?}", robot.id, robot.status)).collect()
   }
 
   /// The list and poll requests so far

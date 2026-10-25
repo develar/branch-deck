@@ -16,7 +16,9 @@
 use crate::safe_push_command::{patronus_service, robots};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
+use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusRobot};
+use domain_types::session::{Fact, FactState, RobotsHead};
 use object_cache::cache::ObjectCache;
 use patronus::service::{FULL_LIST_DAYS, PatronusService};
 use serde::{Deserialize, Serialize};
@@ -130,22 +132,68 @@ pub struct RobotSource<'a> {
   pub new_api: bool,
 }
 
+/// The robots `bd status` read, newest first, with how Patronus answered for the repository, as the head of the robots
+/// of a session holds it (`RobotsView::head`): the next steps read one answer
+pub struct ReadRobots {
+  pub robots: Vec<PatronusRobot>,
+  pub head: Fact<RobotsHead>,
+}
+
+impl ReadRobots {
+  /// `robots` with the answer `availability`; a failure after a list keeps the robots it listed (`Stale`), one before
+  /// any is `Unavailable`
+  fn answered(robots: Vec<PatronusRobot>, availability: PatronusAvailability, listed_before: bool, now: u32) -> Self {
+    let state = match &availability {
+      PatronusAvailability::Available | PatronusAvailability::NotPatronus => FactState::Fresh,
+      failed => {
+        let reason = match failed {
+          PatronusAvailability::NotLoggedIn => ApiError::new(ErrorCode::NotLoggedIn, "Run ./safePush.cmd once to log in to Patronus"),
+          PatronusAvailability::Error { message } => ApiError::new(ErrorCode::PatronusError, message.clone()),
+          PatronusAvailability::Available | PatronusAvailability::NotPatronus => unreachable!("an answer that is no failure"),
+        };
+        if listed_before {
+          FactState::Stale { reason: Some(reason) }
+        } else {
+          FactState::Unavailable { reason }
+        }
+      }
+    };
+    Self {
+      robots,
+      head: Fact {
+        value: Some(RobotsHead {
+          availability,
+          github_repository: None,
+        }),
+        state,
+        seq: 1,
+        observed_at: now,
+      },
+    }
+  }
+}
+
 /// The user's robots of the repository for `bd status`, newest first: the kept ones while they hold, else what Patronus
 /// answers now merged into them (`next_request`), kept; the kept ones, or none, while it can't be asked
-pub fn read_robots_at(source: &RobotSource<'_>, now: u32) -> Vec<PatronusRobot> {
+pub fn read_robots_at(source: &RobotSource<'_>, now: u32) -> ReadRobots {
   let Some(identity) = source.service.identity() else {
-    return Vec::new();
+    return ReadRobots::answered(Vec::new(), PatronusAvailability::NotLoggedIn, false, now);
   };
   let key = robots_key(&identity, source.space, source.prefix);
   let kept: Option<KeptRobots> = source.cache.get_patronus_robots(&key);
   let (since, poll) = match next_request(kept.as_ref(), now) {
-    NextRequest::Kept => return kept.and_then(|kept| kept.listed).map_or_default(|listed| listed.robots),
+    NextRequest::Kept => {
+      let robots = kept.and_then(|kept| kept.listed).map_or_default(|listed| listed.robots);
+      return ReadRobots::answered(robots, PatronusAvailability::Available, true, now);
+    }
     NextRequest::Ask { since, poll } => (since, poll),
   };
   let answer = source
     .runtime
     .block_on(source.service.robots(&source.space.name, source.prefix, since, true, source.new_api));
   let base = kept.as_ref().and_then(|kept| kept.listed.as_ref());
+  let listed_before = base.is_some();
+  let availability = answer.availability.clone();
   let next = match answer.availability {
     PatronusAvailability::Available => {
       let mut robots = if since.is_some() {
@@ -189,7 +237,7 @@ pub fn read_robots_at(source: &RobotSource<'_>, now: u32) -> Vec<PatronusRobot> 
     }
   };
   source.cache.put_patronus_robots(&key, &next);
-  next.listed.map_or_default(|listed| listed.robots)
+  ReadRobots::answered(next.listed.map_or_default(|listed| listed.robots), availability, listed_before, now)
 }
 
 /// The answered robots replace the kept ones of their ids; the others are added
@@ -203,11 +251,11 @@ fn merge_robots(robots: &mut Vec<PatronusRobot>, answered: Vec<PatronusRobot>) {
 }
 
 /// The user's robots in the repository for `bd status`, best effort (`read_robots_at`): none without Space, a Space
-/// token or an answer of Patronus
-pub fn read_robots(context: &RepoContext, environment: &Environment) -> Vec<PatronusRobot> {
-  let read = || -> Result<Vec<PatronusRobot>, CliError> {
+/// token or an answer of Patronus, the head saying which
+pub fn read_robots(context: &RepoContext, environment: &Environment) -> ReadRobots {
+  let read = || -> Result<ReadRobots, CliError> {
     let Some(space) = context.space_repository()? else {
-      return Ok(Vec::new());
+      return Ok(ReadRobots::answered(Vec::new(), PatronusAvailability::NotPatronus, false, unix_now()));
     };
     let service = patronus_service(environment)?;
     let cache = context.cache();
@@ -223,7 +271,7 @@ pub fn read_robots(context: &RepoContext, environment: &Environment) -> Vec<Patr
   };
   read().unwrap_or_else(|error| {
     tracing::debug!(error = %error.message, "no robots: Patronus is not available");
-    Vec::new()
+    ReadRobots::answered(Vec::new(), PatronusAvailability::Error { message: error.message }, false, unix_now())
   })
 }
 

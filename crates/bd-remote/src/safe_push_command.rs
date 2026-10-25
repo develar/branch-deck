@@ -35,13 +35,16 @@ use bd_core::bd_command::shell_word;
 use bd_core::check_summary::{CheckConflict, CheckWarning, DanglingReferenceSummary, dangling_reference_message, dangling_references_in, session_of_sync};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep, regroup_error};
+use bd_core::next_step_summary::NextStepSummary;
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use bd_core::stack_summary::{WholeStackSummary, stack_branch_of, whole_stack, whole_stack_summary};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, landed_commits, lock, sync_locked};
-use domain_policy::facts::Repository;
+use domain_policy::facts::{Repository, Robots};
 use domain_policy::holds::is_active;
 use domain_policy::land::{LandFacts, SubjectFacts, TargetConflictFact, allows_mode, decide, table_blocker, unaccepted};
+use domain_policy::landed::LandedFacts;
+use domain_policy::next_step::PatronusStanding;
 use domain_policy::parked::whole_stack_parked;
 use domain_policy::pull_request::{RulesAnswer, dismisses_approvals};
 use domain_policy::push::needs_push;
@@ -59,7 +62,8 @@ use domain_types::patronus::{
 };
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestsResult, ReviewerState};
 use domain_types::reason::Reason;
-use domain_types::session::{Fact, FactState, ParkedMember, PullRequestsView, SubjectReadiness};
+use domain_types::repository_view::LandingNeeds;
+use domain_types::session::{Fact, FactState, LandedSection, ParkedMember, PullRequestsView, RobotsHead, RobotsView, SubjectReadiness, stack_readiness_key};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
@@ -75,7 +79,7 @@ use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_req
 use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
 use repository_model::branch_table::{BranchTable, RemoteFact};
-use repository_model::derive::LandingFacts;
+use repository_model::derive::{LandingFacts, StepSources, grouped_rows, landed_states, next_steps, open_pull_requests_view};
 use repository_model::facts::{Observation, Seq};
 use repository_model::pull_request_facts::PullRequestsFact;
 use repository_model::push_guard::parked_words;
@@ -209,6 +213,11 @@ pub struct SafePushOutput {
   /// `dropped_commits`, which refuses the start with `push_refused`)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub remotes: Vec<ErrorBranch>,
+  /// With `--check`: the next step of the subject as the app's row shows it (`domain_policy::next_step`) over what the
+  /// check read: the row of the table, the step, the fact it waits for, its pull request, why a Safe Push or a Dry Run
+  /// can't start now
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub next_step: Option<NextStepSummary>,
   /// With `--check`: what refuses a start, each with the error code the start would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refusals: Vec<Refusal>,
@@ -450,6 +459,8 @@ struct Plan {
   /// What the robot lands: the branches it is built on, root first, then the branch; or every branch of the stack
   lands: Vec<String>,
   refusals: Vec<Refusal>,
+  /// With `--check`: the next step of the subject over what the check read, as the app's row shows it
+  next_step: Option<NextStepSummary>,
   /// With `--check`, for a stacked branch: its trial build alone
   alone: Option<AloneBuild>,
   warnings: Vec<CheckWarning>,
@@ -734,6 +745,7 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
     push_needed: plan.push_needed,
     remotes: plan.remotes.clone(),
     refusals: Vec::new(),
+    next_step: None,
     target_check: plan.target_check.as_ref().map(|(_, summary)| summary.clone()),
     alone: None,
     warnings: plan.warnings.clone(),
@@ -759,6 +771,7 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
 /// The output of `--check`: `output` with what refuses a start, the trial build alone and the retargets a start would do
 fn check_output(mut output: SafePushOutput, plan: Plan) -> SafePushOutput {
   output.refusals = plan.refusals;
+  output.next_step = plan.next_step;
   output.alone = plan.alone;
   output.retargeted = plan.retargets;
   output
@@ -1218,6 +1231,19 @@ fn plan(
     _ => None,
   };
   let decision = decide_over(&land, readiness.as_ref(), rules.as_ref());
+  let next_step = args.check.then(|| {
+    let read = CheckRead {
+      table: &table,
+      facts: &facts,
+      landed: &synced.landed_section,
+      pull_requests,
+      readiness: readiness.as_ref(),
+      needs: &gate_refusals,
+      github: github.as_ref(),
+      target: &target,
+    };
+    check_next_step(context, &read, start, &landing.what)
+  });
   let (refusals, rules) = {
     let told = Told {
       context,
@@ -1288,6 +1314,7 @@ fn plan(
     remotes,
     lands: decision.lands,
     refusals,
+    next_step: next_step.flatten(),
     alone,
     warnings,
     cancel,
@@ -1295,6 +1322,82 @@ fn plan(
     stack,
     target_check,
   })
+}
+
+/// What `bd safe-push --check` read, for the next step of its subject
+struct CheckRead<'a> {
+  table: &'a BranchTable,
+  facts: &'a PatronusFacts,
+  /// The landing report of the sync
+  landed: &'a LandedSection,
+  pull_requests: &'a PullRequestsView,
+  /// The readiness of the subject, read only when the start waits for it
+  readiness: Option<&'a Fact<SubjectReadiness>>,
+  /// What the landing gate refuses of the start of the subject
+  needs: &'a [LandingRefusal],
+  github: Option<&'a GitHubRepository>,
+  target: &'a str,
+}
+
+/// The next step of the subject of `start` over what the check read (`next_steps`, the rule of the app's rows): Patronus
+/// answered (it listed the robots), no problem of a failed robot is read, the landing needs of a branch are its gate's
+fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_>, what: &str) -> Option<NextStepSummary> {
+  let table = read.table;
+  let rows = grouped_rows(table);
+  let key = match start {
+    Start::Branch(name) => (*name).clone(),
+    Start::WholeStack(update) => stack_readiness_key(&update.root),
+  };
+  let mut view = read.facts.view.clone();
+  if let Start::Branch(name) = start {
+    view.branches.entry((*name).clone()).or_default().landing_needs = LandingNeeds::Known { refusals: read.needs.to_vec() };
+  }
+  let robots = RobotsView {
+    head: Fact {
+      value: Some(RobotsHead {
+        availability: PatronusAvailability::Available,
+        github_repository: read.github.map(GitHubRepository::full_name),
+      }),
+      state: FactState::Fresh,
+      ..Fact::default()
+    },
+    robots: read.facts.robots.iter().map(|robot| (robot.id.clone(), robot.clone())).collect(),
+    ..RobotsView::default()
+  };
+  let patronus = PatronusStanding::of(&robots.head, &FactState::Fresh);
+  let subject_readiness = |subject: &str| read.readiness.and_then(|fact| fact.value.as_ref()).filter(|_| subject == key).map(|value| &value.readiness);
+  let open = open_pull_requests_view(
+    read.target,
+    |name| table.branch(name).is_some(),
+    |root| table.stack(root).is_some(),
+    read.pull_requests,
+    subject_readiness,
+    &context.prefix,
+  );
+  let robots_of = Robots::new(&read.facts.robots);
+  let landed = LandedFacts {
+    baseline: read.landed,
+    view: Some(&read.facts.view),
+    robots: &robots_of,
+  };
+  let landed = landed_states(table, &table.remote, &landed, read.pull_requests);
+  let readiness = |subject: &str| read.readiness.filter(|_| subject == key);
+  let sources = StepSources {
+    table,
+    remote: &table.remote,
+    rows: &rows,
+    view: &view,
+    robots: &robots,
+    patronus: &patronus,
+    landing_needs: &FactState::Fresh,
+    pull_requests: read.pull_requests,
+    open_pull_requests: &open,
+    landed: &landed,
+    readiness: &readiness,
+    target: read.target,
+  };
+  let mut steps = next_steps(&sources);
+  steps.remove(&key).map(|view| NextStepSummary::new(&view.step, what, &read.facts.robots))
 }
 
 /// The open pull request `number` of the subject of `start`: the branch's, or the whole stack's (its stack branch's)

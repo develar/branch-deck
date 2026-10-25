@@ -442,7 +442,7 @@ fn closes(context: &RepoContext, environment: &Environment, grouping: &BranchGro
     ..PullRequestsView::default()
   };
   let table = grouping_table(context, grouping, stacks);
-  let mut robots = read_robots(context, environment);
+  let mut robots = read_robots(context, environment).robots;
   if !robots.iter().any(|known| known.id == robot.id) {
     robots.push(robot.clone());
   }

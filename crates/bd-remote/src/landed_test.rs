@@ -293,3 +293,41 @@ fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
   assert_eq!(status_branch(&status, "ui")["landing_needs"], need);
   assert_eq!(status_branch(&status, "util")["landing_needs"], json!([]));
 }
+
+/// `next_step` of a branch or a whole stack of `bd status`
+fn next_step_of<'a>(status: &'a Value, key: &str, name: &str) -> &'a Value {
+  let found = status[key]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|it| it[if key == "stacks" { "root" } else { "name" }] == json!(name))
+    .unwrap();
+  &found["next_step"]
+}
+
+/// `bd status` gives every branch and whole stack the next step the app's row shows (`domain_policy::next_step`) over
+/// what it read: a branch merged Safe Pushes landed has nothing to start (row 1); one with work waits for the pull
+/// requests, which `bd status` doesn't list (row 0), as the whole stack of a stack that forks does
+#[test_log::test]
+fn status_gives_each_branch_and_whole_stack_the_next_step_of_the_apps_row() {
+  let space = merged_login();
+  let status = covered_status(&space);
+  let merged = next_step_of(&status, "branches", "login");
+  assert_eq!((&merged["row"], &merged["step"]), (&json!("1"), &json!("settled")));
+  assert_eq!(merged["safe_push_blocked"], merged["dry_run_blocked"]);
+  assert!(merged["safe_push_blocked"].as_str().unwrap().contains("login"), "{merged}");
+  assert_eq!(next_step_of(&status, "branches", "auth")["row"], json!("1"), "landed with login");
+
+  let stack = forking_stack();
+  sync(&stack);
+  let status = covered_status(&stack);
+  let waits = json!({
+    "row": "0",
+    "step": "pending",
+    "waits_for": "pull_requests",
+    "safe_push_blocked": "Waits for GitHub to list the pull requests",
+    "dry_run_blocked": null,
+  });
+  assert_eq!(next_step_of(&status, "branches", "login"), &waits);
+  assert_eq!(next_step_of(&status, "stacks", "auth"), &waits);
+}

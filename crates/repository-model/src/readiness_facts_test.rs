@@ -1,4 +1,6 @@
+use crate::derive::wanted_readiness;
 use crate::facts::{FactResult, FactStore, Observation, Seq};
+use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, ReadinessSubject};
 use crate::table::TableState;
 use crate::table::table_test::{run_sync, sync_events};
@@ -7,10 +9,11 @@ use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request};
 use domain_types::patronus::{ApprovedReviewGroup, BranchReviewReadiness, PatronusAvailability, Person, ReviewReadiness, ReviewStart};
 use domain_types::pull_request::{PullRequest, Reviewer, ReviewerState};
-use domain_types::session::{Demand, FactState, NewsEvent, PullRequestsView, RobotsHead};
+use domain_types::session::{Demand, FactState, NewsEvent, PullRequestsView, RobotsHead, stack_readiness_key};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use pretty_assertions::assert_eq;
+use std::collections::HashSet;
 use std::time::Duration;
 
 /// The table of `auth` (copies `copy-a2`, `copy-a1`) and `ui` (`copy-u1`), with the whole stack of `auth` built
@@ -103,7 +106,7 @@ fn the_ask_is_the_tip_a_window_shows_and_the_pull_request_its_robot_starts_from(
     needed: vec!["ui".to_owned()],
     ..shows(&["auth"])
   };
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &demand, "user");
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &demand, "user", &shown(&demand));
   let digest = fact.digest();
   assert_eq!(digest.baseline, "origin/master");
   let asked: Vec<(&str, &str, ReviewStart, Option<&str>, ReadinessPriority)> = digest
@@ -129,14 +132,14 @@ fn the_ask_is_the_tip_a_window_shows_and_the_pull_request_its_robot_starts_from(
   );
   assert_eq!(state_of(&fact, "auth"), FactState::Loading);
   // nothing asks for it: no subject
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &Demand::default(), "user");
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &Demand::default(), "user", &shown(&Demand::default()));
   assert_eq!(fact.digest().subjects, []);
   // without the GitHub repository Patronus names, the robot would start through the API
   let head = RobotsHead {
     github_repository: None,
     ..available()
   };
-  fact.update(&state, &pull_requests(vec![]), Some(&head), &shows(&["auth"]), "user");
+  fact.update(&state, &pull_requests(vec![]), Some(&head), &shows(&["auth"]), "user", &shown(&shows(&["auth"])));
   assert_eq!(subject(&fact, "auth").ask.start, ReviewStart::Rest);
 }
 
@@ -152,16 +155,16 @@ fn a_needed_subject_is_unavailable_while_patronus_does_not_answer_for_the_reposi
       ..Demand::default()
     },
   );
-  fact.update(&state, &pull_requests(vec![]), None, &demand, "user");
+  fact.update(&state, &pull_requests(vec![]), None, &demand, "user", &shown(&demand));
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Loading, 0));
   let logged_out = RobotsHead {
     availability: PatronusAvailability::NotLoggedIn,
     github_repository: None,
   };
-  fact.update(&state, &pull_requests(vec![]), Some(&logged_out), &demand, "user");
+  fact.update(&state, &pull_requests(vec![]), Some(&logged_out), &demand, "user", &shown(&demand));
   let reason = ApiError::new(ErrorCode::NotLoggedIn, "Run ./safePush.cmd once to log in to Patronus");
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Unavailable { reason }, 0));
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &demand, "user");
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &demand, "user", &shown(&demand));
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Loading, 1));
 }
 
@@ -172,10 +175,10 @@ fn a_needed_subject_is_unavailable_while_patronus_does_not_answer_for_the_reposi
 fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_new_reviews() {
   let mut fact = ReadinessFact::default();
   let state = table();
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user");
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user", &shown(&shows(&["auth"])));
   let asked = subject(&fact, "auth").clone();
   assert!(fact.answer(at(2), answer(&asked, missing())).0);
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user");
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user", &shown(&shows(&["auth"])));
   assert_eq!(state_of(&fact, "auth"), FactState::Fresh);
 
   let reviewed = pull_requests(vec![Reviewer {
@@ -184,7 +187,7 @@ fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_ne
     requested: false,
   }]);
   // hidden now: the new review asks it, after the shown ones
-  fact.update(&state, &reviewed, Some(&available()), &Demand::default(), "user");
+  fact.update(&state, &reviewed, Some(&available()), &Demand::default(), "user", &shown(&Demand::default()));
   assert_eq!(state_of(&fact, "auth"), FactState::Stale { reason: None });
   assert_eq!(subject(&fact, "auth").priority, ReadinessPriority::HiddenAwaiting);
   assert_ne!(subject(&fact, "auth").inputs, asked.inputs);
@@ -199,7 +202,7 @@ fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_ne
     status: CommitSyncStatus::Created,
     resolved: None,
   });
-  fact.update(&moved, &reviewed, Some(&available()), &Demand::default(), "user");
+  fact.update(&moved, &reviewed, Some(&available()), &Demand::default(), "user", &HashSet::new());
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Stale { reason: None }, 0));
   assert!(!fact.digest().awaits_approval);
 }
@@ -210,7 +213,7 @@ fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_ne
 fn the_answer_of_an_ask_started_before_a_recheck_never_replaces_the_rechecks() {
   let mut fact = ReadinessFact::default();
   let state = table();
-  let update = |fact: &mut ReadinessFact| fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user");
+  let update = |fact: &mut ReadinessFact| fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user", &shown(&shows(&["auth"])));
   update(&mut fact);
   let batch = subject(&fact, "auth").clone();
   fact.recheck("auth");
@@ -250,7 +253,9 @@ fn the_approvals_that_arrived_are_news_once() {
       approved_by: vec![ilya.clone()],
     }],
   };
-  store.readiness.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user");
+  store
+    .readiness
+    .update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user", &shown(&shows(&["auth"])));
   let waiting = subject(&store.readiness, "auth").clone();
   store.apply(at(1), FactResult::Readiness(vec![answer(&waiting, missing())]));
   let approved = pull_requests(vec![Reviewer {
@@ -258,7 +263,9 @@ fn the_approvals_that_arrived_are_news_once() {
     state: ReviewerState::Approved,
     requested: false,
   }]);
-  store.readiness.update(&state, &approved, Some(&available()), &shows(&["auth"]), "user");
+  store
+    .readiness
+    .update(&state, &approved, Some(&available()), &shows(&["auth"]), "user", &shown(&shows(&["auth"])));
   let reviewed = subject(&store.readiness, "auth").clone();
   store.apply(at(2), FactResult::Readiness(vec![answer(&reviewed, ready.clone())]));
   let news: Vec<NewsEvent> = store.news().iter().map(|news| news.event.clone()).collect();
@@ -273,8 +280,39 @@ fn the_approvals_that_arrived_are_news_once() {
   );
   // a recheck of the same reviews answers the same: no news
   store.readiness.recheck("auth");
-  store.readiness.update(&state, &approved, Some(&available()), &shows(&["auth"]), "user");
+  store
+    .readiness
+    .update(&state, &approved, Some(&available()), &shows(&["auth"]), "user", &shown(&shows(&["auth"])));
   let recheck = subject(&store.readiness, "auth").clone();
   store.apply(at(3), FactResult::Readiness(vec![answer(&recheck, ready)]));
   assert_eq!(store.news().len(), 1);
+}
+
+/// The subjects `demand` shows, by key, as wanted: as if the step of each waited for the readiness
+fn shown(demand: &Demand) -> HashSet<String> {
+  demand
+    .visible_branches
+    .iter()
+    .cloned()
+    .chain(demand.visible_stacks.iter().map(|root| stack_readiness_key(root)))
+    .collect()
+}
+
+/// Of the subjects a window shows, the session asks the readiness only of those whose next step waits for it
+/// (`derive::wanted_readiness`): none before GitHub lists the pull requests (their steps wait for the listing), then
+/// the shown branches past rows 1 to 6 and the whole stacks; a branch its robot runs on (row 1) is not asked
+#[test]
+fn a_shown_subject_is_asked_only_while_its_next_step_waits_for_the_readiness() {
+  let (state, mut facts) = crate::derive::derive_budget_test::session();
+  let demand = Demand {
+    visible_branches: state.order().to_vec(),
+    visible_stacks: vec!["stack0".to_owned()],
+    ..Demand::default()
+  };
+  let wanted = wanted_readiness(&state, &facts, "user", &demand);
+  assert!(wanted.contains("lone001") && wanted.contains("stack:stack0"), "past rows 1 to 6, pushed or not");
+  let running = facts.robots.view().robots["r0"].branch_name.clone().unwrap();
+  assert!(!wanted.contains(&running), "row 1: its robot runs");
+  facts.pull_requests = PullRequestsFact::default();
+  assert_eq!(wanted_readiness(&state, &facts, "user", &demand), HashSet::new(), "the steps wait for the listing first");
 }

@@ -35,6 +35,7 @@ targets:
   - ../../crates/git-ops/src/branch_description.rs
   - ../../crates/bd-core/src/sync_command.rs
   - ../../crates/bd-core/src/stack_summary.rs
+  - ../../crates/bd-core/src/next_step_summary.rs
   - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/bd-rewrite/src/check_command.rs
   - ../../crates/bd-core/src/check_summary.rs
@@ -325,6 +326,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--unassigned`, and when the check can't run: unknown, not empty.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`the_needs_of_a_branch_are_the_refusals_of_its_start`)
+- Each branch, and in `stacks` each whole stack of a stack that forks, must show `next_step`: the step the app's row
+  shows by the same rule (`domain_policy::next_step`, [Next Step](../branch/next-step.spec.md#the-table)) over what
+  `bd status` read: `row` of the table (`0` waits for a fact, `1` has nothing to start, … `11` a Safe Push), `step`,
+  `waits_for` (the fact without an answer, or whose read failed), `pull_request`, and why a Safe
+  Push or a Dry Run can't start now (`safe_push_blocked`, `dry_run_blocked`, `null` when it can). `bd status` lists no
+  pull request, asks no readiness and no problem of a failed robot: a step that needs them waits for them (row 0,
+  `pull_requests`, `readiness`, `robot_problems`); `bd safe-push --check` reads them. Omitted off Space (the row has
+  no slot), with `--brief` and `--unassigned`; no git process more.
+  [@test] ../../crates/bd-remote/src/landed_test.rs (`status_gives_each_branch_and_whole_stack_the_next_step_of_the_apps_row`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
   the output must list `idle_issue_groups`, the keys of the issue groups that group no commit on this HEAD, and
   `issue_group_problems`, the lines of the issue groups that are not used.
@@ -1021,6 +1032,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   would fail with; it must hold the repository lock for its sync only, so its trial builds and the questions to
   Patronus and GitHub keep no other `bd` writer waiting.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it`)
+- `--check` must print `next_step`, the step the app's row shows of the subject (`domain_policy::next_step`, as
+  `bd status` prints it) over what the check read: the robots Patronus listed, the pull requests, the readiness when
+  the start waits for it, the landing gate of the start; a problem of a failed robot is not read, so a step that needs
+  it waits for it.
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`)
 - The start must be decided by the rule of the app, `domain_policy::land::decide`, over the facts `bd` read: what the
   table alone refuses (not synced, parked) fails the command before Patronus or GitHub is asked; the review and the
   rules of the target are read only when the decision waits for them; the `refusals` are its blockers in their order,

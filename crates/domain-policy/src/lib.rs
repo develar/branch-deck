@@ -19,6 +19,10 @@
 //!   with its commits, D13), what a start says of it (`landed_reason`), and the open pull requests of the branches a
 //!   merged Safe Push landed whole besides its own (`pull_requests_to_close`, D7)
 //! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
+//! - `landing_node`: where a branch or a whole stack is on its way into master, the node of its row (`landing_node`)
+//! - `next_step`: the next step of a branch or a whole stack, the first row of the table of the next step that matches
+//!   (`next_step` over `StepFacts`), each fact of the remote as it stands (`PatronusStanding`, `Listing`, `Needs`): a
+//!   fact without an answer waits, a read that failed offers what helps
 //! - `news`: what a window tells once of two answers of a fact: a robot known running that finished
 //!   (`robot_finished`), the approvals that arrived (`approval_news`), the review requests a listing adds
 //!   (`review_requested`)
@@ -33,7 +37,8 @@
 //!   another base that may be meant), the pull request a robot starts from (`start_pull_request`), and what a push does
 //!   to its approvals by the rules of its base (`dismisses_approvals`)
 //! - `reasons`: the reasons the rules give (`domain_types::reason::Reason`), with the facts their words need
-//! - `readiness`: whether a subject waits for approvals (`awaits_approval`)
+//! - `readiness`: whether a subject waits for approvals (`awaits_approval`), and which of the shown subjects the
+//!   session asks the readiness of (`wanted`: those whose next step waits for it)
 //! - `review`: whom Request Review… offers and `bd request-review` asks (`candidates`), what an answer of the readiness
 //!   means for a start and where the approvals count, a repository only on Space read once (`review_state`), and when a
 //!   Safe Push starts without them (`skips_approvals`)
@@ -51,7 +56,9 @@ pub mod holds;
 pub mod land;
 pub mod landed;
 pub mod landing_needs;
+pub mod landing_node;
 pub mod news;
+pub mod next_step;
 pub mod parked;
 pub mod pull_request;
 pub mod push;
@@ -71,7 +78,11 @@ mod landed_test;
 #[cfg(test)]
 mod landing_needs_test;
 #[cfg(test)]
+mod landing_node_test;
+#[cfg(test)]
 mod news_test;
+#[cfg(test)]
+mod next_step_test;
 #[cfg(test)]
 mod parked_test;
 #[cfg(test)]

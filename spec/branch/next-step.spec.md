@@ -15,6 +15,10 @@ targets:
   - ../../crates/repository-model/src/readiness_facts.rs
   - ../../crates/remote-facts/src/scheduler_readiness.rs
   - ../../crates/domain-policy/src/readiness.rs
+  - ../../crates/domain-policy/src/next_step.rs
+  - ../../crates/domain-policy/src/landing_node.rs
+  - ../../crates/repository-model/src/derive.rs
+  - ../../crates/bd-core/src/next_step_summary.rs
   - ../../crates/domain-policy/src/landed.rs
   - ../../crates/domain-policy/src/pull_request.rs
   - ../../src/components/branch/NextStepSlot.tsx
@@ -213,6 +217,29 @@ branch from all the facts (the branch, its robots, its pull request and the read
   open pull request, which asks GitHub, still opens from the menus, at an anchor of the row that takes no room
   ([Pull Requests](pull-requests.spec.md#request-review)).
   [@test] ../../src/lib/branch-next-step.test.ts (`treats the readiness as unavailable without the pull requests: never a duplicate Create Pull Request…`, `has no slot in a repository that is not on Space, and keeps the reasons of the branch`)
+
+- The table is one rule in Rust for the app and `bd` (`domain_policy::next_step`, over `StepFacts`: the subject as
+  the table and the robots have it, each fact of the remote as it stands), and so is the node of the row
+  (`domain_policy::landing_node`): the session derives the step and the node of every row and of every whole stack
+  that forks with each patch of its view (`RepositoryView.nextSteps`, `repository_model::derive::next_steps`; a sync of
+  a branch is row 1 meanwhile), `bd status` and `bd safe-push --check` print it of what they read
+  ([Agent CLI](../cli/agent-cli.spec.md#bd-status)). A step carries the facts its words need, never the words: its row,
+  its kind with the pull request and the groups it names, the blockers of the Safe Push and the Dry Run (a reason of
+  the rules, the sync, or the step's own reason), whether it waits for the readiness or stands on a stale answer of it,
+  what landed all of the subject, the retarget of "⋯" and the Safe Push without review offered beside. A fact without
+  a fresh answer never answers a step a later answer would turn into another: one that loads or nobody asks waits
+  (row 0), a stale one keeps the step of the answer before (a stale readiness holds the action), a read that failed
+  is an answer that says so (what helps for Patronus, never missing approvals for the pull requests or the
+  readiness, the gate of the start for the landing needs). What runs on the row (an operation, a start, a push, a
+  move) stays the page's until the operations move into Rust. The derivation of the 141 rows of the `perf:table`
+  template, twice per flush, stays within 20 ms in a debug build.
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts`, `row_0_waits_for_a_fact_no_answer_told_yet_and_a_reason_of_the_subject_outranks_it`, `row_0_a_read_that_failed_decides_no_start_and_offers_what_helps`, `row_1_prime_needs_a_branch_outside_what_the_safe_push_lands_and_keeps_the_start`, `rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`, `row_5_retargets_a_pull_request_into_a_virtual_branch_and_5_prime_opens_one_into_another_base`, `row_6_a_draft_is_a_step_that_opens_it_the_safe_push_waits_a_dry_run_runs`, `rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`, `rows_8_prime_and_10_prime_tell_the_wait_github_tells_while_patronus_cannot_judge`, `row_11_safe_push_and_the_start_without_review_while_github_is_signed_out`, `a_stale_readiness_keeps_its_step_and_its_action_waits_for_the_new_answer`, `a_repository_not_on_space_has_no_slot_and_keeps_the_reasons_of_the_subject`, `the_whole_stack_takes_the_rows_of_its_stack_branch`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`every_row_with_every_fact_without_a_fresh_answer_never_answers_an_action_the_fresh_one_would_replace`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`the_node_of_the_subject_itself_parked_failing_landed_blocked_or_its_robot_running_stays_through_a_move`, `is_ready_to_land_once_patronus_judged_the_approvals_else_the_start_is_the_users_step`, `waits_for_others_the_reviewers_a_base_that_may_be_meant_and_is_the_users_step_otherwise`, `waits_for_the_first_answers_as_the_step_does_and_says_a_read_that_failed`, `off_space_a_branch_lands_through_its_pull_request`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_those_that_changed`)
+  [@test] ../../crates/repository-model/src/derive_budget_test.rs (`a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_budget`)
+  [@test] ../../crates/bd-remote/src/landed_test.rs (`status_gives_each_branch_and_whole_stack_the_next_step_of_the_apps_row`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`)
 
 ### What the Safe Push needs
 
@@ -440,7 +467,13 @@ branch from all the facts (the branch, its robots, its pull request and the read
   row on the screen, not one a collapsed stack, side stack or island hides (it is not rendered), and of the root of a
   stack that forks its whole stack too, so a small stack without an island knows the approvals of its whole stack before
   a click; the header of an island (its whole stack, below, or the last branch of a straight chain, also while
-  collapsed); the preview; the review window (its chain, or `stack:<root>` of the review of the whole stack).
+  collapsed); the preview; the review window (its chain, or `stack:<root>` of the review of the whole stack). The
+  session asks only those of the shown subjects whose own next step waits for the readiness
+  (`domain_policy::readiness::wanted` over its next steps, `repository_model::derive::wanted_readiness`), so a shown
+  subject past which the step doesn't read the readiness (a sync, a robot that runs, a retarget, a draft, the pull
+  requests not listed yet) costs Patronus nothing.
+  [@test] ../../crates/domain-policy/src/readiness_test.rs (`the_session_asks_the_readiness_of_the_shown_subjects_whose_step_waits_for_it`)
+  [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`a_shown_subject_is_asked_only_while_its_next_step_waits_for_the_readiness`)
   [@test] ../../src/stores/review-readiness.test.ts (`tells the session the shown subjects whose step waits for the readiness, the whole stack by its root`)
   [@test] ../../src/model/demand.test.ts (`sends the readiness a surface needs now as needed, and of the shown subjects those whose step waits for it`)
   [@test] ../../src/lib/branch-next-step.test.ts (`asks for the readiness of a branch on GitHub, pushed or not: Patronus judges the local commits`)

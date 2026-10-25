@@ -43,6 +43,11 @@ fn check_names_the_profiles_and_the_review_and_starts_nothing() {
     json!({"required": false, "skipped": false, "counts_in": "space_merge_request", "merge_request": null, "groups": [], "readiness": "not_required"})
   );
   assert_eq!((output["push_needed"].clone(), output["robot"].clone()), (json!(true), Value::Null));
+  // the step the app's row shows over what the check read: off GitHub no pull request collects approvals, row 11
+  assert_eq!(
+    output["next_step"],
+    json!({"row": "11", "step": "safe_push", "safe_push_blocked": null, "dry_run_blocked": null})
+  );
   assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
   assert_eq!(space.remote_tip(AUTH), "");
 }
