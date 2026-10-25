@@ -12,7 +12,6 @@ import {
   isHeldBy,
   isStillIn,
   passingCanceled,
-  pushesOverMovedRemote,
   reportPushError,
   restartAfterPush,
   sentPart,
@@ -23,7 +22,6 @@ import { showStackPushToast } from "@/lib/git/push-toast"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { formatPushMode, formatStackPushHoldReason } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
-import { getPushAction } from "@/lib/push-summary"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
@@ -131,8 +129,8 @@ export async function pushUpTo(steps: readonly PushUpToStep[]): Promise<boolean>
  * `startedFrom` names it ("Pushing 7 branches 45%"); one toast says what was pushed (`showStackPushToast`), Activity has an
  * entry per branch. The stack branch of a whole stack the order takes along (`wholeStack`) goes last, leased on the
  * remote head of its status, only while the sync built it. A remote branch that moved since its row showed it refuses
- * the whole push: the branches are fetched, and the push goes again over what the remotes have now, once, when that
- * remote has no commits its branch lacks (`pushesOverMovedRemote`), else its toast says what it has. A second push from
+ * the whole push: the branches are fetched, and Rust pushes again over what the remotes have now, once, when that
+ * remote has no commits its branch lacks (`pushedOver`), else its toast says what it has. A second push from
  * the same row while one runs (`intent`: the same order) joins it and hears why it failed; another one from the row
  * waits for it, then runs. The branches of the order are claimed once it is known, before the checks: a push of one of
  * them meanwhile waits for this one instead of sending it twice.
@@ -245,26 +243,21 @@ async function pushTogetherOf(request: VcsRequest, startedFrom: string, orderOf:
     // as they are now, also after a switch, so the robot it cancels is pushed over and replaced, never canceled for a push
     // that stops
     const baselineBranch = branchSyncStore.getState().baselineBranch!
-    let stack = stackBranchAlong(wholeStack)
+    const stack = stackBranchAlong(wholeStack)
     if (clearance.cancels !== null && !(await cancelHoldingRobot(clearance.cancels, report, request))) {
       return false
     }
     setStackPush(startedFrom, order.names, repositoryPath)
     // the send marks them pushing itself, at once
     release()
-    let pushed: readonly Branch[] = branches
-    let moved = await sendTogether(request, baselineBranch, pushed, tips, stack, report)
-    // nobody's work is lost: the stack goes over what the remotes have now, once, as the push of one branch does; a
-    // remote that moves again, or one with commits its branch lacks, is told
-    if (moved != null && pushesOverMovedRemote(moved.status)) {
-      pushed = moved.branches
-      stack = moved.stack
-      moved = await sendTogether(request, baselineBranch, pushed, tips, stack, report)
-    }
-    if (moved === undefined) {
+    // nobody's work is lost: Rust pushes the stack again over what the remotes have now, once, as the push of one branch;
+    // a remote that moves again, or one with commits its branch lacks, is told
+    const sent = await sendTogether(request, baselineBranch, branches, tips, stack, report)
+    if (sent === undefined) {
       return false
     }
-    if (moved !== null) {
+    if ("moved" in sent) {
+      const moved = sent.moved
       if (moved.wholeStack) {
         report(`Cannot push ${formatWholeStackBranch(moved.name)}`, describeMovedStackBranch(moved.status))
       } else {
@@ -273,14 +266,15 @@ async function pushTogetherOf(request: VcsRequest, startedFrom: string, orderOf:
       return false
     }
     if (options.announce !== false) {
-      const outcomes: PushOutcome[] = pushed.map(branch => ({
+      const outcomes: PushOutcome[] = sent.branches.map(branch => ({
         name: branch.name,
         before: sentPart(branch.remoteStatus, tips.get(branch.name)),
         retargeted: retargeted.get(branch.name),
       }))
       // after a switch the pull requests of the table are of the other repository: the toast offers none
-      const pullRequest = stack === null || !isSelectedRepository(repositoryPath) ? undefined : getStackPullRequest(stack.root)
-      showStackPushToast(outcomes, startedFrom, repositoryPath, stack === null ? null : { root: stack.root, before: stack.remoteStatus, pullRequest })
+      const pushedStack = sent.stack
+      const pullRequest = pushedStack === null || !isSelectedRepository(repositoryPath) ? undefined : getStackPullRequest(pushedStack.root)
+      showStackPushToast(outcomes, startedFrom, repositoryPath, pushedStack === null ? null : { root: pushedStack.root, before: pushedStack.remoteStatus, pullRequest })
     }
     return true
   } finally {
@@ -290,15 +284,19 @@ async function pushTogetherOf(request: VcsRequest, startedFrom: string, orderOf:
   }
 }
 
-/** A stack push the remote refused (`sendTogether`): the branch whose remote moved, and what the push sends over them */
+/** A stack push the remote refused (`sendTogether`): the branch whose remote moved, and what its remote has now */
 interface MovedInStack {
   readonly name: string
   readonly wholeStack: boolean
-  /** What its remote has now */
   readonly status: RemoteStatus
-  /** The branches of the push with the remote statuses it brought */
+}
+
+/**
+ * A stack push that went (`sendTogether`): its branches and the stack branch it took along, each with the remote status
+ * the push replaced (the row's, or the moved remote Rust pushed over)
+ */
+interface PushedStack {
   readonly branches: readonly Branch[]
-  /** The stack branch it took along, with the remote status it brought */
   readonly stack: StackBranch | null
 }
 
@@ -375,9 +373,9 @@ function findBranches(names: readonly string[], report: PushReport): Branch[] | 
  * The one push of the branches (`push_branches`), each leased on the remote head its row shows, and the stack branch of
  * a whole stack after them (`stack`, leased on the remote head of its status), while their rows show its progress (the
  * stack branch is pushing too, under its key: a push of it alone waits); it resolves once the table has the patch of the
- * session with the remote statuses it left. The branch whose remote moved when nothing was pushed (`wholeStack`: its
- * stack branch), with what its remote has now, and the branches and the stack branch with the remote statuses the push
- * brought, for a push over them; null when they were pushed; undefined when the push failed (it said why).
+ * session with the remote statuses it left. The branch whose remote moved when nothing was pushed (`moved`; `wholeStack`:
+ * its stack branch), with what its remote has now; else the branches and the stack branch with the remote statuses the
+ * push replaced (`pushedOver` when Rust pushed again over a moved remote); undefined when the push failed (it said why).
  */
 async function sendTogether(
   request: VcsRequest,
@@ -386,7 +384,7 @@ async function sendTogether(
   tips: ReadonlyMap<string, string>,
   stack: StackBranch | null,
   report: PushReport,
-): Promise<MovedInStack | null | undefined> {
+): Promise<{ moved: MovedInStack } | PushedStack | undefined> {
   const names = branches.map(branch => branch.name)
   // what an error names: the branches, then the stack branch
   const subjects = stack === null ? names : [...names, formatWholeStackBranch(stack.root)]
@@ -427,7 +425,6 @@ async function sendTogether(
     const { outcome, version } = result.data
     const statuses = outcome.remoteStatuses.map(status => toRemoteStatus(status))
     await whenSessionViewAt(repositoryPath, version)
-    const stackStatus = stack === null ? undefined : statuses[branches.length]
     if (outcome.type === "remoteMoved") {
       const { branchName, wholeStack } = outcome
       const index = wholeStack ? branches.length : names.indexOf(branchName)
@@ -441,22 +438,20 @@ async function sendTogether(
       } else {
         recordPush(request.repositoryPath, branchName, branches[index]!.remoteStatus, status)
       }
-      return {
-        name: branchName,
-        wholeStack,
-        status,
-        branches: branches.map((branch, at) => ({ ...branch, remoteStatus: statuses[at] ?? branch.remoteStatus })),
-        stack: stack === null ? null : { ...stack, remoteStatus: stackStatus ?? stack.remoteStatus },
-      }
+      return { moved: { name: branchName, wholeStack, status } }
     }
-    for (const branch of branches) {
+    // the statuses the push replaced: those Rust fetched when it pushed again over a moved remote, else the rows'
+    const over = outcome.pushedOver.map(status => toRemoteStatus(status))
+    const pushed = branches.map((branch, at) => ({ ...branch, remoteStatus: over[at] ?? branch.remoteStatus }))
+    const pushedStack = stack === null ? null : { ...stack, remoteStatus: over[branches.length] ?? stack.remoteStatus }
+    for (const branch of pushed) {
       recordPush(request.repositoryPath, branch.name, sentPart(branch.remoteStatus, tips.get(branch.name)), null)
     }
-    if (stack !== null) {
-      recordPush(request.repositoryPath, formatWholeStackBranch(stack.root), stack.remoteStatus, null)
+    if (pushedStack !== null) {
+      recordPush(request.repositoryPath, formatWholeStackBranch(pushedStack.root), pushedStack.remoteStatus, null)
     }
     // the session lists the pull requests after the push, the whole stack's too
-    return null
+    return { branches: pushed, stack: pushedStack }
   } catch (error) {
     report(`Cannot push ${joinNames(subjects)}`, error)
     return undefined
@@ -536,8 +531,8 @@ function joinableStackBranchPush(root: string): () => void {
  * pushed, and fails the one that joined too; then it pushes only what the remote still lacks (what a sync rebuilt since;
  * the stack branch alone after a Push with Children that failed for a branch), and nothing when the remote has it all.
  * A second restart of the same robot is the same request: one push, one restart, one toast. A remote branch
- * that moved is fetched, and the push goes again over it once when it has no commit the stack branch lacks
- * (`pushesOverMovedRemote`). The branches of the stack stay as they are on the remote. While it runs, the stack branch
+ * that moved is fetched, and Rust pushes again over it once when it has no commit the stack branch lacks
+ * (`pushedOver`). The branches of the stack stay as they are on the remote. While it runs, the stack branch
  * is pushing under its key (`stackReadinessKey`), its progress where the pushes of the stack show: the island's header,
  * the root's row of a small stack, the button of the start it is a step of. No toast: the action it is a step of says
  * it; Activity records the push. Resolves to whether the stack branch is on the remote.
@@ -597,7 +592,7 @@ async function sendWholeStack(request: VcsRequest, root: string, joined: Promise
     return false
   }
   // a push that ran meanwhile left nothing to send, unless a sync rebuilt the stack branch since
-  const upToDate = getPushAction({ remoteStatus: getStackBranch(root)?.remoteStatus ?? null }) === "upToDate"
+  const upToDate = getStackBranch(root)?.remoteStatus?.action.kind === "upToDate"
   const hold = getStackPushHold(root)
   let cancels: PatronusRobot | null = null
   if (hold !== null) {
@@ -620,10 +615,8 @@ async function sendWholeStack(request: VcsRequest, root: string, joined: Promise
   if (sent === null) {
     return true
   }
-  let moved = await sendStackBranch(request, sent, report)
-  if (moved !== null && moved !== undefined && pushesOverMovedRemote(moved)) {
-    moved = await sendStackBranch(request, { ...sent, stack: { ...sent.stack, remoteStatus: moved } }, report)
-  }
+  // a remote that moved without commits the stack branch lacks Rust pushes over, once (`pushedOver`)
+  const moved = await sendStackBranch(request, sent, report)
   if (moved === undefined) {
     return false
   }
@@ -685,10 +678,12 @@ async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, rep
     const { outcome, version } = result.data
     const status = outcome.remoteStatuses[0] === undefined ? null : toRemoteStatus(outcome.remoteStatuses[0])
     await whenSessionViewAt(repositoryPath, version)
-    recordPush(request.repositoryPath, formatWholeStackBranch(root), stack.remoteStatus, outcome.type === "remoteMoved" ? status : null)
     if (outcome.type === "remoteMoved") {
+      recordPush(request.repositoryPath, formatWholeStackBranch(root), stack.remoteStatus, status)
       return status ?? undefined
     }
+    const over = outcome.pushedOver[0]
+    recordPush(request.repositoryPath, formatWholeStackBranch(root), over === undefined ? stack.remoteStatus : toRemoteStatus(over), null)
     return null
   } catch (error) {
     report(`Cannot push ${subject}`, error)

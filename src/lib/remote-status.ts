@@ -1,5 +1,5 @@
 import type { DroppedCommit } from "@/lib/bindings"
-import { formatPushCount, getPushAction, isRemoteUpToDate, replacesOlderVersions } from "@/lib/push-summary"
+import { formatPushCount } from "@/lib/push-summary"
 import { cutList, joinNames } from "@/lib/text"
 import { formatTimestamp } from "@/lib/time"
 import type { UIColor } from "@/lib/ui-types"
@@ -95,7 +95,7 @@ export interface RemoteStatusTextOptions {
  * has older versions of commits of when the branch is restacked
  */
 export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | null = null, { forcePush = false }: RemoteStatusTextOptions = {}): RemoteStatusTexts {
-  const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, commitsLanded, commitsReworded, ancestorCommitsAhead, lastPushTime, fastForward } = remote
+  const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, commitsLanded, commitsReworded, ancestorCommitsAhead, lastPushTime, fastForward, action } = remote
   const mine = Math.min(remote.myCommitsAhead ?? 0, commitsAhead)
 
   const withPushTime = (lines: readonly string[]): string => {
@@ -104,7 +104,7 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
   }
 
   // by content: a branch only rebased onto a newer baseline is up to date, the remote has its commits
-  if (isRemoteUpToDate(remote)) {
+  if (action.kind === "upToDate") {
     return { text: "up to date", tooltip: withPushTime(fastForward ? [upToDateText] : [upToDateText, onlyRebasedText]) }
   }
 
@@ -137,7 +137,8 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
   }
   if (commitsBehind > 0) {
     lines.push(formatRemoteHas(remote))
-  } else if (!fastForward && !replacesOlderVersions(remote)) {
+  } else if (action.kind === "force" && !action.replaces) {
+    // a force push that drops nothing and replaces no older version: the branch was only rebased
     lines.push(rebasedText)
   }
   const text = formatPushCount({
@@ -234,8 +235,8 @@ export interface RemoteMovedTexts {
  * is the status of the branch as fetched now
  */
 export function buildRemoteMovedTexts(branchName: string, remote: RemoteStatus): RemoteMovedTexts {
-  const pushAction = getPushAction({ remoteStatus: remote })
-  const action = pushAction === "force" ? "Force Push" : pushAction === "create" || pushAction === "push" ? "Push" : null
+  const pushAction = remote.action
+  const action = pushAction.kind === "force" ? "Force Push" : pushAction.kind === "upToDate" ? null : "Push"
   if (!remote.exists) {
     return { title: `${branchName} was deleted on the remote`, description: "Nothing was pushed.", action }
   }
@@ -247,7 +248,7 @@ export function buildRemoteMovedTexts(branchName: string, remote: RemoteStatus):
   if (action === null) {
     return { title, description: "The remote has the branch's commits now. Nothing was pushed.", action }
   }
-  if (replacesOlderVersions(remote)) {
+  if (pushAction.kind === "force" && pushAction.replaces) {
     return { title, description: "The remote has older versions of the branch's commits. Nothing was pushed.", action }
   }
   return { title, description: "The remote has no commits the branch lacks. Nothing was pushed.", action }

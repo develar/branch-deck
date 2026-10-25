@@ -2,7 +2,7 @@
 //! with a branch to land (`Space`), a fake GitHub with pull requests, and a repository with a remote (named `_test`
 //! so the worktree safety scan treats it as test code)
 
-use crate::fixture_test::{PREFIX, assert_covered, commit_all, commit_subjects, environment, git, repo_with_baseline, run_json, write};
+use crate::fixture_test::{PREFIX, assert_covered, commit_all, commit_subjects, environment, git, repo_with_baseline, run_in, run_json, write};
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake as start_fake_github};
 use github::token::TokenSources;
@@ -252,6 +252,29 @@ pub fn push_from_elsewhere_to(remote: &TempDir, branch: &str, subject: &str) -> 
   run(&["-c", "user.name=Other", "-c", "user.email=other@example.com", "commit", "-q", "-m", subject]);
   run(&["push", "-q", "origin", branch]);
   remote_tip(remote, branch)
+}
+
+/// `auth` of `repo_with_remote(&["(auth) Add login"])` pushed twice, its remote branch moved back since to the commit
+/// of the first push (someone reset it; the remote-tracking ref still names the second), and one more commit of the
+/// branch: the remote lacks nothing of it, a push over it loses nothing. Answers the commit the remote is at
+pub fn auth_remote_moved_back(repo: &TestRepo, remote: &TempDir) -> String {
+  let (exit_code, output) = run_in(repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let older = remote_tip(remote, AUTH);
+  write(repo, "logout.txt", "logout\n");
+  commit_all(repo, "(auth) Add logout", 1_700_000_500);
+  let (exit_code, output) = run_in(repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["branches"][0].get("pushed_over"), None, "the first push went");
+  let moved = git_command()
+    .args(["update-ref", &format!("refs/heads/{AUTH}"), &older])
+    .current_dir(remote.path())
+    .output()
+    .unwrap();
+  assert!(moved.status.success(), "{}", String::from_utf8_lossy(&moved.stderr));
+  write(repo, "more.txt", "more\n");
+  commit_all(repo, "(auth) Add more", 1_700_000_600);
+  older
 }
 
 /// The baseline moves on by a commit of the target and the user's branch is rebased onto it: the next sync rebuilds the

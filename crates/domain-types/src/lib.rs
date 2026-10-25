@@ -5,8 +5,8 @@
 //! build them stay there.
 //!
 //! - the crate root: the events of a sync (`SyncEvent`, `ProgressReporter`), the statuses of its branches and commits
-//!   (`BranchSyncStatus`, `CommitSyncStatus`, `BranchError`), its grouped branches, the remote status of a branch, the
-//!   unapplied branches, the dropped commits and the landed remote commits
+//!   (`BranchSyncStatus`, `CommitSyncStatus`, `BranchError`), its grouped branches, the remote status of a branch and
+//!   what a push of it does (`PushAction`), the unapplied branches, the dropped commits and the landed remote commits
 //! - `branch_integration`: the integration of a branch into the baseline (rebase, merge, squash)
 //! - `calendar`: the local weekday, hour and week of a moment, in a time zone the host names
 //! - `branch_names`: the names of the branches under the prefix (`{prefix}/virtual/<name>`, `BranchKind`), the prefix,
@@ -171,6 +171,28 @@ pub struct RemoteStatusUpdate {
   pub fast_forward: bool,
   /// Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed)
   pub last_push_time: u32,
+  /// What a push of the branch does over this status: `domain_policy::push::action` of the counts above, set where the
+  /// status is computed (`sync_core::remote_status`), so the app and `bd` read one answer
+  pub action: PushAction,
+}
+
+/// What a push of a branch does to its remote branch, by its remote status (`domain_policy::push::action`): the first
+/// push creates it, a fast-forward pushes, any other push forces, and a remote that has the branch as it is, by content,
+/// needs none
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PushAction {
+  /// No remote branch: the push creates it
+  Create,
+  /// The remote branch is an ancestor of the branch and lacks some of its commits
+  Push,
+  /// Not a fast-forward: the branch was rebased, the remote has older versions of its commits (`replaces`: amended,
+  /// reworded, restacked or landed ones, or an older piece of a stacked branch) or commits it lacks (`drops`: someone's
+  /// work, which the push asks for first)
+  Force { drops: bool, replaces: bool },
+  /// The remote has the branch as it is, by content: nothing to push
+  UpToDate,
 }
 
 /// A commit of the remote branch whose content the local branch lacks: a push drops it

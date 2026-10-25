@@ -10,7 +10,7 @@ import { branchSyncStore, setStackPush } from "@/stores/branch-sync"
 import { operationsStore } from "@/stores/operations"
 import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { testPatronusRepository } from "@/test-support/patronus-repository"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
@@ -68,7 +68,7 @@ describe("getSafePushBlocker", () => {
   })
 })
 
-const unpushed = testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: ["c"] })
+const unpushed = testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: ["c"], action: CREATE })
 
 /** A synced branch of one commit that the menu can change */
 function synced(name: string, parent: string | null, remoteStatus: RemoteStatus, overrides: Partial<Branch> = {}): Branch {
@@ -182,7 +182,7 @@ describe("the push of the branch menu", () => {
   })
 
   it("pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row", () => {
-    const dropping = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, unpushedCommits: ["c"] })
+    const dropping = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, unpushedCommits: ["c"], action: forcePush({ drops: true }) })
     setBranches(synced("auth", null, dropping), synced("login", "auth", unpushed))
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", label: "Push (1)" })])
     expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Force Push (1)" })])
@@ -202,7 +202,15 @@ describe("the push of the branch menu", () => {
 
 describe("Push with Children in the branch menu", () => {
   const pushed = testRemoteStatus({ remoteTip: "tip" })
-  const dropping = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, unpushedCommits: ["c"], remoteTip: "theirs" })
+  const dropping = testRemoteStatus({
+    commitsAhead: 1,
+    myCommitsAhead: 1,
+    commitsBehind: 1,
+    fastForward: false,
+    unpushedCommits: ["c"],
+    remoteTip: "theirs",
+    action: forcePush({ drops: true }),
+  })
 
   function pushWithChildren(name: string): MenuItem | undefined {
     return menuOf(name).find(item => item.id === "push-with-children")
@@ -226,14 +234,14 @@ describe("Push with Children in the branch menu", () => {
       remoteStatus,
     })
     setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("session", "auth", pushed))
-    branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null })) } })
+    branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null, action: CREATE })) } })
     // not on the remote and no pull request: the branches are, and "Nothing to push" would not be true
     expect(pushWithChildren("auth")).toMatchObject({
       label: "Push with Children",
       disabled: true,
       description: "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack",
     })
-    branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ commitsAhead: 1, unpushedCommits: ["c"], remoteTip: "old" })) } })
+    branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ commitsAhead: 1, unpushedCommits: ["c"], remoteTip: "old", action: PUSH })) } })
     expect(pushWithChildren("auth")).toMatchObject({
       label: "Push with Children (the whole stack branch)",
       disabled: false,

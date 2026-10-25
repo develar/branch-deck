@@ -1,61 +1,19 @@
+import type { PushAction } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
-/** What a push of a branch does: a plain push, the first push that creates the remote branch, a force push. */
-export type OutgoingState = "push" | "create" | "force"
-
-/** What the push button of a branch does; `upToDate` when there is nothing to push. */
-export type PushAction = OutgoingState | "upToDate"
+/**
+ * What a push of a branch does: a plain push, the first push that creates the remote branch, a force push. Rust decides
+ * it of each remote status (`RemoteStatus.action`, `domain_policy::push::action`); the page only words and colours it.
+ */
+export type OutgoingState = Exclude<PushAction["kind"], "upToDate">
 
 type RemoteStatusInput = Pick<Branch, "remoteStatus">
 
 /** The older versions a push replaces */
 type OlderVersions = Pick<RemoteStatus, "commitsAmended" | "commitsRestacked" | "commitsLanded" | "commitsReworded" | "ancestorCommitsAhead">
-
-type RemoteCounts = Pick<RemoteStatus, "exists" | "commitsAhead" | "commitsBehind"> & OlderVersions
-
-/**
- * The remote branch has the branch as it is, by content: nothing to push, and no remote commit the branch lacks, as an
- * older version (amended, restacked, landed, reworded) or as work a push drops. A branch only rebased onto a newer
- * baseline is up to date; one reworded since is not, a robot would land the remote's messages.
- */
-export function isRemoteUpToDate(remote: RemoteCounts): boolean {
-  return remote.exists && remote.commitsAhead === 0 && remote.commitsBehind === 0 && !replacesOlderVersions(remote)
-}
-
-/**
- * The remote has older versions of commits of the branch (amended here, or reworded: the same changes with another
- * message or author), of its stack ancestors (restacked) or of the baseline (landed), or an older piece: it lacks new
- * commits of the branches it is built on, which a Safe Push of the branch lands with it
- */
-export function replacesOlderVersions(remote: OlderVersions): boolean {
-  return remote.commitsAmended > 0 || remote.commitsRestacked > 0 || remote.commitsLanded > 0 || remote.commitsReworded > 0 || remote.ancestorCommitsAhead > 0
-}
-
-/**
- * The action of the push button of a branch, null while its remote status is not loaded. The remote status compares
- * content: a branch only rebased onto a newer baseline is up to date, the remote has its work. A push that is not a
- * fast-forward (the remote has commits the branch lacks, older versions of amended or restacked commits, or the branch
- * was rebased) is a force push.
- */
-export function getPushAction(branch: RemoteStatusInput): PushAction | null {
-  const remoteStatus = branch.remoteStatus
-  if (remoteStatus === null) {
-    return null
-  }
-  if (!remoteStatus.exists) {
-    return "create"
-  }
-  if (isRemoteUpToDate(remoteStatus)) {
-    return "upToDate"
-  }
-  if (remoteStatus.commitsBehind > 0 || replacesOlderVersions(remoteStatus) || !remoteStatus.fastForward) {
-    return "force"
-  }
-  return "push"
-}
 
 /** Hue of a push: the push buttons, the status texts and the outgoing bars take it from here. */
 export type PushHue = Extract<UIColor, "primary" | "warning">
@@ -65,16 +23,8 @@ export type PushHue = Extract<UIColor, "primary" | "warning">
  * of a rebased branch only replaces the remote commits with their copies, one of an amended or restacked branch their
  * older versions: it is safe.
  */
-export function getPushHue(commitsBehind: number): PushHue {
-  return commitsBehind > 0 ? "warning" : "primary"
-}
-
-/**
- * A push that drops remote commits the branch lacks (the `warning` hue), someone else's work: a click opens its
- * description with the dropped commits first, and the Force Push button there pushes
- */
-export function dropsRemoteCommits(remoteStatus: Pick<RemoteStatus, "commitsBehind">): boolean {
-  return getPushHue(remoteStatus.commitsBehind) === "warning"
+export function getPushHue(action: PushAction): PushHue {
+  return action.kind === "force" && action.drops ? "warning" : "primary"
 }
 
 /** What a push did, as its toast and its Activity entry say it */
@@ -89,8 +39,8 @@ export interface PushNews {
 
 /** What a push did, from the remote status it was made against (`null`: not loaded, nothing to say but the push) */
 export function describePush(branchName: string, before: RemoteStatus | null): PushNews {
-  const action = before === null ? null : getPushAction({ remoteStatus: before })
-  if (before === null || action === null || action === "upToDate") {
+  const action = before?.action.kind
+  if (before === null || action === undefined || action === "upToDate") {
     return { title: `Pushed ${branchName}` }
   }
   // a force push may only replace or drop remote commits
@@ -158,8 +108,8 @@ export function describeStackPush(pushes: readonly BranchPush[], withStackBranch
   let dropped = 0
   const forced: string[] = []
   for (const { name, before } of pushes) {
-    const action = before === null ? null : getPushAction({ remoteStatus: before })
-    if (before === null || action === null || action === "upToDate") {
+    const action = before?.action.kind
+    if (before === null || action === undefined || action === "upToDate") {
       continue
     }
     commits += before.commitsAhead
@@ -199,16 +149,17 @@ export function describeStackPush(pushes: readonly BranchPush[], withStackBranch
  * replaces older versions of amended or restacked commits keeps the hue: the remote branch is behind the user's work.
  */
 export function getPushColor(branch: RemoteStatusInput): UIColor | null {
-  const action = getPushAction(branch)
-  if (action === null) {
+  const remoteStatus = branch.remoteStatus
+  if (remoteStatus === null) {
     return null
   }
-  const remoteStatus = branch.remoteStatus!
-  const hue = getPushHue(remoteStatus.commitsBehind)
-  if (action === "upToDate" || (action !== "create" && hue === "primary" && remoteStatus.myCommitsAhead === 0 && !replacesOlderVersions(remoteStatus))) {
+  const action = remoteStatus.action
+  // a push of the user's commits, a first push and a push that replaces older versions keep the hue
+  const quiet = action.kind === "push" || (action.kind === "force" && !action.drops && !action.replaces)
+  if (action.kind === "upToDate" || (quiet && remoteStatus.myCommitsAhead === 0)) {
     return "neutral"
   }
-  return hue
+  return getPushHue(action)
 }
 
 /** A branch with something to push. */
@@ -284,28 +235,36 @@ export function summarizePushState(
     if (branch.commitCount === 0) {
       continue
     }
-    const action = branch.hasError ? null : getPushAction(branch)
+    const action = branch.hasError ? null : (branch.remoteStatus?.action ?? null)
     const skip = skipOf(branch, action, isLanded, isHeld)
     if (skip !== null) {
       skipped.set(branch.name, skip)
       if (skip === "notLoaded") {
         summary.notLoaded++
-      } else if (skip === "failed" || ((skip === "blocked" || skip === "held") && action !== "upToDate")) {
+      } else if (skip === "failed" || ((skip === "blocked" || skip === "held") && action?.kind !== "upToDate")) {
         summary.withheld[skip]++
       }
       continue
     }
-    if (action === null || action === "upToDate") {
+    if (action === null || action.kind === "upToDate") {
       continue
     }
     const { commitsAhead: count, commitsBehind, commitsAmended, commitsRestacked, ancestorCommitsAhead, myCommitsAhead } = branch.remoteStatus!
     const mine = Math.min(myCommitsAhead, count)
     // rebuilt on a parent with new commits: restacked as well
-    summary.branches.push({ name: branch.name, count, mine, state: action, behind: commitsBehind, amended: commitsAmended, restacked: commitsRestacked + ancestorCommitsAhead })
+    summary.branches.push({
+      name: branch.name,
+      count,
+      mine,
+      state: action.kind,
+      behind: commitsBehind,
+      amended: commitsAmended,
+      restacked: commitsRestacked + ancestorCommitsAhead,
+    })
     summary.total += count
     summary.mine += mine
-    summary.byState[action]++
-    summary.byHue[getPushHue(commitsBehind)]++
+    summary.byState[action.kind]++
+    summary.byHue[getPushHue(action)]++
   }
   return summary
 }
@@ -327,7 +286,7 @@ function skipOf(branch: SummaryInput, action: PushAction | null, isLanded: (name
   if (action === null) {
     return "notLoaded"
   }
-  return action === "upToDate" ? "upToDate" : null
+  return action.kind === "upToDate" ? "upToDate" : null
 }
 
 /** What a push sends and what it replaces on the remote, `formatPushCount` writes it */

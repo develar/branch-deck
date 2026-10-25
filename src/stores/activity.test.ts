@@ -21,7 +21,7 @@ import {
   UNDO_WINDOW_MS,
 } from "@/stores/activity"
 import type { ArrayStoreState } from "@/stores/settings/persistent-store"
-import { testRemoteStatus } from "@/stores/test-branch"
+import { forcePush, testRemoteStatus } from "@/stores/test-branch"
 import { conflictState } from "@/test-support/update-conflict"
 
 /** A persistent store as the test creates it: its options and its zustand store */
@@ -277,7 +277,7 @@ describe("activity", () => {
 describe("recordPush", () => {
   it("keeps the remote commits a force push dropped", () => {
     const dropped = [{ id: "c0ffee", subject: "Fix login", author: "Ann", authorTime: 1 }]
-    recordPush("/a", "auth", testRemoteStatus({ commitsAhead: 1, commitsBehind: 3, fastForward: false, droppedCommits: dropped }), null)
+    recordPush("/a", "auth", testRemoteStatus({ commitsAhead: 1, commitsBehind: 3, fastForward: false, droppedCommits: dropped, action: forcePush({ drops: true }) }), null)
     expect(entries()[0]).toMatchObject({
       kind: "push",
       title: "Force pushed auth",
@@ -286,7 +286,7 @@ describe("recordPush", () => {
       details: { type: "dropped", commits: dropped, more: 2 },
     })
     // a rebased branch replaces nothing of others
-    recordPush("/a", "auth", testRemoteStatus({ commitsAhead: 2, fastForward: false }), null)
+    recordPush("/a", "auth", testRemoteStatus({ commitsAhead: 2, fastForward: false, action: forcePush() }), null)
     expect(entries()[0]).toMatchObject({ title: "Force pushed auth", description: "2 commits · replaced the rebased copies" })
     expect(entries()[0]?.details).toBeUndefined()
   })

@@ -33,7 +33,7 @@ import {
   withLastRobotProfile,
 } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -53,7 +53,7 @@ function robot(patch: Partial<PatronusRobot>): PatronusRobot {
 }
 
 /** The remote branch is at the commit the robot took ("tip"), the local branch has a commit more */
-const unpushedOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
+const unpushedOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
 /** The remote branch is at the commit the robot took ("tip"), the local branch has the same commits on a newer baseline */
 const rebuiltOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", fastForward: false })
 
@@ -73,7 +73,7 @@ describe("the robot of the whole stack", () => {
     expect(canRestartRobot(failed, stack, "stack-tip")).toBe(true)
     expect(canRestartRobot(failed, { kind: "stack", root: "auth" }, "stack-tip")).toBe(false)
     expect(canRestartRobot(failed, "air", "stack-tip")).toBe(false)
-    const ahead = testRemoteStatus({ remoteTip: "stack-tip", unpushedCommits: ["new"], commitsAhead: 1 })
+    const ahead = testRemoteStatus({ remoteTip: "stack-tip", unpushedCommits: ["new"], commitsAhead: 1, action: PUSH })
     expect(getRobotRestartAction(failed, stack, "new-stack-tip", ahead)).toBe("pushAndRestart")
     expect(getRobotRestartAction(failed, stack, "stack-tip", testRemoteStatus({ remoteTip: "stack-tip" }))).toBe("restart")
   })
@@ -139,7 +139,7 @@ describe("formatRobotCommitNotice", () => {
   const started = { sourceRevision: "3264f30f0123" }
   const localTip = "88de421d4567"
   const pushedSince = testRemoteStatus({ remoteTip: localTip })
-  const unpushed = testRemoteStatus({ remoteTip: started.sourceRevision, unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
+  const unpushed = testRemoteStatus({ remoteTip: started.sourceRevision, unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
   const changed = "Started on 3264f30f; the branch has changed since (now 88de421d): the result won't cover the newest commits."
 
   function notice(subject: PatronusRobot, remote: RemoteStatus): string | null {
@@ -154,10 +154,10 @@ describe("formatRobotCommitNotice", () => {
     // a plain restart would test the commit the remote has
     expect(getRobotRestartAction(failed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
     // a reword since: the remote has the changes with the old message, which the robot would land
-    const reworded = testRemoteStatus({ remoteTip: started.sourceRevision, commitsReworded: 1, fastForward: false })
+    const reworded = testRemoteStatus({ remoteTip: started.sourceRevision, commitsReworded: 1, fastForward: false, action: forcePush({ replaces: true }) })
     expect(getRobotRestartAction(failed, "IJPL-1", localTip, reworded)).toBe("pushAndRestart")
     // the parent got a new commit since the push of the branch: the remote branch is an older piece
-    const olderPiece = testRemoteStatus({ remoteTip: started.sourceRevision, ancestorCommitsAhead: 1, fastForward: false })
+    const olderPiece = testRemoteStatus({ remoteTip: started.sourceRevision, ancestorCommitsAhead: 1, fastForward: false, action: forcePush({ replaces: true }) })
     expect(getRobotRestartAction(failed, "IJPL-1", localTip, olderPiece)).toBe("pushAndRestart")
     expect(needsRobotAttention(failed, localTip, olderPiece)).toBe(false)
     expect(notice(failed, unpushed)).toBe(`${changed} Restart Safe Push to test the current branch.`)
@@ -308,11 +308,11 @@ describe("actions", () => {
     expect(getStartPush(null, false)).toEqual({ kind: "unknown" })
     expect(getStartPush(null, true)).toEqual({ kind: "unknown" })
     // the remote branch has the commits, also under other hashes: Patronus rebases it, nothing is pushed
-    expect(getStartPush("upToDate", false)).toEqual({ kind: "none" })
-    expect(getStartPush("create", false)).toEqual({ kind: "branch", action: "create" })
-    expect(getStartPush("force", false)).toEqual({ kind: "branch", action: "force" })
+    expect(getStartPush(UP_TO_DATE, false)).toEqual({ kind: "none" })
+    expect(getStartPush(CREATE, false)).toEqual({ kind: "branch", action: "create" })
+    expect(getStartPush(forcePush(), false)).toEqual({ kind: "branch", action: "force" })
     // the ancestors with work for the remote go first, as the push button pushes them
-    expect(getStartPush("upToDate", true)).toEqual({ kind: "stack" })
+    expect(getStartPush(UP_TO_DATE, true)).toEqual({ kind: "stack" })
   })
 
   it("starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why", () => {

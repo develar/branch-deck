@@ -43,7 +43,7 @@ vi.mock("@/lib/bindings", async () => {
         }
         const remoteStatus = statusOf(remote.tip, moved ? ["a-tip"] : [])
         const { next } = fakeSessions.send("/repo", { branches: { a: { remote: { status: remoteStatus } } } })
-        return { status: "ok", data: { outcome: { type: moved ? "remoteMoved" : "pushed", remoteStatus }, version: next } }
+        return { status: "ok", data: { outcome: moved ? { type: "remoteMoved", remoteStatus } : { type: "pushed", remoteStatus, pushedOver: null }, version: next } }
       },
     },
   }

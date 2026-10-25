@@ -8,12 +8,13 @@ import type {
   PatronusRobotProfile,
   PatronusStartOptions,
   PullRequest,
+  PushAction,
 } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import { shellWord } from "@/lib/prompt-text"
-import type { OutgoingState, PushAction } from "@/lib/push-summary"
+import type { OutgoingState } from "@/lib/push-summary"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { formatBlockedReason } from "@/lib/stack"
@@ -392,7 +393,7 @@ export type StartPush = { readonly kind: "unknown" } | { readonly kind: "none" }
 
 /**
  * What a Safe Push or a Dry Run pushes before the robot starts from the remote branch, by content as the push button
- * decides it (`pushAction`, `getPushAction`): nothing when the remote branch has the commits of the branch, also when
+ * shows it (`pushAction`, Rust's action of the remote status): nothing when the remote branch has the commits of the branch, also when
  * the sync only rebuilt them on a newer baseline (Patronus rebases the remote branch itself; a push would replace it with
  * copies of the same commits and move the head of its pull request for nothing); the stack while its ancestors have work
  * for the remote (`pushesStack`, `stackPushOrder`); `unknown` while the remote status of the branch is not loaded: the
@@ -405,7 +406,7 @@ export function getStartPush(pushAction: PushAction | null, pushesStack: boolean
   if (pushesStack) {
     return { kind: "stack" }
   }
-  return pushAction === "upToDate" ? { kind: "none" } : { kind: "branch", action: pushAction }
+  return pushAction.kind === "upToDate" ? { kind: "none" } : { kind: "branch", action: pushAction.kind }
 }
 
 /** Whether a Safe Push or a Dry Run of a branch can start; `reason` says why not, for the hover of a disabled action */

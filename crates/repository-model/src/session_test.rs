@@ -631,6 +631,7 @@ fn pushing(branch: &str) -> Vec<RemoteSubject> {
 fn pushed(branch: &str, tip: &str) -> PushBranchesOutcome {
   PushBranchesOutcome::Pushed {
     remote_statuses: vec![remote_at(branch, tip)],
+    pushed_over: Vec::new(),
   }
 }
 

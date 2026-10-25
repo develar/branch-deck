@@ -264,19 +264,28 @@ push's command answers.
   toast says "replaced 1 amended commit", "replaced 1 reworded commit", "replaced the parent's older commits" or
   "replaced 7 landed commits".
 
-### Colours
-One rule colours a push: the hue comes from its risk (`getPushHue` and `getPushColor` in `src/lib/push-summary.ts`),
-`warning` for a push that drops remote commits (behind), `primary` otherwise, also for the force push of a rebased
-branch, which only replaces the remote commits with their copies, and of an amended or restacked one, which replaces
-their older versions (landed and reworded ones too). Up to date, and a safe push of none of the user's commits, are
-neutral; a restacked branch with nothing of its own to push keeps `primary`, its remote branch is behind the user's
-work. Whether the remote is up to date is one function, `isRemoteUpToDate`: nothing to push, nothing amended,
-reworded, restacked, landed or dropped. A robot's restart reads it too (`getRobotRestartAction`): a branch whose
-remote is not up to date is pushed first. The push button and the
-status text use it. See [Outgoing Commits](../../spec/repository/outgoing.spec.md).
+### The action of a push
+What a push does over a remote status is one rule in Rust, `domain_policy::push` (`crates/domain-policy/src/push.rs`),
+for the app and `bd` alike: `action` answers create (no remote branch), push (a fast-forward), force (`drops`: remote
+commits the branch lacks; `replaces`: older versions of its commits, amended, reworded, restacked or landed ones, or an
+older piece of a stacked branch; neither: only rebased) or up to date (nothing to push, nothing amended, reworded,
+restacked, landed or dropped). `sync_core::remote_status` stores it on the status it computes
+(`RemoteStatusUpdate::action`), so every status that reaches the page (a row, a stack branch, an unapplied branch, a
+push's outcome) and `bd` carries the one answer; `needs_push`, `drops_remote_commits` and `replaces_older_versions` are
+its parts (`bd push`, `bd safe-push`, `bd status`), `over_moved_remote` the one retry of a push over a remote that
+moved ([Git Operations](git-operations.md#app-stack-push)). A robot's restart reads the action too
+(`getRobotRestartAction`): a branch whose remote is not up to date is pushed first.
 
-The `warning` hue is also the one push that asks first (`dropsRemoteCommits`): it drops someone else's work, so its
-click opens the description with the dropped commits and a destructive Force Push that pushes. A safe push, the force
+### Colours
+The hue of a push comes from its risk (`getPushHue` and `getPushColor` in `src/lib/push-summary.ts`, on the action):
+`warning` for a push that drops remote commits, `primary` otherwise, also for the force push of a rebased branch, which
+only replaces the remote commits with their copies, and of an amended or restacked one, which replaces their older
+versions (landed and reworded ones too). Up to date, and a safe push of none of the user's commits, are neutral; a
+restacked branch with nothing of its own to push keeps `primary`, its remote branch is behind the user's work. The
+push button and the status text use it. See [Outgoing Commits](../../spec/repository/outgoing.spec.md).
+
+The `warning` hue is also the one push that asks first (a force push that `drops`): it drops someone else's work, so
+its click opens the description with the dropped commits and a destructive Force Push that pushes. A safe push, the force
 push of a rebased, amended or restacked branch too, pushes on the click: asking there would teach the user to confirm
 without reading.
 

@@ -1,6 +1,20 @@
+import type { PushAction } from "@/lib/bindings"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
-/** The remote status of a pushed branch that is up to date; `overrides` replace any field */
+/**
+ * The actions of a push as Rust decides them of a remote status (`domain_policy::push::action`): a test of the page
+ * states the action of the status it sets, as the counts it sets would make Rust answer (the table of `push_test.rs`)
+ */
+export const CREATE: PushAction = { kind: "create" }
+export const PUSH: PushAction = { kind: "push" }
+export const UP_TO_DATE: PushAction = { kind: "upToDate" }
+
+/** A force push: `drops` remote commits the branch lacks, `replaces` older versions of its commits */
+export function forcePush({ drops = false, replaces = false }: { drops?: boolean; replaces?: boolean } = {}): PushAction {
+  return { kind: "force", drops, replaces }
+}
+
+/** The remote status of a pushed branch that is up to date; `overrides` replace any field, the action too */
 export function testRemoteStatus(overrides: Partial<RemoteStatus> = {}): RemoteStatus {
   return {
     exists: true,
@@ -17,6 +31,7 @@ export function testRemoteStatus(overrides: Partial<RemoteStatus> = {}): RemoteS
     lastPushTime: 0,
     remoteTip: null,
     droppedCommits: [],
+    action: UP_TO_DATE,
     ...overrides,
   }
 }

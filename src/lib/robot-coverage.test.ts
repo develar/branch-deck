@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { RobotCommitMap, RobotCommitState } from "@/lib/bindings"
 import { branchCoverageOf, robotCoverageNeed, robotRailMarks } from "@/lib/robot-coverage"
 import { testRobot } from "@/lib/test-robot"
-import { testRemoteStatus } from "@/stores/test-branch"
+import { PUSH, testRemoteStatus } from "@/stores/test-branch"
 
 function states(entries: Record<string, RobotCommitState>): ReadonlyMap<string, RobotCommitState> {
   return new Map(Object.entries(entries))
@@ -18,7 +18,7 @@ describe("robotCoverageNeed", () => {
 
   it("needs the commit map once the branch changed since the robot took it", () => {
     const robot = testRobot("r", "auth")
-    expect(robotCoverageNeed(robot, "newer", testRemoteStatus({ remoteTip: "auth-tip", unpushedCommits: ["c"], commitsAhead: 1 }))).toBe("map")
+    expect(robotCoverageNeed(robot, "newer", testRemoteStatus({ remoteTip: "auth-tip", unpushedCommits: ["c"], commitsAhead: 1, action: PUSH }))).toBe("map")
     expect(robotCoverageNeed(robot, "newer", testRemoteStatus({ remoteTip: "newer" }))).toBe("map")
   })
 

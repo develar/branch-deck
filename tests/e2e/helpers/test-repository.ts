@@ -108,15 +108,24 @@ export interface CliToolsFixture {
  * template, which has no remote of its own. The table of the session, its patches and the table Rust keeps for the
  * checks are what a sync of such a repository makes; the syncs after it are the server's again, unless `every`
  */
+/**
+ * A remote status as a test sets it: its counts, never the action of a push, which the server derives from them as the
+ * app's sync does (`domain_policy::push::action`, `test_remote_status` of the server)
+ */
+export type TestRemoteStatus = Omit<RemoteStatusUpdate, "action">
+
 export interface SyncOverrides {
   /**
    * Branch -> the fields of its remote status that replace the computed ones, and `keepUnpushed`: only the newest that
    * many of the commits the sync found the remote lacking stay unpushed (their ids come with the sync); null: none, its
    * status stays as it was
    */
-  remote?: Record<string, (Partial<RemoteStatusUpdate> & { keepUnpushed?: number }) | null>
-  /** Stack root -> the fields of its stack branch that replace the reported ones (`remote` as a whole) */
-  stacks?: Record<string, Partial<StackBranchUpdate>>
+  remote?: Record<string, (Partial<TestRemoteStatus> & { keepUnpushed?: number }) | null>
+  /**
+   * Stack root -> the fields of its stack branch that replace the reported ones (`remote` as a whole, its counts: the
+   * server derives its action)
+   */
+  stacks?: Record<string, Partial<Omit<StackBranchUpdate, "remote"> & { remote: TestRemoteStatus | null }>>
   /** The issue links the sync reports instead of the repository's (`.idea/vcs.xml`) */
   issueLinks?: IssueNavigationConfig
   /** Every sync from now on reports them, not only the next: a test of several starts, until it sets others */

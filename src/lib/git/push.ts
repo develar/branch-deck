@@ -12,9 +12,9 @@ import type { VcsRequest } from "@/lib/git/vcs-request"
 import { canceledBeforeStart, isLockWaitCanceled } from "@/lib/lock-wait"
 import { describeRobot, formatPushHoldReason, formatPushMode, openRobot } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
-import { describePush, dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
+import { describePush } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
-import { buttonStackPushOrder, needsPush, stackAncestors, stackPushOrder } from "@/lib/stack"
+import { buttonStackPushOrder, stackAncestors, stackPushOrder } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { pushProgressOf } from "@/lib/transfer-progress"
@@ -215,15 +215,9 @@ async function pushOneOf(request: VcsRequest, branchName: string, options: PushO
   if (clearance.cancels !== null && !(await cancelHoldingRobot(clearance.cancels, report, request))) {
     return null
   }
-  let before = branch.remoteStatus
-  let pushed = await pushWithProgress(request, baselineBranch, branch, options, report)
-  // the remote moved since the row showed it, without commits the branch lacks: nobody's work is lost, so the push goes
-  // over what the remote has now, once (a remote that moves again, or one with commits the branch lacks, is told)
-  const moved = pushed?.moved ?? null
-  if (moved !== null && pushesOverMovedRemote(moved)) {
-    before = moved
-    pushed = await pushWithProgress(request, baselineBranch, { ...branch, remoteStatus: moved }, { ...options, expectedRemote: moved.remoteTip }, report)
-  }
+  // a remote that moved since the row showed it, without commits the branch lacks, the push goes over in Rust, once
+  // (`pushedOver`); one that moves again, or one with commits the branch lacks, is told
+  const pushed = await pushWithProgress(request, baselineBranch, branch, options, report)
   if (pushed === null) {
     return null
   }
@@ -233,7 +227,7 @@ async function pushOneOf(request: VcsRequest, branchName: string, options: PushO
   }
   // the restart takes the commit just pushed, in the repository of the push
   const restarted = restartRobot === undefined ? undefined : await restartAfterPush(restartRobot, request)
-  return { name: branchName, before: sentPart(before, options.tip), restarted, retargeted, repositoryPath }
+  return { name: branchName, before: sentPart(pushed.before, options.tip), restarted, retargeted, repositoryPath }
 }
 
 /**
@@ -277,14 +271,6 @@ export function isStillIn(repositoryPath: string, subject: string, report: PushR
   return reason === null
 }
 
-/**
- * The remote moved since the row showed it, but has no commits the branch lacks, and the branch has work for it: nobody's
- * work is lost, so the push goes over what the remote has now, once (the push of a branch and of a stack)
- */
-export function pushesOverMovedRemote(moved: RemoteStatus): boolean {
-  return !dropsRemoteCommits(moved) && getPushAction({ remoteStatus: moved }) !== "upToDate"
-}
-
 /** The remote status a push up to `tip` was made against, as its toast counts it: the commits up to it are ahead */
 export function sentPart(before: RemoteStatus | null, tip: string | undefined): RemoteStatus | null {
   if (before === null || tip === undefined) {
@@ -309,8 +295,9 @@ export function reportPushError(report: PushReport, subject: string, error: unkn
 
 /**
  * The push itself, while the row shows its progress: the remote status the remote moved to when nothing was pushed
- * (`moved`), null when it failed (an error toast said so). It resolves once the table has the patch of the session with
- * the push's outcome, so what runs next reads the remote status the push left
+ * (`moved`), else the one the push replaced (`before`: the row's, or the moved remote it went over in Rust); null when it
+ * failed (an error toast said so). It resolves once the table has the patch of the session with the push's outcome, so
+ * what runs next reads the remote status the push left
  */
 async function pushWithProgress(
   request: VcsRequest,
@@ -318,7 +305,7 @@ async function pushWithProgress(
   branch: Branch,
   options: PushOptions,
   report: PushReport,
-): Promise<{ moved: RemoteStatus | null } | null> {
+): Promise<{ moved: RemoteStatus | null; before: RemoteStatus | null } | null> {
   const branchName = branch.name
   // the repository the push started in: its result applies there, also after a switch of the repository
   const repositoryPath = request.repositoryPath
@@ -345,13 +332,15 @@ async function pushWithProgress(
 
     if (result.status === "ok") {
       const { outcome, version } = result.data
-      const remoteStatus = toRemoteStatus(outcome.remoteStatus)
       await whenSessionViewAt(repositoryPath, version)
-      recordPush(repositoryPath, branchName, branch.remoteStatus, outcome.type === "remoteMoved" ? remoteStatus : null)
       if (outcome.type === "remoteMoved") {
-        return { moved: remoteStatus }
+        const moved = toRemoteStatus(outcome.remoteStatus)
+        recordPush(repositoryPath, branchName, branch.remoteStatus, moved)
+        return { moved, before: branch.remoteStatus }
       }
-      return { moved: null }
+      const before = outcome.pushedOver === null ? branch.remoteStatus : toRemoteStatus(outcome.pushedOver)
+      recordPush(repositoryPath, branchName, before, null)
+      return { moved: null, before }
     }
     reportPushError(report, branchName, result.error)
   } catch (error) {
@@ -440,8 +429,8 @@ export async function cancelHoldingRobot(robot: PatronusRobot, report: PushRepor
  * a plain push pushes the stack where the button does (`pushFromButton`).
  */
 export function pushOrConfirm(branchName: string, target: PushConfirmTarget, options: PushOptions = {}): void {
-  const remoteStatus = getBranch(branchName)?.remoteStatus ?? null
-  if (remoteStatus !== null && dropsRemoteCommits(remoteStatus)) {
+  const action = getBranch(branchName)?.remoteStatus?.action
+  if (action?.kind === "force" && action.drops) {
     requestPushConfirm(branchName, target, options)
     return
   }
@@ -573,7 +562,7 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
   const replacesRobot = options.replacesRobot
   const order = stackPushOrder(branchName, getBranch, { stopAtConfirm: true, isHeld })
   let pushed: boolean
-  if (order.length === 1 && !needsPush(branch)) {
+  if (order.length === 1 && (branch.remoteStatus?.action.kind ?? "upToDate") === "upToDate") {
     // nothing to push: the robot a start replaces is canceled for the start alone
     pushed = replacesRobot === undefined || (await cancelHoldingRobot(replacesRobot, report))
   } else {
@@ -607,7 +596,8 @@ export function actionPushBlocker(branch: Branch, branchOf: (name: string) => Br
     if (it.hasError || it.status === "Blocked") {
       return `${it.name} can't be pushed: ${it.statusText === "" ? "it failed to sync" : it.statusText}`
     }
-    if (it.remoteStatus != null && needsPush(it) && dropsRemoteCommits(it.remoteStatus)) {
+    const action = it.remoteStatus?.action
+    if (it.remoteStatus != null && action?.kind === "force" && action.drops) {
       const count = it.remoteStatus.commitsBehind
       return `The remote branch of ${it.name} has ${count === 1 ? "a commit" : `${count} commits`} that ${it.name} lacks: push it from its row, which shows ${count === 1 ? "it" : "them"}`
     }

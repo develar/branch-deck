@@ -48,6 +48,7 @@ function remote(patch: Partial<RemoteStatus> = {}): { remoteStatus: RemoteStatus
       myCommitsAhead: 0,
       fastForward: true,
       lastPushTime: 0,
+      action: { kind: "upToDate" },
       ...patch,
     } as RemoteStatus,
   }
@@ -117,7 +118,7 @@ describe("the Request Review… item", () => {
       description: "#1078 is a draft: mark it ready for review on GitHub first",
     })
     expect(getRequestReviewItem(pullRequest(), readiness, open)).toMatchObject({ disabled: false })
-    expect(requestReviewPushes(remote({ commitsAhead: 1 }))).toBe(true)
+    expect(requestReviewPushes(remote({ commitsAhead: 1, action: { kind: "push" } }))).toBe(true)
     // only rebuilt on a newer baseline: the remote has the work; an unknown remote status is no push
     expect(requestReviewPushes(remote({ fastForward: false }))).toBe(false)
     expect(requestReviewPushes({ remoteStatus: null })).toBe(false)

@@ -15,7 +15,6 @@ import { useUnappliedBranchMenu } from "@/hooks/useUnappliedBranchMenu"
 import { copyFocusedBranchRow } from "@/lib/clipboard"
 import { formatCommitCount } from "@/lib/commit"
 import type { MenuItemGroups } from "@/lib/menu"
-import { getPushAction } from "@/lib/push-summary"
 import { inlineSurface, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
 import { useObjectBusy, useSurfaceBusy } from "@/stores/operations"
 import type { UnappliedBranch } from "@/stores/unapplied-branches"
@@ -121,7 +120,7 @@ const UnappliedBranchRow = memo(function UnappliedBranchRow({ name, expanded, on
 
 /** "Not pushed", "Pushed", "2 commits to push", "Remote differs": what a push of it would do */
 function remoteText(branch: UnappliedBranch): string {
-  switch (getPushAction({ remoteStatus: branch.remoteStatus }) ?? "create") {
+  switch (branch.remoteStatus?.action.kind ?? "create") {
     case "create":
       return "Not pushed"
     case "upToDate":

@@ -21,7 +21,7 @@ import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { readinessInputOf, reviewReadinessStore } from "@/stores/review-readiness"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { testPatronusRepository } from "@/test-support/patronus-repository"
 import type { Given, GivenRobot } from "@/test-support/scenario-case"
 import { robotsOf } from "@/test-support/scenario-case"
@@ -160,7 +160,7 @@ function remoteStatusOf(given: Given, facts: ScenarioFacts, name: string): Remot
   const commits = branchesOf(given).get(name)?.commits ?? 0
   const tip = tipOf(facts, name)
   const remoteTip = facts.remoteTips[name] ?? null
-  const unpushed = testRemoteStatus({ exists: false, commitsAhead: commits, myCommitsAhead: commits, unpushedCommits: [tip], remoteTip: null })
+  const unpushed = testRemoteStatus({ exists: false, commitsAhead: commits, myCommitsAhead: commits, unpushedCommits: [tip], remoteTip: null, action: CREATE })
   if (!inStack) {
     return unpushed
   }
@@ -170,7 +170,7 @@ function remoteStatusOf(given: Given, facts: ScenarioFacts, name: string): Remot
     case "upToDate":
       return testRemoteStatus({ remoteTip })
     case "unpushed":
-      return own ? testRemoteStatus({ remoteTip, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: [tip] }) : testRemoteStatus({ remoteTip })
+      return own ? testRemoteStatus({ remoteTip, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: [tip], action: PUSH }) : testRemoteStatus({ remoteTip })
     case "behind":
       return own
         ? testRemoteStatus({
@@ -178,6 +178,7 @@ function remoteStatusOf(given: Given, facts: ScenarioFacts, name: string): Remot
             commitsBehind: 1,
             droppedCommits: [{ id: remoteTip ?? "theirs", subject: "Someone else", author: "Other", authorTime: 0 }],
             fastForward: false,
+            action: forcePush({ drops: true }),
           })
         : testRemoteStatus({ remoteTip })
     case "rebuiltOnNewerBaseline":

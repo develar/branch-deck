@@ -751,7 +751,7 @@ fn an_atomic_push_of_a_stack() {
   let git = counting();
   let outcome = push_branches(&git, PREFIX, &params, &HashMap::new(), &mut |_| {}).unwrap();
   assert!(
-    matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
+    matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses, .. } if remote_statuses.len() == 2),
     "{outcome:?}"
   );
   assert_processes(&git, &[("cat-file", 1), ("config", 1), ("for-each-ref", 2), ("log", 1), ("push", 1), ("reflog", 1)]);

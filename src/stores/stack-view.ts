@@ -1,7 +1,7 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { PushUpToStep } from "@/lib/push-up-to"
-import { buttonStackPushOrder, needsPush } from "@/lib/stack"
+import { buttonStackPushOrder } from "@/lib/stack"
 import { ancestorSegments } from "@/lib/stack-lanes"
 import type { LaneSegmentRow, LaneSegments } from "@/lib/stack-lanes"
 import { getBranch } from "@/stores/branch-sync"
@@ -61,8 +61,8 @@ function pushedBy(name: string): ReadonlySet<string> {
   if (order.length > 0) {
     return new Set(order)
   }
-  const branch = getBranch(name)
-  return branch !== undefined && needsPush(branch) && getPushHold(name) === null ? new Set([name]) : NO_NODES
+  const action = getBranch(name)?.remoteStatus?.action.kind
+  return action !== undefined && action !== "upToDate" && getPushHold(name) === null ? new Set([name]) : NO_NODES
 }
 
 function update(patch: Partial<Pick<StackPathState, "rows" | "hovered" | "focused" | "pinned">>) {

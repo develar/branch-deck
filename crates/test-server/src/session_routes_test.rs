@@ -241,10 +241,15 @@ async fn a_push_answers_the_version_of_its_patch_and_runs_no_sync() {
   let derived = listed(&client, addr, &path).await;
   patches_up_to(&mut messages, &pushed["version"], &derived).await;
 
+  // a test writes the counts of a status, the server derives its action as the sync does
   let mut in_page = status.clone();
   in_page["remoteTip"] = json!("pushed-in-page");
+  in_page["unpushedCommits"] = json!(["pushed-in-page-commit"]);
+  in_page.as_object_mut().unwrap().remove("action");
   let request = json!({ "repositoryPath": path, "branches": [{ "branchName": "test-branch", "expectedRemote": null }], "remoteStatuses": [in_page] });
-  let version = post(&client, addr, "/sessions/pushed-in-page", request).await;
+  let answer = post(&client, addr, "/sessions/pushed-in-page", request).await;
+  assert_eq!(answer["remoteStatuses"][0]["action"], json!({ "kind": "push" }), "{answer}");
+  let version = answer["version"].clone();
   let patches = patches_up_to(&mut messages, &derived, &version).await;
   assert_eq!(patches.len(), 1, "{patches:?}");
   let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;

@@ -39,6 +39,7 @@ use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use bd_core::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
+use domain_policy::push::{drops_remote_commits, needs_push};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit, Subject};
@@ -75,7 +76,6 @@ use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, is_robot_active, join_names, push_mode_name};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
-use sync_core::remote_status::has_work_for_remote;
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
 use tokio::runtime::Runtime;
 use trial_check::check::{CheckSession, StackIndependence};
@@ -569,7 +569,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       error.push_next_step(step);
     }
     if refusal.code == ErrorCode::PushRefused {
-      error.branches = plan.remotes.iter().filter(|branch| branch.remote.behind > 0).cloned().collect();
+      error.branches = plan.remotes.iter().filter(|branch| branch.remote.drops_remote_commits()).cloned().collect();
     }
     if refusal.code == ErrorCode::ApprovalsMissing {
       error.review = output.review.take().map(Box::new);
@@ -804,7 +804,7 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &Branch
     refusals.push(Refusal::new(ErrorCode::RobotRunning, start_refusal_text(refusal, name, &facts.robots)).with_next_step(robot, false));
   }
 
-  let needs_push_of = |name: &str| synced_by_name.get(name).is_none_or(|branch| needs_push(branch.remote.as_ref()));
+  let needs_push_of = |name: &str| synced_by_name.get(name).is_none_or(|branch| branch.remote.as_ref().is_none_or(RemoteSummary::needs_push));
   let push_needed = std::iter::once(name).chain(ancestors.iter().map(String::as_str)).any(needs_push_of);
   let pushed_along = ancestors.iter().filter(|ancestor| needs_push_of(ancestor)).cloned().collect();
   // the virtual branch of a stacked branch carries the commits of its ancestors: one robot lands them all, and the
@@ -816,14 +816,14 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &Branch
     .iter()
     .filter_map(|branch| synced_by_name.get(branch.as_str()))
     .filter_map(|branch| {
-      let remote = branch.remote.clone().filter(|remote| remote.exists && remote.has_work())?;
+      let remote = branch.remote.clone().filter(|remote| remote.exists && remote.needs_push())?;
       Some(ErrorBranch {
         name: branch.name.clone(),
         remote,
       })
     })
     .collect();
-  for branch in remotes.iter().filter(|branch| branch.remote.behind > 0) {
+  for branch in remotes.iter().filter(|branch| branch.remote.drops_remote_commits()) {
     let push = synced_by_name
       .get(branch.name.as_str())
       .and_then(|synced| synced.push.clone())
@@ -873,7 +873,7 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
     }
   }
   let remote = update.remote.as_ref();
-  let has_work = remote.is_none_or(has_work_for_remote);
+  let has_work = remote.is_none_or(needs_push);
   let short = context.short_ids(remote.into_iter().flat_map(RemoteSummary::ids));
   let remotes: Vec<ErrorBranch> = remote
     .filter(|remote| remote.remote_exists && has_work)
@@ -883,7 +883,7 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r Patr
     })
     .into_iter()
     .collect();
-  if let Some(remote) = remote.filter(|remote| remote.commits_behind > 0) {
+  if let Some(remote) = remote.filter(|remote| drops_remote_commits(remote)) {
     let message = format!(
       "Nothing was pushed or started: the remote branch {} has {} commits {subject} doesn't; `bd push {root} --with-children --force` replaces them, after the user approves",
       update.branch_name, remote.commits_behind
@@ -1640,11 +1640,6 @@ pub(crate) fn patronus_error(message: String) -> CliError {
     return CliError::new(ErrorCode::NotLoggedIn, message);
   }
   CliError::new(ErrorCode::PatronusError, message)
-}
-
-/// The remote lacks commits of the branch, or has commits a push replaces or drops
-fn needs_push(remote: Option<&RemoteSummary>) -> bool {
-  remote.is_none_or(RemoteSummary::has_work)
 }
 
 /// The pull requests of the branches, by virtual branch name, and of the stack branches, by root (one search). A Safe

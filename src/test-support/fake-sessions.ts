@@ -84,7 +84,10 @@ export function grouping(...names: string[]): TableChanges {
   }
 }
 
-/** The remote status of `branchName` with `unpushed` commits ahead of its remote branch at `<branchName>-remote` */
+/**
+ * The remote status of `branchName` with `unpushed` commits ahead of its remote branch at `<branchName>-remote`, on its
+ * line: a push of them fast-forwards it (Rust's action of such a status)
+ */
 export function fakeRemoteStatus(branchName: string, unpushed: number, remoteTip = `${branchName}-remote`): RemoteStatusUpdate {
   const unpushedCommits = Array.from({ length: unpushed }, (_, index) => `${branchName}${index}`)
   return {
@@ -103,6 +106,7 @@ export function fakeRemoteStatus(branchName: string, unpushed: number, remoteTip
     lastPushTime: 0,
     droppedCommits: [],
     remoteTip,
+    action: { kind: unpushed > 0 ? "push" : "upToDate" },
   }
 }
 

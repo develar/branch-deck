@@ -2700,9 +2700,13 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    the object cache has a status of, and one `reflog` for the push times of all of them),
    so steps 1, 3 and 4 work the same for every remote. A `--remote` that is not one of the remotes the sync listed
    (`git remote`) is `no_remote`: a URL has no remote-tracking refs.
-4. A rejection fetches every branch of the push (`fetch_remote_branches`, in `push_leased`), computes their remote
-   statuses (`compute_remote_statuses`) and lists the ones whose fetched head is not their lease in `lease_rejected`
-   (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The agent shows what a
+4. A rejection fetches every branch of the push (`fetch_remote_branches`, in `push_leased`) and computes their remote
+   statuses (`compute_remote_statuses`). When each remote that moved has no commits its branch lacks and the branch
+   has work for it (`domain_policy::push::over_moved_remote`, the rule of the app's push), the push goes again at
+   once, once, leased on the fetched heads, the same commits (`over_moved`; not with `--expect-remote`), and each such
+   branch is `pushed_over`: one more `git push`. Otherwise, or when the remote moved again, it lists the ones whose
+   fetched head is not their lease in `lease_rejected` (`head`, `behind`, `dropped_commits`); a branch refused as
+   behind is listed the same way. The agent shows what a
    push drops and, once the user approves, pushes with `--force --expect-remote <head>`. When every lease held, the
    remote refused for another reason (a hook, a protected branch, a pack too large): `push_refused` with what git
    said of each ref and what the remote said why (`PushRefsReport::messages`). A dry run that
@@ -3196,8 +3200,12 @@ lacks, and its pull request showing the parent's commits.
    neither ([Session facts](#session-facts): how a push is ordered against a sync).
 5. Refused: nothing was pushed. Every branch is fetched, their statuses computed the same way, and the first branch
    (parents first) whose fetched head is not its lease is named (`PushBranchesOutcome::RemoteMoved`): the session gets
-   those statuses as it gets a push's, so every row shows what its remote has now. When that remote has no commits its branch lacks (`pushesOverMovedRemote`), the page pushes
-   the stack again at once, leased on the fetched heads, once; else the toast of that branch offers its push over it.
+   those statuses as it gets a push's, so every row shows what its remote has now. When each remote that moved has no
+   commits its branch lacks and the branch has work for it (`domain_policy::push::over_moved_remote`), Rust pushes the
+   stack again at once, leased on the fetched heads, once (`PushBranchesParams::over_moved` in `push_guard`: the lock,
+   the checks and the commits fixed again, then the network push), and the outcome names the statuses it went over
+   (`pushed_over`), which the toast and Activity describe; `bd push` does the same on its leases (`pushed_over` of the
+   branch). Otherwise the toast of that branch offers its push over it.
    When every lease held, the remote refused for another reason: an error, as for one branch.
 6. The stack branch of the whole stack (`{prefix}/stack/<root>`) goes the same way, as a branch of `push_branches`
    with `wholeStack` (no parent, no tip), leased on the remote head of its remote status, only while the sync built it:
@@ -3382,7 +3390,7 @@ table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, reco
 mapping note read at the sync's start names the copy of before), the stack branches, the parked branches and the remote
 facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the remote tip of each branch from
 `SyncReport::remote_tips`, up to date when the `RemoteStatusUpdate` the sync emitted for it has a remote branch and no
-work for it, `has_work_for_remote` in `remote_status.rs`; of each stack branch its `StackBranchUpdate::remote`); `bd`
+work for it, `domain_policy::push::needs_push`; of each stack branch its `StackBranchUpdate::remote`); `bd`
 builds it from the report of its sync and the remote statuses of the table state its sync folded (below; `bd status`
 from a grouping, with the remote tips only). The session of each worktree and branch prefix keeps the table of its
 last successful sync (the session host answers it after a run, from its report and the statuses a

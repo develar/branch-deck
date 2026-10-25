@@ -2,6 +2,7 @@ use crate::branch_table::BranchTable;
 use crate::facts::TableFacts;
 use crate::patronus_view::patronus_view_test::{chain, merged, robot, running, stack_robot, table};
 use crate::push_guard::{check_push, guard_facts, push_guarded, push_guarded_within};
+use domain_types::PushAction;
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -238,13 +239,13 @@ fn a_guarded_push_runs_the_processes_of_the_core_push() {
   let (repo, params) = pushable();
   let common_dir = repo.path().join(".git");
   let git = GitCommandExecutor::new().with_process_stats("test");
-  let refused = push_guarded(&git, &common_dir, None, Vec::new(), PREFIX, &params, &mut |_| {}, &|| false).unwrap_err();
+  let refused = push_guarded(&git, &common_dir, None, &[], PREFIX, &params, &mut |_| {}, &|| false).unwrap_err();
   assert_eq!(refused.to_string(), NOT_SYNCED_YET);
 
   let synced = Some(TableFacts::new(synced_alpha_beta()));
-  let outcome = push_guarded(&git, &common_dir, synced, Vec::new(), PREFIX, &params, &mut |_| {}, &|| false).unwrap();
+  let outcome = push_guarded(&git, &common_dir, synced.as_ref(), &[], PREFIX, &params, &mut |_| {}, &|| false).unwrap();
   assert!(
-    matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
+    matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses, .. } if remote_statuses.len() == 2),
     "{outcome:?}"
   );
   assert_eq!(
@@ -288,8 +289,8 @@ fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
         &|| false,
         &git,
         &common_dir,
-        Some(table.clone()),
-        Vec::new(),
+        Some(&table),
+        &[],
         PREFIX,
         &params,
         &mut on_progress,
@@ -316,19 +317,7 @@ fn a_push_waits_while_the_holder_of_the_lock_lives_and_names_it() {
 fn a_push_whose_wait_is_stopped_pushes_nothing() {
   let (repo, params, common_dir, table, held) = pushable_while_locked();
   let git = GitCommandExecutor::new();
-  let stopped = push_guarded_within(
-    Duration::from_mins(1),
-    &|| {},
-    &|| true,
-    &git,
-    &common_dir,
-    Some(table),
-    Vec::new(),
-    PREFIX,
-    &params,
-    &mut |_| {},
-  )
-  .unwrap_err();
+  let stopped = push_guarded_within(Duration::from_mins(1), &|| {}, &|| true, &git, &common_dir, Some(&table), &[], PREFIX, &params, &mut |_| {}).unwrap_err();
   assert!(stopped.downcast_ref::<LockWaitCanceled>().is_some(), "{stopped:#}");
   assert_eq!(remote_branches(&repo), "");
   drop(held);
@@ -347,8 +336,8 @@ fn a_push_while_a_holder_no_record_names_holds_the_lock_is_refused() {
     &|| false,
     &git,
     &common_dir,
-    Some(table),
-    Vec::new(),
+    Some(&table),
+    &[],
     PREFIX,
     &params,
     &mut |_| {},
@@ -388,8 +377,8 @@ fn held_push<'scope>(
       &|| false,
       git,
       common_dir,
-      Some(table.clone()),
-      Vec::new(),
+      Some(table),
+      &[],
       PREFIX,
       &params,
       &mut on_progress,
@@ -406,9 +395,77 @@ fn synced_fixture() -> (TestRepo, std::path::PathBuf, TableFacts, GitCommandExec
 
 fn assert_pushed(pushed: &anyhow::Result<PushBranchesOutcome>) {
   assert!(
-    matches!(pushed, Ok(PushBranchesOutcome::Pushed { remote_statuses }) if remote_statuses.len() == 1),
+    matches!(pushed, Ok(PushBranchesOutcome::Pushed { remote_statuses, .. }) if remote_statuses.len() == 1),
     "{pushed:?}"
   );
+}
+
+/// pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost. The remote
+/// branch of `alpha` was deleted since the row showed it: the lease on the head the user saw is refused, the push fetches
+/// it and goes again, once, as the first one (lock, checks, prepare), over what the remote has now, and says what it went
+/// over (`pushed_over`). Someone's commit on the remote instead is told, never pushed over (`over_moved_remote`)
+#[test]
+fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks() {
+  let (repo, common_dir, table, git) = synced_fixture();
+  let push = |params: &PushBranchesParams| push_guarded(&git, &common_dir, Some(&table), &[], PREFIX, params, &mut |_| {}, &|| false).unwrap();
+  let first = push(&push_of(&repo, vec![branch("alpha")]));
+  let PushBranchesOutcome::Pushed { remote_statuses, .. } = first else {
+    panic!("{first:?}");
+  };
+  let seen = remote_statuses[0].remote_tip.clone();
+  let alpha = "refs/heads/test/virtual/alpha";
+  repo.git(&["--git-dir", ".git/origin.git", "update-ref", "-d", alpha]);
+  let local_tip = repo.git(&["rev-parse", alpha]);
+  let over_seen = vec![StackPushBranch {
+    expected_remote: seen,
+    ..branch("alpha")
+  }];
+
+  let counted = git.clone().with_process_stats("test");
+  let outcome = push_guarded(&counted, &common_dir, Some(&table), &[], PREFIX, &push_of(&repo, over_seen), &mut |_| {}, &|| false).unwrap();
+  // the refused push (its tips, the size check of what it adds, the push, the fetch of the branches and the status of
+  // what the remote has now), then the push again (its tips, its size check, the push, the status of what it left):
+  // two pushes, never a third
+  assert_eq!(
+    counted.process_stats().unwrap().counts(),
+    [
+      ("cat-file".to_string(), 1),
+      ("config".to_string(), 2),
+      ("fetch".to_string(), 1),
+      ("for-each-ref".to_string(), 4),
+      ("log".to_string(), 2),
+      ("ls-remote".to_string(), 1),
+      ("push".to_string(), 2),
+      ("reflog".to_string(), 1),
+      ("rev-list".to_string(), 1),
+      ("update-ref".to_string(), 1)
+    ]
+  );
+  let PushBranchesOutcome::Pushed { remote_statuses, pushed_over } = outcome else {
+    panic!("{outcome:?}");
+  };
+  assert_eq!(
+    pushed_over.iter().map(|status| (status.remote_exists, status.action)).collect::<Vec<_>>(),
+    [(false, PushAction::Create)],
+    "the push went over the deleted remote branch"
+  );
+  assert_eq!(remote_statuses[0].remote_tip.as_deref(), Some(local_tip.as_str()));
+  assert_eq!(repo.git(&["--git-dir", ".git/origin.git", "rev-parse", alpha]), local_tip);
+
+  // someone's commit on the remote branch: the push is told what the remote has, and pushes nothing over it
+  let tree = repo.git(&["rev-parse", &format!("{alpha}^{{tree}}")]);
+  let theirs = repo.git(&["--git-dir", ".git/origin.git", "commit-tree", &tree, "-p", &local_tip, "-m", "Someone else"]);
+  repo.git(&["--git-dir", ".git/origin.git", "update-ref", alpha, &theirs]);
+  let over_pushed = vec![StackPushBranch {
+    expected_remote: Some(local_tip),
+    ..branch("alpha")
+  }];
+  let outcome = push(&push_of(&repo, over_pushed));
+  assert!(
+    matches!(&outcome, PushBranchesOutcome::RemoteMoved { remote_statuses, .. } if remote_statuses[0].remote_tip.as_deref() == Some(theirs.as_str())),
+    "{outcome:?}"
+  );
+  assert_eq!(repo.git(&["--git-dir", ".git/origin.git", "rev-parse", alpha]), theirs, "nothing was pushed over it");
 }
 
 /// Two Safe Pushes of the app of different branches run side by side: the lock is held only while a push is decided,
@@ -432,8 +489,8 @@ fn the_pushes_of_two_branches_run_side_by_side() {
       &|| false,
       git,
       common_dir,
-      Some(table.clone()),
-      Vec::new(),
+      Some(table),
+      &[],
       PREFIX,
       &params,
       &mut |_| {},
@@ -463,18 +520,7 @@ fn the_pushes_of_one_ref_wait_for_each_other_and_both_push() {
     let params = push_of(repo, vec![branch("alpha")]);
     let second = scope.spawn(move || {
       let on_wait = || events.send("waits").unwrap();
-      push_guarded_within(
-        Duration::ZERO,
-        &on_wait,
-        &|| false,
-        git,
-        common_dir,
-        Some(table.clone()),
-        Vec::new(),
-        PREFIX,
-        &params,
-        &mut |_| {},
-      )
+      push_guarded_within(Duration::ZERO, &on_wait, &|| false, git, common_dir, Some(table), &[], PREFIX, &params, &mut |_| {})
     });
     assert_eq!(next_event(), "waits");
     go.send(()).unwrap();

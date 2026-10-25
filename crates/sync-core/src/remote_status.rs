@@ -5,7 +5,8 @@
 //! push times of all branches of an operation are one `reflog`.
 
 use anyhow::Result;
-use domain_types::{DroppedCommit, LandedRemoteCommit, ProgressReporter, RemoteStatusUpdate, SyncEvent};
+use domain_policy::push;
+use domain_types::{DroppedCommit, LandedRemoteCommit, ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::{CommitKey, WalkedCommit, ids_by_key, same_changes, walk_commits, walk_commits_with_messages};
 use git_ops::revs::is_object_id;
@@ -511,7 +512,7 @@ struct CachedStatus {
 
 impl CachedStatus {
   fn into_update(self, branch_name: &str, last_push_time: u32) -> RemoteStatusUpdate {
-    RemoteStatusUpdate {
+    let mut status = RemoteStatusUpdate {
       branch_name: branch_name.to_string(),
       remote_exists: self.remote_tip.is_some(),
       remote_tip: self.remote_tip,
@@ -544,7 +545,10 @@ impl CachedStatus {
       my_unpushed_count: self.my_unpushed_count,
       fast_forward: self.fast_forward,
       last_push_time,
-    }
+      action: PushAction::UpToDate,
+    };
+    status.action = push::action(&status);
+    status
   }
 }
 
@@ -825,19 +829,6 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
     ancestor_commits_ahead,
     fast_forward,
   })
-}
-
-/// A push of the branch would change its remote branch: the remote lacks it or commits of it, or has commits a push
-/// replaces or drops
-pub const fn has_work_for_remote(remote: &RemoteStatusUpdate) -> bool {
-  !remote.remote_exists
-    || !remote.unpushed_commits.is_empty()
-    || remote.commits_behind > 0
-    || remote.commits_amended > 0
-    || remote.commits_restacked > 0
-    || remote.commits_landed > 0
-    || remote.commits_reworded > 0
-    || remote.ancestor_commits_ahead > 0
 }
 
 /// A reporter that forwards every event of a sync to `inner` and keeps the remote statuses it emitted, so the caller

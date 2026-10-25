@@ -20,7 +20,7 @@ import {
   stackPushSubject,
 } from "@/lib/stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
 
 const table: Record<string, StackBranchInfo> = {
   auth: { declaredParent: null, commitCount: 2 },
@@ -101,7 +101,7 @@ describe("a parent without commits", () => {
 
 describe("push summary with stacked branches", () => {
   it("leaves out a blocked branch: it offers no push", () => {
-    const remoteStatus = testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1 })
+    const remoteStatus = testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1, action: CREATE })
     const summary = summarizePushState([
       { name: "auth", remoteStatus, hasError: false, commitCount: 1, status: "Created" },
       { name: "login", remoteStatus, hasError: false, commitCount: 1, status: "Blocked" },
@@ -119,8 +119,8 @@ describe("the pull request base", () => {
 })
 
 describe("pushes of stacked branches", () => {
-  const unpushed: RemoteStatus = testRemoteStatus({ unpushedCommits: ["c1"], commitsAhead: 1, myCommitsAhead: 1 })
-  const pushed: RemoteStatus = { ...unpushed, unpushedCommits: [], commitsAhead: 0, myCommitsAhead: 0 }
+  const unpushed: RemoteStatus = testRemoteStatus({ unpushedCommits: ["c1"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
+  const pushed: RemoteStatus = { ...unpushed, unpushedCommits: [], commitsAhead: 0, myCommitsAhead: 0, action: UP_TO_DATE }
   const branches: Record<string, Branch> = {
     auth: testBranch("auth", null, { remoteStatus: unpushed }),
     login: testBranch("login", "auth", { remoteStatus: pushed }),
@@ -138,7 +138,7 @@ describe("pushes of stacked branches", () => {
   })
 
   it("starts the stack push of the button above an ancestor whose push drops remote commits", () => {
-    const dropping: RemoteStatus = { ...unpushed, commitsBehind: 2, fastForward: false }
+    const dropping: RemoteStatus = { ...unpushed, commitsBehind: 2, fastForward: false, action: forcePush({ drops: true }) }
     const tree: Record<string, Branch> = {
       auth: testBranch("auth", null, { remoteStatus: unpushed }),
       login: testBranch("login", "auth", { remoteStatus: dropping }),
@@ -165,23 +165,26 @@ describe("pushes of stacked branches", () => {
     // nothing of its own to push, or a push that drops remote commits: the button is about the branch
     const upToDate: Record<string, Branch> = { ...branches, oauth: testBranch("oauth", "login", { remoteStatus: pushed }) }
     expect(buttonStackPushOrder("oauth", name => upToDate[name])).toEqual([])
-    const dropping: Record<string, Branch> = { ...branches, oauth: testBranch("oauth", "login", { remoteStatus: { ...unpushed, commitsBehind: 1, fastForward: false } }) }
+    const dropping: Record<string, Branch> = {
+      ...branches,
+      oauth: testBranch("oauth", "login", { remoteStatus: { ...unpushed, commitsBehind: 1, fastForward: false, action: forcePush({ drops: true }) } }),
+    }
     expect(buttonStackPushOrder("oauth", name => dropping[name])).toEqual([])
   })
 
   it("pushes an amended or restacked ancestor with the stack and asks nothing: its push replaces older versions", () => {
     const tree: Record<string, Branch> = {
-      auth: testBranch("auth", null, { remoteStatus: { ...unpushed, commitsAmended: 1, fastForward: false } }),
+      auth: testBranch("auth", null, { remoteStatus: { ...unpushed, commitsAmended: 1, fastForward: false, action: forcePush({ replaces: true }) } }),
       // no commit of its own to push: the remote has the older version of auth's commit
-      login: testBranch("login", "auth", { remoteStatus: { ...pushed, commitsRestacked: 1, fastForward: false } }),
-      oauth: testBranch("oauth", "login", { remoteStatus: { ...unpushed, commitsRestacked: 1, fastForward: false } }),
+      login: testBranch("login", "auth", { remoteStatus: { ...pushed, commitsRestacked: 1, fastForward: false, action: forcePush({ replaces: true }) } }),
+      oauth: testBranch("oauth", "login", { remoteStatus: { ...unpushed, commitsRestacked: 1, fastForward: false, action: forcePush({ replaces: true }) } }),
     }
     expect(buttonStackPushOrder("oauth", name => tree[name])).toEqual(["auth", "login", "oauth"])
     expect(stackChildrenPushOrder("auth", ["login", "oauth"], name => tree[name])).toEqual(["auth", "login", "oauth"])
   })
 
   it("pushes the branch and its children that have work for the remote, parents first", () => {
-    const dropping: RemoteStatus = { ...unpushed, commitsBehind: 2, fastForward: false }
+    const dropping: RemoteStatus = { ...unpushed, commitsBehind: 2, fastForward: false, action: forcePush({ drops: true }) }
     const tree: Record<string, Branch> = {
       ...branches,
       session: testBranch("session", "auth", { remoteStatus: unpushed, status: "Blocked" }),
@@ -250,10 +253,10 @@ describe("pushes of stacked branches", () => {
       "The branches of the stack are on the remote. A Safe Push of the whole auth stack is running: wait until it merges",
     )
     expect(formatAskFirst(["login", "oauth"])).toBe("login and oauth ask first in their rows: the push drops remote commits")
-    const dropping = testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false })
+    const dropping = testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false, action: forcePush({ drops: true }) })
     const branches: Record<string, Branch> = {
       login: testBranch("login", "auth", { remoteStatus: dropping }),
-      oauth: testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsAhead: 1 }) }),
+      oauth: testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsAhead: 1, action: PUSH }) }),
       session: testBranch("session", "auth", { remoteStatus: dropping }),
     }
     // a branch a running Safe Push holds has nothing to push

@@ -15,7 +15,7 @@ import { formatParkedBlocker } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
-import { dropsRemoteCommits, getPushAction, getPushColor } from "@/lib/push-summary"
+import { getPushColor } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import {
@@ -23,7 +23,6 @@ import {
   formatBlockedReason,
   formatPushStackLabel,
   formatPushWithChildrenLabel,
-  needsPush,
   offersPushWithChildren,
   stackAncestors,
   stackChildrenPushOrder,
@@ -233,7 +232,8 @@ export function getPushButtonState(
   const remoteStatus = branch.remoteStatus
   const parent = branch.stack?.effectiveBase ?? null
   const texts = remoteStatus != null ? buildRemoteStatusTexts(remoteStatus, parent) : null
-  const pushAction = getPushAction(branch)
+  const remoteAction = remoteStatus?.action ?? null
+  const pushAction = remoteAction?.kind ?? null
 
   let text = "Push"
   let count = 0
@@ -315,7 +315,7 @@ export function getPushButtonState(
     dropped,
     // a sync running is no reason: the push waits for it (`pushOne`); a branch the sync rebuilds anew is
     disabled: isPushing || branch.status === "Syncing" || pushAction === "upToDate",
-    confirm: remoteStatus != null && dropsRemoteCommits(remoteStatus),
+    confirm: remoteAction?.kind === "force" && remoteAction.drops,
     pushesStack,
     action,
     childrenAction,
@@ -360,7 +360,7 @@ export function canPushNow(branch: Branch, { isPushing, processing }: { isPushin
  * and in a repository with neither Patronus nor GitHub, where it is the one way to share the branch.
  */
 export function isFirstPushInLanding(branch: Branch, { landingPushes, held = false }: { landingPushes: boolean; held?: boolean }): boolean {
-  return landingPushes && !held && getPushAction(branch) === "create"
+  return landingPushes && !held && branch.remoteStatus?.action.kind === "create"
 }
 
 /**
@@ -373,7 +373,7 @@ export function firstPushWait(
   branch: Branch,
   { landingPushes, patronus, held, pending }: { landingPushes: boolean; patronus: boolean; held: boolean; pending: PendingFact | null },
 ): string | null {
-  if (held || getPushAction(branch) !== "create") {
+  if (held || branch.remoteStatus?.action.kind !== "create") {
     return null
   }
   if (landingPushes) {
@@ -445,9 +445,15 @@ export function getPushButtonNow(branch: Branch, isPushing: boolean): PushButton
   return getPushButtonState(branch, { isPushing, unpushedParent, hold: getPushHold(branch.name), parked: getParkedState(branch.name), retargets })
 }
 
+/** The push of an ancestor has work for the remote: Rust's action of its remote status is no `upToDate` */
+function hasWorkForRemote(branch: Branch): boolean {
+  const kind = branch.remoteStatus?.action.kind
+  return kind !== undefined && kind !== "upToDate"
+}
+
 /** `useUnpushedParent` outside a component: the nearest ancestor with work for the remote, and the stack pushes */
 export function getUnpushedParent(name: string, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean): UnpushedParent | null {
-  const parent = stackAncestors(name, branchOf).findLast(it => needsPush(it) && !isHeld(it.name))
+  const parent = stackAncestors(name, branchOf).findLast(it => hasWorkForRemote(it) && !isHeld(it.name))
   if (parent === undefined) {
     return null
   }
@@ -466,7 +472,7 @@ export function useUnpushedParent(branch: Branch): UnpushedParent | null {
   const isHeld = (it: string): boolean => holds.has(it)
   // each selector returns branch records (compared one by one) or a number, so the store notifies only when they change;
   // a held ancestor has nothing to push now: its Safe Push lands it
-  const parent = useBranchSync(state => stackAncestors(name, it => state.branches[it]).findLast(it => needsPush(it) && !isHeld(it.name)))
+  const parent = useBranchSync(state => stackAncestors(name, it => state.branches[it]).findLast(it => hasWorkForRemote(it) && !isHeld(it.name)))
   const stackSize = useBranchSync(state => (parent === undefined ? 1 : stackPushOrder(name, it => state.branches[it], { isHeld }).length))
   const buttonStack = useBranchSync(useShallow(state => buttonStackPushOrder(name, it => state.branches[it], isHeld).map(it => state.branches[it]!)))
   return useMemo(() => {

@@ -2,7 +2,6 @@ import { UserPlusIcon } from "lucide-react"
 import type { MissingReviewGroup, Person, PullRequest, RequestedReviewers, ReviewReadiness } from "@/lib/bindings"
 import { isLogin, preselectedReviewers } from "@/lib/create-pull-request"
 import type { MenuItem } from "@/lib/menu"
-import { getPushAction } from "@/lib/push-summary"
 import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
@@ -117,8 +116,8 @@ export function getRequestReviewBlocker(pullRequest: PullRequest): string | null
 
 /** The request pushes the branch first: the remote lacks work of it (an unknown remote status is no push) */
 export function requestReviewPushes(branch: Pick<Branch, "remoteStatus">): boolean {
-  const push = getPushAction(branch)
-  return push !== null && push !== "upToDate"
+  const push = branch.remoteStatus?.action.kind
+  return push !== undefined && push !== "upToDate"
 }
 
 /**

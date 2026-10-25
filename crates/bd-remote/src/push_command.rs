@@ -21,6 +21,7 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
+use domain_policy::push::{drops_remote_commits, needs_push, over_moved_remote};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
@@ -43,7 +44,7 @@ use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_core::parked::parked_state;
 use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, prepare_push_branches, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
-use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, has_work_for_remote};
+use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
 use sync_core::sync::SyncReport;
 use youtrack::service::YouTrackService;
 
@@ -173,6 +174,11 @@ pub struct PushedBranch {
   /// `bd sync`), each with the baseline commit that has it: no --force was needed, nothing of them is lost
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub replaced_landed: Vec<LandedRemoteCommitSummary>,
+  /// The remote branch had moved since the sync, without commits the branch lacks: bd fetched it and pushed again, once,
+  /// leased on the head it had then (`lease`; `null`: it was deleted), which the push replaced. Tell the user; omitted
+  /// when the first push went
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub pushed_over: bool,
   /// Omitted for an unapplied branch (`--unapplied`), which lands nothing
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pull_request: Option<PullRequestDraft>,
@@ -445,12 +451,12 @@ pub fn push_locked(
     let parent_ref = parent.as_deref().map(|parent| final_name(context, parent)).transpose()?;
     let remote_state = remote_status(context, statuses.as_ref(), report, branch, (&full_name, tip), parent_ref.as_deref())?;
     let along = implicit.contains(*name);
-    if along && remote_state.as_ref().is_some_and(|remote| !remote.has_work()) {
+    if along && remote_state.as_ref().is_some_and(|remote| !remote.needs_push()) {
       // on the remote as it is: nothing to take along
       continue;
     }
     if let Some(remote_state) = &remote_state
-      && remote_state.behind > 0
+      && remote_state.drops_remote_commits()
       && !args.force
     {
       let alone = if along { ", or --alone to push the named branches without it" } else { "" };
@@ -486,7 +492,7 @@ pub fn push_locked(
   };
   for stack in &stacks {
     if let Some(remote_state) = &stack.remote
-      && remote_state.commits_behind > 0
+      && drops_remote_commits(remote_state)
       && !args.force
     {
       refusals.push(format!(
@@ -618,7 +624,20 @@ pub fn push_locked(
   };
   // the commits and the leases are fixed: the network push and what comes after it hold no lock
   drop(repository_lock.take());
-  let pushed = push_leased(&context.git, &target, &leased, options, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
+  let network = |leased: &[LeasedBranch]| push_leased(&context.git, &target, leased, options, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")));
+  let mut pushed = network(&leased)?;
+  // a remote branch moved since the sync without commits its branch lacks: nobody's work is lost, so the push goes again
+  // over what the remote has now, once, as the app's does (D4); a lease the user named (`--expect-remote`) stays the
+  // lease, and a remote with someone's commits, or that moves again, is told (`lease_rejected`)
+  let mut over: Option<(Vec<usize>, Vec<RemoteStatusUpdate>)> = None;
+  if let LeasedPush::RemoteMoved { moved, remote_statuses } = &pushed
+    && args.expect_remote.is_none()
+    && moved.iter().all(|index| remote_statuses.get(*index).is_some_and(over_moved_remote))
+  {
+    leased = over_moved(&leased, remote_statuses);
+    over = Some((moved.clone(), remote_statuses.clone()));
+    pushed = network(&leased)?;
+  }
   let statuses = match pushed {
     LeasedPush::Pushed(statuses) => statuses,
     LeasedPush::RemoteMoved { moved, remote_statuses } => return Err(lease_rejected(context, &pushed_names, &moved, &remote_statuses, &remote_option)),
@@ -645,10 +664,13 @@ pub fn push_locked(
   let short = context.short_ids(refs.iter().flat_map(|pushed| std::iter::once(pushed.tip.as_str()).chain(pushed.lease.as_deref())));
   let names: Vec<&str> = candidates.iter().map(|candidate| candidate.synced.name.as_str()).collect();
   let issues = pull_request_issues(context, report, youtrack, &names)?;
+  // the status of the branch at `index` (of the leased ones) the push went over, when its remote had moved
+  let moved_to = |index: usize| over.as_ref().filter(|(moved, _)| moved.contains(&index)).and_then(|(_, statuses)| statuses.get(index));
   let branches = candidates
     .iter()
     .zip(&refs)
-    .map(|(candidate, &pushed)| {
+    .enumerate()
+    .map(|(index, (candidate, &pushed))| {
       let draft = pull_request_draft(
         context,
         report,
@@ -656,20 +678,30 @@ pub fn push_locked(
         (&candidate.synced.name, &candidate.full_name),
         &issues,
       );
-      let replaced_landed = candidate.remote.as_ref().map_or_default(|remote| remote.landed_commits.clone());
-      pushed_branch(&candidate.synced.name, pushed, &statuses, draft, &short, replaced_landed)
+      let replaced_landed = match moved_to(index) {
+        Some(moved) => landed_commits(moved, &context.short_ids(RemoteSummary::ids(moved))),
+        None => candidate.remote.as_ref().map_or_default(|remote| remote.landed_commits.clone()),
+      };
+      PushedBranch {
+        pushed_over: moved_to(index).is_some(),
+        ..pushed_branch(&candidate.synced.name, pushed, &statuses, draft, &short, replaced_landed)
+      }
     })
     .collect();
   let stacks = stacks
     .iter()
     .zip(&refs[candidates.len()..])
-    .map(|(stack, &pushed)| {
+    .enumerate()
+    .map(|(at, (stack, &pushed))| {
       let draft = stack_pull_request_draft(context, report, base_branch.clone(), stack)?;
-      let replaced_landed = stack
-        .remote
-        .as_ref()
+      let moved = moved_to(candidates.len() + at);
+      let replaced_landed = moved
+        .or(stack.remote.as_ref())
         .map_or_default(|remote| landed_commits(remote, &context.short_ids(RemoteSummary::ids(remote))));
-      Ok(pushed_branch(&stack.root, pushed, &statuses, draft, &short, replaced_landed))
+      Ok(PushedBranch {
+        pushed_over: moved.is_some(),
+        ..pushed_branch(&stack.root, pushed, &statuses, draft, &short, replaced_landed)
+      })
     })
     .collect::<Result<_, CliError>>()?;
 
@@ -759,7 +791,7 @@ fn stack_branches_to_push<'a>(
       ));
     } else if remote != "origin" {
       warnings.push(format!("{} was not pushed: its remote status is of origin, not of {remote}", stack.branch_name));
-    } else if stack.remote.as_ref().is_none_or(has_work_for_remote) {
+    } else if stack.remote.as_ref().is_none_or(needs_push) {
       stacks.push(stack);
     }
   }
@@ -806,12 +838,25 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
       unapplied: true,
     }],
   };
-  let short = context.short_ids(std::iter::once(tip.as_str()).chain(expected.as_deref()));
   // an unapplied branch is no group of HEAD: no sync built it
   let prepared = prepare_push_branches(&context.git, &context.prefix, &params, &HashMap::new())?;
   drop(repository_lock);
-  match prepared.send(&context.git, &mut |_| {})? {
-    PushBranchesOutcome::Pushed { .. } => Ok(PushOutput {
+  let mut outcome = prepared.send(&context.git, &mut |_| {})?;
+  // the remote moved since the last fetch without commits the branch lacks: the push goes again over it, once, as the
+  // app's does (D4); a lease the user named stays the lease
+  let mut expected = expected;
+  if args.expect_remote.is_none()
+    && let Some(over) = params.over_moved(&outcome)
+  {
+    let repository_lock = lock(context)?;
+    let prepared = prepare_push_branches(&context.git, &context.prefix, &over, &HashMap::new())?;
+    drop(repository_lock);
+    expected.clone_from(&over.branches[0].expected_remote);
+    outcome = prepared.send(&context.git, &mut |_| {})?.over(outcome);
+  }
+  let short = context.short_ids(std::iter::once(tip.as_str()).chain(expected.as_deref()));
+  match outcome {
+    PushBranchesOutcome::Pushed { pushed_over, .. } => Ok(PushOutput {
       schema: SchemaVersion,
       repository: context.repository.clone(),
       prefix: context.prefix.clone(),
@@ -829,6 +874,7 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
         lease: expected.as_deref().map(|lease| short.get(lease).to_string()),
         lease_source: if expected.is_some() { "expected" } else { "absent" }.to_string(),
         replaced_landed: Vec::new(),
+        pushed_over: !pushed_over.is_empty(),
         pull_request: None,
       }],
       restarted: Vec::new(),
@@ -882,8 +928,26 @@ pub(crate) fn pushed_branch(
     lease: pushed.lease.as_deref().map(|lease| short.get(lease).to_string()),
     lease_source: pushed.source.as_str().to_string(),
     replaced_landed,
+    pushed_over: false,
     pull_request: Some(pull_request),
   }
+}
+
+/// The branches of a push leased on the remote heads `remote_statuses` (in their order) fetched after the remote
+/// refused it: the push again over what the remote has now (`domain_policy::push::over_moved_remote` decides it goes)
+fn over_moved(leased: &[LeasedBranch], remote_statuses: &[RemoteStatusUpdate]) -> Vec<LeasedBranch> {
+  leased
+    .iter()
+    .zip(remote_statuses)
+    .map(|(branch, status)| LeasedBranch {
+      push: PushRef {
+        lease: status.remote_tip.clone(),
+        source: if status.remote_tip.is_some() { LeaseSource::Expected } else { LeaseSource::Absent },
+        ..branch.push.clone()
+      },
+      ..branch.clone()
+    })
+    .collect()
 }
 
 /// The pull request of the whole stack: of its stack branch into `base` (the baseline without the remote), with the

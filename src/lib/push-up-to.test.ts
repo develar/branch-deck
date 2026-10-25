@@ -4,7 +4,7 @@ import type { PushHold } from "@/lib/patronus"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import { testRobot } from "@/lib/test-robot"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
 
 /** `count` commits of `name`, newest first, as a branch lists them: `name-1` the oldest, its virtual id `v-name-1` */
 function commits(name: string, count: number): SyncedCommit[] {
@@ -23,8 +23,14 @@ function branch(name: string, parent: string | null, count: number, overrides: P
     .map(commit => commit.hash!)
   const remoteStatus =
     pushed === 0
-      ? testRemoteStatus({ exists: false, unpushedCommits: unpushed, commitsAhead: unpushed.length, myCommitsAhead: unpushed.length })
-      : testRemoteStatus({ unpushedCommits: unpushed, commitsAhead: unpushed.length, myCommitsAhead: unpushed.length, remoteTip: `v-${name}-${pushed}` })
+      ? testRemoteStatus({ exists: false, unpushedCommits: unpushed, commitsAhead: unpushed.length, myCommitsAhead: unpushed.length, action: CREATE })
+      : testRemoteStatus({
+          unpushedCommits: unpushed,
+          commitsAhead: unpushed.length,
+          myCommitsAhead: unpushed.length,
+          remoteTip: `v-${name}-${pushed}`,
+          action: unpushed.length > 0 ? PUSH : UP_TO_DATE,
+        })
   return testBranch(name, parent, { commits: list, commitCount: count, remoteStatus, ...overrides })
 }
 
@@ -65,7 +71,7 @@ describe("pushUpToPlan", () => {
     expect(pushUpToPlan("login", "login-1", pushed)).toBeNull()
     // rewritten since its push: a part would rewind the pull request
     const rewritten = branch("login", null, 3, {}, 1)
-    const plan = pushUpToPlan("login", "login-2", sources({ ...rewritten, remoteStatus: { ...rewritten.remoteStatus!, fastForward: false } }))
+    const plan = pushUpToPlan("login", "login-2", sources({ ...rewritten, remoteStatus: { ...rewritten.remoteStatus!, fastForward: false, action: forcePush() } }))
     expect(plan).toEqual({ ok: false, reason: "login was rewritten since its push: it pushes whole." })
   })
 
@@ -112,7 +118,7 @@ describe("pushUpToPlan", () => {
       show: "auth",
     })
     const dropping = branch("auth", null, 2, {}, 1)
-    const behind = { ...dropping, remoteStatus: { ...dropping.remoteStatus!, commitsBehind: 2, fastForward: false } }
+    const behind = { ...dropping, remoteStatus: { ...dropping.remoteStatus!, commitsBehind: 2, fastForward: false, action: forcePush({ drops: true }) } }
     expect(pushUpToPlan("login", "login-1", sources(behind, login))).toEqual({ ok: false, reason: "auth's push drops 2 remote commits: Force Push auth first.", show: "auth" })
     const holding = (name: string, hold: PushHold) => ({ ...sources(auth, login), holdOf: (it: string) => (it === name ? hold : null) })
     const oauth = testRobot("oauth", "oauth")

@@ -3,7 +3,7 @@ import type { PushButtonContext } from "@/hooks/usePushButton"
 import { getPushButtonState, isFirstPushInLanding } from "@/hooks/usePushButton"
 import type { DroppedCommit, PatronusRobot } from "@/lib/bindings"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 function commits(count: number): DroppedCommit[] {
   return Array.from({ length: count }, (_, index) => ({ id: `c${index}`, subject: `Fix ${index}`, author: "Ann", authorTime: 0 }))
@@ -13,7 +13,7 @@ function state(remote: Partial<RemoteStatus>, context: PushButtonContext = {}) {
   return getPushButtonState(testBranch("login", null, { stack: null, remoteStatus: testRemoteStatus(remote) }), context)
 }
 
-const oauth = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }) })
+const oauth = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1, action: CREATE }) })
 
 /** oauth on login, not on the remote yet, with one commit of its own */
 function stacked(context: PushButtonContext, branch: Branch = oauth) {
@@ -27,33 +27,41 @@ function login(remote: Partial<RemoteStatus>): Branch {
 
 describe("getPushButtonState", () => {
   it("lists the remote commits a force push drops under its description, with how many more there are", () => {
-    const push = state({ unpushedCommits: ["a"], commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 12, fastForward: false, droppedCommits: commits(10) })
+    const push = state({
+      unpushedCommits: ["a"],
+      commitsAhead: 1,
+      myCommitsAhead: 1,
+      commitsBehind: 12,
+      fastForward: false,
+      droppedCommits: commits(10),
+      action: forcePush({ drops: true }),
+    })
     expect(push.text).toBe("Force Push (1)")
     expect(push.tooltip).toBe("Force push replaces the remote branch.\n1 commit to push.\nThe remote has 12 commits your branch doesn't (by Ann).")
     expect(push.dropped).toEqual({ commits: commits(10), more: 2 })
-    expect(state({ commitsBehind: 2, fastForward: false, droppedCommits: commits(2) }).dropped).toEqual({ commits: commits(2), more: 0 })
+    expect(state({ commitsBehind: 2, fastForward: false, droppedCommits: commits(2), action: forcePush({ drops: true }) }).dropped).toEqual({ commits: commits(2), more: 0 })
   })
 
   it("lists nothing for a push that drops no remote commit", () => {
     // a rebased branch: the push replaces the remote commits with their copies
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1, fastForward: false }).dropped).toBeNull()
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1 }).dropped).toBeNull()
-    expect(state({ exists: false, commitsAhead: 1 }).dropped).toBeNull()
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, fastForward: false, action: forcePush() }).dropped).toBeNull()
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, action: PUSH }).dropped).toBeNull()
+    expect(state({ exists: false, commitsAhead: 1, action: CREATE }).dropped).toBeNull()
   })
 
   it("counts the commits the push sends in every label, the user's share in the description", () => {
     // the count of the compact button in the row
-    expect(state({ commitsAhead: 3, myCommitsAhead: 2 })).toMatchObject({ text: "Push (3)", count: 3, tooltip: "2 of 3 commits to push are yours." })
-    expect(state({ exists: false, commitsAhead: 3, myCommitsAhead: 0 })).toMatchObject({
+    expect(state({ commitsAhead: 3, myCommitsAhead: 2, action: PUSH })).toMatchObject({ text: "Push (3)", count: 3, tooltip: "2 of 3 commits to push are yours." })
+    expect(state({ exists: false, commitsAhead: 3, myCommitsAhead: 0, action: CREATE })).toMatchObject({
       text: "Push (3)",
       tooltip: "3 commits to push, none of them yours.\nThe branch isn't on the remote yet: the push creates it.",
     })
-    expect(state({ commitsAhead: 3, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, droppedCommits: commits(1) })).toMatchObject({
+    expect(state({ commitsAhead: 3, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, droppedCommits: commits(1), action: forcePush({ drops: true }) })).toMatchObject({
       text: "Force Push (3)",
       tooltip: "Force push replaces the remote branch.\n1 of 3 commits to push is yours.\nThe remote has 1 commit your branch doesn't (by Ann).",
     })
     // a force push that sends nothing only drops the remote commits
-    expect(state({ commitsBehind: 2, fastForward: false, droppedCommits: commits(2) })).toMatchObject({
+    expect(state({ commitsBehind: 2, fastForward: false, droppedCommits: commits(2), action: forcePush({ drops: true }) })).toMatchObject({
       text: "Force Push",
       count: 0,
       tooltip: "Force push replaces the remote branch.\nThe remote has 2 commits your branch doesn't (by Ann).",
@@ -62,10 +70,10 @@ describe("getPushButtonState", () => {
 
   it("says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour", () => {
     // when it was pushed stays last
-    expect(state({ commitsRestacked: 1, fastForward: false, lastPushTime: 1704139200 }).tooltip).toMatch(
+    expect(state({ commitsRestacked: 1, fastForward: false, lastPushTime: 1704139200, action: forcePush({ replaces: true }) }).tooltip).toMatch(
       /^Force push replaces the older versions of the parent's commits\.\n\nPushed /,
     )
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false })).toMatchObject({
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false, action: forcePush({ replaces: true }) })).toMatchObject({
       text: "Force Push (1)",
       color: "primary",
       tooltip: "Force push replaces 1 commit amended here.\n1 commit to push.",
@@ -73,7 +81,7 @@ describe("getPushButtonState", () => {
       confirm: false,
     })
     // nothing of its own to push: the remote has its parent's commits as they were
-    const restacked = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsRestacked: 2, fastForward: false }) })
+    const restacked = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsRestacked: 2, fastForward: false, action: forcePush({ replaces: true }) }) })
     expect(getPushButtonState(restacked)).toMatchObject({
       text: "Force Push",
       color: "primary",
@@ -83,7 +91,17 @@ describe("getPushButtonState", () => {
       disabled: false,
     })
     // someone else's commit beside an amended one: the push drops it, and asks first
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, commitsBehind: 1, fastForward: false, droppedCommits: commits(1) })).toMatchObject({
+    expect(
+      state({
+        commitsAhead: 1,
+        myCommitsAhead: 1,
+        commitsAmended: 1,
+        commitsBehind: 1,
+        fastForward: false,
+        droppedCommits: commits(1),
+        action: forcePush({ drops: true, replaces: true }),
+      }),
+    ).toMatchObject({
       color: "warning",
       tooltip:
         "Force push replaces the remote branch.\n1 commit to push.\nThe remote has an older version of 1 commit amended here.\nThe remote has 1 commit your branch doesn't (by Ann).",
@@ -98,16 +116,16 @@ describe("getPushButtonState", () => {
   })
 
   it("asks first only for a push that drops remote commits", () => {
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 2, fastForward: false, droppedCommits: commits(2) }).confirm).toBe(true)
-    expect(state({ commitsBehind: 1, fastForward: false, droppedCommits: commits(1) }).confirm).toBe(true)
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 2, fastForward: false, droppedCommits: commits(2), action: forcePush({ drops: true }) }).confirm).toBe(true)
+    expect(state({ commitsBehind: 1, fastForward: false, droppedCommits: commits(1), action: forcePush({ drops: true }) }).confirm).toBe(true)
     // a rebased branch only replaces the remote commits with their copies; a plain push and a first push drop nothing
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1, fastForward: false }).confirm).toBe(false)
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1 }).confirm).toBe(false)
-    expect(state({ exists: false, commitsAhead: 1 }).confirm).toBe(false)
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, fastForward: false, action: forcePush() }).confirm).toBe(false)
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, action: PUSH }).confirm).toBe(false)
+    expect(state({ exists: false, commitsAhead: 1, action: CREATE }).confirm).toBe(false)
   })
 
   it("is quiet for a branch the baseline has all of: the update archives it", () => {
-    expect(state({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }, { landedIn: "origin/master" })).toMatchObject({
+    expect(state({ exists: false, commitsAhead: 1, myCommitsAhead: 1, action: CREATE }, { landedIn: "origin/master" })).toMatchObject({
       text: "Push (1)",
       color: "neutral",
       tooltip: "Already in origin/master. Update to archive the branch.",
@@ -117,7 +135,7 @@ describe("getPushButtonState", () => {
   })
 
   it("pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone", () => {
-    const parent = login({ exists: false, commitsAhead: 2, myCommitsAhead: 2 })
+    const parent = login({ exists: false, commitsAhead: 2, myCommitsAhead: 2, action: CREATE })
     const push = stacked({ unpushedParent: { name: "login", onRemote: false, stackSize: 2, buttonStack: [parent, oauth] } })
     expect(push).toMatchObject({
       text: "Push Stack (2 branches)",
@@ -132,7 +150,7 @@ describe("getPushButtonState", () => {
       description: "login isn't on the remote yet. Pushing oauth alone works: its pull request includes login's commits either way.",
       label: "Push oauth Only",
     })
-    const rebased = login({ commitsAhead: 1, myCommitsAhead: 1, fastForward: false })
+    const rebased = login({ commitsAhead: 1, myCommitsAhead: 1, fastForward: false, action: forcePush() })
     const onRemote = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [rebased, oauth] } })
     expect(onRemote.tooltip).toBe("Pushes 2 branches, parents first:\nlogin · 1 commit · force push\noauth · 1 commit · creates the remote branch")
     expect(onRemote.action?.description).toBe(
@@ -143,8 +161,10 @@ describe("getPushButtonState", () => {
   })
 
   it("says what each force push of a stack push replaces, as the push of the branch alone does", () => {
-    const auth = testBranch("auth", null, { remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false }) })
-    const restacked = login({ commitsRestacked: 1, fastForward: false })
+    const auth = testBranch("auth", null, {
+      remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false, action: forcePush({ replaces: true }) }),
+    })
+    const restacked = login({ commitsRestacked: 1, fastForward: false, action: forcePush({ replaces: true }) })
     const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 3, buttonStack: [auth, restacked, oauth] } })
     expect(push.tooltip).toBe(
       [
@@ -157,15 +177,15 @@ describe("getPushButtonState", () => {
   })
 
   it("takes the colour of an ancestor when none of the branch's commits are the user's", () => {
-    const notMine = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 0 }) })
-    const parent = login({ exists: false, commitsAhead: 1, myCommitsAhead: 1 })
+    const notMine = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 0, action: PUSH }) })
+    const parent = login({ exists: false, commitsAhead: 1, myCommitsAhead: 1, action: CREATE })
     expect(stacked({ unpushedParent: { name: "login", onRemote: false, stackSize: 2, buttonStack: [parent, notMine] } }, notMine).color).toBe("primary")
     expect(getPushButtonState(notMine).color).toBe("neutral")
   })
 
   it("offers Push Stack while the button pushes the branch alone: its push drops remote commits, or an ancestor's does", () => {
     const dropping = testBranch("oauth", "login", {
-      remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, droppedCommits: commits(1) }),
+      remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, droppedCommits: commits(1), action: forcePush({ drops: true }) }),
     })
     const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [] } }, dropping)
     expect(push).toMatchObject({ text: "Force Push (1)", confirm: true, pushesStack: false })
@@ -179,16 +199,19 @@ describe("getPushButtonState", () => {
 
   it("says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals", () => {
     const retarget = { branchName: "login", number: 8, base: "master", approved: true }
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1 }, { retargets: [retarget] }).retarget).toEqual({
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, action: PUSH }, { retargets: [retarget] }).retarget).toEqual({
       text: "Retargets #8 to master: GitHub may dismiss its approvals.",
       warning: true,
     })
-    expect(state({ commitsAhead: 1, myCommitsAhead: 1 }, { retargets: [{ ...retarget, approved: false }] }).retarget).toEqual({ text: "Retargets #8 to master.", warning: false })
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1, action: PUSH }, { retargets: [{ ...retarget, approved: false }] }).retarget).toEqual({
+      text: "Retargets #8 to master.",
+      warning: false,
+    })
     // nothing to push: nothing is retargeted
     expect(state({}, { retargets: [retarget] }).retarget).toBeNull()
 
     // a stack push names the branch of each, and only of the branches it pushes
-    const parent = login({ exists: false, commitsAhead: 2, myCommitsAhead: 2 })
+    const parent = login({ exists: false, commitsAhead: 2, myCommitsAhead: 2, action: CREATE })
     const retargets = [
       { branchName: "login", number: 801, base: "master", approved: false },
       { branchName: "oauth", number: 802, base: "master", approved: true },
@@ -201,19 +224,20 @@ describe("getPushButtonState", () => {
   })
 
   it("offers Push with Children while branches stacked on it have work for the remote", () => {
-    const push = state({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }, { unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } })
+    const push = state({ exists: false, commitsAhead: 1, myCommitsAhead: 1, action: CREATE }, { unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } })
     // the push alone stays as it is
     expect(push).toMatchObject({ text: "Push (1)", disabled: false, action: null })
     expect(push.childrenAction).toMatchObject({ description: "oauth is stacked on login and has commits to push.", label: "Push with Children (2 branches)" })
-    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session"], pushOrder: ["login", "oauth", "session"] } }).childrenAction?.description).toBe(
-      "oauth and session are stacked on login and have commits to push.",
-    )
     expect(
-      state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session", "guide"], pushOrder: ["login", "oauth", "session", "guide"] } }).childrenAction?.description,
+      state({ commitsAhead: 1, action: PUSH }, { unpushedChildren: { names: ["oauth", "session"], pushOrder: ["login", "oauth", "session"] } }).childrenAction?.description,
+    ).toBe("oauth and session are stacked on login and have commits to push.")
+    expect(
+      state({ commitsAhead: 1, action: PUSH }, { unpushedChildren: { names: ["oauth", "session", "guide"], pushOrder: ["login", "oauth", "session", "guide"] } }).childrenAction
+        ?.description,
     ).toBe("oauth and 2 more branches are stacked on login and have commits to push.")
     // one child: named, "(1 branch)" would say nothing
-    expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] } }).childrenAction?.label).toBe("Push with Children (oauth)")
-    expect(state({ commitsAhead: 1 }).childrenAction).toBeNull()
+    expect(state({ commitsAhead: 1, action: PUSH }, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] } }).childrenAction?.label).toBe("Push with Children (oauth)")
+    expect(state({ commitsAhead: 1, action: PUSH }).childrenAction).toBeNull()
   })
 
   it("offers Push with Children while the branch itself is on the remote: its own push is disabled, this one isn't", () => {
@@ -239,7 +263,10 @@ describe("getPushButtonState", () => {
 
   it("offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it", () => {
     const running = { id: "r", status: "running", pushMode: "rebaseAutosquash", branchName: "login" } as PatronusRobot
-    const own = state({ commitsAhead: 2 }, { hold: { kind: "own", branch: "login", robot: running }, unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } })
+    const own = state(
+      { commitsAhead: 2, action: PUSH },
+      { hold: { kind: "own", branch: "login", robot: running }, unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } },
+    )
     expect(own).toMatchObject({
       disabled: true,
       count: 0,
@@ -247,24 +274,24 @@ describe("getPushButtonState", () => {
       action: null,
       childrenAction: null,
     })
-    const span = state({ commitsAhead: 2 }, { hold: { kind: "span", branch: "oauth", robot: { ...running, branchName: "oauth" } } })
+    const span = state({ commitsAhead: 2, action: PUSH }, { hold: { kind: "span", branch: "oauth", robot: { ...running, branchName: "oauth" } } })
     expect(span).toMatchObject({ disabled: true, tooltip: "A Safe Push of oauth is running: it lands login with it" })
     // a merged one landed it: its commits are in the target
     const merged = { ...running, branchName: "oauth", status: "success", targetBranch: "master" } as PatronusRobot
-    const landed = state({ commitsAhead: 2 }, { hold: { kind: "landed", branch: "oauth", robot: merged } })
+    const landed = state({ commitsAhead: 2, action: PUSH }, { hold: { kind: "landed", branch: "oauth", robot: merged } })
     expect(landed).toMatchObject({ disabled: true, count: 0, tooltip: "Landed in master with oauth: nothing of it is left to push", childrenAction: null })
     // the branches built on a landed one push without it: its push offers theirs, as a running Safe Push's never does
     const children = { unpushedChildren: { names: ["session"], pushOrder: ["session"] } }
-    expect(state({ commitsAhead: 2 }, { hold: { kind: "landed", branch: "oauth", robot: merged }, ...children }).childrenAction).toMatchObject({
+    expect(state({ commitsAhead: 2, action: PUSH }, { hold: { kind: "landed", branch: "oauth", robot: merged }, ...children }).childrenAction).toMatchObject({
       description: "session is stacked on login and has commits to push.",
       label: "Push with Children (session)",
     })
     // a push that runs keeps its progress
-    expect(state({ commitsAhead: 2 }, { hold: { kind: "own", branch: "login", robot: running }, isPushing: true }).tooltip).not.toContain("Safe Push")
+    expect(state({ commitsAhead: 2, action: PUSH }, { hold: { kind: "own", branch: "login", robot: running }, isPushing: true }).tooltip).not.toContain("Safe Push")
   })
 
   it("offers the push of the branch alone before Push with Children for a branch in the middle of a stack", () => {
-    const parent = login({ commitsAhead: 1, myCommitsAhead: 1 })
+    const parent = login({ commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
     const push = stacked({
       unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [parent, oauth] },
       unpushedChildren: { names: ["device"], pushOrder: ["oauth", "device"] },
@@ -278,18 +305,18 @@ describe("isFirstPushInLanding", () => {
   const remote = (status: Partial<RemoteStatus>): Branch => testBranch("login", null, { stack: null, remoteStatus: testRemoteStatus(status) })
 
   it("leaves the first push of a branch to its landing where Safe Push or Create Pull Request pushes it", () => {
-    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2 }), { landingPushes: true })).toBe(true)
+    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2, action: CREATE }), { landingPushes: true })).toBe(true)
   })
 
   it("keeps a push that updates the remote branch, and the first push where nothing else pushes", () => {
     // the remote branch is what the pull request and the other people see
-    expect(isFirstPushInLanding(remote({ commitsAhead: 2 }), { landingPushes: true })).toBe(false)
-    expect(isFirstPushInLanding(remote({ commitsAhead: 1, commitsBehind: 1, fastForward: false }), { landingPushes: true })).toBe(false)
+    expect(isFirstPushInLanding(remote({ commitsAhead: 2, action: PUSH }), { landingPushes: true })).toBe(false)
+    expect(isFirstPushInLanding(remote({ commitsAhead: 1, commitsBehind: 1, fastForward: false, action: forcePush({ drops: true }) }), { landingPushes: true })).toBe(false)
     // neither Patronus nor GitHub: the push is the one way to share the branch
-    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2 }), { landingPushes: false })).toBe(false)
+    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2, action: CREATE }), { landingPushes: false })).toBe(false)
   })
 
   it("keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot", () => {
-    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2 }), { landingPushes: true, held: true })).toBe(false)
+    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2, action: CREATE }), { landingPushes: true, held: true })).toBe(false)
   })
 })

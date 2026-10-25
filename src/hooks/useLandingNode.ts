@@ -3,7 +3,6 @@ import { isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
 import type { LandingNode, LandingNodeFacts } from "@/lib/landing-node"
 import { getLandingNode } from "@/lib/landing-node"
 import { formatLandingSubject } from "@/lib/patronus"
-import { getPushAction } from "@/lib/push-summary"
 import type { FoundMove, RunningMove } from "@/lib/running-move"
 import { findRunningMove, safePushStartMoves } from "@/lib/running-move"
 import { blockingBranchOf, stackAncestors } from "@/lib/stack"
@@ -53,8 +52,8 @@ function landedBeside(key: string): readonly string[] {
 
 /** The remote lacks work of the branch, and no push of it runs: once pushing, the push is made */
 function isPushPending(branch: Branch): boolean {
-  const action = getPushAction(branch)
-  return action !== null && action !== "upToDate" && !isBranchPushing(branch.name)
+  const action = branch.remoteStatus?.action.kind
+  return action !== undefined && action !== "upToDate" && !isBranchPushing(branch.name)
 }
 
 /**

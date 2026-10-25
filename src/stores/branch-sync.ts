@@ -11,6 +11,7 @@ import type {
   Commit,
   CommitSyncStatus,
   DroppedCommit,
+  PushAction,
   RemoteStatusUpdate,
   StackBranchConflict,
   StackBranchState,
@@ -71,6 +72,8 @@ export interface RemoteStatus {
   remoteTip: string | null
   /** The newest of the remote commits a push drops, newest first; `commitsBehind` counts them all */
   droppedCommits: readonly DroppedCommit[]
+  /** What a push of the branch does over this status, as Rust decides it (`domain_policy::push::action`) */
+  action: PushAction
 }
 
 /**
@@ -1094,6 +1097,7 @@ type RemoteStatusFields = Pick<
   | "lastPushTime"
   | "remoteTip"
   | "droppedCommits"
+  | "action"
 >
 
 export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
@@ -1112,6 +1116,7 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     lastPushTime: update.lastPushTime ?? 0,
     remoteTip: update.remoteTip,
     droppedCommits: update.droppedCommits,
+    action: update.action,
   }
 }
 

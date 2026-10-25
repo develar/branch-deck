@@ -24,7 +24,6 @@ import {
   openRobot,
 } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
-import { getPushAction } from "@/lib/push-summary"
 import type { DismissFact, ReviewFact, SafePushDecision, SafePushFacts, StartOptionsFact } from "@/lib/safe-push-decision"
 import { getSafePushDecision } from "@/lib/safe-push-decision"
 import type { SafePushStart } from "@/lib/safe-push-start"
@@ -278,7 +277,7 @@ export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "pla
   }
   // the branches the start pushes, root first: the stack while an ancestor has work for the remote, up to a held one
   const pushOrder = stackPushOrder(branchName, getBranch, { stopAtConfirm: true, isHeld })
-  const startPush = getStartPush(getPushAction({ remoteStatus }), pushOrder.length > 1)
+  const startPush = getStartPush(remoteStatus?.action ?? null, pushOrder.length > 1)
   const needsPush = startPush.kind === "stack" || startPush.kind === "branch"
   const step = getBranchNextStepOf(branch, { forStart: true })
 
@@ -377,7 +376,7 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
   // the robot of the whole stack running on an older stack branch: the start replaces it, its push cancels it
   const hold = getStackPushHold(root)
   const replaces = mode === "rebaseAutosquash" && hold !== null && !isStartBlocked(hold.robot, tip, remoteStatus) ? hold.robot : null
-  const startPush = getStartPush(getPushAction({ remoteStatus }), false)
+  const startPush = getStartPush(remoteStatus?.action ?? null, false)
   const needsPush = startPush.kind === "branch"
   const step = getBranchNextStep(stackFactsOf(stack, { forStart: true }))
 

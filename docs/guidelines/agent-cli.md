@@ -624,7 +624,8 @@ local change on a path it writes is `uncommitted_overlap` (exit 4, `paths`) and 
 - `unapplied` of `bd status` lists the unapplied branches (`name`, `branch`, `tip`, `subject`, `remote.head` and
   `remote.up_to_date` once pushed). They land nothing: `bd push <name>` and `bd safe-push <name>` refuse one as
   `unapplied` (exit 4); `bd push --unapplied <name>` pushes it to `origin` under its own name, leased on the remote head
-  of the last fetch or `--expect-remote`, with no pull request draft (`lease_rejected` when the remote moved).
+  of the last fetch or `--expect-remote`, with no pull request draft (`pushed_over` over a remote that moved without
+  commits it lacks, `lease_rejected` when the remote moved otherwise).
 
 ### `bd reapply <name> [--dry-run] [--expect-head <id>]`
 
@@ -1396,8 +1397,12 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 - With `--remote` other than `origin`, which the sync compares with, bd computes the same remote status of each
   pushed branch against that remote's remote-tracking branch, and the refusal, the lease and the errors use it. A
   `--remote` that is not a configured remote is `no_remote`.
-- A remote branch that is not where the lease expects it is `lease_rejected` (exit 4, not retryable: a push again
-  with `--force` would drop what the remote has now), nothing pushed: the push is
+- A remote branch that moved since the sync without commits its branch lacks (deleted, moved back to an older commit
+  of it, rebuilt older versions) loses nothing: bd fetches it and pushes again at once, once, leased on what it has now,
+  as the app's push does, and marks the branch `"pushed_over": true` (its `lease` the head it went over). Tell the
+  user the remote had moved.
+- Otherwise a remote branch that is not where the lease expects it is `lease_rejected` (exit 4, not retryable: a push
+  again with `--force` would drop what the remote has now), nothing pushed: the push is
   atomic, so the other branches of it stay as they are on the remote too. bd fetches the branches of the push and
   lists the ones that moved in `error.branches` with their remote status as fetched:
   `{"name":"auth","remote":{"exists":true,"unpushed":1,"behind":1,"head":"7c8d9e0f","dropped_commits":[…]}}`.

@@ -11,6 +11,8 @@ targets:
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/useLandedIn.ts
   - ../../src/lib/push-summary.ts
+  - ../../crates/domain-policy/src/push.rs
+  - ../../crates/repository-model/src/push_guard.rs
   - ../../src/lib/ui-types.ts
   - ../../src/stores/push-confirm.ts
   - ../../src/lib/remote-status.ts
@@ -73,7 +75,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_new_commit_after_baseline_merge`)
 - A branch only rebased onto a newer baseline must be up to date: the remote has all its commits by content. Its row
   says so, and it is not outgoing.
-  [@test] ../../src/lib/push-summary.test.ts (`is up to date for a branch only rebased onto a newer baseline: the remote has its work`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_shows_zero_unpushed`)
 - A branch with a conflict, a sync error or no commits must not count; a branch whose remote status is not loaded yet
   must not count either; the summary counts how many there are.
@@ -86,14 +88,16 @@ is outgoing compares content, not hashes: the question is whether the remote has
   not count: the update archives it, nothing of the user's is left to push. Its push button stays, quiet.
   [@test] ../../src/lib/push-summary.test.ts (`skips a branch the fetched baseline has all of: the update archives it`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
-- The state of a branch must follow the label of its push button:
+- The state of a branch must follow the label of its push button, which reads the action Rust decides of its remote
+  status for the app and `bd` alike (`domain_policy::push::action`, `RemoteStatusUpdate.action`):
   - "create" for a branch not on the remote (`Push (3)`, its description "The branch isn't on the remote yet: the push
     creates it."); one name for every push that sends the commits as they are;
   - "force" for a push that is not a fast-forward: the remote has commits the branch lacks, older versions of commits
     amended or restacked (below), or the branch was rebased onto a newer baseline (`Force Push`). It follows the
     remote branch and the local one, not the result of the last sync, so it stays the same across syncs and restarts;
   - "push" otherwise (`Push (2)`).
-  [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`, `force pushes a branch whose remote has older versions of commits amended or restacked`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
 - A remote commit whose content the branch lacks must be told by its identity, the author email, the author time and
   the subject without the `(prefix)` (as [landed commits](landed-commits.spec.md) are): amended when an unpushed
@@ -116,7 +120,8 @@ is outgoing compares content, not hashes: the question is whether the remote has
   the new auth: the remote lacks 1 of its commits, which a Safe Push of the branch lands with it.", the toast of the
   push "1 new commit of the parent".
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
-  [@test] ../../src/lib/push-summary.test.ts (`force pushes a branch whose remote has older versions of commits amended or restacked`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
+  [@test] ../../src/lib/push-summary.test.ts (`says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`an_amended_commit_is_amended_not_dropped`, `a_rebased_copy_whose_context_moved_is_not_amended`, `a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`, `another_authors_commit_stays_dropped`, `an_amended_commit_and_a_dropped_one_are_told_apart`, `a_remote_commit_that_landed_in_the_baseline_with_other_changes_is_landed_not_dropped`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
 - A commit the remote has by content in another version, its message or its author changed here (a reword), must be
   reworded (`commitsReworded`), with no process more than the walks: not ahead, yet the remote branch is not the
@@ -124,9 +129,11 @@ is outgoing compares content, not hashes: the question is whether the remote has
   author and stays up to date.
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_reworded_commit_is_not_on_the_remote_as_it_is`, `test_rebased_branch_with_new_commit_is_not_fast_forward`)
 - A branch is up to date only when the remote has nothing to receive and nothing the branch lacks, older versions
-  included, landed and reworded ones too (`isRemoteUpToDate`); the push button, the status text, the review status of
-  a robot or a pull request and the restart of a robot (pushed first when the remote is not up to date) decide by it.
-  [@test] ../../src/lib/push-summary.test.ts (`force pushes a branch whose remote has older versions of commits amended or restacked`, `force pushes, without the warning hue, a branch whose remote has older messages or commits that landed`)
+  included, landed and reworded ones too (the action `upToDate`, `domain_policy::push::needs_push` for `bd push`,
+  `bd safe-push` and `bd status`); the push button, the status text, the review status of a robot or a pull request
+  and the restart of a robot (pushed first when the remote is not up to date) decide by it.
+  [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_has_work_unless_the_remote_has_the_branch_as_it_is`)
+  [@test] ../../src/lib/push-summary.test.ts (`says that a push replaced older messages or commits that landed, without the warning`)
   [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
   [@test] ../../src/lib/review-commit.test.ts (`compares with the remote branch and the remote status by content, not with the hash of the local tip`)
 - The remote status must name the remote commit it was computed against (`remoteTip`, null without a remote branch)
@@ -230,12 +237,17 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   leased on the fetched head; a push that drops the commits the remote has now confirms first, as below, and it asks
   before a push into a running Safe Push as any push does ([Patronus](../branch/patronus.spec.md)). A remote that
   moved without commits the branch lacks (deleted, rebuilt older versions, a branch created there with the same
-  commits) loses nothing: the push goes over the fetched head at once, once, and says only that it pushed; the toast is
-  for a remote with someone's commits, or one that moved again. A stack push is one atomic push: a branch that moved
-  refuses all of it, nothing of the stack is pushed and every branch of it is fetched; it goes again over the fetched
-  heads at once, once, as the push of one branch does, else the toast is of the branch that moved
+  commits) loses nothing: Rust pushes over the fetched head at once, once (`domain_policy::push::over_moved_remote`,
+  the lock and the checks again), and the page says only that it pushed, what it replaced from the status it went over
+  (`pushedOver`); `bd push` does the same and says so (`pushed_over` of the branch). The toast is for a remote with
+  someone's commits, or one that moved again. A stack push is one atomic push: a branch that moved refuses all of it,
+  nothing of the stack is pushed and every branch of it is fetched; it goes again over the fetched heads at once, once,
+  when each remote that moved lost nothing, as the push of one branch does, else the toast is of the branch that moved
   ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)).
-  [@test] ../../src/lib/git/push.test.ts (`pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost`, `tells a remote with commits the branch lacks, and pushes nothing over it`, `pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `pushes the stack again over the fetched heads when the remote that moved has no commits the branch lacks`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost`)
+  [@test] ../../crates/repository-model/src/push_guard_test.rs (`pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch`)
+  [@test] ../../src/lib/git/push.test.ts (`says a push Rust made again over a remote that moved from what it went over, in one push of the page`, `tells a remote with commits the branch lacks, and pushes nothing over it`, `pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `says a stack push Rust made again over a remote that moved from what it went over, in one push of the page`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`, `a_moved_lease_refuses_every_branch_and_names_it`)
   [@test] ../../src/lib/remote-status.test.ts (`says how many commits the remote has that the branch lacks, and by whom; the action is a force push`, `offers the push the button would show when the remote lacks nothing of the branch`, `offers to push a branch deleted on the remote again`, `names the distinct authors in the order of the commits`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show what the remote has when it moved since the status, and force push over it from the toast`)

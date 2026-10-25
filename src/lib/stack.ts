@@ -1,7 +1,6 @@
-import type { ParentState, StackFix, StackProblemView } from "@/lib/bindings"
+import type { ParentState, PushAction, StackFix, StackProblemView } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { groupFor } from "@/lib/commit"
-import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { joinNames } from "@/lib/text"
 import type { StackBranchAlong } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
@@ -152,10 +151,18 @@ export function passedParentOf(branch: Branch): { parent: string; state: Exclude
   return { parent, state }
 }
 
-/** Whether a push of the branch has work for the remote; false while its remote status is unknown */
-export function needsPush(branch: Branch): boolean {
-  const action = getPushAction(branch)
-  return action !== null && action !== "upToDate" && branch.status !== "Blocked" && !branch.hasError
+/**
+ * What a push of the branch does in an order of a stack push (Rust's action of its remote status), null when it has no
+ * work for the remote, its remote status is unknown or the sync did not build it (the backend refuses such a push)
+ */
+function orderedPush(branch: Branch | undefined): PushAction | null {
+  const action = branch?.remoteStatus?.action ?? null
+  return action === null || action.kind === "upToDate" || branch!.status === "Blocked" || branch!.hasError ? null : action
+}
+
+/** A push that asks first: it drops remote commits the branch lacks */
+function asksFirst(action: PushAction | null): boolean {
+  return action?.kind === "force" && action.drops
 }
 
 /**
@@ -192,10 +199,10 @@ export function stackPushOrder(
 ): string[] {
   const chain = [name]
   for (const ancestor of stackAncestors(name, branchOf).reverse()) {
-    if (isHeld(ancestor.name) || (stopAtConfirm && ancestor.remoteStatus != null && needsPush(ancestor) && dropsRemoteCommits(ancestor.remoteStatus))) {
+    if (isHeld(ancestor.name) || (stopAtConfirm && asksFirst(orderedPush(ancestor)))) {
       break
     }
-    if (needsPush(ancestor)) {
+    if (orderedPush(ancestor) !== null) {
       chain.push(ancestor.name)
     }
   }
@@ -208,8 +215,8 @@ export function stackPushOrder(
  * commits confirms the branch alone) and an ancestor has work too; else an empty list, the button pushes the branch alone
  */
 export function buttonStackPushOrder(name: string, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean = () => false): string[] {
-  const branch = branchOf(name)
-  if (branch?.remoteStatus == null || !needsPush(branch) || dropsRemoteCommits(branch.remoteStatus)) {
+  const action = orderedPush(branchOf(name))
+  if (action === null || asksFirst(action)) {
     return []
   }
   const order = stackPushOrder(name, branchOf, { stopAtConfirm: true, isHeld })
@@ -229,13 +236,12 @@ export function stackChildrenPushOrder(
   isHeld: (name: string) => boolean = () => false,
 ): string[] {
   const order: string[] = []
-  const branch = branchOf(name)
-  if (branch !== undefined && needsPush(branch) && !isHeld(name)) {
+  if (orderedPush(branchOf(name)) !== null && !isHeld(name)) {
     order.push(name)
   }
   for (const descendant of descendants) {
-    const child = branchOf(descendant)
-    if (child?.remoteStatus != null && needsPush(child) && !dropsRemoteCommits(child.remoteStatus) && !isHeld(descendant)) {
+    const action = orderedPush(branchOf(descendant))
+    if (action !== null && !asksFirst(action) && !isHeld(descendant)) {
       order.push(descendant)
     }
   }
@@ -291,10 +297,7 @@ export function offersPushWithChildren(name: string, order: readonly string[], a
  * leaves them out, they ask first in their own rows. A branch a running Safe Push holds (`isHeld`) has nothing to push.
  */
 export function stackAskFirst(names: readonly string[], branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean = () => false): string[] {
-  return names.filter(name => {
-    const branch = branchOf(name)
-    return branch?.remoteStatus != null && needsPush(branch) && dropsRemoteCommits(branch.remoteStatus) && !isHeld(name)
-  })
+  return names.filter(name => asksFirst(orderedPush(branchOf(name))) && !isHeld(name))
 }
 
 /** "login asks first in its row: the push drops remote commits", "login and oauth ask first in their rows: …" */

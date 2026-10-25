@@ -5,7 +5,7 @@ import { FROM_MENU } from "@/lib/menu"
 import { getRobotActions } from "@/lib/patronus-actions"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { getOperations } from "@/stores/operations"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 const { calls, landing, stacks } = vi.hoisted(() => ({
   /** What reached Patronus and the push, in order */
@@ -77,7 +77,7 @@ function branch(overrides: Partial<Branch>): Branch {
 /** The remote has the commit the branch is at, pushed since the robot took `tip` */
 const pushedSince = testRemoteStatus({ remoteTip: "local" })
 /** The remote is at the commit the robot took, the branch has a commit more */
-const unpushed = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
+const unpushed = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
 
 /** The prompts of a failed or failing robot, before "Open in Patronus" */
 const PROMPTS = ["Copy Prompt for Agent", "Copy Prompt with CI Details"]
@@ -167,7 +167,7 @@ describe("getRobotActions", () => {
     const whole = robot({ id: "whole", branchName: null, stackRoot: "air", sourceRevision: "stack-tip" })
     stacks.set("air", airStack(testRemoteStatus({ remoteTip: "stack-local" })))
     expect(labels(whole, null)).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
-    stacks.set("air", airStack(testRemoteStatus({ remoteTip: "stack-tip", unpushedCommits: ["s1"], commitsAhead: 1, myCommitsAhead: 1 })))
+    stacks.set("air", airStack(testRemoteStatus({ remoteTip: "stack-tip", unpushedCommits: ["s1"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })))
     const [pushAndRestart] = getRobotActions(whole, null)
     expect(pushAndRestart!.id).toBe("push-and-restart-robot")
     pushAndRestart!.onSelect(FROM_MENU)

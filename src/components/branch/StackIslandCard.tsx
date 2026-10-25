@@ -36,10 +36,9 @@ import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushHoldReason, formatPushMode } from "@/lib/patronus"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
-import { dropsRemoteCommits } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
-import { describePushWithChildrenBlocker, formatAskFirst, formatPushWithChildrenLabel, needsPush, stackChildrenPushOrder, stackPushSubject } from "@/lib/stack"
+import { describePushWithChildrenBlocker, formatAskFirst, formatPushWithChildrenLabel, stackAskFirst, stackChildrenPushOrder, stackPushSubject } from "@/lib/stack"
 import type { StackIsland } from "@/lib/stack-collapse"
 import type { StackStateChip } from "@/lib/stack-state"
 import { getStackStateChips } from "@/lib/stack-state"
@@ -121,12 +120,11 @@ function useIslandSummary(root: string): IslandSummary | null {
       commitCount: branches.reduce((sum, branch) => sum + branch.commitCount, 0),
       pushOrder,
       pushCommits: pushOrder.reduce((sum, name) => sum + (state.branches[name]?.remoteStatus?.commitsAhead ?? 0), 0),
-      askFirst: branches
-        .filter(
-          branch =>
-            branch.name !== root && branch.remoteStatus != null && needsPush(branch) && dropsRemoteCommits(branch.remoteStatus) && !isHeld(branch.name) && !isLanded(branch.name),
-        )
-        .map(branch => branch.name),
+      askFirst: stackAskFirst(
+        branches.filter(branch => branch.name !== root && !isLanded(branch.name)).map(branch => branch.name),
+        name => state.branches[name],
+        isHeld,
+      ),
       rootHeld: rootHold !== null && rootHold.kind !== "landed",
       mainLine: stackMainLineIn(state, root),
       members: branches.map(branch => branch.name),

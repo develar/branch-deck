@@ -3,13 +3,13 @@
 //! tips, the copies the sync wrote, the stack branches and the parked branches. The app keeps the one of its last sync
 //! per repository; `bd` builds it from the report of its sync.
 
+use domain_policy::push::needs_push;
 use domain_types::GroupedBranchInfo;
 use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
 use std::collections::{BTreeMap, HashMap};
-use sync_core::remote_status::has_work_for_remote;
 use sync_core::robot_commits::mapped_virtual;
 use sync_core::sync::SyncReport;
 
@@ -116,7 +116,7 @@ pub fn remote_facts(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusU
             .ok()
             .and_then(|full_name| report.remote_tips.get(&full_name))
             .cloned(),
-          up_to_date: status_of.get(branch.name.as_str()).is_some_and(|remote| is_up_to_date(remote)),
+          up_to_date: status_of.get(branch.name.as_str()).is_some_and(|remote| !needs_push(remote)),
         };
         (branch.name.clone(), fact)
       })
@@ -136,13 +136,8 @@ pub fn remote_facts(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusU
 pub fn remote_fact(remote: &RemoteStatusUpdate) -> RemoteFact {
   RemoteFact {
     remote_tip: remote.remote_tip.clone(),
-    up_to_date: is_up_to_date(remote),
+    up_to_date: !needs_push(remote),
   }
-}
-
-/// The remote branch exists and has what the branch has by content: nothing to push
-const fn is_up_to_date(remote: &RemoteStatusUpdate) -> bool {
-  remote.remote_exists && !has_work_for_remote(remote)
 }
 
 /// The branches `name` is built on, root first: the chain of `effective_base` as a sync places them, of the branches of

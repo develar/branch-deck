@@ -56,7 +56,7 @@ import {
 } from "@/stores/patronus"
 import { robotCoverageStore, watchRobotCoverage } from "@/stores/robot-coverage"
 import { applyRobotDetailsFacts, resetRobotDetails } from "@/stores/robot-details"
-import { testRemoteStatus } from "@/stores/test-branch"
+import { PUSH, testRemoteStatus } from "@/stores/test-branch"
 import { emptyView } from "@/test-support/fake-sessions"
 import { branchFacts, landedWhole, robotOf, withRowRobots } from "@/test-support/patronus-repository"
 import { describeToast, openToasts, resetToasts, toastModule, toasts as shownToasts } from "@/test-support/toast-mock"
@@ -684,7 +684,7 @@ describe("holds", () => {
 describe("watchRobotCoverage", () => {
   it("asks the commit map of a running robot once its branch changed since it started, once per tip, and drops it once the robot covers the branch", async () => {
     // a commit after the one the robot took, not pushed
-    const ahead = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["newer"], commitsAhead: 1, myCommitsAhead: 1 })
+    const ahead = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["newer"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
     branches.current = { auth: { name: "auth", commits: [{ hash: "newer" }], remoteStatus: ahead } }
     patronus.list = available(robot())
     await list()
@@ -708,7 +708,9 @@ describe("watchRobotCoverage", () => {
   })
 
   it("asks nothing for a finished robot", async () => {
-    branches.current = { auth: { name: "auth", commits: [{ hash: "newer" }], remoteStatus: testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["newer"], commitsAhead: 1 }) } }
+    branches.current = {
+      auth: { name: "auth", commits: [{ hash: "newer" }], remoteStatus: testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["newer"], commitsAhead: 1, action: PUSH }) },
+    }
     patronus.list = available(robot({ status: "failure", finishTime: 200 }))
     await list()
     const stop = watchRobotCoverage()

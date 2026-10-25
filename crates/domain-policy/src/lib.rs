@@ -4,6 +4,9 @@
 //! by tables of its own:
 //!
 //! - `landing_needs`: the running Safe Push a missing declaration of the landing needs names (`name_landing_robots`)
+//! - `push`: what a push of a branch does to its remote branch (`action`: create, push, force, up to date), whether it
+//!   has work, replaces older versions or drops remote commits, and whether a push over a remote that moved goes again
+//!   (`over_moved_remote`)
 //! - `readiness`: the pull request a Safe Push would start from (`start_pull_request`), when an answer of the review
 //!   readiness is the news that approvals arrived (`approval_news`), and whether a subject waits for them
 //!   (`awaits_approval`)
@@ -14,12 +17,15 @@
 //!   `match_table`)
 
 pub mod landing_needs;
+pub mod push;
 pub mod readiness;
 pub mod refresh;
 pub mod robot_match;
 
 #[cfg(test)]
 mod landing_needs_test;
+#[cfg(test)]
+mod push_test;
 #[cfg(test)]
 mod readiness_test;
 #[cfg(test)]

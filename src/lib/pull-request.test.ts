@@ -14,7 +14,7 @@ import {
   waitingReviewers,
 } from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { testRemoteStatus } from "@/stores/test-branch"
+import { PUSH, testRemoteStatus } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@/lib/errors", () => ({ notifyError: () => {} }))
@@ -39,7 +39,7 @@ function pullRequest(patch: Partial<PullRequest> = {}): PullRequest {
 
 const failing: ChecksSummary = { state: "failing", passed: 9, failed: 1, pending: 2, failedNames: ["tests"] }
 /** The remote branch is at the head ("tip"), the local branch has a commit more */
-const unpushed: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
+const unpushed: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
 
 describe("getPullRequestChipState", () => {
   it("colours an open pull request by its review decision", () => {
@@ -80,7 +80,7 @@ describe("formatPullRequestCommitNotice", () => {
   it("asks for a push when the branch changed, waits for GitHub after one, and says quietly that it shows an earlier build", () => {
     const shown = pullRequest({ headRefOid: "3264f30f0123" })
     const notice = (localTip: string, remote: RemoteStatus) => formatPullRequestCommitNotice(shown, getPullRequestChipState(shown, localTip, remote), remote.remoteTip)
-    const ahead = testRemoteStatus({ remoteTip: "3264f30f0123", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
+    const ahead = testRemoteStatus({ remoteTip: "3264f30f0123", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1, action: PUSH })
     expect(notice("88de421d4567", ahead)).toBe("Shows 3264f30f; the branch has changed since: push to update the pull request.")
     expect(notice("88de421d4567", testRemoteStatus({ remoteTip: "88de421d4567" }))).toBe("Shows 3264f30f; GitHub doesn't show the pushed 88de421d yet.")
     expect(notice("88de421d4567", testRemoteStatus({ remoteTip: "3264f30f0123" }))).toBe("Shows an earlier build of the same commits.")

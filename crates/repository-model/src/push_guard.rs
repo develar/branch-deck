@@ -10,7 +10,9 @@
 //!
 //! `RemoteActions::push_branches` (`actions`) is the whole sequence of both hosts: the user's robots (one full list asked
 //! now, best effort), then, in a blocking step, the lock, the checks and the commits of the push fixed
-//! (`prepare_push_branches`), and after the lock the network push of those commits (`PreparedPush::send`). The words of
+//! (`prepare_push_branches`), and after the lock the network push of those commits (`PreparedPush::send`); a remote
+//! branch that moved meanwhile without commits a branch lacks takes the whole sequence once more over its new head
+//! (`PushBranchesParams::over_moved`, `domain_policy::push::over_moved_remote`, as `bd push` does). The words of
 //! the holds are `bd`'s too (`bd push`, `bd safe-push`):
 //! `landed_words`, `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`.
 //!
@@ -253,8 +255,8 @@ pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
 pub fn push_guarded(
   git_executor: &GitCommandExecutor,
   git_common_dir: &Path,
-  table: Option<TableFacts>,
-  robots: Vec<PatronusRobot>,
+  table: Option<&TableFacts>,
+  robots: &[PatronusRobot],
   branch_prefix: &str,
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
@@ -277,7 +279,9 @@ pub fn push_guarded(
 
 /// `push_guarded`, waiting as long as it takes for the pushes of this process that write one of its refs, then for a live
 /// holder of the lock until `canceled`, and at most `unknown_timeout` for one no record names; `on_wait` is called when
-/// the wait for the refs starts
+/// the wait for the refs starts. A push the remote refused because a remote branch moved since the status the user saw
+/// goes again over what it has now, once, when nothing of it is lost (`PushBranchesParams::over_moved`), with its checks
+/// and its lock again; the outcome says what it went over (`pushed_over`)
 #[expect(clippy::too_many_arguments, reason = "push_guarded and the waits its tests control")]
 fn push_guarded_within(
   unknown_timeout: Duration,
@@ -285,28 +289,37 @@ fn push_guarded_within(
   canceled: &dyn Fn() -> bool,
   git_executor: &GitCommandExecutor,
   git_common_dir: &Path,
-  table: Option<TableFacts>,
-  robots: Vec<PatronusRobot>,
+  table: Option<&TableFacts>,
+  robots: &[PatronusRobot],
   branch_prefix: &str,
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushBranchesOutcome> {
   let names: Vec<String> = push_ref_names(branch_prefix, params)?.into_iter().map(|(name, _)| name).collect();
   let _claim = PUSHING_REFS.claim(git_common_dir, &names, on_wait);
-  let prepared = {
-    let mut on_holder = |holder: &_| on_progress(TransferProgress::waiting_for(holder));
-    let _lock = lock_repository_while_held(git_common_dir, unknown_timeout, &mut on_holder, canceled).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
-      Some(locked) => anyhow!(locked_refusal(locked)),
-      None => error,
-    })?;
-    let table = table.ok_or_else(|| anyhow!(NOT_SYNCED_YET))?;
-    let facts = guard_facts(git_executor, &params.repository_path, &table, robots);
-    if let Err(refusal) = check_push(&facts, &params.branches) {
-      bail!(refusal);
-    }
-    prepare_push_branches(git_executor, branch_prefix, params, &facts.table().not_built)?
+  let push = |params: &PushBranchesParams, on_progress: &mut dyn FnMut(TransferProgress)| -> Result<PushBranchesOutcome> {
+    let prepared = {
+      let mut on_holder = |holder: &_| on_progress(TransferProgress::waiting_for(holder));
+      let _lock = lock_repository_while_held(git_common_dir, unknown_timeout, &mut on_holder, canceled).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
+        Some(locked) => anyhow!(locked_refusal(locked)),
+        None => error,
+      })?;
+      let table = table.ok_or_else(|| anyhow!(NOT_SYNCED_YET))?;
+      let facts = guard_facts(git_executor, &params.repository_path, table, robots.to_vec());
+      if let Err(refusal) = check_push(&facts, &params.branches) {
+        bail!(refusal);
+      }
+      prepare_push_branches(git_executor, branch_prefix, params, &facts.table().not_built)?
+    };
+    prepared.send(git_executor, on_progress)
   };
-  prepared.send(git_executor, on_progress)
+  let outcome = push(params, on_progress)?;
+  // the remote moved since the status the user saw, without commits a branch lacks: nobody's work is lost, so the push
+  // goes again over what the remote has now, once, checked and prepared as the first was
+  match params.over_moved(&outcome) {
+    Some(over) => Ok(push(&over, on_progress)?.over(outcome)),
+    None => Ok(outcome),
+  }
 }
 
 impl RemoteActions<'_> {
@@ -332,7 +345,7 @@ impl RemoteActions<'_> {
       let table = self.table(&params.repository_path).await;
       let (git, branch_prefix) = (self.git_executor.clone(), self.branch_prefix.to_owned());
       tokio::task::spawn_blocking(in_current_span(move || {
-        push_guarded(&git, &git_common_dir, table, robots, &branch_prefix, &params, &mut on_progress, &canceled)
+        push_guarded(&git, &git_common_dir, table.as_ref(), &robots, &branch_prefix, &params, &mut on_progress, &canceled)
       }))
       .await?
     };

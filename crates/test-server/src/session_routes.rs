@@ -13,7 +13,7 @@
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
 use crate::remote_host::HeldAnswer;
 use crate::state::AppState;
-use crate::sync_overrides::OverridingReporter;
+use crate::sync_overrides::{OverridingReporter, test_remote_status};
 use crate::tauri_command_bridge::{
   CommandResult, Rejection, branch_prefix_now, branch_prefix_of, branch_rules_of, failed, failing_robots, list_pull_requests_of, list_robots, poll_robots, profiles_of,
   readiness_of, repository_by_path, review_requests_of, robot_details_of, robot_problems,
@@ -37,7 +37,7 @@ use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::runtime::{RunSetup, SessionEnvironment, pushed_heads};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::RemoteSubject;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -347,8 +347,9 @@ pub struct PushedInPageRequest {
   repository_path: String,
   /// The branches of the push, as the page sent them to `push_branch` or `push_branches`
   branches: Vec<StackPushBranch>,
-  /// The remote statuses the page's answer has, in the order of the branches
-  remote_statuses: Vec<RemoteStatusUpdate>,
+  /// The remote statuses the page's answer has, in the order of the branches, as a test writes them: their counts, the
+  /// action derived here (`test_remote_status`)
+  remote_statuses: Vec<serde_json::Value>,
   /// The answer said the remote moved: nothing was pushed
   #[serde(default)]
   moved: bool,
@@ -358,13 +359,19 @@ pub struct PushedInPageRequest {
 /// test of a moved remote or of the progress fakes the remote there): its outcome goes into the table of the session
 /// of the repository as the end of the app's push writes it (`TableState::end_push`), and the answer is the version of
 /// the view whose patch has it (`None`: no window shows the repository), which the page's answer names as the app's
-/// command does. Unlike the app's push (`Sessions::push`) it moved no remote-tracking ref, so the inputs the session
-/// knows stay as they are
-pub async fn pushed_in_page(State(state): State<Arc<AppState>>, Json(request): Json<PushedInPageRequest>) -> CommandResult<Option<Version>> {
+/// command does, with the statuses as the app's push answers them (their action derived). Unlike the app's push
+/// (`Sessions::push`) it moved no remote-tracking ref, so the inputs the session knows stay as they are
+pub async fn pushed_in_page(State(state): State<Arc<AppState>>, Json(request): Json<PushedInPageRequest>) -> CommandResult<PushedInPage> {
   let key = session_key(&state, &request.repository_path).await?;
   let subjects: Vec<RemoteSubject> = request.branches.iter().map(RemoteSubject::of).collect();
-  let heads = pushed_heads(&subjects, &request.remote_statuses);
-  let statuses = request.remote_statuses;
+  let remote_statuses = request
+    .remote_statuses
+    .into_iter()
+    .map(test_remote_status)
+    .collect::<anyhow::Result<Vec<_>>>()
+    .map_err(|error| failed("take the push of the page", error))?;
+  let heads = pushed_heads(&subjects, &remote_statuses);
+  let statuses = remote_statuses.clone();
   let applied = state.sessions.apply(&key, move |table| {
     table.begin_push(&subjects);
     table.end_push(&subjects, Some(statuses));
@@ -374,7 +381,15 @@ pub async fn pushed_in_page(State(state): State<Arc<AppState>>, Json(request): J
     // the pull requests are listed as after the app's push
     state.sessions.tell_push(&key, heads);
   }
-  Ok(Json(version))
+  Ok(Json(PushedInPage { version, remote_statuses }))
+}
+
+/// What `pushed_in_page` answers: the version of the view with the push, and the remote statuses of the page's answer
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushedInPage {
+  version: Option<Version>,
+  remote_statuses: Vec<RemoteStatusUpdate>,
 }
 
 /// Asks the session of the repository to read a fact again, as the app's `refresh_facts`: the version after the patch

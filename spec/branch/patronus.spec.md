@@ -53,6 +53,7 @@ targets:
   - ../../src/hooks/useSafePush.ts
   - ../../src/lib/safe-push-decision.ts
   - ../../src/lib/safe-push-start.ts
+  - ../../crates/domain-policy/src/push.rs
   - ../../src/lib/target-conflict.ts
   - ../../crates/sync-core/src/target_conflict.rs
   - ../../crates/git-ops/src/trial_rebase.rs
@@ -623,7 +624,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   on another remote can't be started.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
 - A branch whose commits the remote lacks is pushed first, decided by content as the push button decides it
-  (`getStartPush` over `getPushAction`, never by the hash of the tip). The push is part of the start: no note narrates
+  (`getStartPush` over the action Rust decides of the remote status, `domain_policy::push::action`, never by the hash of the tip). The push is part of the start: no note narrates
   it; while it runs the slot button shows it as the compact push of the row does, the spinner and "45%" ("Pushing 45%"
   its name, "Pushing 2 branches 45%" for the one push of a stack in its hover and in the preview), at the width it had
   at rest, the

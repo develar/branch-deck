@@ -64,8 +64,8 @@ export interface LandingNodeFacts {
   /** A running move of the row, or of a row whose Safe Push lands it (`findRunningMove`): the move is made */
   readonly move: FoundMove | null
   /**
-   * The remote lacks work of the branch (`getPushAction`) and no push of it runs: the step a repository without Patronus
-   * and GitHub shows
+   * The remote lacks work of the branch (Rust's action of its remote status) and no push of it runs: the step a
+   * repository without Patronus and GitHub shows
    */
   readonly pushPending: boolean
 }

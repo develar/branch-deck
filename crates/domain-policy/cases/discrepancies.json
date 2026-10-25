@@ -89,15 +89,19 @@
     "id": "push-over-a-moved-remote",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "a push over a remote branch that moved without commits the branch lacks: the app pushes again once, bd answers lease_rejected",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/cli/agent-cli.spec.md#bd-push"],
+    "title": "a push over a remote branch that moved without commits the branch lacks: the app pushed again once in TS, bd answered lease_rejected. Since s8-policy both push again once in Rust by one rule (over_moved_remote) and say what they went over (pushed_over); a remote with someone's commits stays lease_rejected for bd and the toast for the app",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/cli/agent-cli.spec.md#bd-push", "spec/repository/outgoing.spec.md#push"],
     "discrepancy": "D4",
+    "closed": "s8-policy",
     "today": {
       "app": [
-        "src/lib/git/push.ts#function pushesOverMovedRemote",
-        "src/lib/git/push.test.ts#pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost"
+        "crates/repository-model/src/push_guard.rs#match params.over_moved(&outcome) {",
+        "crates/repository-model/src/push_guard_test.rs#fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks"
       ],
-      "bd": ["crates/bd-remote/src/push_test.rs#fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it"]
+      "bd": [
+        "crates/bd-remote/src/push_command.rs#&& moved.iter().all(|index| remote_statuses.get(*index).is_some_and(over_moved_remote))",
+        "crates/bd-remote/src/push_test.rs#fn pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch"
+      ]
     }
   },
   {
@@ -256,7 +260,7 @@
     "discrepancy": "D12",
     "twins": ["remote-behind"],
     "today": {
-      "app": ["src/hooks/useSafePush.ts#const startPush = getStartPush(getPushAction({ remoteStatus }), pushOrder.length > 1)"],
+      "app": ["src/hooks/useSafePush.ts#const startPush = getStartPush(remoteStatus?.action ?? null, pushOrder.length > 1)"],
       "bd": ["crates/bd-remote/src/safe_push_command.rs#the remote branch has {} commits the branch doesn't, and the baseline neither"]
     }
   },

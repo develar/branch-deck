@@ -9,7 +9,7 @@ import { branchSyncStore } from "@/stores/branch-sync"
 import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
 import { reviewReadinessStore } from "@/stores/review-readiness"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { forcePush, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { branchFacts, landedWhole, robotOf, testPatronusRepository } from "@/test-support/patronus-repository"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
@@ -216,7 +216,7 @@ describe("the next step of the whole stack", () => {
     const rebuilt: Branch = {
       ...deploy,
       commits: deploy.commits.map(commit => ({ ...commit, hash: "deploy-rebuilt" })),
-      remoteStatus: testRemoteStatus({ remoteTip: "deploy-tip", ancestorCommitsAhead: 1, fastForward: false }),
+      remoteStatus: testRemoteStatus({ remoteTip: "deploy-tip", ancestorCommitsAhead: 1, fastForward: false, action: forcePush({ replaces: true }) }),
     }
     setStack(null, [...branches.slice(0, 2), rebuilt])
     setRobots(failed)

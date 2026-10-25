@@ -523,7 +523,7 @@ impl Sessions {
     };
     let outcome = push.await;
     let statuses = outcome.as_ref().ok().map(|outcome| match outcome {
-      PushBranchesOutcome::Pushed { remote_statuses } | PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => remote_statuses.clone(),
+      PushBranchesOutcome::Pushed { remote_statuses, .. } | PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => remote_statuses.clone(),
     });
     let pushed = matches!(outcome, Ok(PushBranchesOutcome::Pushed { .. }));
     let version = running.end(statuses, pushed).version().await;

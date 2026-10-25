@@ -18,7 +18,7 @@ import {
   stackRootOfReadinessKey,
 } from "@/lib/whole-stack"
 import type { StackBranch } from "@/stores/branch-sync"
-import { testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
 
 function stack(patch: Partial<StackBranch> = {}): StackBranch {
   return {
@@ -75,8 +75,8 @@ describe("the whole stack", () => {
   })
 
   it("goes along with Push with Children of its root once it is on the remote or its pull request is open, while built, with work its remote lacks, and not held", () => {
-    const ahead = testRemoteStatus({ commitsAhead: 2, remoteTip: "old" })
-    const absent = testRemoteStatus({ exists: false, commitsAhead: 4, remoteTip: null })
+    const ahead = testRemoteStatus({ commitsAhead: 2, remoteTip: "old", action: PUSH })
+    const absent = testRemoteStatus({ exists: false, commitsAhead: 4, remoteTip: null, action: CREATE })
     expect(getStackBranchAlong("air", stack({ remoteStatus: ahead }), undefined)).toEqual({ kind: "along" })
     expect(getStackBranchAlong("air", stack({ remoteStatus: absent }), pullRequest)).toEqual({ kind: "along" })
     // no branch to publish by itself: its pull request or its Safe Push puts it on the remote
@@ -85,7 +85,13 @@ describe("the whole stack", () => {
     expect(getStackBranchAlong("air", stack({ remoteStatus: testRemoteStatus({ remoteTip: "tip" }) }), pullRequest)).toEqual({ kind: "upToDate" })
     // never one the sync didn't build, nor one whose push drops remote commits it lacks
     expect(getStackBranchAlong("air", stack({ state: "Stale", error: "Not rebuilt", remoteStatus: ahead }), undefined)).toEqual({ kind: "notBuilt", reason: "Not rebuilt" })
-    expect(getStackBranchAlong("air", stack({ remoteStatus: testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false }) }), undefined)).toEqual({
+    expect(
+      getStackBranchAlong(
+        "air",
+        stack({ remoteStatus: testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false, action: forcePush({ drops: true }) }) }),
+        undefined,
+      ),
+    ).toEqual({
       kind: "dropsRemote",
     })
     // never one that is held: every branch of the stack landed, or its own robot runs

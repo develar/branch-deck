@@ -3,9 +3,8 @@ import type { ParkedState } from "@/lib/parked"
 import { formatParkedBlocker } from "@/lib/parked"
 import type { LandedBy, PushHold } from "@/lib/patronus"
 import { formatLandingSubject, isLandedCommit } from "@/lib/patronus"
-import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { formatForcePushPart } from "@/lib/remote-status"
-import { needsPush, stackAncestors } from "@/lib/stack"
+import { stackAncestors } from "@/lib/stack"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 
 /** One push of a Push Up to Here, root first */
@@ -93,7 +92,9 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, hol
     if (stop !== null) {
       return stop
     }
-    if (ancestor.remoteStatus != null && needsPush(ancestor) && dropsRemoteCommits(ancestor.remoteStatus)) {
+    // the blocker above refused an ancestor the sync did not build: Rust's action of its remote status decides
+    const action = ancestor.remoteStatus?.action
+    if (ancestor.remoteStatus != null && action?.kind === "force" && action.drops) {
       const behind = ancestor.remoteStatus.commitsBehind
       return {
         ok: false,
@@ -101,7 +102,7 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, hol
         show: ancestor.name,
       }
     }
-    if (needsPush(ancestor)) {
+    if (action !== undefined && action.kind !== "upToDate") {
       const total = ancestor.remoteStatus?.unpushedCommits.length ?? 0
       steps.push({ name: ancestor.name, sent: total, total })
     }
@@ -139,7 +140,7 @@ function blocker(branch: Branch, holdOf: (name: string) => PushHold | null): Pus
  * "login · 2 of 5 commits" for a part of the branch (`sent` of its commits for the remote)
  */
 export function formatStackPushLine(branch: Branch, sent: number | null = null): string {
-  const action = getPushAction(branch)
+  const action = branch.remoteStatus?.action.kind
   const parts = [branch.name]
   const ahead = branch.remoteStatus?.commitsAhead ?? 0
   if (sent !== null && sent < ahead) {

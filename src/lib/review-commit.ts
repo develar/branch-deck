@@ -1,4 +1,3 @@
-import { isRemoteUpToDate } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 
 /**
@@ -19,7 +18,7 @@ export function getReviewCommitState(commit: string | null, localTip: string | u
     return "current"
   }
   // by content: a branch only rebased onto a newer baseline is up to date, the remote has its commits
-  if (!isRemoteUpToDate(remote)) {
+  if (remote.action.kind !== "upToDate") {
     return "changedLocally"
   }
   if (commit !== remote.remoteTip) {

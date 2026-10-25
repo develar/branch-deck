@@ -15,8 +15,9 @@ use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use domain_policy::push;
 use domain_types::issue_navigation::IssueNavigationConfig;
-use domain_types::{ProgressReporter, SyncEvent};
+use domain_types::{ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -67,12 +68,21 @@ impl SyncOverrides {
           if let Some(keep) = remote.keep_unpushed {
             status.unpushed_commits.truncate(keep);
           }
-          SyncEvent::RemoteStatusUpdate(with_fields(&status, &remote.fields)?)
+          let mut status = with_fields(&status, &remote.fields)?;
+          // the counts are the test's, the action is the rule's on them, as the app's sync derives it
+          status.action = push::action(&status);
+          SyncEvent::RemoteStatusUpdate(status)
         }
       },
       SyncEvent::StackBranchUpdate(update) => match self.stacks.get(&update.root) {
         None => SyncEvent::StackBranchUpdate(update),
-        Some(fields) => SyncEvent::StackBranchUpdate(Box::new(with_fields(&*update, fields)?)),
+        Some(fields) => {
+          let mut fields = fields.clone();
+          if let Some(remote) = fields.get_mut("remote").filter(|remote| remote.is_object()) {
+            *remote = serde_json::to_value(test_remote_status(remote.take())?)?;
+          }
+          SyncEvent::StackBranchUpdate(Box::new(with_fields(&*update, &fields)?))
+        }
       },
       SyncEvent::IssueNavigationConfig { config } => SyncEvent::IssueNavigationConfig {
         config: self.issue_links.clone().or(config),
@@ -80,6 +90,16 @@ impl SyncOverrides {
       event => event,
     }))
   }
+}
+
+/// A remote status as a test writes it, its counts without the `action`, which the server derives from them as the app's
+/// sync does (`domain_policy::push::action`): a test states what the remote has, never the rule's answer
+pub fn test_remote_status(mut json: Value) -> anyhow::Result<RemoteStatusUpdate> {
+  let object = json.as_object_mut().ok_or_else(|| anyhow::anyhow!("A remote status is no JSON object"))?;
+  object.insert("action".to_string(), serde_json::to_value(PushAction::UpToDate)?);
+  let mut status: RemoteStatusUpdate = serde_json::from_value(json)?;
+  status.action = push::action(&status);
+  Ok(status)
 }
 
 /// `value` with `fields` in place of its own, as the JSON of the app names them

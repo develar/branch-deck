@@ -3,7 +3,6 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { reapplyBranch } from "@/lib/git/reapply"
 import { pushUnappliedBranch } from "@/lib/git/unapplied-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { getPushAction } from "@/lib/push-summary"
 import { openInline } from "@/stores/inline-row-action"
 import type { UnappliedBranch } from "@/stores/unapplied-branches"
 import { useUnappliedBranch } from "@/stores/unapplied-branches"
@@ -21,7 +20,7 @@ export function useUnappliedBranchMenu(name: string): MenuItemGroups {
  * it as it is), Safe Push disabled with why, Copy, and Delete Unapplied Branch…
  */
 export function getUnappliedBranchMenu(name: string, branch: UnappliedBranch | undefined): MenuItemGroups {
-  const action = getPushAction({ remoteStatus: branch?.remoteStatus ?? null }) ?? "create"
+  const action = branch?.remoteStatus?.action.kind ?? "create"
   const push: MenuItem = {
     id: "push",
     label: action === "force" ? "Force Push" : "Push",

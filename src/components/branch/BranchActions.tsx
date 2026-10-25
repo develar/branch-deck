@@ -9,7 +9,6 @@ import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
 import { firstPushPending, isFirstPushInLanding, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
-import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { branchSubject, operationLabel, stopWaitingItem, useObjectBusy, useUnclaimedOperation } from "@/stores/operations"
@@ -58,8 +57,9 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   // until Patronus and GitHub answer whether the landing pushes it, a first push shows no button either: one shown now
   // would leave at their answer and move the columns under the pointer (the settled layout keeps the track where it shows)
   const landingPending = firstPushPending(usePatronusPending(), usePullRequestsLoading())
-  const firstPushWaits = !landingPushes && landingPending !== null && getPushAction(branch) === "create"
-  const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null || firstPush || firstPushWaits)
+  const pushAction = branch.remoteStatus?.action.kind
+  const firstPushWaits = !landingPushes && landingPending !== null && pushAction === "create"
+  const upToDate = idle && ((pushAction === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null || firstPush || firstPushWaits)
   return (
     <ActionTracks>
       <ColumnTrack track="push">{canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}</ColumnTrack>

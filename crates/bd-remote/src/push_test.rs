@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{PREFIX, assert_error, branch, commit_all, git, next_steps, run_in, write};
-use bd_cli::remote_fixture_test::{LANDED_SUBJECTS, land_auth_by_content, push_from_elsewhere_to, remote_tip, repo_with_remote, their_change};
+use bd_cli::remote_fixture_test::{LANDED_SUBJECTS, auth_remote_moved_back, land_auth_by_content, push_from_elsewhere_to, remote_tip, repo_with_remote, their_change};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -327,11 +327,17 @@ fn a_plain_push_replaces_a_remote_commit_the_branch_has_by_content() {
   write(&repo, &file, &content);
   commit_all(&repo, "(auth) Their fix", 1_700_000_500);
 
-  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
-  assert_eq!(exit_code, 0, "{output}");
+  let output = push_auth_to_its_tip(&repo, &remote);
   let auth = branch(&output, "auth");
   assert_eq!((&auth["lease"], &auth["lease_source"]), (&json!(short_id(&theirs)), &json!("expected")));
-  assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
+/// `bd push auth` went: the remote branch is at the local virtual branch. The output
+fn push_auth_to_its_tip(repo: &TestRepo, remote: &TempDir) -> Value {
+  let (exit_code, output) = run_in(repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(remote_tip(remote, AUTH), git(repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+  output
 }
 
 /// The subjects of the `dropped_commits` of a remote status in an output
@@ -388,6 +394,21 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--force"]);
   assert_pushed(&output, exit_code, "forced", &other);
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
+/// pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost. Someone moved
+/// the remote branch back to an older commit of the branch since the sync: the lease the sync saw is refused, bd fetches
+/// it and pushes again, once, leased on what the remote has now, and says so (`pushed_over`), as the app's push does
+#[test_log::test]
+fn pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let older = auth_remote_moved_back(&repo, &remote);
+
+  let output = push_auth_to_its_tip(&repo, &remote);
+  let auth = branch(&output, "auth");
+  assert_eq!((&auth["lease"], &auth["pushed_over"]), (&json!(short_id(&older)), &json!(true)));
+  let (_, schema) = run_in(&repo, &["schema"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 }
 
 /// The push of a stack is atomic: someone else's commit on the remote branch of `login` refuses `auth` too. bd fetched

@@ -1,8 +1,9 @@
 //! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the app's push of
 //! one branch and of a stack (`push_branches`, `repository_model::push_guard`), and `bd push`, all through one leased push
 //! (`push_leased`). A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched
-//! and reported, never overwritten. The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the
-//! same way.
+//! and reported, never overwritten blindly: the push goes again over what it has now, once, only when nothing of it is
+//! lost (`domain_policy::push::over_moved_remote`; the app through `PushBranchesParams::over_moved`, `bd push` on its
+//! own leases). The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the same way.
 
 use crate::config_snapshot::ConfigSnapshot;
 use crate::push_lease::{PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, prepare_push_expecting, push_refs};
@@ -10,6 +11,7 @@ use crate::push_size::{PushTooLarge, check_push_size};
 use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_remote_statuses};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
+use domain_policy::push::over_moved_remote;
 use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::stack::BlockReason;
@@ -51,9 +53,14 @@ pub struct PushBranchParams {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PushOutcome {
-  /// The remote branch is at the pushed commit
+  /// The remote branch is at the pushed commit. `pushed_over`: the remote branch had moved since the status the user
+  /// saw, without commits the branch lacks, so the push went again, once, over this status of it (fetched after the
+  /// first push was refused); `None` when the first push went
   #[serde(rename_all = "camelCase")]
-  Pushed { remote_status: RemoteStatusUpdate },
+  Pushed {
+    remote_status: RemoteStatusUpdate,
+    pushed_over: Option<RemoteStatusUpdate>,
+  },
   /// The remote branch was not where the user saw it (`expected_remote`): nothing was pushed. The branch was fetched,
   /// and `remote_status` shows what the remote has now; a push with its `remote_tip` replaces that
   #[serde(rename_all = "camelCase")]
@@ -113,12 +120,16 @@ impl PushBranchParams {
 impl PushOutcome {
   /// What the stack push of one branch (`PushBranchParams::as_stack`) did to it
   pub fn of_stack(outcome: PushBranchesOutcome) -> Result<Self> {
-    let (remote_statuses, moved) = match outcome {
-      PushBranchesOutcome::Pushed { remote_statuses } => (remote_statuses, false),
-      PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => (remote_statuses, true),
-    };
-    let remote_status = remote_statuses.into_iter().next().context("No remote status of the pushed branch")?;
-    Ok(if moved { Self::RemoteMoved { remote_status } } else { Self::Pushed { remote_status } })
+    let first = |statuses: Vec<RemoteStatusUpdate>| statuses.into_iter().next().context("No remote status of the pushed branch");
+    Ok(match outcome {
+      PushBranchesOutcome::Pushed { remote_statuses, pushed_over } => Self::Pushed {
+        remote_status: first(remote_statuses)?,
+        pushed_over: pushed_over.into_iter().next(),
+      },
+      PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => Self::RemoteMoved {
+        remote_status: first(remote_statuses)?,
+      },
+    })
   }
 }
 
@@ -168,9 +179,15 @@ pub struct PushBranchesParams {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PushBranchesOutcome {
-  /// Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches
+  /// Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches.
+  /// `pushed_over`: the remote branch of one had moved since the status the user saw, without commits it lacks, so the
+  /// push went again, once, over these statuses of every branch, fetched after the first push was refused, in the order
+  /// of the branches (`PushBranchesParams::over_moved`); empty when the first push went
   #[serde(rename_all = "camelCase")]
-  Pushed { remote_statuses: Vec<RemoteStatusUpdate> },
+  Pushed {
+    remote_statuses: Vec<RemoteStatusUpdate>,
+    pushed_over: Vec<RemoteStatusUpdate>,
+  },
   /// The remote branch of `branch_name` (the first such, parents first) was not where the user saw it, so nothing was
   /// pushed: the push is atomic. Every branch was fetched, and `remote_statuses` show what the remote has now, in the
   /// order of the branches; a push with the `remote_tip` of `branch_name` replaces it. `whole_stack`: the one that moved
@@ -182,6 +199,59 @@ pub enum PushBranchesOutcome {
     whole_stack: bool,
     remote_statuses: Vec<RemoteStatusUpdate>,
   },
+}
+
+impl PushBranchesParams {
+  /// The push again over what the remote has now, after `refused` (the outcome of this push) found a remote branch moved
+  /// since the status the user saw: every branch leased on the head fetched after the refusal, when the remote of each
+  /// one that moved has no commits its branch lacks and the branch has work for it
+  /// (`domain_policy::push::over_moved_remote`); `None` for a push that went, or when a moved remote has someone's
+  /// commits or the branch as it is, which the outcome tells instead
+  pub fn over_moved(&self, refused: &PushBranchesOutcome) -> Option<Self> {
+    let PushBranchesOutcome::RemoteMoved { remote_statuses, .. } = refused else {
+      return None;
+    };
+    if remote_statuses.len() != self.branches.len() {
+      return None;
+    }
+    let moved: Vec<&RemoteStatusUpdate> = self
+      .branches
+      .iter()
+      .zip(remote_statuses)
+      .filter(|(branch, status)| status.remote_tip != branch.expected_remote)
+      .map(|(_, status)| status)
+      .collect();
+    if moved.is_empty() || !moved.into_iter().all(over_moved_remote) {
+      return None;
+    }
+    let branches = self
+      .branches
+      .iter()
+      .zip(remote_statuses)
+      .map(|(branch, status)| StackPushBranch {
+        expected_remote: status.remote_tip.clone(),
+        ..branch.clone()
+      })
+      .collect();
+    Some(Self {
+      repository_path: self.repository_path.clone(),
+      my_email: self.my_email.clone(),
+      baseline_branch: self.baseline_branch.clone(),
+      branches,
+    })
+  }
+}
+
+impl PushBranchesOutcome {
+  /// This outcome of the push again over the moved remote (`PushBranchesParams::over_moved`) after `refused`, the
+  /// first push: one that went says what it went over
+  #[must_use]
+  pub fn over(self, refused: Self) -> Self {
+    match (self, refused) {
+      (Self::Pushed { remote_statuses, .. }, Self::RemoteMoved { remote_statuses: pushed_over, .. }) => Self::Pushed { remote_statuses, pushed_over },
+      (outcome, _) => outcome,
+    }
+  }
 }
 
 /// Force-pushes the virtual branches to `origin` in one atomic `git push`, each leased on the remote head the user saw
@@ -305,6 +375,7 @@ impl PreparedPush {
     match push_leased(git_executor, &target, &self.branches, options, Some(on_progress))? {
       LeasedPush::Pushed(_) => Ok(PushBranchesOutcome::Pushed {
         remote_statuses: leased_statuses(git_executor, &target, &self.branches).context("Failed to compute remote status")?,
+        pushed_over: Vec::new(),
       }),
       LeasedPush::RemoteMoved { moved, remote_statuses } => Ok(PushBranchesOutcome::RemoteMoved {
         branch_name: self.branches[moved[0]].name.clone(),

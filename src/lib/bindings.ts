@@ -3382,6 +3382,25 @@ export type PullRequestsView = {
 	stackPullRequests: { [key in string]: PullRequest },
 };
 
+/**
+ *  What a push of a branch does to its remote branch, by its remote status (`domain_policy::push::action`): the first
+ *  push creates it, a fast-forward pushes, any other push forces, and a remote that has the branch as it is, by content,
+ *  needs none
+ */
+export type PushAction = 
+/**  No remote branch: the push creates it */
+{ kind: "create" } | 
+/**  The remote branch is an ancestor of the branch and lacks some of its commits */
+{ kind: "push" } | 
+/**
+ *  Not a fast-forward: the branch was rebased, the remote has older versions of its commits (`replaces`: amended,
+ *  reworded, restacked or landed ones, or an older piece of a stacked branch) or commits it lacks (`drops`: someone's
+ *  work, which the push asks for first)
+ */
+{ kind: "force"; drops: boolean; replaces: boolean } | 
+/**  The remote has the branch as it is, by content: nothing to push */
+{ kind: "upToDate" };
+
 export type PushBranchParams = {
 	repositoryPath: string,
 	branchName: string,
@@ -3407,8 +3426,13 @@ export type PushBranchParams = {
 
 /**  What a stack push did */
 export type PushBranchesOutcome = 
-/**  Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches */
-{ type: "pushed"; remoteStatuses: RemoteStatusUpdate[] } | 
+/**
+ *  Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches.
+ *  `pushed_over`: the remote branch of one had moved since the status the user saw, without commits it lacks, so the
+ *  push went again, once, over these statuses of every branch, fetched after the first push was refused, in the order
+ *  of the branches (`PushBranchesParams::over_moved`); empty when the first push went
+ */
+{ type: "pushed"; remoteStatuses: RemoteStatusUpdate[]; pushedOver: RemoteStatusUpdate[] } | 
 /**
  *  The remote branch of `branch_name` (the first such, parents first) was not where the user saw it, so nothing was
  *  pushed: the push is atomic. Every branch was fetched, and `remote_statuses` show what the remote has now, in the
@@ -3428,8 +3452,12 @@ export type PushBranchesParams = {
 
 /**  What a push did */
 export type PushOutcome = 
-/**  The remote branch is at the pushed commit */
-{ type: "pushed"; remoteStatus: RemoteStatusUpdate } | 
+/**
+ *  The remote branch is at the pushed commit. `pushed_over`: the remote branch had moved since the status the user
+ *  saw, without commits the branch lacks, so the push went again, once, over this status of it (fetched after the
+ *  first push was refused); `None` when the first push went
+ */
+{ type: "pushed"; remoteStatus: RemoteStatusUpdate; pushedOver: RemoteStatusUpdate | null } | 
 /**
  *  The remote branch was not where the user saw it (`expected_remote`): nothing was pushed. The branch was fetched,
  *  and `remote_status` shows what the remote has now; a push with its `remote_tip` replaces that
@@ -3589,6 +3617,11 @@ export type RemoteStatusUpdate = {
 	fastForward: boolean,
 	/**  Last time this branch was pushed to the remote (Unix timestamp, 0 = never pushed) */
 	lastPushTime: number,
+	/**
+	 *  What a push of the branch does over this status: `domain_policy::push::action` of the counts above, set where the
+	 *  status is computed (`sync_core::remote_status`), so the app and `bd` read one answer
+	 */
+	action: PushAction,
 };
 
 export type RenameBranchParams = {

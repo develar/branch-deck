@@ -122,7 +122,7 @@ fn push_as_shown(local: &TestRepo) -> PushOutcome {
 
 fn pushed(outcome: PushOutcome) -> RemoteStatusUpdate {
   match outcome {
-    PushOutcome::Pushed { remote_status } => remote_status,
+    PushOutcome::Pushed { remote_status, .. } => remote_status,
     PushOutcome::RemoteMoved { remote_status } => panic!("the remote moved: {remote_status:?}"),
   }
 }
@@ -130,7 +130,7 @@ fn pushed(outcome: PushOutcome) -> RemoteStatusUpdate {
 fn remote_moved(outcome: PushOutcome) -> RemoteStatusUpdate {
   match outcome {
     PushOutcome::RemoteMoved { remote_status } => remote_status,
-    PushOutcome::Pushed { remote_status } => panic!("pushed: {remote_status:?}"),
+    PushOutcome::Pushed { remote_status, .. } => panic!("pushed: {remote_status:?}"),
   }
 }
 
@@ -504,7 +504,7 @@ fn stack_pushed_as_is(local: &TestRepo, params: &PushBranchesParams) -> Vec<Remo
 
 fn stack_pushed(outcome: PushBranchesOutcome) -> Vec<RemoteStatusUpdate> {
   match outcome {
-    PushBranchesOutcome::Pushed { remote_statuses } => remote_statuses,
+    PushBranchesOutcome::Pushed { remote_statuses, .. } => remote_statuses,
     PushBranchesOutcome::RemoteMoved { branch_name, .. } => panic!("the remote of {branch_name} moved"),
   }
 }

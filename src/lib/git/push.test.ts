@@ -11,7 +11,7 @@ import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { operationsStore, runOperation } from "@/stores/operations"
 import { pullRequestsStore } from "@/stores/pull-requests"
-import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
 import { openToasts, resetToasts, toasts } from "@/test-support/toast-mock"
 
 const { calls, records, robots, stores } = vi.hoisted(() => ({
@@ -69,6 +69,11 @@ const { calls, records, robots, stores } = vi.hoisted(() => ({
     expectedRemotes: [] as (string | null)[],
     /** What the next pushes find on the remote instead of pushing (`remoteMoved`), in turn: its commits behind, its tip */
     movedRemotes: [] as { commitsBehind: number; remoteTip: string }[],
+    /**
+     * The remote heads the next pushes went over in Rust, in turn: the remote had moved without commits the branch lacks,
+     * so the backend pushed again over it (`pushedOver`); for a stack push, of the branch at `branch`
+     */
+    pushedOver: [] as { branch: string; remoteTip: string }[],
     /** The stack pushes wait for it, once they are asked: what a second request sees while a push runs */
     pushGate: Promise.resolve(),
     /** Why the next stack push fails, as the backend says it; null: it pushes */
@@ -133,7 +138,9 @@ vi.mock("@/lib/bindings", () => ({
       const moved = stores.movedRemotes.shift()
       const remoteStatus = { branchName: params.branchName, remoteExists: true, remoteTip: moved?.remoteTip ?? "tip", commitsBehind: moved?.commitsBehind ?? 0 }
       applyToSession([params], [remoteStatus])
-      return { status: "ok", data: { outcome: { type: moved === undefined ? "pushed" : "remoteMoved", remoteStatus }, version: null } }
+      const over = stores.pushedOver.shift()
+      const pushedOver = over === undefined ? null : { branchName: params.branchName, remoteExists: true, remoteTip: over.remoteTip }
+      return { status: "ok", data: { outcome: moved === undefined ? { type: "pushed", remoteStatus, pushedOver } : { type: "remoteMoved", remoteStatus }, version: null } }
     },
     /** One push of the branches, "push auth login@<tip>" */
     /** One push of the branches, "push auth login@<tip> stack:auth" (the stack branch of the whole stack of auth) */
@@ -160,12 +167,22 @@ vi.mock("@/lib/bindings", () => ({
       })
       const wholeStack = moved?.branch.startsWith("stack:") === true
       applyToSession(params.branches, remoteStatuses)
+      const over = stores.pushedOver.shift()
+      // the statuses the push went over: the moved remote at its new head, the others as the rows showed them
+      const pushedOver =
+        over === undefined
+          ? []
+          : params.branches.map(branch =>
+              nameOf(branch) === over.branch
+                ? { branchName: branch.branchName, remoteExists: true, remoteTip: over.remoteTip }
+                : { branchName: branch.branchName, remoteExists: branch.expectedRemote !== null, remoteTip: branch.expectedRemote },
+            )
       return {
         status: "ok",
         data: {
           outcome:
             moved === undefined
-              ? { type: "pushed", remoteStatuses }
+              ? { type: "pushed", remoteStatuses, pushedOver }
               : { type: "remoteMoved", branchName: wholeStack ? moved.branch.slice("stack:".length) : moved.branch, wholeStack, remoteStatuses },
           version: null,
         },
@@ -202,12 +219,14 @@ interface RemoteStatusFields {
 }
 
 function remoteStatusOf(status: RemoteStatusFields): RemoteStatus {
+  const commitsBehind = status.commitsBehind ?? 0
+  // a remote that moved still lacks the branch's commit
+  const commitsAhead = status.remoteTip === "tip" ? 0 : 1
   return {
     exists: status.remoteExists,
     unpushedCommits: [],
-    // a remote that moved still lacks the branch's commit
-    commitsAhead: status.remoteTip === "tip" ? 0 : 1,
-    commitsBehind: status.commitsBehind ?? 0,
+    commitsAhead,
+    commitsBehind,
     commitsAmended: 0,
     commitsRestacked: 0,
     commitsLanded: 0,
@@ -218,6 +237,8 @@ function remoteStatusOf(status: RemoteStatusFields): RemoteStatus {
     lastPushTime: 1,
     remoteTip: status.remoteTip,
     droppedCommits: [],
+    // as Rust answers the action of these counts
+    action: !status.remoteExists ? CREATE : commitsBehind > 0 ? forcePush({ drops: true }) : commitsAhead > 0 ? PUSH : UP_TO_DATE,
   }
 }
 
@@ -327,7 +348,14 @@ const COMPARE = "https://github.com/JetBrains/ultimate/compare"
 
 /** A branch of one commit the remote lacks; `remote: false` when it isn't on the remote yet */
 function addBranch(name: string, parent: string | null, remote = true): void {
-  const remoteStatus = testRemoteStatus({ exists: remote, unpushedCommits: ["c"], commitsAhead: 1, myCommitsAhead: 1, remoteTip: remote ? "old-tip" : null })
+  const remoteStatus = testRemoteStatus({
+    exists: remote,
+    unpushedCommits: ["c"],
+    commitsAhead: 1,
+    myCommitsAhead: 1,
+    remoteTip: remote ? "old-tip" : null,
+    action: remote ? PUSH : CREATE,
+  })
   stores.branches[name] = testBranch(name, parent, { remoteStatus, commits: [{ hash: `${name}-tip` }] as unknown as Branch["commits"], myEmail: "me@example.com" })
 }
 
@@ -356,6 +384,7 @@ beforeEach(() => {
   stores.pullRequests = {}
   stores.expectedRemotes = []
   stores.movedRemotes = []
+  stores.pushedOver = []
   stores.retargetError = null
   stores.movedInStack = []
   stores.descendants = {}
@@ -402,7 +431,7 @@ describe("the toast of a push", () => {
 
     stores.branches.auth = {
       ...stores.branches.auth!,
-      remoteStatus: testRemoteStatus({ exists: true, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: ["a2"], remoteTip: "a1" }),
+      remoteStatus: testRemoteStatus({ exists: true, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: ["a2"], remoteTip: "a1", action: PUSH }),
     }
     expect(await pushBranch("auth")).toBe(true)
     expect(openToasts()).toEqual([pushed])
@@ -438,7 +467,7 @@ describe("the toast of a push", () => {
     expect(getNewPullRequestUrl(stores.branches.login!)).toBe(`${COMPARE}/master...user/virtual/login?expand=1`)
 
     addBranch("oauth", "login", false)
-    stores.branches.login = { ...stores.branches.login!, remoteStatus: testRemoteStatus({ exists: false }) }
+    stores.branches.login = { ...stores.branches.login!, remoteStatus: testRemoteStatus({ exists: false, action: CREATE }) }
     expect(getNewPullRequestUrl(stores.branches.oauth!)).toBe(`${COMPARE}/master...user/virtual/oauth?expand=1`)
   })
 
@@ -671,13 +700,13 @@ describe("the toast of a stack push", () => {
     expect(toast.actionProps?.children).toBe("Force Push")
   })
 
-  it("pushes the stack again over the fetched heads when the remote that moved has no commits the branch lacks", async () => {
-    stores.movedInStack = [{ branch: "login", commitsBehind: 0 }]
+  it("says a stack push Rust made again over a remote that moved from what it went over, in one push of the page", async () => {
+    stores.pushedOver = [{ branch: "login", remoteTip: "theirs" }]
     expect(await pushStack("oauth")).toBe(true)
-    expect(calls).toEqual(["push auth login oauth", "push auth login oauth"])
-    // the second push leases login on the head the refused one fetched
-    expect(stores.expectedRemotes.slice(3)).toEqual([null, "theirs", null])
+    expect(calls).toEqual(["push auth login oauth"])
     expect(toasts.map(toast => toast.title)).toEqual(["Pushed auth, login and oauth"])
+    // login went over the remote it moved to, which had its older commit: a plain push of one commit, as Rust answered
+    expect(text(toasts[0]!.description)).toBe("3 commits · created 2 remote branches")
   })
 
   it("pushes up to a commit with the branches below it whole, in one push", async () => {
@@ -698,12 +727,15 @@ describe("a push over a remote that moved", () => {
     robots.running = undefined
   })
 
-  it("pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost", async () => {
-    stores.movedRemotes = [{ commitsBehind: 0, remoteTip: "theirs" }]
+  it("says a push Rust made again over a remote that moved from what it went over, in one push of the page", async () => {
+    stores.pushedOver = [{ branch: "auth", remoteTip: "theirs" }]
     expect(await pushBranch("auth")).toBe(true)
-    expect(calls).toEqual(["push auth", "push auth"])
-    expect(stores.expectedRemotes).toEqual([null, "theirs"])
+    expect(calls).toEqual(["push auth"])
+    expect(stores.expectedRemotes).toEqual([null])
     expect(toasts.map(toast => toast.title)).toEqual(["Pushed auth"])
+    // what the push replaced is the remote it moved to: one commit the remote lacked, a plain push
+    expect(records).toEqual(["push auth"])
+    expect(text(toasts[0]!.description)).toBe("1 commit")
   })
 
   it("tells a remote with commits the branch lacks, and pushes nothing over it", async () => {
@@ -742,7 +774,7 @@ function holdPushes(): () => void {
 }
 
 /** The stack branch of auth has two commits its remote lacks */
-const STACK_AHEAD = { commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }
+const STACK_AHEAD = { commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old", action: PUSH }
 
 /** A failed Safe Push of the whole stack of auth, which "Restart Safe Push" pushes first and restarts */
 const STACK_ROBOT: PatronusRobot = { ...RUNNING, id: "whole", name: "Safe Push of the whole auth stack", branchName: null, stackRoot: "auth" }
@@ -870,7 +902,7 @@ describe("pushWithChildren", () => {
 
   describe("the stack branch of the whole stack", () => {
     it("goes along after the branches once it is on the remote, leased on its remote head, in the one toast", async () => {
-      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
+      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old", action: PUSH }))
       expect(await pushWithChildren("auth")).toBe(true)
       expect(calls).toEqual(["push auth login session stack:auth"])
       expect(stores.expectedRemotes).toEqual([null, null, null, "stack-old"])
@@ -882,7 +914,7 @@ describe("pushWithChildren", () => {
     })
 
     it("goes along while its pull request is open, though the remote doesn't have it yet", async () => {
-      forkingStack(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null }))
+      forkingStack(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null, action: CREATE }))
       stores.stackPullRequests.auth = { number: 12, state: "open", url: "https://github.com/JetBrains/ultimate/pull/12" } as PullRequest
       expect(await pushWithChildren("auth")).toBe(true)
       expect(calls).toEqual(["push auth login session stack:auth"])
@@ -890,17 +922,17 @@ describe("pushWithChildren", () => {
     })
 
     it("stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it", async () => {
-      forkingStack(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null }))
+      forkingStack(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null, action: CREATE }))
       stores.stackPullRequests.auth = { number: 12, state: "closed" } as PullRequest
       expect(await pushWithChildren("auth")).toBe(true)
-      stores.stackBranches.auth = { ...stores.stackBranches.auth!, state: "Conflict", remoteStatus: testRemoteStatus({ commitsAhead: 2, remoteTip: "stack-old" }) }
+      stores.stackBranches.auth = { ...stores.stackBranches.auth!, state: "Conflict", remoteStatus: testRemoteStatus({ commitsAhead: 2, remoteTip: "stack-old", action: PUSH }) }
       addBranch("login", "auth")
       expect(await pushWithChildren("auth")).toBe(true)
       expect(calls).toEqual(["push auth login session", "push login"])
     })
 
     it("is pushed alone when the branches are on the remote, with the pull request of the whole stack", async () => {
-      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
+      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old", action: PUSH }))
       for (const name of ["auth", "login", "session"]) {
         stores.branches[name] = { ...stores.branches[name]!, remoteStatus: testRemoteStatus({ remoteTip: "tip" }) }
       }
@@ -915,7 +947,7 @@ describe("pushWithChildren", () => {
     })
 
     it("refuses the whole push when its remote moved with commits it lacks, and says so as the stack branch", async () => {
-      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
+      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old", action: PUSH }))
       stores.movedInStack = [{ branch: "stack:auth", commitsBehind: 1 }]
       expect(await pushWithChildren("auth")).toBe(false)
       expect(stores.stackBranches.auth!.remoteStatus?.remoteTip).toBe("theirs")
@@ -927,7 +959,7 @@ describe("pushWithChildren", () => {
     })
 
     it("is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why", async () => {
-      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
+      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old", action: PUSH }))
       stores.stackPullRequests.auth = { number: 12, state: "open", url: "https://github.com/JetBrains/ultimate/pull/12" } as PullRequest
       // a branch with work goes, the stack branch along: nothing landed yet
       expect(await pushWithChildren("auth")).toBe(true)
@@ -937,10 +969,13 @@ describe("pushWithChildren", () => {
 
       const merged = { ...RUNNING, id: "landed", status: "success" as const, branchName: "login" }
       for (const name of ["auth", "login", "session"]) {
-        stores.branches[name] = { ...stores.branches[name]!, remoteStatus: testRemoteStatus({ commitsAhead: 1, unpushedCommits: ["c"], remoteTip: "old" }) }
+        stores.branches[name] = { ...stores.branches[name]!, remoteStatus: testRemoteStatus({ commitsAhead: 1, unpushedCommits: ["c"], remoteTip: "old", action: PUSH }) }
         robots.landed[name] = merged
       }
-      stores.stackBranches.auth = { ...stores.stackBranches.auth!, remoteStatus: testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }) }
+      stores.stackBranches.auth = {
+        ...stores.stackBranches.auth!,
+        remoteStatus: testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old", action: PUSH }),
+      }
       robots.stackLanded.auth = "Landed in master with login and session"
       // nothing of the stack is left to push: no branch and no stack branch goes
       expect(await pushWithChildren("auth")).toBe(true)
@@ -982,7 +1017,7 @@ describe("pushForAction", () => {
     addBranch("login", "auth")
     stores.branches.auth = {
       ...stores.branches.auth!,
-      remoteStatus: testRemoteStatus({ exists: true, commitsAhead: 1, commitsBehind: 2, fastForward: false, remoteTip: "theirs" }),
+      remoteStatus: testRemoteStatus({ exists: true, commitsAhead: 1, commitsBehind: 2, fastForward: false, remoteTip: "theirs", action: forcePush({ drops: true }) }),
     }
     expect(await pushForAction("login")).toEqual({
       pushed: false,

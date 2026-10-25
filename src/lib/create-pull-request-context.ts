@@ -12,7 +12,7 @@ import type { MenuItem } from "@/lib/menu"
 import type { CompareFields, GitHubRepository } from "@/lib/pull-request"
 import { getCompareUrl } from "@/lib/pull-request"
 import type { RunningMove } from "@/lib/running-move"
-import { needsPush, stackAncestors, stackPushOrder } from "@/lib/stack"
+import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
 import { formatWholeStackStart, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
@@ -92,7 +92,10 @@ export interface CreatePullRequestFacts {
 
 export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequestFacts): CreatePullRequestContext {
   const head = getFullBranchName(branch.name)
-  const pushNeeded = needsPush(branch) || stackPushOrder(branch.name, getBranch, { stopAtConfirm: true, isHeld: name => getPushHold(name) !== null }).length > 1
+  // the remote lacks work of the branch (Rust's action of its remote status), or of an ancestor the push takes along
+  const pushNeeded =
+    (branch.remoteStatus?.action.kind ?? "upToDate") !== "upToDate" ||
+    stackPushOrder(branch.name, getBranch, { stopAtConfirm: true, isHeld: name => getPushHold(name) !== null }).length > 1
   const ancestors = stackAncestors(branch.name, getBranch)
   const existing = facts.pullRequest !== undefined && facts.pullRequest.state !== "closed" ? facts.pullRequest : null
   const withoutReview = facts.withoutReview

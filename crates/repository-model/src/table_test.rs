@@ -1,9 +1,10 @@
 use crate::table::{RemoteSubject, TableState};
+use domain_policy::push;
 use domain_types::commit::Commit;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{BranchStatus, CommitSync, SyncState, SyncStep};
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate, StackProblem, StackProblemView};
-use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
+use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, PushAction, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::sync_fixtures::integrated_branch_info;
@@ -99,7 +100,7 @@ pub(crate) fn branch_status(branch: &str, status: BranchSyncStatus) -> SyncEvent
 }
 
 pub(crate) fn remote_status(branch: &str, unpushed: &[&str]) -> RemoteStatusUpdate {
-  RemoteStatusUpdate {
+  let mut status = RemoteStatusUpdate {
     branch_name: branch.to_string(),
     remote_exists: true,
     remote_tip: Some("remote-tip".to_string()),
@@ -115,7 +116,10 @@ pub(crate) fn remote_status(branch: &str, unpushed: &[&str]) -> RemoteStatusUpda
     my_unpushed_count: 0,
     fast_forward: true,
     last_push_time: 0,
-  }
+    action: PushAction::UpToDate,
+  };
+  status.action = push::action(&status);
+  status
 }
 
 /// The events of one sync of `auth` (two commits) and `ui` (one), each commit with `status`, `auth` with a remote status

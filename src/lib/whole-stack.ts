@@ -2,7 +2,6 @@ import type { PatronusPushMode, PullRequest } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
-import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { joinNames } from "@/lib/text"
 import type { StackBranch } from "@/stores/branch-sync"
 
@@ -160,10 +159,11 @@ export function getStackBranchAlong(root: string, stack: StackBranch | undefined
   if (remote === null) {
     return { kind: "along" }
   }
-  if (getPushAction({ remoteStatus: remote }) === "upToDate") {
+  const action = remote.action
+  if (action.kind === "upToDate") {
     return { kind: "upToDate" }
   }
-  return dropsRemoteCommits(remote) ? { kind: "dropsRemote" } : { kind: "along" }
+  return action.kind === "force" && action.drops ? { kind: "dropsRemote" } : { kind: "along" }
 }
 
 /**

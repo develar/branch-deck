@@ -3,7 +3,7 @@
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
 use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
-use crate::remote_fixture_test::{AUTH, Space, needs_code_owner, repo_with_remote, robot as robot_json};
+use crate::remote_fixture_test::{AUTH, Space, auth_remote_moved_back, needs_code_owner, repo_with_remote, robot as robot_json};
 use crate::{Cli, Command};
 use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
@@ -301,6 +301,46 @@ fn a_push() {
       ("show-ref", 1),
       ("symbolic-ref", 1),
       ("update-ref", 2),
+      ("var", 1),
+    ],
+  );
+}
+
+/// `bd push auth` over a remote branch someone moved back to an older commit of the branch since the sync: the refused
+/// push fetches it and computes what it has now, then the push again over it, once, and nothing else (D4)
+#[test]
+fn a_push_over_a_moved_remote() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  auth_remote_moved_back(&repo, &remote);
+
+  let context = context(&repo);
+  let args = PushArgs {
+    branches: vec!["auth".to_string()],
+    ..PushArgs::default()
+  };
+  let output = push(&context, &args, &environment(repo.path())).unwrap();
+  assert!(output.branches[0].pushed_over);
+  // the sync, the refused push, its fetch and the status of what the remote has now, then the push again; each push
+  // checks the size of what it adds first (`log`, `cat-file`)
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 4),
+      ("config", 1),
+      ("fast-import", 2),
+      ("fetch", 1),
+      ("for-each-ref", 2),
+      ("log", 6),
+      ("merge-base", 1),
+      ("notes", 1),
+      ("push", 2),
+      ("reflog", 2),
+      ("remote", 2),
+      ("rev-list", 4),
+      ("rev-parse", 1),
+      ("show-ref", 1),
+      ("symbolic-ref", 1),
+      ("update-ref", 1),
       ("var", 1),
     ],
   );

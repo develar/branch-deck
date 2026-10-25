@@ -19,7 +19,7 @@ use domain_types::landed::LandedBranch;
 use domain_types::session::{BaselineStatus, BranchStatus, BranchSync, BranchView};
 use domain_types::stack::BranchStack;
 use domain_types::update_project::{UpdateKind, UpdateState};
-use domain_types::{BranchError, ProgressReporter, RemoteStatusUpdate, SyncEvent};
+use domain_types::{BranchError, ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
 use history_rewrite::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository_in};
 use repository_model::table::TableState;
 use schemars::JsonSchema;
@@ -192,6 +192,9 @@ pub struct RemoteSummary {
   /// `head` in full, for the lease
   #[serde(skip)]
   pub head_id: Option<String>,
+  /// What a push of the branch does over this status (`RemoteStatusUpdate::action`, `domain_policy::push::action`)
+  #[serde(skip)]
+  pub action: PushAction,
 }
 
 /// By reference: the signature serde's `skip_serializing_if` needs
@@ -242,13 +245,19 @@ impl RemoteSummary {
         .collect(),
       landed_commits: landed_commits(remote, short),
       head_id: remote.remote_tip.clone(),
+      action: remote.action,
     }
   }
 
-  /// A push of the branch would change its remote branch: the remote lacks it or commits of it, or has commits a push
-  /// replaces or drops
-  pub const fn has_work(&self) -> bool {
-    !self.exists || self.unpushed > 0 || self.behind > 0 || self.amended > 0 || self.restacked > 0 || self.landed > 0 || self.reworded > 0 || self.ancestors_ahead > 0
+  /// A push of the branch would change its remote branch (`domain_policy::push::needs_push`): its action is no
+  /// `UpToDate`
+  pub fn needs_push(&self) -> bool {
+    self.action != PushAction::UpToDate
+  }
+
+  /// The push drops remote commits the branch lacks, which needs `--force` (`domain_policy::push::drops_remote_commits`)
+  pub const fn drops_remote_commits(&self) -> bool {
+    matches!(self.action, PushAction::Force { drops: true, .. })
   }
 
   /// The ids `new` shortens, for `RepoContext::short_ids`
@@ -589,7 +598,7 @@ fn update_summary(baseline: &BaselineStatus, landing: &[LandedBranch], short: &S
 fn with_push_commands(mut branches: Vec<SyncedBranch>, bases: &HashMap<String, String>, bd: &str) -> Vec<SyncedBranch> {
   let work: HashMap<&str, bool> = branches
     .iter()
-    .map(|branch| (branch.name.as_str(), branch.tip.is_some() && branch.remote.as_ref().is_some_and(RemoteSummary::has_work)))
+    .map(|branch| (branch.name.as_str(), branch.tip.is_some() && branch.remote.as_ref().is_some_and(RemoteSummary::needs_push)))
     .collect();
   // the chain of bases, bounded in case a broken stack had a cycle
   let ancestor_has_work = |name: &str| {
@@ -602,7 +611,7 @@ fn with_push_commands(mut branches: Vec<SyncedBranch>, bases: &HashMap<String, S
     .map(|branch| {
       let remote = branch.remote.as_ref().filter(|_| work[branch.name.as_str()])?;
       let name = shell_word(&branch.name);
-      Some(match (remote.behind > 0, remote.head.as_deref()) {
+      Some(match (remote.drops_remote_commits(), remote.head.as_deref()) {
         (true, Some(head)) if !ancestor_has_work(&branch.name) => format!("{bd} push {name} --force --expect-remote {head}"),
         (true, _) => format!("{bd} push {name} --force"),
         (false, _) => format!("{bd} push {name}"),

@@ -95,7 +95,8 @@ type RemoteStatus = ReturnType<typeof pushOutcome>["remoteStatus"]
  * What `push_branch` or `push_branches` answer for a push the page answered, `outcome`: the session of the repository
  * gets its remote statuses first, as the app's push gives them (`POST /sessions/pushed-in-page`, the server's own
  * `Sessions::push`; one that pushed lists the pull requests again, as the app's), and the answer names the version of
- * the view whose patch has them, which the page waits for as it waits after the app's push. `request` is the page's
+ * the view whose patch has them, which the page waits for as it waits after the app's push, with the statuses as the
+ * server answers them (the action of each derived from its counts, as Rust's push answers it). `request` is the page's
  * request of the push, whose repository the server holds meanwhile.
  * A test may end while its push is still answered (it asserted what the push sent): its pages are closed and its
  * repository deleted, the server answers 410, and the answer goes to no page, so it names no version
@@ -105,7 +106,7 @@ export async function answeredInSession<T extends { remoteStatus: RemoteStatus }
   branches: readonly PushRequest[],
   outcome: T,
   request?: Request,
-): Promise<{ outcome: T; version: unknown }> {
+): Promise<{ outcome: T & { pushedOver: unknown }; version: unknown }> {
   const repositoryId = request?.headers()["x-repository-id"]
   const response = await fetch(`${TEST_SERVER_URL}/sessions/pushed-in-page`, {
     method: "POST",
@@ -118,13 +119,17 @@ export async function answeredInSession<T extends { remoteStatus: RemoteStatus }
       moved: (outcome as { type?: string }).type === "remoteMoved",
     }),
   })
+  // a push the page answers went at once: it went over no moved remote
+  const pushedOver = "remoteStatus" in outcome ? null : []
   if (response.status === 410) {
-    return { outcome, version: null }
+    return { outcome: { ...outcome, pushedOver }, version: null }
   }
   if (!response.ok) {
     throw new Error(`The session did not take the push: ${response.status} ${await response.text()}`)
   }
-  return { outcome, version: await response.json() }
+  const answer = (await response.json()) as { version: unknown; remoteStatuses: unknown[] }
+  const statuses = "remoteStatus" in outcome ? { remoteStatus: answer.remoteStatuses[0] } : { remoteStatuses: answer.remoteStatuses }
+  return { outcome: { ...outcome, ...statuses, pushedOver }, version: answer.version }
 }
 
 /**
