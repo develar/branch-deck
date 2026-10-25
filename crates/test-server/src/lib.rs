@@ -205,6 +205,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
     )
     .route("/sessions/pushed-in-page", post(session_routes::pushed_in_page))
+    .route("/clock/advance", post(session_routes::advance_clock))
     // Store endpoints
     .route("/store/{repo_id}", get(get_store_snapshot))
     .route("/store/{repo_id}/{key}", get(get_store_value))
@@ -220,6 +221,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/subscribe_view", post(session_routes::subscribe_view))
     .route("/invoke/unsubscribe_view", post(session_routes::unsubscribe_view))
     .route("/invoke/set_window_focus", post(session_routes::set_window_focus))
+    .route("/invoke/set_demand", post(session_routes::set_demand))
     .route("/invoke/sync", post(session_routes::sync))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/reword", post(tauri_command_bridge::reword))

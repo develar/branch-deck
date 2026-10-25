@@ -5,7 +5,8 @@
 //! repository (`delete_repository` closes its sessions, so the stream ends and the deletion does not wait for it); a
 //! failure answers `{"result": {"status": "error", "error": <ApiError>}}` on the stream, the JSON of the app. The next run
 //! of a session takes the overrides a test set for its repository (`sync_overrides`). A push the page answered (the
-//! templates have no remote) reaches the session through `pushed_in_page`.
+//! templates have no remote) reaches the session through `pushed_in_page`. The clock of the sessions stands still until
+//! a test moves it (`POST /clock/advance`, `advance_clock`).
 
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
 use crate::state::AppState;
@@ -17,13 +18,14 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
-use domain_types::session::{SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
+use domain_types::session::{SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
 use domain_types::{ProgressReporter, RemoteStatusUpdate};
 use repository_model::runtime::{RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::RemoteSubject;
 use serde::Deserialize;
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 use sync_core::push::StackPushBranch;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 
@@ -132,6 +134,25 @@ pub struct UnsubscribeRequest {
 
 pub async fn unsubscribe_view(State(state): State<Arc<AppState>>, Json(request): Json<UnsubscribeRequest>) -> Json<()> {
   state.sessions.unsubscribe(SubscriptionId(request.id));
+  Json(())
+}
+
+pub async fn set_demand(State(state): State<Arc<AppState>>, Json(params): Json<SetDemandParams>) -> Json<()> {
+  state.sessions.set_demand(SubscriptionId(params.subscription), &params.demand);
+  Json(())
+}
+
+#[derive(Deserialize)]
+pub struct ClockAdvanceRequest {
+  ms: u64,
+}
+
+/// Moves the clock of the sessions (`AppState::session_clock`) by `ms`: the timers of the sessions that decide what to
+/// ask and when wake (`advanceBackendClock` of wait-helpers.ts), and the sessions idle for `IDLE_LIMIT` since go
+/// (`Sessions::sweep`). The time of the page (`page.clock`) and the 16 ms merge of the patches do not move with it
+pub async fn advance_clock(State(state): State<Arc<AppState>>, Json(request): Json<ClockAdvanceRequest>) -> Json<()> {
+  state.session_clock.advance(Duration::from_millis(request.ms));
+  state.sessions.sweep();
   Json(())
 }
 

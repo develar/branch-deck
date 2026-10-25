@@ -7,7 +7,8 @@
 //!
 //! The names on the wire are the ones the page reads today (`branch-sync.ts`). The statuses are data: the texts, the
 //! marks of what to expand and the badges are the page's presentation of them. A fact a service or a computation
-//! answers is a `Fact` with its `FactState` (the rule of a fact without an answer).
+//! answers is a `Fact` with its `FactState` (the rule of a fact without an answer); a window tells the session what it
+//! shows and needs (`Demand`).
 
 use crate::branch_integration::BranchIntegrationInfo;
 use crate::commit::Commit;
@@ -79,6 +80,41 @@ pub enum FactState {
   Unavailable { reason: ApiError },
   /// Nothing asks for it (no window demands it)
   Unknown,
+}
+
+/// What a window shows and needs of a session (docs/design/rust-domain-authority.md, "Demand"), the one thing the page
+/// tells of itself: the facts it asks for, and how often. The session keeps the demand of each window by its
+/// subscription and asks for the facts of all of them; the lists name branches by name, robots by id
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct Demand {
+  /// The window has the focus
+  pub focused: bool,
+  /// The machine is online (`navigator.onLine`): offline, no poll asks
+  pub online: bool,
+  /// The branches whose rows the window shows
+  pub visible_branches: Vec<String>,
+  /// The whole stacks whose islands the window shows, by root
+  pub visible_stacks: Vec<String>,
+  /// The branches a surface needs a fact of now, asked before the shown ones (the Safe Push popover, the "Create pull
+  /// request" dialog)
+  pub needed: Vec<String>,
+  /// The branches whose preview the window shows
+  pub previewed: Vec<String>,
+  /// The branches a review window shows (that window's own demand)
+  pub review_windows: Vec<String>,
+  /// The robots whose details a surface shows (the robot popover, the preview, a row of the landing overview)
+  pub robot_details: Vec<String>,
+}
+
+/// The demand of a window, by its subscription to the session (`ViewSubscription::id`)
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct SetDemandParams {
+  pub subscription: u32,
+  pub demand: Demand,
 }
 
 /// Why a session syncs (`repository_model::sync_scheduler` decides what runs)

@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
+import { resetDemand } from "@/model/demand"
 import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
 import { branchSyncStore, getBranch, getStackBranch, setBranchPushing, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
 import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
@@ -84,6 +85,7 @@ afterEach(async () => {
     sync.answer()
   }
   closeSession()
+  resetDemand()
   await whenSynced()
 })
 
@@ -256,6 +258,23 @@ describe("a sync of the session", () => {
     expect(branchSyncStore.getState().syncError).toBeNull()
     expect(await setSessionWindowFocus(true)).toBeNull()
     expect(branchSyncStore.getState().syncError).toBe("Cannot sync without a branch prefix")
+  })
+
+  it("tells its session what the window shows by its subscription, again to a new one, with the focus of the window", async () => {
+    await open()
+    const first = fakeSessions.subscriptions[0]!.id
+    await vi.waitFor(() => expect(fakeSessions.demandCalls.at(-1)).toMatchObject({ subscription: first, demand: { focused: false } }))
+    void setSessionWindowFocus(true)
+    await vi.waitFor(() => expect(fakeSessions.demandCalls.at(-1)).toMatchObject({ subscription: first, demand: { focused: true } }))
+    for (const sync of fakeSessions.syncs) {
+      sync.answer("unchanged")
+    }
+
+    openSession("/repo")
+    await whenSessionReady()
+    const second = fakeSessions.subscriptions.at(-1)!.id
+    expect(second).not.toBe(first)
+    await vi.waitFor(() => expect(fakeSessions.demandCalls.at(-1)).toMatchObject({ subscription: second, demand: { focused: true } }))
   })
 
   it("records the sync a focus started, Sync busy from its answer to the run's last patch", async () => {

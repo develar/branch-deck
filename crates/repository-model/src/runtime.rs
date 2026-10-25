@@ -28,15 +28,17 @@ use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
 use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::session::{SyncReason, SyncState, SyncStep, TableView, Version};
+use domain_types::session::{Demand, SyncReason, SyncState, SyncStep, TableView, Version};
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_core::sync_inputs::{SyncInputs, read_sync_inputs};
+use sync_utils::clock::{Clock, Wait};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tokio::runtime::Handle;
@@ -60,7 +62,14 @@ pub(crate) enum Message {
   Snapshot(oneshot::Sender<TableView>),
   /// The table of the last successful sync with the memo
   Table(oneshot::Sender<Option<TableFacts>>),
-  Focus(bool),
+  /// The demand of the window of a subscription; the session that does not hold it drops it
+  Demand {
+    id: SubscriptionId,
+    demand: Demand,
+  },
+  /// The demand of all the windows of the session
+  #[cfg(test)]
+  DemandOf(oneshot::Sender<Demand>),
   Sync {
     reason: SyncReason,
     waiter: Waiter,
@@ -110,7 +119,7 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     view: View::new(new_epoch()),
     scheduler: SyncScheduler::new(),
     subscribers: Vec::new(),
-    focused: false,
+    demands: HashMap::new(),
     flush_at: None,
     last_flush: None,
     in_flight: None,
@@ -132,8 +141,8 @@ struct Actor {
   view: View,
   scheduler: SyncScheduler<Waiter>,
   subscribers: Vec<(SubscriptionId, Box<dyn Subscriber>)>,
-  /// Whether a window of the session has focus; the poll of the facts reads it in a later stage
-  focused: bool,
+  /// What the window of each subscription shows and needs (`Demand`); the facts are asked for all of them
+  demands: HashMap<SubscriptionId, Demand>,
   /// When the pending patch goes out
   flush_at: Option<Instant>,
   last_flush: Option<Instant>,
@@ -175,6 +184,7 @@ impl Actor {
       Message::Unsubscribe(id) => {
         let before = self.subscribers.len();
         self.subscribers.retain(|(subscription, _)| *subscription != id);
+        self.demands.remove(&id);
         if self.subscribers.len() < before {
           self.life.subscriber_left();
         }
@@ -189,8 +199,17 @@ impl Actor {
         for _ in self.subscribers.drain(..) {
           self.life.subscriber_left();
         }
+        self.demands.clear();
       }
-      Message::Focus(focused) => self.focused = focused,
+      Message::Demand { id, demand } => {
+        if self.subscribers.iter().any(|(subscription, _)| *subscription == id) {
+          self.demands.insert(id, demand);
+        }
+      }
+      #[cfg(test)]
+      Message::DemandOf(reply) => {
+        let _ = reply.send(self.demand());
+      }
       Message::Sync { reason, waiter } => {
         let decision = self.scheduler.request(reason, waiter, self.is_watched());
         self.follow(decision);
@@ -226,6 +245,26 @@ impl Actor {
 
   fn is_watched(&self) -> bool {
     !self.subscribers.is_empty()
+  }
+
+  /// The demand of all the windows of the session: focused or online when one of them is, each list the union of
+  /// theirs, sorted
+  #[cfg_attr(not(test), expect(dead_code, reason = "the scheduler of the facts asks by it, from the robots of s7-3 on"))]
+  fn demand(&self) -> Demand {
+    fn union<'a>(lists: impl Iterator<Item = &'a Vec<String>>) -> Vec<String> {
+      lists.flatten().cloned().collect::<BTreeSet<String>>().into_iter().collect()
+    }
+    let demands = || self.demands.values();
+    Demand {
+      focused: demands().any(|demand| demand.focused),
+      online: demands().any(|demand| demand.online),
+      visible_branches: union(demands().map(|demand| &demand.visible_branches)),
+      visible_stacks: union(demands().map(|demand| &demand.visible_stacks)),
+      needed: union(demands().map(|demand| &demand.needed)),
+      previewed: union(demands().map(|demand| &demand.previewed)),
+      review_windows: union(demands().map(|demand| &demand.review_windows)),
+      robot_details: union(demands().map(|demand| &demand.robot_details)),
+    }
   }
 
   fn apply_event(&mut self, run: RunId, event: SyncEvent) {
@@ -349,13 +388,18 @@ impl Actor {
       return;
     };
     let life = &self.life;
-    self.subscribers.retain(|(_, subscriber)| {
+    let mut gone = Vec::new();
+    self.subscribers.retain(|(id, subscriber)| {
       let kept = subscriber.send(&patch).is_ok();
       if !kept {
         life.subscriber_left();
+        gone.push(*id);
       }
       kept
     });
+    for id in gone {
+      self.demands.remove(&id);
+    }
   }
 }
 
@@ -375,6 +419,17 @@ fn prefix_changed(session_prefix: &str, config_prefix: &str) -> ApiError {
 
 async fn read_inputs(host: Arc<dyn SessionHost>, key: SessionKey) -> Option<SyncInputs> {
   tokio::task::spawn_blocking(in_current_span(move || host.inputs(&key))).await.ok().flatten()
+}
+
+/// Waits until `at` on `clock`: the wall time left on the system clock (tokio's timer), the advance of a test clock that
+/// reaches it (`TestClock::advance`, which the E2E server's `POST /clock/advance` makes); at once for a time that has
+/// come. The timers of a session that decide what to ask and when wait with it
+pub async fn sleep_until(clock: &dyn Clock, at: Duration) {
+  match clock.until(at) {
+    Wait::Elapsed => {}
+    Wait::Wall(left) => tokio::time::sleep(left).await,
+    Wait::Signal(signal) => signal.await,
+  }
 }
 
 /// What a run of a session syncs with (`SessionEnvironment::run_setup`)

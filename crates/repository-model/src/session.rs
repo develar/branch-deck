@@ -16,7 +16,7 @@ use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::ApiError;
-use domain_types::session::{SyncAnswer, SyncReason, TableView, Version, ViewAnswer, ViewPatch};
+use domain_types::session::{Demand, SyncAnswer, SyncReason, TableView, Version, ViewAnswer, ViewPatch};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -285,15 +285,34 @@ impl Sessions {
     }
   }
 
-  /// A window of the session gained or lost focus; a gained one syncs when the inputs changed and the host syncs on
-  /// focus (the ticket of that check), nothing for a session that is not open
+  /// A window of the session gained or lost focus: a gained one syncs when the inputs changed and the host syncs on
+  /// focus (the ticket of that check); nothing for a session that is not open. The facts read the focus of each window
+  /// from its demand (`set_demand`)
   pub fn set_window_focus(&self, key: &SessionKey, focused: bool) -> Option<SyncTicket> {
-    {
-      let entries = self.lock();
-      let entry = entries.get(key)?;
-      let _ = entry.mailbox.send(Message::Focus(focused));
+    if !self.is_open(key) {
+      return None;
     }
     (focused && self.host.syncs_on_focus(key)).then(|| self.sync(key, SyncReason::Focus))
+  }
+
+  /// What the window of the subscription `id` shows and needs, of whichever session holds it, in place of what it said
+  /// before; the window's demand goes with its subscription. The session asks for the facts of the demands of all its
+  /// windows
+  pub fn set_demand(&self, id: SubscriptionId, demand: &Demand) {
+    for entry in self.lock().values() {
+      let _ = entry.mailbox.send(Message::Demand { id, demand: demand.clone() });
+    }
+  }
+
+  /// The demand of all the windows of an open session
+  #[cfg(test)]
+  pub(crate) async fn demand(&self, key: &SessionKey) -> Option<Demand> {
+    let (reply, answer) = oneshot::channel();
+    let sent = self.lock().get(key).is_some_and(|entry| entry.mailbox.send(Message::DemandOf(reply)).is_ok());
+    if !sent {
+      return None;
+    }
+    answer.await.ok()
   }
 
   /// Asks the session of `key` for a sync, opening it; the ticket resolves when the run that serves the request ends

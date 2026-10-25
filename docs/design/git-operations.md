@@ -3271,7 +3271,10 @@ an open session (null for one that is not: the window subscribes again), `unsubs
 `set_window_focus` tells the session that a window gained or lost the focus and, for a gained one while the host
 syncs on focus (`SessionHost::syncs_on_focus`: Auto-sync on Focus as the app's `SettingsService` has it, the settings
 of the test repository on the E2E server), answers the `Focus` check or the run it started (null for a lost focus,
-the setting off or a session that is not open), and `sync` with a `SyncReason` answers when the
+the setting off or a session that is not open), `set_demand` tells what the window of a subscription shows and needs
+(`Demand`: its focus, online, the visible branches and stacks, the needed, previewed and reviewed branches, the robots
+whose details it shows; the session keeps one per subscription, gone with it, and asks for the facts of their union;
+the page sends it at most four times a second, `src/model/demand.ts`), and `sync` with a `SyncReason` answers when the
 run that serves it ended (`SyncAnswer`: the outcome and the version of the view after its last patch, which the window
 waits for, since the patch and the answer travel apart); a failure is the run's `ApiError`. The app's host
 (`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
@@ -3294,7 +3297,7 @@ an answer of another epoch than the view's subscribes the window again, once, to
 until its view comes and Sync busy for the requests still in flight, unless the session open now still has the view's
 epoch: then the answer is of a session the window left, the late answer of a prefix it left, and is dropped) and tells
 the session its focus (`set_window_focus`, on focus
-and on blur, the last state of 100 ms; it checks no setting), and no `SyncEvent` reaches a page. A sub-window that
+and on blur, the last state of 100 ms; it checks no setting; the focus goes into its demand too), and no `SyncEvent` reaches a page. A sub-window that
 reads the table subscribes the same way, by the path of its repository and under its own label, with a store of its
 own: the review window of a branch takes the heads of its chain, the baseline and the branch of each commit of a
 whole stack from its view once per finished sync (`settledReviewTable`); it asks no sync and tells no focus, and it

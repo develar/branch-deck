@@ -171,7 +171,7 @@ Mock implementation:
   `sub_window_drawn` add the window and the snapshot of the page, or record what it drew;
   `set_repository_config`, `wait_github_sign_in`, `sign_out_of_github`, `wait_youtrack_sign_in`, `save_youtrack_token`
   and `sign_out_of_youtrack` emit the event the backend emits after them, `emitAfter`) are pinned, and `get_blob_syntax` is the one route outside `collect_commands!` (its answer is raw
-  bytes). The number of commands (127) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
+  bytes). The number of commands (128) and `PAGE_MOCKED` (3) are pinned; `PAGE_MOCKED` only goes down: a new command
   gets a route of the server, not a page mock. The updater is routed too: `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`), `install_update` and `restart_app` fail with the message that the test server has no
@@ -246,7 +246,8 @@ Mock implementation:
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
 - **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
   `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` that stands still, so no session of a test
-  goes away by itself): `get_snapshot`, `sync`, `set_window_focus` and `unsubscribe_view` answer JSON;
+  goes away by itself until the test moves it, `advanceBackendClock`): `get_snapshot`, `sync`, `set_window_focus`,
+  `set_demand` (what the window of a subscription shows, `src/model/demand.ts`) and `unsubscribe_view` answer JSON;
   `subscribe_view` is a long-lived event stream of its channel (`X-Progress-Channel`, the `patches` of the command):
   `{ result }` with the subscription and its view first, then each `ViewPatch` as `{ progress }`, until
   `unsubscribe_view` or the deletion of the repository, which closes its sessions first, so the stream ends and the
@@ -374,9 +375,15 @@ State isolation:
   Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
   server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port
   (`reuseExistingServer`), and another lease worktree's server serves that worktree's `dist/` and code
-- **Time**: `base-test.ts` installs the Playwright clock at a fixed time; it runs at real speed. A test that waits for
-  a timer of the app (the 2 s "Copied" state of `useCopyToClipboard`) runs the clock past it with
-  `page.clock.fastForward` instead of a real wait, which a loaded machine overruns
+- **Time**: two clocks, each moved by a test, never waited out. The page's: `base-test.ts` installs the Playwright
+  clock at a fixed time; it runs at real speed, and a test that waits for a timer of the page (the 2 s "Copied" state
+  of `useCopyToClipboard`) runs it past with `page.clock.fastForward` instead of a real wait, which a loaded machine
+  overruns. The backend's: the sessions of the test server age on one `TestClock` (`AppState::session_clock`), which
+  stands still; the timers that decide what a session asks and when (its polls, retries and backoffs, the sweep of a
+  session no window shows) wake only when a test moves it with `advanceBackendClock(ms)` (wait-helpers.ts, `POST
+  /clock/advance { ms }`, which also sweeps the idle sessions). Neither moves the 16 ms merge of the patches or a
+  bounded lock wait, which run on wall time: a test waits for the patch an advance causes (its DOM state,
+  `data-view-version`), never for time
 - **Motion**: `base-test.ts` switches the enter animations off in every window of a test (a constructable sheet,
   `[class*="animate-in"]:not([data-closed])`), so a popup, an inline form or a card is in place from its first frame.
   On the Mac Studio Playwright found the first two frames of a menu's zoom equal, put the pointer where an item was in

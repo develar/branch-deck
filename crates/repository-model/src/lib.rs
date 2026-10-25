@@ -25,8 +25,9 @@
 //!   whole, held by a running Safe Push; the words of the holds for both sides; the sequence of the push (`push_branches`,
 //!   in the session of its key)
 //! - `session`: the sessions of the process by worktree and branch prefix (`Sessions`, `SessionKey`): open, subscribe,
-//!   snapshot, focus, sync tickets, `apply` and `push` (the result of an operation, with the version of its patch), and
-//!   their removal once idle (`sweep`, on the session clock)
+//!   snapshot, focus, the demand of each window (`set_demand`), sync tickets, `apply` and `push` (the result of an
+//!   operation, with the version of its patch), and their removal once idle (`sweep`, on the session clock); the
+//!   timers of a session wait on its clock (`runtime::sleep_until`)
 //! - `start_guard`: the checks of the app's start, restart and cancel of a robot, by the rules of `bd safe-push`: parked,
 //!   landed whole, not built, a robot on its last commit or one that lands a part of it; the words of the robot refusals
 //!   for both sides, and the whole sequence of the action (`start_robot`, `restart_robot`, `cancel_robot`) and of the

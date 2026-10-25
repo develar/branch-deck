@@ -10,6 +10,7 @@ import type {
   BranchHead,
   Commit,
   RemoteStatusUpdate,
+  SetDemandParams,
   SyncAnswer,
   SyncOutcome,
   SyncParams,
@@ -110,6 +111,8 @@ export class FakeSessions {
   subscribeFailure: ApiError | null = null
   /** Every `set_window_focus`, in order */
   readonly focusCalls: WindowFocusParams[] = []
+  /** What the windows told of their demand (`set_demand`) */
+  readonly demandCalls: SetDemandParams[] = []
   /** Whether a gained focus checks the session (Auto-sync on Focus, which the backend reads): a held `focus` sync then */
   syncsOnFocus = true
   /** The error each `set_window_focus` answers while set (the prefix went away meanwhile) */
@@ -128,6 +131,7 @@ export class FakeSessions {
     this.snapshotAnswer = undefined
     this.subscribeFailure = null
     this.focusCalls.length = 0
+    this.demandCalls.length = 0
     this.syncsOnFocus = true
     this.focusFailure = null
   }
@@ -213,6 +217,9 @@ export class FakeSessions {
       return { status: "ok", data: answer === undefined ? this.view(params.repositoryPath) : answer }
     },
     sync: (params: SyncParams): Promise<Result<SyncAnswer>> => this.hold(params),
+    setDemand: async (params: SetDemandParams): Promise<void> => {
+      this.demandCalls.push(params)
+    },
     setWindowFocus: (params: WindowFocusParams): Promise<Result<SyncAnswer | null>> => {
       this.focusCalls.push(params)
       if (this.focusFailure !== null) {

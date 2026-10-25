@@ -1,12 +1,12 @@
 use crate::branch_table::BranchTable;
-use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment};
+use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
 use crate::session::{IDLE_LIMIT, RunReporter, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
 use crate::table::RemoteSubject;
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
 use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::session::{BranchStatus, SyncOutcome, SyncReason, SyncState, SyncStep, TableView, ViewPatch};
+use domain_types::session::{BranchStatus, Demand, SyncOutcome, SyncReason, SyncState, SyncStep, TableView, ViewPatch};
 use domain_types::stack::BlockReason;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -816,4 +816,80 @@ async fn the_patches_of_a_run_keep_the_interval_and_leave_at_once_when_the_build
     crate::patch::apply_patch(&mut view, patch).unwrap();
   }
   assert_eq!(view, snapshot(&sessions, &key).await);
+}
+
+fn names(names: &[&str]) -> Vec<String> {
+  names.iter().map(ToString::to_string).collect()
+}
+
+/// A window tells its session what it shows and needs: the session keeps the demand of each subscription, in place of
+/// what that window said before, and asks for the union of all its windows; the demand of a window goes with its
+/// subscription, and the demand of a subscription of another session is that session's
+#[tokio::test]
+async fn the_demand_of_a_session_is_the_union_of_its_windows_and_goes_with_each() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let (repo, other) = (key("/repo"), key("/other"));
+  let (main, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
+  let (review, _) = sessions.subscribe(&repo, Box::new(Window::default())).await.unwrap();
+  let (elsewhere, _) = sessions.subscribe(&other, Box::new(Window::default())).await.unwrap();
+  assert_eq!(sessions.demand(&repo).await, Some(Demand::default()));
+
+  let shown = Demand {
+    focused: true,
+    online: true,
+    visible_branches: names(&["ui", "auth"]),
+    needed: names(&["auth"]),
+    ..Demand::default()
+  };
+  sessions.set_demand(main, &shown);
+  let reviewed = Demand {
+    online: true,
+    visible_branches: names(&["api", "auth"]),
+    review_windows: names(&["auth"]),
+    ..Demand::default()
+  };
+  sessions.set_demand(review, &reviewed);
+  let details = Demand {
+    robot_details: names(&["robot-1"]),
+    ..Demand::default()
+  };
+  sessions.set_demand(elsewhere, &details);
+  let both = Demand {
+    focused: true,
+    online: true,
+    visible_branches: names(&["api", "auth", "ui"]),
+    needed: names(&["auth"]),
+    review_windows: names(&["auth"]),
+    ..Demand::default()
+  };
+  assert_eq!(sessions.demand(&repo).await, Some(both));
+
+  sessions.set_demand(main, &Demand::default());
+  assert_eq!(sessions.demand(&repo).await, Some(reviewed), "the main window said it shows nothing now");
+  sessions.unsubscribe(review);
+  assert_eq!(sessions.demand(&repo).await, Some(Demand::default()), "gone with the subscription");
+  assert_eq!(sessions.demand(&other).await, Some(details));
+}
+
+/// A timer of a session waits on the session clock: on a test clock until an advance reaches its time, not before; a
+/// time that has come waits nothing
+#[tokio::test]
+async fn a_timer_waits_on_the_test_clock_until_an_advance_reaches_its_time() {
+  let clock = TestClock::new();
+  sleep_until(&clock, Duration::ZERO).await;
+  let timer = tokio::spawn({
+    let clock = clock.clone();
+    async move { sleep_until(&clock, Duration::from_mins(1)).await }
+  });
+  for _ in 0..10 {
+    tokio::task::yield_now().await;
+  }
+  clock.advance(Duration::from_secs(59));
+  for _ in 0..10 {
+    tokio::task::yield_now().await;
+  }
+  assert!(!timer.is_finished(), "59 s of 60");
+  clock.advance(Duration::from_secs(1));
+  tokio::time::timeout(Duration::from_secs(5), timer).await.unwrap().unwrap();
 }

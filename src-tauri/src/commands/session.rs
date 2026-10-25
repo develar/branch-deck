@@ -15,7 +15,7 @@ use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
-use domain_types::session::{SyncAnswer, SyncReason, TableView, ViewPatch, ViewSubscription};
+use domain_types::session::{SetDemandParams, SyncAnswer, SyncReason, TableView, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
@@ -255,6 +255,16 @@ pub fn unsubscribe_view(webview: Webview, state: State<'_, SessionsState>, param
   let id = SubscriptionId(params.id);
   state.windows().drop_subscription(webview.label(), id);
   state.sessions.unsubscribe(id);
+}
+
+/// What the window of a subscription shows and needs of its session (`Demand`), in place of what it said before; the
+/// page sends it when it changes, at most four times a second, and again for a new subscription
+#[tauri::command]
+#[instrument(skip_all, fields(subscription = params.subscription))]
+#[specta::specta]
+#[expect(clippy::needless_pass_by_value, reason = "tauri passes the state of a command by value")]
+pub fn set_demand(state: State<'_, SessionsState>, params: SetDemandParams) {
+  state.sessions.set_demand(SubscriptionId(params.subscription), &params.demand);
 }
 
 #[derive(Debug, Deserialize, specta::Type)]

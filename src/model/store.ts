@@ -29,6 +29,7 @@ import { sameStringRecord, withoutKeys } from "@/lib/record"
 import { showToast } from "@/lib/toast-message"
 import { addTiming } from "@/lib/update-progress"
 import { isMainWindow } from "@/lib/window-label"
+import { setDemandFocused, setDemandSubscription } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
@@ -118,6 +119,7 @@ export function closeSession(): void {
       void commands.unsubscribeView({ id: closed.id })
     }
   }
+  setDemandSubscription(null)
   resetTable()
   notifyViewListeners()
 }
@@ -155,6 +157,8 @@ function subscribe(repositoryPath: string, pending: { count: number } = { count:
         return
       }
       opened.id = result.data.id
+      // what the window shows goes to its new subscription
+      setDemandSubscription(opened.id)
       install(opened, result.data.view)
     },
     (error: unknown) => fail(opened, error),
@@ -727,13 +731,15 @@ async function askSync(reason: SyncReason, askAgainOnPrefixChange: boolean): Pro
 }
 
 /**
- * Tells the session of the window that the window gained (`true`) or lost the focus (`set_window_focus`). Rust decides
+ * Tells the session of the window that the window gained (`true`) or lost the focus (`set_window_focus`, and its demand,
+ * which the facts of the session are asked by: `src/model/demand.ts`). Rust decides
  * whether a gained one syncs (Auto-sync on Focus, which it reads itself, and only when what a sync reads changed), and
  * answers when that check, or the run it started, ended: the answer then is recorded as a sync's (`unchanged` says
  * "Checked just now"). Null when nothing was asked (the focus lost, the setting off, no session) or the request failed.
  * Sync is not busy for the check: a run it starts shows in the view
  */
 export async function setSessionWindowFocus(focused: boolean): Promise<SyncAnswer | null> {
+  setDemandFocused(focused)
   const target = session
   if (target === null) {
     return null

@@ -63,7 +63,7 @@ use commands::repository_config::{get_repository_config, set_repository_config};
 use commands::repository_view::{get_repository_view, wait_landing_needs};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_review_requests, prune_review_refs};
 use commands::reword::reword;
-use commands::session::{SessionsState, get_snapshot, set_window_focus, subscribe_view, sync, unsubscribe_view};
+use commands::session::{SessionsState, get_snapshot, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
@@ -165,6 +165,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
       subscribe_view,
       unsubscribe_view,
       set_window_focus,
+      set_demand,
       sync,
       resolve_branch_prefix,
       check_git_setup,

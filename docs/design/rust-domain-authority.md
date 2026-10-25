@@ -1774,7 +1774,14 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `SessionHost::run` отвечает `SyncedTable`). C4 сделан: `read_sync_inputs` отвечает `SyncInputs { rest,
     remote_refs }`, конец push кладёт `refs/remotes/origin/<имя>` в известные входы (`SyncScheduler::pushed`, и в то,
     что прочли идущие проверка или запуск); push, на который ответила страница e2e (`pushed-in-page`), пишет только
-    таблицу.
+    таблицу. s7-2b: `Clock::until -> Wait { Elapsed | Wall | Signal(TestWait) }` (std `Waker`, без tokio),
+    `repository_model::runtime::sleep_until`; `Demand` (+`needed`: нужное сейчас — поповер Safe Push, диалог PR, раньше
+    показанного) приходит `set_demand { subscription, demand }`: сессия держит demand каждой подписки (окна) и
+    спрашивает по их объединению, demand уходит с подпиской; фокус фактов — из demand, `Message::Focus` и поле
+    `focused` актора удалены, `set_window_focus` только спрашивает sync. Страница: `src/model/demand.ts` (части со
+    счётчиком, ≤ 4/с, повтор на новую подписку); фокус и online проведены, вызовы `show`/`need`/`preview`/
+    `robotDetails` переезжают со своими семействами (s7-6, s7-7). `POST /clock/advance { ms }` + sweep,
+    `advanceBackendClock(ms)`; `COMMAND_COUNT` 128.
   - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
     requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
     `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):

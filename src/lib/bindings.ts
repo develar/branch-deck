@@ -283,6 +283,11 @@ export const commands = {
 	 */
 	setWindowFocus: (params: WindowFocusParams) => typedError<SyncAnswer | null, ApiError>(__TAURI_INVOKE("set_window_focus", { params })),
 	/**
+	 *  What the window of a subscription shows and needs of its session (`Demand`), in place of what it said before; the
+	 *  page sends it when it changes, at most four times a second, and again for a new subscription
+	 */
+	setDemand: (params: SetDemandParams) => __TAURI_INVOKE<void>("set_demand", { params }),
+	/**
 	 *  Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
 	 *  the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
 	 *  `ApiError` (`operation_in_progress`, `detached_head`)
@@ -1355,6 +1360,33 @@ export type Delivery = {
 	dry_runs: number,
 	/**  Emergency robots, which skip checks: counted apart */
 	emergency: number,
+};
+
+/**
+ *  What a window shows and needs of a session (docs/design/rust-domain-authority.md, "Demand"), the one thing the page
+ *  tells of itself: the facts it asks for, and how often. The session keeps the demand of each window by its
+ *  subscription and asks for the facts of all of them; the lists name branches by name, robots by id
+ */
+export type Demand = {
+	/**  The window has the focus */
+	focused: boolean,
+	/**  The machine is online (`navigator.onLine`): offline, no poll asks */
+	online: boolean,
+	/**  The branches whose rows the window shows */
+	visibleBranches: string[],
+	/**  The whole stacks whose islands the window shows, by root */
+	visibleStacks: string[],
+	/**
+	 *  The branches a surface needs a fact of now, asked before the shown ones (the Safe Push popover, the "Create pull
+	 *  request" dialog)
+	 */
+	needed: string[],
+	/**  The branches whose preview the window shows */
+	previewed: string[],
+	/**  The branches a review window shows (that window's own demand) */
+	reviewWindows: string[],
+	/**  The robots whose details a surface shows (the robot popover, the preview, a row of the landing overview) */
+	robotDetails: string[],
 };
 
 /**  The GitHub repository found without `branchdeck.githubRepository` */
@@ -3987,6 +4019,12 @@ export type SearchState = "complete" |
 
 export type SessionParams = {
 	repositoryPath: string,
+};
+
+/**  The demand of a window, by its subscription to the session (`ViewSubscription::id`) */
+export type SetDemandParams = {
+	subscription: number,
+	demand: Demand,
 };
 
 export type SetRepositoryConfigParams = {
