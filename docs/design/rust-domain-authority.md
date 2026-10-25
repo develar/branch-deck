@@ -2012,6 +2012,28 @@ rewrites между процессами через файл `s10`; `s12` ждё
   новая): тот же intent — join, Undo за rewrite — queue, Retarget и Request Review одного PR — run, rewrite во время
   sync — run, push на другой ветке во время push — run, операция своего процесса — никогда `Busy`.
 - **Критерий выхода:** `src/lib` не содержит функции, возвращающей «можно/нужно/переносит/держит».
+- **Уточнения плана (2026-10-25, планировщик s8):**
+  1. Вход правил — `domain_policy::facts::Repository<'a>`: заимствованные части `RepositoryView` (`domain-types`), без
+     копий. Единственный конструктор — `repository_model::derive` из `TableState` и `FactStore`; `bd` кладёт свои ответы
+     (роботы, PR, readiness, правила, профили, landing gate, target check) в тот же `FactStore` как `Fresh` и выводит
+     той же функцией, так что у обеих сторон один вход и одна функция; `plan()` оставляет себе чтения, решает
+     `land::decide`.
+  2. `ActionState` в s8 — `Enabled | Disabled { reason }` (`reason` включает `Pending(fact)`); `Running{op}`,
+     `Waits{op}` и `Queued{op}` появляются вместе с разделом `operations` сессии (s9 для remote, s10 реестр); до тех пор
+     страница накладывает `src/stores/operations.ts` на представленные пункты как локальное состояние UI.
+  3. `domain-policy::admission` и его табличный тест — в s9-engine-remote, где у правила первый вызов; в s8 без
+     потребителя это мёртвый код.
+  4. `landing.land` вида — решения двух default-intent'ов (Safe Push с default-профилем, Dry Run). Выбор профиля и
+     «без review» в поповере решает read-IPC `decide_land(intent)` над фактами сессии тем же `land::decide`
+     (test-server — тот же маршрут); в s9 его заменяет `prepare`.
+  5. Семейство может занять два соседних коммита (правило и `bd`, затем приложение), когда один коммит превысил бы
+     ~1.5k строк; в конце семейства TS-правила нет.
+  6. D4: `bd` сообщает `pushed_over` уже в s8, в семействе push: один повтор живёт в Rust-последовательности push обеих
+     сторон (`push_guard::push_branches`, `push_command`) одной функцией `push::over_moved_remote`.
+  7. D11 в s8: правило `pull_request::base_of`; retarget как первый эффект старта приложения выполняет
+     `safe-push-start.ts` (как `push.ts` перед push) до движка s9; строка 5 перестаёт отказывать.
+  8. Раскладка строк: вид отдаёт `structure` ветки (объявленный родитель — D8, дети, предки по effective base, потомки,
+     parked) и порядок секций; lanes остаются презентацией (`stack-lanes.ts`).
 
 ### s9-engine-remote
 
