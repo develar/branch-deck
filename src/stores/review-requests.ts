@@ -164,8 +164,11 @@ function runReviewWrite(
 
 // ---- the facts ----
 
-/** The repositories whose review refs were pruned and none was written since */
-const prunedRepositories = new Set<string>()
+/**
+ * By repository: the refs its last prune kept ("" for none, "101" for the request of the window), while no fetch wrote
+ * one since: an answer that would keep the same prunes nothing again
+ */
+const prunedRepositories = new Map<string, string>()
 
 function currentRepositoryPath(): string | null {
   const path = getSelectedProject()?.path ?? ""
@@ -529,15 +532,15 @@ export function pruneReviewRefsOf(repositoryPath: string): void {
  * and when the window closes; never after a failed answer. A failure is tried again the next time.
  */
 function pruneReviewRefs(repositoryPath: string): void {
-  if (prunedRepositories.has(repositoryPath)) {
+  const inWindow = reviewWindow.shownNumber(repositoryPath)
+  // the refs of the window stay: its close prunes them
+  const keep = inWindow === null ? [] : [inWindow]
+  const kept = keep.join(",")
+  // every poll answers with the requests: one prune per repository and refs kept, not one per answer
+  if (prunedRepositories.get(repositoryPath) === kept) {
     return
   }
-  const inWindow = reviewWindow.shownNumber(repositoryPath)
-  const keep = inWindow === null ? [] : [inWindow]
-  // the refs of the window stay: its close prunes them
-  if (keep.length === 0) {
-    prunedRepositories.add(repositoryPath)
-  }
+  prunedRepositories.set(repositoryPath, kept)
   void commands.pruneReviewRefs({ repositoryPath, keep }).then(
     result => {
       if (result.status === "error") {

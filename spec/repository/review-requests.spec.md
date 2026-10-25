@@ -509,7 +509,7 @@ Safe Push it allows.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`range_files_are_the_changes_of_all_its_commits`, `the_files_of_a_commit_subject_are_those_of_the_commit`, `a_range_refuses_what_is_not_an_object_id`)
 - The review refs are pruned (`prune_review_refs`, one CAS transaction) after an answer with the requests, once per
   repository per start and after a fetch wrote one, and when the review window closes; never after a failed answer;
-  the refs of the request the window shows stay. A CAS failure is tried again the next time; across app instances it is best effort.
+  the refs of the request the window shows stay, and the polls while it shows them prune nothing again. A CAS failure is tried again the next time; across app instances it is best effort.
   [@test] ../../src/stores/review-requests.test.ts (`prunes once after an answer with the requests, never after a failure, and keeps the window's`)
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`prune_deletes_the_review_refs_not_kept`, `prune_deletes_nothing_when_a_ref_moved_meanwhile`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the review when the request is withdrawn meanwhile, and its refs`)

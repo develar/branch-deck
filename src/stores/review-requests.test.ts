@@ -285,6 +285,9 @@ describe("review refs", () => {
     noteReviewRefsWritten("/repo")
     listed(available(request(4)))
     expect(gh.prunes.at(-1)).toEqual({ repositoryPath: "/repo", keep: [4] })
+    // the next poll keeps the same refs: it prunes nothing again
+    listed(available(request(4)))
+    expect(gh.prunes).toHaveLength(2)
     reviewWindow.shown = null
     pruneReviewRefsOf("/repo")
     expect(gh.prunes.at(-1)).toEqual({ repositoryPath: "/repo", keep: [] })
