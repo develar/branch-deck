@@ -438,8 +438,7 @@ fn write_loop(shared: &Shared) {
         first_of_streak.then_some(error)
       }
     };
-    state.passes_finished += 1;
-    shared.saved.notify_all();
+    // the report goes out before the pass ends, so a `flush` that waits for this pass returns after it
     if let Some(error) = report {
       drop(state);
       let listener = shared.on_save_error.lock().unwrap_or_else(PoisonError::into_inner).clone();
@@ -448,6 +447,8 @@ fn write_loop(shared: &Shared) {
       }
       state = shared.lock();
     }
+    state.passes_finished += 1;
+    shared.saved.notify_all();
   }
 }
 
