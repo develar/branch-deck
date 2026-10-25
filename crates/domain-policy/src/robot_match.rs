@@ -3,8 +3,8 @@
 //! started on the branch (`branch_name`), or a Safe Push of a temporary ref (the IDE, the CLI) on the local or the
 //! pushed tip of the branch; the robot of the whole stack (`stack_root`) is the stack's, never a branch's, not even by
 //! its revision. Of several, a running robot wins over a canceling one (a restart replaces it) over a finished one, then
-//! the newest, then the first of the list. The page still matches them itself (`findBranchRobot` of
-//! `src/lib/patronus.ts`); both pass the cases of `src/test-support/robot-match-cases.json`.
+//! the newest, then the first of the list. The session names the robot of each row with it (`robotId` of the Patronus
+//! view), so the page matches none itself; the cases of `robot_match_cases.json` pin the rule.
 
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};

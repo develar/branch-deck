@@ -1,5 +1,5 @@
 //! What the session of a repository sends a window (docs/design/rust-domain-authority.md, "Представление: снимок и
-//! патчи"): a snapshot of the branch table (`TableView`) and the patches that follow it (`ViewPatch`). The table is cut
+//! патчи"): a snapshot of its view (`RepositoryView`) and the patches that follow it (`ViewPatch`). The table is cut
 //! into parts that change for different reasons: of each branch its head and its commits (with a grouping), its sync
 //! state (with its status and progress), the copies of its commits (with each commit the sync reports) and its remote
 //! status; the stack branches by root; the sections below the table. A patch carries a part only when it differs from the one sent last, so the page
@@ -8,8 +8,10 @@
 //! The names on the wire are the ones the page reads today (`branch-sync.ts`). The statuses are data: the texts, the
 //! marks of what to expand and the badges are the page's presentation of them. A fact a service or a computation
 //! answers is a `Fact` with its `FactState` (the rule of a fact without an answer), and the facts of the remote services
-//! are parts of the view beside the table (`FactsView`: the robots of Patronus by id); a window tells the session what
-//! it shows and needs (`Demand`) and asks it to read a fact again (`RefreshFactsParams`).
+//! are parts of the view beside the table (`FactsView`: the robots of Patronus by id), as is what the session derives
+//! of them and the table (`PatronusPart`: the robot of each row and what the robots land, landed and hold, with the
+//! landing needs, keyed by branch and stack); a window tells the session what it shows and needs (`Demand`) and asks it
+//! to read a fact again (`RefreshFactsParams`).
 
 use crate::branch_integration::BranchIntegrationInfo;
 use crate::commit::Commit;
@@ -18,6 +20,7 @@ use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::patronus::{PatronusAvailability, PatronusRobot};
+use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, StackPatronus};
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
 use crate::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate, UnappliedBranchInfo};
@@ -241,7 +244,7 @@ impl<T> ViewAnswer<T> {
 #[serde(rename_all = "camelCase")]
 pub struct ViewSubscription {
   pub id: u32,
-  pub view: TableView,
+  pub view: RepositoryView,
 }
 
 /// Whether a sync runs, and what it does
@@ -274,11 +277,12 @@ pub enum SyncStep {
   Detection,
 }
 
-/// The snapshot of the branch table of a session
+/// The snapshot of the view of a session: the branch table, what the robots land, landed and hold of it, the facts of
+/// the remote services and their news
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct TableView {
+pub struct RepositoryView {
   pub version: Version,
   pub sync: SyncState,
   pub header: TableHeader,
@@ -288,6 +292,8 @@ pub struct TableView {
   /// The stack branches the last sync reported, by the root of their stack
   pub stacks: BTreeMap<String, StackBranchUpdate>,
   pub sections: TableSections,
+  /// What the robots of Patronus land, landed and hold of the table, as the session derives it
+  pub patronus: PatronusPart,
   /// What the remote services answered, beside the table
   pub facts: FactsView,
   /// The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
@@ -297,6 +303,24 @@ pub struct TableView {
 
 /// How many news a view keeps, for a window that lost a patch and asks a snapshot
 pub const NEWS_KEPT: usize = 32;
+
+/// The Patronus view of the session (`repository_model::facts::derive_patronus`, the rule `bd` reads too): the robot of
+/// each branch and whole stack and what the robots land, landed and hold of the table of the last sync, on the remote
+/// branches as the session knows them (a push moves them), with the landing needs of each branch
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusPart {
+  /// How the view stands: `Loading` until Patronus answered once and the view of that answer is derived, `Stale` while
+  /// the view of newer robots, a newer table or a push is derived (nothing waits for it), `Unavailable` when the
+  /// derivation failed without an earlier view, `Stale` with the reason when it failed after one
+  pub state: FactState,
+  /// How the landing needs of `view` stand: `Loading` while they are computed for the table and what the view names
+  /// landed (the needs of a branch are `unknown` meanwhile), `Fresh` once they are, `Unavailable` when the computation
+  /// failed for them
+  pub landing_needs: FactState,
+  pub view: PatronusView,
+}
 
 /// The facts of the remote services a session keeps, each with how it stands (docs/design/rust-domain-authority.md,
 /// "Факты")
@@ -580,7 +604,7 @@ pub struct ViewPatch {
   pub changes: TableChanges,
 }
 
-/// The parts of a `TableView` a patch replaces; a part absent is unchanged. The keyed parts (branches, stacks, the
+/// The parts of a `RepositoryView` a patch replaces; a part absent is unchanged. The keyed parts (branches, stacks, the
 /// integration of the archived branches) carry only the keys that changed and the keys removed
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -624,11 +648,44 @@ pub struct TableChanges {
   pub landed: Option<LandedSection>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
+  pub patronus: Option<PatronusChange>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
   pub facts: Option<FactsChanges>,
   /// The news since the patch before, oldest first
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub news: Vec<News>,
+}
+
+/// What changed of the Patronus view: its states when they differ, the branches and the stacks whose facts changed
+/// with the keys that went, the landings of the merged robots when they differ
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PatronusChange {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub state: Option<FactState>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub landing_needs: Option<FactState>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub branches: BTreeMap<String, BranchPatronus>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stacks: BTreeMap<String, StackPatronus>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub landed_by_robot: Option<BTreeMap<String, Vec<RobotLandedBranch>>>,
+  /// The branches and the stacks the view no longer lists
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_branches: Vec<String>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_stacks: Vec<String>,
 }
 
 /// The parts of the facts that changed

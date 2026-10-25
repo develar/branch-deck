@@ -1,21 +1,23 @@
 use crate::branch_table::BranchTable;
-use crate::facts::{FactResult, RobotsDigest, RobotsRead};
+use crate::facts::{FactResult, Needs, RobotsDigest, RobotsRead, derive_patronus};
+use crate::patronus_view::ContentMemo;
 use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
 use crate::session::{IDLE_LIMIT, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
 use crate::table::RemoteSubject;
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
-use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::robot;
-use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus, PatronusRobotsResult};
-use domain_types::session::{BranchStatus, Demand, SyncOutcome, SyncReason, SyncState, SyncStep, TableView, ViewPatch};
+use domain_types::landing::{LandingFix, LandingRefusal, StackCommit};
+use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult};
+use domain_types::repository_view::{LandingNeeds, PatronusView, RemoteFacts};
+use domain_types::session::{BranchStatus, Demand, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, ViewPatch};
 use domain_types::stack::BlockReason;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::collections::{HashSet, VecDeque};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_core::push::{PushBranchesOutcome, StackPushBranch};
 use sync_core::sync::{SyncDeferred, SyncOptions, SyncReport};
@@ -122,6 +124,15 @@ impl SessionHost for ScriptedHost {
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     true
   }
+
+  /// By the hashes only: the scripted tables are of no repository
+  fn derive_patronus(&self, key: &SessionKey, table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot], memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+    Ok(derive_patronus(&GitCommandExecutor::new(), &key.worktree, table, remote, robots, memo))
+  }
+
+  fn landing_needs(&self, _key: &SessionKey, _landed: &HashSet<String>) -> Result<Needs, ApiError> {
+    Ok(Needs::new())
+  }
 }
 
 fn key(worktree: &str) -> SessionKey {
@@ -168,7 +179,7 @@ async fn outcome(ticket: SyncTicket) -> Result<SyncOutcome, ApiError> {
   ticket.wait().await.map(|answer| answer.outcome)
 }
 
-async fn snapshot(sessions: &Sessions, key: &SessionKey) -> TableView {
+async fn snapshot(sessions: &Sessions, key: &SessionKey) -> RepositoryView {
   sessions.get_snapshot(key).await.unwrap()
 }
 
@@ -309,10 +320,22 @@ async fn a_failed_sync_keeps_the_table() {
 }
 
 /// The environment of the app's sessions in a test: the default options, a deferred sync with its code, whether a
-/// focus syncs (Auto-sync on Focus), and the prefix the git config names (`None`: the session's own)
+/// focus syncs (Auto-sync on Focus), the prefix the git config names (`None`: the session's own), and what the landing
+/// needs and the view of the robots answer
+#[derive(Default)]
 struct TestEnvironment {
   syncs_on_focus: bool,
   config_prefix: Option<String>,
+  facts: Arc<HostFacts>,
+}
+
+/// What the landing needs answer (nothing, by default) with the landed commits of each computation, and whether the view
+/// of the robots fails
+#[derive(Default)]
+struct HostFacts {
+  needs: Mutex<Needs>,
+  computed: Mutex<Vec<HashSet<String>>>,
+  fails_view: Mutex<bool>,
 }
 
 impl SessionEnvironment for TestEnvironment {
@@ -333,29 +356,41 @@ impl SessionEnvironment for TestEnvironment {
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     self.syncs_on_focus
   }
+
+  fn landing_needs(&self, _key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs> {
+    self.facts.computed.lock().unwrap_or_else(PoisonError::into_inner).push(landed.clone());
+    Ok(self.facts.needs.lock().unwrap_or_else(PoisonError::into_inner).clone())
+  }
+
+  fn before_patronus_view(&self, _key: &SessionKey) -> Result<(), ApiError> {
+    if *self.facts.fails_view.lock().unwrap_or_else(PoisonError::into_inner) {
+      return Err(ApiError::internal("the test fails the view"));
+    }
+    Ok(())
+  }
 }
 
 /// Sessions that sync with `git`, on a clock the test moves; a focus syncs
 fn with_git(git: GitCommandExecutor) -> (Sessions, TestClock) {
-  with_git_views(git, RepositoryViews::default())
+  with_git_facts(git, Arc::default())
 }
 
-/// `with_git` whose syncs keep their tables in `views`
-fn with_git_views(git: GitCommandExecutor, views: RepositoryViews) -> (Sessions, TestClock) {
+/// `with_git` whose host answers the landing needs and the view of the robots with `facts`
+fn with_git_facts(git: GitCommandExecutor, facts: Arc<HostFacts>) -> (Sessions, TestClock) {
   with_environment(
     git,
-    views,
     TestEnvironment {
       syncs_on_focus: true,
-      config_prefix: None,
+      facts,
+      ..TestEnvironment::default()
     },
   )
 }
 
-/// Sessions that sync with `git` in `environment`, their tables kept in `views`
-fn with_environment(git: GitCommandExecutor, views: RepositoryViews, environment: TestEnvironment) -> (Sessions, TestClock) {
+/// Sessions that sync with `git` in `environment`
+fn with_environment(git: GitCommandExecutor, environment: TestEnvironment) -> (Sessions, TestClock) {
   let clock = TestClock::new();
-  let host = Arc::new(GitSessionHost::new(git, views, environment));
+  let host = Arc::new(GitSessionHost::new(git, environment));
   (Sessions::new(tokio::runtime::Handle::current(), host, Arc::new(clock.clone())), clock)
 }
 
@@ -391,7 +426,7 @@ fn ahead_of_origin(subjects: &[&str]) -> TestRepo {
 }
 
 /// The branches of a view by name
-fn branch_names(view: &TableView) -> Vec<&str> {
+fn branch_names(view: &RepositoryView) -> Vec<&str> {
   let mut names: Vec<&str> = view.order.iter().map(String::as_str).collect();
   names.sort_unstable();
   names
@@ -407,8 +442,7 @@ async fn two_worktrees_of_one_repository_are_two_sessions() {
   lane.git(&["add", "gamma.txt"]);
   lane.git(&["commit", "-q", "-m", "(gamma) Add gamma"]);
 
-  let views = RepositoryViews::default();
-  let (sessions, _clock) = with_git_views(GitCommandExecutor::new(), views.clone());
+  let (sessions, _clock) = with_git(GitCommandExecutor::new());
   let main = SessionKey {
     worktree: repo.path_str().to_string(),
     prefix: "test".to_string(),
@@ -430,7 +464,6 @@ async fn two_worktrees_of_one_repository_are_two_sessions() {
   for key in [&main, &other] {
     let table = sessions.table(key).await.expect("the session keeps the table of its sync");
     assert_eq!(table.table.branches.len(), branch_names(&snapshot(&sessions, key).await).len(), "{key:?}");
-    assert!(views.keeps(&key.worktree, &key.prefix), "the views keep the table of {key:?}");
   }
 }
 
@@ -507,9 +540,9 @@ async fn a_focus_with_unchanged_inputs_reads_only_the_fingerprint() {
     let git = GitCommandExecutor::new().with_process_stats("sessions");
     let environment = TestEnvironment {
       syncs_on_focus,
-      config_prefix: None,
+      ..TestEnvironment::default()
     };
-    let (sessions, _clock) = with_environment(git.clone(), RepositoryViews::default(), environment);
+    let (sessions, _clock) = with_environment(git.clone(), environment);
     let window = Window::default();
     sessions.subscribe(&key, Box::new(window.clone())).await.unwrap();
     sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
@@ -552,7 +585,7 @@ fn pushed(branch: &str, tip: &str) -> PushBranchesOutcome {
 }
 
 /// The remote tip `branch` shows in the view
-fn remote_tip(view: &TableView, branch: &str) -> Option<String> {
+fn remote_tip(view: &RepositoryView, branch: &str) -> Option<String> {
   view.branches.get(branch)?.remote.status.as_ref()?.remote_tip.clone()
 }
 
@@ -705,8 +738,9 @@ async fn a_run_under_a_prefix_the_config_left_builds_nothing() {
   let environment = TestEnvironment {
     syncs_on_focus: true,
     config_prefix: Some("team".to_string()),
+    ..TestEnvironment::default()
   };
-  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), RepositoryViews::default(), environment);
+  let (sessions, _clock) = with_environment(GitCommandExecutor::new(), environment);
   let key = SessionKey {
     worktree: repo.path_str().to_string(),
     prefix: "test".to_string(),
@@ -962,4 +996,124 @@ async fn the_reads_of_the_facts_reach_the_windows_and_the_scheduler_hears_what_i
   assert_eq!(heard(&mut events), vec!["closed", "watched true"]);
   assert_eq!(sessions.apply_facts(&key, late, FactResult::Robots { read, result: listed }).await, None);
   assert!(snapshot(&sessions, &key).await.facts.robots.robots.is_empty());
+}
+
+/// The Patronus part of the session's view once `done` says it is, asked again until then (the view and the landing
+/// needs are derived in the blocking pool)
+async fn patronus_when(sessions: &Sessions, key: &SessionKey, done: impl Fn(&PatronusPart) -> bool) -> PatronusPart {
+  for _ in 0..2000 {
+    let part = snapshot(sessions, key).await.patronus;
+    if done(&part) {
+      return part;
+    }
+    tokio::time::sleep(Duration::from_millis(5)).await;
+  }
+  panic!("the Patronus part never came: {:?}", snapshot(sessions, key).await.patronus)
+}
+
+/// Patronus answered the session of `key` with `robots`, a full list
+async fn list_robots(sessions: &Sessions, key: &SessionKey, robots: Vec<PatronusRobot>) {
+  let ticket = sessions.begin(key).await.unwrap();
+  let listed = PatronusRobotsResult {
+    availability: PatronusAvailability::Available,
+    robots,
+    github_repository: None,
+  };
+  let read = RobotsRead::List { full: true };
+  sessions.apply_facts(key, ticket, FactResult::Robots { read, result: listed }).await.unwrap();
+}
+
+/// `util` adds a name `flow` uses, synced in a session with a window; the host answers that `flow` needs `util`
+async fn util_and_flow(facts: &Arc<HostFacts>) -> (TestRepo, Sessions, SessionKey) {
+  let repo = ahead_of_origin(&["(util) Add controlUrl", "(flow) Start with controlUrl"]);
+  let declared_by = StackCommit {
+    id: "util-commit".to_string(),
+    subject: "Add controlUrl".to_string(),
+    branch: "util".to_string(),
+  };
+  let need = LandingRefusal::MissingDeclaration {
+    branch: "flow".to_string(),
+    identifier: "controlUrl".to_string(),
+    file: "src/b/Use.kt".to_string(),
+    line: 3,
+    used_by: StackCommit {
+      branch: "flow".to_string(),
+      ..declared_by.clone()
+    },
+    declared_by,
+    fix: LandingFix::Restack {
+      branch: "flow".to_string(),
+      onto: "util".to_string(),
+    },
+    landing_in: None,
+  };
+  *facts.needs.lock().unwrap() = Needs::from([("flow".to_string(), vec![need])]);
+  let (sessions, _clock) = with_git_facts(GitCommandExecutor::new(), Arc::clone(facts));
+  let key = SessionKey {
+    worktree: repo.path_str().to_string(),
+    prefix: "test".to_string(),
+  };
+  sessions.subscribe(&key, Box::new(Window::default())).await.unwrap();
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Open)).await, Ok(SyncOutcome::Synced));
+  (repo, sessions, key)
+}
+
+/// The session derives what the robots land, landed and hold once Patronus answered (`Loading` until then, the table
+/// alone tells nothing), names the robot of each row, then computes the landing needs of the table with what the view
+/// names landed, once: a missing declaration names the running Safe Push of the branch that adds the name, and an
+/// answer of the same robots derives and computes nothing again
+#[tokio::test]
+async fn the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered() {
+  let facts = Arc::new(HostFacts::default());
+  let (_repo, sessions, key) = util_and_flow(&facts).await;
+  let before = snapshot(&sessions, &key).await.patronus;
+  assert_eq!((before.state, before.view), (FactState::Loading, PatronusView::default()), "Patronus has not answered");
+
+  let table = sessions.table(&key).await.unwrap();
+  let util_tip = table.table.tip_of("util").unwrap().to_string();
+  let running = PatronusRobot {
+    source_revision: Some(util_tip),
+    ..robot("robot-1", Some("util"), PatronusRobotStatus::Running, 100)
+  };
+  list_robots(&sessions, &key, vec![running.clone()]).await;
+  let part = patronus_when(&sessions, &key, |part| part.landing_needs == FactState::Fresh).await;
+  assert_eq!(part.state, FactState::Fresh);
+  let util = &part.view.branches["util"];
+  assert_eq!(util.robot_id.as_deref(), Some("robot-1"));
+  let LandingNeeds::Known { refusals } = &part.view.branches["flow"].landing_needs else {
+    panic!("{part:?}")
+  };
+  let [LandingRefusal::MissingDeclaration { landing_in, .. }] = &refusals[..] else {
+    panic!("{refusals:?}")
+  };
+  assert_eq!(landing_in.as_ref().map(|robot| robot.robot_id.as_str()), Some("robot-1"));
+  assert_eq!(part.view.branches["util"].landing_needs, LandingNeeds::Known { refusals: Vec::new() });
+  assert_eq!(facts.computed.lock().unwrap().len(), 1);
+
+  list_robots(&sessions, &key, vec![running]).await;
+  assert_eq!(snapshot(&sessions, &key).await.patronus, part, "the same robots derive nothing again");
+  assert_eq!(facts.computed.lock().unwrap().len(), 1, "nor compute the needs again");
+}
+
+/// A view the host can't derive is `Unavailable` with why, never an empty view; the next answer of Patronus derives it
+/// again, also of the same robots
+#[tokio::test]
+async fn a_view_that_failed_is_derived_again_after_the_next_answer_of_patronus() {
+  let facts = Arc::new(HostFacts::default());
+  let (_repo, sessions, key) = util_and_flow(&facts).await;
+  *facts.fails_view.lock().unwrap() = true;
+  list_robots(&sessions, &key, Vec::new()).await;
+  let failed = patronus_when(&sessions, &key, |part| part.state != FactState::Loading).await;
+  assert_eq!(
+    failed.state,
+    FactState::Unavailable {
+      reason: ApiError::internal("the test fails the view")
+    }
+  );
+  assert_eq!(failed.view, PatronusView::default());
+
+  *facts.fails_view.lock().unwrap() = false;
+  list_robots(&sessions, &key, Vec::new()).await;
+  let part = patronus_when(&sessions, &key, |part| part.state == FactState::Fresh).await;
+  assert!(part.view.branches.contains_key("util"), "{part:?}");
 }

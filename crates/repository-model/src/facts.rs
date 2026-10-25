@@ -14,8 +14,8 @@
 //! an answer of those comes.
 //!
 //! `FactStore` holds the facts of a session: the branch table of its last successful sync (`table`, which the guards of
-//! the app's actions read through `Sessions::table`) and the robots of Patronus (`robots`, a part of the view by id), the
-//! other families of the remote services in the steps that bring them. A read of a service takes its number with
+//! the app's actions read through `Sessions::table`), the robots of Patronus (`robots`, a part of the view by id) and
+//! what they land, landed and hold (`patronus`), the other families of the remote services in the steps that bring them. A read of a service takes its number with
 //! `Sessions::begin` (a `FactTicket`, of the epoch of the session, so the answer of a read of a session that closed
 //! meanwhile applies to no session opened again) and applies its answer with `Sessions::apply_facts` (`FactResult`).
 //!
@@ -29,22 +29,37 @@
 //! problems are not known. An answer that shows a robot known running or canceling merged or failed is news (`News`,
 //! with a number of its own per session): a merge at once, a failure once its problems say whether it failed for missing
 //! approvals (or their read failed), at once for a robot whose problems the session doesn't read.
+//!
+//! The Patronus view (`PatronusFact`, the part `patronus` of the view): what the robots land, landed and hold of the
+//! table, derived again (`derive_patronus`, in the blocking pool, one derivation at a time, applied by its number) when
+//! the table committed, the robots changed or a push moved a remote branch (`patronus_inputs`; the remote branches as the
+//! session knows them, `session_remote`), `Loading` until Patronus answered and the first view is derived, `Stale` while
+//! a newer one is. The landing needs of the table (`trial_check::landing_gate::landing_needs_of`, which the host
+//! computes) are a fact of their inputs (`landing_inputs`: the baseline, the tips and what the view names landed): one
+//! computation at a time, the newest wanted inputs next, nothing again while they stay; the part names them for the
+//! branches once they are of its inputs.
 
-use crate::branch_table::BranchTable;
-use crate::patronus_view::ContentMemo;
+use crate::branch_table::{BranchTable, remote_fact};
+use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
 use crate::table::TableState;
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::landing::LandingRefusal;
 use domain_types::patronus::{
   KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, REVIEW_APPROVAL_SUBSYSTEM,
 };
+use domain_types::repository_view::{PatronusView, RemoteFacts};
 use domain_types::session::Version;
-use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, RobotsHead, RobotsView};
-use std::collections::{BTreeSet, HashMap};
+use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView};
+use git_executor::git_command_executor::GitCommandExecutor;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use sync_core::patronus_start::is_robot_active;
+use tracing::instrument;
 
 /// The number of an observation of a session, from its `Sequence`: a greater one is newer
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -235,18 +250,21 @@ pub struct AppliedFacts {
   pub robots: RobotsDigest,
 }
 
-/// The table of a session and the memo of the content walks of its views, as `Sessions::table` answers them
+/// The table of a session, the memo of the content walks of its views and the remote branches as the session knows
+/// them (`session_remote`), as `Sessions::table` answers them
 #[derive(Clone, Debug)]
 pub struct TableFacts {
   pub table: Arc<BranchTable>,
   pub memo: Arc<Mutex<ContentMemo>>,
+  pub remote: RemoteFacts,
 }
 
 impl TableFacts {
-  /// `table` with a memo of its own
+  /// `table` with a memo of its own, on its own remote facts
   #[must_use]
   pub fn new(table: BranchTable) -> Self {
     Self {
+      remote: table.remote.clone(),
       table: Arc::new(table),
       memo: Arc::default(),
     }
@@ -254,12 +272,7 @@ impl TableFacts {
 
   /// The memo; a poisoned one (a panic in a content walk) starts again
   pub fn memo(&self) -> MutexGuard<'_, ContentMemo> {
-    self.memo.lock().unwrap_or_else(|poisoned| {
-      self.memo.clear_poison();
-      let mut memo = poisoned.into_inner();
-      *memo = ContentMemo::default();
-      memo
-    })
+    lock_memo(&self.memo)
   }
 }
 
@@ -273,6 +286,8 @@ pub struct FactStore {
   pub memo: Arc<Mutex<ContentMemo>>,
   /// The user's robots of Patronus
   pub robots: RobotsFact,
+  /// What the robots land, landed and hold of the table, with its landing needs
+  pub patronus: PatronusFact,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
   /// The number of the last news
@@ -288,6 +303,7 @@ impl FactStore {
       table: FactRecord::loading(),
       memo: Arc::new(Mutex::new(ContentMemo::default())),
       robots: RobotsFact::default(),
+      patronus: PatronusFact::default(),
       news: Vec::new(),
       last_news: 0,
       failures: BTreeSet::new(),
@@ -360,12 +376,13 @@ impl FactStore {
     }
   }
 
-  /// The table of the last successful sync with the memo; `None` before one
+  /// The table of the last successful sync with the memo and the remote branches as `state` has them; `None` before one
   #[must_use]
-  pub fn table_facts(&self) -> Option<TableFacts> {
+  pub fn table_facts(&self, state: &TableState) -> Option<TableFacts> {
     self.table.value().map(|table| TableFacts {
       table: Arc::clone(table),
       memo: Arc::clone(&self.memo),
+      remote: session_remote(table, state),
     })
   }
 }
@@ -585,9 +602,7 @@ pub fn robots_digest(table: &TableState, robots: &RobotsView, watched: &[String]
   if robots.robots.is_empty() {
     return RobotsDigest::default();
   }
-  // newest first, as a list answers them: the order breaks a tie of the matching
-  let mut listed: Vec<PatronusRobot> = robots.robots.values().cloned().collect();
-  listed.sort_by(|a, b| b.start_time.cmp(&a.start_time).then_with(|| a.id.cmp(&b.id)));
+  let listed = listed_robots(robots);
   let index = RobotIndex::new(&listed);
   let branches = table.order().iter().filter_map(|name| {
     let branch = table.branch(name)?;
@@ -640,6 +655,245 @@ pub fn robots_digest(table: &TableState, robots: &RobotsView, watched: &[String]
       .collect(),
     problems,
   }
+}
+
+/// The Patronus view of a session (`PatronusPart`): the view derived of the table, the robots and the remote branches
+/// the session knows (`derive_patronus`, which the actor runs in the blocking pool, one at a time), and the landing
+/// needs of the table with what that view names landed, each a fact with its inputs. The part is the derived view with
+/// the needs while they are of its inputs; their state says how they stand (`Loading` while they are computed)
+#[derive(Debug)]
+pub struct PatronusFact {
+  /// The view without the landing needs: `Loading` until the first derivation answered
+  derived: FactRecord<Arc<PatronusView>>,
+  /// The inputs of the derivation that runs
+  deriving: Option<u64>,
+  /// The inputs of the last derivation that started: the same inputs are not derived again
+  derived_for: Option<u64>,
+  /// The last derivation failed: an answer of Patronus derives again, even of the same inputs
+  failed: bool,
+  needs: LandingNeedsFact,
+  part: PatronusPart,
+}
+
+impl Default for PatronusFact {
+  fn default() -> Self {
+    Self {
+      derived: FactRecord::loading(),
+      deriving: None,
+      derived_for: None,
+      failed: false,
+      needs: LandingNeedsFact::default(),
+      part: PatronusPart::default(),
+    }
+  }
+}
+
+impl PatronusFact {
+  /// The part of the view
+  #[must_use]
+  pub const fn part(&self) -> &PatronusPart {
+    &self.part
+  }
+
+  /// Whether a derivation of `inputs` starts now (at `at` on the session clock): not while one runs (the actor asks
+  /// again after its answer), nor for the inputs of the last one. The part is `Stale` from now on, `Loading` before a view
+  pub fn begin(&mut self, inputs: u64, at: Duration) -> bool {
+    if self.deriving.is_some() || self.derived_for == Some(inputs) {
+      return false;
+    }
+    self.deriving = Some(inputs);
+    self.derived_for = Some(inputs);
+    self.derived.expect(inputs);
+    self.derived.started(at);
+    self.part.state = self.derived.fact().state.clone();
+    true
+  }
+
+  /// The answer of the derivation of `observation`: the view, or why there is none
+  pub fn answer(&mut self, observation: Observation, result: Result<PatronusView, ApiError>) {
+    self.deriving = None;
+    self.failed = result.is_err();
+    let _ = self.derived.answer(observation, result.map(Arc::new));
+  }
+
+  /// Patronus answered: a derivation that failed is asked again
+  pub const fn retry(&mut self) {
+    if self.failed {
+      self.derived_for = None;
+    }
+  }
+
+  /// The part from the derived view and the landing needs of `table` with what it names landed; the computation of the
+  /// needs to start now, with its inputs and the landed commits, when they are unknown and none of them runs
+  pub fn publish(&mut self, table: &BranchTable) -> Option<(u64, HashSet<String>)> {
+    let state = self.derived.fact().state.clone();
+    let Some(derived) = self.derived.value() else {
+      self.part = PatronusPart { state, ..PatronusPart::default() };
+      return None;
+    };
+    let mut view = PatronusView::clone(derived);
+    let landed = landed_commits(&view);
+    let inputs = landing_inputs(table, &landed);
+    let (landing_needs, start) = match self.needs.of(inputs, table) {
+      NeedsOf::Known(needs) => {
+        with_landing_needs(&mut view, table, needs);
+        (FactState::Fresh, None)
+      }
+      NeedsOf::Failed(reason) => (FactState::Unavailable { reason: reason.clone() }, None),
+      NeedsOf::Unknown => (FactState::Loading, self.needs.want(inputs, landed)),
+    };
+    self.part = PatronusPart { state, landing_needs, view };
+    start
+  }
+
+  /// The answer of the computation of the landing needs of `inputs`; the computation to start next, of the inputs the
+  /// part wanted meanwhile
+  pub fn needs_answer(&mut self, inputs: u64, result: Result<Needs, ApiError>) -> Option<(u64, HashSet<String>)> {
+    self.needs.answer(inputs, result)
+  }
+}
+
+/// The landing needs of a session (`landing_inputs` say what they are of): the answer of the last computation with its
+/// inputs, the one that runs, and the inputs wanted meanwhile. One computation at a time (a trial session of every
+/// branch), the newest wanted inputs next; while the inputs stay, nothing is computed again, a failure included (a
+/// failed computation is `Unavailable` for its inputs, never an empty list)
+#[derive(Debug, Default)]
+struct LandingNeedsFact {
+  known: Option<(u64, Result<Arc<Needs>, ApiError>)>,
+  computing: Option<u64>,
+  /// With the landed commits of the inputs
+  wanted: Option<(u64, HashSet<String>)>,
+}
+
+/// The landing needs of some inputs
+enum NeedsOf<'a> {
+  Known(&'a Needs),
+  Failed(&'a ApiError),
+  Unknown,
+}
+
+/// A table without branches needs nothing
+static NO_NEEDS: Needs = Needs::new();
+
+impl LandingNeedsFact {
+  fn of(&self, inputs: u64, table: &BranchTable) -> NeedsOf<'_> {
+    if table.branches.is_empty() {
+      return NeedsOf::Known(&NO_NEEDS);
+    }
+    match &self.known {
+      Some((known, Ok(needs))) if *known == inputs => NeedsOf::Known(needs),
+      Some((known, Err(reason))) if *known == inputs => NeedsOf::Failed(reason),
+      _ => NeedsOf::Unknown,
+    }
+  }
+
+  /// `inputs` are wanted: the computation to start, unless one runs (of them, or of others: then they are next)
+  fn want(&mut self, inputs: u64, landed: HashSet<String>) -> Option<(u64, HashSet<String>)> {
+    match self.computing {
+      Some(computing) if computing == inputs => {
+        self.wanted = None;
+        None
+      }
+      Some(_) => {
+        self.wanted = Some((inputs, landed));
+        None
+      }
+      None => {
+        self.computing = Some(inputs);
+        Some((inputs, landed))
+      }
+    }
+  }
+
+  fn answer(&mut self, inputs: u64, result: Result<Needs, ApiError>) -> Option<(u64, HashSet<String>)> {
+    self.known = Some((inputs, result.map(Arc::new)));
+    self.computing = None;
+    let next = self.wanted.take().filter(|(wanted, _)| *wanted != inputs)?;
+    self.computing = Some(next.0);
+    Some(next)
+  }
+}
+
+/// The landing needs of the branches of a table, by branch; a branch not listed needs nothing
+pub type Needs = BTreeMap<String, Vec<LandingRefusal>>;
+
+/// The robot of each branch and whole stack of `table` and what the robots land, landed and hold of it
+/// (`patronus_view` over `match_robots`): the one rule of the session and of `bd` (`PatronusFacts::read`). `robots`
+/// are the user's, `remote` the remote branches as the deriver knows them; runs git for the robots the hashes and `memo`
+/// don't answer: blocking
+#[instrument(skip_all, fields(robots = robots.len(), branches = table.branches.len()))]
+pub fn derive_patronus(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  table: &BranchTable,
+  remote: &RemoteFacts,
+  robots: &[PatronusRobot],
+  memo: &mut ContentMemo,
+) -> PatronusView {
+  let matched = match_robots(table, remote, robots);
+  patronus_view(git_executor, repository_path, table, remote, robots, &matched, memo)
+}
+
+/// The remote branches of `table` as the session knows them: the remote status of each branch and stack branch in its
+/// table state, which a push moves without a sync (`TableState::end_push`), else what the sync of the table knew
+#[must_use]
+pub fn session_remote(table: &BranchTable, state: &TableState) -> RemoteFacts {
+  let mut remote = table.remote.clone();
+  for branch in &table.branches {
+    if let Some(status) = state.branch(&branch.name).and_then(|view| view.remote.status.as_ref()) {
+      remote.branches.insert(branch.name.clone(), remote_fact(status));
+    }
+  }
+  for stack in &table.stack_branches {
+    if let Some(status) = state.stack(&stack.root).and_then(|stack| stack.remote.as_ref()) {
+      remote.stacks.insert(stack.root.clone(), remote_fact(status));
+    }
+  }
+  remote
+}
+
+/// The robots of `robots`, newest first, as a list answers them: the order breaks a tie of the matching
+#[must_use]
+pub fn listed_robots(robots: &RobotsView) -> Vec<PatronusRobot> {
+  let mut listed: Vec<PatronusRobot> = robots.robots.values().cloned().collect();
+  listed.sort_by(|a, b| b.start_time.cmp(&a.start_time).then_with(|| a.id.cmp(&b.id)));
+  listed
+}
+
+/// What the Patronus view of a session is of, as one hash: the table (by the observation that answered it), the remote
+/// branches the session knows and what the view reads of each robot
+#[must_use]
+pub fn patronus_inputs(table: u32, remote: &RemoteFacts, robots: &[PatronusRobot]) -> u64 {
+  let mut hasher = DefaultHasher::new();
+  (table, remote).hash(&mut hasher);
+  for robot in robots {
+    (
+      &robot.id,
+      std::mem::discriminant(&robot.status),
+      std::mem::discriminant(&robot.push_mode),
+      &robot.branch_name,
+      &robot.stack_root,
+      &robot.source_revision,
+      robot.start_time,
+      robot.finish_time,
+    )
+      .hash(&mut hasher);
+  }
+  hasher.finish()
+}
+
+/// What the landing needs of `table` are of, as one hash: the baseline, the tips of its branches and the commits merged
+/// Safe Pushes landed (`landed`)
+#[must_use]
+pub fn landing_inputs(table: &BranchTable, landed: &HashSet<String>) -> u64 {
+  let mut hasher = DefaultHasher::new();
+  table.baseline.hash(&mut hasher);
+  for branch in &table.branches {
+    branch.name.hash(&mut hasher);
+    table.tip_of(&branch.name).hash(&mut hasher);
+  }
+  landed.iter().collect::<BTreeSet<_>>().hash(&mut hasher);
+  hasher.finish()
 }
 
 #[cfg(test)]

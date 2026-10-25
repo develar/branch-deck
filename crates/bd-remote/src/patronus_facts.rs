@@ -1,18 +1,18 @@
-//! The Patronus section of the repository view for `bd` (`repository_model::patronus_view`, the rule the app reads too):
-//! the user's robots, matched to the branches of the table as the rows match them, and what they land, landed and hold.
-//! `bd push`, `bd safe-push` and `bd status` read it; the words stay theirs.
+//! The Patronus section of the repository view for `bd` (`repository_model::facts::derive_patronus`, the rule the
+//! session of the app derives too): the user's robots, the robot of each branch of the table as the rows match it, and
+//! what they land, landed and hold. `bd push`, `bd safe-push` and `bd status` read it; the words stay theirs.
 
 use bd_core::context::RepoContext;
 use bd_core::sync_command::SyncOutput;
 use domain_types::patronus::PatronusRobot;
-use domain_types::repository_view::{BranchPatronus, PatronusView, RobotMatch, StackPatronus};
+use domain_types::repository_view::{BranchPatronus, PatronusView, StackPatronus};
 use repository_model::branch_table::BranchTable;
-use repository_model::patronus_view::{ContentMemo, match_robots, patronus_view};
+use repository_model::facts::derive_patronus;
+use repository_model::patronus_view::ContentMemo;
 
 /// The robots and the Patronus view of a table
 pub struct PatronusFacts {
   pub robots: Vec<PatronusRobot>,
-  pub matched: RobotMatch,
   pub view: PatronusView,
 }
 
@@ -20,10 +20,8 @@ impl PatronusFacts {
   /// The view of `table` with the user's `robots`, on the remote facts of the table: by the hashes where they tell,
   /// else by content (git)
   pub fn read(context: &RepoContext, table: &BranchTable, robots: Vec<PatronusRobot>) -> Self {
-    let remote = &table.remote;
-    let matched = match_robots(table, remote, &robots);
-    let view = patronus_view(&context.git, &context.repository, table, remote, &robots, &matched, &mut ContentMemo::default());
-    Self { robots, matched, view }
+    let view = derive_patronus(&context.git, &context.repository, table, &table.remote, &robots, &mut ContentMemo::default());
+    Self { robots, view }
   }
 
   pub fn robot(&self, id: &str) -> Option<&PatronusRobot> {
@@ -32,12 +30,12 @@ impl PatronusFacts {
 
   /// The robot of a branch, as the rows match it: started on it, or of a temporary ref at its tip
   pub fn branch_robot(&self, name: &str) -> Option<&PatronusRobot> {
-    self.matched.branches.get(name).and_then(|id| self.robot(id))
+    self.branch(name)?.robot_id.as_deref().and_then(|id| self.robot(id))
   }
 
   /// The robot of the whole stack of `root`
   pub fn stack_robot(&self, root: &str) -> Option<&PatronusRobot> {
-    self.matched.stacks.get(root).and_then(|id| self.robot(id))
+    self.stack(root)?.robot_id.as_deref().and_then(|id| self.robot(id))
   }
 
   pub fn branch(&self, name: &str) -> Option<&BranchPatronus> {

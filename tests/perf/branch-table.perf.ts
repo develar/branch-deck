@@ -19,8 +19,8 @@
 // The main thread of a sync (Chromium only, the CDP metrics of the page; docs/design/rendering-performance.md): what the
 // page spends on the patches of a sync and what they derive, the hold and landing rule of the robots included:
 // - firstSyncScriptMs / firstSyncTaskMs: the script time and the task time of the first sync, until its rows and chips;
-// - resyncScriptMs / resyncTaskMs: the same of a sync that changes nothing;
-// - robotIpc: the requests of the repository view (`get_repository_view`) during both syncs.
+// - resyncScriptMs / resyncTaskMs: the same of a sync that changes nothing (the Patronus view comes in the patches of
+//   the session: the page asks no view of the robots).
 //
 // The IPC of the page (every engine; `window.__ipcStats` of the Tauri mock, docs/design/e2e-testing.md), each count
 // read once the page shows the state and no command is pending:
@@ -102,7 +102,6 @@ interface SyncMetrics {
   firstSyncTaskMs: number
   resyncScriptMs: number
   resyncTaskMs: number
-  robotIpc: number
 }
 
 interface IpcMetrics {
@@ -196,7 +195,6 @@ test.describe("Branch table performance", () => {
         firstSyncTaskMs: median(syncRuns.map(run => run.firstSyncTaskMs)),
         resyncScriptMs: median(syncRuns.map(run => run.resyncScriptMs)),
         resyncTaskMs: median(syncRuns.map(run => run.resyncTaskMs)),
-        robotIpc: median(syncRuns.map(run => run.robotIpc)),
       }
     }
     if (ipcRuns.length > 0) {
@@ -246,8 +244,7 @@ test.describe("Branch table performance", () => {
         await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
       })
       const resync = await timeMainThread(cdp, () => runAndWaitForSync(page, () => page.getByTestId("sync-button").click()))
-      const robotIpc = (await settledIpc(page)).invokes["get_repository_view"] ?? 0
-      syncRuns.push({ firstSyncScriptMs: first.script, firstSyncTaskMs: first.task, resyncScriptMs: resync.script, resyncTaskMs: resync.task, robotIpc })
+      syncRuns.push({ firstSyncScriptMs: first.script, firstSyncTaskMs: first.task, resyncScriptMs: resync.script, resyncTaskMs: resync.task })
     })
   }
 

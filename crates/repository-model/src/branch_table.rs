@@ -89,7 +89,6 @@ impl BranchTable {
 /// exists with no work for the remote; the last one of a branch counts); of each stack branch its remote status
 pub fn remote_facts(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusUpdate]) -> RemoteFacts {
   let status_of: HashMap<&str, &RemoteStatusUpdate> = statuses.iter().map(|status| (status.branch_name.as_str(), status)).collect();
-  let up_to_date = |remote: &RemoteStatusUpdate| remote.remote_exists && !has_work_for_remote(remote);
   RemoteFacts {
     branches: report
       .branches
@@ -100,7 +99,7 @@ pub fn remote_facts(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusU
             .ok()
             .and_then(|full_name| report.remote_tips.get(&full_name))
             .cloned(),
-          up_to_date: status_of.get(branch.name.as_str()).is_some_and(|remote| up_to_date(remote)),
+          up_to_date: status_of.get(branch.name.as_str()).is_some_and(|remote| is_up_to_date(remote)),
         };
         (branch.name.clone(), fact)
       })
@@ -110,14 +109,23 @@ pub fn remote_facts(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusU
       .iter()
       .filter_map(|stack| {
         let remote = stack.remote.as_ref()?;
-        let fact = RemoteFact {
-          remote_tip: remote.remote_tip.clone(),
-          up_to_date: up_to_date(remote),
-        };
-        Some((stack.root.clone(), fact))
+        Some((stack.root.clone(), remote_fact(remote)))
       })
       .collect(),
   }
+}
+
+/// What a remote status says of the remote branch: its tip, and whether it has the branch by content
+pub fn remote_fact(remote: &RemoteStatusUpdate) -> RemoteFact {
+  RemoteFact {
+    remote_tip: remote.remote_tip.clone(),
+    up_to_date: is_up_to_date(remote),
+  }
+}
+
+/// The remote branch exists and has what the branch has by content: nothing to push
+const fn is_up_to_date(remote: &RemoteStatusUpdate) -> bool {
+  remote.remote_exists && !has_work_for_remote(remote)
 }
 
 /// The branches `name` is built on, root first: the chain of `effective_base` as a sync places them, of the branches of

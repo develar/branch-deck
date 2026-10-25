@@ -15,15 +15,17 @@
 //! reads number themselves with `begin` and apply with `apply_facts`. Without a consumer nothing is sent.
 
 use crate::branch_table::BranchTable;
-use crate::facts::{AppliedFacts, FactResult, FactTicket, RobotsDigest, TableFacts};
+use crate::facts::{AppliedFacts, FactResult, FactTicket, Needs, RobotsDigest, TableFacts};
+use crate::patronus_view::ContentMemo;
 use crate::runtime::{Message, spawn_actor};
 use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::ApiError;
 use domain_types::patronus::PatronusRobot;
-use domain_types::session::{Demand, FactFamily, FactRefreshReason, SyncAnswer, SyncReason, TableView, Version, ViewAnswer, ViewPatch};
-use std::collections::HashMap;
+use domain_types::repository_view::{PatronusView, RemoteFacts};
+use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewAnswer, ViewPatch};
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -126,8 +128,8 @@ pub struct SyncedTable {
   pub table: BranchTable,
 }
 
-/// What a session asks of its host: the sync itself, the inputs it reads, and whether a focus syncs.
-/// `runtime::GitSessionHost` runs them with git; a test runs a script
+/// What a session asks of its host: the sync itself, the inputs it reads, whether a focus syncs, and the git work of its
+/// facts (the Patronus view, the landing needs). `runtime::GitSessionHost` runs them with git; a test runs a script
 pub trait SessionHost: Send + Sync + 'static {
   /// The inputs of a sync of the session (`sync_core::sync_inputs::read_sync_inputs`); `None` when git cannot tell,
   /// which runs the sync. Blocking: the runtime calls it on the blocking pool
@@ -139,6 +141,22 @@ pub trait SessionHost: Send + Sync + 'static {
 
   /// Whether a window of `key` that gains focus syncs (the app's `autoSyncOnFocus`)
   fn syncs_on_focus(&self, key: &SessionKey) -> bool;
+
+  /// What the robots land, landed and hold of `table` (`facts::derive_patronus`) with `robots` on the remote branches
+  /// `remote`, the content the hashes and `memo` don't answer read with git. Blocking: the runtime calls it on the
+  /// blocking pool
+  ///
+  /// # Errors
+  /// Why there is no view (the E2E server fails it as a test sets)
+  fn derive_patronus(&self, key: &SessionKey, table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot], memo: &mut ContentMemo) -> Result<PatronusView, ApiError>;
+
+  /// The landing needs of the current grouping of `key` with `landed`, the commits merged Safe Pushes landed
+  /// (`trial_check::landing_gate::landing_needs_of`, through the host). Blocking: the runtime calls it on the blocking
+  /// pool
+  ///
+  /// # Errors
+  /// What the computation failed with
+  fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError>;
 }
 
 /// The reporter of a sync run: its events go to the session's mailbox, tagged with the run, so the events of a run that
@@ -339,19 +357,19 @@ impl Sessions {
   }
 
   /// The view of an open session at the version of its last patch; `None` for a session that is not open
-  pub async fn get_snapshot(&self, key: &SessionKey) -> Option<TableView> {
+  pub async fn get_snapshot(&self, key: &SessionKey) -> Option<RepositoryView> {
     self.ask(key, Message::Snapshot).await
   }
 
-  /// The table of the last successful sync of an open session, with the memo of the content walks of its views; `None`
-  /// for a session that is not open or never synced
+  /// The table of the last successful sync of an open session, with the memo of the content walks of its views and the
+  /// remote branches as the session knows them; `None` for a session that is not open or never synced
   pub async fn table(&self, key: &SessionKey) -> Option<TableFacts> {
     self.ask(key, Message::Table).await.flatten()
   }
 
   /// Subscribes a window to the session of `key`, opening it: the snapshot at the subscription, then every patch after
   /// it. `None` only when the session's actor is gone
-  pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>) -> Option<(SubscriptionId, TableView)> {
+  pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>) -> Option<(SubscriptionId, RepositoryView)> {
     let id = SubscriptionId(self.next_subscription.fetch_add(1, Ordering::SeqCst));
     let (reply, answer) = oneshot::channel();
     self.with_entry(key, |entry| {

@@ -3,7 +3,7 @@ use crate::patch::{PatchRejected, apply_patch};
 use crate::state::{View, new_epoch};
 use crate::table::TableState;
 use crate::table::table_test::{grouped, grouping, remote_status, run_sync, sync_events};
-use domain_types::session::{BranchChange, BranchRemote, SyncState, SyncStep, TableChanges, TableView, Version, ViewPatch};
+use domain_types::session::{BranchChange, BranchRemote, RepositoryView, SyncState, SyncStep, TableChanges, Version, ViewPatch};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -13,7 +13,7 @@ use test_utils::git_test_utils::TestRepo;
 use test_utils::sync_fixtures::TestReporter;
 
 /// The view a window holds after `patches`, from an empty one of `epoch`
-fn fold(epoch: u32, patches: Vec<ViewPatch>) -> TableView {
+fn fold(epoch: u32, patches: Vec<ViewPatch>) -> RepositoryView {
   let mut view = View::new(epoch).snapshot();
   for patch in patches {
     apply_patch(&mut view, patch).unwrap();

@@ -1,16 +1,15 @@
 //! What Rust derives of the branch table for the page and for `bd`, so both read one rule (docs/design/git-operations.md,
-//! "Repository view"): the Patronus section, what the robots land, landed and hold of the branches as they are now
-//! (`repository_model::patronus_view`). The page asks it with `get_repository_view` and reads it by branch.
+//! "Repository view"): the Patronus section, which robot is of each branch and what the robots land, landed and hold of
+//! the branches as they are now (`repository_model::patronus_view`). The session of a repository derives it and sends
+//! it to its windows as a part of its view (`domain_types::session::PatronusPart`); the page reads it by branch.
 
 use crate::landing::{LandingRefusal, Subject};
-use crate::patronus::PatronusRobot;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// What a remote branch is now, as the asker knows it: the page from its rows (a push moves it without a sync), `bd`
-/// from its sync
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
+/// What a remote branch is now, as the deriver knows it: the session from its table, which a push moves without a sync,
+/// `bd` from its sync
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteFact {
   /// The tip of the remote branch; null without one
@@ -21,22 +20,11 @@ pub struct RemoteFact {
 }
 
 /// The remote facts of the branches and of the stack branches (by root)
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteFacts {
   pub branches: BTreeMap<String, RemoteFact>,
   pub stacks: BTreeMap<String, RemoteFact>,
-}
-
-/// Which robot belongs to each branch and to each whole stack (by root), as the asker matched them
-/// (`domain_policy::robot_match`, `findBranchRobot`): by robot id
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct RobotMatch {
-  pub branches: BTreeMap<String, String>,
-  pub stacks: BTreeMap<String, String>,
 }
 
 /// The commits of a branch a running robot's commit has (`BranchSpan`): ids of the checked-out branch, newest first,
@@ -138,8 +126,9 @@ pub enum StartRefusal {
 }
 
 /// What the Safe Push of a branch needs before it starts (`trial_check::landing_gate::landing_needs`): the refusals its
-/// start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. Computed
-/// in the background after a sync: unknown until then, never an empty list it did not compute
+/// start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. A fact
+/// of the session computed after a sync (`PatronusPart::landing_needs` says how it stands): unknown until then, never
+/// an empty list it did not compute
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -155,6 +144,9 @@ pub enum LandingNeeds {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchPatronus {
+  /// The robot of the branch (`domain_policy::robot_match`: started on it, or of a temporary ref at its local or remote
+  /// tip), by id: the robot of its row
+  pub robot_id: Option<String>,
   pub landed_by: Option<LandedByView>,
   pub span: Option<SpanView>,
   /// The nearest ancestor whose robot runs, or that a running robot of a side branch lands: a Safe Push of the branch
@@ -177,6 +169,8 @@ pub struct BranchPatronus {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackPatronus {
+  /// The robot of the whole stack, by id: started on its stack branch, or of a temporary ref at its tip
+  pub robot_id: Option<String>,
   /// The first branch of the stack whose robot runs and pushes: it lands a part of the stack
   pub landing_member: Option<RobotOf>,
   /// The robot of the whole stack runs on its stack branch and pushes: a push of the stack branch fails it
@@ -205,38 +199,4 @@ pub struct PatronusView {
   pub stacks: BTreeMap<String, StackPatronus>,
   /// By merged robot id, every branch it landed, root first
   pub landed_by_robot: BTreeMap<String, Vec<RobotLandedBranch>>,
-}
-
-/// What the page asks of the branch table it shows: the table of the repository's prefix, which Rust resolves
-/// (`BranchPrefixes`)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetRepositoryViewParams {
-  pub repository_path: String,
-  /// The robots that land or landed: active and merged, no dry runs
-  pub robots: Vec<PatronusRobot>,
-  pub matched: RobotMatch,
-  pub remote: RemoteFacts,
-}
-
-/// The view of the branch table of the last sync
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct RepositoryView {
-  /// Counts the finished computations of the landing needs of the repository: the page waits for the next one
-  /// (`wait_landing_needs`) while a branch's are unknown, then asks the view again
-  pub landing_generation: u32,
-  pub patronus: PatronusView,
-}
-
-/// What the page waits for while the landing needs of a branch are unknown (`wait_landing_needs`)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct WaitLandingNeedsParams {
-  pub repository_path: String,
-  /// `landingGeneration` of the view the page has: the wait ends once a computation finished after it, or none runs
-  pub after: u32,
 }

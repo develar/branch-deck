@@ -60,7 +60,6 @@ use commands::pull_requests::{
 use commands::push::{push_branch, push_branches};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
-use commands::repository_view::{get_repository_view, wait_landing_needs};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_review_requests, prune_review_refs};
 use commands::reword::reword;
 use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
@@ -151,8 +150,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       get_patronus_robot_status,
       get_robot_failure,
       get_robot_commit_map,
-      get_repository_view,
-      wait_landing_needs,
       get_branch_review_readiness,
       post_patronus_command,
       get_patronus_target_branch,
@@ -334,9 +331,7 @@ pub fn run() {
       app.manage(GitCommandExecutor::new());
       app.manage(history_rewrite::lock_wait::LockWaits::default());
       app.manage(RepositoryStateCache::new());
-      let views = repository_model::views::RepositoryViews::default();
-      app.manage(SessionsState::new(app.handle(), app.state::<GitCommandExecutor>().inner().clone(), views.clone()));
-      app.manage(views);
+      app.manage(SessionsState::new(app.handle(), app.state::<GitCommandExecutor>().inner().clone()));
       app.manage(app_settings::branch_prefixes::BranchPrefixes::default());
       app.manage(BranchReviewMemo::new());
       // one cache of the files of a range for the reviews' lists and their diffs (`get_range_files`, `get_file_diffs`)

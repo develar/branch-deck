@@ -1,6 +1,6 @@
 import type { PatronusRobot } from "@/lib/bindings"
 import type { PatronusChipState } from "@/lib/patronus"
-import { findBranchRobot, findStackRobot, getPatronusChipState, isFailingChip, isRobotActive, needsBranchRobotAttention, needsStackRobotAttention } from "@/lib/patronus"
+import { getPatronusChipState, isFailingChip, isRobotActive, needsBranchRobotAttention, needsStackRobotAttention } from "@/lib/patronus"
 import type { RobotTiming } from "@/lib/robot-eta"
 import { formatWholeStackStart } from "@/lib/whole-stack"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
@@ -42,13 +42,25 @@ export interface RobotOverview {
 export const EMPTY_ROBOT_OVERVIEW: RobotOverview = { running: [], attention: [], finished: [] }
 
 /**
+ * The robot of each row as the session matched it (`robotId` of the Patronus view, `domain_policy::robot_match`): by
+ * branch and by the root of a whole stack, robot ids
+ */
+export interface RowRobots {
+  readonly branches: Readonly<Record<string, string>>
+  readonly stacks: Readonly<Record<string, string>>
+}
+
+export const NO_ROW_ROBOTS: RowRobots = { branches: {}, stacks: {} }
+
+/**
  * The robots of the repository's branches for the header (`LandingIndicator`) and the Dock: the running ones, the ones
  * that finished in the last day, and the branches whose robot failed on the branch as it is. Only the robots already
  * listed: the overview asks Patronus nothing, and only the robots of branches, of the whole stacks and the watched ones
  * are polled, so a running robot of no branch is left out unless the app watches it (`watched`: a Safe Push of a
  * reviewed pull request, listed by what it tests, after the branches; a failure only of the newest of a label). The robot of the whole stack of a stack branch
  * (`stacks`, by root) comes after the branches, as "Whole air stack", on its stack branch as it is. `order` is the table
- * order, `needsReview` the robots that failed for missing approvals, `failing` the running ones that will fail,
+ * order, `rowRobots` the robot of each branch and whole stack as the session matched it, `needsReview` the robots that
+ * failed for missing approvals, `failing` the running ones that will fail,
  * `isCarried` the branches another robot holds, lands a part of or landed, or the baseline has
  * (`needsBranchRobotAttention`), `isStackCarried` the roots of the stacks a robot of one of their branches lands a part
  * of (`needsStackRobotAttention`).
@@ -57,6 +69,7 @@ export function collectRobotOverview(
   order: readonly string[],
   branches: Readonly<Record<string, Branch>>,
   robots: Readonly<Record<string, PatronusRobot>> | undefined,
+  rowRobots: RowRobots,
   needsReview: Readonly<Record<string, boolean>>,
   now: number,
   watched: Readonly<Record<string, string>> = {},
@@ -92,7 +105,8 @@ export function collectRobotOverview(
         branchOfRevision.set(tip, name)
       }
     }
-    const robot = findBranchRobot(robots, name, localTip, remote?.remoteTip ?? null)
+    const id = rowRobots.branches[name]
+    const robot = id === undefined ? undefined : robots[id]
     if (robot === undefined) {
       continue
     }
@@ -107,7 +121,8 @@ export function collectRobotOverview(
   // the whole stack: its robot on its stack branch as it is, its failure only on one the sync built; a click shows the root
   const stackFinished: RobotOverviewEntry[] = []
   for (const stack of Object.values(stacks)) {
-    const robot = findStackRobot(robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
+    const id = rowRobots.stacks[stack.root]
+    const robot = id === undefined ? undefined : robots[id]
     if (robot === undefined) {
       continue
     }

@@ -10,12 +10,12 @@ import type {
   BranchHead,
   Commit,
   RemoteStatusUpdate,
+  RepositoryView,
   SetDemandParams,
   SyncAnswer,
   SyncOutcome,
   SyncParams,
   TableChanges,
-  TableView,
   Version,
   ViewPatch,
   ViewSubscription,
@@ -42,7 +42,7 @@ export interface HeldSync {
 }
 
 /** The view of a session that never synced, at `version` */
-export function emptyView(version: Version = { epoch: 1, seq: 0 }): TableView {
+export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryView {
   return {
     version,
     sync: { kind: "idle" },
@@ -51,6 +51,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): TableView {
     branches: {},
     stacks: {},
     sections: { unassigned: [], archived: { names: [], newlyArchived: [], integration: {} }, unapplied: [], landed: { baseline: null, landing: [], landed: [] } },
+    patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, landedByRobot: {} } },
     facts: { robots: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problemsFailed: {} } },
     news: [],
   }
@@ -98,7 +99,7 @@ export function fakeRemoteStatus(branchName: string, unpushed: number, remoteTip
 }
 
 export class FakeSessions {
-  readonly views = new Map<string, TableView>()
+  readonly views = new Map<string, RepositoryView>()
   readonly subscriptions: Subscription[] = []
   readonly syncs: HeldSync[] = []
   /** The repositories `get_snapshot` was asked for, in order */
@@ -108,7 +109,7 @@ export class FakeSessions {
   /** While true, `subscribe_view` answers once `releaseSubscriptions` runs: patches sent meanwhile come first */
   holdSubscriptions = false
   /** What `get_snapshot` answers instead of the view, once (`null`: the session went away) */
-  snapshotAnswer: TableView | null | undefined = undefined
+  snapshotAnswer: RepositoryView | null | undefined = undefined
   /** The error each `subscribe_view` answers instead of a subscription while set (a repository without a prefix) */
   subscribeFailure: ApiError | null = null
   /** Every `set_window_focus`, in order */
@@ -138,7 +139,7 @@ export class FakeSessions {
     this.focusFailure = null
   }
 
-  view(repositoryPath: string): TableView {
+  view(repositoryPath: string): RepositoryView {
     let view = this.views.get(repositoryPath)
     if (view === undefined) {
       view = emptyView()
@@ -164,7 +165,7 @@ export class FakeSessions {
   }
 
   /** The session of `repositoryPath` opened again (it went away while idle): a new epoch, `view` its view */
-  reopen(repositoryPath: string, view: TableView): void {
+  reopen(repositoryPath: string, view: RepositoryView): void {
     this.views.set(repositoryPath, view)
   }
 
@@ -172,7 +173,7 @@ export class FakeSessions {
    * The actor of the session of `repositoryPath` died: its subscriptions went with it, and the next request opens the
    * session again, in a new epoch, `view` its view
    */
-  dropSession(repositoryPath: string, view: TableView): void {
+  dropSession(repositoryPath: string, view: RepositoryView): void {
     for (let index = this.subscriptions.length - 1; index >= 0; index--) {
       if (this.subscriptions[index]!.repositoryPath === repositoryPath) {
         this.subscriptions.splice(index, 1)
@@ -212,7 +213,7 @@ export class FakeSessions {
       }
       return { status: "ok", data: null }
     },
-    getSnapshot: async (params: { repositoryPath: string }): Promise<Result<TableView | null>> => {
+    getSnapshot: async (params: { repositoryPath: string }): Promise<Result<RepositoryView | null>> => {
       this.snapshotCalls.push(params.repositoryPath)
       const answer = this.snapshotAnswer
       this.snapshotAnswer = undefined

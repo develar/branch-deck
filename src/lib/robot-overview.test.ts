@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import { getRobotTiming } from "@/lib/robot-eta"
-import type { RobotOverviewEntry } from "@/lib/robot-overview"
-import { collectRobotOverview, countConflicts, getDockProgress, orderLandingRobots } from "@/lib/robot-overview"
+import type { RobotOverviewEntry, RowRobots } from "@/lib/robot-overview"
+import { NO_ROW_ROBOTS, collectRobotOverview, countConflicts, getDockProgress, orderLandingRobots } from "@/lib/robot-overview"
 import { testRobot, robotsById } from "@/lib/test-robot"
 import type { Branch, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
@@ -21,6 +21,11 @@ function branchAtTip(name: string, patch: Partial<Branch> = {}): Branch {
 }
 
 const order = ["auth", "login", "docs", "api", "cache"]
+
+/** The robot of each row as the session matched it, by branch and by the root of a whole stack */
+function rows(branches: Readonly<Record<string, string>>, stacks: Readonly<Record<string, string>> = {}): RowRobots {
+  return { branches, stacks }
+}
 const branches = Object.fromEntries(order.map(name => [name, branchAtTip(name)]))
 
 describe("collectRobotOverview", () => {
@@ -46,10 +51,12 @@ describe("collectRobotOverview", () => {
       // failed on a stack branch kept for its remote branch once the stack no longer forks: the stack lands in pieces
       testRobot("whole-stale", null, { stackRoot: "cache", sourceRevision: "cache-stack-tip", status: "failure", finishTime: NOW_SECONDS - 120 }),
     )
+    const matched = rows({ login: "login-run" }, { auth: "whole", docs: "whole-failed", api: "whole-old", cache: "whole-stale" })
     const overview = collectRobotOverview(
       order,
       branches,
       robots,
+      matched,
       {},
       NOW,
       {},
@@ -73,6 +80,7 @@ describe("collectRobotOverview", () => {
       order,
       branches,
       robots,
+      matched,
       {},
       NOW,
       {},
@@ -95,6 +103,7 @@ describe("collectRobotOverview", () => {
         testRobot("pr-failed", null, { status: "failure", finishTime: NOW_SECONDS - 60 }),
         testRobot("pr-merged", null, { status: "success", finishTime: NOW_SECONDS - 60 }),
       ),
+      rows({ login: "login-run" }),
       {},
       NOW,
       watched,
@@ -112,7 +121,7 @@ describe("collectRobotOverview", () => {
     const failed = testRobot("pr-failed", null, { status: "failure", startTime: NOW_SECONDS - 3600, finishTime: NOW_SECONDS - 600 })
     const watched = { "pr-failed": label, "pr-again": label }
     const again = (patch: Partial<PatronusRobot>) =>
-      collectRobotOverview(order, branches, robotsById(failed, testRobot("pr-again", null, { startTime: NOW_SECONDS - 300, ...patch })), {}, NOW, watched)
+      collectRobotOverview(order, branches, robotsById(failed, testRobot("pr-again", null, { startTime: NOW_SECONDS - 300, ...patch })), NO_ROW_ROBOTS, {}, NOW, watched)
     expect(again({}).running.map(it => it.robot.id)).toEqual(["pr-again"])
     expect(again({}).attention).toEqual([])
     expect(again({}).finished.map(it => it.robot.id)).toEqual(["pr-failed"])
@@ -131,7 +140,9 @@ describe("collectRobotOverview", () => {
       // no branch: never polled, so never shown as running
       testRobot("gone", "gone"),
     )
-    const overview = collectRobotOverview(order, branches, robots, { "api-review": true }, NOW)
+    // the robot the session matched to each row: the robot of a branch no row has is no row's
+    const matched = rows({ login: "login-run", auth: "auth-run", docs: "docs-failed", api: "api-review", cache: "cache-failed" })
+    const overview = collectRobotOverview(order, branches, robots, matched, { "api-review": true }, NOW)
     expect(overview.running.map(it => it.branchName)).toEqual(["auth", "login"])
     expect(overview.attention.map(it => [it.branchName, it.chip.kind])).toEqual([
       ["docs", "failed"],
@@ -140,14 +151,15 @@ describe("collectRobotOverview", () => {
     expect(overview.running[0]!.chip.label).toBe("Canceling")
     // a branch is listed once
     expect(overview.finished.map(it => it.branchName)).toEqual(["cache"])
-    expect(collectRobotOverview(order, branches, undefined, {}, NOW).running).toEqual([])
+    expect(collectRobotOverview(order, branches, undefined, matched, {}, NOW).running).toEqual([])
   })
 
   it("asks nothing for the failure of a branch another robot holds, lands a part of or landed, or the baseline has: it is finished history", () => {
     // docs failed on itself; then a Safe Push of a branch built on it took it along, or merged it, or master has it
     const robots = robotsById(testRobot("docs-failed", "docs", { status: "failure", finishTime: NOW_SECONDS - 60 }))
-    expect(collectRobotOverview(order, branches, robots, {}, NOW).attention.map(it => it.branchName)).toEqual(["docs"])
-    const overview = collectRobotOverview(order, branches, robots, {}, NOW, {}, {}, {}, name => name === "docs")
+    const matched = rows({ docs: "docs-failed" })
+    expect(collectRobotOverview(order, branches, robots, matched, {}, NOW).attention.map(it => it.branchName)).toEqual(["docs"])
+    const overview = collectRobotOverview(order, branches, robots, matched, {}, NOW, {}, {}, {}, name => name === "docs")
     expect(overview.attention).toEqual([])
     expect(overview.finished.map(it => [it.branchName, it.chip.kind])).toEqual([["docs", "failed"]])
   })
@@ -164,7 +176,7 @@ describe("collectRobotOverview", () => {
       testRobot("auth-failed", "auth", { status: "failure", finishTime: NOW_SECONDS - 60 }),
       testRobot("auth-run", "auth"),
     )
-    const overview = collectRobotOverview(order, branches, robots, {}, NOW)
+    const overview = collectRobotOverview(order, branches, robots, rows({ login: "login-new", docs: "ide", api: "yesterday", auth: "auth-run" }), {}, NOW)
     expect(overview.finished.map(it => [it.branchName, it.robot.id, it.hasRow])).toEqual([
       ["billing", "merged", false],
       ["docs", "ide", true],

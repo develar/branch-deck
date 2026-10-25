@@ -166,12 +166,13 @@ reports in it and closes it once merged.
 - The robots are `GET /app/rest/v1/robots?owner=me&repository=<name>&start=<time>`, newest first. A robot belongs to the
   virtual branch whose pushed name, `{prefix}/virtual/{name}`, is its source branch; a robot on a temporary ref (a Safe
   Push of the IDE or the CLI) belongs to the branch whose local or pushed tip it took. A running robot wins over a
-  finished one, then the newest. `bd` and the repository view match them with one rule (`domain_policy::robot_match`:
-  one index per list of robots); the page still matches them itself (`findBranchRobot`).
+  finished one, then the newest. `bd` and the session of the repository match them with one rule
+  (`domain_policy::robot_match`: one index per list of robots); the session names the robot of each row in its view
+  (`robotId` of the Patronus part), so the page matches none itself.
   [@test] ../../crates/patronus/src/service_test.rs (`lists_the_robots_newest_first_and_names_the_virtual_branch`)
   [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `the_table_gets_the_robot_of_each_branch_and_whole_stack_that_has_one`)
-  [@test] ../../src/lib/patronus.test.ts (`matches a robot started on the branch, and a Safe Push of a temporary ref by the local or the pushed tip`)
-  [@test] ../../src/lib/patronus.test.ts (`prefers a running robot over a canceling one over a finished one, then the newest`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
+  [@test] ../../src/stores/patronus.test.ts (`takes the robot of each row from the view of the session, which matched it, never from its own matching`)
 - Every command of Patronus, of a push and of a pull request names the repository only: Rust resolves the prefix
   `{prefix}` of its branches for the command, as the sync does (`BranchPrefixes`, no git process while it knows the
   repository's git prefix), and the actions on the remote (`RemoteActions`: the push, the start, the restart, the
@@ -687,7 +688,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say in the Safe Push popover why the build fails before the start, and stack the branch from it`, `should start anyway from the Safe Push popover with the override of what refuses it`)
   [@test] ../../src/lib/safe-push-decision.test.ts (`opens the popover when the build of what it lands needs a branch outside it: the reason, the fix and Start Anyway before the start`)
   [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
-  [@test] ../../crates/repository-model/src/views_test.rs (`a_running_safe_push_of_the_branch_the_start_needs_is_named`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
   [@test] ../../src/lib/landing-gate.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`)
@@ -957,7 +958,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   table the last sync left; of several robots that landed a branch, the one that left the fewest commits after it counts.
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
-  [@test] ../../src/stores/patronus.test.ts (`asks the repository view with the robots that land, their matches and the remote facts, once per change of them`)
+  [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_robot_at_the_tip_landed_the_branch_and_what_it_is_built_on`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_reworded_commit_below_keeps_the_branches_landed`, `an_amended_commit_leaves_its_branch_not_landed`, `a_commit_not_synced_yet_is_after_the_landed_ones`, `the_robot_of_the_whole_stack_landed_every_branch_of_it`, `a_missing_source_lands_nothing`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_landing_of_a_merged_robot_after_a_change_below_its_commit`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
@@ -1288,10 +1289,14 @@ explicit choice of the user, offered only where the approvals count in a pull re
   `formatLandedWholeReason`). Push with Children leaves it then, and its push alone (`pushWholeStack`: the restart of its
   robot, Request Review… and the creation of its pull request) is refused with that reason.
 - The app and `bd` decide what the robots land, landed and hold with one rule over the branch table of the last sync
-  (`repository_model::patronus_view`, [Repository view](../../docs/design/git-operations.md#repository-view)):
-  - the robot of a branch is the one the rows match (`domain_policy::robot_match`): running over canceling over
-    finished, then the newest, then the first of the list; both sides pass the same cases
-    (`src/test-support/robot-match-cases.json`);
+  (`repository_model::facts::derive_patronus`, [Repository view](../../docs/design/git-operations.md#repository-view)):
+  the session of the repository derives it again when its table committed, its robots changed or a push moved a
+  remote branch, in the blocking pool, and sends it as the part `patronus` of its view; until Patronus answered and
+  the first view is derived it is `loading` (the rows wait for it), while a newer one is derived `stale` (no row waits),
+  and a view that can't be derived is `unavailable` with why, derived again after the next answer of Patronus:
+  - the robot of a branch is the one the session matches (`domain_policy::robot_match`, named in the view as
+    `robotId`): running over canceling over finished, then the newest, then the first of the list
+    (`crates/domain-policy/src/robot_match_cases.json`);
   - of the robots of branches built on a branch, the first of the table lands it ("lands with"), and of those that run
     the first holds it: a canceling robot says it lands the branch and hides no running one;
   - a branch's own robot is never the robot of an ancestor it waits for: its Safe Push replaces it;
@@ -1302,8 +1307,10 @@ explicit choice of the user, offered only where the approvals count in a pull re
     the branch now, so an amend below the robot's commit in the same sync is told by content.
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`, `the_robot_of_the_whole_stack_lands_every_branch_of_it`, `the_merged_robot_that_left_the_least_work_names_the_landing`, `a_dry_run_lands_nothing`)
   [@test] ../../crates/repository-model/src/patronus_view_content_test.rs (`the_hashes_answer_a_robot_at_its_tip_and_one_under_new_commits_without_git`, `a_root_restacked_below_a_running_robot_is_told_by_content_once`, `an_amend_below_the_robot_is_told_by_the_copies_the_sync_wrote`)
-  [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robots_match_their_branches_as_the_page_matches_them`)
-  [@test] ../../src/lib/patronus.test.ts (`matches the robots as the Rust side does: the cases of robot-match-cases.json`)
+  [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robots_match_their_branches_by_the_cases`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`, `a_view_that_failed_is_derived_again_after_the_next_answer_of_patronus`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`the_session_knows_the_remote_branches_a_push_moved_without_a_sync`)
+  [@test] ../../src/stores/patronus.test.ts (`waits for the view of the robots as they are while the session derives it, then takes it`)
 - What a running robot lands is what its commit has, not the stack as it is now: while it took the branches as they
   are (it runs on the tip of its branch, or on a commit of it with new ones on top) every branch it is built on, with
   all their commits; after a restack or an amend below its commit, which gives the branches new copies, the content

@@ -219,18 +219,6 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  The view of the table the last sync of the session of the repository under its prefix (Rust resolves it) kept: what the robots
-	 *  land, landed and hold (`patronus_view`), with the page's robots, their matches and what the page knows of the remote
-	 *  branches. Git only for robots the hashes and the memo don't answer; the landing needs of new inputs are computed in
-	 *  the background, through the object cache of the repository
-	 */
-	getRepositoryView: (params: GetRepositoryViewParams) => typedError<RepositoryView, ApiError>(__TAURI_INVOKE("get_repository_view", { params })),
-	/**
-	 *  Resolves once no computation of the landing needs of the repository runs, or one finished after the view the page
-	 *  has (`after`): the count of finished computations, which tells the page to ask the view again
-	 */
-	waitLandingNeeds: (params: WaitLandingNeedsParams) => typedError<number, ApiError>(__TAURI_INVOKE("wait_landing_needs", { params })),
-	/**
 	 *  Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows:
 	 *  Patronus judges the approvals of the pull request the robot would start from. One `git log` for the commits of all
 	 *  branches, their paths from the object cache, then one pre-check per branch whose kept answer doesn't hold
@@ -256,7 +244,7 @@ export const commands = {
 	 *  The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
 	 *  null when the session is not open, so the window subscribes again
 	 */
-	getSnapshot: (params: SessionParams) => typedError<TableView | null, ApiError>(__TAURI_INVOKE("get_snapshot", { params })),
+	getSnapshot: (params: SessionParams) => typedError<RepositoryView | null, ApiError>(__TAURI_INVOKE("get_snapshot", { params })),
 	/**
 	 *  Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer has the
 	 *  view at the subscription, the channel every patch after it until `unsubscribe_view`, the window's close or its next
@@ -856,6 +844,11 @@ export type BranchOrigin =
 
 /**  The Patronus facts of one branch; a branch with none is not listed */
 export type BranchPatronus = {
+	/**
+	 *  The robot of the branch (`domain_policy::robot_match`: started on it, or of a temporary ref at its local or remote
+	 *  tip), by id: the robot of its row
+	 */
+	robotId: string | null,
 	landedBy: LandedByView | null,
 	span: SpanView | null,
 	/**
@@ -2247,18 +2240,6 @@ export type GetRepositoryConfigParams = {
 	repositoryPath: string,
 };
 
-/**
- *  What the page asks of the branch table it shows: the table of the repository's prefix, which Rust resolves
- *  (`BranchPrefixes`)
- */
-export type GetRepositoryViewParams = {
-	repositoryPath: string,
-	/**  The robots that land or landed: active and merged, no dry runs */
-	robots: PatronusRobot[],
-	matched: RobotMatch,
-	remote: RemoteFacts,
-};
-
 export type GetReviewRequestsParams = {
 	repositoryPath: string,
 	/**  `owner/name` when the pull requests already resolved it: skips resolving the repository again */
@@ -2509,8 +2490,9 @@ export type LandingGateParams = {
 
 /**
  *  What the Safe Push of a branch needs before it starts (`trial_check::landing_gate::landing_needs`): the refusals its
- *  start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. Computed
- *  in the background after a sync: unknown until then, never an empty list it did not compute
+ *  start would get from the landing gate, a name or a change of a use that a branch outside what it lands adds. A fact
+ *  of the session computed after a sync (`PatronusPart::landing_needs` says how it stands): unknown until then, never
+ *  an empty list it did not compute
  */
 export type LandingNeeds = { state: "unknown" } | 
 /**  Empty: the start lands what its build needs */
@@ -2894,6 +2876,21 @@ export type PatronusAvailability = { status: "available" } |
 /**  Patronus failed or could not be reached */
 { status: "error"; message: string };
 
+/**
+ *  What changed of the Patronus view: its states when they differ, the branches and the stacks whose facts changed
+ *  with the keys that went, the landings of the merged robots when they differ
+ */
+export type PatronusChange = {
+	state?: FactState | null,
+	landingNeeds?: FactState | null,
+	branches?: { [key in string]: BranchPatronus },
+	stacks?: { [key in string]: StackPatronus },
+	landedByRobot?: { [key in string]: RobotLandedBranch[] } | null,
+	/**  The branches and the stacks the view no longer lists */
+	removedBranches?: string[],
+	removedStacks?: string[],
+};
+
 /**  The CI checks of a robot, counted */
 export type PatronusChecks = {
 	/**  The build configurations of the first failed checks */
@@ -2940,6 +2937,27 @@ export type PatronusMergeRequest = {
 	/**  e.g. `IJ-CR-221762` */
 	reviewKey: string,
 	url: string,
+};
+
+/**
+ *  The Patronus view of the session (`repository_model::facts::derive_patronus`, the rule `bd` reads too): the robot of
+ *  each branch and whole stack and what the robots land, landed and hold of the table of the last sync, on the remote
+ *  branches as the session knows them (a push moves them), with the landing needs of each branch
+ */
+export type PatronusPart = {
+	/**
+	 *  How the view stands: `Loading` until Patronus answered once and the view of that answer is derived, `Stale` while
+	 *  the view of newer robots, a newer table or a push is derived (nothing waits for it), `Unavailable` when the
+	 *  derivation failed without an earlier view, `Stale` with the reason when it failed after one
+	 */
+	state: FactState,
+	/**
+	 *  How the landing needs of `view` stand: `Loading` while they are computed for the table and what the view names
+	 *  landed (the needs of a branch are `unknown` meanwhile), `Fresh` once they are, `Unavailable` when the computation
+	 *  failed for them
+	 */
+	landingNeeds: FactState,
+	view: PatronusView,
 };
 
 export type PatronusProblem = {
@@ -3451,26 +3469,6 @@ export type RegroupPlan = {
 	unstack?: string[],
 };
 
-/**
- *  What a remote branch is now, as the asker knows it: the page from its rows (a push moves it without a sync), `bd`
- *  from its sync
- */
-export type RemoteFact = {
-	/**  The tip of the remote branch; null without one */
-	remoteTip: string | null,
-	/**
-	 *  The remote branch has what the branch has by content: nothing to push (a remote rebuilt on an older baseline
-	 *  included)
-	 */
-	upToDate: boolean,
-};
-
-/**  The remote facts of the branches and of the stack branches (by root) */
-export type RemoteFacts = {
-	branches: { [key in string]: RemoteFact },
-	stacks: { [key in string]: RemoteFact },
-};
-
 /**  Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count */
 export type RemoteStatusUpdate = {
 	branchName: string,
@@ -3568,14 +3566,29 @@ export type RepositoryConfig = {
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
 export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null };
 
-/**  The view of the branch table of the last sync */
+/**
+ *  The snapshot of the view of a session: the branch table, what the robots land, landed and hold of it, the facts of
+ *  the remote services and their news
+ */
 export type RepositoryView = {
+	version: Version,
+	sync: SyncState,
+	header: TableHeader,
+	/**  The names of the branches in the order of the table, as the sync grouped them (newest first) */
+	order: string[],
+	branches: { [key in string]: BranchView },
+	/**  The stack branches the last sync reported, by the root of their stack */
+	stacks: { [key in string]: StackBranchUpdate },
+	sections: TableSections,
+	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
+	patronus: PatronusPart,
+	/**  What the remote services answered, beside the table */
+	facts: FactsView,
 	/**
-	 *  Counts the finished computations of the landing needs of the repository: the page waits for the next one
-	 *  (`wait_landing_needs`) while a branch's are unknown, then asks the view again
+	 *  The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
+	 *  that its first view had already
 	 */
-	landingGeneration: number,
-	patronus: PatronusView,
+	news: News[],
 };
 
 export type RequestPullRequestReviewersParams = {
@@ -3989,15 +4002,6 @@ export type RobotLandedBranch = {
 	after: string[],
 };
 
-/**
- *  Which robot belongs to each branch and to each whole stack (by root), as the asker matched them
- *  (`domain_policy::robot_match`, `findBranchRobot`): by robot id
- */
-export type RobotMatch = {
-	branches: { [key in string]: string },
-	stacks: { [key in string]: string },
-};
-
 /**  A robot of another branch, or of the whole stack of a root, and what it does to a branch */
 export type RobotOf = {
 	/**  The branch the robot ran on; the root for the robot of the whole stack */
@@ -4404,6 +4408,8 @@ export type StackMemberSubjects = {
 
 /**  The Patronus facts of the whole stack of a root; a stack with none is not listed */
 export type StackPatronus = {
+	/**  The robot of the whole stack, by id: started on its stack branch, or of a temporary ref at its tip */
+	robotId: string | null,
 	/**  The first branch of the stack whose robot runs and pushes: it lands a part of the stack */
 	landingMember: RobotOf | null,
 	/**  The robot of the whole stack runs on its stack branch and pushes: a push of the stack branch fails it */
@@ -4659,7 +4665,7 @@ export type SyncStep =
 "detection";
 
 /**
- *  The parts of a `TableView` a patch replaces; a part absent is unchanged. The keyed parts (branches, stacks, the
+ *  The parts of a `RepositoryView` a patch replaces; a part absent is unchanged. The keyed parts (branches, stacks, the
  *  integration of the archived branches) carry only the keys that changed and the keys removed
  */
 export type TableChanges = {
@@ -4679,6 +4685,7 @@ export type TableChanges = {
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,
 	landed?: LandedSection | null,
+	patronus?: PatronusChange | null,
 	facts?: FactsChanges | null,
 	/**  The news since the patch before, oldest first */
 	news?: News[],
@@ -4708,26 +4715,6 @@ export type TableSections = {
 	/**  The unapplied branches, newest first */
 	unapplied: UnappliedBranchInfo[],
 	landed: LandedSection,
-};
-
-/**  The snapshot of the branch table of a session */
-export type TableView = {
-	version: Version,
-	sync: SyncState,
-	header: TableHeader,
-	/**  The names of the branches in the order of the table, as the sync grouped them (newest first) */
-	order: string[],
-	branches: { [key in string]: BranchView },
-	/**  The stack branches the last sync reported, by the root of their stack */
-	stacks: { [key in string]: StackBranchUpdate },
-	sections: TableSections,
-	/**  What the remote services answered, beside the table */
-	facts: FactsView,
-	/**
-	 *  The last news of the session (at most `NEWS_KEPT`), oldest first: a window tells each once, by its id, and none
-	 *  that its first view had already
-	 */
-	news: News[],
 };
 
 /**  What the check found */
@@ -5183,20 +5170,13 @@ export type ViewPatch = {
  */
 export type ViewSubscription = {
 	id: number,
-	view: TableView,
+	view: RepositoryView,
 };
 
 export type WaitForGitHubBranchParams = {
 	repositoryPath: string,
 	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
 	branch: string,
-};
-
-/**  What the page waits for while the landing needs of a branch are unknown (`wait_landing_needs`) */
-export type WaitLandingNeedsParams = {
-	repositoryPath: string,
-	/**  `landingGeneration` of the view the page has: the wait ends once a computation finished after it, or none runs */
-	after: number,
 };
 
 export type WeekCount = {

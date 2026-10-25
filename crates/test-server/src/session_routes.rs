@@ -11,6 +11,7 @@
 //! `refresh_facts`.
 
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
+use crate::remote_host::HeldAnswer;
 use crate::state::AppState;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
@@ -23,17 +24,21 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
 use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotsResult};
-use domain_types::session::{RefreshFactsParams, SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
+use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use domain_types::{ProgressReporter, RemoteStatusUpdate};
+use object_cache::cache::ObjectCache;
 use remote_facts::fact_sources::{FactSources, Read};
+use repository_model::facts::Needs;
 use repository_model::runtime::{RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::RemoteSubject;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use sync_core::push::StackPushBranch;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
+use trial_check::landing_gate::landing_needs_of;
 
 /// What the syncs of the server's sessions take: the issue links read by the sync, the prefix of the local config read
 /// now, and the settings of the test repository for the focus
@@ -82,6 +87,33 @@ impl SessionEnvironment for TestSessionEnvironment {
       .upgrade()
       .and_then(|state| repository_by_path(&state, &key.worktree).ok().map(|repository| repository.store.app().auto_sync_on_focus))
       .unwrap_or(false)
+  }
+
+  /// The landing needs by the real core, without the object cache, as every command of the server; the computation holds
+  /// the repository as a command does (its deletion waits for it, so no git of it runs in a deleted directory), and a
+  /// test that holds the answer (`HeldAnswer::LandingNeeds`) sees the page while they are computed
+  fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs> {
+    let state = self.state.upgrade().ok_or_else(|| anyhow::anyhow!("The test server stopped"))?;
+    let (in_flight, host) = {
+      let repository = repository_by_path(&state, &key.worktree).map_err(|_gone| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
+      (Arc::clone(&repository.in_flight), repository.existing_remote())
+    };
+    let _command = in_flight.blocking_read();
+    // a deletion that came first has removed it and waited for the hold
+    repository_by_path(&state, &key.worktree).map_err(|_gone| anyhow::anyhow!("The test repository {} is gone", key.worktree))?;
+    if let Some(host) = host {
+      tokio::runtime::Handle::current().block_on(host.pass_held(HeldAnswer::LandingNeeds));
+    }
+    Ok(landing_needs_of(&state.git_executor, &ObjectCache::disabled(), &key.worktree, &key.prefix, landed)?)
+  }
+
+  /// A test fails the view of the robots (`HeldAnswer::RepositoryView`) as it fails a read of the bridge
+  fn before_patronus_view(&self, key: &SessionKey) -> Result<(), ApiError> {
+    let host = self.state.upgrade().and_then(|state| repository_by_path(&state, &key.worktree).ok()?.existing_remote());
+    match host {
+      Some(host) if host.fails(HeldAnswer::RepositoryView) => Err(ApiError::internal("the fixture fails this read")),
+      _ => Ok(()),
+    }
   }
 }
 
@@ -153,7 +185,7 @@ async fn session_key(state: &AppState, repository_path: &str) -> Result<SessionK
   })
 }
 
-pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Json<SessionRequest>) -> CommandResult<Option<TableView>> {
+pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Json<SessionRequest>) -> CommandResult<Option<RepositoryView>> {
   let key = session_key(&state, &request.repository_path).await?;
   Ok(Json(state.sessions.get_snapshot(&key).await))
 }

@@ -4939,8 +4939,6 @@ dependencies = [
  "git-executor",
  "git-ops",
  "history-rewrite",
- "moka",
- "object-cache",
  "patronus",
  "pretty_assertions",
  "serde",
@@ -4952,7 +4950,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
- "trial-check",
 ]
 
 [[package]]

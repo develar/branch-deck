@@ -243,8 +243,8 @@ The whole stack is an object of its own in the app, beside its branches, named "
   one rule, in Rust for the app and `bd` (`repository_model::patronus_view`, `landedByRobot` of the repository view): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
   same commits rebuilt, or one the branch built new commits on since: the copies below are the same objects, so the
   ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is; after a change
-  below its commit, by content (below): the merge toast waits for that answer (the sync that runs, one
-  `get_repository_view`), so the closing and the rows agree, and a branch with commits added after the landed ones keeps
+  below its commit, by content (below): the merge toast waits for that answer (the view the session derives after the
+  answer that merged it), so the closing and the rows agree, and a branch with commits added after the landed ones keeps
   its pull request, which still shows work that did not land.
 - **Landed rows until the update.** The merge toast is gone in seconds, and the update that archives the branches may
   come hours later. Until then the rows of the branches a merged robot landed say who landed them ("Landed with

@@ -1,17 +1,23 @@
-use crate::facts::{Applied, FactRecord, FactResult, FactStore, Observation, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence, robots_digest};
+use crate::facts::{
+  Applied, FactRecord, FactResult, FactStore, Needs, Observation, PatronusFact, ProblemsRead, RobotsDigest, RobotsFact, RobotsRead, Seq, Sequence, robots_digest, session_remote,
+};
+use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
-use crate::table::TableState;
-use crate::table::table_test::{remote_at, run_sync, sync_events};
+use crate::table::table_test::{grouped, grouping, remote_at, run_sync, sync_events};
+use crate::table::{RemoteSubject, TableState};
 use domain_policy::refresh::{FactTiming, ReadState};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::robot;
+use domain_types::landing::Subject;
 use domain_types::patronus::{
   KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusRobotsResult,
   REVIEW_APPROVAL_SUBSYSTEM,
 };
+use domain_types::repository_view::{BranchPatronus, LandedByView, LandingNeeds, PatronusView, RemoteFact};
 use domain_types::session::{FactState, NewsEvent, RobotsHead};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use pretty_assertions::assert_eq;
+use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
 fn at(seq: u32, inputs: u64, seconds: u64) -> Observation {
@@ -449,4 +455,78 @@ fn a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why() {
       }
     )
   );
+}
+
+/// The remote branches of a table as the session knows them: the remote status of its table state, which a push moved
+/// without a sync, over what the sync of the table knew; a branch the state has no status of keeps the table's
+#[test]
+fn the_session_knows_the_remote_branches_a_push_moved_without_a_sync() {
+  let mut table = chain();
+  table.remote.branches.insert(
+    "auth".to_string(),
+    RemoteFact {
+      remote_tip: Some("synced-tip".to_string()),
+      up_to_date: false,
+    },
+  );
+  let mut state = TableState::new();
+  run_sync(&mut state, vec![grouping(vec![grouped("auth", &["a1"]), grouped("login", &["l1"])])]);
+  state.end_push(&[RemoteSubject::Branch("login".to_string())], Some(vec![remote_at("login", "pushed-tip")]));
+  let remote = session_remote(&table, &state);
+  assert_eq!(
+    remote.branches.get("login"),
+    Some(&RemoteFact {
+      remote_tip: Some("pushed-tip".to_string()),
+      up_to_date: true,
+    })
+  );
+  assert_eq!(remote.branches.get("auth").and_then(|fact| fact.remote_tip.as_deref()), Some("synced-tip"));
+}
+
+/// The landing needs are computed one at a time: inputs wanted while another computation runs are computed next (the
+/// newest of them), inputs of an answer are not computed again, and a failure is `Unavailable` for its inputs, never an
+/// empty list; the part names the needs only once they are of the inputs of its view
+#[test]
+fn the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next() {
+  let table = chain();
+  let mut fact = PatronusFact::default();
+  assert!(fact.begin(1, Duration::ZERO));
+  assert_eq!(fact.part().state, FactState::Loading);
+  fact.answer(at(1, 1, 1), Ok(PatronusView::default()));
+  let (first, landed) = fact.publish(&table).expect("the needs of the view are computed");
+  assert_eq!((fact.part().state.clone(), fact.part().landing_needs.clone()), (FactState::Fresh, FactState::Loading));
+  assert!(landed.is_empty());
+  assert_eq!(fact.publish(&table), None, "one computation of the same inputs");
+
+  // the robots changed: a view of other landed commits wants other needs while the first runs
+  assert!(fact.begin(2, Duration::from_secs(2)));
+  assert_eq!(fact.part().state, FactState::Stale { reason: None });
+  assert!(!fact.begin(3, Duration::from_secs(2)), "one derivation at a time");
+  let merged = PatronusView {
+    branches: BTreeMap::from([(
+      "auth".to_string(),
+      BranchPatronus {
+        landed_by: Some(LandedByView {
+          by: Subject::branch("auth").robot_of("robot-1"),
+          own: true,
+          landed: vec!["a1".to_string()],
+          after: Vec::new(),
+        }),
+        ..BranchPatronus::default()
+      },
+    )]),
+    ..PatronusView::default()
+  };
+  fact.answer(at(2, 2, 2), Ok(merged));
+  assert_eq!(fact.publish(&table), None, "wanted next");
+  let (second, landed) = fact.needs_answer(first, Ok(Needs::new())).expect("the wanted needs next");
+  assert_eq!(landed, HashSet::from(["a1".to_string()]));
+  assert_ne!(first, second);
+  assert_eq!(fact.publish(&table), None);
+  assert_eq!(fact.part().landing_needs, FactState::Loading, "the needs of the first view are not of this one");
+
+  assert_eq!(fact.needs_answer(second, Err(failure())), None);
+  assert_eq!(fact.publish(&table), None, "a failure is no reason to compute again");
+  assert_eq!(fact.part().landing_needs, FactState::Unavailable { reason: failure() });
+  assert_eq!(fact.part().view.branches["auth"].landing_needs, LandingNeeds::Unknown);
 }

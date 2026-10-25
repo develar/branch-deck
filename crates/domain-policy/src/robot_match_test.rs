@@ -112,7 +112,7 @@ fn the_table_gets_the_robot_of_each_branch_and_whole_stack_that_has_one() {
   assert_eq!(match_table(&RobotIndex::new(&[]), branches, stacks), RobotMatches::default());
 }
 
-/// One case of `src/test-support/robot-match-cases.json`, which the page's `findBranchRobot` passes too
+/// One case of `robot_match_cases.json`: the robots of a branch or of a whole stack and the one that is its robot
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MatchCase {
@@ -125,10 +125,11 @@ struct MatchCase {
   expected: Option<String>,
 }
 
-/// The robots match their branches and whole stacks as the page matches them: the cases both run
+/// The robots match their branches and whole stacks by the cases of the fixture, which the page once passed too: the
+/// session names the robot of each row (`robotId` of its view), so the page matches none itself
 #[test]
-fn the_robots_match_their_branches_as_the_page_matches_them() {
-  let cases: Vec<MatchCase> = serde_json::from_str(include_str!("../../../src/test-support/robot-match-cases.json")).unwrap();
+fn the_robots_match_their_branches_by_the_cases() {
+  let cases: Vec<MatchCase> = serde_json::from_str(include_str!("robot_match_cases.json")).unwrap();
   assert!(cases.len() >= 10);
   for case in cases {
     let (local, remote) = (case.local_tip.as_deref(), case.remote_tip.as_deref());

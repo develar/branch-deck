@@ -8,8 +8,6 @@ import {
   canStartRobot,
   canStartStackRobot,
   describeRobot,
-  findBranchRobot,
-  findStackRobot,
   formatLandedReason,
   formatLandedWholeReason,
   formatLandedWith,
@@ -35,7 +33,6 @@ import {
 } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
-import robotMatchCases from "@/test-support/robot-match-cases.json"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -54,10 +51,6 @@ function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   }
 }
 
-function byId(...robots: PatronusRobot[]): Record<string, PatronusRobot> {
-  return Object.fromEntries(robots.map(it => [it.id, it]))
-}
-
 /** The remote branch is at the commit the robot took ("tip"), the local branch has a commit more */
 const unpushedOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
 /** The remote branch is at the commit the robot took ("tip"), the local branch has the same commits on a newer baseline */
@@ -65,15 +58,6 @@ const rebuiltOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", fastFo
 
 describe("the robot of the whole stack", () => {
   const wholeStack = robot({ id: "stack", branchName: null, stackRoot: "air", sourceRevision: "stack-tip" })
-
-  it("belongs to the root of its stack by its stack branch, or as a robot of a temporary ref by the tips of the stack branch", () => {
-    expect(findStackRobot(byId(wholeStack), "air", "other", null)).toBe(wholeStack)
-    expect(findStackRobot(byId(wholeStack), "auth", "stack-tip", null)).toBeUndefined()
-    const cli = robot({ id: "cli", branchName: null, sourceRevision: "pushed-stack" })
-    expect(findStackRobot(byId(cli), "air", "stack-tip", "pushed-stack")).toBe(cli)
-    // a robot of a branch is never the whole stack's, not the root's either
-    expect(findStackRobot(byId(robot({ branchName: "air", sourceRevision: "stack-tip" })), "air", "local", null)).toBeUndefined()
-  })
 
   it("is named the whole stack, at the start of a sentence too", () => {
     expect(formatRobotSubject(wholeStack)).toBe("the whole air stack")
@@ -104,46 +88,6 @@ describe("the robot of the whole stack", () => {
     expect(canStartStackRobot(null, undefined, "stack-tip", null, landing, true)).toEqual({ ok: true })
     expect(canStartStackRobot("The stack branch conflicts", undefined, "stack-tip", null, null)).toEqual({ ok: false, reason: "The stack branch conflicts" })
     expect(canStartStackRobot(null, wholeStack, "stack-tip", null, null)).toEqual({ ok: false, reason: "A Safe Push of the last commit is running" })
-  })
-})
-
-describe("findBranchRobot", () => {
-  it("matches a robot started on the branch, and a Safe Push of a temporary ref by the local or the pushed tip", () => {
-    const onBranch = robot({ id: "branch" })
-    const cliPush = robot({ id: "cli", branchName: null, sourceRevision: "pushed" })
-    const otherBranch = robot({ id: "other", branchName: "IJPL-2", sourceRevision: "tip" })
-    expect(findBranchRobot(byId(cliPush, otherBranch), "IJPL-1", "local", "pushed")).toBe(cliPush)
-    expect(findBranchRobot(byId(cliPush, otherBranch), "IJPL-1", "pushed", null)).toBe(cliPush)
-    // a robot of another virtual branch never belongs to this one, even on the same commit
-    expect(findBranchRobot(byId(otherBranch), "IJPL-1", "tip", null)).toBeUndefined()
-    expect(findBranchRobot(byId(onBranch, otherBranch), "IJPL-1", "anything", null)).toBe(onBranch)
-    expect(findBranchRobot(undefined, "IJPL-1", "tip", null)).toBeUndefined()
-  })
-
-  it("never takes the robot of the whole stack, which runs on its stack branch, for a branch's", () => {
-    const wholeStack = robot({ id: "stack", branchName: null, stackRoot: "IJPL-1", sourceRevision: "tip" })
-    expect(findBranchRobot(byId(wholeStack), "IJPL-1", "tip", "tip")).toBeUndefined()
-    const onBranch = robot({ id: "branch", status: "failure" })
-    expect(findBranchRobot(byId(wholeStack, onBranch), "IJPL-1", "tip", null)).toBe(onBranch)
-  })
-
-  it("prefers a running robot over a canceling one over a finished one, then the newest", () => {
-    const failed = robot({ id: "failed", status: "failure", startTime: 300 })
-    const canceling = robot({ id: "canceling", status: "canceling", startTime: 200 })
-    const restarted = robot({ id: "restarted", status: "running", startTime: 200 })
-    const older = robot({ id: "older", status: "success", startTime: 100 })
-    expect(findBranchRobot(byId(failed, canceling, older), "IJPL-1", "tip", null)).toBe(canceling)
-    expect(findBranchRobot(byId(canceling, restarted), "IJPL-1", "tip", null)).toBe(restarted)
-    expect(findBranchRobot(byId(failed, older), "IJPL-1", "tip", null)).toBe(failed)
-  })
-
-  it("prefers across the branch and the tips as one list, of equals the first", () => {
-    const finishedOnBranch = robot({ id: "branch", status: "success", startTime: 300 })
-    const runningOnTip = robot({ id: "cli", branchName: null, sourceRevision: "pushed", status: "running", startTime: 100 })
-    const runningOnLocal = robot({ id: "ide", branchName: null, sourceRevision: "local", status: "running", startTime: 100 })
-    expect(findBranchRobot(byId(finishedOnBranch, runningOnTip), "IJPL-1", "local", "pushed")).toBe(runningOnTip)
-    expect(findBranchRobot(byId(runningOnTip, runningOnLocal), "IJPL-1", "local", "pushed")).toBe(runningOnTip)
-    expect(findBranchRobot(byId(runningOnLocal, runningOnTip), "IJPL-1", "local", "pushed")).toBe(runningOnLocal)
   })
 })
 
@@ -544,19 +488,5 @@ describe("formatLandedWholeReason", () => {
     expect(formatLandedWholeReason([by(piece, "oauth"), undefined], "auth")).toBeNull()
     expect(formatLandedWholeReason([by(piece, "oauth"), by(piece, "oauth", { after: ["new"] })], "auth")).toBeNull()
     expect(formatLandedWholeReason([], "auth")).toBeNull()
-  })
-})
-
-describe("the robot of a branch or of a whole stack", () => {
-  it("matches the robots as the Rust side does: the cases of robot-match-cases.json", () => {
-    // the cases `domain_policy::robot_match` passes too (`the_robots_match_their_branches_as_the_page_matches_them`)
-    for (const it of robotMatchCases) {
-      const robots = byId(...(it.robots as PatronusRobot[]))
-      const found =
-        "branch" in it && typeof it.branch === "string"
-          ? findBranchRobot(robots, it.branch, it.localTip, it.remoteTip)
-          : findStackRobot(robots, (it as { stack: string }).stack, it.localTip, it.remoteTip)
-      expect(found?.id ?? null, it.name).toBe(it.expected)
-    }
   })
 })

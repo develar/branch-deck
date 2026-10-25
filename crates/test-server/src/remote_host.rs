@@ -114,13 +114,14 @@ pub enum HeldAnswer {
   Robots,
   /// The pre-check of the code-owner review (`get_branch_review_readiness`)
   Readiness,
-  /// The answer of the background computation of the landing needs (`wait_landing_needs`, held in the bridge)
+  /// The computation of the landing needs of a session (`TestSessionEnvironment::landing_needs`): held there
   LandingNeeds,
   /// Why a robot failed (`GET /app/rest/v1/robots/{id}/problems`, of every robot)
   RobotProblems,
   /// The rules of a branch (`get_branch_rules`, in the bridge): whether a push dismisses the approvals
   BranchRules,
-  /// The repository view of the robots (`get_repository_view`, in the bridge): what they hold, land and need
+  /// The view of the robots a session derives (`TestSessionEnvironment::before_patronus_view`): what they hold and
+  /// land; failed there
   RepositoryView,
   /// The status of the GitHub sign-in (`get_github_auth_status`, in the bridge)
   GitHubAuth,

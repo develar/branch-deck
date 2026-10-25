@@ -16,8 +16,9 @@
  * of another epoch than the view's is of a session the window left while the session open now still has the view's
  * epoch, and else subscribes the window again: its subscription went with the actor of its session (`whenServedViewAt`).
  * The remote status of a row is the session's: Rust orders a push's outcome against the syncs, so the store shows what
- * it gets. The facts of the remote services come in the same view and go to whoever listens (`onSessionFacts`: the
- * main window's Patronus store); a fact is asked again with `refreshSessionFacts`.
+ * it gets. The facts of the remote services and the Patronus view the session derives of them come in the same view
+ * and go to whoever listens (`onSessionFacts`: the Patronus store of each window); a fact is asked again with
+ * `refreshSessionFacts`.
  */
 import { Channel } from "@tauri-apps/api/core"
 import type {
@@ -28,14 +29,12 @@ import type {
   CommitSync,
   FactFamily,
   FactRefreshReason,
-  FactsChanges,
-  FactsView,
   News,
+  RepositoryView,
   StackBranchUpdate,
   SyncAnswer,
   SyncReason,
   TableChanges,
-  TableView,
   Version,
   ViewPatch,
 } from "@/lib/bindings"
@@ -63,7 +62,7 @@ import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied
 interface Session {
   readonly repositoryPath: string
   /** The view as the session sent it, at its version; null until the subscription answered */
-  view: TableView | null
+  view: RepositoryView | null
   /** The patches that came while the view is not there yet (before the answer, while a snapshot is asked) */
   early: ViewPatch[]
   /** The id of the subscription, for `unsubscribe_view`; null until it answered */
@@ -90,21 +89,22 @@ let session: Session | null = null
 const viewListeners = new Set<() => void>()
 
 /**
- * Takes the facts of the view of the session of `repositoryPath` after a change of them (`changes` null for a snapshot)
- * and the news of the session the window has not told yet: none of those its first view had, each once
+ * Takes the view of the session of `repositoryPath` after a change of its facts or of its Patronus view (`changes` null
+ * for a snapshot: everything changed) and the news of the session the window has not told yet: none of those its first
+ * view had, each once
  */
-export type FactsListener = (repositoryPath: string, facts: FactsView, changes: FactsChanges | null, news: readonly News[]) => void
+export type FactsListener = (repositoryPath: string, view: RepositoryView, changes: TableChanges | null, news: readonly News[]) => void
 
 const factsListeners = new Set<FactsListener>()
 
 /**
- * Tells `listener` the facts of the session's view now (as a snapshot, when the window has one) and after every change
- * of them; returns the unsubscribe
+ * Tells `listener` the facts and the Patronus view of the session's view now (as a snapshot, when the window has one)
+ * and after every change of them; returns the unsubscribe
  */
 export function onSessionFacts(listener: FactsListener): () => void {
   factsListeners.add(listener)
   if (session?.view != null) {
-    listener(session.repositoryPath, session.view.facts, null, [])
+    listener(session.repositoryPath, session.view, null, [])
   }
   return () => {
     factsListeners.delete(listener)
@@ -268,7 +268,7 @@ function receive(target: Session, patch: ViewPatch): void {
   applyOrRefresh(target, target.view, patch)
 }
 
-function applyOrRefresh(target: Session, view: TableView, patch: ViewPatch): void {
+function applyOrRefresh(target: Session, view: RepositoryView, patch: ViewPatch): void {
   const at = view.version
   // a patch the snapshot already has
   if (patch.next.epoch === at.epoch && patch.next.seq <= at.seq) {
@@ -309,7 +309,7 @@ function refresh(target: Session): void {
 }
 
 /** The view of a subscription or a snapshot, then the patches that came meanwhile */
-function install(target: Session, view: TableView): void {
+function install(target: Session, view: RepositoryView): void {
   if (target !== session) {
     return
   }
@@ -345,7 +345,7 @@ function untoldNews(target: Session, news: readonly News[]): readonly News[] {
   return untold
 }
 
-function projectView(repositoryPath: string, previous: TableView | null, next: TableView, changes: TableChanges | null, news: readonly News[]): void {
+function projectView(repositoryPath: string, previous: RepositoryView | null, next: RepositoryView, changes: TableChanges | null, news: readonly News[]): void {
   const state = branchSyncStore.getState()
   const update: Partial<BranchSyncState> = { viewVersion: next.version }
   const running = next.sync.kind === "running"
@@ -394,9 +394,9 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
     setUnappliedBranches(next.sections.unapplied.map(({ remote, ...info }) => ({ ...info, remoteStatus: remote === null ? null : toRemoteStatus(remote) })))
   }
   projectArchived(previous, next, changes)
-  if (changes === null || changes.facts != null || news.length > 0) {
+  if (changes === null || changes.facts != null || changes.patronus != null || news.length > 0) {
     for (const listener of factsListeners) {
-      listener(repositoryPath, next.facts, changes === null ? null : (changes.facts ?? {}), news)
+      listener(repositoryPath, next, changes, news)
     }
   }
   if (changesTable(previous, changes)) {
@@ -417,7 +417,7 @@ function projectView(repositoryPath: string, previous: TableView | null, next: T
  * branches, the stacks, the sections): not the state of a run, of the build of a branch or of the copy of a commit,
  * which a sync that changes nothing reports for every branch (Created, then Unchanged)
  */
-function changesTable(previous: TableView | null, changes: TableChanges | null): boolean {
+function changesTable(previous: RepositoryView | null, changes: TableChanges | null): boolean {
   if (changes === null) {
     return true
   }
@@ -436,7 +436,7 @@ function changesTable(previous: TableView | null, changes: TableChanges | null):
  * the order, the unassigned commits, a branch or a stack that came or went, the head, the commits or the copies of a
  * branch, a stack beyond its remote status. Not a remote status (a push), the archived, unapplied or landed sections
  */
-function changesCommits(previous: TableView | null, changes: TableChanges | null): boolean {
+function changesCommits(previous: RepositoryView | null, changes: TableChanges | null): boolean {
   if (changes === null) {
     return true
   }
@@ -471,7 +471,7 @@ function sameCopies(shown: readonly CommitSync[] | undefined, copies: readonly C
   return shown !== undefined && shown.length === copies.length && shown.every((copy, index) => copy.hash === copies[index]!.hash)
 }
 
-function syncErrorOf(view: TableView | null): string | null {
+function syncErrorOf(view: RepositoryView | null): string | null {
   if (view?.sync.kind === "failed") {
     return view.sync.error.message || "Failed to sync branches"
   }
@@ -479,7 +479,7 @@ function syncErrorOf(view: TableView | null): string | null {
 }
 
 /** The fields of the header; a record of the same entries stays the same object, a sync rarely changes them */
-function headerFields(state: BranchSyncState, view: TableView): Partial<BranchSyncState> {
+function headerFields(state: BranchSyncState, view: RepositoryView): Partial<BranchSyncState> {
   const { header } = view
   return {
     baselineBranch: header.baselineBranch === "" ? null : header.baselineBranch,
@@ -495,7 +495,7 @@ function headerFields(state: BranchSyncState, view: TableView): Partial<BranchSy
  * integration of the branches the patch changed. "New" marks only what this patch archived: the store keeps the marks
  * the user has not dismissed, and the session's list of every branch archived since it opened would bring them back
  */
-function projectArchived(previous: TableView | null, next: TableView, changes: TableChanges | null): void {
+function projectArchived(previous: RepositoryView | null, next: RepositoryView, changes: TableChanges | null): void {
   const archived = next.sections.archived
   if (changes === null) {
     resetArchivedBranches()
@@ -521,7 +521,7 @@ function projectArchived(previous: TableView | null, next: TableView, changes: T
 }
 
 /** The branch records of `view`: built again only for the branches the patch changed, the others kept as they were */
-function branchesOf(shown: Readonly<Record<string, Branch>>, view: TableView, changes: TableChanges | null): Record<string, Branch> {
+function branchesOf(shown: Readonly<Record<string, Branch>>, view: RepositoryView, changes: TableChanges | null): Record<string, Branch> {
   if (changes === null) {
     return Object.fromEntries(Object.entries(view.branches).map(([name, branch]) => [name, branchOf(shown[name], branch, null)]))
   }
@@ -626,7 +626,7 @@ function statusTextOf({ head, sync }: BranchView): string {
 }
 
 /** The stack branches of the view: built again only for the roots the patch changed */
-function stackBranchesOf(shown: Readonly<Record<string, StackBranch>>, view: TableView, changes: TableChanges | null): Readonly<Record<string, StackBranch>> {
+function stackBranchesOf(shown: Readonly<Record<string, StackBranch>>, view: RepositoryView, changes: TableChanges | null): Readonly<Record<string, StackBranch>> {
   if (changes === null) {
     return Object.fromEntries(Object.values(view.stacks).map(update => [update.root, toStackBranch(update)]))
   }

@@ -211,11 +211,12 @@ async fn synced_window(template: &str, channel: u32) -> (reqwest::Client, Socket
   (client, addr, path, messages, listed)
 }
 
-/// The version of the view once the robots of the session at `path` are answered (the list after its first sync)
+/// The version of the view once the robots of the session at `path` are answered (the list after its first sync) and
+/// the view of what they hold is derived of them
 async fn listed(client: &reqwest::Client, addr: SocketAddr, path: &str) -> Value {
   loop {
     let view = post(client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
-    if view["facts"]["robots"]["head"]["state"]["kind"] != "loading" {
+    if view["facts"]["robots"]["head"]["state"]["kind"] != "loading" && view["patronus"]["state"]["kind"] == "fresh" {
       return view["version"].clone();
     }
     tokio::task::yield_now().await;
@@ -234,16 +235,23 @@ async fn a_push_answers_the_version_of_its_patch_and_runs_no_sync() {
   patches_up_to(&mut messages, &synced, &pushed["version"]).await;
   let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
   assert_eq!(view["branches"]["test-branch"]["remote"]["status"], status);
+  // the remote branch the push moved is what the view of the robots is of: derived again
+  let derived = listed(&client, addr, &path).await;
+  patches_up_to(&mut messages, &pushed["version"], &derived).await;
 
   let mut in_page = status.clone();
   in_page["remoteTip"] = json!("pushed-in-page");
   let request = json!({ "repositoryPath": path, "branches": [{ "branchName": "test-branch", "expectedRemote": null }], "remoteStatuses": [in_page] });
   let version = post(&client, addr, "/sessions/pushed-in-page", request).await;
-  let patches = patches_up_to(&mut messages, &pushed["version"], &version).await;
+  let patches = patches_up_to(&mut messages, &derived, &version).await;
   assert_eq!(patches.len(), 1, "{patches:?}");
   let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
   assert_eq!(view["branches"]["test-branch"]["remote"]["status"]["remoteTip"], "pushed-in-page");
-  assert_eq!((view["sync"].clone(), view["version"].clone()), (json!({ "kind": "idle" }), version), "no sync ran: {view}");
+  // what follows is the view of the robots on the remote branch the push moved, no sync
+  let derived = listed(&client, addr, &path).await;
+  let after = patches_up_to(&mut messages, &version, &derived).await;
+  assert!(after.iter().all(|patch| patch["changes"].get("sync").is_none()), "no sync ran: {after:?}");
+  assert_eq!(view["sync"], json!({ "kind": "idle" }), "no sync ran: {view}");
 }
 
 /// The deletion of an archived branch reaches the session as a patch of the archived section, whose version its answer

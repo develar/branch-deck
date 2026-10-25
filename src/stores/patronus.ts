@@ -3,23 +3,23 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
 import type {
+  FactState,
   LandingAllowances,
   LandingRefusal,
   PatronusAvailability,
   PatronusCommandSubject,
   PatronusMergeRequest,
+  PatronusPart,
   PatronusPushMode,
   PatronusRobot,
   PatronusRobotStatus,
   PatronusView,
   PullRequestStartBranch,
-  RemoteFacts,
-  RobotMatch,
+  RepositoryView,
   RobotOf,
-  FactsChanges,
-  FactsView,
   RobotsChange,
   RobotsView,
+  TableChanges,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure, getErrorDetails } from "@/lib/errors"
@@ -28,29 +28,19 @@ import type { VcsRequest } from "@/lib/git/vcs-request"
 import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-stack"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
-import {
-  findBranchRobot,
-  findStackRobot,
-  formatLandedWholeReason,
-  formatMergedRobotTitle,
-  formatPushMode,
-  formatStackPushHoldReason,
-  isHoldingRobot,
-  isLandedWhole,
-  isRobotActive,
-  openRobot,
-} from "@/lib/patronus"
-import { isRemoteUpToDate } from "@/lib/push-summary"
+import { formatLandedWholeReason, formatMergedRobotTitle, formatPushMode, formatStackPushHoldReason, isHoldingRobot, isLandedWhole, isRobotActive, openRobot } from "@/lib/patronus"
 import { withoutKeys } from "@/lib/record"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
+import type { RowRobots } from "@/lib/robot-overview"
+import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
 import { stackAncestors } from "@/lib/stack"
 import { lastFetchTime } from "@/lib/update-state"
 import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { recordRobot } from "@/stores/activity"
-import type { BranchSyncState, RemoteStatus } from "@/stores/branch-sync"
-import { branchSyncStore, getStackBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip, useStackBranch, whenSynced } from "@/stores/branch-sync"
+import type { BranchSyncState } from "@/stores/branch-sync"
+import { branchSyncStore, stackDescendantsIn, useBranchSync, whenSynced } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -105,37 +95,25 @@ export interface RepositoryPatronus {
    */
   readonly failing: Readonly<Record<string, true>>
   /**
-   * What the robots land, landed and hold of the branch table of the last sync, as Rust decides it for `bd` too
-   * (`get_repository_view`, `askRepositoryView`); null before the first answer
+   * What the robots land, landed and hold of the branch table of the last sync, with the robot of each row and the
+   * landing needs of each branch, as the session derives it for `bd` too (the part `patronus` of its view); null while
+   * none is derived (Patronus has not answered, or the derivation failed without an earlier view)
    */
   readonly view: PatronusView | null
   /**
-   * The robots (their record) the last answer of the view was asked with: while it is not `robots`, the view lags a
-   * change of the robots, which the Dock waits for (`useRepositoryViewCurrent`)
+   * How the view stands (`PatronusPart.state`): `loading` until the view of the first answer of Patronus is in, `stale`
+   * while one of newer robots, a newer table or a push is derived (no row waits for it), `unavailable` when it failed
+   * without an earlier view
    */
-  readonly viewOf: Readonly<Record<string, PatronusRobot>> | null
-  /**
-   * The view answered (or failed) for the robots of an answered list: what they hold and land is known from then on (a
-   * later change of the robots lags a moment, which no row waits for). Before it, the rows wait for Patronus
-   * (`isPatronusPending`)
-   */
-  readonly viewListed: boolean
+  readonly viewState: FactState
+  /** How the landing needs of the view stand (`PatronusPart.landingNeeds`): `loading` while Rust computes them */
+  readonly landingNeedsState: FactState
   /**
    * By robot id, the failed robots whose problems Patronus didn't give (`loadReviewProblems` failed), with why: why they
    * failed stays unknown, so the step of the branch offers no restart (`UnavailableFact`); asked again after the next
    * answer of a list or a poll, and by Check Approvals Again (`askRobotProblemsAgain`)
    */
   readonly problemsFailed: Readonly<Record<string, string>>
-  /**
-   * The view said that the landing needs of a branch are unknown and Rust computes them now (`waitForLandingNeeds`
-   * runs); false once the computation answered, or ended without needs for these inputs (failed, too slow)
-   */
-  readonly landingNeedsComputing: boolean
-  /**
-   * Why the last ask of the view failed; null once one answers. Over a last view the steps stand on that one (its holds,
-   * landing ancestors and needs stay, stale); without one nothing says what the robots hold (`getPatronusViewFailure`)
-   */
-  readonly viewFailure: string | null
 }
 
 export interface PatronusState {
@@ -156,11 +134,9 @@ const EMPTY: RepositoryPatronus = {
   watched: {},
   failing: {},
   view: null,
-  viewOf: null,
-  viewListed: false,
+  viewState: { kind: "loading" },
+  landingNeedsState: { kind: "loading" },
   problemsFailed: {},
-  landingNeedsComputing: false,
-  viewFailure: null,
 }
 
 /** The key of a repository and branch prefix in the stores of Patronus answers (the robots, the review readiness) */
@@ -187,42 +163,72 @@ export function useRepositoryPatronus(): RepositoryPatronus {
   return useStore(patronusStore, state => state.repositories[key] ?? EMPTY)
 }
 
-/** The robot of the branch (see `findBranchRobot`); re-renders only when it changes */
+/**
+ * The robot of the row of `branchName`, as the session matched it (`robotId` of the view, `domain_policy::robot_match`:
+ * started on the branch, or of a temporary ref at its tip), with what the page knows of it now; re-renders only when it
+ * changes
+ */
 export function useBranchRobot(branchName: string): PatronusRobot | undefined {
   const key = useRepositoryKey()
-  const localTip = useBranchTip(branchName)
-  const remoteTip = useBranchRemoteTip(branchName)
-  return useStore(patronusStore, state => findBranchRobot(state.repositories[key]?.robots, branchName, localTip, remoteTip))
+  return useStore(patronusStore, state => branchRobotIn(state.repositories[key], branchName))
 }
 
 /**
- * The robot of the whole stack of `root` (`findStackRobot`, on its stack branch `{prefix}/stack/<root>`); re-renders
- * only when it changes
+ * The robot of the whole stack of `root`, on its stack branch `{prefix}/stack/<root>`, as the session matched it;
+ * re-renders only when it changes
  */
 export function useStackRobot(root: string): PatronusRobot | undefined {
   const key = useRepositoryKey()
-  const stack = useStackBranch(root)
-  const localTip = stack?.tip
-  const remoteTip = stack?.remoteStatus?.remoteTip ?? null
-  return useStore(patronusStore, state => findStackRobot(state.repositories[key]?.robots, root, localTip, remoteTip))
+  return useStore(patronusStore, state => stackRobotIn(state.repositories[key], root))
 }
 
 /** Non-hook variant of `useStackRobot`, for menus built on open */
 export function getStackRobot(root: string): PatronusRobot | undefined {
-  const key = currentKey()
-  return key === null ? undefined : stackRobotIn(patronusStore.getState().repositories[key]?.robots, root)
+  return stackRobotIn(currentRepository(), root)
 }
 
-function stackRobotIn(robots: Readonly<Record<string, PatronusRobot>> | undefined, root: string): PatronusRobot | undefined {
-  const stack = getStackBranch(root)
-  return findStackRobot(robots, root, stack?.tip, stack?.remoteStatus?.remoteTip ?? null)
+/** The robots of the rows of each view (`rowRobotsOf`), computed once per view */
+const rowRobotsOfView = new WeakMap<PatronusView, RowRobots>()
+
+/**
+ * The robot of each row of the selected repository as the session matched it (`robotId` of the view), for the landing
+ * overview; the same object while the view is
+ */
+export function useRowRobots(): RowRobots {
+  const key = useRepositoryKey()
+  return useStore(patronusStore, state => rowRobotsOf(state.repositories[key]?.view ?? null))
+}
+
+function rowRobotsOf(view: PatronusView | null): RowRobots {
+  if (view === null) {
+    return NO_ROW_ROBOTS
+  }
+  let known = rowRobotsOfView.get(view)
+  if (known === undefined) {
+    const ids = <T extends { readonly robotId: string | null }>(entries: Readonly<Record<string, T>>) =>
+      Object.fromEntries(Object.entries(entries).flatMap(([name, facts]) => (facts.robotId === null ? [] : [[name, facts.robotId] as const])))
+    known = { branches: ids(view.branches), stacks: ids(view.stacks) }
+    rowRobotsOfView.set(view, known)
+  }
+  return known
+}
+
+function branchRobotIn(repository: RepositoryPatronus | undefined, branchName: string): PatronusRobot | undefined {
+  const id = repository?.view?.branches[branchName]?.robotId
+  return id == null ? undefined : repository!.robots[id]
+}
+
+function stackRobotIn(repository: RepositoryPatronus | undefined, root: string): PatronusRobot | undefined {
+  const id = repository?.view?.stacks[root]?.robotId
+  return id == null ? undefined : repository!.robots[id]
 }
 
 /**
- * What the robots land, landed and hold of the branches, by branch, as the repository view says it (`view`, the rule
+ * What the robots land, landed and hold of the branches, by branch, as the session's view says it (`view`, the rule
  * `bd` reads too), each fact with its robot object: the same objects while nothing of them changes, so a row that reads
  * one renders again only when it does. A fact whose robot no longer does what the view saw (a hold of a robot that
- * stopped running, a landing of a robot no longer merged) waits for the next view, which the change of the robots asks.
+ * stopped running, a landing of a robot no longer merged) waits for the next view, which the change of the robots
+ * derives.
  */
 interface PatronusFacts {
   readonly spans: ReadonlyMap<string, LandingDescendant>
@@ -510,240 +516,56 @@ function stackBranchHoldReasonIn(facts: PatronusFacts, state: BranchSyncState, r
   return hold === undefined ? null : formatStackPushHoldReason(root, hold.robot)
 }
 
-/** The robots a view needs: the active ones (their matches, their starts, what they land) and the merged ones (what they landed) */
-function viewRobots(robots: Readonly<Record<string, PatronusRobot>>): PatronusRobot[] {
-  return Object.values(robots).filter(robot => isRobotActive(robot) || (robot.status === "success" && robot.pushMode !== "dryRun"))
-}
-
-/** The robot of each branch and whole stack, as the rows match them (`findBranchRobot`, the cases Rust passes too) */
-function robotMatchIn(robots: Readonly<Record<string, PatronusRobot>>, state: BranchSyncState): RobotMatch {
-  const branches: Record<string, string> = {}
-  for (const name of state.branchOrder) {
-    const branch = state.branches[name]
-    const robot = findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
-    if (robot !== undefined) {
-      branches[name] = robot.id
-    }
-  }
-  const stacks: Record<string, string> = {}
-  for (const stack of Object.values(state.stackBranches)) {
-    const robot = findStackRobot(robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
-    if (robot !== undefined) {
-      stacks[stack.root] = robot.id
-    }
-  }
-  return { branches, stacks }
-}
-
-/** What the page knows of the remote branches: a push moves them without a sync, the backend's table doesn't know it */
-function remoteFactsIn(state: BranchSyncState): RemoteFacts {
-  const fact = (remote: RemoteStatus | null | undefined) => ({ remoteTip: remote?.remoteTip ?? null, upToDate: remote != null && isRemoteUpToDate(remote) })
-  return {
-    branches: Object.fromEntries(state.branchOrder.map(name => [name, fact(state.branches[name]?.remoteStatus)])),
-    stacks: Object.fromEntries(Object.values(state.stackBranches).map(stack => [stack.root, fact(stack.remoteStatus)])),
-  }
-}
-
-/** Counts the questions of the view: an answer to an older one is dropped */
-let viewRevision = 0
 /**
- * What the last question was asked with: the same inputs are not asked again, and while the branches and the stack
- * branches are the same objects of the same table they are not even computed (a store change of something else)
+ * The view of `repository` is of its robots, its table and its remote branches as they are now: no derivation of
+ * newer ones runs (a failed one is an answer too). True before Patronus answered, and while it lists no robot
  */
-let askedView: {
-  readonly key: string
-  readonly robots: Readonly<Record<string, PatronusRobot>>
-  readonly branches: BranchSyncState["branches"]
-  readonly stacks: BranchSyncState["stackBranches"]
-  /** The table the backend answers from: its revision in the store (`tableRevision`) */
-  readonly table: number
-  readonly inputs: string
-} | null = null
-/** The question in flight, and whether another one waits for it */
-let viewInFlight: Promise<void> | null = null
-
-/**
- * Asks `get_repository_view` when its inputs changed: the robots (their record, which `withRobots` keeps while nothing
- * changed), the matches and remote facts of the branches, and the table the session holds (by its revision: a sync that
- * changed nothing of it asks nothing). During a sync only a change of the robots asks (the backend answers from the table of the last sync), so a merge says what it landed at
- * once. One question in flight; one that changes meanwhile is asked once it answered. Resolves once the view is of the
- * inputs as they are.
- */
-async function askRepositoryView(): Promise<void> {
-  const key = currentKey()
-  const project = getSelectedProject()
-  const state = branchSyncStore.getState()
-  const repository = key === null ? undefined : patronusStore.getState().repositories[key]
-  if (key === null || project === null || repository === undefined) {
-    return
+function isViewCurrentIn(repository: RepositoryPatronus | undefined): boolean {
+  if (repository === undefined || Object.keys(repository.robots).length === 0) {
+    return true
   }
-  if (viewInFlight !== null) {
-    await viewInFlight
-    return askRepositoryView()
-  }
-  const sameRobots = askedView?.key === key && askedView.robots === repository.robots
-  // the table of the backend is the one of the session: a sync that changed nothing of it leaves the same revision
-  const table = state.tableRevision
-  if (sameRobots && (state.isSyncing || (askedView?.branches === state.branches && askedView.stacks === state.stackBranches && askedView.table === table))) {
-    return
-  }
-  const matched = robotMatchIn(repository.robots, state)
-  const remote = remoteFactsIn(state)
-  const inputs = JSON.stringify([table, matched, remote])
-  if (sameRobots && askedView?.inputs === inputs) {
-    askedView = { ...askedView, branches: state.branches, stacks: state.stackBranches }
-    return
-  }
-  const asking = repository.robots
-  askedView = { key, robots: asking, branches: state.branches, stacks: state.stackBranches, table, inputs }
-  const revision = ++viewRevision
-  const asked = commands
-    .getRepositoryView({ repositoryPath: project.path, robots: viewRobots(asking), matched, remote })
-    .then(result => {
-      if (result.status === "error") {
-        console.warn("Cannot read the repository view", result.error)
-        // the same inputs are not asked again (each change of the store would ask, a failure without end): a sync, a
-        // change of the robots or a refresh of Patronus does. The view stays as it was, stale: nothing waits for an
-        // answer that doesn't come; without one the steps say why
-        update(key, entry => ({ viewOf: asking, viewListed: entry.viewListed || isOfListedRobots(entry, asking), viewFailure: getErrorDetails(result.error) }))
-        return
-      }
-      const entry = patronusStore.getState().repositories[key]
-      if (revision === viewRevision && key === currentKey() && entry !== undefined) {
-        // the same view of the same robots (a sync that changed nothing): no store change, no selector of a row runs
-        const view = keptView(entry.view, result.data.patronus)
-        const viewListed = entry.viewListed || isOfListedRobots(entry, asking)
-        // the landing needs of a branch of the table are computed in the background meanwhile, unless the same view of the
-        // same count of computations said that none runs for them (failed, too slow): no step waits then
-        const unknown = state.branchOrder.some(name => view.branches[name]?.landingNeeds.state !== "known")
-        const computing = unknown && !(view === entry.view && landingSettled.get(key) === result.data.landingGeneration)
-        if (view !== entry.view || entry.viewOf !== asking || viewListed !== entry.viewListed || (!computing && entry.landingNeedsComputing) || entry.viewFailure !== null) {
-          update(key, () => ({ view, viewOf: asking, viewListed, viewFailure: null, ...(!computing && { landingNeedsComputing: false }) }))
-        }
-        if (computing) {
-          waitForLandingNeeds(key, project.path, result.data.landingGeneration)
-        }
-      }
-    })
-    .finally(() => {
-      viewInFlight = null
-    })
-  viewInFlight = asked
-  await asked
+  const state = repository.viewState
+  return state.kind === "fresh" || state.kind === "unavailable" || (state.kind === "stale" && state.reason != null)
 }
 
 /**
- * A view asked with `asking` is of the robots Patronus listed: a list answered, and the robots are still the ones it was
- * asked with (a list that changed them asks again)
- */
-function isOfListedRobots(entry: RepositoryPatronus, asking: Readonly<Record<string, PatronusRobot>>): boolean {
-  return entry.listed && entry.robots === asking
-}
-
-/** The repository whose landing needs the page waits for, one wait at a time */
-let landingWait: string | null = null
-/** By repository key, the count of computations of the landing needs after which no computation ran (`waitForLandingNeeds`) */
-const landingSettled = new Map<string, number>()
-
-/**
- * While the landing needs of a branch are unknown, Rust computes them in the background: waits until the computation
- * after the view's (`after`) finished (`wait_landing_needs`), then asks the view again. A wait that ends without one
- * (none ran, or it failed for these inputs) asks nothing: the needs stay unknown until the inputs change
- */
-function waitForLandingNeeds(key: string, repositoryPath: string, after: number): void {
-  if (!(patronusStore.getState().repositories[key]?.landingNeedsComputing ?? false)) {
-    update(key, () => ({ landingNeedsComputing: true }))
-  }
-  if (landingWait === key) {
-    return
-  }
-  landingWait = key
-  void commands
-    .waitLandingNeeds({ repositoryPath, after })
-    .then(result => {
-      if (result.status === "ok" && result.data !== after && key === currentKey()) {
-        askedView = null
-        void askRepositoryView()
-      } else {
-        // no computation answers for these inputs (it failed, or took too long): the needs stay unknown, no step waits
-        landingSettled.set(key, result.status === "ok" ? result.data : after)
-        update(key, () => ({ landingNeedsComputing: false }))
-      }
-    })
-    .finally(() => {
-      if (landingWait === key) {
-        landingWait = null
-      }
-    })
-}
-
-/**
- * `next`, its entries equal to those of `previous` kept as the same objects, so a row that reads one doesn't render
- * again; `previous` itself while every entry is
- */
-function keptView(previous: PatronusView | null, next: PatronusView): PatronusView {
-  if (previous === null) {
-    return next
-  }
-  const keep = <T>(before: Readonly<Record<string, T>>, after: Record<string, T>): Readonly<Record<string, T>> => {
-    const kept = Object.fromEntries(
-      Object.entries(after).map(([name, entry]) => [name, name in before && JSON.stringify(before[name]) === JSON.stringify(entry) ? before[name]! : entry]),
-    )
-    const names = Object.keys(kept)
-    return names.length === Object.keys(before).length && names.every(name => kept[name] === before[name]) ? before : kept
-  }
-  const branches = keep(previous.branches, next.branches)
-  const stacks = keep(previous.stacks, next.stacks)
-  const landedByRobot = keep(previous.landedByRobot, next.landedByRobot)
-  return branches === previous.branches && stacks === previous.stacks && landedByRobot === previous.landedByRobot ? previous : { branches, stacks, landedByRobot }
-}
-
-/**
- * The repository view of the selected repository is of its robots as they are now (or the last question failed): what
- * the robots hold and land is known, not the lag of a change of them. True without Patronus.
+ * The view of the selected repository is of its robots as they are now (or its last derivation failed): what the
+ * robots hold and land is known, not the lag of a change of them. True without Patronus.
  */
 export function useRepositoryViewCurrent(): boolean {
   const key = useRepositoryKey()
-  return useStore(patronusStore, state => {
-    const repository = state.repositories[key]
-    return repository === undefined || Object.keys(repository.robots).length === 0 || repository.viewOf === repository.robots
+  return useStore(patronusStore, state => isViewCurrentIn(state.repositories[key]))
+}
+
+/**
+ * Resolves once the view of the session is of the robots, the remote branches and the table as the sync leaves them
+ * (the session derives it again after a sync, a change of the robots and a push): a push and a start decide on its
+ * holds after it. Nothing changed: at once; another repository selected meanwhile: at once
+ */
+export async function whenRepositoryViewCurrent(): Promise<void> {
+  await whenSynced()
+  const key = currentKey()
+  if (key === null) {
+    return
+  }
+  const current = () => key !== currentKey() || isViewCurrentIn(patronusStore.getState().repositories[key])
+  if (current()) {
+    return
+  }
+  await new Promise<void>(resolve => {
+    const unsubscribe = patronusStore.subscribe(() => {
+      if (current()) {
+        unsubscribe()
+        resolve()
+      }
+    })
   })
 }
 
 /**
- * Resolves once the repository view is of the robots, the remote facts and the table as the sync leaves them: a push
- * and a start decide on its holds after it. Nothing changed: at once
- */
-export async function whenRepositoryViewCurrent(): Promise<void> {
-  await whenSynced()
-  await askRepositoryView()
-}
-
-/**
- * Keeps the repository view current while the main window shows the branches (`askRepositoryView`): on every change of
- * the robots and of the branches, asked only when its inputs changed. Returns the unsubscribe.
- */
-export function watchRepositoryView(): () => void {
-  let scheduled = false
-  const schedule = () => {
-    if (scheduled) {
-      return
-    }
-    scheduled = true
-    queueMicrotask(() => {
-      scheduled = false
-      void askRepositoryView()
-    })
-  }
-  const unsubscribes = [patronusStore, branchSyncStore].map(store => store.subscribe(schedule))
-  schedule()
-  return () => unsubscribes.forEach(unsubscribe => unsubscribe())
-}
-
-/**
- * What the Safe Push of the branch needs of a branch outside what it lands, as Rust computes it in the background after
- * a sync (`landingNeeds` of the repository view): the refusals the landing gate of its start would give, empty when it
- * needs nothing; null while unknown (not computed yet), which is never "nothing"
+ * What the Safe Push of the branch needs of a branch outside what it lands, as the session computes it after a sync
+ * (`landingNeeds` of its view): the refusals the landing gate of its start would give, empty when it needs nothing;
+ * null while unknown (not computed yet, or the computation failed), which is never "nothing"
  */
 export function useLandingNeeds(branchName: string): readonly LandingRefusal[] | null {
   const key = useRepositoryKey()
@@ -761,12 +583,13 @@ function landingNeedsIn(repository: RepositoryPatronus | undefined, branchName: 
 }
 
 /**
- * Rust computes what the Safe Push of the branch needs now (`landingNeedsComputing`, its needs unknown): its step waits
- * for the answer, a second or two after the view (`PendingFact` `landingNeeds`)
+ * Rust computes what the Safe Push of the branch needs now (the landing needs of the view `loading`, its needs
+ * unknown): its step waits for the answer, a second or two after the view (`PendingFact` `landingNeeds`); a failed
+ * computation waits for nothing
  */
 export function isLandingNeedsPending(branchName: string): boolean {
   const repository = currentRepository()
-  return repository?.landingNeedsComputing === true && landingNeedsIn(repository, branchName) === null
+  return repository?.view != null && repository.landingNeedsState.kind === "loading" && landingNeedsIn(repository, branchName) === null
 }
 
 /**
@@ -934,12 +757,7 @@ export function getPatronusGitHubRepository(): string | null {
 
 /** Non-hook variant of `useBranchRobot`, for menus built on open */
 export function getBranchRobot(branchName: string): PatronusRobot | undefined {
-  const key = currentKey()
-  if (key === null) {
-    return undefined
-  }
-  const branch = branchSyncStore.getState().branches[branchName]
-  return findBranchRobot(patronusStore.getState().repositories[key]?.robots, branchName, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
+  return branchRobotIn(currentRepository(), branchName)
 }
 
 // ---- updates ----
@@ -1014,8 +832,8 @@ const announcedMerges = new Set<string>()
  * learns that an update brings the branch in, and "Open in Patronus". While no window is focused, an OS notification
  * says it at once (unless Settings turned it off), and the toast waits for the focus.
  * A stacked branch landed its ancestors too, the whole stack every branch of it: their open pull requests are closed
- * as the repository view says it (`closeLandedPullRequests`, `landedByRobot`), and the toast says so: it waits for the
- * view of the merged robot (`whenRepositoryViewCurrent`), which the sync that runs and one `get_repository_view` give.
+ * as the session's view says it (`closeLandedPullRequests`, `landedByRobot`), and the toast says so: it waits for the
+ * view of the merged robot (`whenRepositoryViewCurrent`), which the session derives after the answer that merged it.
  */
 export function announceMerge(key: string, robot: PatronusRobot): void {
   if (announcedMerges.has(robot.id)) {
@@ -1091,11 +909,37 @@ function showMergeToast(repositoryPath: string, robot: PatronusRobot, title: str
 
 // ---- the robots of the session ----
 
-/** The facts of the session's view of the main window (`onSessionFacts`): the robots, when a patch has them */
-export function applySessionFacts(repositoryPath: string, facts: FactsView, changes: FactsChanges | null): void {
-  if (changes === null || changes.robots != null) {
-    applyRobotsFacts(repositoryPath, facts.robots, changes?.robots ?? null)
+/**
+ * The facts of the session's view of the main window (`onSessionFacts`): the robots and the Patronus view the session
+ * derives of them, when a patch has them
+ */
+export function applySessionFacts(repositoryPath: string, view: RepositoryView, changes: TableChanges | null): void {
+  if (changes === null || changes.facts?.robots != null) {
+    applyRobotsFacts(repositoryPath, view.facts.robots, changes?.facts?.robots ?? null)
   }
+  if (changes === null || changes.patronus != null) {
+    applyPatronusPart(repositoryPath, view.patronus)
+  }
+}
+
+/**
+ * The Patronus view of the session of `repositoryPath` (`patronus` of its view): what the robots land, landed and hold
+ * of the table, the robot of each row and the landing needs, as Rust derives them, with how they stand; the page only
+ * stores them. The patch keeps every branch and stack it doesn't name as the same object, so a row that reads one
+ * doesn't render again. Nothing is stored for a session Patronus has not answered yet
+ */
+function applyPatronusPart(repositoryPath: string, part: PatronusPart): void {
+  const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
+  const entry = patronusStore.getState().repositories[key]
+  if (entry === undefined && part.state.kind === "loading") {
+    return
+  }
+  const derived = part.state.kind !== "loading" && part.state.kind !== "unavailable"
+  const view = derived ? part.view : null
+  if (entry !== undefined && entry.view === view && entry.viewState === part.state && entry.landingNeedsState === part.landingNeeds) {
+    return
+  }
+  update(key, () => ({ view, viewState: part.state, landingNeedsState: part.landingNeeds }))
 }
 
 /**
@@ -1117,15 +961,11 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
   // a failure after robots were listed keeps them, stale
   const listed = entry.listed || availability?.status === "available" || head.state.kind === "stale"
   // a snapshot of a session Patronus has not answered yet (`Loading`) is no answer: the robots of the repository are
-  // stored from the first answer on, and their view asked from then
+  // stored from the first answer on, and their view comes from then
   const answered = head.value !== null && (change === null || change.head != null)
   const asked = change !== null && (change.failing != null || change.needsReview != null || change.problemsFailed != null)
   if (robots === entry.robots && !answered && !asked) {
     return
-  }
-  if (answered && availability?.status === "available" && entry.viewFailure !== null) {
-    // a view that failed is asked again after an answer of Patronus, also of the same robots
-    askedView = null
   }
   const failing = change === null || change.failing != null ? failingOf(view.failing, entry.failing, robots) : entry.failing
   update(key, previous => ({
@@ -1134,8 +974,6 @@ export function applyRobotsFacts(repositoryPath: string, view: RobotsView, chang
     githubRepository: head.value?.githubRepository ?? null,
     fetchedAt: head.observedAt * 1000,
     listed,
-    // a list that left the robots as they were (none) has its view already
-    viewListed: previous.viewListed || (listed && !previous.listed && previous.viewOf === robots),
     failing,
     needsReview: change === null ? view.needsReview : (change.needsReview ?? previous.needsReview),
     problemsFailed: change === null ? view.problemsFailed : (change.problemsFailed ?? previous.problemsFailed),
@@ -1179,9 +1017,9 @@ export async function refreshPatronus(): Promise<void> {
 function tableRobots(entry: RepositoryPatronus): Array<PatronusRobot | undefined> {
   const { branches, stackBranches } = branchSyncStore.getState()
   return [
-    ...Object.values(branches).map(branch => findBranchRobot(entry.robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)),
+    ...Object.keys(branches).map(name => branchRobotIn(entry, name)),
     // the robot of the whole stack fails for missing approvals in the pull request of the stack
-    ...Object.values(stackBranches).map(stack => findStackRobot(entry.robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)),
+    ...Object.keys(stackBranches).map(root => stackRobotIn(entry, root)),
   ]
 }
 
@@ -1281,21 +1119,22 @@ export function hasPatronusListed(): boolean {
 }
 
 /**
- * Why Patronus didn't give the view of the robots of the selected repository, while no earlier view stands for it:
- * what they hold, land and need is unknown, so no start is decided on "none"; null once a view answered
+ * Why Rust didn't derive the view of the robots of the selected repository, while no earlier view stands for it
+ * (`unavailable`): what they hold, land and need is unknown, so no start is decided on "none"; null once a view is in
  */
 export function getPatronusViewFailure(): string | null {
-  const entry = currentRepository()
-  return entry === undefined || entry.view !== null ? null : (entry.viewFailure ?? null)
+  return viewFailureIn(currentRepository())
 }
 
 /** `getPatronusViewFailure` of the selected repository, for a component */
 export function usePatronusViewFailure(): string | null {
   const key = useRepositoryKey()
-  return useStore(patronusStore, state => {
-    const entry = state.repositories[key]
-    return entry === undefined || entry.view !== null ? null : (entry.viewFailure ?? null)
-  })
+  return useStore(patronusStore, state => viewFailureIn(state.repositories[key]))
+}
+
+function viewFailureIn(entry: RepositoryPatronus | undefined): string | null {
+  const state = entry?.viewState
+  return state?.kind === "unavailable" ? getErrorDetails(state.reason) : null
 }
 
 /** `isPatronusPending` of the selected repository, for a component */
@@ -1312,8 +1151,8 @@ export function isPatronusKnown(): boolean {
 
 /**
  * The next steps wait for Patronus (`PendingFact` `patronus`): it hasn't answered for the selected repository, or it
- * lists robots and the repository view of the robots it listed first isn't in, so what they hold and land is not known.
- * A failure (not logged in, an error) is an answer
+ * lists robots and the view the session derives of the robots it listed first isn't in, so what they hold and land is
+ * not known. A failure (not logged in, an error) is an answer, and so is a view that failed
  */
 export function isPatronusPending(): boolean {
   const key = currentKey()
@@ -1325,7 +1164,7 @@ export function isPatronusPending(): boolean {
 
 function isPendingEntry(entry: RepositoryPatronus | undefined): boolean {
   const status = entry?.availability?.status
-  return status === undefined || (status === "available" && !entry!.viewListed)
+  return status === undefined || (status === "available" && entry!.viewState.kind === "loading")
 }
 
 /**
@@ -1668,11 +1507,9 @@ export async function fetchPatronusRobotStatus(robot: PatronusRobot): Promise<Pa
 
 /** Forgets the data (tests) */
 export function resetPatronus(): void {
-  landingSettled.clear()
   lateCommentStarts.clear()
   resetOsNotification()
   announcedMerges.clear()
-  askedView = null
   lastFacts = NO_FACTS
   lastFactsOf = { view: null, robots: null }
   patronusStore.setState({ repositories: {} })

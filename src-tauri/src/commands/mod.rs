@@ -19,7 +19,6 @@ pub mod pull_requests;
 pub mod push;
 pub mod repository_browser;
 pub mod repository_config;
-pub mod repository_view;
 pub mod review_requests;
 pub mod reword;
 pub mod session;

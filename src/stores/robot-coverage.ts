@@ -4,13 +4,12 @@ import { createStore } from "zustand/vanilla"
 import type { PatronusRobot, RobotCommitMap, RobotCommitState } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { LandingDescendant } from "@/lib/patronus"
-import { findBranchRobot } from "@/lib/patronus"
 import type { RobotCoverage } from "@/lib/robot-coverage"
 import { branchCoverageOf, robotCoverageNeed } from "@/lib/robot-coverage"
 import { robotAncestors } from "@/lib/robot-prompt-copy"
 import type { BranchSyncState, RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
-import { currentKey, getLandingSpan, patronusRequest, patronusStore, useLandingSpan, useRepositoryRobots } from "@/stores/patronus"
+import { currentKey, getBranchRobot, getLandingSpan, patronusRequest, patronusStore, useBranchRobot, useLandingSpan } from "@/stores/patronus"
 
 /**
  * By `coverageKey`, the commit map of a running robot (`get_robot_commit_map`), asked once the branch it tests changed
@@ -31,16 +30,15 @@ export interface CoveringRobot {
 }
 
 /**
- * The running robot that tests the commits of the branch: its own, else the one that lands it with a branch built on
- * it or with the whole stack (`span`, `useLandingSpan`), as the ring and the landing span of the graph show; null while
- * none runs
+ * The running robot that tests the commits of the branch: its own (`own`, the robot of its row), else the one that
+ * lands it with a branch built on it or with the whole stack (`span`, `useLandingSpan`), as the ring and the landing
+ * span of the graph show; null while none runs
  */
-export function coveringRobotIn(robots: Readonly<Record<string, PatronusRobot>>, span: LandingDescendant | null, state: BranchSyncState, branchName: string): CoveringRobot | null {
+export function coveringRobotIn(own: PatronusRobot | undefined, span: LandingDescendant | null, state: BranchSyncState, branchName: string): CoveringRobot | null {
   const branch = state.branches[branchName]
   if (branch === undefined) {
     return null
   }
-  const own = findBranchRobot(robots, branchName, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)
   if (own?.status === "running") {
     return { robot: own, tip: branch.commits[0]?.hash, remote: branch.remoteStatus }
   }
@@ -61,14 +59,8 @@ function coverageKey(covering: CoveringRobot): string {
 }
 
 /** The coverage of a branch as one string, so that a row renders again only when it changes */
-function coverageLine(
-  robots: Readonly<Record<string, PatronusRobot>> | undefined,
-  span: LandingDescendant | null,
-  maps: RobotCoverageState["maps"],
-  state: BranchSyncState,
-  branchName: string,
-): string {
-  const covering = robots === undefined ? null : coveringRobotIn(robots, span, state, branchName)
+function coverageLine(own: PatronusRobot | undefined, span: LandingDescendant | null, maps: RobotCoverageState["maps"], state: BranchSyncState, branchName: string): string {
+  const covering = coveringRobotIn(own, span, state, branchName)
   const need = covering === null ? null : robotCoverageNeed(covering.robot, covering.tip, covering.remote)
   if (covering === null || need === null) {
     return ""
@@ -88,10 +80,10 @@ function coverageLine(
  * is known yet
  */
 export function useRobotCoverage(branchName: string): RobotCoverage | null {
-  const robots = useRepositoryRobots()
+  const own = useBranchRobot(branchName)
   const span = useLandingSpan(branchName)
   const maps = useStore(robotCoverageStore, state => state.maps)
-  const line = useBranchSync(state => coverageLine(robots, span, maps, state, branchName))
+  const line = useBranchSync(state => coverageLine(own, span, maps, state, branchName))
   return useMemo(() => {
     if (line === "") {
       return null
@@ -105,9 +97,9 @@ export function useRobotCoverage(branchName: string): RobotCoverage | null {
 
 /** The running robot that tests the commits of the branch (`coveringRobotIn`); re-renders only when it changes */
 export function useCoveringRobot(branchName: string): PatronusRobot | null {
-  const robots = useRepositoryRobots()
+  const own = useBranchRobot(branchName)
   const span = useLandingSpan(branchName)
-  return useBranchSync(state => (robots === undefined ? null : (coveringRobotIn(robots, span, state, branchName)?.robot ?? null)))
+  return useBranchSync(state => coveringRobotIn(own, span, state, branchName)?.robot ?? null)
 }
 
 /** The requests asked and not answered yet, by `coverageKey` */
@@ -127,7 +119,7 @@ async function askRobotCoverage(): Promise<void> {
   }
   const needed = new Map<string, CoveringRobot>()
   for (const name of Object.keys(state.branches)) {
-    const covering = coveringRobotIn(repository.robots, getLandingSpan(name), state, name)
+    const covering = coveringRobotIn(getBranchRobot(name), getLandingSpan(name), state, name)
     if (covering !== null && robotCoverageNeed(covering.robot, covering.tip, covering.remote) === "map") {
       needed.set(coverageKey(covering), covering)
     }

@@ -184,13 +184,13 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
 - A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
-  must belong to no branch, not even by its revision, in `bd` and the repository view (`RobotIndex::branch_robot` of
-  `domain_policy::robot_match`) as in the app (`findBranchRobot`); `RobotIndex::stack_robot` finds the robot of the
-  whole stack.
+  must belong to no branch, not even by its revision, in `bd` and the session's view, whose `robotId` the app reads
+  (`RobotIndex::branch_robot` of `domain_policy::robot_match`); `RobotIndex::stack_robot` finds the robot of the whole
+  stack.
   [@test] ../../crates/patronus/src/service_test.rs (`a_robot_of_the_stack_branch_names_the_root_of_its_stack_and_no_branch`)
   [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
-  [@test] ../../src/lib/patronus.test.ts (`never takes the robot of the whole stack, which runs on its stack branch, for a branch's`)
+  [@test] ../../src/stores/patronus.test.ts (`holds every branch the whole-stack Safe Push lands`)
 - The pull request of a stack branch must be the stack's, by its root (`PullRequestsResult::stack_pull_requests`),
   never a branch's; one that GitHub says exists must be found by its head.
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root`)
@@ -210,8 +210,9 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   (`formatWholeStack`, `formatRobotSubject`), wherever the app names the robot or the pull request of a stack branch.
   [@test] ../../src/lib/whole-stack.test.ts (`is named as bd names it`)
   [@test] ../../src/lib/patronus.test.ts (`is named the whole stack, at the start of a sentence too`)
-- The robot of the whole stack must be the root's stack's (`findStackRobot`: started on its stack branch, or a Safe
-  Push of a temporary ref on the tip of the stack branch), polled while it runs, its problems and its failing read, as
+- The robot of the whole stack must be the root's stack's (`robotId` of its stack in the session's view,
+  `RobotIndex::stack_robot`: started on its stack branch, or a Safe Push of a temporary ref on the tip of the stack
+  branch), polled while it runs, its problems and its failing read, as
   the robot of a branch is; it is told when it merged ("Whole air stack merged into master", in the toast, Activity and
   the OS notification), failed ("Safe Push of the whole air stack failed", its pull request the step when it needs
   review) or will fail, listed in the landing overview as "Whole air stack", a click showing the root, and counted in
@@ -221,7 +222,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   once the stack no longer forks; `Blocked`; `Conflict`) its restart is refused and the stack lands in pieces, so the
   overview lists it as finished, and the island and the badge count nothing for it.
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should count the failed robot of the whole stack only while the sync built its stack branch`)
-  [@test] ../../src/lib/patronus.test.ts (`belongs to the root of its stack by its stack branch, or as a robot of a temporary ref by the tips of the stack branch`)
+  [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the robot of the whole stack in the header of its island, a click on it showing the root`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
   [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root, its failure on one not built as finished`)

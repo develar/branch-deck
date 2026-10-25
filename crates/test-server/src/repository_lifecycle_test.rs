@@ -1,7 +1,8 @@
+use crate::session_routes::TestSessionEnvironment;
 use crate::test_support::{Named, capture_warnings, command, create_repository, delete_repository, post, start_test_server, start_test_server_with_state, sync};
-use domain_types::repository_view::{GetRepositoryViewParams, RemoteFacts, RepositoryView, RobotMatch, WaitLandingNeedsParams};
-use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
+use repository_model::runtime::SessionEnvironment;
+use repository_model::session::SessionKey;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -91,44 +92,46 @@ async fn deleting_a_repository_waits_for_its_running_command() {
   assert_eq!(late.status(), 410);
 }
 
-/// The view of `path` under the prefix `user-name` as the page asks it: it starts the computation of the landing needs
-/// in the background, beyond the command
-async fn ask_view(state: &std::sync::Arc<crate::state::AppState>, path: &str) -> RepositoryView {
-  let (views, git) = (state.repository_views.clone(), state.git_executor.clone());
-  let params = GetRepositoryViewParams {
-    repository_path: path.to_string(),
-    robots: Vec::new(),
-    matched: RobotMatch::default(),
-    remote: RemoteFacts::default(),
-  };
-  tokio::task::spawn_blocking(move || views.view(&git, &ObjectCache::disabled(), "user-name", &params))
-    .await
-    .unwrap()
-}
-
-/// Whether the views keep a table of `path` under the prefix `user-name`: a sync of its session kept one
-fn keeps_table(state: &crate::state::AppState, path: &str) -> bool {
-  state.repository_views.keeps(path, "user-name")
-}
-
-/// The deletion at the end of a test removes the files once the computation of the landing needs a view started ended,
-/// which no command holds, and forgets the views of the repository: no git of it runs in the deleted directory
+/// The deletion at the end of a test removes the files once the computation of the landing needs the session of the
+/// repository runs ended: the computation holds the repository as a command does (`TestSessionEnvironment::landing_needs`),
+/// so no git of it runs in the deleted directory. Here the computation waits at the gate of its answer, which the
+/// deletion releases; it still finds its repository, and the files go only after it
 #[tokio::test]
-async fn deleting_a_repository_waits_for_its_landing_needs_and_forgets_its_views() {
+async fn deleting_a_repository_waits_for_the_landing_needs_its_session_computes() {
   let (addr, state) = start_test_server_with_state().await;
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
   sync(&client, addr, &path).await;
-  let view = ask_view(&state, &path).await;
-  assert_eq!((keeps_table(&state, &path), view.landing_generation), (true, 0), "the computation started: {view:?}");
+  post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({ "hold": ["landingNeeds"] })).await;
+
+  let environment = TestSessionEnvironment {
+    state: std::sync::Arc::downgrade(&state),
+  };
+  let key = SessionKey {
+    worktree: path.clone(),
+    prefix: "user-name".to_string(),
+  };
+  let computed = tokio::task::spawn_blocking(move || environment.landing_needs(&key, &std::collections::HashSet::new()));
+  let arrived = Instant::now() + Duration::from_mins(1);
+  loop {
+    let gates: Value = client
+      .get(format!("http://{addr}/repositories/{id}/remote-gates"))
+      .send()
+      .await
+      .unwrap()
+      .json()
+      .await
+      .unwrap();
+    if gates["arrived"].as_array().is_some_and(|arrived| arrived.contains(&json!("landingNeeds"))) {
+      break;
+    }
+    assert!(Instant::now() < arrived, "the computation never reached its gate");
+    tokio::time::sleep(Duration::from_millis(20)).await;
+  }
 
   delete_repository(&client, addr, &id, &path).await;
-  let wait = WaitLandingNeedsParams {
-    repository_path: path.clone(),
-    after: 0,
-  };
-  assert_eq!(state.repository_views.wait_landing_needs("user-name", &wait), 0, "no computation is left to wait for");
-  assert!(!keeps_table(&state, &path), "the table of the sync is forgotten");
+  let needs = computed.await.unwrap();
+  assert!(needs.is_ok(), "the computation ran while its repository was there: {needs:?}");
 }
 
 /// A test that ended while it held the repository lock (`holdRepositoryLock`) has it released with the deletion,
@@ -182,7 +185,7 @@ async fn deleting_a_repository_closes_its_sessions() {
   let (id, path) = create_repository(&client, addr).await;
   let mut messages = crate::session_routes_test::subscribe(&client, addr, &id, &path, 9).await;
   crate::session_routes_test::subscription(&mut messages).await;
-  let key = repository_model::session::SessionKey {
+  let key = SessionKey {
     worktree: path.clone(),
     prefix: "user-name".to_string(),
   };

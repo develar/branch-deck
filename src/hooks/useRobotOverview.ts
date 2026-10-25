@@ -5,7 +5,16 @@ import type { RobotOverview } from "@/lib/robot-overview"
 import { collectRobotOverview } from "@/lib/robot-overview"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
-import { getLandingAncestor, getStackLandingMember, useFailingRobots, usePushHolds, useRepositoryRobots, useRobotsNeedingReview, useWatchedRobots } from "@/stores/patronus"
+import {
+  getLandingAncestor,
+  getStackLandingMember,
+  useFailingRobots,
+  usePushHolds,
+  useRepositoryRobots,
+  useRobotsNeedingReview,
+  useRowRobots,
+  useWatchedRobots,
+} from "@/stores/patronus"
 
 /** The last day of finished robots moves on by the minute: a robot that finished 24 hours ago drops out within one */
 const FINISHED_TICK_MS = 60_000
@@ -20,6 +29,7 @@ const noStacks: Readonly<Record<string, StackBranch>> = {}
 export function useRobotOverview(): RobotOverview {
   const rows = useBranchTableRows()
   const robots = useRepositoryRobots()
+  const rowRobots = useRowRobots()
   // without robots (no Patronus) the overview is empty: no re-render on every change of a branch
   const branches = useBranchSync(state => (robots === undefined ? noBranches : state.branches))
   const stacks = useBranchSync(state => (robots === undefined ? noStacks : state.stackBranches))
@@ -35,6 +45,6 @@ export function useRobotOverview(): RobotOverview {
     // robots and the branches the landing ones are found by are deps of this memo
     const isCarried = (name: string) => holds.has(name) || isLanded(name) || getLandingAncestor(name) !== null
     const isStackCarried = (root: string) => getStackLandingMember(root) !== null
-    return collectRobotOverview(order, branches, robots, needsReview, now, watched, failing, stacks, isCarried, isStackCarried)
-  }, [rows, branches, robots, needsReview, now, watched, failing, stacks, holds, isLanded])
+    return collectRobotOverview(order, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, isCarried, isStackCarried)
+  }, [rows, branches, robots, rowRobots, needsReview, now, watched, failing, stacks, holds, isLanded])
 }

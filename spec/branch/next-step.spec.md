@@ -37,7 +37,7 @@ targets:
   - ../../crates/sync-core/src/robot_landing.rs
   - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
-  - ../../crates/repository-model/src/views.rs
+  - ../../crates/repository-model/src/facts.rs
   - ../../src/lib/landing-gate.ts
 ---
 
@@ -125,7 +125,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `a_dry_run_lands_nothing`)
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_missing_source_lands_nothing`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`)
-  [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `asks the repository view with the robots that land, their matches and the remote facts, once per change of them`)
+  [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `formatLandedState`), also while
@@ -202,13 +202,15 @@ branch from all the facts (the branch, its robots, its pull request and the read
   2026-10-22 ran `ui-perf-nightly`, built on `lane-run`, whose commit imports a class `stills-codec` adds, while the
   robot of `stills-codec` ran beside it. The landing gate refuses such a start only after the press
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)); the row says it before any press. After a sync
-  Rust computes in the background, for every branch, the refusals the gate of its start would give (`landingNeeds` of
-  `BranchPatronus` in the repository view, `trial_check::landing_gate::landing_needs`, the same rule as the gate): one
-  trial check of every branch, its dangling references and missing declarations, less what merged Safe Pushes landed.
-  A branch built on one that needs a branch needs it too: its Safe Push lands that one. The needs are a fact with its
-  inputs (the baseline, the tips of the table, the landed commits): unknown until computed, never "nothing", and not
-  computed again while the inputs stay; the page waits for the computation (`wait_landing_needs`) and asks the view
-  again, the step waiting meanwhile (row 0, [below](#facts-without-an-answer)). Row 1′ maps them to the step, no rule of its own (`getBranchNextStep`): "Needs stills-codec", its hover the
+  the session of the repository computes, for every branch, the refusals the gate of its start would give
+  (`landingNeeds` of `BranchPatronus` in the Patronus part of its view, `trial_check::landing_gate::landing_needs`
+  through its host, the same rule as the gate): one trial check of every branch, its dangling references and missing
+  declarations, less what merged Safe Pushes landed. A branch built on one that needs a branch needs it too: its Safe
+  Push lands that one. The needs are a fact with its inputs (the baseline, the tips of the table, the commits the view
+  names landed): unknown until computed, never "nothing", one computation at a time, not computed again while the
+  inputs stay; they come in a patch of the view (its `landingNeeds` state `loading` until then), the step waiting
+  meanwhile (row 0, [below](#facts-without-an-answer)); a failed computation is `unavailable` for its inputs, and no
+  step waits for it. Row 1′ maps them to the step, no rule of its own (`getBranchNextStep`): "Needs stills-codec", its hover the
   reason in the words of the gate's toast ("“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3),
   which “Name lossy stills” of stills-codec adds: git merges it, but the build of lane-run fails. Stack lane-run on
   stills-codec to land it too."), and a click the fix: the restack of the root of what lands onto that branch
@@ -222,8 +224,9 @@ branch from all the facts (the branch, its robots, its pull request and the read
   the gate of its start checks it.
   [@test] ../../src/lib/branch-next-step.test.ts (`row 1′: a branch whose Safe Push needs a branch outside what it lands says so and restacks; unknown needs change nothing`)
   [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say on the row which branch its Safe Push needs before any press, and stack it on that branch from the slot`, `should stack the branch on the branch its Safe Push needs from the menu of a branch built on it`)
-  [@test] ../../src/stores/patronus.test.ts (`waits for the landing needs Rust computes in the background, unknown until then, and asks the view again once`)
-  [@test] ../../crates/repository-model/src/views_test.rs (`the_landing_needs_are_unknown_until_computed_then_kept_while_the_inputs_stay`, `a_running_safe_push_of_the_branch_the_start_needs_is_named`)
+  [@test] ../../src/stores/patronus.test.ts (`waits for the landing needs Rust computes after the view, unknown until then, and never for a computation that failed`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
+  [@test] ../../crates/repository-model/src/facts_test.rs (`the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_branch_that_uses_a_name_of_a_branch_outside_it_needs_that_branch_and_so_does_a_branch_built_on_it`, `the_needs_of_a_branch_are_the_refusals_of_its_start`, `a_landed_declaration_is_needed_by_nobody`, `a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
   [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_landing_needs_of_every_branch`)
   [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
@@ -231,7 +234,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
 ### Facts without an answer
 
 - A start, a repository switch and a sync give the rows before the remote answers for them: Patronus (whether it
-  lands the repository, its robots, the repository view of what they hold and land), GitHub (the pull requests), the
+  lands the repository, its robots, the view of what they hold and land the session derives), GitHub (the pull requests), the
   problems of a failed robot (whether it failed for approvals) and the readiness of each row. Seen on 2026-10-24 on
   the monorepo: the rows said "Safe Push" for 3 s, then "Awaiting Review" and "Create Pull Request…"; a click in those
   seconds confirmed a start through the API whose approvals don't count. The step decides only on answers: row 0
@@ -241,14 +244,14 @@ branch from all the facts (the branch, its robots, its pull request and the read
   answer of the readiness of the branch as it is), never the step a later answer turns into another: an unknown pull
   request is no "no pull request", an unanswered readiness no "approved". A reason of the branch (row 1, a robot of a
   branch below, a block, a parked branch, an operation on the row) outranks it; so does a known landing need (row
-  1′). The landing needs are such a fact too (`isLandingNeedsPending`: the background check of the sync,
-  `wait_landing_needs`, hasn't answered for the view the rows read; "Checking what JIRA-456 needs to land…"): measured
+  1′). The landing needs are such a fact too (`isLandingNeedsPending`: the session's check after the sync hasn't
+  answered for the view the rows read, its `landingNeeds` `loading`; "Checking what JIRA-456 needs to land…"): measured
   on 2026-10-24, they come 0.2 s after the rows on the monorepo with a warm cache and 0.7 to 1.2 s cold (9 branches),
   0.1 to 0.2 s in the e2e fixtures, so the Safe Push waits for them as for the other facts instead of offering a start
   whose gate may refuse it after the press.
   [@test] ../../src/lib/branch-next-step.test.ts (`row 0: waits with Checking… for a fact no answer told yet, never a step a later answer turns into another`, `row 0: a reason of the branch outranks a fact no answer told yet, and a start waits for the readiness itself`)
   [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should check what a branch needs to land before it offers its Safe Push, S and the popover waiting for the answer`)
-  [@test] ../../src/stores/patronus.test.ts (`waits for Patronus until the view of the robots it listed first is in, then never again for a change of them`, `takes a failure of Patronus as its answer, and a list that left the robots as they were as having its view`, `waits for why a failed robot failed until its problems come, and no longer once Patronus didn't give them`)
+  [@test] ../../src/stores/patronus.test.ts (`waits for Patronus until the view of the robots it listed first is in, then never again for a change of them`, `takes a failure of Patronus as its answer, and a list of no robot as having its view`, `waits for why a failed robot failed until its problems come, and no longer once Patronus didn't give them`)
   [@test] ../../src/stores/pull-requests.test.ts (`is loading until GitHub's first answer, which a failure is too: no pull request is known meanwhile`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should wait with Checking… for the pull requests and the approvals, S and the menu saying why, then start the Safe Push they allow`)
 - Every surface waits the same way: the slot shows a muted "Checking…" with its spinner, disabled, the fact on hover
@@ -280,11 +283,11 @@ branch from all the facts (the branch, its robots, its pull request and the read
   clipboard, for a terminal"); Patronus failing (`error`) before it listed the robots once makes it "Refresh
   Patronus", which asks it again; the GitHub mirror is unknown then too, so no start goes as if the repository were
   only on Space. An error after a list leaves the steps on the robots it listed (`hasPatronusListed`), as a failed
-  refresh of GitHub keeps the last listing; the landing overview says the error. A view of the robots Patronus didn't
-  give while no earlier one stands for it (`getPatronusViewFailure`) is no "nothing holds it": "Refresh Patronus",
-  "Patronus didn't tell what its robots hold and land (…)"; over an earlier view the steps stand on that one, its holds,
-  landing ancestors and needs stale until the next answer, and the failed view is asked again by the next sync, change
-  of the robots or list, never by its own change of the store. Safe Push and Dry Run of "⋯" are disabled with the hint,
+  refresh of GitHub keeps the last listing; the landing overview says the error. A view of the robots the session
+  couldn't derive while no earlier one stands for it (`unavailable`, `getPatronusViewFailure`) is no "nothing holds
+  it": "Refresh Patronus", "Patronus didn't tell what its robots hold and land (…)"; over an earlier view the steps
+  stand on that one (`stale` with why), its holds, landing ancestors and needs stale until the next answer, and the
+  session derives it again after the next answer of Patronus (the refresh asks one), a sync or a push, never by itself. Safe Push and Dry Run of "⋯" are disabled with the hint,
   S says it in an `info` notice ("Safe Push of JIRA-456 can't start") whose action is the step's. Problems Patronus
   didn't give for the failed robot of a branch or of a whole stack (`problemsFailed`), like problems still to come,
   keep the restart and the prompts for an agent disabled with the reason on every surface of the robot (the menu, the
@@ -294,7 +297,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   Check Approvals Again asks for them again (`askRobotProblemsAgain`).
   [@test] ../../src/lib/branch-next-step.test.ts (`row 0: a read that failed decides no start: a login to copy, a refresh, a restart disabled while why the robot failed is unknown`)
   [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`)
-  [@test] ../../src/stores/patronus.test.ts (`keeps the last view through a failed ask of it, and says the failure while no view stands for the robots`)
+  [@test] ../../src/stores/patronus.test.ts (`keeps the last view through a failed derivation of it, and says the failure while no view stands for the robots`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`a_view_that_failed_is_derived_again_after_the_next_answer_of_patronus`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should offer the login instead of a Safe Push while the Safe Push CLI is not logged in, and a refresh while Patronus fails`, `should offer no start while Patronus gave no view of its robots, and stand on what it listed through a failed refresh`, `should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer`)
 - While GitHub can't list the pull requests (signed out, failing; `pullRequestsUnlisted`), row 7 may apply: no pull
   request is known and the approvals may be missing, so the Safe Push of row 11 keeps the start without review beside

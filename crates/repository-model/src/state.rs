@@ -7,14 +7,14 @@
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
-use domain_types::session::{ArchivedChanges, FactsChanges, News, RobotsChange, RobotsView, TableChanges, TableView, Version, ViewPatch};
+use domain_types::session::{ArchivedChanges, FactsChanges, News, PatronusChange, PatronusPart, RepositoryView, RobotsChange, RobotsView, TableChanges, Version, ViewPatch};
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
 
 /// The view of a session as its windows hold it
 #[derive(Clone, Debug)]
 pub struct View {
-  last_sent: TableView,
+  last_sent: RepositoryView,
 }
 
 impl View {
@@ -22,9 +22,9 @@ impl View {
   #[must_use]
   pub fn new(epoch: u32) -> Self {
     Self {
-      last_sent: TableView {
+      last_sent: RepositoryView {
         version: Version { epoch, seq: 0 },
-        ..TableView::default()
+        ..RepositoryView::default()
       },
     }
   }
@@ -36,7 +36,7 @@ impl View {
 
   /// The view at the version of the last patch
   #[must_use]
-  pub fn snapshot(&self) -> TableView {
+  pub fn snapshot(&self) -> RepositoryView {
     self.last_sent.clone()
   }
 
@@ -72,6 +72,7 @@ impl View {
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),
       landed: changed(&last.sections.landed, &parts.sections.landed),
+      patronus: patronus_change(&last.patronus, facts.patronus.part()),
       facts: robots_change(&last.facts.robots, facts.robots.view()).map(|robots| FactsChanges { robots: Some(robots) }),
       news: new_news(&last.news, facts.news()),
     };
@@ -103,6 +104,22 @@ fn robots_change(last: &RobotsView, now: &RobotsView) -> Option<RobotsChange> {
     problems_failed: changed(&last.problems_failed, &now.problems_failed),
   };
   (change != RobotsChange::default()).then_some(change)
+}
+
+/// What changed of the Patronus view: its states when they differ, the branches and the stacks by key
+fn patronus_change(last: &PatronusPart, now: &PatronusPart) -> Option<PatronusChange> {
+  let (branches, removed_branches) = diff_keyed(&last.view.branches, &now.view.branches);
+  let (stacks, removed_stacks) = diff_keyed(&last.view.stacks, &now.view.stacks);
+  let change = PatronusChange {
+    state: changed(&last.state, &now.state),
+    landing_needs: changed(&last.landing_needs, &now.landing_needs),
+    branches,
+    stacks,
+    landed_by_robot: changed(&last.view.landed_by_robot, &now.view.landed_by_robot),
+    removed_branches,
+    removed_stacks,
+  };
+  (change != PatronusChange::default()).then_some(change)
 }
 
 /// The news of `now` that the view sent last lacks, oldest first

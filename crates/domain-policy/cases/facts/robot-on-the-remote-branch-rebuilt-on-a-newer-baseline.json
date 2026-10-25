@@ -53,6 +53,7 @@
         "landedBy": null,
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": "robot-0",
         "span": null,
         "start": {"kind": "lastCommit", "robotId": "robot-0"},
         "startBlocked": true

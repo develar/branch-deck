@@ -11,7 +11,6 @@ use domain_types::session::{SyncReason, ViewPatch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use repository_model::runtime::GitSessionHost;
 use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone};
-use repository_model::views::RepositoryViews;
 use std::sync::{Arc, Mutex};
 use sync_utils::clock::TestClock;
 
@@ -48,7 +47,7 @@ async fn patch_bytes_of_branch_table_large() {
   };
   // the environment of the server's sessions, without a server: the syncs read the issue links themselves
   let environment = TestSessionEnvironment { state: std::sync::Weak::new() };
-  let host = GitSessionHost::new(GitCommandExecutor::new(), RepositoryViews::default(), environment);
+  let host = GitSessionHost::new(GitCommandExecutor::new(), environment);
   let sessions = Sessions::new(tokio::runtime::Handle::current(), Arc::new(host), Arc::new(TestClock::new()));
   let subscriber = MeasuringSubscriber::default();
   let (_id, view) = sessions.subscribe(&key, Box::new(subscriber.clone())).await.expect("the session");

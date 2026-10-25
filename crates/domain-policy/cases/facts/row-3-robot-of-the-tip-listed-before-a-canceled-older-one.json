@@ -102,6 +102,7 @@
         "landedBy": null,
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": "robot-0",
         "span": null,
         "start": null,
         "startBlocked": false

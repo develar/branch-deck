@@ -1063,7 +1063,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   first. A parent a restack placed below a running Safe Push after its start starts.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`a_push_into_the_branch_of_a_running_safe_push_is_risky_a_dry_run_or_another_branch_is_not`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`, `the_commits_a_robot_lands_are_named_by_their_number_and_ids`)
-  [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `the_robots_match_their_branches_as_the_page_matches_them`)
+  [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `the_robots_match_their_branches_by_the_cases`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)

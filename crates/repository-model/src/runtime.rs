@@ -12,7 +12,10 @@
 //! - Facts: a read of a remote service takes its number (`Message::Begin`, of the session's epoch) and its answer applies
 //!   to the facts (`Message::ApplyFacts`) unless the session is another one by then; a write of the app (the robot of a
 //!   start, a restart, a cancel) is numbered when it applies. The facts are parts of the view, sent with the table's
-//!   patches. The actor tells the scheduler of the facts what it asks by (`SessionEventKind`): its first window and its
+//!   patches. After the table committed, an answer or a write of the robots and the end of a push, the actor derives the
+//!   Patronus view again when what it is of changed (`derive_patronus` of the host in the blocking pool, one at a time,
+//!   `Message::PatronusDerived`), then the landing needs of its inputs (`Message::NeedsComputed`), and the part
+//!   `patronus` of the view has both. The actor tells the scheduler of the facts what it asks by (`SessionEventKind`): its first window and its
 //!   last, the union of the demands, the committed table, and after each patch the robots the poll asks about
 //!   (`facts::robots_digest`), when they changed.
 //! - Patches: each event changes the state at once; the patch of what changed goes out at most every
@@ -27,19 +30,23 @@
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::BranchTable;
-use crate::facts::{AppliedFacts, FactResult, FactStore, FactTicket, Observation, RobotsDigest, Seq, TableFacts, robots_digest};
+use crate::facts::{
+  AppliedFacts, FactResult, FactStore, FactTicket, Needs, Observation, RobotsDigest, Seq, TableFacts, derive_patronus, listed_robots, patronus_inputs, robots_digest,
+  session_remote,
+};
+use crate::patronus_view::{ContentMemo, lock_memo};
 use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
 use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
-use crate::views::RepositoryViews;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
-use domain_types::session::{Demand, SyncReason, SyncState, SyncStep, TableView, Version};
+use domain_types::repository_view::{PatronusView, RemoteFacts};
+use domain_types::session::{Demand, RepositoryView, SyncReason, SyncState, SyncStep, Version};
 use domain_types::stack::BlockReason;
 use domain_types::{ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::remote_status::RemoteStatusCollector;
@@ -61,13 +68,13 @@ pub(crate) enum Message {
   Subscribe {
     id: SubscriptionId,
     subscriber: Box<dyn Subscriber>,
-    reply: oneshot::Sender<TableView>,
+    reply: oneshot::Sender<RepositoryView>,
   },
   Unsubscribe(SubscriptionId),
   /// The session was removed from the registry: its subscribers go at once
   Close,
-  Snapshot(oneshot::Sender<TableView>),
-  /// The table of the last successful sync with the memo
+  Snapshot(oneshot::Sender<RepositoryView>),
+  /// The table of the last successful sync with the memo and the remote branches as the session knows them
   Table(oneshot::Sender<Option<TableFacts>>),
   /// The demand of the window of a subscription; the session that does not hold it drops it
   Demand {
@@ -114,6 +121,17 @@ pub(crate) enum Message {
   },
   /// The inputs a check read
   InputsRead(Option<SyncInputs>),
+  /// The derivation of the Patronus view of `inputs`, numbered `seq` when it started, answered
+  PatronusDerived {
+    seq: Seq,
+    inputs: u64,
+    result: Result<PatronusView, ApiError>,
+  },
+  /// The computation of the landing needs of `inputs` answered
+  NeedsComputed {
+    inputs: u64,
+    result: Result<Needs, ApiError>,
+  },
   /// The run `run` ended, having read `inputs` before it
   RunFinished {
     run: RunId,
@@ -231,7 +249,7 @@ impl Actor {
         let _ = reply.send(self.view.snapshot());
       }
       Message::Table(reply) => {
-        let _ = reply.send(self.facts.table_facts());
+        let _ = reply.send(self.facts.table_facts(&self.state));
       }
       Message::Close => {
         // the registry told the scheduler that the session closed
@@ -264,9 +282,14 @@ impl Actor {
           at: self.life.now(),
           observed_at: unix_now(),
         };
+        if matches!(result, FactResult::Robots { .. }) {
+          // an answer of Patronus derives a view that failed again
+          self.facts.patronus.retry();
+        }
         self.facts.apply(observation, result);
         let robots = self.robots_digest();
         self.facts.tell_failures(&robots);
+        self.derive_patronus();
         self.flush();
         let _ = reply.send(Some(AppliedFacts {
           version: self.view.version(),
@@ -278,6 +301,7 @@ impl Actor {
         self.facts.write_robot(seq, robot);
         let robots = self.robots_digest();
         self.facts.tell_failures(&robots);
+        self.derive_patronus();
         self.flush();
         let _ = reply.send(self.view.version());
       }
@@ -291,6 +315,7 @@ impl Actor {
       }
       Message::Apply { change, reply } => {
         change(&mut self.state);
+        self.derive_patronus();
         self.flush();
         let _ = reply.send(self.view.version());
       }
@@ -305,8 +330,30 @@ impl Actor {
           self.scheduler.pushed(refs);
         }
         self.state.end_push(&subjects, statuses);
+        // the remote branches the push moved are what the view of the robots is of
+        self.derive_patronus();
         self.flush();
         let _ = reply.send(self.view.version());
+      }
+      Message::PatronusDerived { seq, inputs, result } => {
+        let observation = Observation {
+          seq,
+          inputs,
+          at: self.life.now(),
+          observed_at: unix_now(),
+        };
+        self.facts.patronus.answer(observation, result);
+        self.publish_patronus();
+        // what changed while it was derived
+        self.derive_patronus();
+        self.flush();
+      }
+      Message::NeedsComputed { inputs, result } => {
+        if let Some((next, landed)) = self.facts.patronus.needs_answer(inputs, result) {
+          self.compute_landing_needs(next, landed);
+        }
+        self.publish_patronus();
+        self.flush();
       }
       Message::Event { run, event } => self.apply_event(run, *event),
       Message::InputsRead(inputs) => {
@@ -432,6 +479,7 @@ impl Actor {
         self.state.finish_sync(Ok(()));
         let _ = self.facts.table.answer(observation, Ok(Arc::new(synced.table)));
         self.events.emit(&self.key, SessionEventKind::TableCommitted);
+        self.derive_patronus();
       }
       (_, Err(error)) if is_deferred(&error) => self.state.defer_sync(),
       (_, Err(error)) => {
@@ -441,6 +489,66 @@ impl Actor {
     }
     self.flush();
     self.follow(decision);
+  }
+
+  /// Derives the Patronus view again (`facts::derive_patronus`, in the blocking pool) when what it is of changed: the
+  /// table of the last sync, the robots, the remote branches the session knows. Nothing before a table and an answer of
+  /// Patronus, nothing while a derivation runs (its answer asks again), nothing for the inputs of the last one
+  fn derive_patronus(&mut self) {
+    let Some(table) = self.facts.table.value().map(Arc::clone) else {
+      return;
+    };
+    if self.facts.robots.view().head.value.is_none() {
+      return;
+    }
+    let robots = listed_robots(self.facts.robots.view());
+    let remote = session_remote(&table, &self.state);
+    let inputs = patronus_inputs(self.facts.table.fact().seq, &remote, &robots);
+    if !self.facts.patronus.begin(inputs, self.life.now()) {
+      return;
+    }
+    let Some(mailbox) = self.mailbox.upgrade() else {
+      return;
+    };
+    let seq = self.state.next_seq();
+    let (host, key, memo) = (Arc::clone(&self.host), self.key.clone(), Arc::clone(&self.facts.memo));
+    tokio::spawn(
+      async move {
+        let derive = move || host.derive_patronus(&key, &table, &remote, &robots, &mut lock_memo(&memo));
+        let result = tokio::task::spawn_blocking(in_current_span(derive))
+          .await
+          .unwrap_or_else(|error| Err(ApiError::internal(format!("The view of the robots failed: {error}"))));
+        let _ = mailbox.send(Message::PatronusDerived { seq, inputs, result });
+      }
+      .in_current_span(),
+    );
+  }
+
+  /// The part of the view from the derived view and the landing needs; starts their computation when they are unknown
+  fn publish_patronus(&mut self) {
+    let Some(table) = self.facts.table.value().map(Arc::clone) else {
+      return;
+    };
+    if let Some((inputs, landed)) = self.facts.patronus.publish(&table) {
+      self.compute_landing_needs(inputs, landed);
+    }
+  }
+
+  /// Computes the landing needs of `inputs` with `landed` through the host, in the blocking pool
+  fn compute_landing_needs(&self, inputs: u64, landed: HashSet<String>) {
+    let Some(mailbox) = self.mailbox.upgrade() else {
+      return;
+    };
+    let (host, key) = (Arc::clone(&self.host), self.key.clone());
+    tokio::spawn(
+      async move {
+        let result = tokio::task::spawn_blocking(in_current_span(move || host.landing_needs(&key, &landed)))
+          .await
+          .unwrap_or_else(|error| Err(ApiError::internal(format!("The computation of the landing needs failed: {error}"))));
+        let _ = mailbox.send(Message::NeedsComputed { inputs, result });
+      }
+      .in_current_span(),
+    );
   }
 
   /// Resolves the waiters of a decision, then takes its next step
@@ -583,27 +691,40 @@ pub trait SessionEnvironment: Send + Sync + 'static {
 
   /// The reporter the sync of a run of `key` sends its events to, around the run's own (`reporter`): that one by
   /// default. The E2E server puts there the overrides a test set for the next sync of its repository
-  /// (`test_server::sync_overrides`), so the table of the session and of the views is what a sync of such a repository
-  /// makes
+  /// (`test_server::sync_overrides`), so the table of the session is what a sync of such a repository makes
   fn reporter(&self, _key: &SessionKey, reporter: Arc<dyn ProgressReporter>) -> Arc<dyn ProgressReporter> {
     reporter
   }
+
+  /// The landing needs of the current grouping of `key` with `landed`, the commits merged Safe Pushes landed
+  /// (`trial_check::landing_gate::landing_needs_of`, which this crate does not reach), through the object cache the host
+  /// keeps per repository. Blocking
+  ///
+  /// # Errors
+  /// What the computation failed with
+  fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs>;
+
+  /// Before the session derives the Patronus view of `key`: the app derives it at once; the E2E server fails it here
+  /// while a test fails that read (`HeldAnswer::RepositoryView`). Blocking
+  ///
+  /// # Errors
+  /// Why the view is not derived
+  fn before_patronus_view(&self, _key: &SessionKey) -> Result<(), ApiError> {
+    Ok(())
+  }
 }
 
-/// The host of the app's sessions: the syncs and their inputs run with git, and the table a sync finished, with the
-/// remote statuses its events carried, goes to the session and on to the repository views (`RepositoryViews::keep`,
-/// which `get_repository_view` answers from until the session derives the Patronus section itself)
+/// The host of the app's sessions: the syncs and their inputs, the Patronus view and the landing needs run with git;
+/// the table a sync finished, with the remote statuses its events carried, goes to the session
 pub struct GitSessionHost<E> {
   git: GitCommandExecutor,
-  views: RepositoryViews,
   environment: Arc<E>,
 }
 
 impl<E> GitSessionHost<E> {
-  pub fn new(git: GitCommandExecutor, views: RepositoryViews, environment: E) -> Self {
+  pub fn new(git: GitCommandExecutor, environment: E) -> Self {
     Self {
       git,
-      views,
       environment: Arc::new(environment),
     }
   }
@@ -617,7 +738,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
   }
 
   fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
-    let (git, views, environment, key) = (self.git.clone(), self.views.clone(), Arc::clone(&self.environment), key.clone());
+    let (git, environment, key) = (self.git.clone(), Arc::clone(&self.environment), key.clone());
     Box::pin(async move {
       let setup = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
@@ -636,12 +757,20 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
         .await
         .map_err(|error| environment.api_error(error))?;
       let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses());
-      views.keep(&key.worktree, &key.prefix, table.clone());
       Ok(SyncedTable { report, table })
     })
   }
 
   fn syncs_on_focus(&self, key: &SessionKey) -> bool {
     self.environment.syncs_on_focus(key)
+  }
+
+  fn derive_patronus(&self, key: &SessionKey, table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot], memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+    self.environment.before_patronus_view(key)?;
+    Ok(derive_patronus(&self.git, &key.worktree, table, remote, robots, memo))
+  }
+
+  fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError> {
+    self.environment.landing_needs(key, landed).map_err(|error| self.environment.api_error(error))
   }
 }

@@ -15,16 +15,14 @@ pub struct AppState {
   pub test_root_dir: tempfile::TempDir,
   /// The templates the repositories are copied from, and the builds of the missing ones
   pub templates: std::sync::Arc<crate::templates::Templates>,
-  /// The table each repository's last sync finished, which `get_repository_view` answers from, as the app keeps it
-  pub repository_views: repository_model::views::RepositoryViews,
   /// The git prefix of each repository, which the commands of the sync family resolve the prefix with, as the app keeps
   /// it (`resolve_branch_prefix`)
   pub branch_prefixes: app_settings::branch_prefixes::BranchPrefixes,
   /// The waits of the rewrites, the pushes and the updates for a holder of the repository lock, by the channel of the
   /// page each reports on (`channel_commands`): `cancel_lock_wait` stops one
   pub lock_waits: history_rewrite::lock_wait::LockWaits,
-  /// The sessions of the repositories (`session_routes`), as the app hosts them; their syncs keep their tables in
-  /// `repository_views`, their facts are read by the scheduler of the facts over the fakes (`TestFactSources`)
+  /// The sessions of the repositories (`session_routes`), as the app hosts them; their facts are read by the scheduler
+  /// of the facts over the fakes (`TestFactSources`)
   pub sessions: std::sync::Arc<repository_model::session::Sessions>,
   /// The clock the sessions age on: it stands still, so no session of a test goes away by itself
   pub session_clock: sync_utils::clock::TestClock,

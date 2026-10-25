@@ -73,6 +73,7 @@
         "landedBy": null,
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": "robot-1",
         "span": {
           "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
           "carried": {"amended": [], "commits": ["auth-c0"]}
@@ -90,6 +91,7 @@
         "landedBy": null,
         "landingAncestor": {"branch": "auth", "robotId": "robot-1", "wholeStack": false},
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": null,
         "span": {
           "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
           "carried": {"amended": [], "commits": ["login-c0"]}
@@ -109,6 +111,7 @@
         "landedBy": null,
         "landingAncestor": {"branch": "auth", "robotId": "robot-1", "wholeStack": false},
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": "robot-0",
         "span": null,
         "start": {"kind": "lastCommit", "robotId": "robot-0"},
         "startBlocked": true

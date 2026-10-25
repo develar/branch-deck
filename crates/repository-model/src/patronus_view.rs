@@ -1,6 +1,6 @@
-//! What the robots land, landed and hold of the branch table: the one rule of the app (`get_repository_view`) and of
-//! `bd` (`bd push`, `bd safe-push`, `bd status`), spec/branch/patronus.spec.md and docs/design/git-operations.md,
-//! "Repository view".
+//! What the robots land, landed and hold of the branch table: the one rule of the app (the session derives it,
+//! `facts::derive_patronus`) and of `bd` (`bd push`, `bd safe-push`, `bd status`), spec/branch/patronus.spec.md and
+//! docs/design/git-operations.md, "Repository view".
 //!
 //! - A merged robot landed the branch it ran on and those it is built on (for the whole stack every branch of it), the
 //!   commits added after the ones it took the work left; of several, the one that left the fewest, of equals the first
@@ -19,12 +19,12 @@ use domain_policy::robot_match::{RobotIndex, RobotMatches, Tips, match_table};
 use domain_types::landing::{LandingRefusal, Subject};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::repository_view::{
-  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RemoteFact, RemoteFacts, RobotLandedBranch, RobotMatch, RobotOf, SpanView, StackPatronus,
-  StartRefusal,
+  BranchPatronus, Carried, HoldKind, HoldView, LandedByView, LandingNeeds, PatronusView, RemoteFact, RemoteFacts, RobotLandedBranch, RobotOf, SpanView, StackPatronus, StartRefusal,
 };
 use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLandingRequest};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Mutex, MutexGuard};
 use sync_core::patronus_start::{is_pushing_robot, is_robot_active};
 use sync_core::robot_landing::{robot_landings_of_grouped, robot_spans_of_grouped};
 use tracing::{debug, instrument};
@@ -40,9 +40,19 @@ pub struct ContentMemo {
   spans: HashMap<String, Option<Vec<BranchSpan>>>,
 }
 
+/// `memo`; a poisoned one (a panic in a content walk) starts again
+pub fn lock_memo(memo: &Mutex<ContentMemo>) -> MutexGuard<'_, ContentMemo> {
+  memo.lock().unwrap_or_else(|poisoned| {
+    memo.clear_poison();
+    let mut memo = poisoned.into_inner();
+    *memo = ContentMemo::default();
+    memo
+  })
+}
+
 /// The robot of each branch and of each whole stack of the table (`domain_policy::robot_match`: started on the branch,
-/// or of a temporary ref at its local or remote tip); the page matches them itself, `bd` with this
-pub fn match_robots(table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot]) -> RobotMatch {
+/// or of a temporary ref at its local or remote tip), which the view names (`robot_id`)
+pub fn match_robots(table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot]) -> RobotMatches {
   fn remote_tip(fact: Option<&RemoteFact>) -> Option<&str> {
     fact.and_then(|fact| fact.remote_tip.as_deref())
   }
@@ -56,8 +66,7 @@ pub fn match_robots(table: &BranchTable, remote: &RemoteFacts, robots: &[Patronu
     local: stack.tip.as_deref(),
     remote: remote_tip(remote.stacks.get(&stack.root)),
   });
-  let RobotMatches { branches, stacks } = match_table(&RobotIndex::new(robots), branches, stacks);
-  RobotMatch { branches, stacks }
+  match_table(&RobotIndex::new(robots), branches, stacks)
 }
 
 /// The robot took its subject as it is: its tip, or its remote branch while that has the same commits by content
@@ -444,9 +453,9 @@ fn spans_by_branch(spans: &[RobotSpanFacts<'_>], counts: impl Fn(&PatronusRobot)
   by_branch
 }
 
-/// What the robots land, landed and hold of the branches of `table` (module docs). `robots` are the robots that land
-/// or landed (the others change nothing), `matched` the robot of each branch and whole stack (`match_robots`), `remote`
-/// what the asker knows of the remote branches. The content of robots the hashes don't answer comes from `memo`, else
+/// What the robots land, landed and hold of the branches of `table` (module docs), with the robot of each branch and
+/// whole stack (`matched`, `match_robots`). `robots` are the user's robots (only those that land or landed change what
+/// is held), `remote` what the deriver knows of the remote branches. The content of robots the hashes don't answer comes from `memo`, else
 /// from git (`robot_landing`); a git error is an answer of nothing by content: a merged robot landed nothing, a running
 /// one lands what the stack as it is now says.
 #[instrument(skip_all, fields(robots = robots.len(), branches = table.branches.len()))]
@@ -456,7 +465,7 @@ pub fn patronus_view(
   table: &BranchTable,
   remote: &RemoteFacts,
   robots: &[PatronusRobot],
-  matched: &RobotMatch,
+  matched: &RobotMatches,
   memo: &mut ContentMemo,
 ) -> PatronusView {
   let by_id: HashMap<&str, &PatronusRobot> = robots.iter().map(|robot| (robot.id.as_str(), robot)).collect();
@@ -540,6 +549,7 @@ pub fn patronus_view(
     });
     let start = branch_start_refusal(last_commit.clone(), span.as_ref(), landing_ancestor.as_ref());
     let facts = BranchPatronus {
+      robot_id: matched.branches.get(name).cloned(),
       landed_by: landed,
       span,
       landing_ancestor,
@@ -554,8 +564,22 @@ pub fn patronus_view(
     }
   }
 
-  for stack in table.stack_branches.iter().filter(|stack| !stack.members.is_empty()) {
+  for stack in &table.stack_branches {
     let root = stack.root.as_str();
+    let robot_id = matched.stacks.get(root).cloned();
+    // a stack that no longer forks lands nothing as a whole: only its robot is named
+    if stack.members.is_empty() {
+      if robot_id.is_some() {
+        view.stacks.insert(
+          root.to_string(),
+          StackPatronus {
+            robot_id,
+            ..StackPatronus::default()
+          },
+        );
+      }
+      continue;
+    }
     let robot = stack_robot_of(root);
     let landing_member = stack.members.iter().find_map(|member| {
       robot_of(member)
@@ -570,6 +594,7 @@ pub fn patronus_view(
       robot_id: robot.map_or_default(|robot| robot.id.clone()),
     });
     let facts = StackPatronus {
+      robot_id,
       start: stack_start_refusal(last_commit.clone(), landing_member.as_ref()),
       landing_member,
       hold_robot_id,

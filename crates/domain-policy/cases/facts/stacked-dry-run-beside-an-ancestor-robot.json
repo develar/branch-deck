@@ -58,6 +58,7 @@
         "landedBy": null,
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": "robot-0",
         "span": null,
         "start": {"kind": "lastCommit", "robotId": "robot-0"},
         "startBlocked": true
@@ -68,6 +69,7 @@
         "landedBy": null,
         "landingAncestor": {"branch": "auth", "robotId": "robot-0", "wholeStack": false},
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": null,
         "span": null,
         "start": {"kind": "ancestor", "landing": {"branch": "auth", "robotId": "robot-0", "wholeStack": false}},
         "startBlocked": false

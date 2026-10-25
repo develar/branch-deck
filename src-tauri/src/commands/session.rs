@@ -22,14 +22,14 @@ use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::landing::{LandingCheck, LandingGateParams};
 use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotsResult};
-use domain_types::session::{RefreshFactsParams, SetDemandParams, SyncAnswer, SyncReason, TableView, Version, ViewPatch, ViewSubscription};
+use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::{FactSources, Read};
 use remote_facts::scheduler::Scheduler;
+use repository_model::facts::Needs;
 use repository_model::landing::LandingGate;
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
-use repository_model::views::RepositoryViews;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -40,7 +40,7 @@ use sync_utils::clock::{Clock, SystemClock};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Webview};
 use tracing::instrument;
-use trial_check::landing_gate::KeptChecks;
+use trial_check::landing_gate::{KeptChecks, landing_needs_of};
 
 /// How often the app removes the sessions idle for `IDLE_LIMIT`
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -104,10 +104,10 @@ impl WindowSubscriptions {
 }
 
 impl SessionsState {
-  /// The sessions of the app: their syncs run with `git` and keep their tables in `views`, their facts are read by the
-  /// scheduler of the facts, both on the system clock; swept every `SWEEP_INTERVAL`
-  pub fn new(app: &AppHandle, git: GitCommandExecutor, views: RepositoryViews) -> Self {
-    let host = GitSessionHost::new(git, views, AppEnvironment { app: app.clone() });
+  /// The sessions of the app: their syncs, their Patronus views and their landing needs run with `git`, their facts are
+  /// read by the scheduler of the facts, both on the system clock; swept every `SWEEP_INTERVAL`
+  pub fn new(app: &AppHandle, git: GitCommandExecutor) -> Self {
+    let host = GitSessionHost::new(git, AppEnvironment { app: app.clone() });
     let runtime = tauri::async_runtime::handle().inner().clone();
     let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
     let sessions = Arc::new(Sessions::new(runtime.clone(), Arc::new(host), Arc::clone(&clock)));
@@ -165,7 +165,8 @@ impl SessionsState {
 }
 
 /// What the syncs of the app's sessions take besides git: the issue links and the object cache of the repository, the
-/// git config read for the sync (whose prefix the commands after it resolve with, and the run checks), the settings
+/// git config read for the sync (whose prefix the commands after it resolve with, and the run checks), the settings;
+/// the landing needs through the object cache of the repository
 struct AppEnvironment {
   app: AppHandle,
 }
@@ -196,6 +197,12 @@ impl SessionEnvironment for AppEnvironment {
 
   fn syncs_on_focus(&self, _key: &SessionKey) -> bool {
     self.app.state::<SettingsService>().app().auto_sync_on_focus
+  }
+
+  fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> anyhow::Result<Needs> {
+    let git = self.app.state::<GitCommandExecutor>();
+    let cache = self.app.state::<RepositoryStateCache>().object_cache(&git, &key.worktree);
+    Ok(landing_needs_of(&git, &cache, &key.worktree, &key.prefix, landed)?)
   }
 }
 
@@ -286,7 +293,7 @@ pub async fn get_snapshot(
   prefixes: Prefixes<'_>,
   state: State<'_, SessionsState>,
   params: SessionParams,
-) -> Result<Option<TableView>, ApiError> {
+) -> Result<Option<RepositoryView>, ApiError> {
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;

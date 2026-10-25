@@ -4,7 +4,9 @@
 //! for a snapshot. A lost patch costs one snapshot and never shows a wrong table.
 
 use domain_types::commit::Commit;
-use domain_types::session::{BranchChange, BranchRemote, BranchSync, BranchView, CommitSync, NEWS_KEPT, RobotsChange, TableChanges, TableView, Version, ViewPatch};
+use domain_types::session::{
+  BranchChange, BranchRemote, BranchSync, BranchView, CommitSync, NEWS_KEPT, PatronusChange, PatronusPart, RepositoryView, RobotsChange, TableChanges, Version, ViewPatch,
+};
 use std::collections::BTreeMap;
 
 /// Why a patch does not apply to a view; the window asks for a snapshot instead
@@ -66,7 +68,7 @@ pub(crate) fn branch_change(last: Option<&BranchView>, now: &BranchView) -> Opti
 }
 
 /// Applies `patch` to `view`, all of it or nothing
-pub fn apply_patch(view: &mut TableView, patch: ViewPatch) -> Result<(), PatchRejected> {
+pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), PatchRejected> {
   check_base(view.version, &patch)?;
   let ViewPatch { next, changes, .. } = patch;
   let TableChanges {
@@ -81,6 +83,7 @@ pub fn apply_patch(view: &mut TableView, patch: ViewPatch) -> Result<(), PatchRe
     archived,
     unapplied,
     landed,
+    patronus,
     facts,
     news,
   } = changes;
@@ -118,6 +121,9 @@ pub fn apply_patch(view: &mut TableView, patch: ViewPatch) -> Result<(), PatchRe
       section.integration.remove(name);
     }
     section.integration.extend(archived.integration);
+  }
+  if let Some(patronus) = patronus {
+    apply_patronus_change(&mut view.patronus, patronus);
   }
   if let Some(robots) = facts.and_then(|facts| facts.robots) {
     let RobotsChange {
@@ -200,4 +206,28 @@ fn apply_branch_change(branches: &mut BTreeMap<String, BranchView>, name: String
       }
     }
   }
+}
+
+fn apply_patronus_change(part: &mut PatronusPart, change: PatronusChange) {
+  let PatronusChange {
+    state,
+    landing_needs,
+    branches,
+    stacks,
+    landed_by_robot,
+    removed_branches,
+    removed_stacks,
+  } = change;
+  set_if_some(&mut part.state, state);
+  set_if_some(&mut part.landing_needs, landing_needs);
+  let view = &mut part.view;
+  for name in &removed_branches {
+    view.branches.remove(name);
+  }
+  view.branches.extend(branches);
+  for root in &removed_stacks {
+    view.stacks.remove(root);
+  }
+  view.stacks.extend(stacks);
+  set_if_some(&mut view.landed_by_robot, landed_by_robot);
 }

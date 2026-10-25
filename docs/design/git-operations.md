@@ -2709,9 +2709,10 @@ the one predicate of the gate (`refuses`: a use by a commit of what lands of a n
 no merged Safe Push landed). The types are of `domain_types::landing` (`LandingRefusal`, `LandingFix`, `StackCommit`); a
 dangling reference carries its fix too (the restack onto the branch of the commit that changes the use, or its move),
 and a missing declaration the running Safe Push that lands the branch adding the name (`landing_in`,
-`domain_policy::landing_needs::name_landing_robots`, from the holds and spans of the view). The app computes it in the background after a sync
-(`landing_needs_of`, a session of the current grouping through the object cache), keyed by its inputs: the baseline,
-the tips of the table and the landed commits; while they stay, nothing is computed again. On the synced
+`domain_policy::landing_needs::name_landing_robots`, from the holds and spans of the view). The session of the
+repository computes it as a fact after a sync (`landing_needs_of` through its host, a session of the current grouping
+through the object cache, [Repository view](#repository-view)), keyed by its inputs: the baseline, the tips of the
+table and the landed commits; while they stay, nothing is computed again. On the synced
 `util`/`flow`/`flow/ui` fixture it costs what a `bd check` of the synced branches costs, no `merge-tree` and no
 `fast-import` (the copies of the sync are reused): `cat-file` 4, `config` 2, `for-each-ref` 2, `log` 5, `remote` 1,
 `rev-parse` 4; with the object cache it filled `cat-file` 2 and `log` 3 (`the_landing_needs_of_every_branch`).
@@ -2719,13 +2720,14 @@ the tips of the table and the landed commits; while they stay, nothing is comput
 
 Code: `crates/trial-check/src/landing_gate.rs`, `crates/domain-types/src/landing.rs`,
 `crates/trial-check/src/missing_declarations.rs`, `crates/bd-remote/src/safe_push_command.rs`,
-`src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`; the landing needs `crates/repository-model/src/views.rs`, `crates/bd-remote/src/status.rs`.
+`src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`; the landing needs `crates/repository-model/src/facts.rs`,
+`crates/repository-model/src/runtime.rs`, `crates/bd-remote/src/status.rs`.
 
 #### Robot start guard
 
 The page decides a start, a restart and a cancel of a robot before it asks, but the IPC of each is a command anyone can
 call (another window, a start raced by the IDE or `bd`). So each command checks in Rust before it asks Patronus, by the
-rules of `bd safe-push`, on the table of the last sync the app keeps ([Repository view](#repository-view)) and the
+rules of `bd safe-push`, on the table of the last sync the session keeps ([Repository view](#repository-view)) and the
 user's robots it lists itself, never the page's (`repository_model::start_guard`; both hosts run the same sequence, the
 methods of `repository_model::actions::RemoteActions`: `start_robot`, `restart_robot`, `cancel_robot`, and the landing
 check of the popover, `check_landing`):
@@ -3170,8 +3172,8 @@ robot's branch into a branch that is no ancestor of it, as the robot landing doe
 What Rust derives of the branch table for the page and for `bd`, so both read one rule, and the checks of the app's
 actions on it: the crate `repository-model`, which grows into the model of a repository
 ([Rust as the Domain Authority](rust-domain-authority.md)). It reaches no remote reader, no Update Project and no lease pool
-(`crates/bd-cli/src/architecture_test.rs`); its edges to `trial-check` (the landing needs of `views.rs`) and to
-`patronus` (the client `RemoteActions` carries) are allowed until the stages that remove them. Its views are read-only; its guards (`push_guard`, the app's push, and
+(`crates/bd-cli/src/architecture_test.rs`) and no trial check (its hosts answer the landing needs and the landing
+gate); its edge to `patronus` (the client `RemoteActions` carries) is allowed until the stage that removes it. Its views are read-only; its guards (`push_guard`, the app's push, and
 `start_guard`, the start, restart and cancel of a robot and the landing check of the popover) are the whole sequence of
 the Tauri command and of the E2E server's route, the robots read by `PatronusService`, the table of the last sync of
 the repository's session (`Sessions::table`, with the memo of its content walks), the landing gate of the host
@@ -3182,16 +3184,12 @@ facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the
 `SyncReport::remote_tips`, up to date when the `RemoteStatusUpdate` the sync emitted for it has a remote branch and no
 work for it, `has_work_for_remote` in `remote_status.rs`; of each stack branch its `StackBranchUpdate::remote`); `bd`
 builds it from the report of its sync and the remote statuses of the table state its sync folded (below; `bd status`
-from a grouping, with the remote tips only). The app keeps the table of the last sync of each repository and branch prefix (`RepositoryViews` in
-`views.rs`, written by the session host after a successful run from its report and the statuses a
+from a grouping, with the remote tips only). The session of each worktree and branch prefix keeps the table of its
+last successful sync (the session host answers it after a run, from its report and the statuses a
 `RemoteStatusCollector` kept while it forwarded every event to the session; a failed sync keeps the one before) and
-answers `get_repository_view`
-from it, under the prefix it resolves for the repository as the sync did (`BranchPrefixes`, the page sends none), with
-the robots, their matches and the remote facts the page sends: a push moves a remote branch without a
-sync, the session's view has its outcome (below) and this table of the last sync doesn't, so the page sends the remote
-facts of the view it holds; `bd` reads the table's (`PatronusFacts::read`). The E2E server keeps it the same way from the syncs of its sessions. The page asks the view
-again only when the table changed (`tableRevision` of its store, which counts the patches that changed more than the
-state of a run), so no counter of the backend numbers the tables.
+derives the Patronus view of it (below) on the remote branches as it knows them: a push moves a remote branch without
+a sync, and the session's table state has its outcome (`session_remote`); `bd` reads the table's
+(`PatronusFacts::read`). The E2E server's sessions do the same.
 
 The table state of a session (`table.rs`, `state.rs`, `patch.rs`; the types in `domain_types::session`) is the table as
 the events of its syncs leave it, cut into parts that change for different reasons: of each branch its head and its
@@ -3286,10 +3284,10 @@ waits for, since the patch and the answer travel apart); a failure is the run's 
 (`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
 it and checked against the session's), takes the issue links and the object cache of `RepositoryStateCache`, and after a
 successful run answers its table (`SyncedTable`: the report and `BranchTable::from_report` with the remote statuses a
-`RemoteStatusCollector` kept) and keeps it in `RepositoryViews` too, which `get_repository_view` answers from. The
-session keeps that table as a fact (`FactStore::table`, `Loading` until a run succeeded, `Stale` with the error of a
-later run that failed; a deferred run changes nothing) with the memo of the content walks of its views, and answers
-both (`Sessions::table`). A Tauri channel of a page that went away never
+`RemoteStatusCollector` kept). The session keeps that table as a fact (`FactStore::table`, `Loading` until a run
+succeeded, `Stale` with the error of a later run that failed; a deferred run changes nothing) with the memo of the
+content walks of its views, and answers both with the remote branches as it knows them (`Sessions::table`, which the
+guards of the app's actions read). A Tauri channel of a page that went away never
 fails its send, so a window's subscriptions end with the window (`Destroyed`) and with each page load of it (a
 reload), and a subscription is kept for the page that asked for it (`WindowSubscriptions`): one that answers after that
 page went away ends at once; the app sweeps the idle sessions every 30 s on the system clock. The E2E server closes the sessions of a test
@@ -3348,22 +3346,31 @@ landed nothing, a running one lands what the stack as it is now says. `patronus_
 processes: none for a robot at its tip or under new commits, one `cat-file --batch-check` and two `rev-list` after a
 restack, none for the same state again.
 
-The page asks (`askRepositoryView` in `src/stores/patronus.ts`) only when an input changed: the robots (their record,
-which a poll that changed nothing keeps), the matches, the remote facts, or the table of the session (`tableRevision`,
-above: a sync that left the table as it was asks nothing). During a sync only a
-change of the robots asks, from the table of the sync before. An answer equal to the view the page has changes no
-store, so no row reads it again.
+The session derives the view itself (`facts::derive_patronus` = the matching of `domain_policy::robot_match`, which
+names the robot of each branch and whole stack as `robotId`, and `patronus_view`; `PatronusFact`, the actor in
+`runtime.rs`): when its table committed, an answer or a write of the robots came, or a push moved a remote branch,
+and only when what the view is of changed (`patronus_inputs`: the observation that answered the table, the remote
+branches as the session knows them, `session_remote`: the remote status of its table state, which a push writes, over
+the table's, and the fields of the robots the rule reads). One derivation at a time on the blocking pool (the content
+walks run git, through the session's memo), its answer applied by its number; one asked meanwhile runs after it. The
+part `patronus` of the view (`PatronusPart`) is `Loading` until Patronus answered and the first view is derived,
+`Stale` while a newer one is derived (no row waits for it), `Unavailable` with why when the derivation failed without
+an earlier view (`Stale` with the reason over one), and an answer of Patronus derives a failed view again. Its patch
+carries the branches and stacks whose facts changed (`PatronusChange`), so the page keeps every other one as the same
+object, and the page matches and asks nothing (`applySessionFacts` in `src/stores/patronus.ts`). `bd` derives the same
+view of its own table (`PatronusFacts::read`).
 
 The landing needs of each branch (`BranchPatronus.landingNeeds`, `{state: unknown} | {state: known, refusals}`) are a
-fact with its inputs: the baseline, the tips of the table and the commits merged Safe Pushes landed (`landedBy` of the
-same view). A view whose inputs have no answer says `unknown` for every branch and starts their computation in the
-background (`RepositoryViews::landing_needs`, a thread of the view's span, one trial session for every branch,
-[Landing gate](#landing-gate)); a view asked meanwhile with other inputs is computed next, by the same thread; a
-failure leaves them unknown until the inputs change, never an empty list. `landingGeneration` counts the finished
-computations: while a branch's needs are unknown the page waits for the next one (`wait_landing_needs`, which returns
-once a computation finished after the view's, or none runs; at most 120 s) and asks the view again. A view of the
-same inputs answers from the last computation: no process. `views_test.rs` pins both: unknown before, known after
-one computation, none again.
+fact of the session with its inputs (`landing_inputs`: the baseline, the tips of the table and the commits merged
+Safe Pushes landed as the derived view names them, `landed_commits`). The host computes them
+(`SessionEnvironment::landing_needs`: `trial_check::landing_gate::landing_needs_of` through the object cache of the
+repository, the E2E server's without one, holding its repository so a deletion waits for it; one trial session for
+every branch, [Landing gate](#landing-gate)) on the blocking pool, one computation at a time, the newest inputs wanted
+meanwhile next; the part names them for every branch once they are of the inputs of its view (its `landingNeeds`
+state `Fresh`), `unknown` while they are computed (`Loading`) and after a computation that failed for them
+(`Unavailable`), never an empty list; inputs that stay compute nothing again. `session_test.rs` pins the flow (the view
+once Patronus answered, then the needs once, a missing declaration naming the running Safe Push, nothing again for the
+same robots) and `facts_test.rs` the order of the computations.
 
 ### Index policy
 

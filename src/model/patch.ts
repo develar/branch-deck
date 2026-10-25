@@ -1,14 +1,15 @@
 /**
  * The view of a session after a patch, as `repository_model::patch::apply_patch` makes it in Rust: the parts the patch
- * names replace theirs, the keyed parts (branches, stacks, the integration of the archived branches) only for the keys
+ * names replace theirs, the keyed parts (branches, stacks, the integration of the archived branches, the branches and the
+ * stacks of the Patronus view) only for the keys
  * it names. The page's store (`src/model/store.ts`) applies the patches of its session with it, the fake sessions of
  * the store tests (`src/test-support/fake-sessions.ts`) keep their views with it
  */
-import type { BranchChange, BranchView, RobotsChange, RobotsView, TableView, ViewPatch } from "@/lib/bindings"
+import type { BranchChange, BranchView, PatronusChange, PatronusPart, RepositoryView, RobotsChange, RobotsView, ViewPatch } from "@/lib/bindings"
 import { withoutKeys } from "@/lib/record"
 
 /** The view after `patch`; the caller checked that `view` is at its base */
-export function applyViewPatch(view: TableView, patch: ViewPatch): TableView {
+export function applyViewPatch(view: RepositoryView, patch: ViewPatch): RepositoryView {
   const { changes } = patch
   let branches = view.branches
   const changedBranches = Object.entries(changes.branches ?? {})
@@ -48,6 +49,7 @@ export function applyViewPatch(view: TableView, patch: ViewPatch): TableView {
               integration: { ...withoutKeys(sections.archived.integration, archived.removedIntegration ?? []), ...archived.integration },
             },
     },
+    patronus: changes.patronus == null ? view.patronus : patchedPatronus(view.patronus, changes.patronus),
     facts: robots == null ? view.facts : { robots: patchedRobots(view.facts.robots, robots) },
     news: (changes.news?.length ?? 0) === 0 ? view.news : [...view.news, ...changes.news!].slice(-NEWS_KEPT),
   }
@@ -64,6 +66,25 @@ function patchedRobots(robots: RobotsView, change: RobotsChange): RobotsView {
     failing: change.failing ?? robots.failing,
     needsReview: change.needsReview ?? robots.needsReview,
     problemsFailed: change.problemsFailed ?? robots.problemsFailed,
+  }
+}
+
+/**
+ * The Patronus view after a patch: its states when it names them, the branches and the stacks it names replace theirs,
+ * those it removes go; an entry it doesn't name keeps its object, so a row that reads one doesn't render again
+ */
+function patchedPatronus(part: PatronusPart, change: PatronusChange): PatronusPart {
+  const { view } = part
+  const keyed = <T>(entries: Readonly<Record<string, T>>, changed: Readonly<Record<string, T>> | undefined, removed: readonly string[] | undefined) =>
+    Object.keys(changed ?? {}).length === 0 && (removed?.length ?? 0) === 0 ? entries : { ...withoutKeys(entries, removed ?? []), ...changed }
+  return {
+    state: change.state ?? part.state,
+    landingNeeds: change.landingNeeds ?? part.landingNeeds,
+    view: {
+      branches: keyed(view.branches, change.branches, change.removedBranches),
+      stacks: keyed(view.stacks, change.stacks, change.removedStacks),
+      landedByRobot: change.landedByRobot ?? view.landedByRobot,
+    },
   }
 }
 

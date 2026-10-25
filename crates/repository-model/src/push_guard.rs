@@ -1,5 +1,5 @@
 //! The checks of the app's push (`push_branch`, `push_branches` and the E2E server's routes of them) in Rust, by the rules
-//! of `bd push` over the repository view (`patronus_view`): under the repository lock, a branch the last sync has no row
+//! of `bd push` over the Patronus view (`derive_patronus`): under the repository lock, a branch the last sync has no row
 //! of is no branch to push, a parked branch and a branch built on one stay local, a branch a merged Safe Push landed
 //! whole has nothing left to push, a branch a running Safe Push holds (its own robot, one of a branch built on it, the
 //! whole stack on its stack branch) is not pushed (the push won't land, and a push into the robot's own branch fails it
@@ -21,8 +21,7 @@
 
 use crate::actions::RemoteActions;
 use crate::branch_table::BranchTable;
-use crate::facts::TableFacts;
-use crate::patronus_view::{match_robots, patronus_view};
+use crate::facts::{TableFacts, derive_patronus};
 use crate::start_guard::{stack_conflict_words, stack_not_built_words};
 use crate::table::RemoteSubject;
 use anyhow::{Result, anyhow, bail};
@@ -57,13 +56,13 @@ pub struct GuardFacts {
 }
 
 /// The facts the checks of `repository_path` read: `table`, the table of the last sync of its session with the memo of
-/// its views, `robots` as Rust read them, matched as the rows match them, and the Patronus view of both on the table's
-/// remote facts. Runs git for the robots the hashes and the memo don't answer: blocking
+/// its views, `robots` as Rust read them, and the Patronus view of both on the remote branches as the session knows them
+/// (`derive_patronus`, the rule of the session's own view). Runs git for the robots the hashes and the memo don't
+/// answer: blocking
 #[instrument(skip_all, fields(repository_path = %repository_path, robots = robots.len()))]
 pub fn guard_facts(git_executor: &GitCommandExecutor, repository_path: &str, table: &TableFacts, robots: Vec<PatronusRobot>) -> GuardFacts {
   let synced = Arc::clone(&table.table);
-  let matched = match_robots(&synced, &synced.remote, &robots);
-  let view = patronus_view(git_executor, repository_path, &synced, &synced.remote, &robots, &matched, &mut table.memo());
+  let view = derive_patronus(git_executor, repository_path, &synced, &table.remote, &robots, &mut table.memo());
   GuardFacts { synced, robots, view }
 }
 

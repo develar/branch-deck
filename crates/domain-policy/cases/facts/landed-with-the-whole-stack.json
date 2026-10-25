@@ -68,6 +68,7 @@
         },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": null,
         "span": null,
         "start": null,
         "startBlocked": false
@@ -83,6 +84,7 @@
         },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": null,
         "span": null,
         "start": null,
         "startBlocked": false
@@ -98,6 +100,7 @@
         },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": null,
         "span": null,
         "start": null,
         "startBlocked": false
@@ -110,6 +113,15 @@
         {"after": [], "branch": "session", "own": false}
       ]
     },
-    "stacks": {}
+    "stacks": {
+      "auth": {
+        "dryRun": null,
+        "holdRobotId": null,
+        "landingMember": null,
+        "robotId": "robot-0",
+        "start": null,
+        "startBlocked": false
+      }
+    }
   }
 }

@@ -52,6 +52,7 @@
           ],
           "state": "known"
         },
+        "robotId": null,
         "span": null,
         "start": null,
         "startBlocked": false
@@ -62,6 +63,7 @@
         "landedBy": null,
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": null,
         "span": null,
         "start": null,
         "startBlocked": false

@@ -563,41 +563,6 @@ pub async fn get_robot_commit_map(
   .await
 }
 
-/// The view of the table the last sync of the repository finished, by the real core, as the app answers it
-pub async fn get_repository_view(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<domain_types::repository_view::GetRepositoryViewParams>,
-) -> CommandResult<domain_types::repository_view::RepositoryView> {
-  let remote = repository_by_path(&state, &params.repository_path)?.existing_remote();
-  if let Some(remote) = remote {
-    held_or_failed(&remote, HeldAnswer::RepositoryView, "read the repository view").await?;
-  }
-  let inputs = prefix_inputs(&state, &params.repository_path)?;
-  let views = state.repository_views.clone();
-  run_command("read the repository view", move || {
-    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
-    Ok::<_, anyhow::Error>(views.view(&inputs.git, &ObjectCache::disabled(), &branch_prefix, &params))
-  })
-  .await
-}
-
-/// The wait of the page for the landing needs of the repository, by the real core, as the app answers it
-pub async fn wait_landing_needs(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::repository_view::WaitLandingNeedsParams>) -> CommandResult<u32> {
-  // a test that holds the answer (`/remote-gates`) sees the page while the needs are computed; no entry of the map is
-  // held meanwhile
-  let host = repository_by_path(&state, &params.repository_path)?.existing_remote();
-  if let Some(host) = host {
-    host.pass_held(HeldAnswer::LandingNeeds).await;
-  }
-  let inputs = prefix_inputs(&state, &params.repository_path)?;
-  let views = state.repository_views.clone();
-  run_command("wait for the landing needs", move || {
-    let branch_prefix = inputs.branch_prefix(&params.repository_path)?;
-    Ok::<_, anyhow::Error>(views.wait_landing_needs(&branch_prefix, &params))
-  })
-  .await
-}
-
 /// Without the object cache, as every command of the mock server; nothing cancels it
 pub async fn find_conflict_fix(
   State(state): State<Arc<AppState>>,

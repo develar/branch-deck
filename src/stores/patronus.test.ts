@@ -2,17 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type {
   ApiError,
+  FactState,
   GetRobotCommitMapParams,
   News,
   PatronusAvailability,
   PatronusCommandReply,
+  PatronusPart,
   PatronusRobot,
   PostPatronusCommandParams,
   RobotsView,
-  GetRepositoryViewParams,
   LandingRefusal,
   PatronusView,
-  WaitLandingNeedsParams,
 } from "@/lib/bindings"
 import { notifyError, setErrorRecorder } from "@/lib/errors"
 import { setWindowFocus } from "@/lib/os-notification"
@@ -25,12 +25,14 @@ import {
   COMMAND_REPLY_TIMEOUT_MS,
   REVIEWED_ROBOT_WAIT_MS,
   applyRobotsFacts,
+  applySessionFacts,
   getBranchRobot,
   getLandedBy,
   getLandedWithChildrenReason,
   getLandingBranchCount,
   getLandingNeeds,
   getLandingSpan,
+  isLandingNeedsPending,
   getPushHold,
   getStackBranchHoldReason,
   getStackLandedReason,
@@ -47,13 +49,13 @@ import {
   startPatronusFromPullRequest,
   startPatronusFromReviewedPullRequest,
   startPatronusRobot,
-  watchRepositoryView,
   watchRobot,
   whenRepositoryViewCurrent,
 } from "@/stores/patronus"
 import { robotCoverageStore, watchRobotCoverage } from "@/stores/robot-coverage"
 import { testRemoteStatus } from "@/stores/test-branch"
-import { branchFacts, landedWhole, robotOf } from "@/test-support/patronus-repository"
+import { emptyView } from "@/test-support/fake-sessions"
+import { branchFacts, landedWhole, robotOf, withRowRobots } from "@/test-support/patronus-repository"
 
 const { patronus, branches } = vi.hoisted(() => ({
   patronus: {
@@ -81,16 +83,14 @@ const { patronus, branches } = vi.hoisted(() => ({
     replyCalls: 0,
     /** How long the checks of a start in Rust take before the comment is posted */
     checkMs: 0,
-    viewCalls: [] as GetRepositoryViewParams[],
+    /** What the session derives of the robots and the table after each answer of Patronus */
     view: { branches: {}, stacks: {}, landedByRobot: {} } as PatronusView,
-    /** Every ask of the view fails with this while it is set */
+    /** How the landing needs of the view stand */
+    landingNeeds: { kind: "fresh" } as FactState,
+    /** The session derives nothing while it is set: the view stays as it was, `stale` once there is one */
+    viewHeld: false,
+    /** Every derivation fails with this while it is set */
     viewFailure: null as string | null,
-    /** The waits for the landing needs; the view the backend answers once the computation finished, then counted */
-    landingWaits: [] as WaitLandingNeedsParams[],
-    afterLanding: null as PatronusView | null,
-    landingGeneration: 0,
-    /** Holds the wait until a test resolves it: the computation runs meanwhile */
-    landingComputed: null as Promise<void> | null,
     commitMapCalls: [] as GetRobotCommitMapParams[],
   },
   branches: {
@@ -135,23 +135,6 @@ vi.mock("@/lib/bindings", async importOriginal => ({
     getRobotCommitMap: async (params: GetRobotCommitMapParams) => {
       patronus.commitMapCalls.push(params)
       return { status: "ok", data: { commits: [], sourceMissing: false, virtualBehindHead: false } }
-    },
-    getRepositoryView: async (params: GetRepositoryViewParams) => {
-      patronus.viewCalls.push(params)
-      if (patronus.viewFailure !== null) {
-        return { status: "error", error: internalError(patronus.viewFailure) }
-      }
-      return { status: "ok", data: { landingGeneration: patronus.landingGeneration, patronus: patronus.view } }
-    },
-    waitLandingNeeds: async (params: WaitLandingNeedsParams) => {
-      patronus.landingWaits.push(params)
-      await patronus.landingComputed
-      if (patronus.afterLanding !== null) {
-        patronus.view = patronus.afterLanding
-        patronus.afterLanding = null
-        patronus.landingGeneration += 1
-      }
-      return { status: "ok", data: patronus.landingGeneration }
     },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
@@ -398,8 +381,32 @@ function answerRobots(answer: RobotsAnswer, full: boolean, poll = false): void {
     needsReview,
     problemsFailed,
   })
+  // the session derives the view of the robots after their answer, which comes in the same patch as the news
+  derive()
   // the main window tells the failures with the failing robots (`useReviewStatusRefresh`): a test that tells them watches
   tellRobotNews("/repo", failuresWatched ? news : news.filter(item => item.event.kind === "robotMerged"))
+}
+
+/** The Patronus view of the session of /repo, as its view has it */
+let sessionPart: PatronusPart = emptyView().patronus
+
+/**
+ * The session derives the view of the robots and the table (`patronus.view`, the robot of each row of the robots
+ * started on it, `withRowRobots`), as `repository_model::facts::PatronusFact` does: `stale` while it is held, a failure
+ * `unavailable` without an earlier view and `stale` with the reason after one; the page gets the patch
+ */
+function derive(): void {
+  const before = sessionPart
+  const derived = before.state.kind !== "loading" && before.state.kind !== "unavailable"
+  if (patronus.viewHeld) {
+    sessionPart = derived ? { ...before, state: { kind: "stale" } } : before
+  } else if (patronus.viewFailure !== null) {
+    const reason = internalError(patronus.viewFailure)
+    sessionPart = derived ? { ...before, state: { kind: "stale", reason } } : { ...before, state: { kind: "unavailable", reason } }
+  } else {
+    sessionPart = { state: { kind: "fresh" }, landingNeeds: patronus.landingNeeds, view: withRowRobots(patronus.view, sessionRobots.robots) }
+  }
+  applySessionFacts("/repo", { ...emptyView(), facts: { robots: sessionRobots }, patronus: sessionPart }, { patronus: {} })
 }
 
 /** A test watches the failing and the failed robots (`watchFailures`) */
@@ -441,9 +448,10 @@ function landedOauthStack(authAfter: string[] = []): PatronusView {
   return { branches: {}, stacks: {}, landedByRobot: { r1: landed } }
 }
 
-/** The view the backend answers from now on, and the store once it took it */
+/** The view the session derives from now on, derived now, and the store once it took it */
 async function answerView(view: Partial<PatronusView>): Promise<void> {
   patronus.view = { branches: {}, stacks: {}, landedByRobot: {}, ...view }
+  derive()
   await whenRepositoryViewCurrent()
 }
 
@@ -454,6 +462,7 @@ beforeEach(() => {
   vi.setSystemTime(START)
   resetPatronus()
   sessionRobots = emptySessionRobots()
+  sessionPart = emptyView().patronus
   lastNews = 0
   patronus.refreshes = []
   patronus.problemCalls = []
@@ -469,13 +478,10 @@ beforeEach(() => {
   patronus.replies = []
   patronus.replyCalls = 0
   patronus.checkMs = 0
-  patronus.viewCalls = []
   patronus.view = { branches: {}, stacks: {}, landedByRobot: {} }
+  patronus.landingNeeds = { kind: "fresh" }
+  patronus.viewHeld = false
   patronus.viewFailure = null
-  patronus.landingWaits = []
-  patronus.afterLanding = null
-  patronus.landingGeneration = 0
-  patronus.landingComputed = null
   patronus.commitMapCalls = []
   robotCoverageStore.setState({ maps: {} })
   notices.pullRequestRefreshes = []
@@ -515,7 +521,7 @@ describe("holds", () => {
     const held = branchFacts({ span, hold: { kind: "span", ...span } })
     await answerView({
       branches: { air: held, bazel: held, side: held },
-      stacks: { air: { landingMember: null, holdRobotId: "r1", startBlocked: true, start: null, dryRun: null } },
+      stacks: { air: { robotId: null, landingMember: null, holdRobotId: "r1", startBlocked: true, start: null, dryRun: null } },
     })
     const holds = ["air", "bazel", "side", "other"].map(name => getPushHold(name))
     expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch, hold.wholeStack]))).toEqual([
@@ -576,34 +582,26 @@ describe("holds", () => {
     expect(getLandedWithChildrenReason("login")).toBeNull()
   })
 
-  it("asks the repository view with the robots that land, their matches and the remote facts, once per change of them", async () => {
+  it("takes the robot of each row from the view of the session, which matched it, never from its own matching", async () => {
     const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
     branches.current = { auth: stacked("auth", null), login: stacked("login", "auth") }
-    const merged = robot({ branchName: "login", sourceRevision: "login-old", status: "success", finishTime: 200 })
-    patronus.list = available(merged, robot({ id: "dry", branchName: "auth", pushMode: "dryRun", status: "success", finishTime: 100 }))
+    // a Safe Push of the IDE on the tip of login: Rust matched it by the tip, the page has no rule of its own
+    const ide = robot({ id: "ide", branchName: null, sourceRevision: "login-tip" })
+    patronus.list = available(ide)
     await list()
-    await answerView({ branches: { login: landedWhole(robotOf("login", "r1"), true) } })
-    // a merged dry run lands nothing: not sent; the robot of each branch as the rows match it
-    expect(patronus.viewCalls.map(call => [call.repositoryPath, call.robots.map(it => it.id), call.matched])).toEqual([
-      ["/repo", ["r1"], { branches: { login: "r1", auth: "dry" }, stacks: {} }],
-    ])
-    expect(patronus.viewCalls[0]?.remote.branches.login).toEqual({ remoteTip: null, upToDate: false })
-    expect(getPushHold("login")).toMatchObject({ kind: "landed", branch: "login" })
-    // the same robots and branches are not asked again
-    await list()
-    await whenRepositoryViewCurrent()
-    expect(patronus.viewCalls).toHaveLength(1)
-    // a robot that changes asks again
-    patronus.list = available(merged, robot({ id: "r2", branchName: "auth" }))
-    await list()
-    await whenRepositoryViewCurrent()
-    expect(patronus.viewCalls.map(call => call.robots.map(it => it.id))).toEqual([["r1"], ["r1", "r2"]])
+    expect(getBranchRobot("login")).toBeUndefined()
+    await answerView({ branches: { login: branchFacts({ robotId: "ide" }) } })
+    expect(getBranchRobot("login")).toBe(patronusStore.getState().repositories["/repo\nuser"]?.robots.ide)
+    expect(getBranchRobot("auth")).toBeUndefined()
   })
 
-  it("waits for the landing needs Rust computes in the background, unknown until then, and asks the view again once", async () => {
+  it("waits for the landing needs Rust computes after the view, unknown until then, and never for a computation that failed", async () => {
     branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: null } }
     patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-old" }))
+    patronus.landingNeeds = { kind: "loading" }
     await list()
+    // not computed yet: unknown, never "nothing", and the step waits
+    expect([getLandingNeeds("auth"), isLandingNeedsPending("auth")]).toEqual([null, true])
     const refusal: LandingRefusal = {
       kind: "missingDeclaration",
       branch: "auth",
@@ -614,55 +612,46 @@ describe("holds", () => {
       declaredBy: { id: "ecebf000", subject: "Add controlUrl", branch: "util" },
       fix: { kind: "restack", branch: "auth", onto: "util" },
     }
-    patronus.afterLanding = { branches: { auth: branchFacts({ landingNeeds: { state: "known", refusals: [refusal] } }) }, stacks: {}, landedByRobot: {} }
-    let computed = () => {}
-    patronus.landingComputed = new Promise(resolve => {
-      computed = resolve
-    })
-    await answerView({ branches: {} })
-    // not computed yet: unknown, never "nothing"
-    expect(getLandingNeeds("auth")).toBeNull()
-    computed()
-    await vi.waitFor(() => expect(patronus.viewCalls).toHaveLength(2))
-    await whenRepositoryViewCurrent()
-    expect(patronus.landingWaits).toEqual([{ repositoryPath: "/repo", after: 0 }])
-    expect(getLandingNeeds("auth")).toEqual([refusal])
-    // known: no wait, no view again
-    await whenRepositoryViewCurrent()
-    expect([patronus.landingWaits.length, patronus.viewCalls.length]).toEqual([1, 2])
+    patronus.landingNeeds = { kind: "fresh" }
+    await answerView({ branches: { auth: branchFacts({ landingNeeds: { state: "known", refusals: [refusal] } }) } })
+    expect([getLandingNeeds("auth"), isLandingNeedsPending("auth")]).toEqual([[refusal], false])
+    // a computation that failed for the inputs of the view leaves them unknown, and nothing waits
+    patronus.landingNeeds = { kind: "unavailable", reason: internalError("the trial failed") }
+    await answerView({})
+    expect([getLandingNeeds("auth"), isLandingNeedsPending("auth")]).toEqual([null, false])
   })
 
-  it("keeps the store as it is when a view asked again says the same, so no row reads it again", async () => {
-    branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: null } }
+  it("keeps the facts of a branch as the same objects when a patch of the view changes only another branch", async () => {
+    branches.current = {
+      auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: null },
+      login: { name: "login", commits: [{ hash: "login-tip" }], remoteStatus: null },
+    }
     patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip" }))
     await list()
-    const held = () => ({ branches: { auth: branchFacts({ hold: { kind: "own", by: robotOf("auth", "r1"), carried: null } }) } })
-    await answerView(held())
-    const state = patronusStore.getState()
+    const held = () => branchFacts({ hold: { kind: "own", by: robotOf("auth", "r1"), carried: null } })
+    await answerView({ branches: { auth: held() } })
     const hold = getPushHold("auth")
     expect(hold).toMatchObject({ kind: "own", branch: "auth" })
-    // the remote moved: asked again, the same answer in a new object
-    branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: testRemoteStatus({ remoteTip: "auth-tip" }) } }
-    await answerView(held())
-    expect(patronus.viewCalls).toHaveLength(2)
-    expect(patronusStore.getState()).toBe(state)
+    await answerView({ branches: { auth: held(), login: branchFacts({ landingNeeds: { state: "known", refusals: [] } }) } })
     expect(getPushHold("auth")).toBe(hold)
   })
 
-  it("asks the repository view after a sync only when a patch changed the table: the backend's table is the same", async () => {
-    branches.tableRevision = 1
+  it("waits for the view of the robots as they are while the session derives it, then takes it", async () => {
     patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip" }))
     await list()
+    patronus.viewHeld = true
+    patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip", status: "canceling" }))
+    await list()
+    let current = false
+    void whenRepositoryViewCurrent().then(() => {
+      current = true
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(current).toBe(false)
+    patronus.viewHeld = false
     await answerView({})
-    // another sync whose patches changed only the state of its run: nothing to ask
-    branches.syncCount = 2
-    await whenRepositoryViewCurrent()
-    expect(patronus.viewCalls).toHaveLength(1)
-    // a sync that read a commit: its table is new
-    branches.syncCount = 3
-    branches.tableRevision = 2
-    await whenRepositoryViewCurrent()
-    expect(patronus.viewCalls).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(current).toBe(true)
   })
 
   it("holds nothing for a dry run of the whole stack", async () => {
@@ -844,7 +833,6 @@ describe("merges", () => {
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
     await poll()
     await vi.waitFor(() => expect(notices.closed).toEqual(["login Landed in master with the Safe Push of user/virtual/oauth, which is built on this branch."]))
-    expect(patronus.viewCalls.at(-1)?.robots.map(it => [it.id, it.status])).toEqual([["r1", "success"]])
     expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of login: it landed with oauth"])
   })
 
@@ -1106,75 +1094,55 @@ describe("a failed start", () => {
 
 describe("facts without an answer", () => {
   it("waits for Patronus until the view of the robots it listed first is in, then never again for a change of them", async () => {
-    const unwatch = watchRepositoryView()
-    try {
-      // not asked yet: whether it lands the repository is unknown
-      expect(isPatronusPending()).toBe(true)
-      patronus.list = available(robot({ status: "running" }))
-      await list()
-      await vi.advanceTimersByTimeAsync(0)
-      // the view of the listed robot came after the list: what it holds is known
-      expect(patronus.viewCalls.length).toBeGreaterThan(0)
-      expect(isPatronusPending()).toBe(false)
-      // a poll that changes the robot lags the view a moment, which no row waits for
-      patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
-      await poll()
-      expect(isPatronusPending()).toBe(false)
-    } finally {
-      unwatch()
-    }
+    // not asked yet: whether it lands the repository is unknown
+    expect(isPatronusPending()).toBe(true)
+    patronus.viewHeld = true
+    patronus.list = available(robot({ status: "running" }))
+    await list()
+    // listed, its view not derived yet: what it holds is unknown
+    expect(isPatronusPending()).toBe(true)
+    patronus.viewHeld = false
+    await answerView({})
+    expect(isPatronusPending()).toBe(false)
+    // a poll that changes the robot lags the view a moment, which no row waits for
+    patronus.viewHeld = true
+    patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
+    await poll()
+    expect(patronusStore.getState().repositories["/repo\nuser"]?.viewState).toEqual({ kind: "stale" })
+    expect(isPatronusPending()).toBe(false)
   })
 
-  it("takes a failure of Patronus as its answer, and a list that left the robots as they were as having its view", async () => {
-    const unwatch = watchRepositoryView()
-    try {
-      patronus.list = { availability: { status: "error", message: "503" }, robots: [] }
-      await list()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(isPatronusPending()).toBe(false)
-      resetPatronus()
-      // no robot: the view asked before the list stays the view of its robots
-      patronus.list = available()
-      await list()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(isPatronusPending()).toBe(false)
-    } finally {
-      unwatch()
-    }
+  it("takes a failure of Patronus as its answer, and a list of no robot as having its view", async () => {
+    patronus.list = { availability: { status: "error", message: "503" }, robots: [] }
+    await list()
+    expect(isPatronusPending()).toBe(false)
+    resetPatronus()
+    patronus.list = available()
+    await list()
+    expect(isPatronusPending()).toBe(false)
   })
 
-  it("keeps the last view through a failed ask of it, and says the failure while no view stands for the robots", async () => {
-    const unwatch = watchRepositoryView()
-    try {
-      patronus.viewFailure = "the table is gone"
-      await list()
-      await vi.advanceTimersByTimeAsync(0)
-      // no view ever answered: what the robots hold is unknown, which is no "none"
-      expect(isPatronusPending()).toBe(false)
-      expect(hasPatronusListed()).toBe(true)
-      expect(getPatronusViewFailure()).toBe("the table is gone")
-      // the failure is asked again by a list, never by its own change of the store
-      const asked = patronus.viewCalls.length
-      await vi.advanceTimersByTimeAsync(1000)
-      expect(patronus.viewCalls).toHaveLength(asked)
+  it("keeps the last view through a failed derivation of it, and says the failure while no view stands for the robots", async () => {
+    patronus.viewFailure = "the table is gone"
+    await list()
+    // no view ever derived: what the robots hold is unknown, which is no "none"
+    expect(isPatronusPending()).toBe(false)
+    expect(hasPatronusListed()).toBe(true)
+    expect(getPatronusViewFailure()).toBe("the table is gone")
 
-      patronus.viewFailure = null
-      await list()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(getPatronusViewFailure()).toBeNull()
-      const view = patronusStore.getState().repositories["/repo\nuser"]?.view
-      expect(view).not.toBeNull()
+    // the session derives it again after the next answer of Patronus
+    patronus.viewFailure = null
+    await list()
+    expect(getPatronusViewFailure()).toBeNull()
+    const view = patronusStore.getState().repositories["/repo\nuser"]?.view
+    expect(view).not.toBeNull()
 
-      // a later failure keeps that view, stale: its holds and landing ancestors stay
-      patronus.viewFailure = "the table is gone"
-      patronus.list = available(robot({ id: "r2" }))
-      await list()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(patronusStore.getState().repositories["/repo\nuser"]?.view).toBe(view)
-      expect(getPatronusViewFailure()).toBeNull()
-    } finally {
-      unwatch()
-    }
+    // a later failure keeps that view, stale: its holds and landing ancestors stay
+    patronus.viewFailure = "the table is gone"
+    patronus.list = available(robot({ id: "r2" }))
+    await list()
+    expect(patronusStore.getState().repositories["/repo\nuser"]?.view).toBe(view)
+    expect(getPatronusViewFailure()).toBeNull()
   })
 
   it("waits for why a failed robot failed until its problems come, and no longer once Patronus didn't give them", async () => {

@@ -1802,6 +1802,25 @@ rewrites между процессами через файл `s10`; `s12` ждё
     без чтения problems — сразу. `RobotCanceled` не введён: странице нечего с ним делать. Check Approvals Again —
     `refresh_facts { family: robotProblems }`. Удалены `get_patronus_failing_robots`, `get_patronus_robot_problems`,
     `findMergedRobots`/`findFailedRobots`, 15-секундное ожидание problems, `COMMAND_COUNT` 125.
+  - s7-4 (по коду): вид Patronus выводит сессия: `facts::derive_patronus` (matching `domain_policy::robot_match`,
+    `robotId` у `BranchPatronus` и `StackPatronus`, затем `patronus_view`) — после зафиксированной таблицы, ответа или
+    записи роботов и конца push, только при смене входов (`patronus_inputs`: номер ответа таблицы, remote-ветки сессии
+    `session_remote` — статус из `TableState`, который пишет push, поверх таблицы; поля роботов), одно выведение за
+    раз в blocking pool, применяется по `seq`; часть `patronus` вида (`PatronusPart { state, landingNeeds, view }`,
+    патч `PatronusChange` по ключам веток и стеков) — `Loading` до первого ответа Patronus и первого вида, `Stale` пока
+    выводится новый, `Unavailable` при ошибке без прежнего вида; ответ Patronus выводит упавший вид снова. Landing needs
+    — факт сессии с входами (`landing_inputs`), считает хост (`SessionEnvironment::landing_needs`:
+    `trial_check::landing_gate::landing_needs_of`; E2E-сервер держит репозиторий на время счёта, его удаление ждёт),
+    по одному, новейшие желаемые входы следом; ошибка — `Unavailable`. Landing check старта и поповера —
+    `repository_model::landing::LandingGate` (один метод `check`; `LandingGateParams`, `LandingCheck`,
+    `LandingRefused` переехали в `domain_types::landing`), хосты — `AppLandingGate` и `TestLandingGate` поверх
+    `trial_check::landing_gate::KeptChecks`; `name_landing_robots` — `domain_policy::landing_needs`. Guards читают
+    `Sessions::table` (таблица, memo и remote сессии); `views.rs`, `get_repository_view`, `wait_landing_needs`,
+    `RobotMatch`, `GetRepositoryViewParams`, `WaitLandingNeedsParams` удалены, `TableView` → `RepositoryView`,
+    `COMMAND_COUNT` 123; ребро `repository-model → trial-check` снято. Страница: `askRepositoryView`,
+    `watchRepositoryView`, `findBranchRobot`/`findStackRobot` и их тесты удалены, кейсы matching —
+    `crates/domain-policy/src/robot_match_cases.json` (в `cases/` их читали бы сценарии); читатели берут `robotId`
+    вида (`useBranchRobot`, `useRowRobots` для обзора).
   - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
     requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
     `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):

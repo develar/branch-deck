@@ -360,7 +360,8 @@ State isolation:
   handlers, but their git work runs on. The `setupRepo` fixture closes the pages of the test first, and
   `delete_repository` forgets the repository and answers at once; in the background it waits for the running commands
   (120 s at most: a sync of a loaded machine still runs tens of seconds after its test failed) and for the computation
-  of the landing needs that a view started, which no command holds (`RepositoryViews::forget`), releases the
+  of the landing needs its session runs, which holds the repository as a command does
+  (`TestSessionEnvironment::landing_needs`), releases the
   repository lock its test held (`holdRepositoryLock`, also when the test failed before it released it), then deletes
   the files. Before, a test's cleanup deleted them under a running sync, file read or note write, and under the
   landing needs ("not a git repository", "bad object", "Unable to read current working directory"); and a wait of 10 s
@@ -548,7 +549,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `readiness` (the pre-check, `POST /app/rest/v1/pre-merge-approval-required-check`), `robotProblems` (why a robot
   failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold` matches any one) and
   the answers the bridge gives itself, which wait in their command: `reviewRequests` (`get_review_requests`, from their
-  fixture), `landingNeeds` (`wait_landing_needs`), `repositoryView` (`get_repository_view`), `branchRules`
+  fixture), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
+  `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules`
   (`get_branch_rules`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
   (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
   shows before the answer, and a release lets it through with what the fixture holds then. `fail` makes a route of
@@ -607,8 +609,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
 - **Measurement** (2026-10-24, 672 tests, 16 workers on the 20 cores of the Mac Studio, load 7-30 from other work):
   ~150 s, ~2075 s of test time, a mean test 3.1 s (p50 2.8 s, p99 12 s). A test spends 17% in `setupRepo` (the
   repository 177 ms, the page ~300 ms until Sync is enabled), 31% in its syncs (~1 s each, of which `sync_branches`
-  takes 519 ms on the server), 5% in the browser fixtures, the rest in its body; `wait_landing_needs` (384 ms) and
-  `get_branch_review_readiness` follow most syncs. The run is CPU-bound: the test server and its git processes used
+  takes 519 ms on the server), 5% in the browser fixtures, the rest in its body; the landing needs (384 ms, then
+  `wait_landing_needs`; the session computes them since s7-4) and `get_branch_review_readiness` follow most syncs. The run is CPU-bound: the test server and its git processes used
   374 s user and 817 s system time (about 136 git processes per test: `rev-parse` 25, `config` 23, `cat-file` 16,
   `unpack-objects` after each small `fast-import` 8), the browsers and the workers 1084 s, so the wall time follows
   the CPU work, not the waits. Measured and left as they are: Playwright's retry backoff of an expect (500 ms steps,
@@ -637,7 +639,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`safe-push-helpers.ts`) gives each fact an assertion's time of its own before the step is asserted. The steps
   measured in the traces of the failed waits (2026-10-24):
   `fetch_baseline` 2-4 s, `check_landing_gate` 2-3.5 s (a start runs the gate again in `start_patronus_robot`, 2-2.7 s:
-  the test server has no object cache), `wait_landing_needs` 2-5 s, `get_branch_review_readiness` 1-5 s
+  the test server has no object cache), the landing needs 2-5 s (then `wait_landing_needs`), `get_branch_review_readiness` 1-5 s
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,
   which is until the toast times out (5 s, 10 s with an action). A test closes a toast it has read with its close

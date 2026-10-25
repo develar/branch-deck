@@ -114,18 +114,11 @@ struct Allowed {
   removed_in: &'static str,
 }
 
-const ALLOWED: &[Allowed] = &[
-  Allowed {
-    from: "repository-model",
-    to: "trial-check",
-    removed_in: "s7-session-facts",
-  },
-  Allowed {
-    from: "repository-model",
-    to: "patronus",
-    removed_in: "s9-engine-remote",
-  },
-];
+const ALLOWED: &[Allowed] = &[Allowed {
+  from: "repository-model",
+  to: "patronus",
+  removed_in: "s9-engine-remote",
+}];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {

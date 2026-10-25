@@ -127,14 +127,12 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
   };
 
   // Create shared application state
-  // every repository of a run: a view of an evicted table would be empty
-  let repository_views = repository_model::views::RepositoryViews::with_capacity(100_000);
   let session_clock = sync_utils::clock::TestClock::new();
   let state = Arc::new_cyclic(|state| {
     let environment = session_routes::TestSessionEnvironment {
       state: std::sync::Weak::clone(state),
     };
-    let host = repository_model::runtime::GitSessionHost::new(git_executor.clone(), repository_views.clone(), environment);
+    let host = repository_model::runtime::GitSessionHost::new(git_executor.clone(), environment);
     AppState {
       repositories: DashMap::new(),
       path_to_id: DashMap::new(),
@@ -145,7 +143,6 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       git_executor,
       test_root_dir,
       templates,
-      repository_views,
       branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
       lock_waits: history_rewrite::lock_wait::LockWaits::default(),
       sessions: Arc::new(repository_model::session::Sessions::new(
@@ -302,8 +299,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
-    .route("/invoke/get_repository_view", post(tauri_command_bridge::get_repository_view))
-    .route("/invoke/wait_landing_needs", post(tauri_command_bridge::wait_landing_needs))
     .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
     .route("/invoke/post_patronus_command", post(tauri_command_bridge::post_patronus_command))
     .route("/invoke/read_patronus_command_reply", post(tauri_command_bridge::read_patronus_command_reply))
@@ -904,9 +899,9 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
 }
 
 /// Releases the repository lock the test of a deleted repository left held, then waits for the commands still running
-/// for it (`hold_repository`) and for the computations of its landing needs (`RepositoryViews::forget`), then deletes
-/// its files (`fs_retry`: on Windows a process whose current directory is in them, or a scanner with a file open,
-/// blocks the removal until it lets go)
+/// for it (`hold_repository`) and for the computation of its landing needs (its session holds the repository while it
+/// runs, `TestSessionEnvironment::landing_needs`), then deletes its files (`fs_retry`: on Windows a process whose
+/// current directory is in them, or a scanner with a file open, blocks the removal until it lets go)
 async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepository) {
   // the lock first (`hold_repository_lock`), its holder record with it: a rewrite of the page that waits for it, as
   // long as its holder (this server) lives, runs and ends instead of keeping the deletion waiting
@@ -915,13 +910,6 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
   }
-  // a view the page asked computes the landing needs in the background, beyond the command that asked it
-  let views = state.repository_views.clone();
-  let path = repo.path.clone();
-  if !tokio::task::spawn_blocking(in_current_span(move || views.forget(&path))).await.unwrap_or(false) {
-    tracing::warn!(id, "The landing needs of the test repository are still computed; deleting it anyway");
-  }
-
   // the writer saves what is pending now, not when the repository is dropped after its app data is gone
   if let Err(e) = repo.store.flush() {
     tracing::warn!("Failed to save the settings of {id}: {e}");

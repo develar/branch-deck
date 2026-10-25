@@ -1,21 +1,25 @@
 //! What Rust derives of the branch table, so the page and `bd` read one rule (docs/design/git-operations.md,
-//! "Repository view"). The app keeps the table of its last sync and answers `get_repository_view` from it; `bd` builds
-//! the table from the report of its own sync or from a grouping, and reads the same view.
+//! "Repository view"). The session of a repository keeps the table of its last sync and derives the Patronus view of it
+//! as a part of its view; `bd` builds the table from the report of its own sync or from a grouping, and derives the same
+//! view (`facts::derive_patronus`).
 //!
 //! The crate grows into the model of a repository (docs/design/rust-domain-authority.md): the sessions of the process
 //! own the table of each worktree and run its syncs (`session`, `runtime`, `sync_scheduler`), and hold its facts
-//! (`facts`): the table of the last sync and the robots of Patronus now, the other facts of the remote services in the
-//! steps of s7-session-facts (the scheduler of `remote-facts` reads them). Besides them: the table of the last sync for `get_repository_view` (`branch_table`, `views`), the
-//! rule of what the robots land (`patronus_view`) and the guards of the app's actions on the remote (`push_guard`,
-//! `start_guard`, run through `actions`). It holds what the checks and the remote services found and asks no remote
-//! service itself, except the Patronus client `RemoteActions` carries until the engine of the remote takes it.
+//! (`facts`): the table of the last sync, the robots of Patronus and what they land, landed and hold with the landing
+//! needs, the other facts of the remote services in the steps of s7-session-facts (the scheduler of `remote-facts` reads
+//! them). Besides them: the table of a sync (`branch_table`), the rule of what the robots land (`patronus_view`) and the
+//! guards of the app's actions on the remote (`push_guard`, `start_guard`, run through `actions`). It holds what the
+//! checks and the remote services found and runs no check and asks no remote service itself (the hosts answer the
+//! landing needs and the landing gate), except the Patronus client `RemoteActions` carries until the engine of the
+//! remote takes it.
 //!
 //! - `actions`: what the app's actions on the remote run on, the same for the app's commands and the E2E server's routes
 //!   (`RemoteActions`: the Patronus service with the Space repository, git, the sessions with the tables of their last
 //!   syncs, the landing gate of the host); the flows are its methods
 //! - `facts`: the facts of a session, each with the number of the observation that answered it (`Seq`, one counter per
-//!   session) and the state of a fact without an answer (`FactRecord`); `FactStore`, the table of the last sync and the
-//!   robots of Patronus (`RobotsFact`, by id), and what the poll of the robots asks about (`robots_digest`)
+//!   session) and the state of a fact without an answer (`FactRecord`); `FactStore`, the table of the last sync, the
+//!   robots of Patronus (`RobotsFact`, by id) and the Patronus view with the landing needs (`PatronusFact`,
+//!   `derive_patronus`), and what the poll of the robots asks about (`robots_digest`)
 //! - `branch_table`: the branch table a sync left: the branches in the order of the table, their tips and copies, the
 //!   stack branches, the parked branches, the remote facts of the sync (`remote_facts`), `stack_ancestors`
 //! - `landing`: the landing gate a start and its popover check through (`LandingGate`), which the hosts answer with the
@@ -25,7 +29,8 @@
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
 //! - `runtime`: the actor of a session: its mailbox, the runs of its syncs with the mailbox as their reporter, the
-//!   patches at most every 16 ms; `GitSessionHost`, the syncs of the app's sessions with git
+//!   patches at most every 16 ms; `GitSessionHost`, the syncs, the Patronus views and the landing needs of the app's
+//!   sessions with git
 //! - `push_guard`: the checks of the app's push under the repository lock, by the rules of `bd push`: parked, landed
 //!   whole, held by a running Safe Push; the words of the holds for both sides; the sequence of the push (`push_branches`,
 //!   in the session of its key)
@@ -46,7 +51,6 @@
 //!   `domain_types::session`, and what its own operations wrote, which no older run undoes: the outcome of a push
 //!   (`begin_push`, `end_push`), a deleted archived or unapplied branch; `bd sync` folds its events into one too and
 //!   summarizes it
-//! - `views`: what the app keeps to answer `get_repository_view`: the table of the last sync and the memo, by repository
 
 pub mod actions;
 pub mod branch_table;
@@ -61,4 +65,3 @@ pub mod start_guard;
 pub mod state;
 pub mod sync_scheduler;
 pub mod table;
-pub mod views;

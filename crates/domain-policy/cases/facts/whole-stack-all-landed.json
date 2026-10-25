@@ -84,6 +84,7 @@
         },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": null,
         "span": null,
         "start": null,
         "startBlocked": false
@@ -99,6 +100,7 @@
         },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": "robot-0",
         "span": null,
         "start": null,
         "startBlocked": false
@@ -114,6 +116,7 @@
         },
         "landingAncestor": null,
         "landingNeeds": {"refusals": [], "state": "known"},
+        "robotId": "robot-1",
         "span": null,
         "start": null,
         "startBlocked": false

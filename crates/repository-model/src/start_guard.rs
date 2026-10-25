@@ -1,6 +1,6 @@
 //! The checks of the app's start, restart and cancel of a robot (`start_patronus_robot`, `restart_patronus_robot`,
 //! `cancel_patronus_robot` and the E2E server's routes of them) in Rust, by the rules of `bd safe-push` over the
-//! repository view (`patronus_view`) and the robots Rust read itself, never the page's: a parked subject (a branch, a
+//! Patronus view (`derive_patronus`) and the robots Rust read itself, never the page's: a parked subject (a branch, a
 //! branch built on parked, a whole stack with a parked member) stays local, a subject merged Safe Pushes landed whole
 //! has nothing left to land, a subject the last sync did not build (a stack branch that is not `built`) is no build of
 //! its commits, and a robot that runs on its last commit or lands a part of it refuses a second one (the `start` and

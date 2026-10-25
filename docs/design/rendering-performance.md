@@ -81,8 +81,9 @@ flowchart LR
 - **Push progress** has its own store (`pushProgressStore`). Its ticks, every 100 ms, reach only
   `useBranchPushProgress`, not every selector of the branch store. The one push of a stack writes the tick of all
   its branches in one update (`setBranchesPushProgress`).
-- **The robot of a branch:** `findBranchRobot` (`src/lib/patronus.ts`) looks it up in an index. The index holds the
-  preferred robot per branch name and per source revision, and is built once per robots record (a `WeakMap`).
+- **The robot of a branch:** the session names it in its view (`robotId`, matched in Rust by one index per list of
+  robots, `domain_policy::robot_match`), and a row reads it by id (`useBranchRobot`); the landing overview takes the
+  ids of every row once per view (`useRowRobots`, a `WeakMap`).
 
 ### Key Decisions
 
@@ -155,18 +156,20 @@ Mac with other work beside it, master and the change measured in turns:
 | the repository view of the backend | 234–271 / 389–471 ms | 45–55 / 111–116 ms | 2 |
 
 The rule was three maps (`landingSpansIn`, `landedByIn`, `pushHoldsIn`) memoized in one slot on the identity of the
-branches, which every 16 ms batch of a sync copies: each batch computed them again. Now the backend decides it once
-for the table the last sync of the session kept (`get_repository_view`, [Git Operations](git-operations.md#repository-view))
-and the page indexes the answer (`factsOf` in `src/stores/patronus.ts`):
-- the page asks only when an input changed (the robots, the matches, the remote facts, the table of the session by
-  its `tableRevision`, which counts the patches that changed more than the state of a run): a sync that changed nothing
-  of the table asks nothing, and the inputs are not even computed while the branches are the same objects;
-- an answer equal to the view the page has changes no store, and the facts of a view keep their objects while they are
-  equal, so no row renders again for it;
-- the Dock waits for the view of the robots as they are (`useRepositoryViewCurrent`), so no badge comes and goes before
-  it.
+branches, which every 16 ms batch of a sync copies: each batch computed them again. Then the backend decided it for the
+table the last sync of the session kept, asked by the page (`get_repository_view`, the table above); since s7-4 the
+session derives it itself and sends it as the part `patronus` of its view ([Git Operations](git-operations.md#repository-view)),
+and the page indexes the part (`factsOf` in `src/stores/patronus.ts`):
+- the session derives it only when an input changed (the table it committed, the robots, the remote branches a push
+  moved: `patronus_inputs`), one derivation at a time, and the patch carries only the branches and stacks whose facts
+  changed, so the page asks nothing and a sync that changed nothing derives nothing;
+- the facts of a view keep their objects while they are equal (`keptFacts`), so no row renders again for a patch that
+  changed another branch;
+- the Dock waits for the view of the robots as they are (`useRepositoryViewCurrent`: the part not `stale` while it is
+  derived), so no badge comes and goes before it.
 
-[@test] ../../src/stores/patronus.test.ts (`keeps the store as it is when a view asked again says the same, so no row reads it again`, `asks the repository view after a sync only when a patch changed the table: the backend's table is the same`)
+[@test] ../../src/stores/patronus.test.ts (`keeps the facts of a branch as the same objects when a patch of the view changes only another branch`)
+[@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
 
 A sync that changes nothing cost little before and costs the same now. The rest of the per-row work
 (`getNextStepFacts` of each row on every change of a store) is not part of it.
@@ -311,6 +314,6 @@ output); `Symbol.for("react.memo_cache_sentinel")` in a build with `build.minify
 - `src/model/store.ts`, `src/model/patch.ts`: the page's applier of the patches
 - `src/stores/branch-sync.ts`: `structureOf`, `branchTableRowsIn`
 - `src/stores/file-merges.ts`: `useFileMerges`, the merges of the shown conflicts
-- `src/lib/patronus.ts`: `findBranchRobot` and its index
+- `src/stores/patronus.ts`: `useBranchRobot`, `useRowRobots`, the robot of a row from the view
 - `src/router.ts`, `src/App.tsx`, `src/pages/IndexPage.tsx`: the lazy main page and dialogs
 - [Distributed Settings](distributed-settings.md): the persisted stores the selectors read

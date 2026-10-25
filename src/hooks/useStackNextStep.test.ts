@@ -186,7 +186,7 @@ describe("the next step of the whole stack", () => {
   it("waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't", () => {
     const landing = { branch: "bazel", robotId: "r1", wholeStack: false }
     setRobotsAndView([testRobot("r1", "bazel")], {
-      stacks: { air: { landingMember: landing, holdRobotId: null, startBlocked: false, start: { kind: "ancestor", landing }, dryRun: null } },
+      stacks: { air: { robotId: null, landingMember: landing, holdRobotId: null, startBlocked: false, start: { kind: "ancestor", landing }, dryRun: null } },
     })
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       safePushBlocker: "A Safe Push of bazel is running: wait until it merges",

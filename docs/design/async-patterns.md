@@ -121,9 +121,9 @@ Every Tauri command that can fail (`Result<_, ApiError>`) and every `bd` run is 
 of every `bd` process never collide and sort by time). `src-tauri/src/command_scan_test.rs` checks the commands:
 - Every command has an `#[instrument]` span, its `State`, `AppHandle` and window arguments skipped. An argument that
   holds a collection (a `Vec`, a map, through nested structs) is skipped too, with a field or two in its place
-  (`skip_all, fields(repository_path = %params.repository_path, robots = params.robots.len())`), because every line of
-  the log repeats the fields of the spans it is in: `get_repository_view` with the robots and the remote facts of 141
-  branches would write tens of KB per call. `#[instrument]` with `fields` comes before `#[specta::specta]`, which
+  (`skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len())`), because every line
+  of the log repeats the fields of the spans it is in: a push of a stack with the remote heads of its branches, or a
+  list of robots, would write tens of KB per call. `#[instrument]` with `fields` comes before `#[specta::specta]`, which
   rejects the `%` of a field.
 - The body of an async command runs in `operation(async move { … }).await`, of a synchronous one (on the main thread) in
   `operation_now(|| { … })` (`src-tauri/src/operation.rs`): the span `operation{operation_id}`, a child of the command's
