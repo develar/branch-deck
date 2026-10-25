@@ -22,7 +22,7 @@ schemars = { workspace = true, optional = true }
 # the clean rules of `.branchdeck.toml` (`lease_clean`)
 toml = "1.1"
 # the ids and the default holders of the leases (`lease`)
-uuid = { version = "1.28", features = ["v4"] }
+uuid = { version = "1.29", features = ["v4"] }
 
 # the APFS clone of a new lease slot (`clone_dir`)
 [target.'cfg(unix)'.dependencies]
