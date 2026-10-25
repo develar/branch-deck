@@ -40,7 +40,7 @@ export function buildConflictPrompt(input: ConflictPromptInput): string {
           "Propose a regroup so that the change and what it needs are in one branch or in the branch it is built on: a `(branch)` prefix for a commit, or a stack parent for a branch. Show it to me before you rewrite anything.",
         ]
       : [
-          `\`${bd.command} check --fix\`${bd.powershell ? " (in PowerShell)" : ""}: the trial builds of Branch Deck; \`${bd.command} help agent\` explains each field. Below, \`bd\` stands for this command.`,
+          `\`${bd.command} check --fix\`${bd.powershell ? " (in PowerShell)" : ""}: the trial builds of Branch Deck; \`${bd.command} check --help\` explains each field. Below, \`bd\` stands for this command.`,
           "No fix is found: find the commits the change needs (`bd commits`), and try plans with `bd check --plan plan.json` until the branch is `ok`: move the change and what it needs into one branch or into the branch it is built on, or move the change of a file from one commit into another with `bd move-hunk`.",
           "Show me the plan and its `bd check` result. Only when I approve: `bd group --expect-head <head> --sync --plan plan.json`.",
         ]

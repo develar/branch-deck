@@ -5,7 +5,10 @@ pub mod agent_help;
 pub mod install;
 pub mod schema;
 
-use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
+use crate::agent_help::{
+  AGENT_HELP, CHECK_HELP, FOLD_HELP, GROUP_HELP, MOVE_HUNK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP, STATUS_HELP,
+  SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
+};
 use crate::install::{InstallArgs, install};
 use crate::schema::{SchemaArgs, schema};
 use bd_core::bd_command::skill_command;
@@ -77,6 +80,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
   /// The branches and the unassigned commits ahead of the baseline
+  #[command(after_help = "Outputs and refusals: `bd status --help`", after_long_help = STATUS_HELP)]
   Status(StatusArgs),
   /// Every commit ahead of the baseline, with dependency edges and file overlap between branches
   Commits(CommitsArgs),
@@ -84,21 +88,26 @@ enum Command {
   ///
   /// The plan comes from --plan (`-` for stdin); one validated rewrite, then the descriptions it names, under one
   /// repository lock, and, with --sync, a sync after it
+  #[command(after_help = "Outputs and refusals: `bd group --help`", after_long_help = GROUP_HELP)]
   Group(GroupArgs),
   /// Rename a branch in every commit prefix, its children included
+  #[command(after_help = "Outputs and refusals: `bd group --help`")]
   Rename(RenameArgs),
   /// Stack a branch on a parent branch
   ///
   /// Needs `git config branchdeck.stacks true`; writes the stack parents, and rewrites a subject only where its prefix
   /// declares another parent
+  #[command(after_help = "Outputs and refusals: `bd group --help`")]
   Restack(RestackArgs),
   /// Make a stacked branch a root again
+  #[command(after_help = "Outputs and refusals: `bd group --help`")]
   Unstack(UnstackArgs),
   /// Change the message of a commit ahead of the baseline, keeping every tree
   ///
   /// --message, --message-file (`-` for stdin) or --subject (the body stays), or several commits in one rewrite by
   /// --plan; the commits after it are recreated, the index and the files stay. A new `(prefix)` moves the commit to
   /// that branch as `bd group` does
+  #[command(after_help = "Outputs and refusals: `bd reword --help`", after_long_help = REWORD_HELP)]
   Reword(RewordArgs),
   /// Undo a rewrite, an update, a pick, an unapply or a reapply with the `undo_token` it printed
   Undo(UndoArgs),
@@ -114,7 +123,7 @@ enum Command {
   /// left out, the files following; --follow moves that worktree onto the new tip too. A conflict changes nothing
   /// (exit 1); `uncommitted_overlap` (exit 4) when local changes sit on files it writes
   Pick(PickArgs),
-  /// The worktrees of the lease pool, one per agent session: get, return, status, adopt (`bd help worktrees`)
+  /// The worktrees of the lease pool, one per agent session: get, return, status, adopt, clean (`bd help worktrees`)
   ///
   /// `get` leases a free slot moved to the HEAD of -C (only the diff written), else adds one; `return` frees it, refused
   /// while it has unlanded commits, local changes or a process in it. The state is in
@@ -126,42 +135,51 @@ enum Command {
   /// `branchdeck.agentSubjectBranch` (off by default): start each subject with `(branch)`. `next` names what to run
   Workspace,
   /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets, keeping HEAD's tree
+  #[command(after_help = "Outputs and refusals: `bd fold --help`", after_long_help = FOLD_HELP)]
   Fold(FoldArgs),
   /// Move the changes of one file from one commit into another, keeping HEAD's tree
   ///
   /// All of its changes, or the blocks --block names; both commits ahead of the baseline. `hunk_conflict` (exit 4) when a
   /// commit between changes the same lines
+  #[command(after_help = "Outputs and refusals: `bd move-hunk --help`", after_long_help = MOVE_HUNK_HELP)]
   MoveHunk(MoveHunkArgs),
   /// Would the branches build with this plan? A trial sync
   ///
   /// The plan comes from --plan (`-` for stdin), else the current grouping; exit code 1 when a branch is not `ok`
+  #[command(after_help = "Outputs and refusals: `bd check --help`", after_long_help = CHECK_HELP)]
   Check(CheckArgs),
   /// Suggest a grouping of the commits into branches, checked by a trial sync
   ///
   /// A plan for `bd group`; exit code 1 when a branch of it is not `ok`
+  #[command(after_help = "Outputs and refusals: `bd suggest --help`", after_long_help = SUGGEST_HELP)]
   Suggest(SuggestArgs),
   /// Rebuild the virtual branches, as the app's sync does; exit code 1 when a branch is not built
   Sync,
   /// Sync, then push branches with a lease per ref, parents first, and print a `gh pr create` for each
+  #[command(after_help = "Outputs and refusals: `bd push --help`", after_long_help = PUSH_HELP)]
   Push(PushArgs),
   /// Start a Patronus Safe Push (or --patronus-dry-run) of a branch; --check starts nothing
   ///
   /// As the app's Safe Push, with a merge profile: the code-owner review checked first (`approvals_missing`, exit 4,
   /// when approvals are missing), the branch pushed first when the remote lacks its commits by content
+  #[command(after_help = "Outputs and refusals: `bd safe-push --help`", after_long_help = SAFE_PUSH_HELP)]
   SafePush(SafePushArgs),
   /// Ask GitHub users to review the open pull request of a branch; --check asks nobody
   ///
   /// The code owners Patronus suggests for the groups whose approval is missing, or --reviewer <login>
+  #[command(after_help = "Outputs and refusals: `bd request-review --help`", after_long_help = REQUEST_REVIEW_HELP)]
   RequestReview(RequestReviewArgs),
   /// The Patronus robot of a branch and why it failed. Read only
   ///
   /// The newest one or --robot <id>; when it failed or fails, why (--full: the failed builds, tests and log tails) and
   /// which commits of the checked-out branch it tested
+  #[command(after_help = "Outputs and refusals: `bd robot --help`", after_long_help = ROBOT_HELP)]
   Robot(RobotArgs),
   /// The Safe Push statistics of the repository: the user's robots of a period against everyone else's. Read only
   ///
   /// Robots per merge, the time to merge, the time lost in failures, the failure causes and flaky checks of the last 14
   /// days, the hours robots ran fastest; kept in the object cache, so a second run asks Patronus for little
+  #[command(after_help = "Outputs and refusals: `bd robot-stats --help`", after_long_help = ROBOT_STATS_HELP)]
   RobotStats(RobotStatsArgs),
   /// Print or set the pull request title and body of a branch (`branch.<name>.description`)
   Describe(DescribeArgs),
@@ -195,10 +213,11 @@ enum Command {
   /// A `bd` symlink in ~/.local/bin (macOS, Linux; on Windows `bd.exe` is next to the app), the skill in
   /// ~/.claude/skills and ~/.agents/skills
   Install(InstallArgs),
-  /// `bd help agent`, `bd help update`, `bd help worktrees`, `bd help skill`, or the usage
+  /// `bd help agent`, `bd help update`, `bd help worktrees`, `bd help skill`, `bd help <command>`, or the usage
   ///
   /// `agent`: the agent workflow; `update`: the update and its resolve session; `worktrees`: sessions in worktrees of
-  /// their own on one branch; `skill`: the skill `bd install` writes
+  /// their own on one branch; `skill`: the skill `bd install` writes; a command: its `--help`, with its outputs and
+  /// refusals
   Help { topic: Option<String> },
 }
 
@@ -252,6 +271,13 @@ fn parse(args: impl IntoIterator<Item = OsString>, environment: &Environment, ou
       },
       _ => print_error(out, &CliError::new(ErrorCode::InvalidArguments, e.render().to_string().trim())),
     })
+}
+
+/// The command line with the names propagated, so that the usage of a subcommand reads `bd push`
+fn built_command() -> clap::Command {
+  let mut command = Cli::command();
+  command.build();
+  command
 }
 
 /// The subcommands of `matches` joined by spaces: `lease get`
@@ -369,10 +395,14 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Help { topic: Some(topic) } if topic == "update" => out.write_all(UPDATE_HELP.as_bytes()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "worktrees" => out.write_all(WORKTREES_HELP.as_bytes()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "skill" => out.write_all(skill_text(&skill_command(environment)).as_bytes()).map_err(io_error),
-    Command::Help { topic: Some(topic) } => Err(CliError::new(
-      ErrorCode::InvalidArguments,
-      format!("No help topic {topic:?}; try `bd help agent`, `bd help update`, `bd help worktrees` or `bd help skill`"),
-    )),
+    // `bd help push` as `bd push --help`, which agents try first
+    Command::Help { topic: Some(topic) } => match built_command().find_subcommand_mut(topic) {
+      Some(command) => write!(out, "{}", command.render_long_help()).map_err(io_error),
+      None => Err(CliError::new(
+        ErrorCode::InvalidArguments,
+        format!("No help topic {topic:?}; try `bd help agent`, `bd help update`, `bd help worktrees`, `bd help skill` or `bd help <command>`"),
+      )),
+    },
   };
   match result {
     Ok(()) => 0,

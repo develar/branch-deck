@@ -15,63 +15,78 @@ object cache (none with --no-cache); `bd check --build` runs its command in a te
 /// The read-only line of `bd --help`
 pub const READ_ONLY: &str = read_only!();
 
-/// `bd help agent`: the workflow of an agent that groups commits into virtual branches (docs/guidelines/agent-cli.md);
-/// the first line names the version (`version::VERSION`). `agent_help_test.rs` checks it against the commands and
-/// options
+/// `bd help agent`: the rules and the workflow of an agent that groups commits into virtual branches
+/// (docs/guidelines/agent-cli.md), a core of at most 10 KB: every rule that waits for the user stays here, the fields
+/// of an output and the other refusals are in the `--help` of its command (`after_long_help`). The first line names the
+/// version (`version::VERSION`). `agent_help_test.rs` checks it against the commands and options
 pub const AGENT_HELP: &str = concat!(
   "bd ",
   env!("BD_VERSION"),
-  ": Branch Deck for agents. JSON on stdout, one object per run (every object has \"schema\": 1); logs on stderr (-v for
-debug).
+  ": Branch Deck for agents. JSON on stdout, one object per run (every object has \"schema\": 2); logs on stderr (-v for
+debug). `bd <command> --help` says what a command prints and what each of its refusals asks.
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into branches, one per name: the `(name)`
 prefix of a subject, else the issue group of its issue key, else the issue key (`ABC-123 Fix ...`). A sync rebuilds
 each branch as the virtual branch `{prefix}/virtual/{name}` on the baseline; the working tree is never touched. With
 stacked branches (`git config branchdeck.stacks true`) a branch is built on a parent: a subject declares it with
 `(parent/leaf)`, or the stack parents do (`refs/branch-deck/stack-parents`) and the subject keeps the bare `(leaf)`; a
-stacked branch is named by its leaf. `upstream` in the output of `bd update` is the baseline.
+stacked branch is named by its leaf.
 
 Rules
 - Ask the user first, and run only what the user approved: a push (`bd push`, also --force and --restart-running), a
   Safe Push or a Patronus Dry Run (`bd safe-push`, also --cancel-running, --without-approvals, --allow-dangling,
-  --allow-missing and --create-pull-request), `bd request-review`, a `gh pr create` that bd prints, and any change of a commit that
-  another session made, a reword (`bd reword`) of its message too, `bd park`, `bd unpark`, `bd unapply` and `bd reapply`. Show what bd printed
-  (`lands`, `review`, `dropped_commits`, the plan, the `changes` of a `bd reword --dry-run`) when you ask.
-- A branch `parked` in `bd status` stays local: the user keeps its commits, waiting for a proper fix elsewhere. Never
-  push it, start a Safe Push of it or unpark it on your own; a branch built on it is `parked` too (`with` names the
-  parked one), and so is the whole stack that holds it. `bd park <branch> --note '<why>'` and `bd unpark <branch>`
-  only when the user asks: no rewrite, the store `refs/branch-deck/parked`; `idle_parked` lists the lines of branches
-  without commits here.
-- `bd unapply <branch>` (`--expect-head <id>`) takes the commits of a branch and their files out of the checked out
-  branch and keeps them in `unapplied_branch` (`{prefix}/unapplied/{name}`, which no sync archives); only when the user
-  asks. `bd undo <undo_token>` brings them back. `uncommitted_overlap`, `branch_not_built` (sync first, a conflict
-  fixed), `branch_checked_out` and `drop_conflict` (a later commit needs its changes) change nothing. `unapplied` of
-  `bd status` lists the unapplied branches; they land nothing, so `bd push` and `bd safe-push` refuse their names
-  (`unapplied`), and `bd push --unapplied <name>` keeps a copy on the remote when the user asks. `bd reapply <name>`
-  (`--dry-run`, `--expect-head <id>`) puts the commits back on top, their `(name)` prefix restored, only when the user
-  asks; `reapply_conflict` (`commits`, `paths`) and `nothing_to_reapply` change nothing.
+  --allow-missing and --create-pull-request), `bd request-review`, a `gh pr create` that bd prints, `bd park`,
+  `bd unpark`, `bd unapply`, `bd reapply`, and any change of a commit that another session made, a `bd reword` of its
+  message too. Show what bd printed (`lands`, `review`, `dropped_commits`, the plan) when you ask.
+- A branch `parked` in `bd status` stays local, and so do a branch built on it (`with` names the parked one) and the
+  stack that holds it. `bd park <branch> --note '<why>'` and `bd unpark <branch>` only when the user asks (no rewrite;
+  `idle_parked` lists the lines of branches without commits here).
+- `bd unapply <branch>` (`--expect-head <id>`) takes a branch and its files out of the checked out branch, kept as
+  `{prefix}/unapplied/{name}` (`unapplied` of `bd status`); `bd reapply <name>` (`--dry-run`, `--expect-head <id>`)
+  puts it back on top; `bd undo <undo_token>` takes either back. Only when the user asks. `bd push` and `bd safe-push`
+  refuse an unapplied name (`unapplied`); `bd push --unapplied <name>` keeps a copy on the remote when the user asks.
+  `branch_not_built` (sync first), `branch_checked_out`, `drop_conflict`, `reapply_conflict` and `nothing_to_reapply`
+  change nothing: tell the user.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
   change between commits only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.
 - Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update.
 - Branch on `error.code` and the exit code, never on the message. 0 ok. 1 a conflict, never an error object: the
   output says what conflicts (`state: \"conflict\"`, a branch not built, `ok: false`). 2 invalid input: fix the
-  arguments or the plan. 3 stale: read again and retry. 4 refused: do what this help says for the code, else stop and
-  show `message` to the user. 5 git or network error: show it. Retry when `retryable` is true, whatever the exit code,
-  and never when it is false. A `git_error` \"not updating refs/branch-deck/tmp/chain (… does not contain …)\" is the
-  ref a Branch Deck 0.21 or older left behind: `git update-ref -d refs/branch-deck/tmp/chain`, then retry; a newer sync
-  deletes it itself.
-- An error is {\"schema\":2,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"branches\",\"review\",\"blocks\",\"retryable\"}};
-  `paths`, `branches`, `review` and `blocks` only where they apply.
+  arguments or the plan. 3 stale (`head_moved`, `locked`): read again and retry. 4 refused: do what the table below or
+  the `--help` of the command says for the code, else stop and show `message` to the user. 5 git or network error:
+  show it. Retry when `retryable` is true, whatever the exit code, and never when it is false. A `git_error` \"not
+  updating refs/branch-deck/tmp/chain (… does not contain …)\": a ref of Branch Deck 0.21 or older; `git update-ref -d
+  refs/branch-deck/tmp/chain`, then retry.
+- An error is {\"schema\":2,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"branches\",\"review\",\"blocks\",\"processes\",
+  \"next_steps\",\"retryable\"}}; `paths`, `branches`, `review`, `blocks`, `processes` and `next_steps` only where they
+  apply.
+- Printed commands: run the `next` of `bd workspace`, `bd update` and `bd pick` as it says. Any other ready command
+  waits for the user's approval when it pushes, starts or cancels a robot, or rewrites: the `push` of `bd sync`, the
+  `fix` of `landing_needs` (`bd status --help`) and of `bd check`, and each `error.next_steps` entry with
+  `needs_approval`.
 - `bd fold --expect-head <id>`, as every write that takes it, refuses unless HEAD is still the `head` (or `new_head`)
   you read last: `head_moved` (exit 3). Every write prints `previous_head`, `new_head` and an `undo_token` (full ids:
   pass it as printed). A write whose step after it failed (a sync) keeps its output with `after_error`: retry that
   step, never the write. `bd undo <undo_token>` takes a write back, `undo_stale` (exit 4) once anything moved on.
 - Ids are abbreviated per output: compare them by prefix, or pass --full-ids.
 
-Global options: -C <repo>, --prefix <p> (else `branchdeck.branchPrefix` of this repository's git config, else the app
-setting, else the global `branchdeck.branchPrefix`; `prefix_source` of `bd status` names which: `cli`,
-`repository_config`, `app_setting`, `global_config`), --full-ids, --no-cache, -v.
+Refusals that wait for the user (exit 4); the `--help` of the command has the rest:
+- `push_too_large`: show `paths`; never raise `branchdeck.pushSizeLimit` yourself.
+- `parked`: tell the user; never push, start or unpark a parked branch on your own.
+- `lease_rejected`: show `error.branches[].remote.dropped_commits`; `bd push --force --expect-remote <remote.head>` for
+  that one branch only once the user approved.
+- `robot_running`: wait until the robot merges; `bd push --restart-running` or `bd safe-push --cancel-running` only once
+  the user approved.
+- `approvals_missing`: show `error.review`; `--create-pull-request` once the user approved; `--without-approvals` only
+  when the user says so: Patronus fails it.
+- `dangling_reference`, `missing_declaration`: fix the plan (`bd check --help`); `bd safe-push --allow-dangling` or
+  `--allow-missing` only when the user says it is a false alarm. `rules_unknown`: ask the user; `bd safe-push
+  --allow-unknown-rules` only when the user says so.
+- `low_disk_space`: tell the user; never pass `bd lease get --min-free 0` on your own.
+
+Global options: -C <repo>, --prefix <p> (else `branchdeck.branchPrefix` of the git config or the app setting;
+`prefix_source` of `bd status` names which), --full-ids, --no-cache, -v.
 ",
   read_only!(),
   "
@@ -79,177 +94,28 @@ setting, else the global `branchdeck.branchPrefix`; `prefix_source` of `bd statu
 the index of the commands, `bd version` the version of bd and git.
 
 Workflow: the commits into pull requests
-1. Look. `bd suggest` prints a plan, clustered and checked by a trial sync (exit 1: `check.ok` is false, edit the
-   plan). Per cluster: `change` (kept, renamed, merged, split, new) against its `current_branches`; its commits in
-   `kept`, `moved` ({commit, leaves}: the branch it leaves, null if unassigned) and `new_path` (the same branch,
-   another stacked path in the subject): with `moved`, what the plan changes; `why`, one line to quote to the user;
-   `weak`, review these first; `issue_keys` and `areas`; with stacked branches `parent`, `restacked` (it stacks each
-   branch on the branches it needs) and `stacked_without_need` (a stack parent the branch needs nothing of: the plan
-   keeps it, ask the user before an unstack). Whole issue branches that belong together go into `issue_groups`: no
-   subject changes. `bd suggest --fresh` ignores the current prefixes and issue groups. To look closer:
-   `bd status --brief`, `bd status --stats` (the size of each branch), `bd commits --brief` (per commit its group,
-   issue key, fixup target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to, via}:
-   `from` touches lines `to` added, or with `via` `symbols` uses a name `to` adds, which a stack satisfies too), and
-   `bd commits <id>... --patch` (the blocks of each file, with their ids) or `bd commits --unassigned` for unclear
-   commits.
+1. Look. `bd suggest` prints a plan checked by a trial sync (exit 1: edit the plan): quote the `why` of a cluster to
+   the user, review the `weak` ones first; `bd suggest --help` has its fields.
 2. Plan and check. A plan is {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids], \"issue_groups\": {\"<name>\":
    [keys]}, \"ungroup_issues\": [keys], \"unstack\": [branches], \"descriptions\": {\"<branch>\": {\"title\", \"body\"}}};
-   a path is a branch, or `parent/leaf` for a stacked one. Fixups follow their targets; a commit goes with, or stacks
-   on, the commits it depends on. In Windows PowerShell write the plan to a file and pass the file (a PowerShell 5.1
-   pipe turns non-ASCII into `?`). After any change of `branches`, `unassign`, `issue_groups` or `ungroup_issues`, run
-   `bd check --plan plan.json`: exit 1 until the `result` of every branch is `ok`.
-   - `conflict` {commit, subject, files, missing_commits}: move the missing commits into the branch, or stack it on
-     the branch that has them. A conflict of git whose every file the words resolve is no conflict: with `git config
-     branchdeck.resolveByWords` on (the default) the sync commits the result as IntelliJ resolves it, all or nothing
-     per commit, and the branch is `ok`. `bd sync` lists such commits in `resolved` of the branch, `bd status` and
-     `bd commits` in `resolved_by_words` of the commit; nothing to do.
-   - `dangling_reference` (`dangling_references` {kind, identifier, file, line, removed_by, fixed_by, mutual,
-     declared_in}): git merges it, the build fails. The branch removes (`removed_declaration`) or changes
-     (`changed_declaration`, e.g. made `suspend`) a declaration (`declared_in` {file, line}) its tree still uses, or
-     declares one its tree has in another file (`duplicate_declaration`), and `fixed_by` of another branch changes that
-     use or deletes that file. Move `fixed_by` into the branch, or stack it on that branch; `mutual`: that change needs
-     the branch too, so `fix` moves it into the branch, as `move_commit` (its `branches` into the plan) or `move_hunk`
-     (a ready `command`, once the user approved), each proven by a trial build; no `fix`: none builds. When the user
-     says the use means another declaration, `bd check --allow-dangling` keeps the `result` and exits 0.
-   - `blocked` (`blocked_by`: the parent it can't be built on), `problems`, `error`; `build_failed` (below).
-   `bd check --fix` searches, by trial builds, the regroup that fixes the conflicts and dangling references: each
-   `fix.components[].plan` is a whole plan for the next step, and its `steps` say what moves where (show them before
-   applying one). A branch that conflicts as a whole is restacked on the branch (or a chain of the branches) that
-   holds the commits it needs, in one trial; dangling references are searched after the conflicts. Each trial is a
-   line on stderr (`trial 3/12: restack <branch> on <parent> … verified (41 s)`); --max-trials N (12) and
-   --time-budget SECONDS (180, the whole command) bound it, and `fix.search: budget` is the best plan so far: run it
-   again, the cache makes it faster. `inverted_stack` {branch, child,
-   fixes, reason}: the branch needs a commit of a branch stacked on it; each fix (`move_to_child`, `swap`) is
-   `branches`/`unstack` for the plan, checked by a trial build; `reason` when none builds. `warnings`: a
-   `possible_dangling_reference` (or `possible_changed_declaration`, `possible_duplicate_declaration`) that no commit
-   proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}, the
-   branch's `result` `missing_declaration` (none when `git config branchdeck.symbols` is `report` or `off`): a use
-   whose declaration is outside the branch's tree, git merges it and the build fails: stack the branch on
-   `declared_in`, or move one of the two; when the user says it is a false alarm, `bd check --allow-missing` keeps the
-   `result` and exits 0. `bd check --build '<command>'`
-   (--build-paths <path>...) also builds a temporary copy of each tree (`build_failed`): slow on a large repository,
-   but a build that passed on the same tree is not run again (`cached`; --rebuild runs it after a change outside the
-   tree).
-3. Apply. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
-   `bd status`); replace one only when the user asks. Then `bd group --expect-head <head of bd suggest> --sync --plan
-   plan.json`: one message-only rewrite, the issue groups and the descriptions under one lock, then a sync. It
-   prints the new `groups`, `replaced_descriptions` and `sync` (per branch `state`; a `conflict` names the commit, the
-   files and the commits it needs). Exit 1, a branch not built: `bd check --fix`, or regroup so that a change and what
-   it needs are in one branch or its parent, then `bd sync`. `head_moved`, `groups_moved`, `stacks_moved` or `locked`
-   (exit 3): read again and retry; a peer that only added commits on top: `bd group --expect-head <head>
-   --allow-append` takes them along (`appended`). `bd group --dry-run` prints the changed subjects. `bd rename <old>
-   <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>` take the same options. `bd describe <branch>
-   --title ... --body ...` sets the text of one branch. The undo token of a regroup moves HEAD, the issue groups and
-   the stack parents back (`<head>..<head>`, `groups:<id>..<id>`, `stacks:<id>..<id>`, joined by `+`); the
-   descriptions stay, and the virtual branches change with the next sync.
-4. Push. Show the result to the user; once approved, `bd push <branch>...` (or --all --yes; --with-children adds the
-   branches stacked on them) syncs, takes the parents along that have commits for the remote (--alone does not: the
-   branch carries their commits), and pushes parents first in one atomic push with a lease per ref; name every branch
-   of `branches` to the user. Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe
-   its `body` into it. An open pull request into a virtual branch (a parent's) is retargeted to the baseline: name
-   `retargeted` with `approved_by` (GitHub may dismiss those approvals); `retarget_warnings` says what GitHub refused.
-   --dry-run syncs, then asks the remote. Refusals, nothing pushed:
-   - `push_refused` (exit 4): a branch didn't sync, or is behind its remote branch (`remote.behind`, only what the
-     baseline lacks too). Older versions push without --force: of commits amended or restacked here
-     (`remote.amended`, `remote.restacked`), of commits the baseline has (`remote.landed`: after its whole stack
-     landed, a member's remote branch has its commits as they were; `replaced_landed` names them, nothing is lost),
-     and the remote copies of commits reworded here (`remote.reworded`); a stacked branch whose remote branch lacks
-     new commits of the branches it is built on (`remote.ancestors_ahead`) is pushed too: its Safe Push lands them.
-   - `push_too_large` (exit 4): the commits add more files than `branchdeck.pushSizeLimit` (50 MiB unless set), mostly
-     build output committed by mistake; `paths` names the directory and the largest files. Show the user; never raise
-     the limit yourself.
-   - `lease_rejected` (exit 4): the remote changed; bd fetched it. For a branch behind or rejected,
-     `error.branches[].remote.dropped_commits` lists what a push drops: show it; once approved, --force
-     --expect-remote <remote.head> for that one branch.
-   - `robot_running` (exit 4): a Safe Push runs on the branch (the push would fail it at the end), or on a branch
-     built on it whose commit has commits of it (the message names them; a parent restacked below it after its start
-     is pushed). Wait until it merges, or, once approved, --restart-running cancels the branch's own robot, pushes and
-     restarts it on the pushed commit (`restarted`).
-   - `parked` (exit 4): a named branch is parked, or built on a parked one; with --all or --with-children a parked
-     branch is only left out, named in `skipped` with `code: parked`. Tell the user, never unpark it.
-   - `landed` (exit 4): merged Safe Pushes landed all of every branch asked for (`landed_by` in `bd status`):
-     nothing of them is left to push until they are archived. With others to push, `bd push` only leaves a landed
-     one out (with `--with-children` its children too), named in `skipped` with who landed it; tell the user. A
-     branch it is built on that landed is not pushed along.
-   `bd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
-   in `bd sync` and `bd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
-   in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);
-   push none that isn't `built`. `bd push <root> --with-children` pushes it in the same atomic push once it is on the
-   remote or its pull request is open, when this sync built it (`stack_warnings` names one left out).
-5. Safe Push (Patronus; the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`). First, always,
-   `bd safe-push <branch> --check`: it syncs and starts nothing, and prints
-   - `profile` (default: the one of the last robot of the branch) and the `profiles` to choose from (--profile
-     <id|name|none>);
-   - `review`: `readiness` (`not_required`, `approved`, `missing`, `unknown`), `groups` with their `reviewers` and
-     `paths`, `waiting_for` (asked, not approved yet), `not_counted` (a bot's approval counts for nothing),
-     `merge_request`; Patronus judges the approvals of the GitHub pull request;
-   - `push_needed` and the `refusals` a start would meet; `remotes`, what the push replaces and drops of each remote
-     branch (a drop refuses with `push_refused`); a reworded branch needs a push, the robot lands the remote's messages;
-   - `target_check`: bd fetches the target and replays what lands onto its tip, as Patronus rebases it before its
-     checks: `result` `clean`, `conflict` or `not_run`; `fetched: false` means the check used the last fetched tip;
-   - `lands`, what the one robot lands into the target, root first: a stacked branch lands the branches it is built
-     on with it, and the branches built on it stay. `alone` (a stacked branch): `builds` (it could land alone once
-     unstacked, unless `uses` names a name of its stack) or `needs` (the commits of its parents it needs, `movable`
-     into it). Landing what it is built on is right: name `lands` to the user, and offer the branch alone only as a
-     second way.
-   Once approved, `bd safe-push <branch>` pushes first when `push_needed` (the parents with commits for the remote,
-   by content), then starts the robot: `robot.url` is its page; a branch with an open pull request into the target
-   starts from a `/patronus` comment there, where its approvals count (`started_via`); one into a virtual branch is
-   retargeted first (`retargeted`). --patronus-dry-run starts a Dry Run instead: the checks without the push into the
-   target and without the review, but it pushes and starts a robot like a Safe Push. The whole stack, its side
-   branches included, lands in one robot with --whole-stack (from any branch of it; --check first): the robot starts
-   from the stack branch of its top-level root (`whole_stack.source`; a straight chain starts from its last branch),
-   `lands` names every branch, and its pull request is the stack's own, where the approvals of the whole stack count.
-   Refusals, nothing pushed or started:
-   - `approvals_missing` (exit 4): `error.review` names who has to approve which files: show it. --create-pull-request
-     pushes and opens the pull request where they approve, assigned to the user (--no-assign leaves it unassigned;
-     --reviewer <login>, repeatable, asks a `github_login` of `review.groups[].reviewers` that the user chose;
-     `pull_request.warnings` says whom GitHub refused). Once they approved (`review.approved_on_github`), run it
-     again. --without-approvals starts anyway, only when the user says so: Patronus fails it. A merge profile known
-     to skip the review starts without them (`review.skipped_by`: `profile`).
-   - `robot_running` (exit 4): a robot runs on the last commit, lands the branch with a branch of its stack or with the
-     whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit.
-   - `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it
-     lands: fix it there, or, when the user says it is a false alarm, --allow-dangling.
-   - `missing_declaration` (exit 4, also in `refusals`): a commit of what lands uses a name that a commit of a branch
-     outside it adds (`missing_declarations` of `bd check`); the message names the restack that lands that branch too
-     (`bd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
-     alarm, `bd safe-push --allow-missing`.
-   - `push_dismisses_approvals` (exit 4, also in `refusals`): the push of new commits into the approved pull request the
-     robot starts from dismisses the approvals Patronus counts (`rules`): push first (`bd push <branch>`), then ask for
-     the review again (`bd request-review <branch>`). A push that dismisses approvals Patronus doesn't count starts;
-     tell the user `rules.message`.
-   - `rules_unknown` (exit 4, also in `refusals`): GitHub didn't answer the rules of the target, so the push may dismiss
-     the approvals: ask the user; `bd safe-push --allow-unknown-rules` starts anyway, beside --allow-missing.
-   - `target_conflict` (exit 4, `error.commits`, `error.paths`, also in `refusals`): Patronus can't rebase what lands
-     onto the newest target; the message names the commits of the target that change the files. `bd update` resolves
-     it locally (after the user approves), then run the Safe Push again.
-   - `stack_conflict` (exit 4, `error.commits`, `error.paths`): the stack branch conflicts though each branch builds;
-     `stack_not_built` (exit 4): a branch of it is blocked or failed, or the stack branch is stale. Land the stack in
-     pieces.
-   - `landed` (exit 4): a merged Safe Push landed all of the branch, or every branch of the whole stack: nothing is
-     left to land. `lands` leaves out what merged Safe Pushes landed already.
-   After a merge, until `bd update` archives them, `bd status` names the branches a merged Safe Push landed
-   (`landed_by`: the `branch` whose Safe Push it was, or the root with `whole_stack`, the `robot`, the `commits` it
-   landed, and `after`: commits added since, decided by content, the only work left, which a push and a Safe Push
-   send). bd closes no pull request after the merge: the app closes those of the parents that landed when it sees the
-   merge; when the app isn't running, tell the user that they stay open.
-6. Review. A pull request that asks no code owner of a missing group: `bd request-review <branch> --check` names whom
-   it would ask (`reviewers`: one suggested code owner of each such group); once approved, `bd request-review
-   <branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these instead): `requested`, `refused` with
-   GitHub's reason, `waiting_for`. `no_pull_request` (exit 4): none is open, or a draft; `no_reviewer`: Patronus
-   names no GitHub login, ask the user whom; `review_refused`: GitHub asked nobody.
-7. Robot. `bd robot <branch>` prints the robot of the branch (`robot.state`; `running`: ask again later; --robot <id>
-   for another one; a newer robot of the whole stack names `stack_root`), and --whole-stack the robot of the whole
-   stack. After a failed Safe Push, --full says why (`failure`: `kind`, the failed `checks` with their build ids,
-   `problems`, the failed `builds` with their failed tests and log tails) and which commits it tested (`commits`, by
-   the ids of the checked-out branch: `tested`, `rebased`, `changed`, `added`, `removed`, `landed`).
-   `kind: infrastructure`: nothing to fix, the user restarts it; else fix and check locally, the user pushes and
-   restarts it.
-8. Statistics. `bd robot-stats` prints how the user's Safe Pushes went over the last 30 days (`--period 14d`, `10w`,
-   `6m`) against everyone else's (`mine`, `everyone`: robots per merge, the time to merge), the time lost (`time`),
-   why robots of the last 14 days failed and which checks passed only on a retry (`failures`), and the fastest hours
-   (`start_hours`); --refresh asks Patronus again for the weeks it may still change.
+   a path is a branch, or `parent/leaf` for a stacked one. Run `bd check --plan plan.json` until the `result` of every
+   branch is `ok`; `bd check --fix` searches the regroup that fixes the rest. First run `bd check --help`: what each
+   `result` asks.
+3. Apply. `bd group --expect-head <head of bd suggest> --sync --plan plan.json`: one message-only rewrite, then a sync.
+   `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>` take the same options;
+   `bd describe <branch> --title ... --body ...` sets the pull request text of one branch. `bd group --help`: its
+   refusals and its undo.
+4. Push. Show the result to the user; once approved, `bd push <branch>...`, and name every branch of `branches`. Every
+   pull request goes into the baseline: each branch has a ready `gh pr create`; pipe its `body` into it. First run
+   `bd push --help`: the refusals and the stack branches.
+5. Safe Push (Patronus). First, always, `bd safe-push <branch> --check`; show the user `lands` (a stacked branch lands
+   the branches it is built on with it, in one robot; `--whole-stack` the whole stack) and `review`. Once approved,
+   `bd safe-push <branch>` (`--patronus-dry-run`: a Dry Run). First run `bd safe-push --help`: the fields of --check
+   and every refusal.
+6. Review. `bd request-review <branch> --check` names whom it would ask; once approved, the same without --check
+   (`bd request-review --help`).
+7. Robot. `bd robot <branch>` (`--full` after a failure says why and what to fix; `bd robot --help`).
+8. Statistics. `bd robot-stats` (`bd robot-stats --help`).
 
 Other tasks
 - Before the first edit of a session: `bd workspace` says whether to work in a lease of your own
@@ -259,37 +125,22 @@ Other tasks
   a resolve session (exit 1), which `bd help update` explains.
 - Several sessions or worktrees on one branch: `bd lease get` leases a worktree of your own, `bd lease return` gives
   it back; `bd pick --from <worktree> --follow` lands the commits of another worktree here (or `bd pick <rev>`,
-  `<a>..<b>`; --expect-head, --dry-run), never `git cherry-pick`; `dependencies` names a picked commit whose branch is
-  not built on what it needs, with the `plan` for `bd group` or the `bd restack`; `reparented` a branch that a
-  `(parent/leaf)` prefix stacked; `bd help worktrees` explains it.
-- Fixups: `bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
-  targets and keeps HEAD's tree.
-- A message to change (a subject too long, a typo): `bd reword <commit> --subject '<subject>'` (the body stays),
-  --message '<message>' or --message-file <file> (`-` for stdin), or several commits in one rewrite with --plan <file>
-  (`-` for stdin) of {\"rewrites\": [{\"commit\": \"<id>\", \"subject\": \"...\"}]} (or `message` for the whole
-  message); --expect-head, --allow-append, --dry-run, --sync, --map as for `bd group`. The subject is the whole line:
-  keep its `(prefix)`, unless the commit should move to another branch (`changes[].moved` says it, check with
-  --dry-run first). Every tree, the index and the files stay; the commits after it get new ids. Never an empty
-  `amend!` commit, an amend with `git commit`, `commit-tree` or `update-ref` for it. `invalid_plan` (exit 2) when a
-  fixup would fold elsewhere: fold it first, or reword it in the same plan.
-- A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
-  --sync rebuilds the virtual branches at once, else the next sync does) moves the changes of the file `path`, or
-  only its blocks by the ids that `bd commits <from> --patch` prints, into the commit `to`, older or newer; HEAD's
-  tree, the index and the working tree stay, and the commits between keep their diff. `hunk_conflict` (exit 4): a
-  commit between changes the same lines, or lacks the file, also when the words would resolve it: bd can't move it; `block_not_found` (exit 2): the file
-  changed since the id was read, `error.blocks` are its ids now.
-- `bd install` puts `bd` into ~/.local/bin (macOS, Linux; on Windows `bd.exe` is next to the app) and the skill into
-  ~/.claude/skills and ~/.agents/skills; `bd help skill` prints the skill.
+  `<a>..<b>`; --expect-head, --dry-run), never `git cherry-pick`; `bd help worktrees` explains it.
+- Fixups: `bd fold` folds the fixup!, squash! and amend! commits into their targets (`bd fold --help`).
+- A message to change: `bd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
+  or plumbing for it (`bd reword --help`).
+- A change in the wrong commit: `bd move-hunk <from> <to> <path>` (`bd move-hunk --help`).
+- `bd install` puts `bd` on PATH and the skill where agents find it; `bd help skill` prints the skill.
 "
 );
 
 /// `bd help update`: the update and its resolve session (spec/cli/update.spec.md); `agent_help_test.rs` checks it with
 /// `AGENT_HELP` against the commands and options
 pub const UPDATE_HELP: &str = "\
-bd update: bring the checked out branch onto its baseline (e.g. origin/master), as the app's Update Project, and
-resolve its conflicts outside the working tree. Other sessions may work in the same tree: bd never stashes, resets or
-checks out, and only the finish writes the working tree, through the guarded update (only the files the update
-changes; local changes on them refuse it, `uncommitted_overlap` with `paths`).
+bd update: bring the checked out branch onto its baseline (e.g. origin/master, `upstream` in the output), as the app's
+Update Project, and resolve its conflicts outside the working tree. Other sessions may work in the same tree: bd never
+stashes, resets or checks out, and only the finish writes the working tree, through the guarded update (only the files
+the update changes; local changes on them refuse it, `uncommitted_overlap` with `paths`).
 
 `bd update` fetches the baseline (--no-fetch: the last fetched state; --dry-run: the check only, no fetch, nothing
 written but git objects). Exit 0: `state` is up_to_date, fast_forward or rebase, the last two with an `undo_token`.
@@ -450,9 +301,254 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    `branch-deck: ` prefix came from outside Branch Deck.
 ";
 
+/// `bd status --help`: the fields an agent acts on, `landing_needs` first
+pub const STATUS_HELP: &str = "\
+`bd status` prints the branches and the unassigned commits ahead of the baseline; `bd status --brief` is small
+enough to read whole, `bd status --stats` adds the size of each branch. On Space it lists per branch `landing_needs`:
+what its Safe Push needs of a commit outside what it lands, the refusals `bd safe-push` would give (a name only
+another branch adds, a dangling use), each with its `fix` and `landing_in` (a running Safe Push lands that branch: a
+start beside it fails too). Tell the user before a Safe Push and run the fix (`bd restack …`) only after they
+approve; `[]` is nothing, absent is unknown. `landed_by`: a merged Safe Push landed the branch, only its `after`
+commits are left (`bd safe-push --help`); `parked`: it stays local until the user unparks it; `unapplied`: the
+branches `bd unapply` took out; `stacks`: the stack branch of each stack that forks (`bd push --help`);
+`prefix_source`: where the branch prefix came from.
+";
+
+/// `bd suggest --help`: the fields of the plan
+pub const SUGGEST_HELP: &str = "\
+`bd suggest` prints a plan, clustered and checked by a trial sync (exit 1: `check.ok` is false, edit the
+plan). Per cluster: `change` (kept, renamed, merged, split, new) against its `current_branches`; its commits in
+`kept`, `moved` ({commit, leaves}: the branch it leaves, null if unassigned) and `new_path` (the same branch,
+another stacked path in the subject): with `moved`, what the plan changes; `why`, one line to quote to the user;
+`weak`, review these first; `issue_keys` and `areas`; with stacked branches `parent`, `restacked` (it stacks each
+branch on the branches it needs) and `stacked_without_need` (a stack parent the branch needs nothing of: the plan
+keeps it, ask the user before an unstack). Whole issue branches that belong together go into `issue_groups`: no
+subject changes. `bd suggest --fresh` ignores the current prefixes and issue groups. To look closer:
+`bd status --brief`, `bd status --stats` (the size of each branch), `bd commits --brief` (per commit its group,
+issue key, fixup target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to, via}:
+`from` touches lines `to` added, or with `via` `symbols` uses a name `to` adds, which a stack satisfies too), and
+`bd commits <id>... --patch` (the blocks of each file, with their ids) or `bd commits --unassigned` for unclear
+commits.
+";
+
+/// `bd check --help`: the plan and the result of each branch
+pub const CHECK_HELP: &str = "\
+`bd check --plan plan.json` checks a plan by a trial sync. A plan is {\"branches\": {\"<path>\": [ids]},
+\"unassign\": [ids], \"issue_groups\": {\"<name>\": [keys]}, \"ungroup_issues\": [keys], \"unstack\": [branches],
+\"descriptions\": {\"<branch>\": {\"title\", \"body\"}}}; a path is a branch, or `parent/leaf` for a stacked one. Fixups follow their targets; a commit goes with, or stacks
+on, the commits it depends on. In Windows PowerShell write the plan to a file and pass the file (a PowerShell 5.1
+pipe turns non-ASCII into `?`). After any change of `branches`, `unassign`, `issue_groups` or `ungroup_issues`, run
+`bd check --plan plan.json`: exit 1 until the `result` of every branch is `ok`.
+- `conflict` {commit, subject, files, missing_commits}: move the missing commits into the branch, or stack it on
+  the branch that has them. A conflict of git whose every file the words resolve is no conflict: with `git config
+  branchdeck.resolveByWords` on (the default) the sync commits the result as IntelliJ resolves it, all or nothing
+  per commit, and the branch is `ok`. `bd sync` lists such commits in `resolved` of the branch, `bd status` and
+  `bd commits` in `resolved_by_words` of the commit; nothing to do.
+- `dangling_reference` (`dangling_references` {kind, identifier, file, line, removed_by, fixed_by, mutual,
+  declared_in}): git merges it, the build fails. The branch removes (`removed_declaration`) or changes
+  (`changed_declaration`, e.g. made `suspend`) a declaration (`declared_in` {file, line}) its tree still uses, or
+  declares one its tree has in another file (`duplicate_declaration`), and `fixed_by` of another branch changes that
+  use or deletes that file. Move `fixed_by` into the branch, or stack it on that branch; `mutual`: that change needs
+  the branch too, so `fix` moves it into the branch, as `move_commit` (its `branches` into the plan) or `move_hunk`
+  (a ready `command`, once the user approved), each proven by a trial build; no `fix`: none builds. When the user
+  says the use means another declaration, `bd check --allow-dangling` keeps the `result` and exits 0.
+- `blocked` (`blocked_by`: the parent it can't be built on), `problems`, `error`; `build_failed` (below).
+`bd check --fix` searches, by trial builds, the regroup that fixes the conflicts and dangling references: each
+`fix.components[].plan` is a whole plan for the next step, and its `steps` say what moves where (show them before
+applying one). A branch that conflicts as a whole is restacked on the branch (or a chain of the branches) that
+holds the commits it needs, in one trial; dangling references are searched after the conflicts. Each trial is a
+line on stderr (`trial 3/12: restack <branch> on <parent> … verified (41 s)`); --max-trials N (12) and
+--time-budget SECONDS (180, the whole command) bound it, and `fix.search: budget` is the best plan so far: run it
+again, the cache makes it faster. `inverted_stack` {branch, child,
+fixes, reason}: the branch needs a commit of a branch stacked on it; each fix (`move_to_child`, `swap`) is
+`branches`/`unstack` for the plan, checked by a trial build; `reason` when none builds. `warnings`: a
+`possible_dangling_reference` (or `possible_changed_declaration`, `possible_duplicate_declaration`) that no commit
+proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}, the
+branch's `result` `missing_declaration` (none when `git config branchdeck.symbols` is `report` or `off`): a use
+whose declaration is outside the branch's tree, git merges it and the build fails: stack the branch on
+`declared_in`, or move one of the two; when the user says it is a false alarm, `bd check --allow-missing` keeps the
+`result` and exits 0. `bd check --build '<command>'`
+(--build-paths <path>...) also builds a temporary copy of each tree (`build_failed`): slow on a large repository,
+but a build that passed on the same tree is not run again (`cached`; --rebuild runs it after a change outside the
+tree).
+";
+
+/// `bd group --help`: applying a plan
+pub const GROUP_HELP: &str = "\
+`bd group` applies a plan. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
+`bd status`); replace one only when the user asks. Then `bd group --expect-head <head of bd suggest> --sync --plan
+plan.json`: one message-only rewrite, the issue groups and the descriptions under one lock, then a sync. It
+prints the new `groups`, `replaced_descriptions` and `sync` (per branch `state`; a `conflict` names the commit, the
+files and the commits it needs). Exit 1, a branch not built: `bd check --fix`, or regroup so that a change and what
+it needs are in one branch or its parent, then `bd sync`. `head_moved`, `groups_moved`, `stacks_moved` or `locked`
+(exit 3): read again and retry; a peer that only added commits on top: `bd group --expect-head <head>
+--allow-append` takes them along (`appended`). `bd group --dry-run` prints the changed subjects. `bd rename <old>
+<new>`, `bd restack <branch> <parent>` and `bd unstack <branch>` take the same options. `bd describe <branch>
+--title ... --body ...` sets the text of one branch. The undo token of a regroup moves HEAD, the issue groups and
+the stack parents back (`<head>..<head>`, `groups:<id>..<id>`, `stacks:<id>..<id>`, joined by `+`); the
+descriptions stay, and the virtual branches change with the next sync.
+";
+
+/// `bd push --help`: what it pushes, its refusals and the stack branches
+pub const PUSH_HELP: &str = "\
+`bd push` pushes branches. Show the result to the user; once approved, `bd push <branch>...` (or --all --yes; --with-children adds the
+branches stacked on them) syncs, takes the parents along that have commits for the remote (--alone does not: the
+branch carries their commits), and pushes parents first in one atomic push with a lease per ref; name every branch
+of `branches` to the user. Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe
+its `body` into it. An open pull request into a virtual branch (a parent's) is retargeted to the baseline: name
+`retargeted` with `approved_by` (GitHub may dismiss those approvals); `retarget_warnings` says what GitHub refused.
+--dry-run syncs, then asks the remote. Refusals, nothing pushed:
+- `push_refused` (exit 4): a branch didn't sync, or is behind its remote branch (`remote.behind`, only what the
+  baseline lacks too). Older versions push without --force: of commits amended or restacked here
+  (`remote.amended`, `remote.restacked`), of commits the baseline has (`remote.landed`: after its whole stack
+  landed, a member's remote branch has its commits as they were; `replaced_landed` names them, nothing is lost),
+  and the remote copies of commits reworded here (`remote.reworded`); a stacked branch whose remote branch lacks
+  new commits of the branches it is built on (`remote.ancestors_ahead`) is pushed too: its Safe Push lands them.
+- `push_too_large` (exit 4): the commits add more files than `branchdeck.pushSizeLimit` (50 MiB unless set), mostly
+  build output committed by mistake; `paths` names the directory and the largest files. Show the user; never raise
+  the limit yourself.
+- `lease_rejected` (exit 4): the remote changed; bd fetched it. For a branch behind or rejected,
+  `error.branches[].remote.dropped_commits` lists what a push drops: show it; once approved, --force
+  --expect-remote <remote.head> for that one branch.
+- `robot_running` (exit 4): a Safe Push runs on the branch (the push would fail it at the end), or on a branch
+  built on it whose commit has commits of it (the message names them; a parent restacked below it after its start
+  is pushed). Wait until it merges, or, once approved, --restart-running cancels the branch's own robot, pushes and
+  restarts it on the pushed commit (`restarted`).
+- `parked` (exit 4): a named branch is parked, or built on a parked one; with --all or --with-children a parked
+  branch is only left out, named in `skipped` with `code: parked`. Tell the user, never unpark it.
+- `landed` (exit 4): merged Safe Pushes landed all of every branch asked for (`landed_by` in `bd status`):
+  nothing of them is left to push until they are archived. With others to push, `bd push` only leaves a landed
+  one out (with `--with-children` its children too), named in `skipped` with who landed it; tell the user. A
+  branch it is built on that landed is not pushed along.
+`bd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
+in `bd sync` and `bd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
+in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);
+push none that isn't `built`. `bd push <root> --with-children` pushes it in the same atomic push once it is on the
+remote or its pull request is open, when this sync built it (`stack_warnings` names one left out).
+";
+
+/// `bd safe-push --help`: the fields of --check, its refusals and the branches it landed
+pub const SAFE_PUSH_HELP: &str = "\
+`bd safe-push` starts a Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`). First, always,
+`bd safe-push <branch> --check`: it syncs and starts nothing, and prints
+- `profile` (default: the one of the last robot of the branch) and the `profiles` to choose from (--profile
+  <id|name|none>);
+- `review`: `readiness` (`not_required`, `approved`, `missing`, `unknown`), `groups` with their `reviewers` and
+  `paths`, `waiting_for` (asked, not approved yet), `not_counted` (a bot's approval counts for nothing),
+  `merge_request`; Patronus judges the approvals of the GitHub pull request;
+- `push_needed` and the `refusals` a start would meet; `remotes`, what the push replaces and drops of each remote
+  branch (a drop refuses with `push_refused`); a reworded branch needs a push, the robot lands the remote's messages;
+- `target_check`: bd fetches the target and replays what lands onto its tip, as Patronus rebases it before its
+  checks: `result` `clean`, `conflict` or `not_run`; `fetched: false` means the check used the last fetched tip;
+- `lands`, what the one robot lands into the target, root first: a stacked branch lands the branches it is built
+  on with it, and the branches built on it stay. `alone` (a stacked branch): `builds` (it could land alone once
+  unstacked, unless `uses` names a name of its stack) or `needs` (the commits of its parents it needs, `movable`
+  into it). Landing what it is built on is right: name `lands` to the user, and offer the branch alone only as a
+  second way.
+Once approved, `bd safe-push <branch>` pushes first when `push_needed` (the parents with commits for the remote,
+by content), then starts the robot: `robot.url` is its page; a branch with an open pull request into the target
+starts from a `/patronus` comment there, where its approvals count (`started_via`); one into a virtual branch is
+retargeted first (`retargeted`). --patronus-dry-run starts a Dry Run instead: the checks without the push into the
+target and without the review, but it pushes and starts a robot like a Safe Push. The whole stack, its side
+branches included, lands in one robot with --whole-stack (from any branch of it; --check first): the robot starts
+from the stack branch of its top-level root (`whole_stack.source`; a straight chain starts from its last branch),
+`lands` names every branch, and its pull request is the stack's own, where the approvals of the whole stack count.
+Refusals, nothing pushed or started:
+- `approvals_missing` (exit 4): `error.review` names who has to approve which files: show it. --create-pull-request
+  pushes and opens the pull request where they approve, assigned to the user (--no-assign leaves it unassigned;
+  --reviewer <login>, repeatable, asks a `github_login` of `review.groups[].reviewers` that the user chose;
+  `pull_request.warnings` says whom GitHub refused). Once they approved (`review.approved_on_github`), run it
+  again. --without-approvals starts anyway, only when the user says so: Patronus fails it. A merge profile known
+  to skip the review starts without them (`review.skipped_by`: `profile`).
+- `robot_running` (exit 4): a robot runs on the last commit, lands the branch with a branch of its stack or with the
+  whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit.
+- `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it
+  lands: fix it there, or, when the user says it is a false alarm, --allow-dangling.
+- `missing_declaration` (exit 4, also in `refusals`): a commit of what lands uses a name that a commit of a branch
+  outside it adds (`missing_declarations` of `bd check`); the message names the restack that lands that branch too
+  (`bd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
+  alarm, `bd safe-push --allow-missing`.
+- `push_dismisses_approvals` (exit 4, also in `refusals`): the push of new commits into the approved pull request the
+  robot starts from dismisses the approvals Patronus counts (`rules`): push first (`bd push <branch>`), then ask for
+  the review again (`bd request-review <branch>`). A push that dismisses approvals Patronus doesn't count starts;
+  tell the user `rules.message`.
+- `rules_unknown` (exit 4, also in `refusals`): GitHub didn't answer the rules of the target, so the push may dismiss
+  the approvals: ask the user; `bd safe-push --allow-unknown-rules` starts anyway, beside --allow-missing.
+- `target_conflict` (exit 4, `error.commits`, `error.paths`, also in `refusals`): Patronus can't rebase what lands
+  onto the newest target; the message names the commits of the target that change the files. `bd update` resolves
+  it locally (after the user approves), then run the Safe Push again.
+- `stack_conflict` (exit 4, `error.commits`, `error.paths`): the stack branch conflicts though each branch builds;
+  `stack_not_built` (exit 4): a branch of it is blocked or failed, or the stack branch is stale. Land the stack in
+  pieces.
+- `landed` (exit 4): a merged Safe Push landed all of the branch, or every branch of the whole stack: nothing is
+  left to land. `lands` leaves out what merged Safe Pushes landed already.
+After a merge, until `bd update` archives them, `bd status` names the branches a merged Safe Push landed
+(`landed_by`: the `branch` whose Safe Push it was, or the root with `whole_stack`, the `robot`, the `commits` it
+landed, and `after`: commits added since, decided by content, the only work left, which a push and a Safe Push
+send). bd closes no pull request after the merge: the app closes those of the parents that landed when it sees the
+merge; when the app isn't running, tell the user that they stay open.
+";
+
+/// `bd request-review --help`: whom it asks and its refusals
+pub const REQUEST_REVIEW_HELP: &str = "\
+A pull request that asks no code owner of a missing group: `bd request-review <branch> --check` names whom
+it would ask (`reviewers`: one suggested code owner of each such group); once approved, `bd request-review
+<branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these instead): `requested`, `refused` with
+GitHub's reason, `waiting_for`. `no_pull_request` (exit 4): none is open, or a draft; `no_reviewer`: Patronus
+names no GitHub login, ask the user whom; `review_refused`: GitHub asked nobody.
+";
+
+/// `bd robot --help`: the robot of a branch and why it failed
+pub const ROBOT_HELP: &str = "\
+`bd robot <branch>` prints the robot of the branch (`robot.state`; `running`: ask again later; --robot <id>
+for another one; a newer robot of the whole stack names `stack_root`), and --whole-stack the robot of the whole
+stack. After a failed Safe Push, --full says why (`failure`: `kind`, the failed `checks` with their build ids,
+`problems`, the failed `builds` with their failed tests and log tails) and which commits it tested (`commits`, by
+the ids of the checked-out branch: `tested`, `rebased`, `changed`, `added`, `removed`, `landed`).
+`kind: infrastructure`: nothing to fix, the user restarts it; else fix and check locally, the user pushes and
+restarts it.
+";
+
+/// `bd robot-stats --help`: the statistics
+pub const ROBOT_STATS_HELP: &str = "\
+`bd robot-stats` prints how the user's Safe Pushes went over the last 30 days (`--period 14d`, `10w`,
+`6m`) against everyone else's (`mine`, `everyone`: robots per merge, the time to merge), the time lost (`time`),
+why robots of the last 14 days failed and which checks passed only on a retry (`failures`), and the fastest hours
+(`start_hours`); --refresh asks Patronus again for the weeks it may still change.
+";
+
+/// `bd fold --help`: folding the fixups
+pub const FOLD_HELP: &str = "\
+`bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
+targets and keeps HEAD's tree.
+";
+
+/// `bd reword --help`: the change of a message
+pub const REWORD_HELP: &str = "\
+A message to change (a subject too long, a typo): `bd reword <commit> --subject '<subject>'` (the body stays),
+--message '<message>' or --message-file <file> (`-` for stdin), or several commits in one rewrite with --plan <file>
+(`-` for stdin) of {\"rewrites\": [{\"commit\": \"<id>\", \"subject\": \"...\"}]} (or `message` for the whole
+message); --expect-head, --allow-append, --dry-run, --sync, --map as for `bd group`. The subject is the whole line:
+keep its `(prefix)`, unless the commit should move to another branch (`changes[].moved` says it, check with
+--dry-run first). Every tree, the index and the files stay; the commits after it get new ids. Never an empty
+`amend!` commit, an amend with `git commit`, `commit-tree` or `update-ref` for it. `invalid_plan` (exit 2) when a
+fixup would fold elsewhere: fold it first, or reword it in the same plan.
+";
+
+/// `bd move-hunk --help`: the move of a change and its refusals
+pub const MOVE_HUNK_HELP: &str = "\
+A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
+--sync rebuilds the virtual branches at once, else the next sync does) moves the changes of the file `path`, or
+only its blocks by the ids that `bd commits <from> --patch` prints, into the commit `to`, older or newer; HEAD's
+tree, the index and the working tree stay, and the commits between keep their diff. `hunk_conflict` (exit 4): a
+commit between changes the same lines, or lacks the file, also when the words would resolve it: bd can't move it; `block_not_found` (exit 2): the file
+changed since the id was read, `error.blocks` are its ids now.
+";
+
 /// The skill `bd install` writes and `bd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
-/// and others), naming bd by `command`, its full path. It only says when to use bd and where the workflow is, so it
-/// can't fall out of date with the binary: `bd help agent` is the workflow. `allowed-tools` (Claude Code) lets the agent
+/// and others), naming bd by `command`, its full path. It says when to use bd, what `bd workspace` asks, the rules an
+/// agent must not miss before it reads any help, and where the workflow is; the rest lives in the binary, so it can't
+/// fall out of date: `bd help agent` is the workflow, `bd <command> --help` the outputs and refusals. `allowed-tools` (Claude Code) lets the agent
 /// run every bd command without a permission prompt while the skill is active, also the ones that rewrite the branch or
 /// push: a push still waits for the user, by the rule of the body
 pub fn skill_text(command: &str) -> String {
@@ -505,33 +601,24 @@ wins over it:
 
 To group or push commits or to start a Safe Push, run `bd help agent` first and follow the workflow it prints: it is the
 contract of the installed version. To update a branch or resolve its update conflicts, run `bd help update` instead.
-When several sessions or worktrees work on one branch, run `bd help worktrees` first.
+When several sessions or worktrees work on one branch, run `bd help worktrees` first. `bd <command> --help` says what a
+command prints and what each of its refusals asks.
 
 - Run bd in the repository, or pass `-C <repo>`.
 - Land the commits of another worktree with `bd pick`, never with `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema <command>` prints the JSON Schema of its output, `bd version` the version of bd and git.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
-  change between commits only with `bd move-hunk`, change a message only with `bd reword`; never push, start a Safe Push or create pull requests before the
-  user approved them.
+  change between commits only with `bd move-hunk`, change a message only with `bd reword`. Never push, start a Safe
+  Push or create pull requests before the user approved them; an `error.next_steps` entry with `needs_approval` waits
+  for that approval too.
 - Before a Safe Push, run `bd safe-push <branch> --check` first and show the user what it lands: the Safe Push of a
   stacked branch lands the branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack,
   its side branches included, in one robot.
-- A branch a merged Safe Push landed says so in `bd status` (`landed_by`) until `bd update`: only its `after` commits
-  are left to push or land, and with none `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`).
-- On Space `bd status` lists per branch `landing_needs`: what its Safe Push needs of a commit outside what it lands,
-  the refusals `bd safe-push` would give (a name only another branch adds, a dangling use), each with its `fix` and
-  `landing_in` (a running Safe Push lands that branch: a start beside it fails too). Tell the user before a Safe Push
-  and run the fix (`bd restack …`) only after they approve; `[]` is nothing, absent is unknown.
 - A branch `parked` in `bd status` stays local until the user unparks it: `bd push` and `bd safe-push` refuse it
   (`parked`). Never push or unpark it on your own.
 - `bd unapply <branch>` takes a branch and its files out of the checked out branch, kept as an unapplied one, and
   `bd reapply <name>` puts it back on top; only when the user asks, and `bd undo <undo_token>` takes either back.
-- `bd check --fix` prints a line per trial on stderr and stops at `--max-trials` (12) or `--time-budget` (180 s): a
-  `search: budget` answer is the best plan so far. A commit prefixed `(parent/leaf)` stacks the existing group `leaf`
-  on `parent` (`reparented` in `bd pick`); two parents of one group name the `bd restack` that keeps one.
-- A `git_error` \"not updating refs/branch-deck/tmp/chain (… does not contain …)\" is a ref a Branch Deck 0.21 or older left:
-  `git update-ref -d refs/branch-deck/tmp/chain`, then retry.
 "
   )
 }

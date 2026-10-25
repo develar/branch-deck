@@ -20,7 +20,8 @@ it and `reapply` puts it back, `lease` keeps the pool of worktrees that
 agent sessions work in, and `workspace` tells an agent before its first edit whether to lease one and how to write a
 commit subject; `fold` folds the fixup commits, and
 `move-hunk` moves the change of a file from one commit into another. `install` puts `bd` and its skill where agents
-find them; `help agent`, `help update` and `help worktrees` print the texts an agent follows.
+find them; `help agent`, `help update` and `help worktrees` print the texts an agent follows, `help <command>` the
+`--help` of a command.
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
@@ -1767,10 +1768,11 @@ How an agent learns that bd exists. `bd install`, or Help â†’ Install Agent CLIâ
   first, else the subject as the repository writes it) and the isolation rules a repository would otherwise repeat (no
   `git worktree add` or clone of the agent's own, also when bd fails; in a Codex sandbox, write access to exactly the
   lease's `path`), then sends the agent to `bd help agent` for grouping, pushing
-  and Safe Push, to `bd help update` for an update, and to `bd help worktrees` when several sessions or worktrees work
-  on one branch; it asks for `bd safe-push <branch> --check` before a Safe Push, as the Safe Push of a stacked branch
-  lands its parents too. The workflow stays in the binary, so the
-  skill can't fall out of date with it. Its `allowed-tools` is `Bash(<bd>:*)`: while the skill is active, Claude Code
+  and Safe Push, to `bd help update` for an update, to `bd help worktrees` when several sessions or worktrees work
+  on one branch, and to `bd <command> --help` for the outputs and refusals of a command; it asks for
+  `bd safe-push <branch> --check` before a Safe Push, as the Safe Push of a stacked branch lands its parents too, and
+  keeps the rules an agent must not miss before it reads any help (approval, no reorder, `bd pick`, `error.code`,
+  parked, unapply). The workflow and the fields stay in the binary, so the skill can't fall out of date with it. Its `allowed-tools` is `Bash(<bd>:*)`: while the skill is active, Claude Code
   runs every bd command without a permission prompt, also `bd group`, which rewrites the checked out branch, and
   `bd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
 
@@ -1793,12 +1795,26 @@ blocked prompt names no command: the user updates in the app.
 
 ### `bd help agent`
 
-Prints the agent workflow as plain text (`AGENT_HELP`, about 18 KB): the rules first, then the steps, then the other
-tasks; it only names the resolve session, which `bd help update`
-prints (`UPDATE_HELP`), and the work beside other sessions, which `bd help worktrees` prints (`WORKTREES_HELP`).
-`agent_help_test.rs` keeps the three true. Together they must name every command and, for each command,
-every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as `status --limit`). An option counts for the
-command named last before it, and it must exist for that command.
+Prints the agent workflow as plain text (`AGENT_HELP`, a core of at most 10 KB, about 2,500 tokens): the rules first,
+the refusals that wait for the user with the flag only the user's word allows, then the steps, then the other tasks.
+Every agent reads it before grouping or pushing, so it carries only what an agent must know before it acts; a step
+sends the agent to the `--help` of its command for the fields of the output and the other refusals. It only names the
+resolve session, which `bd help update` prints (`UPDATE_HELP`), and the work beside other sessions, which
+`bd help worktrees` prints (`WORKTREES_HELP`). Agents act on the error they get and seldom read a `--help` first: so a
+rule that waits for the user stays in the core and in the message of the error, never only in a `--help`.
+
+`agent_help_test.rs` keeps the texts true. Together with the `after_long_help` of every command they must name every
+command and, for each command, every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as
+`status --limit`). An option counts for the command named last before it (in the `--help` of a command, that command
+before the first), and it must exist for that command. `documented_in`, an exhaustive match over `ErrorCode`, places
+every code: the core, a topic or the `--help` of a command must name it.
+
+### `bd <command> --help`
+
+The text after the options (`after_long_help`, constants beside `AGENT_HELP`) of `status`, `suggest`, `check`, `group`,
+`push`, `safe-push`, `request-review`, `robot`, `robot-stats`, `fold`, `reword` and `move-hunk`: the fields of the
+output and what each refusal asks. `-h` ends with one line that names `--help`; `bd help <command>` prints the same
+as `--help`, because an agent tries it first.
 
 ### `bd help worktrees`
 
@@ -1818,7 +1834,12 @@ The workflow is `bd help agent` (`AGENT_HELP` in `crates/bd-cli/src/agent_help.r
 user's approval, what each exit code asks for, when to retry, how to undo), then the steps from `bd suggest` to the
 robot of a Safe Push, then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd move-hunk`). It is the one text an
 agent follows, versioned with the binary and checked by `agent_help_test.rs`; this guide is its reference and does not
-repeat it. `bd help update` and `bd help worktrees` hold the resolve session and the work beside other sessions.
+repeat it. `bd help update` and `bd help worktrees` hold the resolve session and the work beside other sessions, the
+`--help` of a command its outputs and refusals.
+
+What an agent reads, by cost: the skill (about 5 KB, loaded whenever it triggers), `bd help agent` (at most 10 KB,
+before grouping or pushing), then only the `--help` of the command it runs, or the topic of its task; `bd schema
+<command>` for the exact fields. Nothing in this guide is installed.
 
 The app's Update Project hand-off prompt (`src/lib/agent-prompt.ts`) states the same rules for an agent that rebases:
 no reordered, squashed or dropped commit, no push, no stash. For an update blocked by uncommitted changes it sends the

@@ -1297,8 +1297,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   its rules asks, `bd help agent` as the workflow of grouping, pushing and Safe Push, `bd help update` for an update,
   and `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents, and
   `--whole-stack`, which lands the whole stack, the landing of a worktree's commits onto a shared branch among its
-  triggers, and `bd help worktrees` when several sessions or worktrees work on one branch; `bd help skill` must print
-  the same text. Its `allowed-tools` must be
+  triggers, `bd help worktrees` when several sessions or worktrees work on one branch, `bd <command> --help` for the
+  outputs and refusals of a command, and the rules an agent must not miss before it reads any help (approval before
+  every push, never reorder, squash or drop commits, `bd pick` instead of a cherry-pick, `error.code`, parked branches,
+  unapply); the details of an output belong in the binary's help, not in the skill. `bd help skill` must print the
+  same text. Its `allowed-tools` must be
   `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
@@ -1326,22 +1329,42 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`, `says how agents work by the rules of every repository`)
 ### `bd help agent`
 
-- It must print the rules first: what needs the user's approval (every push, Safe Push and Patronus Dry Run, review
-  request, `gh pr create` and change of another session's commit, a reword of its message too), what each exit code asks for (exit 1 never an error
-  object, exit 4 without a rule: stop and show `message`), that `retryable` decides a retry whatever the exit code,
-  the error object with `paths`, `branches` and `review`, `--expect-head`, `previous_head`, `new_head`, the
-  `undo_token` and `after_error`, abbreviated ids compared by prefix, never reorder, squash or drop commits except
-  with `bd fold`, a change moved only with `bd move-hunk`, a message changed only with `bd reword`, and only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo writing the
-  working tree. Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each branch;
-  apply with `bd group --sync`; push; Safe Push with `--check` first, `lands`, `alone`, `--whole-stack` and the
-  refusals; review; robot), then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd reword` with its `(prefix)`
-  kept and never an empty `amend!` or plumbing, `bd move-hunk`, `bd install`),
-  each sending a longer story to its own topic. Together with `bd help update` and `bd help worktrees` it must name
+- It must be a core of at most 10 KB, which every agent reads before grouping or pushing: the rules first, what needs
+  the user's approval (every push, Safe Push and Patronus Dry Run, review request, `gh pr create`, park, unpark,
+  unapply, reapply and change of another session's commit, a reword of its message too), parked branches and
+  unapply, never reorder, squash or drop commits except with `bd fold`, a change moved only with `bd move-hunk`, a
+  message changed only with `bd reword`, only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo writing
+  the working tree, what each exit code asks for (exit 1 never an error object, exit 4 without a rule: stop and show
+  `message`), that `retryable` decides a retry whatever the exit code, the error object with `paths`, `branches`,
+  `review`, `processes` and `next_steps`, which printed commands run at once (`next` of `bd workspace`, `bd update`
+  and `bd pick`) and which wait for the user's approval (`push` of `bd sync`, `fix`, `next_steps` with
+  `needs_approval`), `--expect-head`, `previous_head`, `new_head`, the `undo_token` and `after_error`, abbreviated ids
+  compared by prefix. Then every refusal that waits for the user, with the flag that only the user's word allows:
+  `push_too_large` (never raise the limit), `parked` (never push or unpark), `lease_rejected` (show
+  `dropped_commits`), `robot_running`, `approvals_missing` (`--without-approvals` only when the user says so),
+  `dangling_reference` and `missing_declaration` (only a false alarm), `rules_unknown`, `low_disk_space` (never
+  `--min-free 0`). Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each
+  branch; apply with `bd group --sync`; push; Safe Push with `--check` first, `lands` and `--whole-stack`; review;
+  robot; statistics), each step sending the agent to the `--help` of its command, then the other tasks (`bd update`,
+  `bd pick`, `bd fold`, `bd reword` with its `(prefix)` kept and never an empty `amend!` or plumbing, `bd move-hunk`,
+  `bd install`). Together with `bd help update`, `bd help worktrees` and the `--help` of every command it must name
   every command and, per command, every long option except a listed few, and name no command, and no option for a
   command, that doesn't exist.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_agent_help_is_a_short_core_with_every_guard`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 - Its first line must name the version.
   [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
+
+### `bd <command> --help`
+
+- The `--help` of `status`, `suggest`, `check`, `group`, `push`, `safe-push`, `request-review`, `robot`,
+  `robot-stats`, `fold`, `reword` and `move-hunk` must print, after the options, the fields of the command's output
+  and what each of its refusals asks; `-h` must end with the line that names `--help`, and `rename`, `restack` and
+  `unstack` must name `bd group --help`. `bd help <command>` must print the same as `bd <command> --help`, its usage
+  `bd <command>`. Every error code must be placed (an exhaustive match, so a new code can't be forgotten): a refusal an
+  agent acts on must be named in the core, a topic or the `--help` of its command.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_refusal_is_in_the_help_of_its_command`)
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_help_topic_prints_its_text`)
 
 ### `bd help worktrees`
 
