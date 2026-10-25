@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { expectColumnAligned } from "../helpers/column-helpers"
+import { expectColumnAligned, expectGap } from "../helpers/column-helpers"
 import {
   availablePullRequests,
   createPullRequestDialog,
@@ -398,9 +398,7 @@ test.describe("Request Review without Patronus", () => {
     // gutter, where the "⋯" of a row without a pull request stands (its first push is a step of Create)
     await expect(row.getByTestId("request-review-anchor")).toHaveCount(1)
     await expect(page.getByTestId("next-step-slot")).toHaveCount(0)
-    const pushBox = (await getPushButton(row).boundingBox())!
-    const moreBox = (await getMoreButton(row).boundingBox())!
-    expect(moreBox.x - (pushBox.x + pushBox.width)).toBeCloseTo(8, 0)
+    await expectGap(getPushButton(row), getMoreButton(row), 8)
     await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
 
     // the right-click: the popover at the row; no code owner without Patronus, the search finds whom to ask

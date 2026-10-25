@@ -10,6 +10,20 @@ export function columnLefts(items: Locator, edge: "left" | "right" = "left"): Pr
   return items.evaluateAll((elements, side) => [...new Set(elements.map(element => Math.round(element.getBoundingClientRect()[side])))], edge)
 }
 
+/**
+ * `right` stands `gap` px after the end of `left`, once the columns are laid out: the observer writes the widths of the
+ * tracks (and their gutters) in the rendering of the frame after the content changed, so a read in between finds the
+ * old ones; what is painted has them
+ */
+export async function expectGap(left: Locator, right: Locator, gap: number): Promise<void> {
+  await expect
+    .poll(async () => {
+      const [start, end] = await Promise.all([left.boundingBox(), right.boundingBox()])
+      return start === null || end === null ? null : Math.round(end.x - (start.x + start.width))
+    })
+    .toBe(gap)
+}
+
 /** The matches of `items` (at least two) stand in one column: their left edges (or right ones) are one */
 export async function expectColumnAligned(items: Locator, edge: "left" | "right" = "left"): Promise<void> {
   await expect.poll(() => items.count()).toBeGreaterThan(1)
