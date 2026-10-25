@@ -333,7 +333,8 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/git/push.test.ts (`pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `pushes the stack again over the fetched heads when the remote that moved has no commits the branch lacks`, `pushes up to a commit with the branches below it whole, in one push`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_stack_pushes_its_branches_in_one_push`, `a_moved_lease_refuses_every_branch_and_names_it`, `a_stack_push_up_to_a_commit_pushes_the_branches_below_whole`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_atomic_push_of_a_stack`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should push the stack up to a commit, the branches it is built on first, the rest left to push`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`)
+  [@test] ../../tests/e2e/stacked-branches/push-up-to.spec.ts (`should push the stack up to a commit, the branches it is built on first, the rest left to push`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack in one push, refused whole when a remote branch of it moved`, `should push a parent with its children`)
 - A push of several branches, "Push Stack" or "Push with Children", is one toast: "Pushed auth, login and oauth" (up
   to four named, "Pushed auth, session, login and oauth"; from five on "Pushed auth, login, oauth and 2 more", never
@@ -427,17 +428,17 @@ menu stacks, unstacks and renames branches.
 
 ### Push Up to Here
 
-- A commit the remote lacks must offer "Push Up to Here": its push arrow in the commit lines of a stack island
-  (`PushUpToMark`) opens what it sends, and the menu of a commit in a commit list pushes it (`pushUpToPlan`). It
-  pushes the branches the commit is built on that have work for the remote, whole (the branch is built on their tips),
-  root first, then the branch up to the commit (`StackPushBranch.tip`), in the one atomic push of a stack; the
-  commits after it stay unpushed. The last
-  commit the remote lacks is the push of the whole branch. The popover says it in the words of Push Stack: "Pushes 3
+- A commit the remote lacks must offer "Push Up to Here" (`offersPushUpTo`): its push arrow after the subject in the
+  commit list of a branch (`PushUpToMark`), in the table, a stack island and the Parked card, opens what it sends, and
+  the menu of the commit pushes it (`pushUpToPlan`). It pushes the branches the commit is built on that have work for
+  the remote, whole (the branch is built on their tips), root first, then the branch up to the commit
+  (`StackPushBranch.tip`), in the one atomic push of a stack; the commits after it stay unpushed. The last commit the
+  remote lacks is the push of the whole branch. The popover says it in the words of Push Stack: "Pushes 3
   branches, parents first:", a line per push, "bridge · 1 of 2 commits · creates the remote branch"; its button
   "Push Up to Here" marks, while hovered, the nodes of the branches and the commits it sends. One toast says what was
   pushed, the part of the branch counted.
   [@test] ../../src/lib/push-up-to.test.ts (`pushes the branches the commit is built on whole, root first, then its branch up to it`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the stack up to a commit, the branches it is built on first, the rest left to push`, `should push up to a commit from its menu in the full list`)
+  [@test] ../../tests/e2e/stacked-branches/push-up-to.spec.ts (`should push the stack up to a commit, the branches it is built on first, the rest left to push`, `should push up to a commit from its menu in the full list`)
 - Only a commit on the fast-forward tail can be a cut: the branch is not on the remote, or the remote has an older
   state of it. A branch rewritten since its push pushes whole: "login was rewritten since its push: it pushes whole."
   The backend checks it with one `rev-list` (`check_push_tip`): the commit is one of the branch's own, after its
@@ -447,16 +448,17 @@ menu stacks, unstacks and renames branches.
 - It must say why it can't, with a link that shows the branch in the way: an ancestor blocked or failed to sync ("auth
   can't be pushed: blocked by core."), an ancestor whose push drops remote commits ("auth's push drops 2 remote
   commits: Force Push auth first.": it asks first in its own row), a branch a running Safe Push lands ("A Safe Push of
-  oauth lands all of auth.", "A Safe Push of the whole air stack lands all of air."); the menu item is disabled with
-  the reason.
-  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds`)
+  oauth lands all of auth.", "A Safe Push of the whole air stack lands all of air."), a parked branch or one built on
+  it, in the words of its push button ("Parked: Unpark it to push", "Built on parked core: Unpark core to push",
+  [Parked Branches](parked-branches.spec.md#the-app)); the menu item is disabled with the reason.
+  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds`, `keeps a parked branch and a branch built on it local, in the words of their push button`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
 - A commit a merged Safe Push landed (`isLandedCommit`: every commit of a landed branch but those added after the
   landed ones, [Patronus](patronus.spec.md#merged)) is in the target, as a commit the remote has: one rule for every
-  surface (`pushUpToPlan`), so it has no push arrow in the island's commit lines and no "Push Up to Here" in the menu
-  of the full list. A branch it landed whole is no step of a push up to a commit built on it: the branch is pushed
-  without it, as its own push leaves it.
+  surface (`offersPushUpTo`), so it has no push arrow and no "Push Up to Here" in its menu. A branch it landed whole is
+  no step of a push up to a commit built on it: the branch is pushed without it, as its own push leaves it.
   [@test] ../../src/lib/push-up-to.test.ts (`offers nothing for a commit a merged Safe Push landed, only for one added after the landed ones, and leaves out a branch it landed whole`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should offer Push Up to Here in the full list only for a commit added after the ones a merged Safe Push landed, without the landed branches`, `should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them`)
+  [@test] ../../tests/e2e/stacked-branches/push-up-to.spec.ts (`should offer Push Up to Here in the full list only for a commit added after the ones a merged Safe Push landed, without the landed branches`, `should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them`)
 
 ### Messages
 
@@ -508,7 +510,7 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/stores/branch-table-rows.test.ts (`prunes the rows to the visible branches and the branches they stack on, which are dimmed`, `prunes an issue family to its visible members`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
 - A stack of 5 branches or 40 commits at the top level of the table must be an island of its own below it, its header
-  heading the stack, its commits on the lanes ([Stack Island](stack-island.spec.md)); the rules below are of a stack
+  heading the stack, its rows those of the table ([Stack Island](stack-island.spec.md)); the rules below are of a stack
   in the table, and an island collapses by the same `collapsedStacks`.
 - The root row of a stack must head it, so a stack of 22 branches doesn't read as 22 rows. A stack is the tree of the
   branches built on a root; what a branch's ancestors are to it is "built on", and a Safe Push "lands … with it". After

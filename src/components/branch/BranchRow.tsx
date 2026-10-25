@@ -4,7 +4,7 @@ import { cn } from "cn"
 import { TriangleAlertIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ActiveBranchExpanded, CommitRail } from "@/components/branch/ActiveBranchExpanded"
+import { ActiveBranchExpanded } from "@/components/branch/ActiveBranchExpanded"
 import { BranchActions, BranchMenuItems } from "@/components/branch/BranchActions"
 import { ColumnTrack } from "@/components/branch/BranchColumns"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
@@ -17,7 +17,6 @@ import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { PassedParentLabel } from "@/components/branch/StackBaseLabel"
 import { StackChip } from "@/components/branch/StackChip"
 import { LaneCell, LaneGutter } from "@/components/branch/StackLanes"
-import { StackCommitLines } from "@/components/commit/StackCommitLines"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { acceptanceOf, beginCommitDrag, dropTargetState, getBranchDropFacts, useCommitDropTarget } from "@/hooks/useCommitDrag"
@@ -87,8 +86,6 @@ export interface BranchRowProps {
   stackCollapsed?: boolean
   /** A filter shows its matches: the stack doesn't collapse */
   stackFiltered?: boolean
-  /** In a stack island: the commits show on the lane, a line each (`StackCommitLines`), while the row is not expanded */
-  commitLines?: boolean
   /** The root of an island: the push of its stack (Push with Children) shows in the island header, not in the row */
   stackPushInHeader?: boolean
   expanded: boolean
@@ -113,7 +110,6 @@ export const BranchRow = memo(function BranchRow({
   stackKind = "stack",
   stackCollapsed = false,
   stackFiltered = false,
-  commitLines = false,
   stackPushInHeader = false,
   expanded,
   onToggleExpanded,
@@ -188,12 +184,9 @@ export const BranchRow = memo(function BranchRow({
   const isDropOver = dropTarget.canDrop && dropTarget.isOver
   // the rows below the branch row: a drop on them is a drop on the branch
   const blockDropClass = isDropOver ? "bg-primary/5" : undefined
-  // the expanded commits sit on the lane of the branch: its line runs down from the node to them
-  // a failure hides them; a stack problem keeps them, as the commits to fix are among them
-  const hasCommitList = branch.commits.length > 0 && (branch.errorDetails?.Generic === undefined || stackProblemOf(branch) !== null)
-  // in an island the commits show without the row expanded, a line each
-  const showsCommitLines = commitLines && !expanded && hasCommitList
-  const commitsOnLane = (expanded && hasCommitList) || showsCommitLines
+  // the expanded commits sit on the lane of the branch: its line runs down from the node to them; a collapsed row shows
+  // none, in an island too. A failure hides them; a stack problem keeps them, as the commits to fix are among them
+  const commitsOnLane = expanded && branch.commits.length > 0 && (branch.errorDetails?.Generic === undefined || stackProblemOf(branch) !== null)
   // the lines beside the inline form and the amend conflict, and where their content starts
   const gutter = <LaneGutter name={name} lanes={lanes} commitsBelow={commitsOnLane} familyIndent={familyIndent} landing={landing} />
   const insetClass = laneContentInsetClass(familyIndent)
@@ -331,16 +324,6 @@ export const BranchRow = memo(function BranchRow({
                 <MergeConflictViewer conflict={activeInline.conflictInfo} branchName={name} onto="the amended commit" />
               </Suspense>
             </div>
-          </td>
-        </tr>
-      )}
-
-      {showsCommitLines && (
-        <tr data-testid="branch-commit-lines-row" className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
-          <td colSpan={columnCount} className="relative p-0">
-            <CommitRail name={name} familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes} landing={landing}>
-              <StackCommitLines branch={branch} />
-            </CommitRail>
           </td>
         </tr>
       )}

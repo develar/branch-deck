@@ -33,6 +33,8 @@ targets:
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/components/commit/MovableCommitList.tsx
+  - ../../src/components/commit/PushUpToMark.tsx
+  - ../../src/lib/push-up-to.ts
   - ../../src/components/branch/ArchivedBranchExpanded.tsx
   - ../../src/components/conflict/ConflictCommitContext.tsx
   - ../../src/components/conflict/MergeConflictViewer.tsx
@@ -111,6 +113,12 @@ The commit hash popover shows the same header and body.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
   [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in commit messages`, `should render issue links in unassigned commits`, `should show plain text for commits without issue references`)
 - The subject line must show only exception badges: Pending, Merge conflict, Error, Blocked and Amend target.
+- In the commits of a branch, a commit the remote lacks must show the push arrow after its subject (`PushUpToMark`):
+  a click opens Push Up to Here of it, not the selection of the row
+  ([Stacked Branches](../branch/stacked-branches.spec.md#push-up-to-here)); a commit the remote has, or one a merged
+  Safe Push landed, has none (`offersPushUpTo`). While the button of an open Push Up to Here is hovered, the rows of
+  the commits it sends are tinted (`data-sent`).
+  [@test] ../../tests/e2e/stacked-branches/push-up-to.spec.ts (`should push the stack up to a commit, the branches it is built on first, the rest left to push`, `should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them`)
 - A commit with a merge conflict must show the "Merge conflict" badge.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`)
 - The Amend target badge must explain its meaning in a tooltip.
@@ -421,6 +429,8 @@ The commit hash popover shows the same header and body.
 - The message button follows the subject as a ghost `icon-xs` button. It keeps the 20px line height of the subject.
 - The message button is muted. It becomes `text-foreground` on hover.
 - Issue links are muted and become `text-foreground` on hover.
+- The push arrow follows the message button: a 16px button with a 12px `ArrowUpIcon` in `text-primary`,
+  `bg-primary/10` on hover. A row its Push Up to Here sends is `bg-primary/5`; the selection tint wins over it.
 - Badges follow the message button: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `primary` Amend target (the target of the user's amend).
 
 ### Commit preview

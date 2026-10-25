@@ -375,7 +375,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     or a pull request where it is the heading (the preview headers, `CommitHeading`, the chips of a pull request); a
     row of a list and a sum (a directory, a section) keeps them muted;
   - the time of a commit is absolute: the meta line says it with the committer time on hover (`TimeWithPopover`), a
-    one-line list (the commits of a pull request, the stack island) says it short (`formatCompactTimestamp`: "Today
+    one-line list (the commits of a pull request) says it short (`formatCompactTimestamp`: "Today
     2:32 PM", "Yesterday", "Oct 3"); only the age of an event is relative ("waiting 2 days", "landed 2 hours ago");
   - a hash is `font-mono` and muted, in a window title too (`WindowTitle` part `{ text, mono: true }`);
   - every sub-window title is a `WindowTitle` in `text-sm`, the last part in the foreground ("Your Turn › 2 of 5").

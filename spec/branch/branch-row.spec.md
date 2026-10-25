@@ -26,6 +26,8 @@ targets:
   - ../../src/components/branch/StackChip.tsx
   - ../../src/hooks/useStackPathPointer.ts
   - ../../src/components/branch/ActiveBranchExpanded.tsx
+  - ../../src/components/commit/CommitList.tsx
+  - ../../src/hooks/useCommitMoveList.ts
   - ../../src/components/branch/BranchStatusBadge.tsx
   - ../../src/components/branch/StatusChip.tsx
   - ../../src/components/branch/PullRequestChip.tsx
@@ -70,7 +72,6 @@ targets:
   - ../../src/lib/branch.ts
   - ../../crates/sync-core/src/sync.rs
   - ../../src/lib/stack-lanes.ts
-  - ../../src/components/commit/StackCommitLines.tsx
   - ../../src/index.css
   - ../../src/components/branch/ArchivedBranchTableCard.tsx
   - ../../src/components/branch/ArchivedDateCell.tsx
@@ -279,10 +280,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../src/stores/branch-table-rows.test.ts (`indents a family member and the stack on it one level, with the lanes of the stack inside`)
   [@test] ../../src/lib/branch.test.ts (`formats the branches and their commits in one summary`)
 - The commits of an expanded branch must sit on its lane, a dot per commit at its subject line, beside the lanes that
-  run on below the row. In a table with stacks they are oldest first: time runs down with the graph, so the tip of a
-  parent sits right above the row of its child ([Stack Island](stack-island.spec.md#rows-and-commits)); without stacks
-  newest first, as no graph runs down with time. The lane runs on into the children below, or ends at the last commit
-  of a branch without children; a family member keeps its guide beside them.
+  run on below the row; a collapsed row shows none ([Hover and click](#hover-and-click)). In a table with stacks they
+  are oldest first: time runs down with the graph, so the tip of a parent sits right above the row of its child; the
+  amend target is then the last commit, and the squash dialog still gets the commits newest first. Without stacks they
+  are newest first, as no graph runs down with time. The lane runs on into the children below, or ends at the last
+  commit of a branch without children; a family member keeps its guide beside them. The rows of a commit:
+  [Commit Row](../commit/commit-row.spec.md).
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show a big stack as an island below the table, the commits of a row on its lane only while it is expanded, oldest first`)
 - The commit subjects must start at the branch name.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should carry the commits of a branch on its lane, into the lines of its children`)
 - The inline form row and the amend conflict row of a branch must draw the lanes that run on
@@ -462,11 +466,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 ### Hover and click
 
 - A row must show the pointer and `bg-muted` on hover; an expanded row keeps `bg-muted/50`.
-- A click on the row or on its folder button must toggle its commits. A click on another button, a chip or a link in
-  the row must not. Cmd/Ctrl-click and Shift-click must select the row instead (`data-selected`, `bg-primary/15`), for
+- A click on the row or on its folder button must toggle its commits, in the table, a stack island and the Parked card
+  alike: a collapsed row shows no commit of its branch below it. A click on another button, a chip or a link in the
+  row must not. Cmd/Ctrl-click and Shift-click must select the row instead (`data-selected`, `bg-primary/15`), for
   "Move to…" of the selected branches ([Move Commits](move-commits.spec.md)).
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should move the selected branches to a new branch with Move to…`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show a big stack as an island below the table, the commits of a row on its lane only while it is expanded, oldest first`)
 - A right-click must open the branch menu, the same as "⋯" in the Actions cell. A row running an inline action has no
   menu.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display context menu with copy options`)

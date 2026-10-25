@@ -13,7 +13,7 @@ import { pushUpTo } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
-import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
+import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets, getParkedState } from "@/stores/branch-sync"
 import { claimSelection, requestCommitForm, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitFormRequest, useCommitMove, useRevealRequest } from "@/stores/commit-move"
 import type { CommitFormRequest } from "@/stores/commit-move"
 import { branchSubject, getOperations, operationItem } from "@/stores/operations"
@@ -102,10 +102,10 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
 /**
  * "Push Up to Here" of a commit the remote lacks (`pushUpToPlan`): the branch up to it, after the branches it is built
  * on that have work, root first; disabled with the reason when it can't; nothing for a commit the remote has, nor for
- * one a merged Safe Push landed, as the island's commit lines show no arrow for either
+ * one a merged Safe Push landed, as the row shows no push arrow for either
  */
 function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
-  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, holdOf: getPushHold, landedOf: getLandedBy })
+  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, holdOf: getPushHold, landedOf: getLandedBy, parkedOf: getParkedState })
   if (plan === null) {
     return []
   }

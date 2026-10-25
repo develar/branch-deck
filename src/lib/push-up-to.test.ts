@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
+import type { ParkedState } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import { testRobot } from "@/lib/test-robot"
@@ -29,7 +30,7 @@ function branch(name: string, parent: string | null, count: number, overrides: P
 
 function sources(...branches: Branch[]) {
   const byName = new Map(branches.map(it => [it.name, it]))
-  return { branchOf: (name: string) => byName.get(name), holdOf: () => null, landedOf: () => null }
+  return { branchOf: (name: string) => byName.get(name), holdOf: () => null, landedOf: () => null, parkedOf: () => null }
 }
 
 describe("pushUpToPlan", () => {
@@ -85,6 +86,21 @@ describe("pushUpToPlan", () => {
     expect(pushUpToPlan("auth", "auth-1", landed)).toBeNull()
     // the one commit left is the push of the whole branch, without auth: all of it is in the target
     expect(pushUpToPlan("login", "login-3", landed)).toEqual({ ok: true, steps: [{ name: "login", sent: 3, total: 3 }] })
+  })
+
+  it("keeps a parked branch and a branch built on it local, in the words of their push button", () => {
+    const auth = branch("auth", null, 1)
+    const login = branch("login", "auth", 2)
+    const parked = (states: Record<string, ParkedState>) => ({ ...sources(auth, login), parkedOf: (name: string) => states[name] ?? null })
+    const own = { note: "", with: null }
+    expect(pushUpToPlan("auth", "auth-1", parked({ auth: own }))).toEqual({ ok: false, reason: "Parked: Unpark it to push" })
+    expect(pushUpToPlan("login", "login-1", parked({ auth: own, login: { note: "", with: "auth" } }))).toEqual({
+      ok: false,
+      reason: "Built on parked auth: Unpark auth to push",
+      show: "auth",
+    })
+    // a commit the remote has offers nothing, parked or not
+    expect(pushUpToPlan("login", "login-1", { ...sources(branch("login", null, 2, {}, 1)), parkedOf: () => own })).toBeNull()
   })
 
   it("stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds", () => {

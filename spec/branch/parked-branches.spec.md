@@ -161,10 +161,12 @@ branch built on it carries its commits, so it is parked with it.
 - Nothing of it may start: its next step is row 1 of [Next Step](next-step.spec.md), Safe Push and Dry Run disabled
   with "Parked: Unpark it to push" (a branch parked with its parent: "Built on parked auth: Unpark auth to push"; the
   whole stack: "Holds parked auth: land the stack in pieces"), its push disabled with the same reason on the row, in the
-  menu, the preview and the review. Push with Children of a branch to land leaves its parked children out, and the stack
+  menu, the preview and the review, and so is Push Up to Here of its commits, their push arrow and their menu
+  ([Stacked Branches](stacked-branches.spec.md#push-up-to-here)). Push with Children of a branch to land leaves its parked children out, and the stack
   branch of a stack that holds one stays local. Patronus is not asked for its readiness.
   [@test] ../../src/lib/parked.test.ts (`starts no Safe Push and no Dry Run of a parked branch: its step is none, on every surface`, `says why nothing starts, of a branch, of one built on it and of the whole stack`)
-  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
+  [@test] ../../src/lib/push-up-to.test.ts (`keeps a parked branch and a branch built on it local, in the words of their push button`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
 - The app's push must refuse it in Rust too, as `bd push` does (`repository_model::push_guard`, under the repository

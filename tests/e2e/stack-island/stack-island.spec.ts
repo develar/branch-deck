@@ -2,23 +2,14 @@
 import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCells, getBranchCommitRows, getBranchDetailsRow, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { columnLefts, expectColumnAligned } from "../helpers/column-helpers"
-import {
-  availableRobots,
-  expectPatronusStarts,
-  mergeRunningRobot,
-  mergeRunningRobots,
-  robot,
-  setupRunningRobot,
-  startRequest,
-  wholeStackStartRequest,
-} from "../helpers/patronus-helpers"
+import { availableRobots, expectPatronusStarts, mergeRunningRobots, robot, startRequest, wholeStackStartRequest } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { pushedRemotes, pushOutcome, routeHeldPush, routePush, routePushBranches, STACK_ISLAND_BRANCHES, wholeStackResultKey } from "../helpers/push-helpers"
 import { closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
-import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
+import { openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -56,32 +47,59 @@ async function rowNames(scope: Locator): Promise<string[]> {
   return scope.getByTestId("branch-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-branch-name") ?? ""))
 }
 
-/** The subjects of the commit lines below a branch row of an island */
-async function commitLines(page: Page, name: string): Promise<string[]> {
-  const lines = page.locator(`[data-testid="branch-commit-lines-row"][data-branch-of="${name}"] [data-testid=stack-commit-line]`)
-  return lines.evaluateAll(rows => rows.map(row => row.querySelector("td span.truncate")?.textContent ?? ""))
-}
-
 test.describe("Stack island", () => {
-  test("should show a big stack as an island below the table, with its commits on the lanes, oldest first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show a big stack as an island below the table, the commits of a row on its lane only while it is expanded, oldest first", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()
     const air = island(page, "air")
     await expect(air).toBeVisible()
     // the table keeps the lone branch and the small stack; the island the seven branches of air
     expect(await rowNames(page.locator("table").first())).toEqual(["docs", "auth", "login"])
-    expect(await rowNames(air)).toEqual(["air", "bazel", "side-fix", "side-test", "bridge", "runtime", "deploy"])
+    const names = await rowNames(air)
+    expect(names).toEqual(["air", "bazel", "side-fix", "side-test", "bridge", "runtime", "deploy"])
     await expect(air.getByTestId("stack-island-size")).toHaveText("Stack · 7 branches · 14 commits")
     // the header sizes the stack: its root row has no chip
     await expect(findBranchRow(page, "air").getByTestId("stack-chip")).toHaveCount(0)
-    // every branch shows its commits, a line each, oldest first, the push arrow on a commit the remote lacks
-    expect(await commitLines(page, "air")).toEqual(["Add the agent, part 1", "Add the agent, part 2"])
-    expect(await commitLines(page, "deploy")).toEqual(["Deploy the runtime, part 1", "Deploy the runtime, part 2"])
-    await expect(page.locator("[data-testid=branch-commit-lines-row][data-branch-of=air] [data-testid=commit-push-mark]")).toHaveCount(2)
-    // the full list, also oldest first, instead of the lines
-    await expandBranch(page, findBranchRow(page, "bazel"))
-    await expect(page.locator("[data-testid=branch-commit-lines-row][data-branch-of=bazel]")).toHaveCount(0)
-    await expect(getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]").first()).toContainText("Build the deploy jar, part 1")
+    // its rows are the rows of the table: collapsed, none shows a commit below it
+    for (const name of names) {
+      await verifyBranchState(findBranchRow(page, name), "closed")
+    }
+
+    // a click on the row shows its commits on its lane, oldest first, the push arrow on each the remote lacks
+    const row = findBranchRow(page, "air")
+    const commits = getBranchCommitRows(page, "air")
+    await getBranchCells(row).commits.click()
+    await verifyBranchState(row, "open")
+    await expect(commits).toHaveCount(2)
+    await expect(commits).toContainText(["Add the agent, part 1", "Add the agent, part 2"])
+    await expect(commits.getByTestId("commit-push-mark")).toHaveCount(2)
+    // the next click hides them; the folder button, → and ← and Enter on the focused row show and hide them alike
+    await getBranchCells(row).commits.click()
+    await verifyBranchState(row, "closed")
+    await row.getByRole("button", { name: "Expand air" }).click()
+    await expect(commits).toHaveCount(2)
+    await row.getByRole("button", { name: "Collapse air" }).click()
+    await verifyBranchState(row, "closed")
+    await row.focus()
+    await page.keyboard.press("ArrowRight")
+    await expect(commits).toHaveCount(2)
+    await page.keyboard.press("ArrowLeft")
+    await verifyBranchState(row, "closed")
+    await page.keyboard.press("Enter")
+    await expect(commits).toHaveCount(2)
+    await page.keyboard.press("Enter")
+    await verifyBranchState(row, "closed")
+
+    // the last branch of the main line: its commits oldest first too, its lane ending at the last of them
+    await expandBranch(page, findBranchRow(page, "deploy"))
+    const deploy = getBranchCommitRows(page, "deploy")
+    await expect(deploy).toHaveCount(2)
+    await expect(deploy).toContainText(["Deploy the runtime, part 1", "Deploy the runtime, part 2"])
+    await expect(getBranchDetailsRow(page, "deploy").getByTestId("commit-rail").locator("xpath=..")).toHaveAttribute("data-lane-end", "")
   })
 
   test("should line up the columns of the table, the island and its header, whatever each card shows", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -464,110 +482,6 @@ test.describe("Stack island", () => {
     // the piece: the virtual branch of deploy, not the stack branch
     await expectPatronusStarts(repo, [startRequest("deploy")])
     expect(pushes.map(push => push.branchName)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
-  })
-
-  test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stack_island")
-    await syncAndWaitForBranches()
-    const { stackPushes } = await routePushBranches(page)
-    const line = page.locator("[data-testid=branch-commit-lines-row][data-branch-of=bazel] [data-testid=stack-commit-line]").first()
-    await expect(line).toContainText("Build the deploy jar, part 1")
-    await line.getByTestId("commit-push-mark").click()
-    const popover = page.getByTestId("push-up-to")
-    await expect(popover.getByTestId("push-up-to-plan")).toHaveText(
-      "Pushes 2 branches, parents first:\nair · 2 commits · creates the remote branch\nbazel · 1 of 2 commits · creates the remote branch",
-    )
-    // its button marks what it sends: the commits up to here, the nodes of the branches
-    await popover.getByTestId("push-up-to-button").hover()
-    await expect(page.locator("[data-testid=stack-commit-line][data-sent]")).toHaveCount(3)
-    await expect(findBranchRow(page, "bazel").getByTestId("lane-node")).toHaveAttribute("data-pushed", "true")
-    await expect(findBranchRow(page, "bridge").getByTestId("lane-node")).not.toHaveAttribute("data-pushed", "true")
-
-    await popover.getByTestId("push-up-to-button").click()
-    // one push: air goes whole, bazel up to its first commit
-    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["air", "bazel"]])
-    const [air, bazel] = stackPushes[0]!
-    expect(air!.tip ?? null).toBeNull()
-    expect(bazel!.tip).toMatch(/^[0-9a-f]{40}$/)
-  })
-
-  test("should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // the Safe Push of bazel lands air with it
-    const running = robot("bazel", "bazel-robot")
-    const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stack_island", running, "air")
-    const marks = (name: string) => page.locator(`[data-testid=branch-commit-lines-row][data-branch-of="${name}"] [data-testid=commit-push-mark]`)
-    await expect(marks("air")).toHaveCount(2)
-    await expect(marks("bazel")).toHaveCount(2)
-
-    // merged: its commits and air's are in master, their lines muted and without the arrow
-    await mergeRunningRobot(page, repo, running)
-    await expect(findBranchRow(page, "air").getByTestId("landed-with")).toHaveText("Landed with bazel")
-    for (const name of ["air", "bazel"]) {
-      await expect(marks(name)).toHaveCount(0)
-      await expect(page.locator(`[data-testid=branch-commit-lines-row][data-branch-of="${name}"] [data-testid=stack-commit-line][data-landed]`)).toHaveCount(2)
-    }
-    // bridge, built on bazel, still has its own to push
-    await expect(marks("bridge")).toHaveCount(2)
-
-    // a new commit of air: the arrow is on it alone, the only work left of air
-    await runAndWaitForSync(page, async () => {
-      await repo.commit("(air) Add the agent, part 3", { "air/part3.txt": "Add the agent 3\n" }, 1704200000)
-      await page.getByTestId("sync-button").click()
-    })
-    await expect(findBranchRow(page, "air").getByTestId("landed-with")).toHaveText("Landed with bazel · 1 commit after it")
-    await expect(marks("air")).toHaveCount(1)
-    expect(await commitLines(page, "air")).toEqual(["Add the agent, part 1", "Add the agent, part 2", "Add the agent, part 3"])
-    await expect(page.locator("[data-testid=branch-commit-lines-row][data-branch-of=air] [data-testid=stack-commit-line]").last()).toHaveAttribute("data-unpushed", "true")
-    await expect(marks("bazel")).toHaveCount(0)
-  })
-
-  test("should push up to a commit from its menu in the full list", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stack_island")
-    await syncAndWaitForBranches()
-    const pushes = await routePush(page, {})
-    await expandBranch(page, findBranchRow(page, "bazel"))
-    const first = getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]").first()
-    await expect(first).toContainText("Build the deploy jar, part 1")
-    await openContextMenu(page, first)
-    await clickContextMenuItem(page, "Push Up to Here")
-    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel"])
-  })
-
-  test("should offer Push Up to Here in the full list only for a commit added after the ones a merged Safe Push landed, without the landed branches", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    // the Safe Push of bazel lands air with it
-    const running = robot("bazel", "bazel-robot")
-    const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stack_island", running, "air")
-    const pushes = await routePush(page, {})
-    await expandBranch(page, findBranchRow(page, "bazel"))
-    const commitRows = getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]")
-    const first = commitRows.first()
-    await expect(first).toContainText("Build the deploy jar, part 1")
-    // before the merge its commit offers the push up to it
-    await openContextMenu(page, first)
-    await expect(page.getByRole("menuitem", { name: "Push Up to Here" })).toBeVisible()
-    await page.keyboard.press("Escape")
-
-    // merged: air's and bazel's commits are in master, then a new commit of bazel is the only work left of it
-    await mergeRunningRobot(page, repo, running)
-    await runAndWaitForSync(page, async () => {
-      await repo.commit("(air/bazel) Build the deploy jar, part 3", { "bazel/part3.txt": "Build the deploy jar 3\n" }, 1704200000)
-      await page.getByTestId("sync-button").click()
-    })
-    await expect(findBranchRow(page, "bazel").getByTestId("landed-with")).toHaveText("Landed · 1 commit after it")
-    await expect(commitRows).toHaveCount(3)
-    // a landed commit offers no push, as the island shows no arrow for it: its menu is the same menu without the item
-    await openContextMenu(page, first)
-    await expect(page.getByRole("menuitem", { name: "Copy Commit Hash" })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: "Push Up to Here" })).toHaveCount(0)
-    await page.keyboard.press("Escape")
-    // the new commit pushes bazel, without air: all of air landed
-    await openContextMenu(page, commitRows.last())
-    await clickContextMenuItem(page, "Push Up to Here")
-    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["bazel"])
   })
 
   test("should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack", async ({ page, setupRepo, syncAndWaitForBranches }) => {

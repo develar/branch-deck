@@ -1,10 +1,12 @@
 import { formatCommitCount } from "@/lib/commit"
+import type { ParkedState } from "@/lib/parked"
+import { formatParkedBlocker } from "@/lib/parked"
 import type { LandedBy, PushHold } from "@/lib/patronus"
 import { formatLandingSubject, isLandedCommit } from "@/lib/patronus"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { formatForcePushPart } from "@/lib/remote-status"
 import { needsPush, stackAncestors } from "@/lib/stack"
-import type { Branch } from "@/stores/branch-sync"
+import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 
 /** One push of a Push Up to Here, root first */
 export interface PushUpToStep {
@@ -36,6 +38,18 @@ export interface PushUpToSources {
   readonly holdOf: (name: string) => PushHold | null
   /** The merged Safe Push that landed `name` (`getLandedBy`): its landed commits offer nothing; null for none */
   readonly landedOf: (name: string) => LandedBy | null
+  /** Why `name` stays local (`getParkedState`): parked, or built on a parked branch; null while it is not */
+  readonly parkedOf: (name: string) => ParkedState | null
+}
+
+/**
+ * Whether a commit of the branch offers Push Up to Here, by the push arrow after its subject and the item of its menu:
+ * the remote lacks it (`unpushedCommits`; nothing is known before the remote status loads), and no merged Safe Push
+ * landed it (`isLandedCommit`), which puts it in the target as a commit the remote has
+ */
+export function offersPushUpTo(branch: Branch, commit: SyncedCommit, landed: LandedBy | null): boolean {
+  const remote = branch.remoteStatus
+  return remote != null && commit.hash !== undefined && remote.unpushedCommits.includes(commit.hash) && !isLandedCommit(landed, commit.originalHash)
 }
 
 /**
@@ -44,21 +58,24 @@ export interface PushUpToSources {
  * remote lacks on a branch whose remote is an older state of it (not on the remote, or a fast-forward) can be a cut: a
  * part of a branch rewritten since its push would rewind its pull request. An ancestor that can't be pushed (blocked,
  * failed to sync) or asks first (its push drops remote commits), and a branch a running Safe Push lands, stop it; an
- * ancestor a merged Safe Push landed whole is left out, as the push of the branch leaves it. Null for a commit the
- * remote has, and for one a merged Safe Push landed (`isLandedCommit`): it is in the target, it offers nothing, on every
- * surface (the arrow of the island, the menu of the full list).
+ * ancestor a merged Safe Push landed whole is left out, as the push of the branch leaves it; a parked branch, and one
+ * built on it, stays local (`formatParkedBlocker`). Null for a commit that offers nothing (`offersPushUpTo`: the remote
+ * has it, or a merged Safe Push landed it), on every surface (the arrow and the menu of the full list).
  */
-export function pushUpToPlan(name: string, originalHash: string, { branchOf, holdOf, landedOf }: PushUpToSources): PushUpToPlan | null {
+export function pushUpToPlan(name: string, originalHash: string, { branchOf, holdOf, landedOf, parkedOf }: PushUpToSources): PushUpToPlan | null {
   const branch = branchOf(name)
   const commit = branch?.commits.find(it => it.originalHash === originalHash)
   const remote = branch?.remoteStatus
-  if (branch === undefined || commit?.hash === undefined || remote == null) {
+  if (branch === undefined || commit?.hash === undefined || remote == null || !offersPushUpTo(branch, commit, landedOf(name))) {
     return null
+  }
+  // in the words of its push button
+  const parked = parkedOf(name)
+  if (parked !== null) {
+    const reason = formatParkedBlocker(parked)
+    return parked.with === null ? { ok: false, reason } : { ok: false, reason, show: parked.with }
   }
   const at = remote.unpushedCommits.indexOf(commit.hash)
-  if (at < 0 || isLandedCommit(landedOf(name), originalHash)) {
-    return null
-  }
   const own = blocker(branch, holdOf)
   if (own !== null) {
     return own

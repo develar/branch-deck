@@ -1,6 +1,6 @@
 ---
 name: Stack Island
-description: Requirements for a big stack of stacked branches as an island of its own below the branch table, its header (size, states that show their first branch, pull requests, the landing of a running Safe Push, the actions of a branch row for the whole stack: the push, the Safe Push of the whole stack with its popover at the header's slot, S on the header and the menu, none of them while a Safe Push runs in it), its commits on the lanes a line each, oldest first, its collapse into the header, and the keys, the preview and the filter across the table and the islands.
+description: Requirements for a big stack of stacked branches as an island of its own below the branch table, its header (size, states that show their first branch, pull requests, the landing of a running Safe Push, the actions of a branch row for the whole stack: the push, the Safe Push of the whole stack with its popover at the header's slot, S on the header and the menu, none of them while a Safe Push runs in it), its rows those of the table, its collapse into the header, and the keys, the preview and the filter across the table and the islands.
 style: plain-1
 targets:
   - ../../src/lib/stack-collapse.ts
@@ -24,10 +24,6 @@ targets:
   - ../../src/components/branch/BranchActions.tsx
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/lib/git/stack-push.ts
-  - ../../src/components/branch/ActiveBranchExpanded.tsx
-  - ../../src/components/commit/StackCommitLines.tsx
-  - ../../src/components/commit/CommitList.tsx
-  - ../../src/hooks/useCommitMoveList.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/components/shared/CollapsibleCard.tsx
@@ -42,7 +38,7 @@ targets:
 # Stack Island
 
 Status: Implemented
-Date: 2026-10-16
+Date: 2026-10-16, its rows those of the table 2026-10-25
 
 ## Summary
 
@@ -51,12 +47,12 @@ expanded it is 25 rows that still don't say what lands, what failed and what goe
 therefore an island of its own below the table: its header sizes it and says what it holds, each state a way to its
 first branch, and offers the actions of a branch row for the whole stack: the Safe Push of the whole stack first (one
 robot lands every branch of it, side branches included), the push of all of it second, nothing while a Safe Push runs
-in it; its rows show their commits on the lanes, a line each, oldest first, so the
-stack reads as its history. The rest of the table stays as it is ([Stacked Branches](stacked-branches.spec.md#ui)).
+in it; its rows are the rows of the table, so the stack reads as its branches. The rest of the table stays as it is
+([Stacked Branches](stacked-branches.spec.md#ui)).
 
 ## Goals
 
-- See a big stack whole: its branches, their commits, which of them the remote lacks; push it up to any commit.
+- See a big stack whole: its branches, a row each, as the table shows a branch.
 - Know what to do next from the header: what failed, what runs and what it lands, the pull requests, the Safe Push,
   the push; as a branch row offers them, so the header reads as the row of the stack.
 - Keep the small stacks and the lone branches in the table, where they read well.
@@ -78,7 +74,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - The island must take its stack out of the table whole (`layoutBranchTables`); the shown rows are in the order of the
   screen, the table first, then the islands, for the keys, the Shift-click range, the preview and the selection bar.
   [@test] ../../src/stores/branch-table-rows.test.ts (`moves an island out of the table, whole, and lists the shown rows in the order of the screen`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show a big stack as an island below the table, with its commits on the lanes, oldest first`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show a big stack as an island below the table, the commits of a row on its lane only while it is expanded, oldest first`)
 
 ### Header
 
@@ -197,24 +193,14 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header`, `should open Request Review… of the whole stack at the header while its Safe Push runs and the header offers no step`)
 
-### Rows and commits
+### Rows
 
-- The rows of the island must be the rows of the branch table: the stack graph, the Status cell, the Actions cell, the
-  menu; a table of its own without the column heads, with a lane column as wide as its stack, its other columns those
-  of the branch table ([Branch Row](branch-row.spec.md#columns)).
-- Each branch must show its commits below its row while the row is not expanded, a line each on its lane
-  (`StackCommitLines`): subject, short hash, the short time of the commit ("Today 2:32 PM", "Oct 3"); the push arrow on a commit the remote lacks (`unpushedCommits`), a
-  muted subject for one the remote has, and for one a merged Safe Push landed (`isLandedCommit`: every commit of a
-  landed branch but those added after the landed ones, [Patronus](patronus.spec.md#merged)): it is in the target, a
-  push of it lands nothing, so it has no arrow, and the menu of the full list no "Push Up to Here" for it
-  ([Stacked Branches](stacked-branches.spec.md#push-up-to-here)). A click on the row expands the full commit list in its place. A click on the
-  arrow opens Push Up to Here of the commit: what goes out, in what order, and the push
-  ([Stacked Branches](stacked-branches.spec.md#push-up-to-here)).
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them`)
-- On the lane of a stack the commits must be listed oldest first, the lines and the full list of every table with
-  stacks: time runs down with the graph, so the tip of a parent sits right above the row of its child. The amend target
-  is then the last commit, and the squash dialog still gets the commits newest first.
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show a big stack as an island below the table, with its commits on the lanes, oldest first`)
+- The rows of the island must be the rows of the branch table, with nothing of their own: the stack graph, the Status
+  cell, the Actions cell, the menu, the keys, the expansion and the commits it shows
+  ([Branch Row](branch-row.spec.md)); a table of its own without the column heads, with a lane column as wide as its
+  stack, its other columns those of the branch table ([Branch Row](branch-row.spec.md#columns)). Only the header takes
+  the stack's own parts from its root row: the size, and the push and the step of the whole stack (above).
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show a big stack as an island below the table, the commits of a row on its lane only while it is expanded, oldest first`)
 
 ### Collapse, keys and filter
 
@@ -225,11 +211,9 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - ↑/↓ must step through the rows of the table and the islands as one list; ⌥← from a row of an island collapses it
   (after the side stack the row is in, [Stacked Branches](stacked-branches.spec.md#ui)), and its header takes the
   focus; F2 and a reveal of a branch in a collapsed island expand it. S on the focused header opens the popover of the
-  Safe Push of the whole stack, Enter starts it.
+  Safe Push of the whole stack, Enter starts it. A side stack of the island is a side stack of the table
+  ([Stacked Branches](stacked-branches.spec.md#ui)).
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
-- A side stack of the island collapses into its root as in the table, so a long side chain doesn't cut the main line
-  apart; one with nothing to push and nothing wrong starts collapsed.
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should step from the table into the island with the arrows, and collapse it with Alt+Left`)
 - Under the filter, an island must show its matches and, dimmed, the branches they stack on, and not collapse; an
   island without a match is not shown; the table without a row, while islands show matches, has no "No branches match".

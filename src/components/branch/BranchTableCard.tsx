@@ -43,8 +43,8 @@ const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreview
 /**
  * Table of active virtual branches, the branches of an issue nested under it and stacks as a graph (`StackLanes`), root
  * on top, under the filter bar (`BranchFilterBar`): the matches of the filter and, dimmed, the branches they stack on.
- * A big stack is an island of its own below the table (`StackIslandCard`, `stackIslandRoots`), with its commits on the
- * lanes; the keys, the selection, the preview and the highlighted path go through the table and the islands as one
+ * A big stack is an island of its own below the table (`StackIslandCard`, `stackIslandRoots`), its rows those of the
+ * table; the keys, the selection, the preview and the highlighted path go through the table and the islands as one
  * list, in the order of the screen.
  * Hovering or focusing a branch highlights the path from the root of its stack down to it (`useStackPathPointer`); the
  * root of a stack heads it (`StackChip`), and a collapsed stack shows as its root alone (`useShownBranchTables`).
@@ -212,7 +212,6 @@ export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
           stackKind={isStackRoot(row) ? "stack" : "side"}
           stackCollapsed={collapsed}
           stackFiltered={visible !== null}
-          commitLines={inIsland}
           stackPushInHeader={name === islandRoot}
           landing={landing.get(name) ?? null}
           showIssueKey={row.showIssueKey}

@@ -367,7 +367,7 @@ reports in it and closes it once merged.
   `--color-primary`, the colour of the landing span, from the top of the rail or the newest covered commit down to the
   last covered one. The newest covered commit below a commit the robot lacks gets a `--color-primary` dot. A commit
   added or changed since the robot started gets a hollow dot with a 1px `--color-warning` border, on the plain line.
-  The full list and the commit lines of a stack island draw it alike.
+  The full list of a branch draws it, in the table, a stack island and the Parked card alike.
   [@test] ../../src/lib/robot-coverage.test.ts (`runs the line of the robot over the commits it covers and marks the ones added or changed since`, `draws the line from the top of the rail down to the last dot while the robot covers every commit`, `finds the newest covered commit below the added ones also in a list that is oldest first`, `keeps the plain dot for a commit whose state is not known`)
   [@test] ../../tests/e2e/patronus/robot-coverage.spec.ts (`should draw the line of the robot over the commits it took, and mark the one added after it started`, `should draw the line of the robot over every commit while it took the branch as it is`)
 - The row of such a commit in the full list says "not in Safe Push" ("not in Dry Run") after its subject, a `warning`

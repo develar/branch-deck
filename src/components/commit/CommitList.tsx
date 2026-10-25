@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { LandedCommitMarker } from "@/components/branch/LandedChip"
 import { CommitHeader } from "@/components/commit/CommitHeader"
 import { CommitMessageButton } from "@/components/commit/CommitMessage"
+import { PushUpToMark } from "@/components/commit/PushUpToMark"
 import { RobotCommitMarker } from "@/components/commit/RobotCommitMarker"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
@@ -87,6 +88,13 @@ export interface CommitListProps<T extends CommitUnion> {
    * branch and the marker of a commit the robot lacks
    */
   robotMarks?: ReadonlyMap<string, RobotRailMark>
+  /**
+   * The commits (by hash) of the branch `branchName` that offer Push Up to Here (`offersPushUpTo`): the push arrow after
+   * the subject opens what it sends (`PushUpToMark`)
+   */
+  pushUpTo?: ReadonlySet<string>
+  /** The commits (by hash) the hovered Push Up to Here sends: their rows are tinted in the colour of the push */
+  pushedUpTo?: ReadonlySet<string>
 }
 
 /**
@@ -115,6 +123,8 @@ export function CommitList<T extends CommitUnion>({
   renderAfterCommit,
   renderSectionHeader,
   robotMarks,
+  pushUpTo,
+  pushedUpTo,
 }: CommitListProps<T>) {
   const selectable = selection !== undefined
   const isLoadingFiles = useCommitFiles(commits.map(getCommitHash))
@@ -296,6 +306,8 @@ export function CommitList<T extends CommitUnion>({
                   onOpenPreview={openPreview}
                   renderAfterCommit={renderAfterCommit as CommitRowProps["renderAfterCommit"]}
                   robotMark={robotMarks?.get(hash)}
+                  offersPushUpTo={branchName !== undefined && pushUpTo?.has(hash) === true}
+                  pushedUpTo={pushedUpTo?.has(hash) === true}
                 />
               </Fragment>
             )
@@ -352,17 +364,22 @@ interface CommitRowProps {
   onOpenPreview: (hash: string) => void
   renderAfterCommit: ((commit: CommitUnion, index: number) => ReactNode) | undefined
   robotMark: RobotRailMark | undefined
+  /** The push arrow after the subject: the commit offers Push Up to Here */
+  offersPushUpTo: boolean
+  /** The hovered Push Up to Here sends the commit */
+  pushedUpTo: boolean
 }
 
 const CommitRow = memo(function CommitRow(props: CommitRowProps) {
-  const { commit, hash, index, selectable, selected, onRowClick, getMenuGroups, onDragStart, onDragEnd, onMenuOpenChange, renderAfterCommit, robotMark } = props
+  const { commit, hash, index, selectable, selected, onRowClick, getMenuGroups, onDragStart, onDragEnd, onMenuOpenChange, renderAfterCommit, robotMark, pushedUpTo } = props
 
   const rowProps = {
     "data-row-id": hash,
     "data-selected": String(selectable && selected),
     ...robotRailAttributes(robotMark),
+    ...(pushedUpTo ? { "data-sent": "true" } : {}),
     // only selectable rows react to the pointer: hover on a row that does nothing on click is a false affordance
-    className: cn(selectable && "cursor-pointer select-none hover:bg-muted", selectable && selected && "bg-primary/15 hover:bg-primary/20"),
+    className: cn(selectable && "cursor-pointer select-none hover:bg-muted", pushedUpTo && "bg-primary/5", selectable && selected && "bg-primary/15 hover:bg-primary/20"),
     onClick: selectable && onRowClick ? (event: MouseEvent) => onRowClick(event, hash, index) : undefined,
     ...(onDragStart === undefined ? {} : { draggable: true, onDragStart: (event: DragEvent) => onDragStart(event, commit), onDragEnd }),
   }
@@ -427,7 +444,19 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
   )
 }
 
-function CommitCellContent({ commit, hash, variant, branchName, showFileCount, showAuthor, omitIssueKey, isAmendTarget, onOpenPreview, robotMark }: CommitRowProps) {
+function CommitCellContent({
+  commit,
+  hash,
+  variant,
+  branchName,
+  showFileCount,
+  showAuthor,
+  omitIssueKey,
+  isAmendTarget,
+  onOpenPreview,
+  robotMark,
+  offersPushUpTo,
+}: CommitRowProps) {
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
   const resolved = variant === "status" && "resolved" in commit ? commit.resolved : undefined
@@ -459,6 +488,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         subjectAddon={
           <>
             {hasBody && <CommitMessageButton onOpen={() => onOpenPreview(hash)} />}
+            {offersPushUpTo && branchName !== undefined && <PushUpToMark branchName={branchName} originalHash={hash} />}
             <LandedCommitMarker commitId={hash} />
             {robotMark?.change != null && branchName !== undefined && <RobotCommitMarker branchName={branchName} change={robotMark.change} />}
             {status === "Pending" && (

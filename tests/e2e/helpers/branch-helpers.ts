@@ -20,35 +20,59 @@ export function getBranchCells(branchRow: Locator) {
   }
 }
 
-/**
- * Expand a branch row
- */
-export async function expandBranch(page: Page, branchRow: Locator): Promise<void> {
-  const currentState = await branchRow.getAttribute("data-state")
-  if (currentState === "closed") {
-    const expandButton = branchRow.locator("button").first()
-    await expandButton.click()
-    await expect(branchRow).toHaveAttribute("data-state", "open")
+/** The name of a branch row, the key of the rows below it (`data-branch-of`) */
+async function branchNameOf(branchRow: Locator): Promise<string> {
+  const name = await branchRow.getAttribute("data-branch-name")
+  if (name === null) {
+    throw new Error("not a branch row: it has no data-branch-name")
   }
+  return name
+}
+
+/** The row below a branch row that holds what its expansion shows: its commits, an error, "Loading commits…" */
+export function getBranchCommitsRow(page: Page, branchName: string): Locator {
+  return page.locator(`[data-testid="branch-commits-row"][data-branch-of="${branchName}"]`)
+}
+
+/** The commit rows below a branch row, in any row that belongs to it (`data-branch-of`), in display order */
+export function getBranchCommitRows(page: Page, branchName: string): Locator {
+  return page.locator(`[data-branch-of="${branchName}"] tr[data-row-id]`)
+}
+
+/** Expands a branch row with its folder button: the row of its commits shows below it */
+export async function expandBranch(page: Page, branchRow: Locator): Promise<void> {
+  if ((await branchRow.getAttribute("data-state")) === "closed") {
+    await branchRow.locator("button").first().click()
+  }
+  await verifyBranchState(branchRow, "open")
 }
 
 /**
- * Collapse a branch row
+ * Collapses a branch row with its folder button: of an expanded row, the row of its commits showed first, and then no
+ * commit of the branch stays below it
  */
 export async function collapseBranch(page: Page, branchRow: Locator): Promise<void> {
-  const currentState = await branchRow.getAttribute("data-state")
-  if (currentState === "open") {
-    const collapseButton = branchRow.locator("button").first()
-    await collapseButton.click()
-    await expect(branchRow).toHaveAttribute("data-state", "closed")
+  if ((await branchRow.getAttribute("data-state")) === "open") {
+    await verifyBranchState(branchRow, "open")
+    await branchRow.locator("button").first().click()
   }
+  await verifyBranchState(branchRow, "closed")
 }
 
 /**
- * Verify branch row state (expanded/collapsed)
+ * The state of a branch row and what it shows below it: expanded, the row of its commits; collapsed, neither that row
+ * nor any commit row of the branch, so a row that keeps commits below it while collapsed fails
  */
 export async function verifyBranchState(branchRow: Locator, state: "open" | "closed"): Promise<void> {
   await expect(branchRow).toHaveAttribute("data-state", state)
+  const page = branchRow.page()
+  const name = await branchNameOf(branchRow)
+  if (state === "open") {
+    await expect(getBranchCommitsRow(page, name)).toBeVisible()
+  } else {
+    await expect(getBranchCommitsRow(page, name)).toHaveCount(0)
+    await expect(getBranchCommitRows(page, name)).toHaveCount(0)
+  }
 }
 
 /**

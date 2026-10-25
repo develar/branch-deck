@@ -14,6 +14,7 @@ import { getBranchUnstackItem } from "@/hooks/useBranchContextActions"
 import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { getCommitHash } from "@/lib/commit"
+import { offersPushUpTo } from "@/lib/push-up-to"
 import { robotRailMarks } from "@/lib/robot-coverage"
 import { blockingBranchOf, describeParentState, passedParentOf, stackProblemOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
@@ -21,7 +22,9 @@ import { laneContentInsetClass } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useOperations } from "@/stores/operations"
+import { useLandedBy } from "@/stores/patronus"
 import { useRobotCoverage } from "@/stores/robot-coverage"
+import { usePushUpToCommits } from "@/stores/stack-view"
 
 export interface ActiveBranchExpandedProps {
   branch: Branch
@@ -59,7 +62,7 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, famil
   )
 }
 
-export interface CommitRailProps {
+interface CommitRailProps {
   /** The branch: the highlighted path to the root of its stack runs on beside its commits */
   name: string
   familyIndent: 0 | 1
@@ -74,7 +77,7 @@ export interface CommitRailProps {
  * (`bd-lane-rail` in index.css), beside the lanes that run on below the row; the lane of the branch runs on into its
  * children, or ends at the last commit; a family member keeps its guide beside them.
  */
-export function CommitRail({ name, familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
+function CommitRail({ name, familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
   return (
     <>
       <LanesBelow name={name} lanes={lanes} commitsBelow={false} landing={landing} />
@@ -143,7 +146,9 @@ function PassedParentAlert({ branch }: { branch: Branch }) {
 
 /**
  * The commits of the branch; select them to move them to another branch (or drag them onto one). On the lane of a stack
- * (`oldestFirst`) time runs down with the graph: the tip of a parent sits right above the row of its child.
+ * (`oldestFirst`) time runs down with the graph: the tip of a parent sits right above the row of its child. A commit the
+ * remote lacks has the push arrow of Push Up to Here (`offersPushUpTo`), and the commits its hovered button sends are
+ * tinted.
  */
 function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch: Branch; highlightTipCommit: boolean; oldestFirst: boolean }) {
   const commits = useMemo(() => (oldestFirst ? branch.commits.toReversed() : branch.commits), [branch.commits, oldestFirst])
@@ -152,6 +157,14 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
   // the running robot that tests the branch: its line over the commits it covers, a marker on the ones it lacks
   const coverage = useRobotCoverage(branch.name)
   const robotMarks = useMemo(() => (coverage === null ? undefined : robotRailMarks(commits.map(getCommitHash), coverage, !oldestFirst)), [commits, coverage, oldestFirst])
+  const landedBy = useLandedBy(branch.name)
+  const pushUpTo = useMemo(() => new Set(commits.filter(commit => offersPushUpTo(branch, commit, landedBy)).map(getCommitHash)), [branch, commits, landedBy])
+  // by their ids in the virtual branch
+  const sent = usePushUpToCommits()
+  const pushedUpTo = useMemo(
+    () => (sent === null ? undefined : new Set(commits.filter(commit => commit.hash !== undefined && sent.has(commit.hash)).map(getCommitHash))),
+    [commits, sent],
+  )
   return (
     <div className="flex flex-col gap-2">
       {(hasSelectionActions(moveList) || fixupCount > 0) && (
@@ -171,6 +184,8 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
         omitIssueKey={branch.issueKey}
         editable
         robotMarks={robotMarks}
+        pushUpTo={pushUpTo}
+        pushedUpTo={pushedUpTo}
       />
     </div>
   )

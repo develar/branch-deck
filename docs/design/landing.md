@@ -256,7 +256,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
   a landed one lands without it ("Safe Push" where it said "Safe Push · 2"), and pushes without it: a landed branch is
   only left out of Push with Children and of a Push Up to Here, unlike a running robot, which holds every push of its
   stack. A landed commit offers no Push Up to Here on any surface, as a commit the remote has (`isLandedCommit` in
-  `pushUpToPlan`: no arrow in the island, no item in the menu of the full list). Once every branch of
+  `offersPushUpTo`: no push arrow and no item in the menu of the commit). Once every branch of
   a stack landed, its stack branch is held too: it carries only commits that are in master, so Push with Children, the
   island's push, `pushWholeStack` and `bd push <root> --with-children` leave it and say who landed the stack ("Landed in
   master with deploy and side-test: nothing of it is left to push", `getStackBranchHoldReason`), and a failed robot of

@@ -1,7 +1,7 @@
 // @spec spec/branch/parked-branches.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getMoreButton } from "../helpers/branch-helpers"
+import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRows, getMoreButton, verifyBranchState } from "../helpers/branch-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { dropAt, dropOn, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
@@ -83,6 +83,21 @@ test.describe("Parked branches", () => {
     await push.hover()
     await expect(page.getByRole("tooltip")).toHaveText("Parked: Unpark it to push")
     await page.keyboard.press("Escape")
+    // nor of a part of it: the push arrow of its commit and the commit's menu say the same
+    await expandBranch(page, row)
+    const commit = getBranchCommitRows(page, "docs").first()
+    await commit.getByTestId("commit-push-mark").click()
+    await expect(page.getByTestId("push-up-to-reason")).toHaveText("Parked: Unpark it to push")
+    await expect(page.getByTestId("push-up-to-button")).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expect(page.getByTestId("push-up-to")).toHaveCount(0)
+    await commit.click({ button: "right" })
+    const pushUpTo = page.getByRole("menuitem", { name: "Push Up to Here" })
+    await expect(pushUpTo).toHaveAttribute("aria-disabled", "true")
+    await pushUpTo.hover()
+    await expect(page.getByRole("tooltip")).toHaveText("Parked: Unpark it to push")
+    await page.keyboard.press("Escape")
+    await collapseBranch(page, row)
 
     // F2 steps through the moves and never stops at it
     await page.mouse.click(5, 300)
@@ -117,6 +132,13 @@ test.describe("Parked branches", () => {
     await findBranchRow(page, "web").click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: /^Unpark core/ })).toBeVisible()
     await page.keyboard.press("Escape")
+    // and pushes no part of itself: the arrow of its commit says why and shows the parent
+    await expandBranch(page, findBranchRow(page, "web"))
+    await getBranchCommitRows(page, "web").first().getByTestId("commit-push-mark").click()
+    await expect(page.getByTestId("push-up-to-reason")).toHaveText("Built on parked core: Unpark core to push")
+    await page.getByTestId("push-up-to").getByRole("button", { name: "Show core" }).click()
+    await expect(page.getByTestId("push-up-to")).toHaveCount(0)
+    await verifyBranchState(findBranchRow(page, "core"), "open")
 
     // the note of the parked root
     await findBranchRow(page, "core").click({ button: "right" })

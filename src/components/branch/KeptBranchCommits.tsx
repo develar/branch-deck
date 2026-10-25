@@ -59,7 +59,8 @@ export function KeptBranchRowParts({ name, columnCount, inline, processing, dele
         </tr>
       )}
       {expanded !== null && expanded !== false && (
-        <tr>
+        // as the commits of a row of the branch table
+        <tr data-testid="branch-commits-row" data-branch-of={name}>
           <td colSpan={columnCount} className="px-0 py-(--bd-cell-y)">
             {expanded}
           </td>

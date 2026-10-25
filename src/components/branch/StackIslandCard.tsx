@@ -150,8 +150,8 @@ export interface StackIslandCardProps {
  * running Safe Push lands, then the actions of a branch row for the whole stack: the push ("↑ 41", Push with Children of
  * the root), the Safe Push of the whole stack (one robot lands every branch of it) and "⋯"; none of the two while a Safe
  * Push runs in the stack. Its popover opens at the header, collapsed or not; S on the focused header opens it too. Then
- * the rows of the stack with their commits on the lanes. It collapses into its header (`collapsedStacks`, as a stack of
- * the table into its root).
+ * the rows of the stack, the rows of the table: each shows its commits while expanded. It collapses into its header
+ * (`collapsedStacks`, as a stack of the table into its root).
  */
 export function StackIslandCard({ island, filtered, landing, children }: StackIslandCardProps) {
   const { root } = island

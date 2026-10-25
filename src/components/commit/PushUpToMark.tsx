@@ -5,7 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { pushUpTo } from "@/lib/git/stack-push"
 import type { PushUpToPlan } from "@/lib/push-up-to"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
-import { useBranchSync, useStackPush } from "@/stores/branch-sync"
+import { getParkedState, useBranchSync, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useLandedBranches, usePushHolds } from "@/stores/patronus"
 import { showPushUpTo } from "@/stores/stack-view"
@@ -20,7 +20,12 @@ function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpTo
   // a string, so the store notifies only when the plan changes
   const key = useBranchSync(state => {
     const branchOf = (name: string) => state.branches[name]
-    const plan = pushUpToPlan(branchName, originalHash, { branchOf, holdOf: name => holds.get(name) ?? null, landedOf: name => landed.get(name) ?? null })
+    const plan = pushUpToPlan(branchName, originalHash, {
+      branchOf,
+      holdOf: name => holds.get(name) ?? null,
+      landedOf: name => landed.get(name) ?? null,
+      parkedOf: getParkedState,
+    })
     if (plan === null) {
       return ""
     }
@@ -35,9 +40,10 @@ export interface PushUpToMarkProps {
 }
 
 /**
- * The push arrow of a commit the remote lacks: a click opens what Push Up to Here of it sends, the branches it is built
- * on first ("Pushes 3 branches, parents first:", a line per push, "login · 2 of 5 commits"), or why it can't, and the
- * Push Up to Here button, whose hover marks the nodes and the commits it sends
+ * The push arrow after the subject of a commit the remote lacks (`offersPushUpTo`), in the commit list of a branch: a
+ * click opens what Push Up to Here of it sends, the branches it is built on first ("Pushes 3 branches, parents first:",
+ * a line per push, "login · 2 of 5 commits"), or why it can't, and the Push Up to Here button, whose hover marks the
+ * nodes and the commits it sends
  */
 export function PushUpToMark({ branchName, originalHash }: PushUpToMarkProps) {
   const [open, setOpen] = useState(false)
@@ -58,7 +64,7 @@ export function PushUpToMark({ branchName, originalHash }: PushUpToMarkProps) {
             className="flex size-4 items-center justify-center rounded-lg text-primary outline-none hover:bg-primary/10 focus-visible:ring-3 focus-visible:ring-ring/30"
             aria-label="Push Up to Here…"
             data-testid="commit-push-mark"
-            // the row toggles its commits on click
+            // a click on the row selects its commit
             onClick={event => event.stopPropagation()}
           />
         }

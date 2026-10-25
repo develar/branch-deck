@@ -133,7 +133,7 @@ export function useIsPushedOnPath(name: string): boolean {
   return useStore(stackPathStore, state => state.pushNodes.has(name) || state.pushUpTo?.nodes.has(name) === true)
 }
 
-/** The hovered Push Up to Here sends the commit `id` (its id in the virtual branch) */
-export function useIsCommitPushedUpTo(id: string | undefined): boolean {
-  return useStore(stackPathStore, state => id !== undefined && state.pushUpTo?.commits.has(id) === true)
+/** The commits (by their ids in the virtual branches) the hovered Push Up to Here sends; null while none is hovered */
+export function usePushUpToCommits(): ReadonlySet<string> | null {
+  return useStore(stackPathStore, state => state.pushUpTo?.commits ?? null)
 }
