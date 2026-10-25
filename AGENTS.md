@@ -121,7 +121,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 | Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p <crate>` or `-E 'test(/…/)'` while iterating); a new cross-crate edge fails the architecture test (`crates/bd-cli/src/architecture_test.rs`: the rules of [Crates](docs/design/rust-domain-authority.md#crates-и-направление-зависимостей) on `cargo metadata`, an allowlist that only shrinks) |
 | a git operation | also its test in `process_budget_test.rs` and the scan tests (`worktree_safety_test.rs`, `git_usage_scan_test.rs`) |
 | a Tauri command or a type it passes | `src/lib/bindings.ts`: `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` writes it, headless; without the variable the test fails on a stale one |
-| frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code |
+| frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code; an E2E spec or helper changed: also `pnpm lint:e2e-pins` (`command_registry_test.rs`: no page answer of a write, the pinned page answers only go down; `pnpm e2e` doesn't run it) |
 | code anywhere | `pnpm lint:cpd`: fix a clone with a helper, constant or fixture; `// jscpd:ignore-start` / `// jscpd:ignore-end` only for an intentional duplication, with the reason in the comment |
 | code anywhere | `pnpm lint:arch` (`scripts/lint-arch.mjs`): no branch on the words of an error, no `kind` of an error, a code in every `routeCommandError`, no polling timer in `src/stores` or `src/hooks` (`poll-timer`: a fact is the session's); an exception is an `ALLOWLIST` entry with its reason |
 | a fact of the session (a family, its refresh rule, the scheduler, the demand) | `cargo nextest run -p domain-policy -p remote-facts -E 'test(/refresh|scheduler/)'` and `cargo nextest run -p repository-model -E 'test(/facts|session/)'`; the e2e of the family moves the session's clock with `repo.advanceBackendClock(ms)` and asserts the counters of the fakes ([Session facts](docs/design/git-operations.md#session-facts)) |
@@ -165,6 +165,7 @@ pnpm lint:typecheck       # tsc of tsconfig.app.json, tsconfig.node.json and tsc
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
 pnpm lint:specs           # the [@test] links of spec/ and docs/ name test files and tests that exist
 pnpm lint:arch            # the page acts on the code of an error, never on its words (scripts/lint-arch.mjs)
+pnpm lint:e2e-pins        # the commands E2E tests answer in the page, pinned (crates/test-server/src/command_registry_test.rs)
 bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
 pnpm perf:test-processes measure|summarize|compare  # the git processes of every Rust test (docs/guidelines/rust-tests.md)

@@ -24,6 +24,7 @@
     "lint:cpd": "jscpd",
     "lint:specs": "node scripts/check-spec-links.mjs",
     "lint:arch": "node --test scripts/lint-arch.test.mjs && node scripts/lint-arch.mjs",
+    "lint:e2e-pins": "cargo nextest run -p test-server -E \"test(/command_registry_test/)\"",
     "perf:bd-rebuild": "node scripts/perf/bd-rebuild.mjs",
     "perf:monorepo": "node scripts/perf/monorepo.mjs",
     "perf:test-processes": "node scripts/perf/test-processes.mjs",
