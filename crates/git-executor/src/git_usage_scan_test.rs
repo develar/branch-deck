@@ -312,7 +312,11 @@ fn network_commands_run_through_remote_command() {
     "a network command runs on a plain executor call",
     "run push, fetch and ls-remote with sync_core::remote_command::execute_remote_command* (AGENTS.md, Network \
      commands): the credential helpers stay, prompts are off, stalled HTTP transfers abort and the locale is C",
-    &[],
+    &[Exemption {
+      path: "crates/bd-cli/src/schema.rs",
+      hits: 1,
+      reason: "`COMMAND_OUTPUTS`: the output schemas of `bd push`, a table of names, not the arguments of a git",
+    }],
     |source| {
       let calls_remote_command = source.code_lines().any(|(_, line)| {
         line
