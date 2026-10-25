@@ -1,5 +1,99 @@
 # Changelog
 
+## [0.31.0](https://github.com/develar/branch-deck/compare/v0.30.0...v0.31.0) (2026-10-25)
+
+
+### Features
+
+* **dev:** heavy checks run on the Mac Studio through yonder, on the exact working tree of a lease ([80bdfe5](https://github.com/develar/branch-deck/commit/80bdfe5387d69043817e642e44059aa01db4664c))
+* **facts:** the details of a robot a window shows are a fact of the session, read while it demands them; each test repository's sessions age on a clock of their own ([f0f6c02](https://github.com/develar/branch-deck/commit/f0f6c021fa3a93c2505c6a135d0176825c55c3c2))
+* **facts:** the pull requests, the rules of their bases and the merge profiles are facts of the session, ordered by seq against the app's own writes ([fc91cc0](https://github.com/develar/branch-deck/commit/fc91cc0fae5e8e97f3abc73774bb31ada705a632))
+* **facts:** the review readiness is a fact of the session: the page applies its answers and tells what it needs and shows; get_branch_review_readiness is gone ([6747075](https://github.com/develar/branch-deck/commit/6747075ca91de5f7d4430ccb54cf6a4fb4d6f64a))
+* **facts:** the review requests of others are a fact of the session, with the news of the new ones; no store or hook polls on a timer of its own ([148abc5](https://github.com/develar/branch-deck/commit/148abc5ad0360ac4b12ab377e1df5e5701219938))
+* **facts:** the session asks the review readiness of the subjects its windows need, a queue by demand with the kept answers first ([06f0478](https://github.com/develar/branch-deck/commit/06f0478de9b2be88e182112727f14397eef572ca))
+* **facts:** the session asks which running robots will fail and why the failed ones failed, and tells their merges and failures as news ([014b7f0](https://github.com/develar/branch-deck/commit/014b7f03692bece8c7dfc054d2c3598ebfb74b81))
+* **facts:** the session lists and polls the robots of Patronus on its clock, the page applies them from the view ([c503292](https://github.com/develar/branch-deck/commit/c503292ff49f960816189bc087edd09643a7cf90))
+* **policy:** domain-policy holds the matching of a robot to a branch and the refresh rules of the remote facts ([bb26876](https://github.com/develar/branch-deck/commit/bb268769979b083dc890eb98b100fec88a9d22f4))
+* **review:** the review window subscribes to the session of its repository for the tips, the baseline and the stack commits ([9351beb](https://github.com/develar/branch-deck/commit/9351bebbb7171c39db90684b6540309fe0d4b4ef))
+* **session:** a push outcome and the deletion of an archived or unapplied branch reach the session as a patch ([c59be10](https://github.com/develar/branch-deck/commit/c59be10ab0a9bf74a6e949611225f41a0a7ed541))
+* **session:** the app and the E2E server host the sessions: open, snapshot, subscribe on a channel, focus and sync ([0ed5917](https://github.com/develar/branch-deck/commit/0ed59174129a00768e4451c9fb89956a572ad842))
+* **session:** the facts of a session carry a seq and a state, the session keeps the table of its last sync, and a focus after its own push syncs nothing ([c4d9a0d](https://github.com/develar/branch-deck/commit/c4d9a0d10d5611f71f0fc0daeecb378e8ed12e72))
+* **session:** the page applies the view and the patches of its session; sync_branches and the SyncEvent channel are gone ([a964287](https://github.com/develar/branch-deck/commit/a964287fda2d8e00ccb713c4a4c6ff13ab29bf59))
+* **session:** the session matches the robots and derives what they land, landed and hold, with the landing needs as a fact; get_repository_view, the repository views and the page's matching are gone ([58127a7](https://github.com/develar/branch-deck/commit/58127a7df76f6f1305d8e30af3b54d2bf91beaf6))
+* **session:** the sessions of the process own the table of a worktree: the actor, the sync schedule, tickets and their life ([4697929](https://github.com/develar/branch-deck/commit/4697929f0eabf321a30a761a269eac6a6368fb89))
+* **session:** the table state folds the sync events into the parts of a view, patches by part, SyncReport.retry, Clock ([0d10438](https://github.com/develar/branch-deck/commit/0d10438354cb996bf1d0f7e62a93bd31f445ad63))
+* **session:** the window tells its session what it shows, and the clock of the sessions can be advanced ([69ebafd](https://github.com/develar/branch-deck/commit/69ebafd5b94bef5a3b6302b61090098711420bf4))
+* **session:** the window's focus goes to the session, which syncs by the setting Rust reads ([5651589](https://github.com/develar/branch-deck/commit/5651589e561668bf3c6e52de92dc94b138635eb5))
+* **test-server:** a test holds the answers of the fakes, so it sees the page before them ([d27cfe3](https://github.com/develar/branch-deck/commit/d27cfe3ba9be8afec664470551b35805c5078a43))
+
+
+### Bug Fixes
+
+* **branch:** a late answer moves no column on a quick machine: the widths as laid out, the floors dropped on what is laid out, no first push before its landing is known ([c468ef1](https://github.com/develar/branch-deck/commit/c468ef1da93173e1d381c326a11c43d706d57182))
+* **branch:** a refresh GitHub failed for a while keeps the last listing, and Patronus's starts wait in the preview and the review window ([4111aae](https://github.com/develar/branch-deck/commit/4111aaed6e7cdca595fe5e0dd02ef1c68a7b3c9d))
+* **branch:** late facts move nothing under the pointer: the header holds its width, the view the layout of its last start ([3616adf](https://github.com/develar/branch-deck/commit/3616adf01c6f8d89bc7ea3957e94823eb1165c00))
+* **branch:** the next step waits with Checking… for a fact no answer told yet, never offers the step a later answer turns ([b7d5a25](https://github.com/develar/branch-deck/commit/b7d5a25c36e51b8c648b8434a12344651df2ef41))
+* **e2e:** a popup is in place from its first frame: the zoom and slide in are off in the tests ([c22bb56](https://github.com/develar/branch-deck/commit/c22bb56b7ea1a5146d89ded8a45e37ca4ada1477))
+* **e2e:** a push the page answers after its test ended asks the session of a deleted repository nothing ([aebdcac](https://github.com/develar/branch-deck/commit/aebdcac28926893d82f8bea70dabd3675997f019))
+* **e2e:** a start waits for the answer of its start, and a next step for each fact it waits for in turn ([c0b0331](https://github.com/develar/branch-deck/commit/c0b0331003d3a662f0b9b31896946a9ec3219483))
+* **e2e:** a test acts on a Safe Push once its step is known, as the user can ([faea125](https://github.com/develar/branch-deck/commit/faea12524b039d6168ae7dedae9b5b0461fa92f7))
+* **e2e:** the gap between the push and "⋯" of a row is read once the columns are laid out ([2adfca4](https://github.com/develar/branch-deck/commit/2adfca407e7d8a23cf6caa2b2810474bcf8cdea4))
+* **e2e:** the late facts and the facts without an answer set the pushed remote status by the sync overrides ([89c30e7](https://github.com/develar/branch-deck/commit/89c30e7675cd5119333bee21f948f7fcad6b61b7))
+* **e2e:** the revision fixture resolves the ref with the span of its request ([d5525f0](https://github.com/develar/branch-deck/commit/d5525f06c4d24a39a7a838f99d7254d07069ed53))
+* **e2e:** the robots of a test are hovered once their steps are in: a step that answers late moves the chips under the pointer ([04c69e7](https://github.com/develar/branch-deck/commit/04c69e777544fa4935e8a87e371f4dfc49d01c6c))
+* **e2e:** the S of the branch filter test and the preview layout test wait for what they act on ([9be79a7](https://github.com/develar/branch-deck/commit/9be79a7277b055fd50e2470bb7b2452dfd312aae))
+* **e2e:** the starts of stack-island, whole-stack, stacked-branches and the landing overview wait for their answer ([13c1535](https://github.com/develar/branch-deck/commit/13c153505ac1d310da252371a6e7215d33849c4c))
+* **e2e:** Update Project and a rewrite of the Activity tests wait for each step of their chain, not for all within 5 s ([9340e3b](https://github.com/develar/branch-deck/commit/9340e3bf912d8847bc071c976062c1759897ac97))
+* **git:** a write of the index waits for another process's index lock and removes an ownerless one ([9ef8908](https://github.com/develar/branch-deck/commit/9ef8908d74aaa4100a8eface597f1e3a7e09a195))
+* **next-step:** a failed read decides no start, the landing needs are waited for, and late answers move no line ([b35ca10](https://github.com/develar/branch-deck/commit/b35ca10256189bd8de6432c7ed91331398129b4c))
+* **next-step:** the surfaces beside the rows wait for the same facts, and a failed view, list or sign-in read decides nothing ([f9243d9](https://github.com/develar/branch-deck/commit/f9243d937243f4501b114aceec82f3afde58da97))
+* **session:** a late answer of the session of a prefix the window left keeps its subscription, and one made again keeps Sync busy ([259ca45](https://github.com/develar/branch-deck/commit/259ca45ff7435da14b2627f96560acbe66c8216c))
+* **session:** a sync asked before the window subscribed opens the session itself; a deferral and a switch back show as the session has them ([eb0983d](https://github.com/develar/branch-deck/commit/eb0983de8a6e652b7278e382f87bc5754d65c42d))
+* **session:** a Sync refused for the prefix is asked again of the new session, and an answer of another epoch subscribes the window again ([10d4986](https://github.com/develar/branch-deck/commit/10d4986a357fff0072022b83a5e92573ca9cca8b))
+* **session:** a sync that reads the notes of its copies resends no commit; the view of the robots is asked again only for another table ([9d7ed00](https://github.com/develar/branch-deck/commit/9d7ed008a54b29cf1ff3523e78c89c096ef865e4))
+* **session:** the session actor logs in a root span of its own, and the checks and syncs it starts carry it ([41bd74d](https://github.com/develar/branch-deck/commit/41bd74dc1d6a6e5819677affd67786821cdd66be))
+* **session:** the session of a changed prefix syncs, no run builds under a prefix the config left ([02f9792](https://github.com/develar/branch-deck/commit/02f9792a7849463e6f0acf5a4731b271d5ecf6f6))
+* **session:** the timer that sweeps the idle sessions logs in a root span of its own ([d27d486](https://github.com/develar/branch-deck/commit/d27d486aeaa974c1585acc51673d1240f9dd584c))
+* **settings:** a save of the settings never fails while bd or another reader has the file open on Windows ([ca344a6](https://github.com/develar/branch-deck/commit/ca344a6a09f8bdbcb76a68bc62eba51eeff8be07))
+* **stack:** a collapsed row of a stack island hides its commits, as every branch row does ([a0effe1](https://github.com/develar/branch-deck/commit/a0effe1b1442b12ec1b8f7a59ddcf78aec1367e4))
+* **startup:** a window shows on the frame its webview presented of its content, its budget counts from its shell, and the deadline of its load never shows a loaded page ([31a7f85](https://github.com/develar/branch-deck/commit/31a7f8546747ba905ac0547d13bcec6bfae5c169))
+* **test-server:** a deleted repository goes once the command its release let through ended, and a removal waits out a holder on Windows ([1228e12](https://github.com/develar/branch-deck/commit/1228e12ae68bdca80853e77b04c3637affbdfdf7))
+* **test-server:** every command of a route test names its repository, so none runs across its deletion ([f4086e2](https://github.com/develar/branch-deck/commit/f4086e2772852ff63f47556652fdd5d2da77377d))
+* **test-server:** every E2E template builds again, and a test builds them all ([0c91643](https://github.com/develar/branch-deck/commit/0c91643010e5c4b74f20cc162978487992226ce7))
+* **test-server:** the template builds that the server starts in the background log in its span ([64e42d6](https://github.com/develar/branch-deck/commit/64e42d6c1771818e023353a66f5906868056a094))
+* **test:** the update tests import HistoryCommit only on unix, where its one user compiles ([94af333](https://github.com/develar/branch-deck/commit/94af333a5c2ddfdcc75a672785dcb5347be3bc83))
+* **toast:** an action that opens a dialog closes its toast, which would cover the footer of that dialog ([836fa08](https://github.com/develar/branch-deck/commit/836fa08842f25094d7efb54e794aae80fb61f610))
+* **ui:** reduced motion stops the zoom of the menus, popovers, tooltips and dialogs too ([2d523f9](https://github.com/develar/branch-deck/commit/2d523f9e8e1abfa8b34110845cd08bb868973b60))
+* **windows:** a lock record, a lease and a trash directory of a gone process are told apart on Windows too ([b629afa](https://github.com/develar/branch-deck/commit/b629afaf5089745888291038d18c0c0a95aa9842))
+* **windows:** a read-only attribute is cleared, not waited for and taken for a process that holds the path ([a0d4664](https://github.com/develar/branch-deck/commit/a0d4664c280a35554cef15a4f41ebdd56489eda8))
+* **windows:** the process scan keeps one set of the answers a platform without a scan gives, so lint:cpd passes ([9b48b1f](https://github.com/develar/branch-deck/commit/9b48b1ffda6c9e7b875e52d6933810ca80051bcd))
+* **windows:** what a process holds is waited for, named, and never half deleted by a lease ([86528e6](https://github.com/develar/branch-deck/commit/86528e67bc6c1d75bfbc5bf9e20c0c24ed7223e6))
+* **youtrack:** the issue popover stays when one move takes the pointer from its link into it ([2d00cc5](https://github.com/develar/branch-deck/commit/2d00cc5f839c32704e9a2046c1a35a32de79550a))
+
+
+### Performance Improvements
+
+* **bd:** bd commits takes the symbol setting from the config its context read ([20d2b93](https://github.com/develar/branch-deck/commit/20d2b9384c1028893639fa97e3982de12a26cb6e))
+* **check:** a check session reads the baseline, its commit and the branch tips from one listing ([3f4f919](https://github.com/develar/branch-deck/commit/3f4f91991da9678240ee640891fe38078ecf3c97))
+* **e2e:** a test closes the toast it has read before it clicks what the toast covers ([c40af23](https://github.com/develar/branch-deck/commit/c40af236d15830872d85550b139089e5354a527e))
+* **e2e:** the test server serves at once from templates cached per build, a test clones its repository, and global setup builds only a changed frontend ([e179536](https://github.com/develar/branch-deck/commit/e179536d6f6ad6a8dd9636d590907ad7549d595d))
+* **facts:** the readiness of a session builds no ask for a subject nothing asks for and it has no answer of ([60f04bb](https://github.com/develar/branch-deck/commit/60f04bb0d4cd70ef1219607574890357a255ae47))
+* **git:** an operation reads the directories of its repository once ([e25830b](https://github.com/develar/branch-deck/commit/e25830b7ff3198ebe03f262a0eaaad130d6843f9))
+* **patronus:** the start of a Safe Push reuses the landing check of its popover while the refs and the config are the same ([923745e](https://github.com/develar/branch-deck/commit/923745ecb78961db8fa5eb2a5008c574bcd8e011))
+* **sync:** a fetch and an update read the baseline and its upstream once ([b4d9928](https://github.com/develar/branch-deck/commit/b4d99285624f861b749958ef7f29671b77fd2244))
+* **sync:** a sync reads its directories once, HEAD and the baseline from its listing, and the trial after it takes both from its report ([d636eb8](https://github.com/develar/branch-deck/commit/d636eb83d28f662080a09619e0b08c3b03ac5b9d))
+* **test-server:** a route test builds only the templates it asks for, and the CI run of Windows gets an hour ([2e503b0](https://github.com/develar/branch-deck/commit/2e503b03294062873beef97966db8dff348ac7b7))
+* **test:** a fixture history is one fast-import ([d73c6ac](https://github.com/develar/branch-deck/commit/d73c6ac7d05b7c95f2027d9d379b9767c020d88e))
+* **test:** a fixture repository costs one git process per step ([2727534](https://github.com/develar/branch-deck/commit/2727534a11482740ea34a74641a9ff9d88833167))
+* **test:** a test of a failing GitHub or Patronus asks again at once ([66e589b](https://github.com/develar/branch-deck/commit/66e589bb685f143677bbd9f95a20d6c7fc8b0e77))
+* **test:** the binaries of the longest tests start first ([e70cb84](https://github.com/develar/branch-deck/commit/e70cb8493a734d188780927f93178af24e2e314c))
+* **update:** Update Project takes HEAD's branch from its baseline read ([10cc2ad](https://github.com/develar/branch-deck/commit/10cc2ad658e36c5e218c3b3477306101999101e3))
+
+
+### Reverts
+
+* **windows:** no process scan on Windows; a held path that refuses its move is named, and the next clean takes it ([854ef80](https://github.com/develar/branch-deck/commit/854ef808c931929635a7cb3ec833386ffb1df797))
+
 ## [0.30.0](https://github.com/develar/branch-deck/compare/v0.29.1...v0.30.0) (2026-10-24)
 
 
