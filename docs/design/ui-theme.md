@@ -47,7 +47,7 @@ not (measured on the same page, Islands Light, 13px Inter):
 | Style | Field | Button, `sm` | A field is | Its edge on the island |
 | --- | --- | --- | --- | --- |
 | IntelliJ Islands | 28px | 28px, 24px | a 1px border | 1.5:1 (`control-border`) |
-| `base-mira` without its fill (ours) | 28px | 28px, 24px | a 1px border | 4.6:1 (`--input`, gray-80) |
+| `base-mira` without its fill (ours) | 28px | 28px, 24px | a 1px border | 1.5:1 (`--input`, `control-border`) |
 | `base-rhea` | 32px | 32px, 28px | a fill, no border | 1.2:1 (`bg-input/50`) |
 | `base-nova` | 32px | 32px, 28px | a 1px border | 4.6:1 |
 
@@ -56,11 +56,10 @@ Two local changes apply to every primitive:
 - **No text size.** The stock Mira sets 10 and 12px (`text-xs/relaxed`, `text-[0.625rem]`) on its parts. Branch Deck's
   UI text is 13px: `body` is `text-sm`, and a container sets another step of the type scale where it needs one. A chip
   (`Badge`), a key hint (`Kbd`), an `xs` button, the group label and the shortcut of a menu, the group label of a select
-  and the labels of a chart keep
-  `text-xs`, their step of the type scale; a 20px chip clips the descenders of 13px text. A tooltip is 13px, the UI font,
+  and the labels of a chart keep `text-xs`, their step of the type scale; a 20px chip clips the descenders of 13px text. A tooltip is 13px, the UI font,
   as in the IDE. The icons of a button are one step larger than the stock for the 13px text.
 - **No field fill.** Mira fills a field with `bg-input/20` (`dark:bg-input/30`) inside its border. Here `--input` is the
-  border, and a field is its edge only, as in the IDE ([Palette](#palette)).
+  border, the IDE control border, and a field is its edge and the island under it, as in the IDE ([Palette](#palette)).
 
 An `xs` control is 24px, the compact size of the IDE (`Button.minimumSize.compact`), not the 20px of the stock; `sm` is
 24px too, the default 28px. So a branch row stays 36px around its 24px folder button (`icon-xs`), and the names and the
@@ -117,9 +116,8 @@ The palette comes from the Islands themes of the IDE, not from hand-copied value
 | `--foreground` | `text-default` | `#000000` | `#D1D3D9` |
 | `--muted-foreground` | `text-muted` | `#5F6269` | `#9FA2A8` |
 | `--border` | `separatorColor`: `dialog-border`, `popup-border` | `#E9EAEE` | `#33353B` |
-| `--input` | `gray-80` | `#73767C` | `#73767C` |
-| `--control-edge` | `--input`; `gray-90` | `#73767C` | `#8B8E94` |
-| `--button-border` | `control-border` (`Button.startBorderColor`) | `#D1D3D9` | `#40434A` |
+| `--input` | `control-border` (`Component.borderColor`, `Button.startBorderColor`) | `#D1D3D9` | `#40434A` |
+| `--control-edge` | `gray-80`; `gray-90` | `#73767C` | `#8B8E94` |
 | `--primary` | `text-link` | `#2F5EB9` | `#71A1FE` |
 | `--success` | `green-70`; `text-success` | `#2A6E47` | `#6DB083` |
 | `--warning` | `yellow-70`; `text-warning` | `#875817` | `#D59637` |
@@ -144,19 +142,20 @@ Where the tokens leave the Islands keys, and why (the ratios measured on the val
   least. The dark statuses stay at the `text-*` step 100: 6.8:1 on the island, 5.8:1 on a popup, 5.8:1 on the tint.
 - **`--info` is the purple of the palette.** Islands has no info key, and its brand blue is the primary. It was
   GitHub's merged violet (`#8250DF`, `#AB7DF8`); the palette steps have the same hue and the contrast of the statuses.
-- **Fields and toggles are edged, at 3:1 (WCAG 1.4.11).**
-  - `--input` is the border of a field (`Input`, `Select`, `Textarea`, `InputGroup`, `Combobox`), as in the Mira style:
-    `gray-80`, the step the docs sites of the monorepo take, not `control-border` (`gray-130`, 1.5:1 on the island). It
-    has 4.6:1 on the island and in a popup in light, 3.8:1 on the island and 3.2:1 in a popup in dark.
-  - `--control-edge` is the edge of a control that only its edge shows: an unchecked `Checkbox` (the edge, no fill) and
-    the track of an unchecked `Switch` (the track filled with it). They lie on an island (Settings, the find bar of a
-    diff), in a popup (a dialog, the review request) and on the hover of a row in a popup (the code owners of a review
-    request), never on the canvas. In light it is `--input`, 4.1:1 on the hover. In dark it is one step lighter,
-    `gray-90`: `gray-80` has 2.7:1 on the hover, `gray-90` 5.3:1 on the island, 4.5:1 in a popup and 3.8:1 on the hover.
-  - An outline button has the border of an IDE button, `--button-border` (`control-border`), and a solid
-    `bg-background`, on the canvas and on an island alike. Its label identifies it, so it needs no 3:1 edge, but on the
-    canvas its white fill alone is 1.2:1, and the stock `border-border` is the colour of the canvas: the border shows the
-    button there (1.3:1 on the canvas, 1.5:1 on the island in light).
+- **Fields and buttons have the IDE border; toggles have a 3:1 edge.**
+  - `--input` is the border of a field (`Input`, `Select`, `Textarea`, `InputGroup`, `Combobox`) and of an outline
+    button: `control-border`, the border IntelliJ draws around both. A field and a button are identified by their label
+    and their place, so WCAG 1.4.11 asks for no 3:1 boundary. The border has 1.5:1 on the island and 1.3:1 on the canvas
+    in light, 1.8:1 and 1.5:1 in dark; on the canvas it shows a white field or button, whose fill alone is 1.2:1.
+  - A field and the button joined to it (the repository selector, an `InputGroup`, a `FieldGroup`) share the one border
+    colour and one radius join (`FieldGroup`: the inner corners square, the borders overlapping by 1px). A darker field
+    border beside a lighter button border read as two controls that do not belong together.
+  - `--control-edge` is the edge of a control that only its edge shows, at 3:1: an unchecked `Checkbox` (the edge, no
+    fill) and the track of an unchecked `Switch` (the track filled with it). A radio would take it too. They lie on an
+    island (Settings, the find bar of a diff), in a popup (a dialog, the review request) and on the hover of a row in a
+    popup (the code owners of a review request), never on the canvas. `gray-80` in light: 4.6:1 on the island and in a
+    popup, 4.1:1 on the hover. `gray-90` in dark: `gray-80` has 2.7:1 on the hover, `gray-90` 5.3:1 on the island, 4.5:1
+    in a popup and 3.8:1 on the hover.
 - **An `Alert` mixes the tint of its tone with the card** (`color-mix(in srgb, var(--destructive) 10%, var(--card))`),
   and its description has the full tone. An alert lies on the canvas: the translucent tint over `#E9EAEE` gave its title
   3.4:1 and its description, at 90% of the tone, 3.0:1. On the card colour they have 5.3:1. A `Callout` and a `Badge`

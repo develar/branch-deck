@@ -124,12 +124,8 @@ const PAIRS: Pair[] = [
     min: TEXT,
     ratio: (token: Token) => contrast(token(`${fill}-foreground`), token(fill)),
   })),
-  // the edge of a field (Input, Select, Textarea): on an island and in a popup
-  ...["card", "popover"].map(surface => ({
-    name: `input on ${surface}`,
-    min: MARK,
-    ratio: (token: Token) => contrast(token("input"), token(surface)),
-  })),
+  // no pair of `--input`: the border of a field and of a button is the IDE control border, below 3:1 on purpose (a label
+  // and a place identify a field, docs/design/ui-theme.md, "Palette"); only a toggle needs the 3:1 edge
   // the edge of an unchecked checkbox and switch: on an island (Settings, the find bar of a diff), in a popup (a dialog,
   // the review request) and on the hover of a row there (the code owners of a review request); never on the canvas
   ...["card", "popover"].flatMap(surface => [

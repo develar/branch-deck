@@ -258,7 +258,6 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-control-edge: var(--control-edge);
-  --color-button-border: var(--button-border);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -348,21 +347,17 @@
   /* separatorColor: dialog-border */
   --border: var(--islands-dialog-border-light);
   /*
-   * The edge of a field (the Mira style draws a field, a select and a textarea by `border-input`, without a fill):
-   * gray-80, not control-border (gray-130, 1.5:1), so it keeps 3:1 on the island, a popup and the hover of a row there
+   * The border of a field and of an outline button (`border-input`): control-border, the border IDE fields and buttons
+   * draw (Component.borderColor, Button.startBorderColor). A field and a button are identified by their label and their
+   * place, so they need no 3:1 edge (WCAG 1.4.11); the border shows them on the canvas, where a white fill alone is 1.2:1
    */
-  --input: var(--islands-gray-80);
+  --input: var(--islands-control-border-light);
   /*
    * The edge of a control that only its edge shows: an unchecked checkbox, the track of an unchecked switch, 3:1 on every
-   * surface they lie on (WCAG 1.4.11). The edge of a field in light; a step more in dark (below)
+   * surface they lie on (WCAG 1.4.11), the hover of a row in a popup too (the code owners of a review request): gray-80
+   * here, 4.1:1 there
    */
-  --control-edge: var(--input);
-  /*
-   * The border of an outline button: control-border, the border IDE buttons draw (Button.startBorderColor). Its label
-   * identifies a button, so it needs no 3:1 edge, but the edge shows the button on the canvas, where its white fill alone
-   * is 1.2:1
-   */
-  --button-border: var(--islands-control-border-light);
+  --control-edge: var(--islands-gray-80);
   --ring: var(--primary);
   --radius: 0.25rem;
   /*
@@ -495,14 +490,9 @@
     --info-foreground: var(--islands-tool-window-bg-dark);
     /* separatorColor: popup-border */
     --border: var(--islands-popup-border-dark);
-    /* gray-80: 3.8:1 on the island, 3.2:1 in a popup */
-    --input: var(--islands-gray-80);
-    /*
-     * gray-90, not the gray-80 of a field: a checkbox lies on the hover of a row in a popup (the code owners of a review
-     * request), where gray-80 has 2.7:1
-     */
+    --input: var(--islands-control-border-dark);
+    /* gray-90, not gray-80: gray-80 has 2.7:1 on the hover of a row in a popup, gray-90 3.8:1 */
     --control-edge: var(--islands-gray-90);
-    --button-border: var(--islands-control-border-dark);
     --window-button-glyph: #ced0d6;
     --window-button-shade: #ffffff;
     --window-button-kde-glyph: #ced0d6;
