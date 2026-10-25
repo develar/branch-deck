@@ -1,4 +1,5 @@
-// local customisation: literal `alert` class in the cva base, `success | warning | info` variants and a tinted `destructive` variant
+// local customisation: literal `alert` class in the cva base, `success | warning | info` variants and a tinted `destructive` variant;
+// the tint of a tone lies on the card colour, and the description keeps the full tone
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
@@ -10,11 +11,12 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
-        // subtle semantic variants: tinted background + coloured text
-        destructive: "border-destructive/25 bg-destructive/10 text-destructive *:data-[slot=alert-description]:text-destructive/90",
-        success: "border-success/25 bg-success/10 text-success *:data-[slot=alert-description]:text-success/90",
-        warning: "border-warning/25 bg-warning/10 text-warning *:data-[slot=alert-description]:text-warning/90",
-        info: "border-info/25 bg-info/10 text-info *:data-[slot=alert-description]:text-info/90",
+        // subtle semantic variants: tinted background + coloured text. An alert lies on the canvas: the tint is mixed with
+        // the card, so the alert is an island and its text keeps 5:1 (docs/design/ui-theme.md, "Palette")
+        destructive: "border-destructive/25 bg-[color-mix(in_srgb,var(--destructive)_10%,var(--card))] text-destructive *:data-[slot=alert-description]:text-destructive",
+        success: "border-success/25 bg-[color-mix(in_srgb,var(--success)_10%,var(--card))] text-success *:data-[slot=alert-description]:text-success",
+        warning: "border-warning/25 bg-[color-mix(in_srgb,var(--warning)_10%,var(--card))] text-warning *:data-[slot=alert-description]:text-warning",
+        info: "border-info/25 bg-[color-mix(in_srgb,var(--info)_10%,var(--card))] text-info *:data-[slot=alert-description]:text-info",
       },
     },
     defaultVariants: {

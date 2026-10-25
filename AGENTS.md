@@ -467,7 +467,8 @@ The checklist:
 - **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
   `text-destructive`) plus the custom `canvas`, `success`, `warning`, `info` (`text-success`, `bg-warning/10`); the one
   exception is the `window-button-*` palette of the Linux window buttons (IntelliJ's icons, `WindowControls`). **Never** use
-  `dark:` variants; the theme is handled by the tokens, which are the IntelliJ Islands values (`src/index.css`).
+  `dark:` variants; the theme is handled by the tokens, which map the IntelliJ Islands values (`src/index.css` on
+  `src/islands.generated.css`, copied by `scripts/sync-islands-theme.mjs`; never edit the copy).
 - **Window and cards** (Islands layering, see [UI Theme](docs/design/ui-theme.md)):
   - the page canvas is `bg-canvas`; `bg-muted` is a translucent tint (hover, chips, code), not a surface;
   - top-level blocks (tables, collapsible sections, alerts) are `Card` islands, or `CollapsibleCard`; the toolbar

@@ -1,7 +1,7 @@
 # UI Theme: Islands Layering, Palette and the Radius Scale
 
 **Status:** Implemented  
-**Updated:** 2026-10-19  
+**Updated:** 2026-10-25  
 **Tags:** [ui, theme, shadcn, tailwind, radius, palette]
 
 ## Problem
@@ -33,7 +33,8 @@ base colour, `zinc`, has the lightness and chroma of the IntelliJ greys, but its
 
 **Coherence over copying.** We take the proportions, the layering and the colours of Islands and express them only
 through shadcn tokens. We do not copy IntelliJ pixel values into individual components. Every radius comes from one
-token, every colour is an IntelliJ value in `src/index.css`, and every top-level block is the same `Card`.
+token, every colour of the palette maps a variable of the Islands themes (`src/islands.generated.css`), and every
+top-level block is the same `Card`.
 
 ## Design
 
@@ -63,31 +64,66 @@ flowchart TD
 
 ### Palette
 
-`src/index.css` holds the IntelliJ Islands values (`ManyIslandsLight.theme.json`, `ManyIslandsDark.theme.json`), each
-with its IntelliJ key in a comment:
+The palette comes from the Islands themes of the IDE, not from hand-copied values:
 
-| Token | Light | Dark | IntelliJ key |
+- **The source.** The IntelliJ monorepo writes `community/tools/docs-site/styles/islands.generated.css` from
+  `ManyIslandsLight.theme.json` and `ManyIslandsDark.theme.json`: every palette step (`--islands-gray-70`) and every
+  semantic colour of each theme (`--islands-text-link-light`, `--islands-text-link-dark`). The docs sites of the
+  monorepo map the same file.
+- **The copy.** `node scripts/sync-islands-theme.mjs` writes `src/islands.generated.css`: the file at a commit, with a
+  header that names the repository and the commit. It reads a local monorepo checkout (`--monorepo <path> [--ref
+  <rev>]` or `INTELLIJ_MONOREPO`) or intellij-community on GitHub at a pinned commit (`--github <commit>`, the path
+  without `community/`). The copy is committed, so a build needs no monorepo. Never edit it; run the script again.
+- **The mapping.** `src/index.css` imports the copy and maps the `-light` variables in its light `:root` block and the
+  `-dark` variables in its `prefers-color-scheme: dark` block. A token names its Islands key; a palette step names a
+  value outside the keys, and its comment gives the reason.
+- **The check.** `src/lib/theme-contrast.test.ts` resolves the mapping in both themes and checks the pairs: text at
+  4.5:1 on the island, on a popup and on the canvas, a status text on the 10% tint of its colour, the text on a fill,
+  and `primary` as a mark at 3:1. A change of a theme that breaks a pair fails `pnpm test:unit`.
+
+| Token | Islands key | Light | Dark |
 | --- | --- | --- | --- |
-| `--canvas` | `#E9EAEE` | `#26282C` | `MainWindow.background` |
-| `--card`, `--background` | `#FFFFFF` | `#191A1C` | `ToolWindow.background`, the island |
-| `--popover` | `#FFFFFF` | `#26282C` | `Popup.background` |
-| `--foreground` | `#000000` | `#D1D3D9` | text-default |
-| `--muted-foreground` | `#5F6269` | `#9FA2A8` | muted text |
-| `--border` | `#E9EAEE` | `#33353B` | `*.separatorColor` |
-| `--input` | `#D1D3D9` | `#40434A` | `Component.borderColor` |
-| `--primary` | `#3871E1` | `#71A1FE` | `Button.default`; the dark-theme link |
-| `--success` | `#338555` | `#6DB083` | success text |
-| `--warning` | `#A56906` | `#D59637` | warning text |
-| `--destructive` | `#C54E58` | `#F57E84` | error text |
-| `--info` | `#8250DF` | `#AB7DF8` | none: GitHub's merged violet |
+| `--canvas` | `main-window-bg` (`MainWindow.background`) | `#E9EAEE` | `#26282C` |
+| `--card`, `--background` | `tool-window-bg` (`ToolWindow.background`), the island | `#FFFFFF` | `#191A1C` |
+| `--popover` | `popup-bg` | `#FFFFFF` | `#26282C` |
+| `--foreground` | `text-default` | `#000000` | `#D1D3D9` |
+| `--muted-foreground` | `text-muted` | `#5F6269` | `#9FA2A8` |
+| `--border` | `separatorColor`: `dialog-border`, `popup-border` | `#E9EAEE` | `#33353B` |
+| `--input` | `control-border` (`Component.borderColor`) | `#D1D3D9` | `#40434A` |
+| `--primary` | `text-link` | `#2F5EB9` | `#71A1FE` |
+| `--success` | `green-70`; `text-success` | `#2A6E47` | `#6DB083` |
+| `--warning` | `yellow-70`; `text-warning` | `#875817` | `#D59637` |
+| `--destructive` | `red-70`; `text-error` | `#A4414A` | `#F57E84` |
+| `--info` | `purple-70`; `purple-100` | `#6C4EBB` | `#A894F6` |
+
+The text on a fill (`*-foreground`) is `text-over-accent` (white) in light and the island in dark.
 
 - **`muted`, `secondary` and `accent`** are one translucent tint of the foreground, 5% in light and 7% in dark
   (`--bd-tint`), as the IntelliJ hovers are (`#00000008` on a list, `#00000012` on a toolbar) and as the JetBrains genui
   mapping does. One hover then reads on a white island and on the canvas.
-- **The accent** is one token, `--primary` in `src/index.css`, with no choice in the app: `Button.default` `#3871E1`
-  of ManyIslandsLight in light (white text), the dark-theme link `#71A1FE` in dark (dark text). `--ring` follows it.
-- Contrast on the island: `primary` 4.6:1 with white text, the status colours 4.5:1 and more, muted text 6.1:1
-  (light) and 6.8:1 (dark).
+- **The accent** is one token, `--primary`, with no choice in the app; `--ring` follows it.
+
+Where the tokens leave the Islands keys, and why (the ratios measured on the values above):
+
+- **`--primary` in light is the link blue, `blue-70`, not `Button.default` (`blue-80`, `#3871E1`).** Primary is a text
+  colour here too: the shown view in the toolbar, the status of a file, a selected row. `#3871E1` had 4.6:1 on the
+  island, 3.8:1 on the canvas and 4.0:1 on its own 10% tint. `#2F5EB9` has 6.1:1, 5.1:1 and 5.3:1, white on it 6.1:1.
+  The primary button is one step darker than the IDE's.
+- **The light statuses are palette step 70, not the `text-*` step 80.** Step 80 had 4.5:1 on the island, 3.8:1 on the
+  canvas and 4.0:1 on the 10% tint of a `Callout`, a `Badge` or an `Alert`. Step 70 has 6.1:1, 5.1:1 and 5.3:1 at
+  least. The dark statuses stay at the `text-*` step 100: 6.8:1 on the island, 5.8:1 on a popup, 5.8:1 on the tint.
+- **`--info` is the purple of the palette.** Islands has no info key, and its brand blue is the primary. It was
+  GitHub's merged violet (`#8250DF`, `#AB7DF8`); the palette steps have the same hue and the contrast of the statuses.
+- **`--input` stays `control-border`, at 1.5:1 on the island (1.8:1 in dark).** In the Rhea style `--input` is the fill
+  of a field (`bg-input/50` of `Input`, `Select`, `Textarea`; `bg-input/90` of an unchecked `Checkbox` and `Switch`),
+  and the border of an outline button. The docs sites of the monorepo take `gray-80` for a 3:1 border, but as a fill
+  `gray-80` makes every field a dark bar. A 3:1 edge of a field needs a change of the Rhea anatomy, not of the token.
+- **An `Alert` mixes the tint of its tone with the card** (`color-mix(in srgb, var(--destructive) 10%, var(--card))`),
+  and its description has the full tone. An alert lies on the canvas: the translucent tint over `#E9EAEE` gave its title
+  3.4:1 and its description, at 90% of the tone, 3.0:1. On the card colour they have 5.3:1. A `Callout` and a `Badge`
+  lie on an island or a popup and keep the translucent tint.
+- **Not checked, below 4.5:1:** the soft primary of the shown view lies on the canvas (`bg-primary/10`, 4.47:1; its
+  hover `bg-primary/20`, 3.9:1), and a dark `destructive` button or badge in a popup (`dark:bg-destructive/20`, 4.1:1).
 
 ### Radius scale
 
@@ -167,9 +203,15 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
    **Rationale**: `zinc` is close in lightness and chroma but warmer (hue 286 instead of 265); next to the IDE the
    difference shows. The values are tokens either way, so the ui files don't change.
 
-6. **Decision**: The IntelliJ blue is the one primary, and `info` is violet.
+6. **Decision**: The IntelliJ blue is the one primary, and `info` is purple.
    **Rationale**: One accent as in Islands, readable with white text, and no longer the hue of `success`. Blue would
-   have collided with the old blue `info` (merged, landed), so `info` takes the violet GitHub uses for merged.
+   have collided with the old blue `info` (merged, landed), so `info` takes the purple of the palette, the hue GitHub
+   uses for merged.
+
+7. **Decision**: The values come from the file the monorepo generates from the Islands themes, copied by a script.
+   **Rationale**: Hand-copied values drifted apart in three places (the docs sites, the GenUI catalog, Branch Deck).
+   One generated file gives every consumer the same values; each consumer keeps only its mapping. The copy keeps the
+   build of Branch Deck free of the monorepo.
 
 ### Rules for UI changes
 
@@ -226,8 +268,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - a `size-4` lead icon (the tone's icon, or `icon` for a concept such as `FileDiffIcon`), the `title` in the tone's
     colour, muted details as children; a one-sentence callout passes only the `title`.
 - **The state of a whole block is an `Alert`**: the repository path error, a branch that failed to sync or is blocked,
-  the empty window. Its `destructive` variant is tinted like `success`, `warning` and `info`; call sites add no colour
-  overrides.
+  the empty window. Its `destructive` variant is tinted like `success`, `warning` and `info`, the tint mixed with the
+  card, so an alert on the canvas is an island ([Palette](#palette)); call sites add no colour overrides.
 - **Code inside a sentence is an `InlineCode`** (`src/components/shared/InlineCode.tsx`, the chip of `LinkedText`), at
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
@@ -503,6 +545,9 @@ Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review tha
 
 - Tokens and scale: `src/index.css` (`--radius`, the `@theme inline` radius multipliers, the palette, `body` in the base
   layer).
+- Palette source: `src/islands.generated.css`, written by `scripts/sync-islands-theme.mjs` from
+  `community/tools/docs-site/styles/islands.generated.css` of the IntelliJ monorepo
+  (`community/tools/docs-site/scripts/islandsTheme.ts` writes it); the contrast check `src/lib/theme-contrast.test.ts`.
 - Islands containers:
   - `src/components/ui/card.tsx`;
   - `src/components/shared/CollapsibleCard.tsx`;
