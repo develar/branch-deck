@@ -6,7 +6,7 @@ import { openActivityWindow } from "../helpers/activity-helpers"
 import { expectNothingToPush, findBranchRow, getBranchCells, getLandingNode, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
-import { INTENT_DWELL_PAST_MS, resetIpc, settledInvokes } from "../helpers/ipc-helpers"
+import { INTENT_DWELL_PAST_MS, resetIpc, settledInvokes, withoutAppTimers } from "../helpers/ipc-helpers"
 import { availableRobots, buildsNeverStarted, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
@@ -39,14 +39,6 @@ const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
     { auto: true },
   ],
 })
-
-/** What the app invokes on its own timers, wherever they fire: the debounced writes of the settings, the check for updates after the start */
-const APP_TIMERS: ReadonlySet<string> = new Set(["set_setting", "check_for_updates"])
-
-/** The commands of the page but those of the app's own timers */
-function withoutAppTimers(invokes: Record<string, number>): Record<string, number> {
-  return Object.fromEntries(Object.entries(invokes).filter(([name]) => !APP_TIMERS.has(name)))
-}
 
 function getChip(page: Page, branchName: string): Locator {
   return findBranchRow(page, branchName).getByTestId("patronus-chip")

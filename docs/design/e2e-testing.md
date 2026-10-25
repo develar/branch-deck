@@ -247,8 +247,9 @@ Mock implementation:
   so an answer of a `routeCommand` counts too; the commands the page answers itself (the store, event, window and log
   plugins, the sub-window handlers) do not. `pnpm perf:table` reads it
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view)), and so do the tests that pin the IPC
-  of a step (`resetIpc`, `settledInvokes` of ipc-helpers.ts): the hover of a row reads no fact, its menu invokes
-  nothing, the popover of its robot one `set_demand`
+  of a step (`resetIpc`, `settledInvokes` of ipc-helpers.ts, and `withoutAppTimers`, which leaves out the commands of
+  the app's own timers, `set_setting` and `check_for_updates`, as they fire wherever a step is): the hover of a row
+  reads no fact, its menu invokes nothing, the popover of its robot one `set_demand`
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
 - **Sessions**: the server hosts the sessions of its repositories as the app does (`session_routes.rs`, the same
   `Sessions` and `GitSessionHost` of `repository-model`, on a `TestClock` per repository that stands still, so no

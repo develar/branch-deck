@@ -182,6 +182,8 @@ A sync that changes nothing cost little before and costs the same now. The rest 
 | the patches of the session | 345–395 / 779–967 ms | 31–50 / 71–97 ms |
 | the patches of the session, the stage landed, at load 42–84 | 408–455 / 1134–1321 ms | 39–44 / 114–136 ms |
 | the `SyncEvent` channel of master `abaec1e3`, streamed, in the same turns | 482–613 / 1031–1423 ms | 77–166 / 153–292 ms |
+| 2026-10-25, the facts in the session (s7), on the Mac Studio at load 15, three turns, master first | 547–632 / 1124–1317 ms | 47–54 / 127–135 ms |
+| master `20d2b938` (the page asks the facts and the view of the robots), in the same turns | 524–648 / 1114–1433 ms | 50–57 / 123–129 ms |
 
 The rows before 2026-10-24 measured less than the app spent: the mock server answered the sync command before the session
 with its `SyncEvent`s once the sync was done, so the page applied its 432 events in one or two batches and rendered the rows once,
@@ -194,6 +196,14 @@ the focus, the push outcomes, the review window and the late facts of master in,
 (other sessions building and testing beside it): the first sync costs less script and about the same task time (10 %
 more in two turns, less in the third), a sync that changes nothing half the script and less task time.
 
+Once the facts of the remote services came in the patches of the session (s7), the page applies them and asks none:
+measured against master on the Mac Studio, both sides waiting until no step of a row waits for a fact before the sync
+that changes nothing (`waitForStepFacts`: the landing needs come in a patch of the Patronus view after the rows and
+chips, 28 KB, which a run without the wait counted in that sync when the first one was fast), the first sync and a sync
+that changes nothing cost what they cost on master: in three turns at a load of 15 on 20 cores the medians of the
+stage are 558 / 1158 ms and 51 / 133 ms against 616 / 1408 ms and 51 / 124 ms. Turns at a load of 9 to 60 (other
+sessions' tests on the Studio) spread two- to fourfold on both sides and are no comparison.
+
 ### The IPC of the branch view
 
 `pnpm perf:table` counts the IPC of the page on the same template too, in every engine, from the counters of the Tauri
@@ -204,9 +214,11 @@ patches of the session on the channel of `subscribe_view`, before 2026-10-24 the
 messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the intent,
 `page.clock.fastForward`), of its "⋯" menu opened by a right click (`menuIpc`) and of its robot's popover
 (`popoverIpc`). The counts are exact, the same in every run, except the patches: the session sends at most one per
-16 ms of the run, so their number follows how long the sync took; and the debounced writes of the settings
-(`set_setting`: the settled layout of the view, the record of the sync), which count where they fire, in the first
-sync or in the hover (the rows of the stage landed: 3 in the first sync of Chromium, 2 in the hover of WebKit). What the session sends, its patches and their bytes
+16 ms of the run, so their number follows how long the sync took. The commands of the app's own timers are left out
+(`withoutAppTimers` of ipc-helpers.ts, as the E2E test of these numbers): the debounced writes of the settings
+(`set_setting`: the settled layout of the view, the record of the sync) and the check for updates after the start
+(`check_for_updates`), which fire wherever a run is; the rows before 2026-10-25 count them (3 `set_setting` in the
+first sync of Chromium and 2 in the hover of WebKit once s6 landed). What the session sends, its patches and their bytes
 without the page, prints an ignored test of the mock server (`patch_bytes_test.rs`):
 `cargo nextest run -p test-server --run-ignored only -E 'test(/patch_bytes/)' --no-capture`.
 
@@ -218,6 +230,7 @@ without the page, prints an ignored test of the mock server (`patch_bytes_test.r
 | 2026-10-24, the patches of the session, WebKit | 49–71 / 10 | 24657–24784 | 1 / 0 / 0 |
 | 2026-10-24, the stage landed, Chromium | 63 / 12 | 25054 | 1 / 0 / 0 |
 | 2026-10-24, the stage landed, WebKit | 72 / 10 | 24784 | 3 / 0 / 0 |
+| 2026-10-25, the facts in the session (s7), Chromium, the app's timers left out | 60–102 / 1 | 25290–25691 | 1 / 0 / 1 |
 
 A sync on the `SyncEvent` channel sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
 `remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
@@ -226,9 +239,11 @@ a sync that changes nothing sends the state of the run and the build and copies 
 5 patches by the mock server's own count (`patch_bytes_test.rs`: the first sync 46 patches, 195 KB, the snapshot
 177 KB). The facts of the remote services come in the patches of the session too (`facts`: the robots, the pull
 requests, the readiness, the review requests, the details of a robot): no store asks them and none polls on a timer of
-its own (`poll-timer` of `pnpm lint:arch`), so the menu of a row invokes nothing and the popover of its robot one
-`set_demand` (the details it shows, which the session reads and sends as a patch, again every minute of a running
-robot while it is open); the hover of a row reads ahead the review of the branch (`prefetch_branch_review`) and no fact.
+its own (`poll-timer` of `pnpm lint:arch`), so the first sync invokes only `sync` (11 or 12 commands on master
+`20d2b938`, the reads of the facts and of the view of the robots), the menu of a row nothing and the popover of its
+robot one `set_demand` (the details it shows, which the session reads and sends as a patch, again every minute of a
+running robot while it is open); the hover of a row reads ahead the review of the branch (`prefetch_branch_review`) and
+no fact.
 An E2E test pins these numbers.
 [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
 

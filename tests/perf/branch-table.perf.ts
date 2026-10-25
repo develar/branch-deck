@@ -20,13 +20,15 @@
 // page spends on the patches of a sync and what they derive, the hold and landing rule of the robots included:
 // - firstSyncScriptMs / firstSyncTaskMs: the script time and the task time of the first sync, until its rows and chips;
 // - resyncScriptMs / resyncTaskMs: the same of a sync that changes nothing (the Patronus view comes in the patches of
-//   the session: the page asks no view of the robots).
+//   the session: the page asks no view of the robots), once no step waits for a fact (`waitForStepFacts`).
 //
 // The IPC of the page (every engine; `window.__ipcStats` of the Tauri mock, docs/design/e2e-testing.md), each count
-// read once the page shows the state and no command is pending:
+// read once the page shows the state and no command is pending, the commands of the app's own timers left out
+// (`withoutAppTimers`: the check for updates after the start, the writes of the settings):
 // - firstSyncPatches / firstSyncInvokes: the patches of the session the first sync sends the page (the channel of
 //   `subscribe_view`) and the commands the page invokes until its rows and chips;
-// - resyncIpcBytes: the bytes of the parameters, the answers and the patches of a sync that changes nothing;
+// - resyncIpcBytes: the bytes of the parameters, the answers and the patches of a sync that changes nothing, once no
+//   step waits for a fact;
 // - hoverIpc: the commands a rest of the pointer on a branch row invokes (the review read ahead);
 // - menuIpc: the commands the "⋯" menu of that row invokes, opened by a right click;
 // - popoverIpc: the commands the popover of its robot invokes, opened by a hover of its chip.
@@ -38,7 +40,7 @@ import type { CDPSession, Page } from "@playwright/test"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { findBranchRow } from "../e2e/helpers/branch-helpers"
 import type { IpcStats } from "../e2e/helpers/ipc-helpers"
-import { INTENT_DWELL_PAST_MS, resetIpc, settledIpc } from "../e2e/helpers/ipc-helpers"
+import { INTENT_DWELL_PAST_MS, resetIpc, settledIpc, withoutAppTimers } from "../e2e/helpers/ipc-helpers"
 import { availableRobots, robot } from "../e2e/helpers/patronus-helpers"
 import { hoverStatusChip } from "../e2e/helpers/review-status-helpers"
 import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
@@ -120,9 +122,9 @@ const rowRuns: Metrics[] = []
 const syncRuns: SyncMetrics[] = []
 const ipcRuns: IpcMetrics[] = []
 
-/** The commands of all names */
+/** The commands of all names but those of the app's own timers, which fire wherever a run is (as the e2e of B6 counts) */
 function invokeCount(stats: IpcStats): number {
-  return Object.values(stats.invokes).reduce((sum, count) => sum + count, 0)
+  return Object.values(withoutAppTimers(stats.invokes)).reduce((sum, count) => sum + count, 0)
 }
 
 /** The template in the fresh page of a test, its robots listed, not synced yet: no row of a run before */
@@ -145,6 +147,14 @@ async function timeMainThread(cdp: CDPSession, action: () => Promise<unknown>): 
   await action()
   const after = await mainThreadMs(cdp)
   return { script: after.script - before.script, task: after.task - before.task }
+}
+
+/**
+ * No step of a row waits for a fact any more (`data-waits-for` of the slot: the landing needs, which the session sends a
+ * patch of the whole Patronus view for after the rows and chips): a sync measured after it is that sync alone
+ */
+async function waitForStepFacts(page: Page): Promise<void> {
+  await expect(page.getByTestId("next-step-slot").and(page.locator("[data-waits-for]"))).toHaveCount(0)
 }
 
 /** The robots of the template: running on ten of its lone branches */
@@ -216,6 +226,7 @@ test.describe("Branch table performance", () => {
         await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
         await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
       })
+      await waitForStepFacts(page)
       const resync = await timeMainThread(cdp, () => runAndWaitForSync(page, () => page.getByTestId("sync-button").click()))
       syncRuns.push({ firstSyncScriptMs: first.script, firstSyncTaskMs: first.task, resyncScriptMs: resync.script, resyncTaskMs: resync.task })
     })
@@ -229,6 +240,7 @@ test.describe("Branch table performance", () => {
       await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
       await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
       const firstSync = await settledIpc(page)
+      await waitForStepFacts(page)
 
       await resetIpc(page)
       await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())

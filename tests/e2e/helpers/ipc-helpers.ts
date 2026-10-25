@@ -16,6 +16,14 @@ type IpcWindow = { __ipcStats: IpcStats & { reset: () => void } }
 /** Past the rest of the pointer that counts as the intent to look at a row (`INTENT_DWELL_MS` of usePreviewHotkeys) */
 export const INTENT_DWELL_PAST_MS = 300
 
+/** What the app invokes on its own timers, wherever they fire: the debounced writes of the settings, the check for updates after the start */
+const APP_TIMERS: ReadonlySet<string> = new Set(["set_setting", "check_for_updates"])
+
+/** The commands of the page but those of the app's own timers */
+export function withoutAppTimers(invokes: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(invokes).filter(([name]) => !APP_TIMERS.has(name)))
+}
+
 /** Zeroes the counts of the page's IPC */
 export function resetIpc(page: Page): Promise<void> {
   return page.evaluate(() => (window as unknown as IpcWindow).__ipcStats.reset())

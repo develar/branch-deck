@@ -1902,7 +1902,15 @@ rewrites между процессами через файл `s10`; `s12` ждё
     у `Demand` (их не читал ни один факт: они придут со своими потребителями, как `issues` и `robot_stats`);
     `isPushingRobot` и экспорт четырёх внутренних помощников `src/lib/patronus.ts`; имена удалённых команд в doc
     comments. «Repository view» в `git-operations.md` стал «Session facts» (семейства, кто читает и пишет, `seq`,
-    планировщик и его часы, demand, landing needs через хост, guards на таблице сессии). Остаётся странице до s8:
+    планировщик и его часы, demand, landing needs через хост, guards на таблице сессии). `perf:table` по очереди с
+    master `20d2b938` на Mac Studio, обе стороны ждут, пока ни один шаг строки не ждёт факта (`waitForStepFacts`:
+    landing needs приходят патчем вида Patronus в 28 KB после строк и чипов, и быстрый первый sync отдавал его sync без
+    изменений): три тура при load 15, медианы script / task — первый sync 558 / 1158 мс против 616 / 1408, sync без
+    изменений 51 / 133 против 51 / 124 мс ([Rendering Performance](rendering-performance.md)); первый sync вызывает
+    только `sync` (на master 11–12 команд), sync без изменений — 25,3–25,7 KB, B6 — hover 1, меню 0, поповер 1
+    (`set_demand`); счётчики `perf:table` не считают таймеров приложения (`withoutAppTimers`, как e2e B6). Приёмка на
+    Studio: nextest 2800 тестов за 232,8 с, e2e 695 тестов за 2,7 мин (16 workers; baseline B12 и B16 сняты на
+    другой машине), `cli status` и `cli check` — тот же JSON, что у установленного `bd`. Остаётся странице до s8:
     правило «чей шаг ждёт readiness» (`wantedOf`: страница шлёт такие строки в `Demand.visible_branches` и
     `visible_stacks`), default профиля по последнему роботу (`withLastRobotProfile`), правило news
     (`domain-policy::news`), `structureOf`/`branchTableRowsIn`/`stackDescendantsIn` и реле `items`/`menus` (из s6). s9:
