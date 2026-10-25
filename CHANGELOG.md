@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.32.0](https://github.com/develar/branch-deck/compare/v0.31.1...v0.32.0) (2026-10-25)
+
+
+### Features
+
+* **lease:** the host slots of bd host: plain leases of bd-host/&lt;n&gt; that a lend table lends to one run at a time, gives back, cleans and shrinks ([e4c704c](https://github.com/develar/branch-deck/commit/e4c704c048856b3e080132f538d6d7d5974dcb04))
+* **push:** a push that adds more than the push size limit is refused before it is sent, naming the files ([1f1c522](https://github.com/develar/branch-deck/commit/1f1c5226ae2e21ed7e9f2dcb9bbdb44cca7076f1))
+
+
+### Bug Fixes
+
+* **test-server:** the session route tests wait for the landing needs before they count the patches ([be80637](https://github.com/develar/branch-deck/commit/be806374941ae30d6cad3eed4a4fac16a47decd3))
+* **toast:** one toast per event of an object, updated in place by its later states ([d3bd79c](https://github.com/develar/branch-deck/commit/d3bd79c5d04987ccb26d7fd0de6f73f79ba2e34b))
+* **windows:** the app's git and other CLIs open no console window ([a371a50](https://github.com/develar/branch-deck/commit/a371a50a06e753d04cd375b19a1d070af786f360))
+
 ## [0.31.1](https://github.com/develar/branch-deck/compare/v0.31.0...v0.31.1) (2026-10-25)
 
 
