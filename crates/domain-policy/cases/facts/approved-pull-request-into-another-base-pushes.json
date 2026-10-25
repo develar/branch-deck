@@ -5,6 +5,37 @@
     "remote": "unpushed",
     "rules": "dismiss"
   },
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [
+        {"base": "release/1", "code": "otherBase", "number": 7, "target": "master"},
+        {"code": "approvalsMissing", "groups": ["Air Plugin Release Team"]}
+      ],
+      "confirmations": [],
+      "effects": [
+        {"branches": ["auth"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {
     "auth": {
       "base": {"base": "release/1", "kind": "other"},

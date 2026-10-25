@@ -4,6 +4,7 @@
     "robot": {"on": "child:login", "state": "success"},
     "subject": "wholeStack"
   },
+  "land": null,
   "openPullRequests": {},
   "readiness": {
     "auth": {

@@ -173,6 +173,14 @@ export const commands = {
 	 */
 	checkLandingGate: (params: LandingGateParams) => typedError<LandingCheck, ApiError>(__TAURI_INVOKE("check_landing_gate", { params })),
 	/**
+	 *  What a start of a Safe Push or a Dry Run does now and what stands in its way, over the facts the session of the
+	 *  repository holds (`repository_model::derive::land_answer_of`, the rule `bd safe-push` decides by), with the profiles it
+	 *  offers: the popover of a start and a start with a chosen profile or without approvals read it; the view carries the
+	 *  decisions of the default intents (`RepositoryView.lands`). A read: no lock, no effect. Null while the session is not
+	 *  open, before its Patronus view, or for a subject its table lacks
+	 */
+	decideLand: (params: DecideLandParams) => typedError<LandAnswer | null, ApiError>(__TAURI_INVOKE("decide_land", { params })),
+	/**
 	 *  Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
 	 *  of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
 	 */
@@ -642,6 +650,16 @@ export type ApplyConflictFixParams = {
 	/**  The plan of a component of the fix */
 	plan: RegroupPlan,
 };
+
+/**  Why the approvals don't hold a Safe Push back (`domain_policy::review::skips_approvals`) */
+export type ApprovalsSkip = 
+/**
+ *  A start through the API with a merge profile known to skip the code-owner review (its options say it), as the
+ *  app's Safe Push without review starts; a `/patronus` comment has no profile
+ */
+"profile" | 
+/**  The user said to start without them (`--without-approvals`, the app's Start Without Review) */
+"withoutApprovals";
 
 /**  A group whose approval is there, with the members Patronus counts */
 export type ApprovedReviewGroup = {
@@ -1272,6 +1290,44 @@ export type ConfigSetting<T> = {
 	fallbackScope: ConfigScope | null,
 };
 
+/**  What the user accepts before a start (the contract's `Confirmation`) */
+export type Confirmation = 
+/**
+ *  It lands `count` branches it is built on with the branch, more than its row; of a whole stack the branches of it
+ *  besides its root
+ */
+{ kind: "landsMoreThanRow"; count: number } | 
+/**  It starts with a profile, not the default checks: the last robot's or one chosen */
+{ kind: "nonDefaultProfile"; id: string } | 
+/**  It cancels the running Safe Push of an older commit it replaces (`LandingAllowances::cancel_running` in `bd`) */
+{ kind: "cancelsRobot"; robotId: string } | 
+/**
+ *  Patronus judges the approvals only when the robot starts: it doesn't evaluate the pull request, or GitHub didn't
+ *  list the pull requests, so the start is not known
+ */
+{ kind: "approvalsJudgedAtStart" } | 
+/**
+ *  Patronus couldn't answer the code-owner review (`message`, its pre-check failed): the robot checks the approvals
+ *  when it starts (`LandingAllowances::allow_unknown_review` in `bd`, D14)
+ */
+{ kind: "reviewUnknown"; message: string } | 
+/**  The push dismisses the approvals of pull request `number`, none of which Patronus counts */
+{ kind: "dismissesApprovals"; number: number } | 
+/**
+ *  GitHub didn't answer the rules of the target: whether the push keeps the approvals of pull request `number` is not
+ *  known (`LandingAllowances::allow_unknown_rules` in `bd`)
+ */
+{ kind: "rulesUnknown"; number: number } | 
+/**  It starts without the approvals the code owners haven't given (a Safe Push without review) */
+{ kind: "withoutApprovals" } | 
+/**  It lands a piece of a stack whose pull request `number` is open: those approvals count for the whole stack only */
+{ kind: "stackPullRequestApprovalsDontCount"; number: number } | 
+/**
+ *  Its push replaces `commits` commits of the remote branch of `branch` the branch lacks, someone's work (allowed by
+ *  `LandingAllowances::allow_force`, D12)
+ */
+{ kind: "forcePushDrops"; branch: string; commits: number };
+
 /**  Analysis results for a merge conflict, including missing commits and divergence information. */
 export type ConflictAnalysis = {
 	missingCommits: MissingCommit[],
@@ -1358,6 +1414,12 @@ export type CreatedPullRequest = {
 	assignees: string[],
 	/**  What failed after the pull request was created, e.g. "cannot request review from bob: …" */
 	warnings: string[],
+};
+
+/**  What the app asks of a start before it is made (`decide_land`): the start of `land` in the session of the repository */
+export type DecideLandParams = {
+	repositoryPath: string,
+	land: Land,
 };
 
 /**  Where the name is: a side of a file of the review, a line from 0 and a UTF-16 column */
@@ -1945,6 +2007,12 @@ export type FactState =
 { kind: "unavailable"; reason: ApiError } | 
 /**  Nothing asks for it (no window demands it) */
 { kind: "unknown" };
+
+/**  A fact a start waits for: no answer yet, or `failed` with why the read failed; never read as "no" */
+export type FactWait = {
+	fact: LandFact,
+	failed: ApiError | null,
+};
 
 /**  The parts of the facts that changed */
 export type FactsChanges = {
@@ -2537,6 +2605,90 @@ export type IssueNavigationLink = {
 export type KindCount = {
 	kind: RobotFailureKind,
 	count: number,
+};
+
+/**  A start of a robot on a subject (the contract's `Land`; docs/design/rust-domain-authority.md, "Контракты") */
+export type Land = {
+	subject: Subject,
+	/**  A Safe Push (`RebaseAutosquash`) or a Dry Run */
+	mode: PatronusPushMode,
+	profile: ProfileChoice,
+	/**  Start although the code owners haven't approved (`--without-approvals`, the app's Safe Push without review) */
+	withoutApprovals?: boolean,
+	/**
+	 *  Push and open the pull request of the subject (or take the open one) instead of a start, where the code owners
+	 *  approve (`bd safe-push --create-pull-request`)
+	 */
+	createPullRequest?: boolean,
+	allow?: LandingAllowances,
+};
+
+/**  What the read of a start answers (`decide_land`): its decision and the profiles it offers */
+export type LandAnswer = {
+	decision: LandDecision,
+	profiles: LandProfiles,
+};
+
+/**  What a start does and what stands in its way, as `domain_policy::land::decide` answers it over the facts it has */
+export type LandDecision = {
+	/**  What refuses it, in order; no confirmation lifts one (an allowance of the intent may keep one from being raised) */
+	blockers: Reason[],
+	/**
+	 *  What the user accepts before it starts: a line of the app's popover each, a flag of `bd` for some
+	 *  (`domain_policy::land::unaccepted`)
+	 */
+	confirmations: Confirmation[],
+	/**  The facts it waits for, which nobody answered yet (or whose read failed): never read as "no" */
+	waits: FactWait[],
+	/**  What it does once nothing refuses it, in order: retarget, cancel, push, then the start or the pull request */
+	effects: PlannedEffect[],
+	/**
+	 *  What the robot lands, root first: the branches it is built on that merged Safe Pushes didn't land whole, then the
+	 *  branch itself; of a whole stack every branch of it they didn't land whole
+	 */
+	lands: string[],
+	/**  The open pull request it starts from with a `/patronus` comment, or the one `create_pull_request` takes */
+	pullRequest: number | null,
+	/**  Why the approvals don't hold it back */
+	approvalsSkippedBy: ApprovalsSkip | null,
+};
+
+/**
+ *  The decisions of the two starts of a subject the view of the session offers, its default intents
+ *  (`repository_model::derive::lands_of`): a Safe Push with the default profile, and a Dry Run
+ */
+export type LandDecisions = {
+	safePush: LandDecision,
+	dryRun: LandDecision,
+};
+
+/**  The facts of a start */
+export type LandFact = 
+/**  The tip of the subject and the remote status of what its push takes */
+{ kind: "remote" } | 
+/**  The merge profiles of the target */
+{ kind: "profiles" } | 
+/**  The open pull requests of the branches */
+{ kind: "pullRequests" } | 
+/**  The code-owner review Patronus answers for the subject */
+{ kind: "readiness" } | 
+/**  The rules of the target for a push into the approved pull request `number` */
+{ kind: "rules"; number: number } | 
+/**  What what lands needs of the branches outside it (the landing gate) */
+{ kind: "landingNeeds" };
+
+/**  The merge profiles a start offers (`domain_policy::land::offered_profiles`), as its popover lists them */
+export type LandProfiles = {
+	/**  The profiles of the target the mode allows, with what the options of the last robot said of the review of its own */
+	offered: PatronusProfile[],
+	/**  The emergency profiles the mode allows, offered only to a start without approvals: they skip every check */
+	emergency: PatronusProfile[],
+	/**
+	 *  The profile a start runs with unless another is chosen: the last robot's while offered, else the default of the
+	 *  target; of a start without approvals only one known to skip the review. `None`: the default checks (or the user
+	 *  chooses)
+	 */
+	default: string | null,
 };
 
 /**  The landed commits of one branch */
@@ -3368,6 +3520,22 @@ export type Person = {
 	fullName: string | null,
 };
 
+/**  What a start does, in the order of its effects (the contract's `PlannedEffect`) */
+export type PlannedEffect = 
+/**  The open pull request `number` of `branch` goes from the virtual branch `from` into the target `to` (D11) */
+{ kind: "retarget"; branch: string; number: number; from: string; to: string } | 
+/**  The running Safe Push of an older commit it replaces is canceled */
+{ kind: "cancelRobot"; robotId: string } | 
+/**
+ *  The branches with work for the remote are pushed, root first: the branch and the ancestors its push takes; of a
+ *  whole stack its root, whose stack branch is the only one pushed. `force`: it replaces commits the remote has
+ */
+{ kind: "push"; branches: string[]; force: boolean } | 
+/**  The robot starts */
+{ kind: "startRobot"; route: StartRoute } | 
+/**  The pull request of the subject is opened, where the code owners approve (none is open) */
+{ kind: "createPullRequest" };
+
 /**  A commit folded into its target */
 export type PlannedFixup = {
 	commitId: string,
@@ -3417,6 +3585,15 @@ export type PrefixSource =
 "global_config" | 
 /**  Nothing sets a prefix */
 "none";
+
+/**  The merge profile a start asks for */
+export type ProfileChoice = 
+/**  The profile of the last robot of the subject while the target offers it for the mode, else the default checks */
+{ kind: "default" } | 
+/**  A profile the target offers for the mode */
+{ kind: "id"; id: string } | 
+/**  The default checks of the target */
+{ kind: "none" };
 
 export type PruneReviewRefsParams = {
 	repositoryPath: string,
@@ -3935,6 +4112,11 @@ export type RepositoryView = {
 	 *  subject without an open pull request is not listed
 	 */
 	openPullRequests: { [key in string]: PullRequestView },
+	/**
+	 *  What a Safe Push and a Dry Run of each subject (a branch, `stack:<root>` the whole stack) do now and what stands in
+	 *  their way, the decisions of their default intents (`domain_policy::land::decide`); none before the Patronus view
+	 */
+	lands: { [key in string]: LandDecisions },
 	sections: TableSections,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
@@ -4964,6 +5146,13 @@ export type StartPatronusRobotParams = {
 	allow?: LandingAllowances,
 };
 
+/**  How a robot starts */
+export type StartRoute = 
+/**  Through the API, with `profile` (`None` the default checks) */
+{ kind: "api"; profile: PatronusProfile | null } | 
+/**  A `/patronus` comment on the open pull request `number`, which runs the default checks of the target */
+{ kind: "comment"; number: number };
+
 /**
  *  The period the statistics count, by the days before now; one choice of the app and `bd robot-stats --period`. 30
  *  days by default: what happens now, with a trend of four weeks
@@ -5010,6 +5199,18 @@ export type SubWindowUpdate = {
 	data: string,
 	open: SubWindowOpen,
 };
+
+/**
+ *  The owned subject of a landing, the one shape of "a branch, or the whole stack of a root" (`bd safe-push`, the
+ *  landing gate, the robot of the repository view): a branch with what it is built on, or the whole stack of a root.
+ *  Struct variants, as an internally tagged enum can't serialize a newtype variant of a string; on the wire
+ *  `{"kind":"branch","name":…}` and `{"kind":"wholeStack","root":…}` (`landing_test.rs`)
+ */
+export type Subject = 
+/**  The branch and the branches it is built on: one chain, one robot */
+{ kind: "branch"; name: string } | 
+/**  Every branch of the stack of this root, which may fork: the robot of the whole stack */
+{ kind: "wholeStack"; root: string };
 
 /**
  *  The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the
@@ -5131,6 +5332,8 @@ export type TableChanges = {
 	removedPushes?: string[],
 	openPullRequests?: { [key in string]: PullRequestView },
 	removedOpenPullRequests?: string[],
+	lands?: { [key in string]: LandDecisions },
+	removedLands?: string[],
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,

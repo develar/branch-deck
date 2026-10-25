@@ -1,32 +1,30 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useStore } from "zustand"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
 import { getStackNextStepNow, stackFactsOf, wholeStackRestOf } from "@/hooks/useStackNextStep"
-import type { Fact, PatronusProfile, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, PullRequest } from "@/lib/bindings"
-import type { BranchNextStep } from "@/lib/branch-next-step"
+import type { Land, LandAnswer, LandDecision, LandProfiles, PatronusProfile, PatronusRobot, ReviewReadiness } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
+import type { BranchNextStep, NextStepKind } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
-import { notifyError } from "@/lib/errors"
+import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { FROM_MENU } from "@/lib/menu"
-import type { BypassProfiles, PullRequestStart } from "@/lib/patronus"
-import { allowsPushMode, withLastRobotProfile, formatPushMode, getBypassProfiles, getPullRequestStart, getStartPush, isLandedWhole, openRobot } from "@/lib/patronus"
+import { formatPushMode, openRobot } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
-import type { DismissFact, ReviewFact, SafePushDecision, SafePushFacts, StartOptionsFact } from "@/lib/safe-push-decision"
-import { getSafePushDecision } from "@/lib/safe-push-decision"
 import type { SafePushStart } from "@/lib/safe-push-start"
 import { admitStart, startSafePush } from "@/lib/safe-push-start"
 import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
-import { formatReadinessSubject, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { formatReadinessSubject, formatWholeStack, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
-import { formatPushHoldReason } from "@/presenters/reasons"
+import type { LandPrompt } from "@/presenters/land"
+import { presentLand, startRouteOf } from "@/presenters/land"
 import {
   branchSyncStore,
   getBranch,
-  getPushOrders,
-  getStackAncestors,
+  getLands,
   getStackBranch,
   getStackBranchOf,
   getStackIslandRoots,
@@ -39,23 +37,18 @@ import { requestReveal } from "@/stores/commit-move"
 import {
   askStartProfiles,
   getBranchRobot,
-  getLandedBy,
-  getLandingNeeds,
   getPatronusGitHubRepository,
-  getBranchLanding,
   getPushHold,
-  getStackLanding,
+  getRobot,
   getStackPushHold,
   getStackRobot,
-  getStartProfiles,
   isPatronusAvailable,
   patronusStore,
-  useStartProfiles,
 } from "@/stores/patronus"
-import { askBranchRulesAgain, getPullRequest, getPullRequestListing, getStackPullRequest, peekBranchRules, pullRequestsStore } from "@/stores/pull-requests"
+import { askBranchRulesAgain, getPullRequest, getPullRequestListing, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
 import { getRepositorySwitchReason, getSelectedRepositoryPath } from "@/stores/repository"
 import type { ReadinessEntry } from "@/stores/review-readiness"
-import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
+import { getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { readRobotDetails } from "@/stores/robot-details"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { getSafePushStarting, openSafePushPopover, safePushStore, setSafePushStarting } from "@/stores/safe-push"
@@ -66,36 +59,56 @@ export interface SafePushRequest {
   readonly mode: SafePushMode
   readonly via: "click" | "key"
   readonly placement?: SafePushPlacement
-  /** A profile chosen in the menu (`Safe Push With ›`); undefined: the branch's own (its last robot's) */
+  /** A profile chosen in the menu or the popover; undefined: the default (the last robot's); null: the default checks */
   readonly profileId?: string | null
   /** A Safe Push without review, asked from the Create Pull Request dialog */
   readonly bypassReview?: boolean
 }
 
-/** A start as the stores have it now: the facts, the decision, the start it would run, and what its popover shows */
+/** The code-owner review of a Safe Push as the popover says it, of the answer Patronus gave for the subject as it is */
+export type ReviewShown =
+  /** A dry run, which nobody reviews, or nothing to say yet (the footer says what the start waits for) */
+  | { readonly kind: "none" }
+  /** GitHub doesn't list the pull requests: the start is not known, Patronus judges the approvals at the start */
+  | { readonly kind: "unlisted" }
+  /** A repository only on Space: whether its merge request needs approvals */
+  | { readonly kind: "space"; readonly required: boolean }
+  | { readonly kind: "loaded"; readonly readiness: ReviewReadiness }
+
+/** A start as the stores have it now: what Rust decided of it, what the click and the popover do, and what they show */
 export interface SafePushRead {
-  readonly facts: SafePushFacts
-  readonly decision: SafePushDecision
+  /** The branch, or the key of the whole stack of a root (`stackReadinessKey`) */
+  readonly branchName: string
+  /** What the texts call what starts: the branch's name, "the whole air stack" */
+  readonly subject: string
+  readonly mode: SafePushMode
+  /** The target branch ("master") */
+  readonly target: string
+  /** What Rust decided of the start (`LandDecision`); null before the Patronus view */
+  readonly decision: LandDecision | null
+  /** What the click and the popover do with it (`presentLand`) */
+  readonly prompt: LandPrompt
+  /** The profiles the start offers (`decide_land`); null while asked, and for a click of the default start */
+  readonly profiles: LandProfiles | null
+  /** The profile it runs with; null: the default checks, or a comment on a pull request */
+  readonly profile: PatronusProfile | null
+  /** The open pull request it comments on (`/patronus merge`); null: through the API */
+  readonly fromPullRequest: { readonly number: number; readonly command: string } | null
+  /** A Safe Push without review: its profile has to skip the code-owner review */
+  readonly withoutReview: boolean
+  /** The running Safe Push of an older commit it cancels */
+  readonly replaces: PatronusRobot | null
   readonly start: SafePushStart
-  /**
-   * The branches it is built on, root first, but those a merged Safe Push landed already (`getLandedBy`): its Safe Push
-   * lands them with it
-   */
+  /** The branches it is built on that it lands with it, root first (`LandDecision.lands`) */
   readonly ancestors: readonly string[]
   /** The branches built on it: they stay */
   readonly children: readonly string[]
   /** The commits it lands: its own and its ancestors' */
   readonly commitCount: number
-  /** The branches its start pushes, root first */
-  readonly pushOrder: readonly string[]
-  /** The profiles the mode allows; for a start without review, in groups (`bypassProfiles`) */
-  readonly profiles: readonly PatronusProfile[]
-  readonly bypassProfiles: BypassProfiles | null
-  /** The profile of the branch's last robot, if still offered: the profile a start runs with unless another is chosen */
-  readonly branchProfileId: string | null
-  /** The review of the branch as Patronus answered it for the branch as it is; null while it loads, for a dry run */
+  /** The review of the subject as Patronus answered it for the subject as it is; null while it loads, for a dry run */
   readonly readiness: ReadinessEntry | null
-  /** The start of the whole stack of a root (`readWholeStackSafePush`); null for the start of a branch */
+  readonly review: ReviewShown
+  /** The start of the whole stack of a root (`readWholeStack`); null for the start of a branch */
   readonly wholeStack: WholeStackRead | null
   /**
    * The open pull request of the whole stack the branch is in: its approvals count for the Safe Push of the whole stack
@@ -125,18 +138,12 @@ export interface WholeStackRead {
   readonly piece: string | null
 }
 
-// ---- the merge profiles ----
+// ---- the profile of the last robot ----
 
 /** The last robot of the branch, or of the whole stack of a key (`stackReadinessKey`): its profile is the default */
 function lastRobotOf(branchName: string): PatronusRobot | undefined {
   const root = stackRootOfReadinessKey(branchName)
   return root === null ? getBranchRobot(branchName) : getStackRobot(root)
-}
-
-/** The profile of the last robot of the branch when an answer named it (a poll, a start, its details, the New API's list) */
-function lastRobotProfile(branchName: string): PatronusRobotProfile | null {
-  const profile = lastRobotOf(branchName)?.profile ?? null
-  return profile?.id == null ? null : profile
 }
 
 /** The robots whose details were read for their profile in this window: once each */
@@ -149,28 +156,11 @@ const profileReads = new Set<string>()
  */
 async function readLastRobotProfile(branchName: string): Promise<void> {
   const robot = lastRobotOf(branchName)
-  if (robot === undefined || lastRobotProfile(branchName) !== null || profileReads.has(robot.id)) {
+  if (robot === undefined || robot.profile?.id != null || profileReads.has(robot.id)) {
     return
   }
   profileReads.add(robot.id)
   await readRobotDetails(robot.id)
-}
-
-/**
- * The target and the merge profiles of a start (`facts.profiles` of the session) with the profile of the last robot as
- * the default: loading while the session reads them (or reads them again for another baseline), an error when it
- * couldn't and had none; the profiles of an earlier read stay through a failed one
- */
-export function startOptionsOf(fact: Fact<PatronusStartOptions> | null, last: PatronusRobotProfile | null): StartOptionsFact {
-  if (fact === null || fact.value === null || (fact.state.kind === "stale" && fact.state.reason == null)) {
-    return fact?.state.kind === "unavailable" ? { status: "error", message: fact.state.reason.message } : { status: "loading" }
-  }
-  return { status: "loaded", options: withLastRobotProfile(fact.value, last) }
-}
-
-/** `startOptionsOf` of the branch, as the stores have it now */
-function getStartOptions(branchName: string): StartOptionsFact {
-  return startOptionsOf(getStartProfiles(), lastRobotProfile(branchName))
 }
 
 /** Asks what a start of the branch reads of its profiles: the merge profiles of the target, the last robot's profile */
@@ -178,263 +168,160 @@ function askStartOptions(branchName: string): Promise<unknown> {
   return Promise.all([askStartProfiles(), readLastRobotProfile(branchName)])
 }
 
-/** The merge profiles of a start of the branch while the popover shows: asked when it opens, loading until they come */
-export function useStartOptions(branchName: string): StartOptionsFact {
-  const profiles = useStartProfiles()
-  const last = useStore(patronusStore, () => lastRobotProfile(branchName))
-  useEffect(() => {
-    void askStartOptions(branchName)
-  }, [branchName])
-  return startOptionsOf(profiles, last)
-}
-
 /** Forgets the profiles of the robots read (tests) */
 export function resetStartOptions(): void {
   profileReads.clear()
 }
 
-// ---- the facts ----
+// ---- the read ----
 
-/** The code-owner review of a Safe Push as `getSafePushDecision` reads it */
-function reviewFactOf(checksReview: boolean, entry: ReadinessEntry | null): ReviewFact {
-  if (!checksReview) {
+/**
+ * The steps of the next step that wait for approvals: a start that skips them (`LandDecision.approvalsSkippedBy`: a
+ * start without review, a profile known to skip it) is not held back by them, nor by a pull request into another base,
+ * whose approvals count for no start into the target (D3b)
+ */
+const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting", "otherBase"])
+
+/** The start `request` asks of `branchName` (a branch, or the key of a whole stack) as the contract names it (`Land`) */
+export function landOf(branchName: string, request: Omit<SafePushRequest, "placement">): Land {
+  const root = stackRootOfReadinessKey(branchName)
+  const { profileId } = request
+  return {
+    subject: root === null ? { kind: "branch", name: branchName } : { kind: "wholeStack", root },
+    mode: request.mode,
+    profile: profileId === undefined ? { kind: "default" } : profileId === null ? { kind: "none" } : { kind: "id", id: profileId },
+    withoutApprovals: request.bypassReview === true && request.mode === "rebaseAutosquash",
+  }
+}
+
+/** The start of the default intent (the default profile, with review): the view carries its decision */
+function isDefaultAsk(request: Omit<SafePushRequest, "placement">): boolean {
+  return request.profileId === undefined && request.bypassReview !== true
+}
+
+/** What the session answers of the start `request` of `branchName` (`decide_land`); null without an answer */
+export async function askLand(branchName: string, request: Omit<SafePushRequest, "placement">): Promise<LandAnswer | null> {
+  const repositoryPath = getSelectedRepositoryPath()
+  if (repositoryPath === null) {
+    return null
+  }
+  const result = await commands.decideLand({ repositoryPath, land: landOf(branchName, request) })
+  if (result.status === "error") {
+    throw commandFailure(result.error)
+  }
+  return result.data
+}
+
+/** The readiness of the subject as the session answered it for the subject as it is; null while it is asked again */
+function shownReadiness(key: string): ReadinessEntry | null {
+  const entry = getReviewReadiness(key)
+  return entry === undefined || entry.stale ? null : entry
+}
+
+/** The start waits for the review: the pull request it starts from, or the answer of Patronus */
+function waitsForReview(decision: LandDecision): boolean {
+  return decision.waits.some(wait => wait.fact.kind === "readiness" || wait.fact.kind === "pullRequests")
+}
+
+/** The review as the popover says it: nothing for a dry run, nor while the start waits for the review */
+function reviewShownOf(mode: SafePushMode, readiness: ReadinessEntry | null, decision: LandDecision | null): ReviewShown {
+  if (mode === "dryRun" || decision === null || waitsForReview(decision)) {
     return { kind: "none" }
   }
   if (getPatronusGitHubRepository() === null) {
-    // a repository only on Space: its merge request counts, the robot decides
-    if (entry === null) {
-      return { kind: "loading" }
+    // a repository only on Space: its merge request counts
+    if (readiness === null) {
+      return { kind: "none" }
     }
-    return entry.requirement === null ? { kind: "loaded", readiness: entry.readiness } : { kind: "space", required: entry.requirement.required }
+    return readiness.requirement === null ? { kind: "loaded", readiness: readiness.readiness } : { kind: "space", required: readiness.requirement.required }
   }
-  // before GitHub's first answer the start is not known yet: the start waits for it, never "unlisted"
-  const listing = getPullRequestListing()
-  if (listing === "loading") {
-    return { kind: "loading" }
-  }
-  // GitHub doesn't list the pull requests (no token, SSO): the start is not known, the robot decides; a refresh that
-  // failed for a while keeps the last listing, whose pull request the start comments on
-  if (listing === "unlisted") {
+  if (getPullRequestListing() === "unlisted") {
     return { kind: "unlisted" }
   }
-  return entry === null ? { kind: "loading" } : { kind: "loaded", readiness: entry.readiness }
-}
-
-/** What a start reads of its pull request, the merge profiles and the review, the same for a branch and the whole stack */
-interface StartBasics {
-  readonly loaded: PatronusStartOptions | null
-  /** The target branch ("master") */
-  readonly target: string
-  readonly fromPullRequest: PullRequestStart | null
-  /** The profiles the mode allows */
-  readonly profiles: readonly PatronusProfile[]
-  /** The profile of the last robot, if still offered */
-  readonly branchProfileId: string | null
-  readonly readiness: ReadinessEntry | null
-  readonly review: ReviewFact
-  readonly dismiss: DismissFact | null
+  return readiness === null ? { kind: "none" } : { kind: "loaded", readiness: readiness.readiness }
 }
 
 /**
- * The basics of a start of `key` (a branch, or the whole stack of `stackReadinessKey`) with its open `pullRequest`:
- * the comment on it, the profiles, the review as Patronus answered it for `key` as it is, and whether a push into an
- * approved pull request dismisses the approvals (`needsPush`)
+ * The start of the whole stack of `root` as the popover names it: one robot from its stack branch, the only branch it
+ * pushes; what merged Safe Pushes landed of it is in the target, the popover names the rest
  */
-function readStartBasics(key: string, pullRequest: PullRequest | undefined, mode: SafePushMode, options: StartOptionsFact, needsPush: boolean): StartBasics {
-  const loaded = options.status === "loaded" ? options.options : null
-  const target = loaded?.targetBranch ?? getReadinessTarget()
-  const fromPullRequest = getPullRequestStart(getPatronusGitHubRepository(), pullRequest, mode, target)
-  const profiles = loaded?.profiles.filter(profile => allowsPushMode(profile, mode)) ?? []
-  const branchProfileId = profiles.some(profile => profile.id === loaded?.defaultProfileId) ? (loaded?.defaultProfileId ?? null) : null
-  // the code owners don't check a dry run; the approvals of the pull request count only for the robot started from it
-  const checksReview = mode === "rebaseAutosquash" && loaded?.supported === true
-  const readiness = checksReview ? freshReadiness(getReviewReadiness(key), key) : null
-  // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
-  const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true
-  const dismiss = approvedPullRequest ? { pullRequest: fromPullRequest.number, dismisses: peekBranchRules(target) } : null
-  return { loaded, target, fromPullRequest, profiles, branchProfileId, readiness, review: reviewFactOf(checksReview, readiness), dismiss }
+function readWholeStack(root: string, stackBranch: string): WholeStackRead {
+  const piece = getStackNotBuilt(root) === null ? null : (mainLineOf(branchSyncStore.getState(), root).at(-1) ?? null)
+  const { members, landed } = wholeStackRestOf(root)
+  return { root, members, landed, stackBranch, onRemote: members.filter(name => getBranch(name)?.remoteStatus?.exists === true), piece }
 }
 
 /**
- * A start of the branch as the stores have it now (`SafePushRead`), with the merge profiles as loaded; null without the
- * branch. The one reader of the facts: the click decides on it, the popover renders it.
+ * A start of the branch, or of the whole stack of a key (`stackReadinessKey`), as the stores have it now: the decision
+ * of `answer` (`decide_land`), else, for the default start, the one the view carries (`RepositoryView.lands`); null
+ * without the branch, or for a whole stack that doesn't fork (a straight chain starts from its last branch). The one
+ * reader of a start: the click decides on it, the popover renders it.
  */
-export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "placement">, options: StartOptionsFact): SafePushRead | null {
+export function readSafePush(branchName: string, request: Omit<SafePushRequest, "placement">, answer: LandAnswer | null): SafePushRead | null {
   const root = stackRootOfReadinessKey(branchName)
-  if (root !== null) {
-    return readWholeStackSafePush(root, ask, options)
-  }
-  const branch = getBranch(branchName)
-  if (branch === undefined) {
-    return null
-  }
-  const { mode } = ask
-  const localTip = branch.commits[0]?.hash
-  const remoteStatus = branch.remoteStatus
-  // a Safe Push of the branch running on an older commit: the start replaces it, the push before it cancels it
-  const hold = getPushHold(branchName)
-  const replaced = getBranchLanding(branchName).replaces
-  const replaces = mode === "rebaseAutosquash" && hold !== null && hold.robot.id === replaced ? hold.robot : null
-  // the branches the start pushes, root first, as Rust orders them: the stack while an ancestor has work for the remote,
-  // up to a held one; with the robot it replaces, which the push cancels, the branches that robot held
-  const orders = getPushOrders(branchName)
-  const pushOrder = replaces === null ? orders.action : orders.start
-  const startPush = getStartPush(remoteStatus?.action ?? null, pushOrder.length > 1)
-  const needsPush = startPush.kind === "stack" || startPush.kind === "branch"
-  const step = getBranchNextStepOf(branch, { forStart: true })
-
-  const { loaded, target, fromPullRequest, profiles, branchProfileId, readiness, review, dismiss } = readStartBasics(
-    branchName,
-    getPullRequest(branchName),
-    mode,
-    options,
-    needsPush,
-  )
-  // without review only while no pull request is open (a comment can't choose a profile) and the approvals are missing
-  const bypassReview = ask.bypassReview === true && mode === "rebaseAutosquash" && fromPullRequest === null && !(review.kind === "loaded" && review.readiness.kind !== "missing")
-  const bypassProfiles = loaded === null || !bypassReview ? null : getBypassProfiles(loaded, mode)
-  const offered = bypassProfiles === null ? profiles : [...bypassProfiles.skipping, ...bypassProfiles.other, ...bypassProfiles.emergency]
-  const profileId = ask.profileId !== undefined ? ask.profileId : bypassProfiles === null ? branchProfileId : bypassProfiles.defaultProfileId
-  // a comment on the pull request runs the default checks of the target
-  const profile = fromPullRequest === null ? (offered.find(it => it.id === profileId) ?? null) : null
-
   const state = branchSyncStore.getState()
-  // the ancestors a merged Safe Push landed are in the target: the robot lands the others with the branch
-  const ancestors = getStackAncestors(branchName).filter(name => !isLandedWhole(getLandedBy(name)))
-  // a Dry Run counts no approval: the pull request of the whole stack doesn't matter to it
-  const stackPullRequest = mode === "rebaseAutosquash" ? openWholeStackPullRequestOf(branchName) : null
-  const facts: SafePushFacts = {
-    branchName,
-    subject: branchName,
-    mode,
-    via: ask.via,
-    step: { kind: step.kind, blocker: mode === "dryRun" ? step.dryRunBlocker : step.safePushBlocker },
-    target,
-    options,
-    profile,
-    bypassReview,
-    fromPullRequest,
-    startPush,
-    hasTip: localTip !== undefined,
-    replaces: replaces === null ? null : (replaces.sourceRevision ?? ""),
-    pushHeld: needsPush && hold !== null && replaces === null ? formatPushHoldReason(branchName, hold) : null,
-    review,
-    dismiss,
-    ancestorCount: ancestors.length,
-    wholeStackPullRequest: stackPullRequest?.number ?? null,
-    landingRefusals: getLandingNeeds(branchName) ?? [],
+  const { mode } = request
+  let step: BranchNextStep
+  let wholeStack: WholeStackRead | null = null
+  if (root === null) {
+    const branch = getBranch(branchName)
+    if (branch === undefined) {
+      return null
+    }
+    step = getBranchNextStepOf(branch, { forStart: true })
+  } else {
+    const stack = getStackBranch(root)
+    if (stack === undefined || !isForkingRoot(state, root)) {
+      return null
+    }
+    step = getBranchNextStep(stackFactsOf(stack, { forStart: true }))
+    wholeStack = readWholeStack(root, stack.branchName)
   }
+  const lands = getLands(branchName)
+  const decision = answer?.decision ?? (isDefaultAsk(request) && lands !== undefined ? (mode === "dryRun" ? lands.dryRun : lands.safePush) : null)
+  const subject = root === null ? branchName : formatWholeStack(root)
+  const blocker = mode === "dryRun" ? step.dryRunBlocker : step.safePushBlocker
+  // a start that skips the approvals is held back only by the reasons of the branch, never by the approvals
+  const stepBlocker = blocker !== null && !(decision?.approvalsSkippedBy != null && APPROVAL_STEPS.has(step.kind)) ? blocker : null
+  const route = decision === null ? null : startRouteOf(decision)
+  const profile = route?.kind === "api" ? route.profile : null
+  const cancel = decision?.effects.find(effect => effect.kind === "cancelRobot")
+  const readiness = mode === "rebaseAutosquash" ? shownReadiness(branchName) : null
+  const ancestors = root === null ? (decision?.lands.slice(0, -1) ?? []) : []
+  const stackPullRequest = decision?.confirmations.find(confirmation => confirmation.kind === "stackPullRequestApprovalsDontCount")
+  const stackOf = stackPullRequest === undefined ? undefined : getStackBranchOf(branchName)
+  const review = reviewShownOf(mode, readiness, decision)
+  // asked without review through the API (a comment takes no profile), while the approvals are missing or not known
+  const withoutReview =
+    request.bypassReview === true && mode === "rebaseAutosquash" && route?.kind !== "comment" && !(review.kind === "loaded" && review.readiness.kind !== "missing")
   return {
-    facts,
-    decision: getSafePushDecision(facts),
+    branchName,
+    subject,
+    mode,
+    target: getReadinessTarget(),
+    decision,
+    prompt: presentLand(decision, { subject, via: request.via, stepBlocker, withoutReview }),
+    profiles: answer?.profiles ?? null,
+    profile,
+    fromPullRequest: route?.kind === "comment" ? { number: route.number, command: mode === "dryRun" ? "/patronus dry-run" : "/patronus merge" } : null,
+    withoutReview,
+    replaces: cancel?.kind === "cancelRobot" ? (getRobot(cancel.robotId) ?? null) : null,
     start: {
       branchName,
       mode,
+      effects: decision?.effects ?? [],
       profile: profile === null ? null : { id: profile.id, name: profile.name },
-      fromPullRequest,
       mergeRequest: readiness?.requirement?.mergeRequest ?? null,
-      needsPush,
-      replaces,
-      wholeStack: null,
-    },
-    ancestors,
-    children: structureIn(state, branchName).descendants,
-    commitCount: [...ancestors, branchName].reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0),
-    pushOrder,
-    profiles,
-    bypassProfiles,
-    branchProfileId,
-    readiness,
-    wholeStack: null,
-    wholeStackPullRequest: stackPullRequest,
-  }
-}
-
-/** The open pull request of the whole stack that holds the branch (`getStackBranchOf`); null without one */
-function openWholeStackPullRequestOf(branchName: string): { root: string; number: number } | null {
-  const stack = getStackBranchOf(branchName)
-  const pullRequest = stack === undefined ? undefined : getStackPullRequest(stack.root)
-  return stack === undefined || pullRequest?.state !== "open" ? null : { root: stack.root, number: pullRequest.number }
-}
-
-/**
- * The start of the whole stack of `root` as the stores have it now (`SafePushRead`): one robot from its stack branch
- * `{prefix}/stack/<root>`, the only branch it pushes, with the robot, the pull request and the readiness of the whole
- * stack (`stackFactsOf`), its profile the one of the last robot of the whole stack; null while the stack doesn't fork
- * (a straight chain starts from its last branch, `requestSafePush`)
- */
-function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placement">, options: StartOptionsFact): SafePushRead | null {
-  const stack = getStackBranch(root)
-  if (stack === undefined || !isForkingRoot(branchSyncStore.getState(), root)) {
-    return null
-  }
-  const key = stackReadinessKey(root)
-  const subject = formatWholeStack(root)
-  const { mode } = ask
-  const tip = stack.tip ?? undefined
-  const remoteStatus = stack.remoteStatus
-  // the robot of the whole stack running on an older stack branch: the start replaces it, its push cancels it
-  const hold = getStackPushHold(root)
-  const replaced = getStackLanding(root).replaces
-  const replaces = mode === "rebaseAutosquash" && hold !== null && hold.robot.id === replaced ? hold.robot : null
-  const startPush = getStartPush(remoteStatus?.action ?? null, false)
-  const needsPush = startPush.kind === "branch"
-  const step = getBranchNextStep(stackFactsOf(stack, { forStart: true }))
-
-  const { target, fromPullRequest, profiles, branchProfileId, readiness, review, dismiss } = readStartBasics(key, getStackPullRequest(root), mode, options, needsPush)
-  const profileId = ask.profileId !== undefined ? ask.profileId : branchProfileId
-  const profile = fromPullRequest === null ? (profiles.find(it => it.id === profileId) ?? null) : null
-
-  const facts: SafePushFacts = {
-    branchName: key,
-    subject,
-    mode,
-    via: ask.via,
-    step: { kind: step.kind, blocker: mode === "dryRun" ? step.dryRunBlocker : step.safePushBlocker },
-    target,
-    options,
-    profile,
-    bypassReview: false,
-    fromPullRequest,
-    startPush,
-    hasTip: tip !== undefined,
-    replaces: replaces === null ? null : (replaces.sourceRevision ?? ""),
-    pushHeld: needsPush && hold !== null && replaces === null ? formatPushHoldReason(subject, hold) : null,
-    review,
-    dismiss,
-    // the branches it lands besides the root: it always says what it lands first
-    ancestorCount: stack.members.length - 1,
-    wholeStackPullRequest: null,
-    // the repository view computes them of the branches: the gate of the start checks the whole stack
-    landingRefusals: [],
-  }
-  const piece = getStackNotBuilt(root) === null ? null : (mainLineOf(branchSyncStore.getState(), root).at(-1) ?? null)
-  // what merged Safe Pushes landed of it is in the target: the popover names the rest
-  const rest = wholeStackRestOf(root)
-  const members = rest.members
-  return {
-    facts,
-    decision: getSafePushDecision(facts),
-    start: {
-      branchName: key,
-      mode,
-      profile: profile === null ? null : { id: profile.id, name: profile.name },
-      fromPullRequest,
-      mergeRequest: readiness?.requirement?.mergeRequest ?? null,
-      needsPush,
-      replaces,
       wholeStack: root,
     },
-    ancestors: [],
-    children: [],
-    commitCount: rest.commitCount,
-    pushOrder: [],
-    profiles,
-    bypassProfiles: null,
-    branchProfileId,
+    ancestors,
+    children: root === null ? structureIn(state, branchName).descendants : [],
+    commitCount: root === null ? [...ancestors, branchName].reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0) : wholeStackRestOf(root).commitCount,
     readiness,
-    wholeStack: { root, members, landed: rest.landed, stackBranch: stack.branchName, onRemote: members.filter(name => getBranch(name)?.remoteStatus?.exists === true), piece },
-    wholeStackPullRequest: null,
+    review,
+    wholeStack,
+    wholeStackPullRequest:
+      stackPullRequest?.kind === "stackPullRequestApprovalsDontCount" && stackOf !== undefined ? { root: stackOf.root, number: stackPullRequest.number } : null,
   }
 }
 
@@ -453,15 +340,16 @@ function nextChange(): Promise<void> {
 }
 
 /**
- * The facts of a click, read again on every change until the decision waits for nothing: the session answers every
- * fact it waits for (the review it is asked at once, the rules, the profiles), a failure too, so the wait ends
+ * The start of a click, read again on every change until its decision waits for nothing: the session answers every
+ * fact it waits for (the review it is asked at once, the rules, the profiles), a failure too, so the wait ends. The
+ * default start reads the decision the view carries, another one asks the session (`decide_land`)
  */
 async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "placement">): Promise<SafePushRead | null> {
   // the profiles as the session has them now, the rules GitHub didn't give read again: the start decides on new answers
   await Promise.all([askStartOptions(branchName), askBranchRulesAgain()])
   for (;;) {
-    const read = readSafePush(branchName, ask, getStartOptions(branchName))
-    if (read === null || read.decision.kind !== "wait") {
+    const read = readSafePush(branchName, ask, isDefaultAsk(ask) ? null : await askLand(branchName, ask))
+    if (read === null || read.prompt.kind !== "wait") {
       return read
     }
     // the rules come with the listing that has the approval: the session reads them then
@@ -573,7 +461,7 @@ function currentStepOf(branchName: string): BranchNextStep | undefined {
  * A start of a Safe Push or a Dry Run, asked from any surface: the slot of the row or of the island header, the branch
  * menu, S, the preview, the review window, a toast. What every surface knows refuses it first, as the step says it (an
  * `info` toast). S opens the popover at once, which reads the facts as they load. A click waits for the facts, its
- * button busy ("Checking…"), and then starts at once when there is nothing to say (`getSafePushDecision`), else opens
+ * button busy ("Checking…"), and then starts at once when there is nothing to say (`presentLand` of Rust's decision), else opens
  * the popover at the slot of the branch (a hidden row revealed first), or says why it can't start.
  */
 export async function requestSafePush(branchName: string, request: SafePushRequest): Promise<void> {
@@ -641,6 +529,9 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   let read: SafePushRead | null
   try {
     read = await settleSafePush(branchName, request)
+  } catch (error) {
+    notifyError(`Cannot start the ${formatPushMode(mode)}`, error)
+    return
   } finally {
     release()
     if (getSafePushStarting(branchName, repositoryPath)?.step === "checking") {
@@ -656,7 +547,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     notifyError(`Cannot start the ${formatPushMode(mode)}`, switched)
     return
   }
-  const { decision } = read
+  const decision = read.prompt
   switch (decision.kind) {
     case "start":
       await startSafePush(read.start, admitted)
@@ -666,6 +557,9 @@ export async function requestSafePush(branchName: string, request: SafePushReque
       const settled = mode === "rebaseAutosquash" && !decision.offersPush ? currentStepOf(branchName) : undefined
       if (settled?.notice != null && settled.safePushBlocker === decision.reason) {
         tellNotice(branchName, settled, settled.notice, { ...request, placement })
+      } else if (decision.opens === "review") {
+        // the approvals it misses: the popover names them, where they count and how to get them
+        openSafePushPopover(ask)
       } else {
         tellRefusal(branchName, mode, decision.reason, decision.offersPush, decision.opens)
       }
@@ -682,10 +576,10 @@ export async function requestSafePush(branchName: string, request: SafePushReque
 let shownRead: { inputs: readonly unknown[]; read: SafePushRead | null } | null = null
 
 /**
- * `readSafePush` of the popover, once per change of what it reads (the stores, the profiles): the subscriptions of the
- * popover share the answer, and a selector returns the same object for the same state
+ * `readSafePush` of the popover, once per change of what it reads (the stores, the answer of the session): the
+ * subscriptions of the popover share the answer, and a selector returns the same object for the same state
  */
-function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placement">, options: StartOptionsFact): SafePushRead | null {
+function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placement">, answer: LandAnswer | null): SafePushRead | null {
   const inputs = [
     branchSyncStore.getState(),
     reviewReadinessStore.getState(),
@@ -697,26 +591,52 @@ function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placeme
     ask.via,
     ask.profileId,
     ask.bypassReview,
-    options,
+    answer,
   ]
   if (shownRead !== null && shownRead.inputs.every((input, index) => input === inputs[index])) {
     return shownRead.read
   }
-  const read = readSafePush(branchName, ask, options)
+  const read = readSafePush(branchName, ask, answer)
   shownRead = { inputs, read }
   return read
 }
 
 /**
- * `readSafePush` of the popover's ask, read again on every change of the stores it reads (the rules of the bases come
- * with the pull requests); the review demanded meanwhile
+ * What the session answers of the start of the popover (`decide_land`), asked again with every patch of the view (its
+ * facts are the session's) and every other profile; the last answer while the next is asked, null before the first
+ */
+function useLandAnswer(branchName: string, request: Omit<SafePushRequest, "placement">): LandAnswer | null {
+  const [answer, setAnswer] = useState<{ readonly key: string; readonly answer: LandAnswer | null } | null>(null)
+  const version = useStore(branchSyncStore, state => (state.viewVersion === null ? null : `${state.viewVersion.epoch}:${state.viewVersion.seq}`))
+  const key = JSON.stringify([branchName, request.mode, request.profileId ?? "default", request.bypassReview === true])
+  const { mode, via, profileId, bypassReview } = request
+  useEffect(() => {
+    let current = true
+    askLand(branchName, { mode, via, ...(profileId !== undefined && { profileId }), ...(bypassReview === true && { bypassReview }) }).then(
+      answered => current && setAnswer({ key, answer: answered }),
+      (error: unknown) => current && notifyError(`Cannot read the ${formatPushMode(mode)} of ${formatReadinessSubject(branchName)}`, error),
+    )
+    return () => {
+      current = false
+    }
+  }, [branchName, key, mode, via, profileId, bypassReview, version])
+  // an answer of another profile is not this start's
+  return answer?.key === key ? answer.answer : null
+}
+
+/**
+ * `readSafePush` of the popover's ask, read again on every change of the stores it reads and of the answer of the
+ * session; the profiles and the review demanded meanwhile
  */
 export function useSafePushRead(ask: SafePushAsk, profileId: string | null | undefined): SafePushRead | null {
-  const options = useStartOptions(ask.branchName)
+  useEffect(() => {
+    void askStartOptions(ask.branchName)
+  }, [ask.branchName])
   useDemandReviewReadiness(ask.branchName, ask.mode === "rebaseAutosquash")
   const request: Omit<SafePushRequest, "placement"> = { mode: ask.mode, via: "key", bypassReview: ask.bypassReview, ...(profileId !== undefined && { profileId }) }
+  const answer = useLandAnswer(ask.branchName, request)
   // the read flows out of the subscriptions: a value read beside them would be memoized by the compiler
-  const select = () => readSafePushNow(ask.branchName, request, options)
+  const select = () => readSafePushNow(ask.branchName, request, answer)
   useStore(branchSyncStore, select)
   useStore(reviewReadinessStore, select)
   useStore(pullRequestsStore, select)

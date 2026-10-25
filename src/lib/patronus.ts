@@ -1,21 +1,9 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type {
-  PatronusAvailability,
-  PatronusProfile,
-  PatronusPushMode,
-  PatronusReviewerGroup,
-  PatronusRobot,
-  PatronusRobotProfile,
-  PatronusStartOptions,
-  PullRequest,
-  PushAction,
-  RestartAction,
-} from "@/lib/bindings"
+import type { PatronusAvailability, PatronusPushMode, PatronusReviewerGroup, PatronusRobot, RestartAction } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import { shellWord } from "@/lib/prompt-text"
-import type { OutgoingState } from "@/lib/push-summary"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { joinNames } from "@/lib/text"
@@ -297,27 +285,6 @@ export interface PushHold {
   commits?: number
 }
 
-/** What a start pushes before the robot runs (`getStartPush`) */
-export type StartPush = { readonly kind: "unknown" } | { readonly kind: "none" } | { readonly kind: "stack" } | { readonly kind: "branch"; readonly action: OutgoingState }
-
-/**
- * What a Safe Push or a Dry Run pushes before the robot starts from the remote branch, by content as the push button
- * shows it (`pushAction`, Rust's action of the remote status): nothing when the remote branch has the commits of the branch, also when
- * the sync only rebuilt them on a newer baseline (Patronus rebases the remote branch itself; a push would replace it with
- * copies of the same commits and move the head of its pull request for nothing); the stack while its ancestors have work
- * for the remote (`pushesStack`, `PushOrders.action`); `unknown` while the remote status of the branch is not loaded: the
- * start waits for it.
- */
-export function getStartPush(pushAction: PushAction | null, pushesStack: boolean): StartPush {
-  if (pushAction === null) {
-    return { kind: "unknown" }
-  }
-  if (pushesStack) {
-    return { kind: "stack" }
-  }
-  return pushAction.kind === "upToDate" ? { kind: "none" } : { kind: "branch", action: pushAction.kind }
-}
-
 /** An ancestor of a stacked branch whose robot pushes into the target: it lands the ancestor's commits */
 export interface LandingAncestor {
   /** The ancestor; for the robot of the whole stack (`wholeStack`) the root of the stack */
@@ -509,92 +476,6 @@ export function describeStart(mode: PatronusPushMode, subject: string, branchCou
   return mode === "dryRun"
     ? `Checks ${subject}${builtOn} on ${target} without pushing into it`
     : `Lands ${subject}${builtOn} into ${target}${branchCount > 1 ? " in one Safe Push" : " once the checks pass"}`
-}
-
-/** The profile allows the mode; no modes listed = any */
-export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode): boolean {
-  return profile.allowedPushModes.length === 0 || profile.allowedPushModes.includes(mode)
-}
-
-/**
- * The merge profiles of a target with the profile of the branch's last robot (`last`, as an answer named it) as the
- * default when it is still offered (never an emergency one: a start with one is chosen each time), and its
- * `skipsReview` from the robot's options on its profile: the options of a target don't describe the review of a profile
- * but an emergency one's (`PatronusService::start_options`, which `bd` gives the last robot)
- */
-export function withLastRobotProfile(options: PatronusStartOptions, last: PatronusRobotProfile | null): PatronusStartOptions {
-  const id = last?.id ?? null
-  if (id === null) {
-    return options
-  }
-  const described = (profile: PatronusProfile): PatronusProfile =>
-    profile.id === id && profile.skipsReview == null && last?.skipsReview != null ? { ...profile, skipsReview: last.skipsReview } : profile
-  return {
-    ...options,
-    profiles: options.profiles.map(described),
-    emergencyProfiles: options.emergencyProfiles.map(described),
-    defaultProfileId: options.profiles.some(profile => profile.id === id) ? id : null,
-  }
-}
-
-/**
- * The profiles a Safe Push without review offers, by what Patronus says of them before a start: those known to skip the
- * code-owner review (the profile of the last robot, its options said it), the others, which Patronus doesn't describe
- * (a start with one that checks the review fails at once), and the emergency ones (they skip all checks). A profile
- * known to check the review is left out. The default: the profile of the last robot if it skips the review, else none
- * (the user chooses)
- */
-export interface BypassProfiles {
-  skipping: PatronusProfile[]
-  other: PatronusProfile[]
-  emergency: PatronusProfile[]
-  defaultProfileId: string | null
-}
-
-export function getBypassProfiles(options: PatronusStartOptions, mode: PatronusPushMode): BypassProfiles {
-  const offered = options.profiles.filter(profile => allowsPushMode(profile, mode))
-  const skipping = offered.filter(profile => profile.skipsReview === true)
-  return {
-    skipping,
-    other: offered.filter(profile => profile.skipsReview === null),
-    emergency: options.emergencyProfiles.filter(profile => allowsPushMode(profile, mode)),
-    defaultProfileId: skipping.some(profile => profile.id === options.defaultProfileId) ? options.defaultProfileId : null,
-  }
-}
-
-/**
- * "Patronus starts it from pull request #760" or the Space alternative: a branch with an open pull request in the GitHub
- * repository the branches are mirrored to starts from it (a `/patronus` comment), a draft only for a dry run. null =
- * the start goes through the Patronus API: also for a pull request into another base than the target of Patronus
- * (`isPullRequestIntoTarget`), a release branch, or a virtual branch until the push or the next step retargets it.
- */
-export function getPullRequestStart(
-  githubRepository: string | null,
-  pullRequest: PullRequest | undefined,
-  mode: PatronusPushMode,
-  targetBranch: string | null,
-): PullRequestStart | null {
-  if (githubRepository === null || pullRequest === undefined || pullRequest.state !== "open" || !isPullRequestIntoTarget(pullRequest, targetBranch)) {
-    return null
-  }
-  return { number: pullRequest.number, blockedByDraft: pullRequest.isDraft && mode !== "dryRun", command: mode === "dryRun" ? "/patronus dry-run" : "/patronus merge" }
-}
-
-/**
- * Whether a pull request merges into the target branch of Patronus; true while either is unknown (no base read, the
- * target not loaded yet)
- */
-export function isPullRequestIntoTarget(pullRequest: PullRequest, targetBranch: string | null): boolean {
-  return targetBranch === null || !pullRequest.baseRefName || pullRequest.baseRefName === targetBranch
-}
-
-/** A start from a GitHub pull request (`getPullRequestStart`) */
-export interface PullRequestStart {
-  readonly number: number
-  /** Patronus doesn't merge a draft pull request */
-  readonly blockedByDraft: boolean
-  /** The comment, as the form says it */
-  readonly command: string
 }
 
 /** "Air Plugin Release Team (suggested: Alice, Bob)" */

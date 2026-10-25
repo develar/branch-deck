@@ -394,9 +394,9 @@
   {
     "id": "row-5-into-the-parent",
     "group": "next-step-rows",
-    "title": "the pull request of login goes into the virtual branch of its parent auth: its approvals don't count",
+    "title": "the pull request of login goes into the virtual branch of its parent auth: its start retargets it into master first and starts from it (D11)",
     "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D11",
+    "discrepancy": null,
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -407,7 +407,11 @@
     "app": {
       "step": {
         "kind": "retarget",
-        "safePushBlocker": "Approvals in #7 don't count: its base is test-user/virtual/auth"
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "confirm",
+        "reasons": ["stack"]
       }
     },
     "bd": {
@@ -421,9 +425,9 @@
   {
     "id": "row-5-into-another-branch",
     "group": "next-step-rows",
-    "title": "the pull request of auth goes into the virtual branch of session, another branch of the table: its approvals don't count",
+    "title": "the pull request of auth goes into the virtual branch of session, another branch of the table: its start retargets it into master first and starts from it (D11)",
     "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D11",
+    "discrepancy": null,
     "given": {
       "commits": ["(auth) Add auth", "(session) Add session"],
       "branch": "auth",
@@ -434,7 +438,10 @@
     "app": {
       "step": {
         "kind": "retarget",
-        "safePushBlocker": "Approvals in #7 don't count: its base is test-user/virtual/session"
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
       }
     },
     "bd": {
@@ -448,9 +455,9 @@
   {
     "id": "row-5-into-a-landed-branch",
     "group": "next-step-rows",
-    "title": "the pull request of auth goes into the virtual branch of gone, which landed and was archived: its approvals don't count",
+    "title": "the pull request of auth goes into the virtual branch of gone, which landed and was archived: its start retargets it into master first and starts from it (D11)",
     "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D11",
+    "discrepancy": null,
     "given": {
       "branch": "auth",
       "pullRequest": {
@@ -460,7 +467,10 @@
     "app": {
       "step": {
         "kind": "retarget",
-        "safePushBlocker": "Approvals in #7 don't count: its base is test-user/virtual/gone"
+        "safePushBlocker": null
+      },
+      "decision": {
+        "kind": "start"
       }
     },
     "bd": {
@@ -819,7 +829,7 @@
     "group": "next-step-rows",
     "title": "Patronus can't answer for the review: the app confirms, bd refuses review_unknown unless --allow-unknown-review",
     "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D14",
+    "discrepancy": null,
     "given": {
       "readiness": "unavailable"
     },
@@ -838,6 +848,10 @@
         "refusals": ["review_unknown"],
         "readiness": "unavailable"
       }
+    },
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "--allow-unknown-review of bd is the popover's confirmation ReviewUnknown (owner decision 10): docs/design/rust-domain-authority.md#решения-которые-подтверждает-владелец"
     }
   },
   {

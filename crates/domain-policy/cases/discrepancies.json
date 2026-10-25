@@ -49,7 +49,7 @@
     "discrepancy": "D2",
     "closed": "s1-holes",
     "today": {
-      "app": ["src/lib/safe-push-decision.ts#function skipsApprovals"],
+      "app": ["src/hooks/useSafePush.ts#const stepBlocker = blocker !== null && !(decision?.approvalsSkippedBy != null && APPROVAL_STEPS.has(step.kind)) ? blocker : null"],
       "bd": ["crates/domain-policy/src/review.rs#} else if !from_pull_request && profile.is_some_and(|profile| profile.skips_review == Some(true)) {"]
     }
   },
@@ -81,7 +81,7 @@
     "discrepancy": "D3b",
     "today": {
       "app": [
-        "src/lib/safe-push-decision.ts#const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set([\"createPullRequest\", \"changesRequested\", \"requestReview\", \"awaiting\", \"otherBase\"])"
+        "src/hooks/useSafePush.ts#const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set([\"createPullRequest\", \"changesRequested\", \"requestReview\", \"awaiting\", \"otherBase\"])"
       ],
       "bd": ["crates/bd-remote/src/safe_push_command.rs#Refusal::new(ErrorCode::PullRequestOtherBase, message)", "crates/domain-policy/src/pull_request.rs#pub fn base_of"]
     },
@@ -244,34 +244,39 @@
     "id": "pull-request-into-a-virtual-base",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "an open pull request into a virtual branch (of the parent, of another branch of the table, of one that landed): the app refuses the Safe Push and offers the retarget as the step (row 5), bd retargets it as a step of the start and starts from it",
+    "title": "an open pull request into a virtual branch (of the parent, of another branch of the table, of one that landed): the app refused the Safe Push and offered the retarget as the step (row 5), bd retargeted it as a step of the start; closed in s8-policy: both decide by land::decide, whose first effect retargets it into the target (PlannedEffect::Retarget), and start from it; the readiness of both is asked with it (pull_request::start_pull_request)",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:5", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D11",
-    "twins": ["row-5-into-the-parent", "row-5-into-another-branch", "row-5-into-a-landed-branch"],
+    "twins": [],
     "today": {
-      "app": ["src/lib/branch-next-step.ts#baseIsVirtualBranch", "src/hooks/useBranchNextStep.ts#export async function retargetToTarget"],
+      "app": ["src/lib/safe-push-start.ts#async function retargetForStart", "crates/domain-policy/src/pull_request.rs#pub fn start_pull_request"],
       "bd": ["crates/domain-policy/src/land.rs#matches!(base_of(pull_request, facts.target, facts.prefix), PullRequestBase::Virtual { .. }).then(|| PlannedEffect::Retarget {"]
-    }
+    },
+    "closed": "s8-policy"
   },
   {
     "id": "push-over-the-commits-of-someone-else",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the remote branch has a commit of someone else that the branch lacks: the decision of the app reads no dropped commits and starts with a force push (the push button alone asks); bd decides by land::decide (s8-6): refused push_refused unless --force, which makes the drop a confirmation and the push a force push; the app joins it in step 7",
+    "title": "the remote branch has a commit of someone else that the branch lacks: the decision of the app read no dropped commits and started with a force push (the push button alone asked), bd refused push_refused unless --force; closed in s8-policy: both decide by land::decide, the app's start is refused with the words of the push button (Reason::DropsRemote), bd's unless --force, which makes the drop a confirmation and the push a force push",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D12",
-    "twins": ["remote-behind"],
+    "twins": [],
     "today": {
-      "app": ["src/hooks/useSafePush.ts#const startPush = getStartPush(remoteStatus?.action ?? null, pushOrder.length > 1)"],
+      "app": [
+        "crates/repository-model/src/derive.rs#pub fn lands_of",
+        "src/presenters/land.ts#const blocker = decision.blockers.find(reason => reason.code !== \"landingRefused\")"
+      ],
       "bd": [
         "crates/domain-policy/src/land.rs#decision.blockers.push(Reason::DropsRemote {",
         "crates/bd-remote/src/safe_push_command.rs#the remote branch has {behind} commits the branch doesn't, and the baseline neither"
       ]
-    }
+    },
+    "closed": "s8-policy"
   },
   {
     "id": "merged-pull-request-of-the-commits",
@@ -290,7 +295,7 @@
     "id": "review-without-an-answer",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the review Patronus can't answer (the pre-check fails) or answers for a Space merge request: the app confirms with the review line and lets the robot decide; bd decides by land::decide (s8-6): a failed pre-check is the confirmation ReviewUnknown, refused as review_unknown unless --allow-unknown-review, a Space merge request the approvals it misses (approvals_missing); the app joins it in step 7",
+    "title": "the review Patronus can't answer (the pre-check fails) or answers for a Space merge request: the app confirmed with the review line and let the robot decide, bd refused; closed in s8-policy: both decide by land::decide, a failed pre-check is the confirmation ReviewUnknown (the popover's line, bd's --allow-unknown-review, owner decision 10), a Space merge request the approvals it misses (approvals_missing at both)",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#code-owner-review",
@@ -298,15 +303,15 @@
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D14",
-    "twins": ["readiness-unavailable", "row-11-unavailable", "readiness-space-required"],
+    "twins": [],
     "today": {
-      "app": ["src/lib/safe-push-decision.ts#function isReviewUnjudged", "src/hooks/useSafePush.ts#function reviewFactOf"],
+      "app": ["crates/repository-model/src/derive.rs#pub fn lands_of", "src/presenters/land.ts#case \"reviewUnknown\":"],
       "bd": [
         "crates/domain-policy/src/land.rs#confirmations.push(Confirmation::ReviewUnknown { message: reason.message.clone() });",
-        "crates/bd-remote/src/safe_push_command.rs#pub(crate) fn readiness_answer",
         "crates/domain-policy/src/review.rs#pub fn review_state"
       ]
-    }
+    },
+    "closed": "s8-policy"
   },
   {
     "id": "dry-run-pushes-into-a-held-branch",

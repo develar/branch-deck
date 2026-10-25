@@ -149,7 +149,7 @@ export async function retargetToTarget(branchName: string): Promise<void> {
 }
 
 /**
- * How a start reads the next step (`readSafePushFacts`): the review only as Patronus answered it for the branch as it is
+ * How a start reads the next step (`readSafePush`): the review only as Patronus answered it for the branch as it is
  * (a stale answer is not asked yet: the start waits for the new one), and its own running start is no reason against it
  */
 export interface StartStepOptions {

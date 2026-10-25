@@ -4,6 +4,42 @@
     "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
     "robot": {"on": "stack", "state": "success"}
   },
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [
+        {
+          "branch": "login",
+          "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+          "code": "landed",
+          "own": false,
+          "target": "master"
+        }
+      ],
+      "confirmations": [],
+      "effects": [
+        {"branches": ["login"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["login"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "login": {

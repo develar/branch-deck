@@ -14,9 +14,10 @@
 
 use crate::facts::Observation;
 use crate::facts::Seq;
+use domain_policy::pull_request::base_of;
 use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_namespace};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, Reviewer, ReviewerState};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, Reviewer, ReviewerState};
 use domain_types::session::{FactState, PullRequestsView};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
@@ -223,19 +224,21 @@ impl PullRequestsFact {
   }
 
   /// The bases of the open pull requests someone approved, sorted: the rules a push into them is checked against; an
-  /// unknown (empty) base is the target of the baseline (`baseline_on_remote`, as the page reads a start into it), none
-  /// before a table names one
+  /// unknown (empty) base is the target of the baseline (`baseline_on_remote`, as the page reads a start into it), and so
+  /// is a virtual branch of `prefix`, which a start retargets into the target first (D11); neither before a table names
+  /// the baseline
   #[must_use]
-  pub fn approved_bases(&self, baseline: Option<&str>) -> Vec<String> {
+  pub fn approved_bases(&self, baseline: Option<&str>, prefix: &str) -> Vec<String> {
+    let target = baseline.map(baseline_on_remote);
     let bases: BTreeSet<&str> = self
       .view
       .pull_requests
       .values()
       .chain(self.view.stack_pull_requests.values())
       .filter(|pull_request| pull_request.state == PullRequestState::Open && pull_request.reviewers.iter().any(|reviewer| reviewer.state == ReviewerState::Approved))
-      .filter_map(|pull_request| match pull_request.base_ref_name.as_str() {
-        "" => baseline.map(baseline_on_remote),
-        base => Some(base),
+      .filter_map(|pull_request| match base_of(pull_request, target.unwrap_or_default(), prefix) {
+        PullRequestBase::Target | PullRequestBase::Virtual { .. } => target,
+        PullRequestBase::Other { .. } => Some(pull_request.base_ref_name.as_str()),
       })
       .collect();
     bases.into_iter().map(str::to_owned).collect()

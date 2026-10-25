@@ -1,40 +1,40 @@
 import { restackBranch } from "@/hooks/useStackActions"
-import type { LandingAllowances, PatronusMergeRequest, PatronusRobot } from "@/lib/bindings"
+import type { LandingAllowances, PatronusMergeRequest, PatronusRobot, PlannedEffect } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { cancelHoldingRobot, pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import type { LandingDecision } from "@/lib/landing-gate"
 import { checkLandingBeforeStart, formatLandingFix } from "@/lib/landing-gate"
-import type { PullRequestStart } from "@/lib/patronus"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { showRobotEventToast } from "@/lib/robot-toast"
 import { checkTargetBeforeStart } from "@/lib/target-conflict"
-import { recordActivity, recordRobot } from "@/stores/activity"
+import { recordActivity, recordRetarget, recordRobot } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { StartRepository } from "@/stores/patronus"
-import { startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
+import { getRobot, startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
+import { getPullRequest, retargetPullRequest } from "@/stores/pull-requests"
 import { getRepositorySwitchReason, vcsRequestFactory } from "@/stores/repository"
 import type { SafePushMode, SafePushStarting } from "@/stores/safe-push"
 import { getSafePushStarting, setSafePushStarting } from "@/stores/safe-push"
 import { runUpdateProjectOf } from "@/stores/update-project"
 
-/** What a start runs, as `getSafePushDecision` let it */
+/** What a start runs, as Rust planned it (`LandDecision.effects`) and the user confirmed */
 export interface SafePushStart {
   readonly branchName: string
   readonly mode: SafePushMode
-  /** The merge profile; null: the default checks. A comment on a pull request can't choose one */
+  /**
+   * What the start does once nothing refuses it, in order (`PlannedEffect`): the retargets of the pull requests into a
+   * virtual branch (D11), the cancel of the Safe Push of an older commit it replaces, the push of what the remote lacks
+   * (of the whole stack its stack branch), then the robot, through the API or from a pull request
+   */
+  readonly effects: readonly PlannedEffect[]
+  /** The merge profile of a start through the API; null: the default checks */
   readonly profile: { readonly id: string; readonly name: string } | null
-  /** The open pull request into the target the start comments on; null: through the API */
-  readonly fromPullRequest: PullRequestStart | null
   /** The open merge request of a repository only on Space, whose approvals count for the start */
   readonly mergeRequest: PatronusMergeRequest | null
-  /** The branch, or the stack it is built on, has work the remote lacks: pushed first */
-  readonly needsPush: boolean
-  /** A Safe Push of the branch on an older commit: canceled for the start (for its push, when it pushes) */
-  readonly replaces: PatronusRobot | null
   /**
    * The root of the whole stack it lands (`branchName` is its key, `stackReadinessKey`): the robot starts from its stack
    * branch (`stack`), the only branch pushed first; null for the start of a branch
@@ -47,15 +47,17 @@ export interface SafePushStart {
 /**
  * Starts a Safe Push or a Dry Run: first the landing gate (`checkLandingBeforeStart`, the rule of `bd safe-push`: a name
  * what lands uses and a branch outside it adds, a proven dangling reference), whose refusal starts nothing and offers the
- * fix and Start Anyway (`refuseLanding`); then the target conflict check (`checkTargetBeforeStart`: the fetch of the target and
- * the replay of what lands onto its tip, as Patronus rebases it), whose conflict starts nothing and says "Cannot start the
- * Safe Push" with Update Project; then the push of what the remote lacks (`pushForAction`: the stack root first, a
- * running Safe Push of an older commit canceled for it; of the whole stack its stack branch alone), then the robot, from the pull request (a `/patronus` comment)
- * or through the API with the profile. Its steps show in the button of the slot (`SafePushStarting`); the one toast of
- * the action is the start's ("Safe Push started", with Open in Patronus and Cancel Safe Push, and a sentence when the
- * check did not run or used the last fetched target), the push has none (Activity records it). A failure is "Cannot
- * start the Safe Push" with the reason; a failed push starts nothing. A comment Patronus accepted without a listed robot
- * keeps the slot "Starting…" until the robot is listed (`holdUntilListed`). Resolves to whether the robot started.
+ * fix and Start Anyway (`refuseLanding`); then the target conflict check (`checkTargetBeforeStart`: the fetch of the
+ * target and the replay of what lands onto its tip, as Patronus rebases it), whose conflict starts nothing and says
+ * "Cannot start the Safe Push" with Update Project; then the effects Rust planned, in their order: the retarget of each
+ * pull request into a virtual branch into the target (D11), the push of what the remote lacks (`pushForAction`: the
+ * stack root first, a running Safe Push of an older commit canceled for it; of the whole stack its stack branch alone)
+ * or, without a push, the cancel of that Safe Push, then the robot, from the pull request (a `/patronus` comment) or
+ * through the API with the profile. Its steps show in the button of the slot (`SafePushStarting`); the one toast of the
+ * action is the start's ("Safe Push started", with Open in Patronus and Cancel Safe Push, and a sentence when the check
+ * did not run or used the last fetched target), the push has none (Activity records it). A failure is "Cannot start the
+ * Safe Push" with the reason; a failed retarget or push starts nothing. A comment Patronus accepted without a listed
+ * robot keeps the slot "Starting…" until the robot is listed (`holdUntilListed`). Resolves to whether the robot started.
  */
 export async function startSafePush(start: SafePushStart, repository: StartRepository | null = null): Promise<boolean> {
   const { branchName, mode } = start
@@ -91,29 +93,43 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
       notifyError(errorTitle, target.reason, { children: "Update Project", onClick: () => void runUpdateProjectOf(repositoryPath) })
       return false
     }
-    if (start.needsPush) {
-      // the push reads the branches of the table, which are of the selected repository
+    // the retargets, the push and the robot read and change the pull requests and the branches of the table, which are
+    // of the selected repository
+    const pushes = start.effects.some(effect => effect.kind === "push")
+    const retargets = start.effects.filter(effect => effect.kind === "retarget")
+    if (pushes || retargets.length > 0) {
       const switched = getRepositorySwitchReason(repositoryPath)
       if (switched !== null) {
         notifyError(errorTitle, switched)
         return false
       }
+    }
+    for (const retarget of retargets) {
+      await retargetForStart(retarget)
+    }
+    const cancel = start.effects.find(effect => effect.kind === "cancelRobot")
+    const replaces = cancel?.kind === "cancelRobot" ? (getRobot(cancel.robotId) ?? null) : null
+    if (pushes) {
       setStep("pushing")
-      if (!(await pushFirst(start, errorTitle, repositoryPath))) {
+      if (!(await pushFirst(start, replaces, errorTitle, repositoryPath))) {
         return false
       }
-    } else if (start.replaces !== null && !(await cancelHoldingRobot(start.replaces, notifyError, request))) {
+    } else if (replaces !== null && !(await cancelHoldingRobot(replaces, notifyError, request))) {
+      return false
+    }
+    const route = start.effects.find(effect => effect.kind === "startRobot")?.route
+    if (route === undefined) {
       return false
     }
     setStep("starting")
     const note = [landing.note, target.note].filter(line => line !== null).join(" ")
     const title = `${modeName} started`
-    if (start.fromPullRequest === null) {
+    if (route.kind === "api") {
       const robot = await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null, allow, admitted)
       announceStart(title, robot, start.profile?.name ?? null, note === "" ? null : note, repositoryPath)
       return true
     }
-    const number = start.fromPullRequest.number
+    const number = route.number
     const started = await startPatronusFromPullRequest(number, mode, { branchName: root ?? branchName, stack: root !== null, allow }, request)
     if (started.robot === null) {
       announceCommentStart(start, title, number, started.commentUrl, note === "" ? null : note, repositoryPath)
@@ -129,6 +145,19 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
     if (!held) {
       setStep(null)
     }
+  }
+}
+
+/**
+ * The retarget of a pull request into a virtual branch into the target before the start (D11): every pull request of a
+ * virtual branch goes into the target, and the robot starts from it there. Activity records it; a failure throws, so the
+ * start stops
+ */
+async function retargetForStart(retarget: Extract<PlannedEffect, { kind: "retarget" }>): Promise<void> {
+  await retargetPullRequest(retarget.branch, retarget.to)
+  const url = getPullRequest(retarget.branch)?.url
+  if (url !== undefined) {
+    recordRetarget(`Retargeted #${retarget.number} to ${retarget.to}`, `${retarget.branch} · it went into ${retarget.from}`, url)
   }
 }
 
@@ -183,8 +212,8 @@ function refuseLanding(start: SafePushStart, errorTitle: string, landing: Extrac
  * The push of what the remote lacks before the start: the branch and its stack (`pushForAction`), or only the stack
  * branch of the whole stack (`pushWholeStack`); a failure said under `errorTitle`. Resolves to whether it was pushed.
  */
-function pushFirst(start: SafePushStart, errorTitle: string, repositoryPath: string): Promise<boolean> {
-  const replacesRobot = start.replaces ?? undefined
+function pushFirst(start: SafePushStart, replaces: PatronusRobot | null, errorTitle: string, repositoryPath: string): Promise<boolean> {
+  const replacesRobot = replaces ?? undefined
   if (start.wholeStack !== null) {
     return pushWholeStack(start.wholeStack, { replacesRobot, report: (_title, reason) => notifyError(errorTitle, reason) })
   }

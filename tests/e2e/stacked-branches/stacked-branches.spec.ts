@@ -973,7 +973,17 @@ test.describe("Stacked branches", () => {
       // facts that place it answered (under load they come after the sync, and the step they answer moves it)
       await waitForStepFacts(rootSlot)
       const more = getMoreButton(findBranchRow(page, "auth"))
-      const moreX = (await more.boundingBox())!.x
+      // the measured tracks of the columns follow the labels of the slots ("Safe Push · 3") a frame after them: the place
+      // stands once two reads agree
+      let moreX = Number.NaN
+      await expect
+        .poll(async () => {
+          const x = (await more.boundingBox())!.x
+          const stands = x === moreX
+          moreX = x
+          return stands
+        })
+        .toBe(true)
       const expectMoreInPlace = async () => expect((await more.boundingBox())!.x).toBe(moreX)
 
       // the root's menu, "Whole Stack ›": its Safe Push says what it lands; its steps show where it was asked, in the
@@ -1226,22 +1236,19 @@ test.describe("Stacked branches", () => {
       await expect(page.getByTestId("next-step-hover")).toHaveText(
         "Approvals in #8 don't count: its base is user-name/virtual/login, a virtual branch. Changes the base of #8 from user-name/virtual/login to master on GitHub: Patronus merges a pull request into its base",
       )
-      // no start from it: the menu disables the start with the reason, S says why and offers the retarget
-      await openContextMenu(page, oauthRow)
-      const item = page.getByRole("menuitem", { name: /^Safe Push · 3/ })
-      await expect(item).toHaveAttribute("aria-disabled", "true")
-      await item.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "don't count" }).last()).toHaveText("Approvals in #8 don't count: its base is user-name/virtual/login")
-      await page.keyboard.press("Escape")
+      // its start retargets it first (D11): S says so in its popover, which comments on #8 once it goes into master
       await oauthRow.focus()
       await page.keyboard.press("s")
-      const notice = page.locator("[data-slot=toast]", { hasText: "Approvals in #8 of oauth don't count" })
-      await expect(notice.locator("[data-slot=toast-description]")).toHaveText("Its base is user-name/virtual/login, not master")
-      await expect(safePushPopover(page)).toHaveCount(0)
+      popover = await expectPopoverOf(page, "oauth")
+      await expect(popover.getByTestId("safe-push-retarget")).toHaveText(
+        "Retargets #8 of oauth from user-name/virtual/login to master first: every pull request of a virtual branch goes into master.",
+      )
+      await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #8: Patronus reports there and closes it once merged.")
+      await page.keyboard.press("Escape")
+      await expect(popover).toHaveCount(0)
 
-      // the retarget of the slot (its own test in next-step.spec.ts) runs from the notice too
-      await expect(retarget).toBeVisible()
-      await notice.getByRole("button", { name: "Retarget #8 to master" }).click()
+      // the retarget of the slot (its own test in next-step.spec.ts)
+      await retarget.click()
       await expect.poll(async () => gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", 8), { base: "master" }]])
       await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #8 to master" })).toBeVisible()
       // into master again: its approvals count, the start comments on it
@@ -1703,8 +1710,12 @@ test.describe("Stacked branches", () => {
       const repo = await setupRepo("stack_push_alone", { patronus: availableRobots() })
       await syncAndWaitForBranches()
 
+      // on Space the merge request misses the approvals of the code owners: the click opens the popover, which names
+      // them and refuses the start a robot would fail (D14)
       await slotSafePush(page, "perf-part-2").click()
-      const popover = await expectPopoverOf(page, "perf-part-2")
+      const popover = safePushPopover(page)
+      await expect(popover).toHaveAttribute("aria-label", "Safe Push of perf-part-2")
+      await expect(popover.getByTestId("safe-push-status")).toHaveText("Patronus checks the approvals when the robot starts and fails without them")
       // the landing with what it is built on leads, the way alone is the second one
       await expect(popover.getByTestId("safe-push-lands")).toHaveText(/^Lands perf-part-2 with IJPL-257337, which it is built on: 2 branches · \d+ commits into master\.$/)
       const alone = popover.getByTestId("safe-push-alone")
@@ -1740,7 +1751,7 @@ test.describe("Stacked branches", () => {
       await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")
       await expect(review).toContainText("Needs review by the code owners: a Safe Push fails without these approvals.")
       await expect(groups).toHaveText([/^UI Team/])
-      await expect(popoverStart(page)).toBeEnabled()
+      await expect(popoverStart(page)).toBeDisabled()
     })
   })
 })

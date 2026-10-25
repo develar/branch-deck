@@ -822,10 +822,13 @@ test.describe("Patronus actions", () => {
       // the merge request Space finds open needs the approvals: Patronus checks its review
       await repo.setReviewAnswers({ answers: { "JIRA-456": REVIEW_REQUIRED }, mergeRequest: { request: MERGE_REQUEST, answers: { "JIRA-456": REVIEW_REQUIRED } } })
 
-      // on Space the robot decides on the approvals: the click says first what the merge request needs
+      // on Space the merge request needs the approvals: the click opens the popover, which names them and refuses the
+      // start a robot would fail (D14, as bd's approvals_missing)
       await slotSafePush(page, "JIRA-456").click()
       const popover = safePushPopover(page)
-      await expect(popover).toHaveAttribute("data-decision", "confirm")
+      await expect(popover).toHaveAttribute("data-decision", "refuse")
+      await expect(popover.getByTestId("safe-push-status")).toHaveText("Patronus checks the approvals when the robot starts and fails without them")
+      await expect(popoverStart(page)).toBeDisabled()
       await expect(popover.getByTestId("safe-push-review")).toHaveText("Needs review by the code owners: a Safe Push fails without these approvals, which count in IJ-CR-7.")
       // a line per group, with the reviewers Patronus suggests
       await expect(popover.getByTestId("safe-push-review-groups").getByRole("listitem")).toHaveText(["Air Plugin Release Team (suggested: Alice)"])

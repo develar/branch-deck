@@ -195,12 +195,13 @@ fn the_rules_are_of_the_bases_of_the_approved_open_pull_requests() {
   let mut result = listing(&[approved("auth", 1, "master"), approved("login", 2, "user/virtual/auth"), pull_request("docs", 3), merged]);
   result.stack_pull_requests.insert("air".to_owned(), approved("air", 5, "main"));
   fact.answer(at(1, 10), result.clone());
-  assert_eq!(fact.approved_bases(Some("origin/master")), vec!["main", "master", "user/virtual/auth"]);
+  // a pull request into a virtual branch is checked against the target it is retargeted into (D11)
+  assert_eq!(fact.approved_bases(Some("origin/master"), "user"), vec!["main", "master"]);
   // a base GitHub didn't name is the target of the baseline, none without a table
   result.pull_requests.insert("ui".to_owned(), approved("ui", 6, ""));
   fact.answer(at(2, 20), result);
-  assert_eq!(fact.approved_bases(Some("origin/release")), vec!["main", "master", "release", "user/virtual/auth"]);
-  assert_eq!(fact.approved_bases(None), vec!["main", "master", "user/virtual/auth"]);
+  assert_eq!(fact.approved_bases(Some("origin/release"), "user"), vec!["main", "master", "release"]);
+  assert_eq!(fact.approved_bases(None, "user"), vec!["main", "master"]);
 }
 
 /// The listing after a push shows the pushed commit, or still an old head of a pushed branch

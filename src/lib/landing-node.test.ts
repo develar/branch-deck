@@ -98,7 +98,11 @@ describe("getLandingNode", () => {
     expect(landing(withReadiness(missing([group()]), { pullRequest: null }))).toEqual({ kind: "yourStep", label: "Code owners must approve in a pull request: IJPL Code Platform" })
     expect(landing(withReadiness(missing([group({ requested: [] })])))).toMatchObject({ kind: "yourStep" })
     const virtualBase = { ...openPullRequest, base: "user/virtual/auth", intoTarget: false, baseIsVirtualBranch: true }
-    expect(landing(withReadiness(approved, { pullRequest: virtualBase }))).toEqual({ kind: "yourStep", label: "Approvals in #1078 don't count: its base is user/virtual/auth" })
+    expect(landing(withReadiness(approved, { pullRequest: virtualBase }))).toEqual({
+      kind: "yourStep",
+      label:
+        "Approvals in #1078 don't count: its base is user/virtual/auth, a virtual branch. Changes the base of #1078 from user/virtual/auth to master on GitHub: Patronus merges a pull request into its base",
+    })
     expect(landing(withReadiness(approved, { pullRequest: { ...openPullRequest, isDraft: true } }))).toMatchObject({ kind: "yourStep" })
   })
 

@@ -34,6 +34,7 @@
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::BranchTable;
+use crate::derive::land_answer_of;
 use crate::facts::{
   AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, Seq, TableFacts, derive_patronus, listed_robots, patronus_inputs,
   robots_digest, session_remote,
@@ -46,6 +47,7 @@ use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::landing::{Land, LandAnswer};
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncReason, SyncState, SyncStep, Version};
@@ -82,6 +84,11 @@ pub(crate) enum Message {
   Snapshot(oneshot::Sender<RepositoryView>),
   /// The table of the last successful sync with the memo and the remote branches as the session knows them
   Table(oneshot::Sender<Option<TableFacts>>),
+  /// The decision of a start over the facts of the session and the profiles it offers (`derive::land_answer_of`)
+  DecideLand {
+    land: Box<Land>,
+    reply: oneshot::Sender<Option<LandAnswer>>,
+  },
   /// The demand of the window of a subscription; the session that does not hold it drops it
   Demand {
     id: SubscriptionId,
@@ -280,6 +287,9 @@ impl Actor {
       Message::Table(reply) => {
         let _ = reply.send(self.facts.table_facts(&self.state));
       }
+      Message::DecideLand { land, reply } => {
+        let _ = reply.send(land_answer_of(&self.state, &self.facts, &self.key.prefix, &land));
+      }
       Message::Close => {
         // the registry told the scheduler that the session closed
         for _ in self.subscribers.drain(..) {
@@ -337,7 +347,10 @@ impl Actor {
         let _ = reply.send(Some(AppliedFacts {
           version: self.view.version(),
           robots,
-          approved_bases: self.facts.pull_requests.approved_bases(self.facts.table.value().map(|table| table.baseline.as_str())),
+          approved_bases: self
+            .facts
+            .pull_requests
+            .approved_bases(self.facts.table.value().map(|table| table.baseline.as_str()), &self.key.prefix),
         }));
       }
       Message::WritePullRequest { write, reply } => {
@@ -695,7 +708,10 @@ impl Actor {
     self.last_flush = Some(Instant::now());
     // the asks of the readiness of what the patch carries: a moved tip comes with its readiness `Stale`
     let robots = self.facts.robots.view().head.value.as_ref();
-    self.facts.readiness.update(&self.state, self.facts.pull_requests.view(), robots, &self.told_demand);
+    self
+      .facts
+      .readiness
+      .update(&self.state, self.facts.pull_requests.view(), robots, &self.told_demand, &self.key.prefix);
     // the details a window asks for are `Loading` in the patch of its demand, and go with the demand
     self.facts.demand_details(&self.told_demand.robot_details);
     let Some(patch) = self.view.diff(&self.state, &self.facts) else {

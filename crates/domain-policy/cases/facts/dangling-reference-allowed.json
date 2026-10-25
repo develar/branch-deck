@@ -1,5 +1,52 @@
 {
   "given": {"branch": "fake-agent", "commits": [], "dangling": "removed", "flags": ["allowDangling"]},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [
+        {
+          "code": "landingRefused",
+          "refusal": {
+            "branch": "fake-agent",
+            "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+            "fix": {
+              "commit": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"},
+              "into": "fake-agent",
+              "kind": "moveCommit"
+            },
+            "fixedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"},
+            "identifier": "CONTROL_URL_ENV",
+            "kind": "danglingReference",
+            "line": 7,
+            "reference": "removed",
+            "removedBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"}
+          }
+        }
+      ],
+      "confirmations": [],
+      "effects": [
+        {"branches": ["fake-agent"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["fake-agent"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "fake-agent": {

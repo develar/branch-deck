@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { PatronusProfile, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
+import type { PatronusRobot } from "@/lib/bindings"
 import type { LandedBy, RobotRestartAction, SafePushSlotInput } from "@/lib/patronus"
 import {
-  allowsPushMode,
   canCancelRobot,
   describeRobot,
   formatLandedReason,
@@ -15,18 +14,14 @@ import {
   formatReviewerGroup,
   formatReviewerGroupFiles,
   formatRobotCommitNotice,
-  getBypassProfiles,
   getPatronusChipState,
-  getPullRequestStart,
   getRowRobotChip,
   getSafePushSlot,
-  getStartPush,
   isHoldingRobot,
   needsRobotAttention,
-  withLastRobotProfile,
 } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { CREATE, forcePush, PUSH, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
+import { forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -175,25 +170,6 @@ describe("formatSafePushLoginCommand", () => {
 })
 
 describe("actions", () => {
-  it("starts from the open pull request of a branch reviewed on GitHub, a draft only for a dry run", () => {
-    const pullRequest = { number: 7, state: "open", isDraft: false } as PullRequest
-    expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash", null)).toEqual({ number: 7, blockedByDraft: false, command: "/patronus merge" })
-    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, isDraft: true }, "rebaseAutosquash", null)?.blockedByDraft).toBe(true)
-    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, isDraft: true }, "dryRun", null)).toEqual({ number: 7, blockedByDraft: false, command: "/patronus dry-run" })
-    // on Space, without a pull request, or with a closed one: the Patronus API starts it
-    expect(getPullRequestStart(null, pullRequest, "rebaseAutosquash", null)).toBeNull()
-    expect(getPullRequestStart("acme/monorepo", undefined, "rebaseAutosquash", null)).toBeNull()
-    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, state: "merged" }, "rebaseAutosquash", null)).toBeNull()
-  })
-
-  it("never comments on a pull request into another base than the target: Patronus would merge it there", () => {
-    const pullRequest = { number: 8, state: "open", isDraft: false, baseRefName: "user/virtual/login" } as PullRequest
-    expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash", "master")).toBeNull()
-    expect(getPullRequestStart("acme/monorepo", { ...pullRequest, baseRefName: "master" }, "rebaseAutosquash", "master")?.number).toBe(8)
-    // the target isn't loaded yet
-    expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash", null)?.number).toBe(8)
-  })
-
   it("cancels a running robot only", () => {
     expect(canCancelRobot(robot({ status: "running" }))).toBe(true)
     expect(canCancelRobot(robot({ status: "canceling" }))).toBe(false)
@@ -204,65 +180,6 @@ describe("actions", () => {
     expect(isHoldingRobot(robot({ status: "running", pushMode: "dryRun" }))).toBe(false)
     expect(isHoldingRobot(robot({ status: "canceling" }))).toBe(false)
     expect(isHoldingRobot(robot({ status: "failure" }))).toBe(false)
-  })
-
-  it("pushes before a start only what the remote lacks by content, and waits for the remote status", () => {
-    expect(getStartPush(null, false)).toEqual({ kind: "unknown" })
-    expect(getStartPush(null, true)).toEqual({ kind: "unknown" })
-    // the remote branch has the commits, also under other hashes: Patronus rebases it, nothing is pushed
-    expect(getStartPush(UP_TO_DATE, false)).toEqual({ kind: "none" })
-    expect(getStartPush(CREATE, false)).toEqual({ kind: "branch", action: "create" })
-    expect(getStartPush(forcePush(), false)).toEqual({ kind: "branch", action: "force" })
-    // the ancestors with work for the remote go first, as the push button pushes them
-    expect(getStartPush(UP_TO_DATE, true)).toEqual({ kind: "stack" })
-  })
-
-  it("offers a profile for the modes it allows; none listed allows any", () => {
-    expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: [], skipsReview: null }, "dryRun")).toBe(true)
-    expect(allowsPushMode({ id: "a", name: "A", description: null, allowedPushModes: ["dryRun"], skipsReview: null }, "rebaseAutosquash")).toBe(false)
-  })
-
-  it("offers a Safe Push without review the profiles known to skip it, the unknown ones and the emergency ones apart", () => {
-    const profile = (id: string, skipsReview: boolean | null, allowedPushModes: PatronusProfile["allowedPushModes"] = []): PatronusProfile => ({
-      id,
-      name: id,
-      description: null,
-      allowedPushModes,
-      skipsReview,
-    })
-    const options: PatronusStartOptions = {
-      targetBranch: "master",
-      supported: true,
-      // the last robot ran with lsc, whose options said it skips the review; optional checks it
-      profiles: [profile("lsc", true), profile("optional", false), profile("external", null), profile("dry-only", null, ["dryRun"])],
-      emergencyProfiles: [profile("emergency", true)],
-      defaultProfileId: "lsc",
-    }
-    const ids = (profiles: PatronusProfile[]) => profiles.map(it => it.id)
-    const offered = getBypassProfiles(options, "rebaseAutosquash")
-    expect([ids(offered.skipping), ids(offered.other), ids(offered.emergency), offered.defaultProfileId]).toEqual([["lsc"], ["external"], ["emergency"], "lsc"])
-    // the last robot's profile checks the review: none is chosen for the user
-    expect(getBypassProfiles({ ...options, defaultProfileId: "optional" }, "rebaseAutosquash").defaultProfileId).toBeNull()
-  })
-
-  it("makes the profile of the last robot the default, with whether it skips the review", () => {
-    const profile = (id: string, skipsReview: boolean | null = null): PatronusProfile => ({ id, name: id, description: null, allowedPushModes: [], skipsReview })
-    // the profiles of the target as the session read them: Patronus describes only the emergency ones
-    const options: PatronusStartOptions = {
-      targetBranch: "master",
-      supported: true,
-      profiles: [profile("lsc"), profile("optional")],
-      emergencyProfiles: [profile("emergency", true)],
-      defaultProfileId: null,
-    }
-    expect(withLastRobotProfile(options, null)).toBe(options)
-    expect(withLastRobotProfile(options, { id: null, name: "Gone", skipsReview: true })).toBe(options)
-    const last = withLastRobotProfile(options, { id: "lsc", name: "Large Scale Change", skipsReview: true })
-    expect(last.defaultProfileId).toBe("lsc")
-    expect(last.profiles).toEqual([profile("lsc", true), profile("optional")])
-    // a profile no longer offered, or an emergency one, is no default
-    expect(withLastRobotProfile(options, { id: "retired", name: "Retired", skipsReview: null }).defaultProfileId).toBeNull()
-    expect(withLastRobotProfile(options, { id: "emergency", name: "emergency", skipsReview: true }).defaultProfileId).toBeNull()
   })
 })
 

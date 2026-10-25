@@ -1,5 +1,30 @@
 {
   "given": {"remote": "rebuiltOnNewerBaseline"},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [],
+      "confirmations": [],
+      "effects": [{"kind": "startRobot", "route": {"kind": "api", "profile": null}}],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

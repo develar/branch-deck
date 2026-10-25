@@ -90,7 +90,7 @@ export interface NextStepPullRequest {
   readonly isDraft: boolean
   /** The base it merges into ("master"); empty when unknown */
   readonly base: string
-  /** It merges into the target of Patronus, or either is unknown (`isPullRequestIntoTarget`) */
+  /** It merges into the target of Patronus, or either is unknown (`base` `target` of the open pull request Rust reads) */
   readonly intoTarget: boolean
   /** Merged with the commits the branch has (not new work under the same name since) */
   readonly mergedCurrent: boolean
@@ -215,7 +215,7 @@ export interface NextStepFacts {
   /** The first fact the step decides on whose read failed (`UnavailableFact`); null while none */
   readonly unavailable: UnavailableFact | null
   /**
-   * The step of a start (`StartStepOptions`): the start waits for the readiness itself (`getSafePushDecision`), so a
+   * The step of a start (`StartStepOptions`): the start waits for the readiness itself (Rust's decision), so a
    * readiness without an answer holds nothing back here, and `readiness` is only a fresh one
    */
   readonly forStart: boolean
@@ -743,11 +743,12 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       onSelect: facts.actions.retarget,
     }
     const notice = rowNotice(general, `Approvals in #${open.number} of ${facts.subject} don't count`, `Its base is ${open.base}, not ${facts.target}`)
-    // a parent's branch: every pull request of a virtual branch goes into the target, with what it lands
+    // a parent's branch: every pull request of a virtual branch goes into the target, with what it lands; a start
+    // retargets it first (D11), so the step holds no start back
     if (open.baseIsVirtualBranch) {
       // short in its column, the target in the hover
       const item = { ...retarget, compactLabel: `Retarget #${open.number}`, description: `${reason}, a virtual branch. ${retarget.description}` }
-      return step("retarget", item, general ?? reason, dryRunBlocker, { retarget, ...notice })
+      return step("retarget", item, general, dryRunBlocker, { retarget })
     }
     // another base may be meant (a release branch): the step opens the pull request, the retarget is in the menu
     const item = { ...quietItem(facts, "Open Pull Request", `${reason}. Open Pull Request #${open.number}`, GitPullRequestArrowIcon), id: "open-pull-request-other-base" }

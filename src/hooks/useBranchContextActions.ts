@@ -50,13 +50,14 @@ import { pushWithChildren } from "@/lib/git/stack-push"
 import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { formatParkedBlocker } from "@/lib/parked"
-import { describeStart, formatStartLabel, getPullRequestStart } from "@/lib/patronus"
+import { describeStart, formatStartLabel } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { describePushWithChildrenBlocker, formatBlockedReason, formatPushWithChildrenLabel, hasStackFix, stackOnFixes, stackProblemOf } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong } from "@/lib/whole-stack"
+import { startRouteOf } from "@/presenters/land"
 import { formatPushHoldReason } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
 import {
@@ -65,6 +66,7 @@ import {
   getBranch,
   getBranchTableOrder,
   getIssueGroups,
+  getLands,
   getOpenPullRequest,
   getPushOrders,
   getStackAncestors,
@@ -82,16 +84,7 @@ import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/sto
 import { openInline } from "@/stores/inline-row-action"
 import type { Operations } from "@/stores/operations"
 import { branchSubject, getOperations, isObjectBusy, operationItem } from "@/stores/operations"
-import {
-  getBranchRobot,
-  getLandedWithChildrenReason,
-  getLandingBranchCount,
-  getPatronusGitHubRepository,
-  getPushHold,
-  isPatronusAvailable,
-  isPatronusOffered,
-  isPatronusPending,
-} from "@/stores/patronus"
+import { getBranchRobot, getLandedWithChildrenReason, getLandingBranchCount, getPushHold, isPatronusAvailable, isPatronusOffered, isPatronusPending } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, recheckReviewReadiness } from "@/stores/review-readiness"
@@ -484,8 +477,10 @@ function getPushBlocker(branch: Branch, { isPushing, stackPushing, processing }:
  */
 function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem {
   const blocker = nextStep.safePushBlocker
-  const fromPullRequest = getPullRequestStart(getPatronusGitHubRepository(), getPullRequest(branch.name), "rebaseAutosquash", getReadinessTarget())
-  const profileBlocker = blocker ?? (fromPullRequest === null ? null : `A comment on #${fromPullRequest.number} runs the default checks: it can't choose a profile`)
+  // the robot starts from a pull request (a comment), as Rust decides the Safe Push of the branch
+  const lands = getLands(branch.name)
+  const route = lands === undefined ? null : startRouteOf(lands.safePush)
+  const profileBlocker = blocker ?? (route?.kind === "comment" ? `A comment on #${route.number} runs the default checks: it can't choose a profile` : null)
   const children: MenuItem[] = [
     {
       id: "safe-push-with-profile",

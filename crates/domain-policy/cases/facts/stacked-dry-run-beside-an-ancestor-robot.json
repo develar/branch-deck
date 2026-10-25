@@ -5,6 +5,34 @@
     "mode": "dryRun",
     "robot": {"on": "ancestor:auth", "state": "running"}
   },
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [],
+      "confirmations": [{"count": 1, "kind": "landsMoreThanRow"}],
+      "effects": [
+        {"branches": ["login"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth", "login"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "login": {

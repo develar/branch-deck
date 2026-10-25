@@ -29,7 +29,7 @@ targets:
   - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/components/branch/SafePushPopover.tsx
   - ../../src/hooks/useSafePush.ts
-  - ../../src/lib/safe-push-decision.ts
+  - ../../src/presenters/land.ts
   - ../../src/stores/request-review-popover.ts
   - ../../src/lib/request-review.ts
   - ../../src/stores/pull-requests.ts
@@ -91,7 +91,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   | 2 | A robot failed or was canceled, not for approvals, and no running Safe Push of a branch it is built on (of the whole stack: of a branch of it) lands a part of it; while one does, the failure of the earlier piece waits for it: the rows below decide, the Safe Push disabled with "A Safe Push of auth is running: wait until it merges" | "Restart Safe Push" (Safe Push… where Patronus can't restart it) | enabled |
   | 3 | A robot failed for approvals, started from the open pull request into the target, readiness `approved` | "Restart Safe Push" | enabled |
   | 4 | removed: a stacked branch takes the rows of its own pull request into master, see below | — | — |
-  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `base` `virtual` of the open pull request the session reads, `domain_policy::pull_request::base_of`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | disabled: "Approvals in #7 don't count: its base is user/virtual/auth" |
+  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `base` `virtual` of the open pull request the session reads, `domain_policy::pull_request::base_of`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | enabled: the start retargets #7 into master first, then starts from it, as `bd safe-push` (D11, `PlannedEffect::Retarget` of `domain_policy::land::decide`) |
   | 5′ | An open pull request into another base, which may be meant (a release branch; `base` `other`) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252"; a start that counts no approval (without review, a profile that skips the review) starts, as `bd safe-push` (D3b) |
   | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
   | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected; on the remote or not, its dialog pushes the branch; disabled only while the GitHub repository is unknown); a branch of a whole stack whose pull request is open: quiet "In #12", which opens it (below) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
@@ -102,7 +102,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   | 10′ | `unknown`, `unavailable`, an open pull request into the target that waits for a requested reviewer (`waitingReviewers`: asked and not approving since, bots left out) | quiet "Awaiting ikorennoy" ("Awaiting 2 Reviews"), its hover "Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them", opens the pull request | enabled, as 8′ |
   | 11 | `approved`, `notRequired`; `unknown`, `unavailable` where GitHub tells no wait | "Safe Push" | enabled |
 
-  [@test] ../../src/lib/branch-next-step.test.ts (`row 1: offers nothing while the Status cell says why, and disables Safe Push and Dry Run with the reason`, `row 1: a branch a merged Safe Push of a branch built on it or of the whole stack landed offers nothing, its Safe Push and Dry Run say who landed it`, `row 1: a merged pull request of other commits (new work under the same name) blocks nothing`, `row 2: restarts a failed or canceled robot, or offers Safe Push… where Patronus can't restart it`, `row 2: no restart while a robot of a branch below lands a part of it, the steps of its pull request stay`, `row 3: restarts a robot that failed for approvals only from the pull request they now count in`, `a stacked branch takes the steps of its own pull request into master`, `a stacked branch waits for the reasons of its ancestors`, `row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed, whose approvals don't count`, `row 5: opens a pull request into another base that may be meant, the retarget only in the menu`, `row 6: a draft is a quiet step that opens it; Patronus merges it once it is ready, a dry run runs`, `row 7: missing approvals without an open pull request: Create Pull Request…, the code owners named`, `row 7: a branch of a whole stack whose pull request is open points to it, quietly: its approvals count for the Safe Push of the whole stack`, `row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request`, `row 9: a missing group with nobody asked: Request Review…, disabled only with the item's own reason`, `row 10: every missing group has someone asked: the quiet wait names them and opens the pull request`, `rows 8′ and 10′: while Patronus can't judge the approvals, the wait GitHub tells, the Safe Push still enabled`, `row 11: Safe Push… for every other readiness`, `row 0: waits with Checking… for a fact no answer told yet, never a step a later answer turns into another`, `row 0: a reason of the branch outranks a fact no answer told yet, and a start waits for the readiness itself`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 1: offers nothing while the Status cell says why, and disables Safe Push and Dry Run with the reason`, `row 1: a branch a merged Safe Push of a branch built on it or of the whole stack landed offers nothing, its Safe Push and Dry Run say who landed it`, `row 1: a merged pull request of other commits (new work under the same name) blocks nothing`, `row 2: restarts a failed or canceled robot, or offers Safe Push… where Patronus can't restart it`, `row 2: no restart while a robot of a branch below lands a part of it, the steps of its pull request stay`, `row 3: restarts a robot that failed for approvals only from the pull request they now count in`, `a stacked branch takes the steps of its own pull request into master`, `a stacked branch waits for the reasons of its ancestors`, `row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed; a Safe Push retargets it first (D11)`, `row 5: opens a pull request into another base that may be meant, the retarget only in the menu`, `row 6: a draft is a quiet step that opens it; Patronus merges it once it is ready, a dry run runs`, `row 7: missing approvals without an open pull request: Create Pull Request…, the code owners named`, `row 7: a branch of a whole stack whose pull request is open points to it, quietly: its approvals count for the Safe Push of the whole stack`, `row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request`, `row 9: a missing group with nobody asked: Request Review…, disabled only with the item's own reason`, `row 10: every missing group has someone asked: the quiet wait names them and opens the pull request`, `rows 8′ and 10′: while Patronus can't judge the approvals, the wait GitHub tells, the Safe Push still enabled`, `row 11: Safe Push… for every other readiness`, `row 0: waits with Checking… for a fact no answer told yet, never a step a later answer turns into another`, `row 0: a reason of the branch outranks a fact no answer told yet, and a start waits for the readiness itself`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the reviewer GitHub asks while Patronus can't judge the approvals, keep Safe Push, and tell the approval`)
   [@test] ../../src/lib/pull-request.test.ts (`waits for the reviewers asked and not approving since, bots left out; a re-requested approval waits for nobody`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`, `should offer Safe Push once the code owner approved, name whose approval counts, and start it from the pull request with a click`, `should keep Safe Push while Patronus doesn't tell whose approvals count, and say so before it starts`, `should offer Create Pull Request… with the code owner when approvals count only in one`, `should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should retarget a pull request into the branch of a parent that landed, whose approvals don't count`, `should retarget a pull request into the virtual branch of a branch in the table, as a parent's, whose approvals don't count`, `should retarget the pull request of a stacked branch into its parent's branch from its slot, whose approvals don't count`, `should open a pull request into another base that may be meant, and keep its retarget in the menu`, `should offer nothing after a merge, and say so in the menu`)
@@ -235,6 +235,12 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_branch_that_uses_a_name_of_a_branch_outside_it_needs_that_branch_and_so_does_a_branch_built_on_it`, `the_needs_of_a_branch_are_the_refusals_of_its_start`, `a_landed_declaration_is_needed_by_nobody`, `a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
   [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_landing_needs_of_every_branch`)
   [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
+- The decision of the start reads the same needs (`domain_policy::land::decide` over the view, `RepositoryView.lands`):
+  each a blocker of the landing gate that only Start Anyway lifts (`LandingAllowances`), the popover's reason and fix;
+  needs not computed yet are a wait ("Checking what lane-run needs to land…"), a failed computation none.
+  [@test] ../../crates/domain-policy/src/land_test.rs (`the_landing_gate_refuses_unless_allowed_then_a_conflict_with_the_target`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another_intent`)
+  [@test] ../../src/presenters/land.test.ts (`opens the popover when the build of what it lands needs a branch outside it: the reason, the fix and Start Anyway before the start`)
 
 ### Facts without an answer
 
@@ -259,6 +265,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/stores/patronus.test.ts (`waits for Patronus until the view of the robots it listed first is in, then never again for a change of them`, `takes a failure of Patronus as its answer, and a list of no robot as having its view`, `waits for why a failed robot failed until its problems come, and no longer once Patronus didn't give them`)
   [@test] ../../src/stores/pull-requests.test.ts (`is loading until GitHub's first answer, which a failure is too: no pull request is known meanwhile`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should wait with Checking… for the pull requests and the approvals, S and the menu saying why, then start the Safe Push they allow`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`every_fact_without_an_answer_waits_or_confirms_and_never_refuses`)
+  [@test] ../../src/presenters/land.test.ts (`waits for the facts Rust waits for, each saying what it waits for, and refuses with why a read failed`)
 - Every surface waits the same way: the slot shows a muted "Checking…" with its spinner, disabled, the fact on hover
   ("Waits for GitHub to list the pull requests", "Waits for the answer of Patronus", "Checking what JIRA-456 needs to
   land…", "Waits for Patronus to tell why the Safe Push failed", "Waits for Patronus to check the approvals"); "⋯" keeps Safe Push and "Patronus ›" disabled
@@ -268,7 +276,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   waits too and the header counts no move of it ([Landing Overview](../repository/landing-overview.spec.md#indicator)).
   A Dry Run waits only for Patronus: approvals and pull requests never hold it back. The readiness store asks for the
   answer the step waits for (`needsReadiness`). The step of a start reads the facts of the start: it waits for a
-  readiness without an answer and for GitHub's first answer itself (`getSafePushDecision`, its review `loading`, never
+  readiness without an answer and for GitHub's first answer itself (the waits of `domain_policy::land::decide`, never
   `unlisted` before that answer), so neither holds it back there.
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should wait with Checking… for the pull requests and the approvals, S and the menu saying why, then start the Safe Push they allow`, `should never offer Create Pull Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed refresh`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push, in the words of every surface that offers it`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests`)
@@ -356,7 +364,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   a piece of the stack says it first: "#12, the pull request of the whole air stack, is open: its approvals count only
   for the Safe Push of the whole stack, not for this Safe Push of deploy." (a confirm reason, `wholeStack`).
   [@test] ../../src/lib/branch-next-step.test.ts (`row 7: a branch of a whole stack whose pull request is open points to it, quietly: its approvals count for the Safe Push of the whole stack`)
-  [@test] ../../src/lib/safe-push-decision.test.ts (`opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`)
+  [@test] ../../src/presenters/land.test.ts (`opens the popover for a key and for each confirmation of the decision: a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
@@ -396,7 +404,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   Korennoy · IJPL Code Platform", "1 more approval · IJPL Code Platform" for a group that has an approval and needs
   more), then "Open Pull Request #1078" with O, which opens it on the focused row too. The pull request chip keeps its
   own state: the row doesn't say "awaiting" twice.
-- The start of a Safe Push renders the step too (`getSafePushDecision`, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)):
+- The start of a Safe Push renders the step too (`presentLand` of Rust's decision, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)):
   it reads the next step with the readiness of the branch as it is (never a stale one: the start waits for the new
   answer, `StartStepOptions`), so a refusal says the reason of the step, and missing approvals refuse it unless the
   chosen profile is known to skip the review (`skipsReview`). Row 7 also offers a [Safe Push without
@@ -431,7 +439,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   branch (`ReviewReadinessBranch.source`) with the pull request of the whole stack, only while the sync built the stack
   branch (another state has nothing its Safe Push would land).
   [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`the_ask_is_the_tip_a_window_shows_and_the_pull_request_its_robot_starts_from`)
-  [@test] ../../crates/domain-policy/src/pull_request_test.rs (`a_safe_push_starts_from_the_open_pull_request_into_the_target_while_patronus_names_the_github_repository`)
+  [@test] ../../crates/domain-policy/src/pull_request_test.rs (`a_safe_push_starts_from_the_open_pull_request_into_the_target_or_a_virtual_branch_while_patronus_names_the_github_repository`)
 - What a surface needs and the rechecks of Check Approvals Again go at once, each in a call of its own beside whatever
   is in flight: a click waits for no pre-check but its own. The rest is a queue: the kept answers of all of it first,
   in one read (the object cache keeps them by what Patronus decides on), then the shown subjects before the hidden ones,
@@ -484,7 +492,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`fits every label of a step in its column, so none truncates`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
-  [@test] ../../src/lib/branch-next-step.test.ts (`row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed, whose approvals don't count`, `row 10: every missing group has someone asked: the quiet wait names them and opens the pull request`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed; a Safe Push retargets it first (D11)`, `row 10: every missing group has someone asked: the quiet wait names them and opens the pull request`)
 - Disabled, a step keeps the focus and the hover
   (`focusableWhenDisabled`), dimmed to `opacity-50`. A quiet step is muted, Changes Requested `text-destructive`.
 - Wording follows [UX Writing](../../docs/guidelines/ux-writing.md): Title Case for the steps, sentence case for the

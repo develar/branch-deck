@@ -1,5 +1,33 @@
 {
   "given": {"remote": "upToDate", "robot": {"on": "older", "state": "running"}},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [],
+      "confirmations": [{"kind": "cancelsRobot", "robotId": "older"}],
+      "effects": [
+        {"kind": "cancelRobot", "robotId": "older"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

@@ -69,7 +69,7 @@ targets:
   - ../../src/hooks/useBranchNextStep.ts
   - ../../src/hooks/useSafePush.ts
   - ../../src/lib/safe-push-start.ts
-  - ../../src/lib/safe-push-decision.ts
+  - ../../src/presenters/land.ts
   - ../../src/components/branch/SafePushPopover.tsx
   - ../../src/components/branch/SafePushButton.tsx
   - ../../src/components/branch/WholeStackSlot.tsx
@@ -362,7 +362,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 
 - The app must start the Safe Push and the Dry Run of the whole stack as the start of a branch is
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)), its subject the key `stack:<root>`
-  (`requestSafePush`, `readSafePush`; the decision of `getSafePushDecision`): its facts are the stack branch, the robot
+  (`requestSafePush`, `readSafePush`; the decision of `domain_policy::land::decide`, `RepositoryView.lands` under the key): its facts are the stack branch, the robot
   of the whole stack and the profile of its last one, its pull request and the readiness of the whole stack. It lands
   more than a row, so it always opens its popover ("Safe Push of the whole air stack"): what lands ("Lands 7 branches ·
   14 commits into master in one Safe Push: air, bazel, … side-fix and side-test.", the main line first, then the side

@@ -601,7 +601,7 @@
     "group": "review",
     "title": "the pre-check of the review fails: the app confirms the review line, bd refuses review_unknown unless --allow-unknown-review",
     "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D14",
+    "discrepancy": null,
     "given": {
       "readiness": "unavailable"
     },
@@ -619,6 +619,10 @@
       "start": {
         "error": "review_unknown"
       }
+    },
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "--allow-unknown-review of bd is the popover's confirmation ReviewUnknown (owner decision 10): docs/design/rust-domain-authority.md#решения-которые-подтверждает-владелец"
     }
   },
   {
@@ -626,14 +630,14 @@
     "group": "review",
     "title": "a repository only on Space whose merge request needs approvals",
     "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": "D14",
+    "discrepancy": null,
     "given": {
       "readiness": "space"
     },
     "app": {
       "decision": {
-        "kind": "confirm",
-        "reasons": ["review"]
+        "kind": "refuse",
+        "reason": "Patronus checks the approvals when the robot starts and fails without them"
       }
     },
     "bd": {

@@ -1,5 +1,45 @@
 {
   "given": {"flags": ["withoutApprovals"], "profile": {"chosen": "lsc"}, "readiness": "missing"},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": "withoutApprovals",
+      "blockers": [],
+      "confirmations": [{"id": "lsc", "kind": "nonDefaultProfile"}, {"kind": "withoutApprovals"}],
+      "effects": [
+        {"branches": ["auth"], "force": false, "kind": "push"},
+        {
+          "kind": "startRobot",
+          "route": {
+            "kind": "api",
+            "profile": {
+              "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+              "description": "All the tests",
+              "id": "lsc",
+              "name": "Large Scale Change",
+              "skipsReview": null
+            }
+          }
+        }
+      ],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [{"allowedPushModes": [], "description": null, "id": "emergency", "name": "Emergency", "skipsReview": true}],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

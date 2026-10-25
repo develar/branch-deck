@@ -34,6 +34,8 @@ vi.mock("@/stores/branch-sync", async () => {
     getBranch: (name: string) => (state.tips[name] === undefined ? undefined : { name, commits: [{ hash: state.tips[name] }] }),
     getBranchTableOrder: () => Object.keys(state.tips),
     getStackBranch: (root: string) => state.stacks[root],
+    // where Rust reads the open pull request goes: these go into the target
+    getOpenPullRequest: (subject: string) => (state.pullRequests[subject] === undefined ? undefined : { number: state.pullRequests[subject].number, base: { kind: "target" } }),
   }
 })
 

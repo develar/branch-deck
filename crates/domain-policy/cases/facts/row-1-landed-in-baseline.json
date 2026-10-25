@@ -1,5 +1,6 @@
 {
   "given": {"landed": "inBaseline"},
+  "land": null,
   "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},

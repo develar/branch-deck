@@ -346,12 +346,56 @@ impl LandDecision {
   }
 }
 
+/// The decisions of the two starts of a subject the view of the session offers, its default intents
+/// (`repository_model::derive::lands_of`): a Safe Push with the default profile, and a Dry Run
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandDecisions {
+  pub safe_push: LandDecision,
+  pub dry_run: LandDecision,
+}
+
+/// The merge profiles a start offers (`domain_policy::land::offered_profiles`), as its popover lists them
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandProfiles {
+  /// The profiles of the target the mode allows, with what the options of the last robot said of the review of its own
+  pub offered: Vec<PatronusProfile>,
+  /// The emergency profiles the mode allows, offered only to a start without approvals: they skip every check
+  pub emergency: Vec<PatronusProfile>,
+  /// The profile a start runs with unless another is chosen: the last robot's while offered, else the default of the
+  /// target; of a start without approvals only one known to skip the review. `None`: the default checks (or the user
+  /// chooses)
+  pub default: Option<String>,
+}
+
+/// What the read of a start answers (`decide_land`): its decision and the profiles it offers
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandAnswer {
+  pub decision: LandDecision,
+  pub profiles: LandProfiles,
+}
+
+/// What the app asks of a start before it is made (`decide_land`): the start of `land` in the session of the repository
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DecideLandParams {
+  pub repository_path: String,
+  pub land: Land,
+}
+
 /// What the user accepts before a start (the contract's `Confirmation`)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Confirmation {
-  /// It lands `count` branches it is built on with the branch, more than its row
+  /// It lands `count` branches it is built on with the branch, more than its row; of a whole stack the branches of it
+  /// besides its root
   LandsMoreThanRow { count: u32 },
   /// It starts with a profile, not the default checks: the last robot's or one chosen
   NonDefaultProfile { id: String },

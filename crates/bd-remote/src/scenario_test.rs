@@ -6,7 +6,7 @@
 use crate::patronus_facts::{PatronusFacts, table_of};
 use crate::push_command::github_repository;
 use crate::robot_list::list_robots;
-use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, safe_push as safe_push_command};
+use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, rules_fact, safe_push as safe_push_command};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
   LANDED_SUBJECTS, MASTER_RULES, Space, dismissing_rules, evaluated_review, fake_github, land_auth_by_content, minutes_ago, pull_request_json, push_from_elsewhere_to,
@@ -16,19 +16,26 @@ use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::stack_summary::whole_stack;
 use bd_core::sync_command::{SyncOutput, lock, sync_locked};
+use domain_policy::pull_request::start_pull_request;
 use domain_policy::stack::WholeStack;
 use domain_types::commit::Commit;
-use domain_types::patronus::{ReviewReadiness, ReviewReadinessBranch, ReviewStart};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState as ListedPullRequestState, PullRequestView, PullRequestsResult};
-use domain_types::session::PullRequestsView;
+use domain_types::landing::{Land, LandAnswer, ProfileChoice, Subject};
+use domain_types::patronus::{LandingAllowances, PatronusPushMode, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestView, PullRequestsResult};
+use domain_types::session::{Fact, FactState, PullRequestsView, SubjectReadiness};
 use domain_types::stack::{BranchStack, StackBranchState};
 use github::fake_github::{FakeAnswer, FakeGitHub};
+use github::service::GitHubService;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::stack::place_branches;
 use history_rewrite::store_lines::StoreLines;
+use patronus::service::PatronusService;
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
-use repository_model::derive::open_pull_requests_view;
+use repository_model::branch_table::BranchTable;
+use repository_model::derive::{LandSources, land_answer, open_pull_requests_view};
+use repository_model::facts::{Observation, Seq};
 use repository_model::patronus_view::{landed_commits, with_landing_needs};
+use repository_model::pull_request_facts::PullRequestsFact;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::{Map, Value, json};
@@ -36,7 +43,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_core::patronus::target_branch_of;
+use std::time::Duration;
+use sync_core::github_repository::GitHubRepository;
+use sync_core::patronus::{SpaceRepository, target_branch_of};
+use tokio::runtime::Runtime;
 use trial_check::landing_gate::landing_needs_of;
 
 /// The groups of the cases and their test functions here; the Vitest has the same groups
@@ -946,6 +956,11 @@ impl Situation {
     }
     let readiness = if on_space { self.readiness(&context, &synced, given) } else { BTreeMap::new() };
     let open_pull_requests = self.open_pull_requests(&context, &synced, &readiness);
+    let land = if on_space {
+      self.land(&context, &synced, &table, &facts, given, &readiness)
+    } else {
+      None
+    };
     let report = &synced.report;
     let tips = |of: &HashMap<String, String>| -> BTreeMap<String, String> {
       of.iter()
@@ -966,6 +981,7 @@ impl Situation {
       "view": facts.view,
       "readiness": readiness,
       "openPullRequests": open_pull_requests,
+      "land": land,
     });
     name_ids(&mut value, &names_of(&synced));
     settle_robots(&mut value["robots"]);
@@ -1002,6 +1018,109 @@ impl Situation {
     )
   }
 
+  /// What the facts of the app's side read the remote services with: the Space repository, the fake Patronus and GitHub,
+  /// the target of the baseline and the GitHub repository of the branches
+  fn reads<'c>(&self, context: &'c RepoContext, synced: &SyncOutput) -> Reads<'c> {
+    Reads {
+      space: context.space_repository().unwrap().expect("on Space"),
+      service: patronus_service(&self.environment).unwrap(),
+      github_service: github_service(context, &self.environment),
+      runtime: context.runtime().unwrap(),
+      target: target_branch_of(synced.report.upstream.as_ref()).expect("the baseline is a branch of origin"),
+      github: github_repository(context, &synced.report).unwrap(),
+    }
+  }
+
+  /// What the app's session decides of the start of the case (`repository_model::derive::land_answer`, the function of
+  /// `decide_land` and of the view's `lands`) over the facts the session reads of the case's repository: the table and
+  /// the Patronus view with the landing needs, the merge profiles of the target with the last robot's, the listing of
+  /// the pull requests, the readiness of `readiness`, the rules of the target; the start as the app asks it (a click or
+  /// S, the profile chosen, without review), never an allowance of `bd`. A start of a whole stack the app's side doesn't
+  /// map
+  fn land(&self, context: &RepoContext, synced: &SyncOutput, table: &BranchTable, facts: &PatronusFacts, given: &Given, readiness: &BTreeMap<String, Value>) -> Option<LandAnswer> {
+    if given.subject != GivenSubject::Branch {
+      return None;
+    }
+    let Reads {
+      space,
+      service,
+      github_service,
+      runtime,
+      target,
+      github,
+    } = self.reads(context, synced);
+    let name = given.branch.as_str();
+    // the profiles with the profile of the last robot as the default, as bd reads them (the session reads the profile of
+    // the robot from its details instead: the same default)
+    let robot = facts.branch_robot(name);
+    let last_profile = robot.filter(|_| context.patronus_new_api).and_then(|robot| robot.profile.clone());
+    let options = runtime
+      .block_on(service.start_options(&space.project_key, &space.name, &target, robot.map(|robot| robot.id.as_str()), last_profile))
+      .unwrap();
+    let profiles = fresh_fact(options);
+    let mut listing = PullRequestsFact::default();
+    listing.answer(
+      Observation {
+        seq: Seq(1),
+        inputs: 0,
+        at: Duration::ZERO,
+        observed_at: 1,
+      },
+      match &github {
+        Some(repository) => open_pull_requests(context, &github_service, runtime, repository),
+        None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
+      },
+    );
+    let answers: BTreeMap<&str, Fact<SubjectReadiness>> = readiness
+      .iter()
+      .map(|(key, answer)| {
+        let tip = answer["tip"].as_str().unwrap_or_default().to_string();
+        let subject = SubjectReadiness {
+          ask: ReviewReadinessBranch::starting_from(key.clone(), None, tip, None),
+          requirement: serde_json::from_value(answer["requirement"].clone()).unwrap(),
+          readiness: serde_json::from_value(answer["readiness"].clone()).unwrap(),
+        };
+        (key.as_str(), fresh_fact(subject))
+      })
+      .collect();
+    let readiness_of = |key: &str| answers.get(key);
+    let rules = match (&github, given.rules) {
+      (_, Rules::Loading) | (None, _) => None,
+      (Some(repository), _) => Some(rules_fact(context, &github_service, runtime, repository, &target)),
+    };
+    let sources = LandSources {
+      table,
+      remote: &table.remote,
+      view: &facts.view,
+      robots: &facts.robots,
+      target: &target,
+      prefix: &context.prefix,
+      github: github.is_some(),
+      profiles: &profiles,
+      pull_requests: listing.view(),
+      readiness: &readiness_of,
+      rules: rules.as_ref(),
+      landing_needs: &FactState::Fresh,
+    };
+    let chosen = given.profile.as_ref().and_then(|profile| profile.chosen.as_deref());
+    let land = Land {
+      subject: Subject::branch(name),
+      mode: match given.mode {
+        Mode::SafePush => PatronusPushMode::RebaseAutosquash,
+        Mode::DryRun => PatronusPushMode::DryRun,
+      },
+      profile: match chosen {
+        None => ProfileChoice::Default,
+        Some("none") => ProfileChoice::None,
+        Some(id) => ProfileChoice::Id { id: id.to_string() },
+      },
+      without_approvals: given.has(Flag::WithoutApprovals),
+      create_pull_request: false,
+      allow: LandingAllowances::default(),
+    };
+    land_answer(&sources, &land)
+  }
+
   /// The review readiness as the app's scan asks it (`readinessInputOf`): the branch from its open pull request into
   /// the target, else through the API; the whole stack of its root as its built stack branch with the pull request of
   /// the stack, or of a straight chain its last branch, whose step the whole stack takes (its row asks it); nothing
@@ -1010,12 +1129,14 @@ impl Situation {
     if given.readiness == Readiness::NotAsked {
       return BTreeMap::new();
     }
-    let space = context.space_repository().unwrap().expect("on Space");
-    let service = patronus_service(&self.environment).unwrap();
-    let github_service = github_service(context, &self.environment);
-    let runtime = context.runtime().unwrap();
-    let target = target_branch_of(synced.report.upstream.as_ref()).expect("the baseline is a branch of origin");
-    let github = github_repository(context, &synced.report).unwrap();
+    let Reads {
+      space,
+      service,
+      github_service,
+      runtime,
+      target,
+      github,
+    } = self.reads(context, synced);
     let listed = match &github {
       Some(repository) => open_pull_requests(context, &github_service, runtime, repository),
       None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
@@ -1027,12 +1148,13 @@ impl Situation {
       baseline: &synced.baseline,
       branch_prefix: &context.prefix,
     };
-    // the start as the app chooses it (`getPullRequestStart`: the open pull request into the target), built as every
-    // start of bd is; the facts record the pull request and the tip asked, and `seedReadiness` of the Vitest refuses
-    // an answer whose input the app computes otherwise, so this choice can't drift from the app's unnoticed
+    // the start as the session asks it (`start_pull_request`: the open pull request into the target or, of a branch,
+    // into a virtual branch its start retargets first, D11), built as every start of bd is; the facts record the pull
+    // request and the tip asked, and `seedReadiness` of the Vitest refuses an answer whose input the app computes
+    // otherwise, so this choice can't drift from the app's unnoticed
+    let named = github.as_ref().map(|repository| repository.name.as_str());
     let ask = |key: &str, source: Option<String>, tip: &str, pull_request: Option<&PullRequest>| {
-      let start =
-        pull_request.filter(|pull_request| pull_request.state == ListedPullRequestState::Open && (pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target));
+      let start = start_pull_request(pull_request, &target, &context.prefix, named, source.is_some());
       ReviewReadinessBranch::starting_from(key.to_string(), source, tip.to_string(), start)
     };
     let name = given.branch.as_str();
@@ -1082,6 +1204,25 @@ impl Situation {
         )
       })
       .collect()
+  }
+}
+
+/// The services and the names the facts of a case are read with (`Situation::reads`)
+struct Reads<'c> {
+  space: SpaceRepository,
+  service: PatronusService,
+  github_service: GitHubService,
+  runtime: &'c Runtime,
+  target: String,
+  github: Option<GitHubRepository>,
+}
+
+/// A fact the session holds the answer of
+fn fresh_fact<T>(value: T) -> Fact<T> {
+  Fact {
+    value: Some(value),
+    state: FactState::Fresh,
+    ..Fact::default()
   }
 }
 

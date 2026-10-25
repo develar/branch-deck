@@ -1,7 +1,7 @@
 //! The open pull request of a subject, as a Safe Push of it reads it (spec/branch/pull-requests.spec.md,
 //! spec/branch/next-step.spec.md rows 5 and 5′): where it goes (`base_of`: the target, a virtual branch of the user that
 //! every such pull request leaves for the target, or another base that may be meant), the pull request a robot starts
-//! from (`start_pull_request`), and what a push of new commits does to its approvals by the rules of its base
+//! from (`start_pull_request`: one into the target or, of a branch, into a virtual branch it retargets first, D11), and what a push of new commits does to its approvals by the rules of its base
 //! (`dismisses_approvals`, a fact without an answer never read as "keeps them"). The app (the view of the session, the
 //! readiness asks) and `bd` (`bd push`, `bd safe-push`, `bd request-review`) read these, never a copy.
 
@@ -27,13 +27,33 @@ pub fn base_of(pull_request: &PullRequest, target: &str, prefix: &str) -> PullRe
   }
 }
 
-/// The pull request a robot of the subject would start from: its open pull request into `target` (one without a base
-/// read counts), while Patronus names the GitHub repository the branches are mirrored to; else none, and the robot
-/// starts through the API, which counts no approval
+/// Where the pull request of a subject goes for its start: `base_of`, but of a whole stack a virtual branch is another
+/// base too, as its stack branch is no virtual branch and no retarget touches it
 #[must_use]
-pub fn start_pull_request<'a>(pull_request: Option<&'a PullRequest>, target: &str, github_repository: Option<&str>) -> Option<&'a PullRequest> {
+pub fn start_base(pull_request: &PullRequest, target: &str, prefix: &str, whole_stack: bool) -> PullRequestBase {
+  match base_of(pull_request, target, prefix) {
+    PullRequestBase::Virtual { .. } if whole_stack => PullRequestBase::Other {
+      base: pull_request.base_ref_name.clone(),
+    },
+    base => base,
+  }
+}
+
+/// A robot starts from a pull request that goes there: into the target, or into a virtual branch, which the start
+/// retargets into the target first (D11); never one into another base, whose approvals count for no start into the target
+#[must_use]
+pub const fn starts_from(base: &PullRequestBase) -> bool {
+  !matches!(base, PullRequestBase::Other { .. })
+}
+
+/// The pull request a robot of the subject would start from (`whole_stack`: of the whole stack, else of a branch): its
+/// open pull request that goes into the target or, of a branch, into a virtual branch of `prefix`, which the start
+/// retargets first (`start_base`, `starts_from`), while Patronus names the GitHub repository the branches are mirrored
+/// to; else none, and the robot starts through the API, which counts no approval
+#[must_use]
+pub fn start_pull_request<'a>(pull_request: Option<&'a PullRequest>, target: &str, prefix: &str, github_repository: Option<&str>, whole_stack: bool) -> Option<&'a PullRequest> {
   github_repository?;
-  pull_request.filter(|pull_request| pull_request.state == PullRequestState::Open && (pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target))
+  pull_request.filter(|pull_request| pull_request.state == PullRequestState::Open && starts_from(&start_base(pull_request, target, prefix, whole_stack)))
 }
 
 /// What a push of new commits does to the approvals of a pull request, by the rules of its base

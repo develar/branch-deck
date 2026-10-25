@@ -95,8 +95,9 @@ The specs are the contract of each part:
   its start refusal (`domain_policy::land::start_refusal`) that disables its start.
 - **The start, not a form.** A start of a piece has nothing to ask in the usual case: the piece is the branch the
   user pressed and what it is built on. So "Safe Push" is an action (`requestSafePush`, `src/hooks/useSafePush.ts`),
-  named by what it lands ("Safe Push · 3"), and one pure decision (`getSafePushDecision`,
-  `src/lib/safe-push-decision.ts`) says whether it starts at once, refuses with the reason every surface says, or
+  named by what it lands ("Safe Push · 3"), and one decision (`domain_policy::land::decide`, the one of `bd
+  safe-push`, which the view carries as `RepositoryView.lands` and `decide_land` answers) says whether it starts at
+  once, refuses with the reason every surface says, or
   confirms first in a popover at the button: a stacked branch always confirms, since it lands more than its row; so do
   a profile other than the default checks, a running Safe Push it cancels, approvals Patronus judges only at the
   start. The popover's title is what the one robot lands, worded by `describeStackLanding`
@@ -218,7 +219,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
   island and under "Whole Stack ›" in the root's menu, so a small stack without an island has them too, and the root's
   preview: its Safe Push and Dry Run, the pull request, Push with Children, "Review Whole Stack" (the review window of
   the stack branch) and the actions of its robot.
-- **Its Safe Push** is one more set of facts for the start of a branch (`getSafePushDecision`), its subject the key
+- **Its Safe Push** is one more subject of the decision of a start (`domain_policy::land::decide`), its subject the key
   `stack:<root>`: the stack branch, the robot of the whole stack, its pull request, its readiness
   (`ReviewReadinessBranch::source`). The header of its island shows its next step ("Safe Push · 7", the same table as a
   branch's, [Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)); its slot, its "⋯" and S on the header

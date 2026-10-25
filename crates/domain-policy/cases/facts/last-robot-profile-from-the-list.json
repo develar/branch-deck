@@ -3,6 +3,46 @@
     "profile": {"lastRobot": "lsc", "newApi": true, "skipsReview": true},
     "robot": {"on": "older", "state": "failure"}
   },
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": "profile",
+      "blockers": [],
+      "confirmations": [{"id": "lsc", "kind": "nonDefaultProfile"}],
+      "effects": [
+        {"branches": ["auth"], "force": false, "kind": "push"},
+        {
+          "kind": "startRobot",
+          "route": {
+            "kind": "api",
+            "profile": {
+              "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+              "description": "All the tests",
+              "id": "lsc",
+              "name": "Large Scale Change",
+              "skipsReview": true
+            }
+          }
+        }
+      ],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": "lsc",
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": true
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

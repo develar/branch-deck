@@ -34,15 +34,16 @@
 //!   start (`StartRoute`: a `/patronus` comment on the pull request it starts from, else the API with the profile) or
 //!   the pull request it opens.
 //!
-//! The profiles of a mode (`allows_mode`) and the default one (`default_profile`: the last robot's while the target
-//! offers it) are read here too.
+//! The profiles of a mode (`allows_mode`), the default one (`default_profile`: the last robot's while the target offers
+//! it) and what a start offers (`offered_profiles`: of a start without approvals the emergency ones too, and as the
+//! default only one that skips the review) are read here too.
 
 use crate::facts::{RemoteBranch, Robots};
 use crate::holds::is_active;
-use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals};
+use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals, start_base, starts_from};
 use crate::reasons::{ancestor, blocked, descendant, held, last_commit, stack_not_built};
 use crate::review::{ReviewState, review_state, skips_approvals};
-use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute};
+use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandProfiles, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute};
 use domain_types::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestState, ReviewerState};
 use domain_types::reason::Reason;
@@ -268,6 +269,40 @@ pub fn default_profile(options: &PatronusStartOptions, last: Option<&PatronusRob
   options.default_profile_id.as_deref().and_then(offered).cloned()
 }
 
+/// The profiles a start of `land` offers over the options of its target (`LandProfiles`): those the mode allows, the
+/// last robot's (`last`) with what its answer said of the review when the options don't tell; of a start without
+/// approvals also the emergency profiles the mode allows, and as the default only one known to skip the review (the
+/// user chooses otherwise: a profile that checks the review fails such a start at once)
+#[must_use]
+pub fn offered_profiles(options: &PatronusStartOptions, last: Option<&PatronusRobotProfile>, mode: PatronusPushMode, without_approvals: bool) -> LandProfiles {
+  let described = |profile: &PatronusProfile| {
+    let mut profile = profile.clone();
+    if let Some(last) = last.filter(|last| last.id.as_deref() == Some(profile.id.as_str())) {
+      profile.skips_review = profile.skips_review.or(last.skips_review);
+    }
+    profile
+  };
+  let allowed = |profiles: &[PatronusProfile]| profiles.iter().filter(|profile| allows_mode(profile, mode)).map(described).collect::<Vec<_>>();
+  let default = default_profile(options, last, mode).filter(|profile| !without_approvals || profile.skips_review == Some(true));
+  LandProfiles {
+    offered: allowed(&options.profiles),
+    emergency: if without_approvals { allowed(&options.emergency_profiles) } else { Vec::new() },
+    default: default.map(|profile| profile.id),
+  }
+}
+
+/// The profile a start of `land` through the API runs with (`ProfileChoice`): the default of `offered_profiles`, one of
+/// them by id, or none, the default checks
+fn chosen_profile(options: &PatronusStartOptions, last: Option<&PatronusRobotProfile>, land: &Land) -> Option<PatronusProfile> {
+  let profiles = offered_profiles(options, last, land.mode, land.without_approvals);
+  let id = match &land.profile {
+    ProfileChoice::None => return None,
+    ProfileChoice::Id { id } => id.as_str(),
+    ProfileChoice::Default => profiles.default.as_deref()?,
+  };
+  profiles.offered.iter().chain(&profiles.emergency).find(|profile| profile.id == id).cloned()
+}
+
 /// What the table alone refuses of a start, before any fact of the remote: the sync did not build the branch, the
 /// branch stays local (parked, or built on parked), the stack branch of a whole stack holds a parked member
 #[must_use]
@@ -379,12 +414,11 @@ pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
   let start_pull_request = part
     .own
     .as_ref()
-    .filter(|(_, base)| facts.github && !matches!(base, PullRequestBase::Other { .. }))
+    .filter(|(_, base)| facts.github && starts_from(base))
     .map(|(pull_request, _)| *pull_request);
-  let profile = match (start_pull_request, &land.profile, options) {
-    (Some(_), ..) | (None, ProfileChoice::None, _) | (None, _, None) => None,
-    (None, ProfileChoice::Id { id }, Some(options)) => options.profiles.iter().find(|profile| profile.id == *id && allows_mode(profile, land.mode)).cloned(),
-    (None, ProfileChoice::Default, Some(options)) => default_profile(options, facts.last_profile, land.mode),
+  let profile = match (start_pull_request, options) {
+    (Some(_), _) | (None, None) => None,
+    (None, Some(options)) => chosen_profile(options, facts.last_profile, land),
   };
   let skipped = skips_approvals(land.mode, land.create_pull_request, land.without_approvals, start_pull_request.is_some(), profile.as_ref());
   decision.approvals_skipped_by = skipped;
@@ -436,11 +470,7 @@ pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
       force: part.force,
     });
   }
-  let found = part
-    .own
-    .as_ref()
-    .filter(|(_, base)| !matches!(base, PullRequestBase::Other { .. }))
-    .map(|(pull_request, _)| *pull_request);
+  let found = part.own.as_ref().filter(|(_, base)| starts_from(base)).map(|(pull_request, _)| *pull_request);
   if land.create_pull_request {
     decision.pull_request = found.map(|pull_request| pull_request.number);
     if found.is_none() {
@@ -536,7 +566,7 @@ fn branch_part<'a>(facts: &LandFacts<'a>, land: &Land, branch: &BranchSubject<'a
     lands,
     push: push.iter().map(|step| step.name.to_string()).collect(),
     force: !forced.is_empty(),
-    own: open(name).map(|pull_request| (pull_request, base_of(pull_request, facts.target, facts.prefix))),
+    own: open(name).map(|pull_request| (pull_request, start_base(pull_request, facts.target, facts.prefix, false))),
     retargets,
     cancels: branch.replaces.filter(|_| safe_push && (pushes || !land.create_pull_request)),
     forced,
@@ -589,15 +619,7 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
   let own = listed
     .and_then(|listed| listed.stack_pull_requests.get(root))
     .filter(|pull_request| pull_request.state == PullRequestState::Open)
-    .map(|pull_request| match base_of(pull_request, facts.target, facts.prefix) {
-      PullRequestBase::Target => (pull_request, PullRequestBase::Target),
-      _ => (
-        pull_request,
-        PullRequestBase::Other {
-          base: pull_request.base_ref_name.clone(),
-        },
-      ),
-    });
+    .map(|pull_request| (pull_request, start_base(pull_request, facts.target, facts.prefix, true)));
   SubjectPart {
     lands: stack.members.iter().filter(|(_, landed)| !landed).map(|(name, _)| (*name).to_string()).collect(),
     push: if pushes { vec![root.to_string()] } else { Vec::new() },
@@ -607,7 +629,8 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
     cancels: stack.replaces.filter(|_| safe_push && (pushes || !land.create_pull_request)),
     forced,
     reviewable: !not_built,
-    lands_more: 0,
+    // the whole stack lands every branch of it with its root, always more than the root's row
+    lands_more: u32::try_from(stack.members.len().saturating_sub(1)).unwrap_or(u32::MAX),
     whole_stack_pull_request: None,
   }
 }
@@ -739,7 +762,8 @@ fn rules_part(facts: &LandFacts<'_>, land: &Land, part: &SubjectPart<'_>, start_
 
 /// The answer of `fact` that stands: the newest, or an earlier one after a read that failed; none while it is read for
 /// the first time or again for other inputs
-const fn standing<T>(fact: &Fact<T>) -> Option<&T> {
+#[must_use]
+pub const fn standing<T>(fact: &Fact<T>) -> Option<&T> {
   match fact.state {
     FactState::Fresh | FactState::Stale { reason: Some(_) } => fact.value.as_ref(),
     _ => None,

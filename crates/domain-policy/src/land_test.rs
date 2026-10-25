@@ -1,7 +1,7 @@
 use crate::facts::{RemoteBranch, Robots};
 use crate::land::{
-  BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, allows_mode, decide, default_profile, on_last_commit,
-  restart_refusal, start_refusal, took_as_is, unaccepted,
+  BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, allows_mode, decide, default_profile, offered_profiles,
+  on_last_commit, restart_refusal, start_refusal, took_as_is, unaccepted,
 };
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request, robot, robot_of, stack_commit, stack_robot};
@@ -934,6 +934,61 @@ fn the_default_profile_is_the_last_robots_while_offered_and_a_profile_is_confirm
   assert_eq!(profile_of(ProfileChoice::Default), (api(Some("lsc")), true));
   assert_eq!(profile_of(ProfileChoice::Id { id: "fast".to_string() }), (api(Some("fast")), true));
   assert_eq!(profile_of(ProfileChoice::None), (api(None), false));
+}
+
+/// A start offers the profiles its mode allows, the last robot's described by what its answer said of the review; a
+/// start without approvals also the emergency ones, and as its default only a profile known to skip the review (the
+/// user chooses otherwise); an emergency profile is taken by id only there
+#[test]
+fn a_start_offers_the_profiles_of_its_mode_and_without_approvals_the_emergency_ones_and_a_skipping_default() {
+  let last = PatronusRobotProfile {
+    id: Some("lsc".to_string()),
+    name: None,
+    skips_review: Some(true),
+  };
+  let mut target = options(true);
+  target.emergency_profiles = vec![profile("panic", None)];
+  target.profiles.push(PatronusProfile {
+    allowed_push_modes: vec![DRY_RUN],
+    ..profile("check", None)
+  });
+  let ids = |profiles: &[PatronusProfile]| profiles.iter().map(|profile| profile.id.clone()).collect::<Vec<_>>();
+  let with = offered_profiles(&target, Some(&last), SAFE_PUSH, false);
+  assert_eq!(
+    (ids(&with.offered), ids(&with.emergency), with.default.as_deref()),
+    (names(&["lsc", "fast"]), Vec::new(), Some("lsc"))
+  );
+  assert_eq!(with.offered[0].skips_review, Some(true));
+  let without = offered_profiles(&target, Some(&last), SAFE_PUSH, true);
+  assert_eq!((ids(&without.emergency), without.default.as_deref()), (names(&["panic"]), Some("lsc")));
+  // the last robot's profile checks the review: a start without approvals has no default, the usual start keeps it
+  let checking = PatronusRobotProfile {
+    skips_review: Some(false),
+    ..last
+  };
+  assert_eq!(offered_profiles(&target, Some(&checking), SAFE_PUSH, true).default, None);
+  assert_eq!(offered_profiles(&target, Some(&checking), SAFE_PUSH, false).default.as_deref(), Some("lsc"));
+  assert_eq!(ids(&offered_profiles(&target, None, DRY_RUN, false).offered), names(&["lsc", "fast", "check"]));
+
+  let world = World {
+    profiles: fresh(target),
+    last_profile: Some(checking),
+    readiness: Some(readiness(missing_approvals("Air", None))),
+    ..world()
+  };
+  let mut land = land(SAFE_PUSH);
+  land.without_approvals = true;
+  let api = |profile| Some(StartRoute::Api { profile });
+  assert_eq!(start_route(&world.decide(&land)).cloned(), api(None));
+  land.profile = ProfileChoice::Id { id: "panic".to_string() };
+  assert_eq!(start_route(&world.decide(&land)).cloned(), api(Some(profile("panic", None))));
+  // the usual start takes no emergency profile: the default checks
+  land.without_approvals = false;
+  assert_eq!(start_route(&world.decide(&land)).cloned(), api(None));
+}
+
+fn names(names: &[&str]) -> Vec<String> {
+  names.iter().map(ToString::to_string).collect()
 }
 
 /// Of the confirmations, `bd` accepts by a flag only the cancel of the robot it replaces, a review Patronus couldn't

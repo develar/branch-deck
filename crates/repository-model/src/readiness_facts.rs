@@ -5,7 +5,8 @@
 //!
 //! - The ask of a subject is what a window shows of it: the tip (the copy of the newest commit, which the row shows
 //!   once the sync built it; the stack branch of a whole stack while it is built), the pull request its robot would start from
-//!   (`domain_policy::pull_request::start_pull_request`, with the GitHub repository Patronus names) and the reviews of it.
+//!   (`domain_policy::pull_request::start_pull_request`, with the GitHub repository Patronus names: of a branch also one
+//!   into a virtual branch, which its start retargets first, D11) and the reviews of it.
 //!   Its inputs are the hash of the ask and of the rechecks (Check Approvals Again): a new tip, start or review, and a
 //!   recheck, make the readiness `Stale` in the patch that changes them, until the answer of the new inputs.
 //! - Asked (`domain_policy::refresh::readiness_priority`): what a surface needs now and what a recheck asks, at once;
@@ -135,8 +136,9 @@ impl ReadinessFact {
 
   /// The asks of the subjects for the table, the pull requests and the robots as the session has them now, with the
   /// demand of its windows: what is gone from the table is dropped, a subject a window asks for has a record, each
-  /// record expects the inputs of its ask, and the digest names what the scheduler asks
-  pub fn update(&mut self, state: &TableState, pull_requests: &PullRequestsView, robots: Option<&RobotsHead>, demand: &Demand) {
+  /// record expects the inputs of its ask, and the digest names what the scheduler asks. `prefix`: the branch prefix of
+  /// the session, whose virtual branches a pull request a start retargets may go into
+  pub fn update(&mut self, state: &TableState, pull_requests: &PullRequestsView, robots: Option<&RobotsHead>, demand: &Demand, prefix: &str) {
     self.subjects.retain(|key, _| exists(state, key));
     let baseline = state.header().baseline_branch.clone();
     let target = baseline_on_remote(&baseline).to_owned();
@@ -158,7 +160,7 @@ impl ReadinessFact {
         if !demanded && !shown && record.is_none() {
           continue;
         }
-        let ask = subject_ask(state, pull_requests, github, &target, &key);
+        let ask = subject_ask(state, pull_requests, github, &target, prefix, &key);
         let awaits = record
           .and_then(|record| record.last_answered.as_ref())
           .zip(ask.as_ref())
@@ -281,16 +283,16 @@ pub fn local_tip(branch: &BranchView) -> Option<&str> {
 }
 
 /// The ask of the subject `key` as the session has it now; `None` without a tip (a branch or a whole stack not built)
-fn subject_ask(state: &TableState, pull_requests: &PullRequestsView, github: Option<&str>, target: &str, key: &str) -> Option<ReviewReadinessBranch> {
+fn subject_ask(state: &TableState, pull_requests: &PullRequestsView, github: Option<&str>, target: &str, prefix: &str, key: &str) -> Option<ReviewReadinessBranch> {
   if let Some(root) = stack_root_of_readiness_key(key) {
     let stack = state.stack(root)?;
     let tip = stack.tip.as_ref().filter(|_| stack.state == StackBranchState::Built && !stack.members.is_empty())?;
-    let start = start_pull_request(pull_requests.stack_pull_requests.get(root), target, github);
+    let start = start_pull_request(pull_requests.stack_pull_requests.get(root), target, prefix, github, true);
     return Some(ReviewReadinessBranch::starting_from(key.to_owned(), Some(stack.branch_name.clone()), tip.clone(), start));
   }
   // the copy the row shows: none before the sync built the branch
   let tip = state.branch(key)?.copies.first()?.hash.as_deref().filter(|tip| !tip.is_empty())?;
-  let start = start_pull_request(pull_requests.pull_requests.get(key), target, github);
+  let start = start_pull_request(pull_requests.pull_requests.get(key), target, prefix, github, false);
   Some(ReviewReadinessBranch::starting_from(key.to_owned(), None, tip.to_owned(), start))
 }
 

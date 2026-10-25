@@ -1,5 +1,20 @@
 {
   "given": {"target": "unprotected"},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [{"code": "unprotected", "target": "master"}],
+      "confirmations": [],
+      "effects": [
+        {"branches": ["auth"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {"default": null, "emergency": [], "offered": []}
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

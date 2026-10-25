@@ -149,7 +149,7 @@ describe("getBranchNextStep", () => {
     })
   })
 
-  it("row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed, whose approvals don't count", () => {
+  it("row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed; a Safe Push retargets it first (D11)", () => {
     const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, base: "user/virtual/auth", intoTarget: false, baseIsVirtualBranch: true } }))
     expect(step).toMatchObject({
       kind: "retarget",
@@ -160,10 +160,11 @@ describe("getBranchNextStep", () => {
         description:
           "Approvals in #1078 don't count: its base is user/virtual/auth, a virtual branch. Changes the base of #1078 from user/virtual/auth to master on GitHub: Patronus merges a pull request into its base",
       },
-      safePushBlocker: "Approvals in #1078 don't count: its base is user/virtual/auth",
+      // the start retargets it first (D11): no start is held back
+      safePushBlocker: null,
       dryRunBlocker: null,
       needsReadiness: false,
-      notice: { title: "Approvals in #1078 of wsm-skip-wa-2 don't count", description: "Its base is user/virtual/auth, not master" },
+      notice: null,
       retarget: { id: "retarget-pull-request", label: "Retarget #1078 to master" },
     })
   })
@@ -444,7 +445,7 @@ describe("getBranchNextStep", () => {
     const ancestor = "A Safe Push of login is running: wait until it merges"
     expect(getBranchNextStep(facts({ startBlocker: ancestor }))).toMatchObject({ kind: "safePush", safePushBlocker: ancestor })
     expect(getBranchNextStep(facts({ pending: "pullRequests", startBlocker: ancestor }))).toMatchObject({ kind: "safePush", safePushBlocker: ancestor })
-    // the step of a start reads only a fresh answer and waits for one itself (`getSafePushDecision`)
+    // the step of a start reads only a fresh answer and waits for one itself (the waits of Rust's decision)
     expect(getBranchNextStep(facts({ readiness: null, forStart: true }))).toMatchObject({ kind: "safePush", safePushBlocker: null })
   })
 

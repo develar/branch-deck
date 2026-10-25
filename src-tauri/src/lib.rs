@@ -49,8 +49,8 @@ use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_statu
 use commands::move_commits::move_commits_to_branch;
 use commands::parked_branches::{park_branches, unpark_branches};
 use commands::patronus::{
-  PatronusState, cancel_patronus_robot, check_landing_gate, check_target_conflict, get_patronus_robot_status, get_patronus_target_branch, get_robot_commit_map, get_robot_failure,
-  get_robot_stats, post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
+  PatronusState, cancel_patronus_robot, check_landing_gate, check_target_conflict, decide_land, get_patronus_robot_status, get_patronus_target_branch, get_robot_commit_map,
+  get_robot_failure, get_robot_stats, post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
 };
 use commands::pull_requests::{
   close_pull_request, create_pull_request, get_new_pull_request, get_new_stack_pull_request, get_pull_request_head, request_pull_request_reviewers, retarget_pull_request,
@@ -138,6 +138,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
       get_robot_stats,
       start_patronus_robot,
       check_landing_gate,
+      decide_land,
       check_target_conflict,
       restart_patronus_robot,
       cancel_patronus_robot,

@@ -601,13 +601,29 @@ test.describe("Next step", () => {
   test("should retarget a pull request into the branch of a parent that landed, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the base is the branch of a parent that is no branch of the table any more
     const repo = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/landed-parent")
-    const menu = await openMenu(page)
-    await menu.getByRole("menuitem", SAFE_PUSH_ITEM).hover()
-    await expect(page.getByRole("tooltip", { name: "Approvals" })).toHaveText("Approvals in #7 don't count: its base is user-name/virtual/landed-parent")
-    await page.keyboard.press("Escape")
-
     await slot(page).getByRole("button", { name: "Retarget #7" }).click()
     await expectRetargeted(page, repo)
+  })
+
+  test("should retarget a pull request into a virtual branch first when its Safe Push starts, then start from it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/landed-parent")
+    // the start retargets it itself (D11): S says so in the popover, the menu offers the start
+    const popover = await openSafePushWithKey(page, BRANCH)
+    await expect(popover.getByTestId("safe-push-retarget")).toHaveText(
+      `Retargets #7 of ${BRANCH} from user-name/virtual/landed-parent to master first: every pull request of a virtual branch goes into master.`,
+    )
+    await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #7: Patronus reports there and closes it once merged.")
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+    const menu = await openMenu(page)
+    await menu.getByRole("menuitem", SAFE_PUSH_ITEM).click()
+    // the retarget first, then the comment on the pull request it moved into master
+    await expect
+      .poll(async () => gitHubWrites(await repo.getGitHubLog()))
+      .toEqual([
+        ["PATCH", repoPath("pulls", 7), { base: "master" }],
+        ["POST", repoPath("issues", 7, "comments"), { body: "/patronus merge --keep-source-branch" }],
+      ])
   })
 
   test("should retarget a pull request into the virtual branch of a branch in the table, as a parent's, whose approvals don't count", async ({

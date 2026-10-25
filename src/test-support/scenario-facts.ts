@@ -1,8 +1,8 @@
 // The app's side of a scenario case (`crates/domain-policy/cases/README.md`): the stores seeded as the sync, the
 // repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), then the app's own readers answer:
-// `getBranchNextStepOf` and `getStackNextStepNow` for the step, `readSafePush` for the decision. What the Rust core
-// computes of the case's repository (the tips, the robots, the repository view, the review readiness, the open pull
-// requests as the view reads them) comes from
+// `getBranchNextStepOf` and `getStackNextStepNow` for the step, `readSafePush` for what the click does with the decision
+// Rust makes. What the Rust core computes of the case's repository (the tips, the robots, the repository view, the
+// review readiness, the open pull requests as the view reads them, the decision of the start) comes from
 // `cases/facts/<id>.json`, which the Rust scenario test writes from the same `given`; the adapter maps the rest of
 // `given` to store-shaped facts (the table of the sync, the landing report, the pull requests, the rules: the README
 // names what it still models) and decides nothing of either side. A value the README doesn't map fails with "not
@@ -12,18 +12,7 @@ import type { SafePushRead } from "@/hooks/useSafePush"
 import { readSafePush } from "@/hooks/useSafePush"
 import { getStackNextStepNow } from "@/hooks/useStackNextStep"
 import { internalError } from "@/lib/api-error"
-import type {
-  BranchRules,
-  Fact,
-  PatronusProfile,
-  PatronusReviewRequirement,
-  PatronusRobot,
-  PatronusStartOptions,
-  PatronusView,
-  PullRequest,
-  PullRequestView,
-  ReviewReadiness,
-} from "@/lib/bindings"
+import type { BranchRules, Fact, LandAnswer, PatronusReviewRequirement, PatronusRobot, PatronusView, PullRequest, PullRequestView, ReviewReadiness } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { robotsById } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
@@ -76,6 +65,11 @@ export interface ScenarioFacts {
   readonly readiness: Readonly<Record<string, ReadinessFact>>
   /** The open pull request of each subject as the view of the session reads it (`RepositoryView.openPullRequests`) */
   readonly openPullRequests: Readonly<Record<string, PullRequestView>>
+  /**
+   * What the session decides of the start of the case (`land_answer`, the function of `decide_land` and of the view's
+   * `lands`) over the facts it reads of the repository; null off Space and for a whole stack
+   */
+  readonly land: LandAnswer | null
 }
 
 const FACTS_DIRECTORY = "/crates/domain-policy/cases/facts"
@@ -373,7 +367,7 @@ function seedGitHub(given: Given, facts: ScenarioFacts): void {
  * whole stack of its root while the sync built its stack branch), each under the key of the input the branch has now
  * (`readinessInputOf`, so a start reads them as fresh); none while the app hasn't asked (`notAsked`). Seeded after the branches and the pull requests,
  * which the input is computed from. An answer asked with another tip or start than the app computes now is refused:
- * the rule of the start lives in the app (`getPullRequestStart`), and Rust's facts follow it or the Vitest reddens
+ * the rule of the start is Rust's (`start_pull_request`), the page's ask its twin (`readinessInputOf`): one drifts, the Vitest reddens
  */
 export function seedReadiness(facts: ScenarioFacts): void {
   const entries: Record<string, ReadinessEntry> = {}
@@ -435,26 +429,6 @@ function checkMapped(given: Given): void {
   }
 }
 
-/** The profiles the fake Patronus answers (`robot-start-supported`), `lsc` as the last robot's options describe it */
-function startOptions(given: Given): PatronusStartOptions {
-  const profile = given.profile
-  const lastRobot = profile?.lastRobot ?? null
-  const lsc: PatronusProfile = {
-    id: "lsc",
-    name: "Large Scale Change",
-    description: "All the tests",
-    allowedPushModes: ["rebaseAutosquash", "dryRun"],
-    skipsReview: lastRobot === "lsc" && profile?.skipsReview === true ? true : null,
-  }
-  return {
-    targetBranch: TARGET,
-    supported: given.target === "protected",
-    profiles: [{ id: "default", name: "Default", description: null, allowedPushModes: [], skipsReview: null }, lsc],
-    emergencyProfiles: [{ id: "emergency", name: "Emergency", description: null, allowedPushModes: [], skipsReview: true }],
-    defaultProfileId: lastRobot,
-  }
-}
-
 /** Every store as the situation of the case `id` leaves it, with its facts; the next read of the app answers for it */
 export async function seedScenario(id: string, given: Given): Promise<void> {
   checkMapped(given)
@@ -480,10 +454,10 @@ export function nextStepOf(given: Given): BranchNextStep {
 }
 
 /**
- * The start of the case as a click reads it (`readSafePush`): its facts, its decision and what it would run, with the
- * merge profiles as the fake Patronus answers them and the profile the case chose
+ * The start of the case as a click reads it (`readSafePush`): the decision the session made of it (the facts' `land`),
+ * with the next step of the branch and how it was asked
  */
-export function safePushReadOf(given: Given): SafePushRead {
+export function safePushReadOf(id: string, given: Given): SafePushRead {
   if (given.subject !== "branch") {
     notMapped("subject wholeStack of a decision")
   }
@@ -496,7 +470,7 @@ export function safePushReadOf(given: Given): SafePushRead {
       profileId: chosen === undefined ? undefined : chosen === "none" ? null : chosen,
       bypassReview: given.flags.includes("withoutApprovals"),
     },
-    { status: "loaded", options: startOptions(given) },
+    factsOf(id).land,
   )
   return read ?? notMapped(`branch ${given.branch}: no branch of the commits`)
 }

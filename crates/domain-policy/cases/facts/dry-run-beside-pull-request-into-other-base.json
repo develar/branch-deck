@@ -1,5 +1,33 @@
 {
   "given": {"mode": "dryRun", "pullRequest": {"base": "release/253"}},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [],
+      "confirmations": [],
+      "effects": [
+        {"branches": ["auth"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {"auth": {"base": {"base": "release/253", "kind": "other"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {

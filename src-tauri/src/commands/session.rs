@@ -344,7 +344,7 @@ pub struct SessionParams {
 
 /// The session key of `repository_path`: the path as the window names it and the prefix the commands resolve; refused
 /// without a prefix
-async fn session_key(inputs: PrefixInputs, repository_path: &str) -> Result<SessionKey, ApiError> {
+pub(crate) async fn session_key(inputs: PrefixInputs, repository_path: &str) -> Result<SessionKey, ApiError> {
   let prefix = inputs.resolve(repository_path).await?;
   if prefix.is_empty() {
     return Err(no_branch_prefix());

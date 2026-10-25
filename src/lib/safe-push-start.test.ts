@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, PlannedEffect } from "@/lib/bindings"
 import type { SafePushStart } from "@/lib/safe-push-start"
 import { startSafePush } from "@/lib/safe-push-start"
 import { getSafePushStarting } from "@/stores/safe-push"
@@ -53,9 +53,20 @@ vi.mock("@/stores/patronus", () => ({
     calls.push(`start ${branchName} in ${repository.request.repositoryPath}`)
     return ROBOT
   },
-  startPatronusFromPullRequest: async () => ROBOT,
+  startPatronusFromPullRequest: async (number: number, _mode: unknown, subject: { branchName: string }, request: { repositoryPath: string }) => {
+    calls.push(`comment on #${number} of ${subject.branchName} in ${request.repositoryPath}`)
+    return { robot: ROBOT, commentUrl: "c", listed: Promise.resolve() }
+  },
+  getRobot: () => undefined,
+}))
+vi.mock("@/stores/pull-requests", () => ({
+  retargetPullRequest: async (branchName: string, base: string) => {
+    calls.push(`retarget ${branchName} to ${base}`)
+  },
+  getPullRequest: () => ({ url: "https://github.com/acme/monorepo/pull/7" }),
 }))
 vi.mock("@/stores/activity", () => ({
+  recordRetarget: (title: string) => calls.push(`record ${title}`),
   recordRobot: (title: string, _description: string, _robot: PatronusRobot, repositoryPath: string) => calls.push(`record ${title} in ${repositoryPath}`),
 }))
 vi.mock("@/lib/errors", () => ({
@@ -91,8 +102,12 @@ const ROBOT: PatronusRobot = {
   url: "u",
 }
 
-function start(needsPush: boolean): SafePushStart {
-  return { branchName: "auth", mode: "rebaseAutosquash", profile: null, fromPullRequest: null, mergeRequest: null, needsPush, replaces: null, wholeStack: null }
+const API: PlannedEffect = { kind: "startRobot", route: { kind: "api", profile: null } }
+
+const PUSH: PlannedEffect = { kind: "push", branches: ["auth"], force: false }
+
+function start(needsPush: boolean, effects: readonly PlannedEffect[] = needsPush ? [PUSH, API] : [API]): SafePushStart {
+  return { branchName: "auth", mode: "rebaseAutosquash", profile: null, mergeRequest: null, effects, wholeStack: null }
 }
 
 beforeEach(() => {
@@ -144,5 +159,26 @@ describe("a Safe Push start the target refuses", () => {
     calls.length = 0
     errorActions[0]!.onClick()
     expect(calls).toEqual(["update project of /a"])
+  })
+})
+
+describe("a Safe Push start runs the effects Rust planned", () => {
+  it("retargets the pull request out of a virtual branch first, then pushes, then comments on the pull request (D11)", async () => {
+    const effects: PlannedEffect[] = [
+      { kind: "retarget", branch: "auth", number: 7, from: "user/virtual/core", to: "master" },
+      { kind: "push", branches: ["auth"], force: false },
+      { kind: "startRobot", route: { kind: "comment", number: 7 } },
+    ]
+    expect(await startSafePush(start(true, effects))).toBe(true)
+    expect(calls).toEqual([
+      "landing auth in /a",
+      "target auth in /a onto origin/master of /a",
+      "retarget auth to master",
+      "record Retargeted #7 to master",
+      "push auth in /a",
+      "comment on #7 of auth in /a",
+      "record Safe Push started in /a",
+    ])
+    expect(errors).toEqual([])
   })
 })

@@ -47,6 +47,10 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
   if (Object.keys(changes.openPullRequests ?? {}).length > 0 || (changes.removedOpenPullRequests?.length ?? 0) > 0) {
     openPullRequests = { ...withoutKeys(openPullRequests, changes.removedOpenPullRequests ?? []), ...changes.openPullRequests }
   }
+  let lands = view.lands
+  if (Object.keys(changes.lands ?? {}).length > 0 || (changes.removedLands?.length ?? 0) > 0) {
+    lands = { ...withoutKeys(lands, changes.removedLands ?? []), ...changes.lands }
+  }
   const sections = view.sections
   const archived = changes.archived
   return {
@@ -59,6 +63,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     stacks,
     pushes,
     openPullRequests,
+    lands,
     sections: {
       unassigned: changes.unassigned ?? sections.unassigned,
       unapplied: changes.unapplied ?? sections.unapplied,

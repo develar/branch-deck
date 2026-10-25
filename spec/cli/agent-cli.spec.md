@@ -1015,7 +1015,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--patronus-dry-run` a Dry Run: no
   `--dry-run`, which means "write nothing" for every other command) as the
-  app's start does (`startSafePush` after `getSafePushDecision`, [Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
+  app's start does (`startSafePush` after the same `domain_policy::land::decide`, [Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
   pushes it, its commits fixed under the repository lock and the network push after it, then start the robot on
   `refs/heads/<prefix>/virtual/<branch>` after the lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
   would fail with; it must hold the repository lock for its sync only, so its trial builds and the questions to
@@ -1036,7 +1036,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The target branch, the stack and the tips must come from the sync of the same run, and the Space and the GitHub
   repository from one read of the push URL of `origin`, shared with the push.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
-- The push must be decided by content, as the app's start decides it (`getStartPush`): `push_needed` only when the sync's remote status of
+- The push must be decided by content, as the app's start decides it (the `Push` effect of `domain_policy::land::decide`): `push_needed` only when the sync's remote status of
   the branch or of a branch it is built on has work for the remote (`unpushed`, `behind`, `amended`, `reworded`,
   `restacked`, `landed`, or no remote branch). A branch whose remote branch has the same commits, only rebuilt since on
   a newer baseline, must not be pushed (no `pushed`); one reworded since must be, the robot would land the old
@@ -1067,7 +1067,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Before a Safe Push (never a dry run) it must check the code-owner review as the app's start does, with the pull request
   the robot starts from, always asked again ([Patronus](../branch/patronus.spec.md#code-owner-review)), and a
   `missing` readiness must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
-  naming the groups, their reviewers and files, as the app refuses the start (`getSafePushDecision`: "Patronus checks
+  naming the groups, their reviewers and files, as the app refuses the start (`domain_policy::land::decide`: "Patronus checks
   the approvals when the robot starts and fails without them") and its next step disables Safe Push. A start through the
   API (no open pull request to start from) whose merge profile is known to skip the review (the options of the last
   robot say `patronus.review.approval.check.skip`, or the list names it with the new API) must start without them, as

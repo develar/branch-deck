@@ -103,7 +103,7 @@ fn the_ask_is_the_tip_a_window_shows_and_the_pull_request_its_robot_starts_from(
     needed: vec!["ui".to_owned()],
     ..shows(&["auth"])
   };
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &demand);
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &demand, "user");
   let digest = fact.digest();
   assert_eq!(digest.baseline, "origin/master");
   let asked: Vec<(&str, &str, ReviewStart, Option<&str>, ReadinessPriority)> = digest
@@ -129,14 +129,14 @@ fn the_ask_is_the_tip_a_window_shows_and_the_pull_request_its_robot_starts_from(
   );
   assert_eq!(state_of(&fact, "auth"), FactState::Loading);
   // nothing asks for it: no subject
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &Demand::default());
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &Demand::default(), "user");
   assert_eq!(fact.digest().subjects, []);
   // without the GitHub repository Patronus names, the robot would start through the API
   let head = RobotsHead {
     github_repository: None,
     ..available()
   };
-  fact.update(&state, &pull_requests(vec![]), Some(&head), &shows(&["auth"]));
+  fact.update(&state, &pull_requests(vec![]), Some(&head), &shows(&["auth"]), "user");
   assert_eq!(subject(&fact, "auth").ask.start, ReviewStart::Rest);
 }
 
@@ -152,16 +152,16 @@ fn a_needed_subject_is_unavailable_while_patronus_does_not_answer_for_the_reposi
       ..Demand::default()
     },
   );
-  fact.update(&state, &pull_requests(vec![]), None, &demand);
+  fact.update(&state, &pull_requests(vec![]), None, &demand, "user");
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Loading, 0));
   let logged_out = RobotsHead {
     availability: PatronusAvailability::NotLoggedIn,
     github_repository: None,
   };
-  fact.update(&state, &pull_requests(vec![]), Some(&logged_out), &demand);
+  fact.update(&state, &pull_requests(vec![]), Some(&logged_out), &demand, "user");
   let reason = ApiError::new(ErrorCode::NotLoggedIn, "Run ./safePush.cmd once to log in to Patronus");
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Unavailable { reason }, 0));
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &demand);
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &demand, "user");
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Loading, 1));
 }
 
@@ -172,10 +172,10 @@ fn a_needed_subject_is_unavailable_while_patronus_does_not_answer_for_the_reposi
 fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_new_reviews() {
   let mut fact = ReadinessFact::default();
   let state = table();
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]));
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user");
   let asked = subject(&fact, "auth").clone();
   assert!(fact.answer(at(2), answer(&asked, missing())).0);
-  fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]));
+  fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user");
   assert_eq!(state_of(&fact, "auth"), FactState::Fresh);
 
   let reviewed = pull_requests(vec![Reviewer {
@@ -184,7 +184,7 @@ fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_ne
     requested: false,
   }]);
   // hidden now: the new review asks it, after the shown ones
-  fact.update(&state, &reviewed, Some(&available()), &Demand::default());
+  fact.update(&state, &reviewed, Some(&available()), &Demand::default(), "user");
   assert_eq!(state_of(&fact, "auth"), FactState::Stale { reason: None });
   assert_eq!(subject(&fact, "auth").priority, ReadinessPriority::HiddenAwaiting);
   assert_ne!(subject(&fact, "auth").inputs, asked.inputs);
@@ -199,7 +199,7 @@ fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_ne
     status: CommitSyncStatus::Created,
     resolved: None,
   });
-  fact.update(&moved, &reviewed, Some(&available()), &Demand::default());
+  fact.update(&moved, &reviewed, Some(&available()), &Demand::default(), "user");
   assert_eq!((state_of(&fact, "auth"), fact.digest().subjects.len()), (FactState::Stale { reason: None }, 0));
   assert!(!fact.digest().awaits_approval);
 }
@@ -210,7 +210,7 @@ fn new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_ne
 fn the_answer_of_an_ask_started_before_a_recheck_never_replaces_the_rechecks() {
   let mut fact = ReadinessFact::default();
   let state = table();
-  let update = |fact: &mut ReadinessFact| fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]));
+  let update = |fact: &mut ReadinessFact| fact.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user");
   update(&mut fact);
   let batch = subject(&fact, "auth").clone();
   fact.recheck("auth");
@@ -250,7 +250,7 @@ fn the_approvals_that_arrived_are_news_once() {
       approved_by: vec![ilya.clone()],
     }],
   };
-  store.readiness.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]));
+  store.readiness.update(&state, &pull_requests(vec![]), Some(&available()), &shows(&["auth"]), "user");
   let waiting = subject(&store.readiness, "auth").clone();
   store.apply(at(1), FactResult::Readiness(vec![answer(&waiting, missing())]));
   let approved = pull_requests(vec![Reviewer {
@@ -258,7 +258,7 @@ fn the_approvals_that_arrived_are_news_once() {
     state: ReviewerState::Approved,
     requested: false,
   }]);
-  store.readiness.update(&state, &approved, Some(&available()), &shows(&["auth"]));
+  store.readiness.update(&state, &approved, Some(&available()), &shows(&["auth"]), "user");
   let reviewed = subject(&store.readiness, "auth").clone();
   store.apply(at(2), FactResult::Readiness(vec![answer(&reviewed, ready.clone())]));
   let news: Vec<NewsEvent> = store.news().iter().map(|news| news.event.clone()).collect();
@@ -273,7 +273,7 @@ fn the_approvals_that_arrived_are_news_once() {
   );
   // a recheck of the same reviews answers the same: no news
   store.readiness.recheck("auth");
-  store.readiness.update(&state, &approved, Some(&available()), &shows(&["auth"]));
+  store.readiness.update(&state, &approved, Some(&available()), &shows(&["auth"]), "user");
   let recheck = subject(&store.readiness, "auth").clone();
   store.apply(at(3), FactResult::Readiness(vec![answer(&recheck, ready)]));
   assert_eq!(store.news().len(), 1);

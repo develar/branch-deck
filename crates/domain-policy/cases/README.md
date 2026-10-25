@@ -26,9 +26,11 @@ models itself, in the shape of the stores, is the input the app would have read 
 not a rule of a decision: the table of the sync (`Branch` with its status, its count and its `remoteStatus`, the
 `StackBranch`), the landing report of `landed`, the `PullRequest`s and the rules of the target the session read (`facts.rules`); a rule that
 starts reading more of them (the commits of the landing report, `commitsRestacked`) moves that part into the facts
-first. The rule of the start lives only in the app (`getPullRequestStart`): the facts record the tip and the pull
-request Rust asked with, and `seedReadiness` refuses an answer whose input the app computes otherwise (`the readiness
-facts asked with another start or tip than the app computes now`). So a change of a rule of the app reddens the Vitest,
+first. The pull request a start comes from is Rust's (`domain_policy::pull_request::start_pull_request`, D11), and the
+page's readiness store keeps its twin of the ask: the facts record the tip and the pull request Rust asked with, and
+`seedReadiness` refuses an answer whose input the app computes otherwise (`the readiness facts asked with another start
+or tip than the app computes now`). The decision of the start is Rust's too: the facts carry what the session decides of
+the case's start (`land`, `repository_model::derive::land_answer` over the facts it reads), and the app presents it. So a change of a rule of the app reddens the Vitest,
 a change of `plan()`, of the sync, of `patronus_view`, of the robot list or of the review scan the Rust group test:
 `UPDATE_SCENARIO_FACTS=1 cargo nextest run -p bd-remote -E 'test(/scenario/)'` rewrites the files (and removes those
 of cases that are gone or no longer exercised), and the diff is reviewed like code, because the Vitest answers from
@@ -84,7 +86,8 @@ knows every group of the files).
   spec, a doc comment names it). There is no other kind: a difference the registry lacks gets its id in the same
   commit, so the table can't park a discrepancy.
 - `app.step` (optional): a subset of `getBranchNextStep`: `kind`, `safePushBlocker`, `dryRunBlocker`.
-- `app.decision` (optional, where the row feeds a start): a subset of `getSafePushDecision`: `kind` and `reason`,
+- `app.decision` (optional, where the row feeds a start): a subset of what the click does with Rust's decision
+  (`presentLand` of the facts' `land`, the next step's reason first): `kind` and `reason`,
   `reasons`, `what` or `offersPush`. Without it the step decides the class, so `app.step` names the blocker of the mode
   (`safePushBlocker`, of a Dry Run `dryRunBlocker`): `hidden` or a blocker refuses, else it starts.
 - `bd.check`: a subset of the `--check` output: `refusals` (the codes, in order), `push_needed`, `profile` (the id or

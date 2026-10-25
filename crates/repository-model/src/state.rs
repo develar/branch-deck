@@ -4,7 +4,7 @@
 //! version of the last patch, for a window that opens or lost a patch. Rust decides equality, so the page keeps the
 //! identity of every part a patch does not carry.
 
-use crate::derive::{open_pull_requests_view, push_view};
+use crate::derive::{lands_of, open_pull_requests_view, push_view};
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
@@ -77,6 +77,12 @@ impl View {
       &self.prefix,
     );
     let (open_pull_requests, removed_open_pull_requests) = diff_keyed(&last.open_pull_requests, &open_pull_requests);
+    // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
+    let (lands, removed_lands) = if matches!(state.sync, SyncState::Running { .. }) {
+      (BTreeMap::new(), Vec::new())
+    } else {
+      diff_keyed(&last.lands, &lands_of(state, facts, &self.prefix))
+    };
     let (last_archived, archived) = (&last.sections.archived, &parts.sections.archived);
     let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
     let archived_changes = ArchivedChanges {
@@ -98,6 +104,8 @@ impl View {
       removed_pushes,
       open_pull_requests,
       removed_open_pull_requests,
+      lands,
+      removed_lands,
       unassigned: changed_commits(&last.sections.unassigned, &parts.sections.unassigned),
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),

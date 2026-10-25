@@ -24,6 +24,7 @@ use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::ApiError;
+use domain_types::landing::{Land, LandAnswer};
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewAnswer, ViewPatch};
@@ -417,6 +418,13 @@ impl Sessions {
   /// remote branches as the session knows them; `None` for a session that is not open or never synced
   pub async fn table(&self, key: &SessionKey) -> Option<TableFacts> {
     self.ask(key, Message::Table).await.flatten()
+  }
+
+  /// What the start `land` of an open session does now and what stands in its way, over the facts the session holds,
+  /// with the profiles it offers (`derive::land_answer_of`): a read, no lock and no effect; `None` for a session that is
+  /// not open, before its Patronus view, or for a subject its table lacks
+  pub async fn decide_land(&self, key: &SessionKey, land: Land) -> Option<LandAnswer> {
+    self.ask(key, |reply| Message::DecideLand { land: Box::new(land), reply }).await.flatten()
   }
 
   /// Subscribes a window to the session of `key`, opening it: the snapshot at the subscription, then every patch after

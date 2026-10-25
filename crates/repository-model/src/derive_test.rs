@@ -1,13 +1,22 @@
-use crate::derive::{open_pull_requests_view, repository};
+use crate::branch_table::{RemoteFact, RemoteFacts};
+use crate::derive::{LandSources, decide_lands, land_answer, open_pull_requests_view, repository};
 use crate::facts::FactStore;
+use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
 use crate::table::TableState;
 use crate::table::table_test::{grouped, remote_status};
 use domain_policy::parked::parked_state;
+use domain_types::error::ApiError;
 use domain_types::fixtures::pull_request;
-use domain_types::patronus::{MissingApprovalsReason, MissingReviewGroup, Person, ReviewReadiness};
-use domain_types::pull_request::{PullRequest, PullRequestBase, PullRequestState, PullRequestView, ReviewCandidate};
-use domain_types::session::{BranchPush, BranchSection, BranchStructure, ChildrenPush, Parked, ParkedMember, PullRequestsView, RowsView, StackBranchAlong, WholeStackView};
+use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, PlannedEffect, ProfileChoice, StartRoute, Subject};
+use domain_types::patronus::{
+  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusProfile, PatronusPushMode, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch,
+};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ReviewCandidate};
+use domain_types::repository_view::PatronusView;
+use domain_types::session::{
+  BranchPush, BranchSection, BranchStructure, ChildrenPush, Fact, FactState, Parked, ParkedMember, PullRequestsView, RowsView, StackBranchAlong, SubjectReadiness, WholeStackView,
+};
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, SyncEvent};
 use pretty_assertions::assert_eq;
@@ -302,4 +311,163 @@ fn the_view_reads_where_each_open_pull_request_goes_and_whom_request_review_offe
       ("stack:auth".to_string(), view(12, PullRequestBase::Target, false, Vec::new())),
     ])
   );
+}
+
+fn fresh<T>(value: T) -> Fact<T> {
+  Fact {
+    value: Some(value),
+    state: FactState::Fresh,
+    ..Fact::default()
+  }
+}
+
+/// The view decides the default starts of every branch over the facts of the session (`LandSources`): a Safe Push of
+/// oauth lands the chain it is built on, retargets the pull request of login out of the virtual branch of auth (D11),
+/// pushes the chain root first and starts through the API with the default profile of the target; login starts from its
+/// retargeted pull request; landing needs not computed yet are a wait, a failed computation none. A read of another
+/// intent answers its decision with the profiles it offers
+#[test]
+fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another_intent() {
+  let table = chain();
+  let unpushed = RemoteFact {
+    remote_tip: None,
+    up_to_date: false,
+    known: true,
+    drops: 0,
+  };
+  let remote = RemoteFacts {
+    branches: ["auth", "login", "oauth"].map(|name| (name.to_string(), unpushed.clone())).into(),
+    stacks: BTreeMap::new(),
+  };
+  let fast = PatronusProfile {
+    id: "fast".to_string(),
+    name: "Fast".to_string(),
+    description: None,
+    allowed_push_modes: Vec::new(),
+    skips_review: None,
+  };
+  let profiles = fresh(PatronusStartOptions {
+    target_branch: "master".to_string(),
+    supported: true,
+    profiles: vec![fast.clone()],
+    emergency_profiles: Vec::new(),
+    default_profile_id: Some("fast".to_string()),
+  });
+  let pull_requests = PullRequestsView {
+    head: fresh(PullRequestAvailability::Available {
+      owner: "acme".to_string(),
+      name: "monorepo".to_string(),
+    }),
+    pull_requests: BTreeMap::from([(
+      "login".to_string(),
+      PullRequest {
+        base_ref_name: "test/virtual/auth".to_string(),
+        ..pull_request("login", 8)
+      },
+    )]),
+    stack_pull_requests: BTreeMap::new(),
+  };
+  let ready = fresh(SubjectReadiness {
+    ask: ReviewReadinessBranch::starting_from("oauth".to_string(), None, "vo1".to_string(), None),
+    requirement: None,
+    readiness: ReviewReadiness::NotRequired,
+  });
+  let readiness = |_: &str| Some(&ready);
+  let failed = FactState::Unavailable {
+    reason: ApiError::internal("the trial session failed"),
+  };
+  let sources = LandSources {
+    table: &table,
+    remote: &remote,
+    view: &PatronusView::default(),
+    robots: &[],
+    target: "master",
+    prefix: "test",
+    github: true,
+    profiles: &profiles,
+    pull_requests: &pull_requests,
+    readiness: &readiness,
+    rules: None,
+    landing_needs: &failed,
+  };
+  let lands = decide_lands(&sources);
+  assert_eq!(lands.keys().collect::<Vec<_>>(), ["auth", "login", "oauth"]);
+  let retarget = PlannedEffect::Retarget {
+    branch: "login".to_string(),
+    number: 8,
+    from: "test/virtual/auth".to_string(),
+    to: "master".to_string(),
+  };
+  let push = |branches: &[&str]| PlannedEffect::Push {
+    branches: names(branches),
+    force: false,
+  };
+  let oauth = &lands["oauth"].safe_push;
+  assert_eq!((&oauth.blockers, &oauth.waits), (&Vec::new(), &Vec::new()));
+  assert_eq!(
+    oauth.confirmations,
+    vec![Confirmation::LandsMoreThanRow { count: 2 }, Confirmation::NonDefaultProfile { id: "fast".to_string() }]
+  );
+  assert_eq!(
+    oauth.effects,
+    vec![
+      retarget.clone(),
+      push(&["auth", "login", "oauth"]),
+      PlannedEffect::StartRobot {
+        route: StartRoute::Api { profile: Some(fast.clone()) }
+      }
+    ]
+  );
+  assert_eq!(oauth.lands, names(&["auth", "login", "oauth"]));
+  let login = &lands["login"].safe_push;
+  assert_eq!(
+    login.effects,
+    vec![
+      retarget,
+      push(&["auth", "login"]),
+      PlannedEffect::StartRobot {
+        route: StartRoute::Comment { number: 8 }
+      }
+    ]
+  );
+  assert_eq!(lands["oauth"].dry_run.lands, names(&["auth", "login", "oauth"]));
+
+  // landing needs being computed: the start waits for them
+  let loading = LandSources {
+    landing_needs: &FactState::Loading,
+    ..sources
+  };
+  assert_eq!(
+    decide_lands(&loading)["oauth"].safe_push.waits,
+    vec![FactWait {
+      fact: LandFact::LandingNeeds,
+      failed: None,
+    }]
+  );
+
+  // a start without approvals: the default checks, as no profile is known to skip the review
+  let land = Land {
+    subject: Subject::branch("oauth"),
+    mode: PatronusPushMode::RebaseAutosquash,
+    profile: ProfileChoice::Default,
+    without_approvals: true,
+    create_pull_request: false,
+    allow: LandingAllowances::default(),
+  };
+  let answer = land_answer(&sources, &land).unwrap();
+  assert_eq!(answer.decision.start_route(), Some(&StartRoute::Api { profile: None }));
+  assert_eq!(
+    answer.profiles,
+    LandProfiles {
+      offered: vec![fast],
+      emergency: Vec::new(),
+      default: None,
+    }
+  );
+  // a subject the table lacks has no answer
+  let gone = Land {
+    subject: Subject::branch("gone"),
+    ..land
+  };
+  assert_eq!(land_answer(&sources, &gone), None);
 }

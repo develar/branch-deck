@@ -9,12 +9,11 @@ import { createStore } from "zustand/vanilla"
  */
 import type { FactsChanges, FactsView, Fact, PatronusReviewRequirement, PullRequest, ReviewReadiness, ReviewReadinessBranch, SubjectReadiness } from "@/lib/bindings"
 import { rememberReviewGroups } from "@/lib/branch-review-window"
-import { getPullRequestStart } from "@/lib/patronus"
 import { baselineOnRemote } from "@/lib/stack"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { setReadinessShown, shownReadinessKeys, onShownReadinessChange } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
-import { branchSyncStore, getBranch, getBranchTableOrder, getStackBranch } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getBranchTableOrder, getOpenPullRequest, getStackBranch } from "@/stores/branch-sync"
 import { askRobotProblemsAgain, currentKey, getPatronusGitHubRepository, patronusStore, repositoryKey } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, pullRequestsStore, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getFullStackBranchName, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
@@ -83,7 +82,7 @@ interface ReadinessInput {
 
 /**
  * The input the readiness of a branch answers, as the session asks it: its tip, and how the robot would start: from the
- * open pull request into the target (`getPullRequestStart`), whose reviewers and author Patronus evaluates, else through
+ * open pull request it starts from (`startPullRequestOf`), whose reviewers and author Patronus evaluates, else through
  * the API (no pull request, one into another base), which counts no approval. Null without a tip. A key of a whole
  * stack (`stackReadinessKey`) is its stack branch with the pull request of the whole stack, while the sync built it.
  */
@@ -111,13 +110,24 @@ function stackReadinessInputOf(key: string, root: string): ReadinessInput | null
   return inputOf({ branchName: key, tip: stack.tip, start: { kind: "rest" }, source: getFullStackBranchName(root) }, getStackPullRequest(root))
 }
 
-/** `branch` started from its open pull request into the target when it has one, with the key of the answer */
+/**
+ * The pull request a robot of the subject `key` starts from, as the session asks it (`start_pull_request` of
+ * `domain_policy::pull_request`): its open pull request that goes into the target or, of a branch, into a virtual branch
+ * its start retargets first (D11), by where Rust reads it goes (`RepositoryView.openPullRequests`), while Patronus names
+ * the GitHub repository; null: through the API
+ */
+function startPullRequestOf(key: string, pullRequest: PullRequest | undefined): PullRequest | null {
+  const base = getOpenPullRequest(key)?.base.kind
+  if (getPatronusGitHubRepository() === null || pullRequest === undefined || base === undefined) {
+    return null
+  }
+  return base === "target" || (base === "virtual" && stackRootOfReadinessKey(key) === null) ? pullRequest : null
+}
+
+/** `branch` started from the pull request it starts from when it has one, with the key of the answer */
 function inputOf(rest: ReviewReadinessBranch, pullRequest: PullRequest | undefined): ReadinessInput {
-  const start = getPullRequestStart(getPatronusGitHubRepository(), pullRequest, "rebaseAutosquash", getReadinessTarget())
-  const branch: ReviewReadinessBranch =
-    start === null || pullRequest === undefined
-      ? rest
-      : { ...rest, start: { kind: "pullRequest", number: start.number }, reviewers: pullRequest.reviewers, author: pullRequest.author }
+  const start = startPullRequestOf(rest.branchName, pullRequest)
+  const branch: ReviewReadinessBranch = start === null ? rest : { ...rest, start: { kind: "pullRequest", number: start.number }, reviewers: start.reviewers, author: start.author }
   return { key: inputKey(branch), branch }
 }
 

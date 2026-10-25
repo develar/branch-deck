@@ -1206,20 +1206,7 @@ fn plan(
     }),
     &github,
   ) {
-    (Some(_), Some(repository)) => Some(match runtime.block_on(read_branch_rules(github_service, &context.repository, repository, &target)) {
-      Ok(rules) => Fact {
-        value: Some(rules),
-        state: FactState::Fresh,
-        ..Fact::default()
-      },
-      Err(failure) => Fact {
-        value: None,
-        state: FactState::Unavailable {
-          reason: ApiError::new(ErrorCode::NetworkError, failure_message(&failure)),
-        },
-        ..Fact::default()
-      },
-    }),
+    (Some(_), Some(repository)) => Some(rules_fact(context, github_service, runtime, repository, &target)),
     _ => None,
   };
   let decision = decide_over(&land, readiness.as_ref(), rules.as_ref());
@@ -1847,6 +1834,24 @@ pub(crate) fn youtrack_service(environment: &Environment) -> YouTrackService {
 }
 
 /// The GitHub service of `bd`: the token of `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token` or the git credentials
+/// The rules of `target` as GitHub answers them, held as the session holds a fact: an answer, or why the read failed
+pub(crate) fn rules_fact(context: &RepoContext, github_service: &GitHubService, runtime: &Runtime, repository: &GitHubRepository, target: &str) -> Fact<BranchRules> {
+  match runtime.block_on(read_branch_rules(github_service, &context.repository, repository, target)) {
+    Ok(rules) => Fact {
+      value: Some(rules),
+      state: FactState::Fresh,
+      ..Fact::default()
+    },
+    Err(failure) => Fact {
+      value: None,
+      state: FactState::Unavailable {
+        reason: ApiError::new(ErrorCode::NetworkError, failure_message(&failure)),
+      },
+      ..Fact::default()
+    },
+  }
+}
+
 pub(crate) fn github_service(context: &RepoContext, environment: &Environment) -> GitHubService {
   let user_agent = cli_user_agent();
   let mut client = GitHubClient::with_urls(environment.github_api_url.clone(), GITHUB_URL, &user_agent);

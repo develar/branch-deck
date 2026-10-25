@@ -20,6 +20,7 @@ use crate::conflict::WordResolutionSummary;
 use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
+use crate::landing::LandDecisions;
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView};
 use crate::reason::Reason;
@@ -342,6 +343,9 @@ pub struct RepositoryView {
   /// goes, a draft, the code owners Request Review… offers (`domain_policy::pull_request`, `domain_policy::review`); a
   /// subject without an open pull request is not listed
   pub open_pull_requests: BTreeMap<String, PullRequestView>,
+  /// What a Safe Push and a Dry Run of each subject (a branch, `stack:<root>` the whole stack) do now and what stands in
+  /// their way, the decisions of their default intents (`domain_policy::land::decide`); none before the Patronus view
+  pub lands: BTreeMap<String, LandDecisions>,
   pub sections: TableSections,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
@@ -976,6 +980,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_open_pull_requests: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub lands: BTreeMap<String, LandDecisions>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_lands: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,

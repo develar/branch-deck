@@ -1,5 +1,52 @@
 {
   "given": {"branch": "suspend", "commits": [], "dangling": "changed"},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [
+        {
+          "code": "landingRefused",
+          "refusal": {
+            "branch": "suspend",
+            "file": "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt",
+            "fix": {
+              "commit": {"branch": "journey", "id": "journey-c0", "subject": "IJAI-4182 The journey support goes with its tests"},
+              "into": "suspend",
+              "kind": "moveCommit"
+            },
+            "fixedBy": {"branch": "journey", "id": "journey-c0", "subject": "IJAI-4182 The journey support goes with its tests"},
+            "identifier": "cleanup",
+            "kind": "danglingReference",
+            "line": 8,
+            "reference": "changed",
+            "removedBy": {"branch": "suspend", "id": "suspend-c0", "subject": "IJAI-4185 The cleanups may suspend"}
+          }
+        }
+      ],
+      "confirmations": [],
+      "effects": [
+        {"branches": ["suspend"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["suspend"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "suspend": {

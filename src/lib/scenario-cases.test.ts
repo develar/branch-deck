@@ -1,6 +1,7 @@
 // The app's side of the scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` seeded
-// into the stores, then the app's own readers (`getBranchNextStepOf`, `getStackNextStepNow`, `readSafePush`), today's
-// answer expected; `crates/bd-remote/src/scenario_test.rs` is the side of bd
+// into the stores, then the app's own readers (`getBranchNextStepOf`, `getStackNextStepNow`, `readSafePush` over the
+// decision Rust made of the start, written into the facts), today's answer expected; `crates/bd-remote/src/scenario_test.rs`
+// is the side of bd
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { ExercisedCase, ScenarioCase } from "@/test-support/scenario-case"
 import { appOutcome, bdOutcome, isExercised, scenarioCase } from "@/test-support/scenario-case"
@@ -111,7 +112,7 @@ async function appFailures(scenario: ExercisedCase): Promise<string[]> {
   })
   check("decision", () => {
     if (scenario.app.decision !== undefined) {
-      expectSubset(safePushReadOf(scenario.given).decision, scenario.app.decision)
+      expectSubset(safePushReadOf(scenario.id, scenario.given).prompt, scenario.app.decision)
     }
   })
   return failures
@@ -190,7 +191,7 @@ describe("scenario cases", () => {
   })
 
   // the facts of a readiness answer carry the tip and the pull request Rust asked with; the app's input of the branch is
-  // computed by the app's own rule (`getPullRequestStart`): one that drifts from the other fails the seed instead of
+  // computed by the app's twin of the ask (`readinessInputOf`): one that drifts from the other fails the seed instead of
   // filing Rust's answer as fresh under the app's key
   it("refuse the readiness facts asked with another start or tip than the app computes now", async () => {
     const scenario = cases.find(candidate => candidate.id === "row-6-draft")

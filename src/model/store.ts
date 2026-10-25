@@ -396,6 +396,9 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (changes === null || Object.keys(changes.openPullRequests ?? {}).length > 0 || (changes.removedOpenPullRequests?.length ?? 0) > 0) {
     update.openPullRequests = next.openPullRequests
   }
+  if (changes === null || Object.keys(changes.lands ?? {}).length > 0 || (changes.removedLands?.length ?? 0) > 0) {
+    update.lands = next.lands
+  }
   if (changes === null || changes.unassigned != null) {
     update.unassignedCommits = next.sections.unassigned
   }
@@ -720,6 +723,7 @@ function resetTable(): void {
     stackBranches: {},
     pushes: {},
     openPullRequests: {},
+    lands: {},
   })
   resetArchivedBranches()
   resetUnappliedBranches()

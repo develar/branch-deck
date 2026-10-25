@@ -18,23 +18,37 @@
 //! `bd` read for their own intent (a restart, a dry run that pushes what `bd` pushes); `branch_subject` and
 //! `stack_subject` the subject part of the decision of a start (`domain_policy::land::decide`), which `bd safe-push`
 //! decides by.
+//!
+//! `lands_of` is what a Safe Push and a Dry Run of each subject do now and what stands in their way, the decisions of
+//! their default intents (`domain_policy::land::decide` over `LandSources`: the table, the Patronus view, the robots,
+//! the profiles, the pull requests, the readiness, the rules and the landing needs as the session holds them), which the
+//! view derives with each patch but while a sync runs; `land_answer_of` the decision of another intent (a chosen
+//! profile, a start without approvals) with the profiles it offers, which the app reads by `decide_land`.
 
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
+use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::table::{TableParts, TableState};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, push_blocker, restart_action, stack_branch_hold};
-use domain_policy::land::{BranchStart, BranchSubject, LandsBranch, StackStart, StackSubject, Start, on_last_commit, restart_refusal, start_refusal};
+use domain_policy::land::{
+  BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, decide, offered_profiles, on_last_commit, restart_refusal, standing,
+  start_refusal,
+};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
 use domain_policy::push::{HeadedStack, Kept, PushState, branch_push};
 use domain_policy::reasons::{landed, stack_landed, stack_not_built};
 use domain_policy::review::candidates;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
-use domain_types::patronus::{PatronusPushMode, PatronusRobot, ReviewReadiness};
-use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestView};
+use domain_types::branch_names::baseline_on_remote;
+use domain_types::landing::{Land, LandAnswer, LandDecision, LandDecisions, ProfileChoice, Subject};
+use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, ReviewReadiness};
+use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, PatronusView, RobotOf, RobotRestart, SpanView, StackLanding};
-use domain_types::session::{BranchPush, BranchSection, BranchStatus, BranchStructure, ParkedMember, PullRequestsView, RowsView, WholeStackView, stack_readiness_key};
+use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, LandingNeeds, PatronusView, RobotOf, RobotRestart, SpanView, StackLanding};
+use domain_types::session::{
+  BranchPush, BranchSection, BranchStatus, BranchStructure, Fact, FactState, ParkedMember, PullRequestsView, RowsView, SubjectReadiness, WholeStackView, stack_readiness_key,
+};
 use domain_types::stack::StackBranchUpdate;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -518,6 +532,164 @@ impl<'a> LandingFacts<'a> {
     };
     Some(RobotRestart { action, refusal })
   }
+}
+
+/// What the starts of a table are decided on (`lands_of`, `land_answer`): the table of the last sync with the remote
+/// branches as the deciding side knows them, its Patronus view and the user's robots, and the facts of the remote
+/// services as the session holds them (the scenario facts of `bd` hold their reads so)
+pub struct LandSources<'a> {
+  pub table: &'a BranchTable,
+  pub remote: &'a RemoteFacts,
+  pub view: &'a PatronusView,
+  pub robots: &'a [PatronusRobot],
+  /// The branch of origin the robots push into ("master")
+  pub target: &'a str,
+  /// The branch prefix: the virtual branches a pull request may go into
+  pub prefix: &'a str,
+  /// Patronus names the GitHub repository the branches are mirrored to
+  pub github: bool,
+  pub profiles: &'a Fact<PatronusStartOptions>,
+  pub pull_requests: &'a PullRequestsView,
+  /// The review readiness of a subject (`stack:<root>` the whole stack); `None` while nobody asked
+  pub readiness: &'a dyn Fn(&str) -> Option<&'a Fact<SubjectReadiness>>,
+  /// The rules of the target, for a push into an approved pull request
+  pub rules: Option<&'a Fact<BranchRules>>,
+  /// How the landing needs of `view` stand: a failed computation waits for nothing (the gate of the start checks)
+  pub landing_needs: &'a FactState,
+}
+
+/// The decisions of the default intents of every subject of `state` (`LandDecisions`: a Safe Push with the default
+/// profile, a Dry Run), by subject key; none before the Patronus view of the session (`land_sources`)
+#[must_use]
+pub fn lands_of(state: &TableState, facts: &FactStore, prefix: &str) -> BTreeMap<String, LandDecisions> {
+  with_land_sources(state, facts, prefix, decide_lands).unwrap_or_default()
+}
+
+/// The answer of the start `land` of the session (`decide_land` of the app): its decision and the profiles it offers;
+/// `None` before the Patronus view, or for a subject the table lacks
+#[must_use]
+pub fn land_answer_of(state: &TableState, facts: &FactStore, prefix: &str, land: &Land) -> Option<LandAnswer> {
+  with_land_sources(state, facts, prefix, |sources| land_answer(sources, land)).flatten()
+}
+
+/// `decide` over the sources of the session: its table, its Patronus view while it stands, its facts
+fn with_land_sources<T>(state: &TableState, facts: &FactStore, prefix: &str, decide: impl FnOnce(&LandSources<'_>) -> T) -> Option<T> {
+  let part = facts.patronus.part();
+  if !matches!(part.state, FactState::Fresh | FactState::Stale { .. }) {
+    return None;
+  }
+  let table = facts.table_facts(state)?;
+  let robots = listed_robots(facts.robots.view());
+  let target = baseline_on_remote(&state.parts.header.baseline_branch);
+  let readiness = |key: &str| facts.readiness.fact(key);
+  let sources = LandSources {
+    table: &table.table,
+    remote: &table.remote,
+    view: &part.view,
+    robots: &robots,
+    target,
+    prefix,
+    github: facts.robots.view().head.value.as_ref().is_some_and(|head| head.github_repository.is_some()),
+    profiles: facts.profiles.fact(),
+    pull_requests: facts.pull_requests.view(),
+    readiness: &readiness,
+    rules: facts.rules.get(target).map(FactRecord::fact),
+    landing_needs: &part.landing_needs,
+  };
+  Some(decide(&sources))
+}
+
+/// The decisions of the default intents of every branch and of every whole stack that forks
+#[must_use]
+pub fn decide_lands(sources: &LandSources<'_>) -> BTreeMap<String, LandDecisions> {
+  let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None);
+  let branches = sources.table.branches.iter().map(|branch| Subject::branch(&branch.name));
+  let stacks = sources
+    .table
+    .stack_branches
+    .iter()
+    .filter(|stack| !stack.members.is_empty())
+    .map(|stack| Subject::whole_stack(&stack.root));
+  branches
+    .chain(stacks)
+    .filter_map(|subject| {
+      let decide = |mode| decide_with(sources, &landing, &default_land(subject.clone(), mode)).map(|(decision, _)| decision);
+      let decisions = LandDecisions {
+        safe_push: decide(PatronusPushMode::RebaseAutosquash)?,
+        dry_run: decide(PatronusPushMode::DryRun)?,
+      };
+      Some((subject_key(&subject), decisions))
+    })
+    .collect()
+}
+
+/// The decision of `land` with the profiles it offers; `None` for a subject the table lacks
+#[must_use]
+pub fn land_answer(sources: &LandSources<'_>, land: &Land) -> Option<LandAnswer> {
+  let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None);
+  let (decision, last) = decide_with(sources, &landing, land)?;
+  let profiles = standing(sources.profiles).map_or_default(|options| offered_profiles(options, last, land.mode, land.without_approvals));
+  Some(LandAnswer { decision, profiles })
+}
+
+/// A start of `subject` in `mode` with the default profile, nothing allowed
+fn default_land(subject: Subject, mode: PatronusPushMode) -> Land {
+  Land {
+    subject,
+    mode,
+    profile: ProfileChoice::Default,
+    without_approvals: false,
+    create_pull_request: false,
+    allow: LandingAllowances::default(),
+  }
+}
+
+/// The key of a subject in the view: the branch, `stack:<root>` the whole stack
+fn subject_key(subject: &Subject) -> String {
+  match subject {
+    Subject::Branch { name } => name.clone(),
+    Subject::WholeStack { root } => stack_readiness_key(root),
+  }
+}
+
+/// `decide` of `land` over `sources`, with the profile of the last robot of its subject (the default); `None` for a
+/// subject the table lacks, or a whole stack that doesn't fork
+fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: &Land) -> Option<(LandDecision, Option<&'s PatronusRobotProfile>)> {
+  let (subject, robot, needs) = match &land.subject {
+    Subject::Branch { name } => {
+      let needs = match sources.view.branches.get(name.as_str()).map(|facts| &facts.landing_needs) {
+        Some(LandingNeeds::Known { refusals }) => Some(refusals.as_slice()),
+        _ if matches!(sources.landing_needs, FactState::Unavailable { .. }) => Some(&[][..]),
+        _ => None,
+      };
+      (
+        SubjectFacts::Branch(landing.branch_subject(name, Some(sources.pull_requests))?),
+        landing.robot_of(name),
+        needs,
+      )
+    }
+    Subject::WholeStack { root } => {
+      let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root && !stack.members.is_empty())?;
+      // the landing needs are of the branches: the gate of the start checks the whole stack
+      (SubjectFacts::WholeStack(landing.stack_subject(stack)), landing.stack_robot(stack), Some(&[][..]))
+    }
+  };
+  let last = robot.and_then(|robot| robot.profile.as_ref());
+  let facts = LandFacts {
+    target: sources.target,
+    prefix: sources.prefix,
+    github: sources.github,
+    robots: &landing.robots,
+    subject,
+    profiles: sources.profiles,
+    last_profile: last,
+    pull_requests: sources.pull_requests,
+    readiness: (sources.readiness)(&subject_key(&land.subject)),
+    rules: sources.rules,
+    landing: needs,
+    target_conflict: None,
+  };
+  Some((decide(&facts, land), last))
 }
 
 /// What the rules decide of `table` over the Patronus facts of `view` (module docs), written into it. `running_spans`:

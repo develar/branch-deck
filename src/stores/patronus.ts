@@ -188,6 +188,11 @@ export function useStackRobot(root: string): PatronusRobot | undefined {
   return useStore(patronusStore, state => stackRobotIn(state.repositories[key], root))
 }
 
+/** The robot `id` of the selected repository as the session listed it; undefined when it lists none of that id */
+export function getRobot(id: string): PatronusRobot | undefined {
+  return currentRepository()?.robots[id]
+}
+
 /** Non-hook variant of `useStackRobot`, for menus built on open */
 export function getStackRobot(root: string): PatronusRobot | undefined {
   return stackRobotIn(currentRepository(), root)

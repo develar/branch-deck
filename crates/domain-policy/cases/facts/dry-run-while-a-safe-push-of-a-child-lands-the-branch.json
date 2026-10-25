@@ -5,6 +5,46 @@
     "mode": "dryRun",
     "robot": {"on": "child:session", "state": "running"}
   },
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [
+        {
+          "branch": "login",
+          "code": "held",
+          "hold": {
+            "by": {"branch": "session", "robotId": "robot-0", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["login-c0"]},
+            "kind": "span"
+          },
+          "mode": "rebaseAutosquash",
+          "target": "master"
+        }
+      ],
+      "confirmations": [{"count": 1, "kind": "landsMoreThanRow"}],
+      "effects": [
+        {"branches": ["login"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth", "login"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "login": {

@@ -25,7 +25,7 @@ import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
 import { getWholeStackStartItems } from "@/hooks/useWholeStackActions"
-import type { Commit, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit } from "@/lib/bindings"
+import type { Commit, LandProfiles, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit } from "@/lib/bindings"
 import { formatPerson } from "@/lib/branch-next-step"
 import { openBranchReviewWindow, openWholeStackReviewWindow, toReviewGroups } from "@/lib/branch-review-window"
 import { isRulesUnknown } from "@/lib/branch-rules"
@@ -50,9 +50,10 @@ import {
   formatWholeStackApprovals,
   stackRootOfReadinessKey,
 } from "@/lib/whole-stack"
+import { landingRefusalsOf } from "@/presenters/land"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
 import { useIndicatorClaim, useObjectBusy } from "@/stores/operations"
-import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
+import { peekBranchRules, usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { closeSafePushPopover } from "@/stores/safe-push"
 import { pinStackPath } from "@/stores/stack-view"
@@ -74,7 +75,7 @@ function syncedCommits(commits: readonly StackCommit[]): Commit[] {
 }
 
 /**
- * The popover of a start that has something to say before it starts (`getSafePushDecision`: S, a stack, a profile other
+ * The popover of a start that has something to say before it starts (`presentLand` of Rust's decision: S, a stack, a profile other
  * than the default checks, a running Safe Push it cancels, approvals Patronus judges only at the start, a push that
  * dismisses approvals, a start without review, a branch its build needs), at the slot it was asked from (`anchor`). Its title is what lands: "Lands
  * oauth with auth and login, which it is built on: 3 branches · 12 commits into master."; below it only what applies,
@@ -120,7 +121,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
     return () => pinStackPath(branchName, false)
   }, [branchName, root])
 
-  const decision = read?.decision ?? { kind: "wait" as const, what: `Reading ${subject}…` }
+  const decision = read?.prompt ?? { kind: "wait" as const, what: `Reading ${subject}…` }
   const canStart = (decision.kind === "start" || decision.kind === "confirm") && busy === null
   // a start enabled later (its facts loaded): Enter starts it, unless the user moved to a control of the popover; after
   // the frame in which Base UI moves the focus into the popup, which it does after the first effects
@@ -146,9 +147,10 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   const neededInList = useBranchSync(state => neededCommits.every(commit => state.branches[commit.branch]?.commitIndex[commit.id] !== undefined))
 
   const modeName = formatPushMode(mode)
-  // the build of what it lands needs a branch outside it (`landingNeeds`): the reason, the fix, and the start anyway
-  const landingRefusals = read?.facts.landingRefusals ?? []
-  const landingCheck = landingRefusals.length === 0 ? null : describeLandingCheck({ refusals: [...landingRefusals] }, subject, {})
+  // the build of what it lands needs a branch outside it (the landing gate's blockers): the reason, the fix, and the start
+  // anyway
+  const landingRefusals = read?.decision == null ? [] : landingRefusalsOf(read.decision).map(reason => reason.refusal)
+  const landingCheck = landingRefusals.length === 0 ? null : describeLandingCheck({ refusals: landingRefusals }, subject, {})
   const landingRefused = landingCheck?.kind === "refuse" ? landingCheck : null
   const close = () => closeSafePushPopover(branchName)
   const start = () => {
@@ -172,7 +174,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
       }
     })
 
-  const target = read?.facts.target ?? ""
+  const target = read?.target ?? ""
   const landing =
     read === null
       ? null
@@ -243,7 +245,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           </Button>
           <Button ref={startRef} size="xs" disabled={!canStart} focusableWhenDisabled className={cn(!canStart && "opacity-50")} onClick={start} data-testid="safe-push-start">
             {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
-            {landingRefused !== null ? "Start Anyway" : read?.facts.bypassReview === true ? "Safe Push Without Review" : modeName}
+            {landingRefused !== null ? "Start Anyway" : read?.withoutReview === true ? "Safe Push Without Review" : modeName}
           </Button>
         </div>
       </PopoverContent>
@@ -291,8 +293,9 @@ function Line({ tone = "muted", testId, children }: { tone?: "muted" | "plain" |
 }
 
 /**
- * What applies of the start below its title: the pull request it comments on, the branches that stay, the profile, the
- * review, the running Safe Push it cancels, a push that dismisses approvals or rules that can't be read
+ * What applies of the start below its title: the pull requests it retargets out of a virtual branch first (D11), the
+ * pull request it comments on, the branches that stay, the profile, the review, the running Safe Push it cancels, a push
+ * that dismisses approvals or rules that can't be read
  */
 function Lines({
   read,
@@ -305,49 +308,60 @@ function Lines({
   pullRequest: PullRequest | undefined
   onProfile: (id: string | null) => void
 }) {
-  const { facts } = read
-  const fromPullRequest = facts.fromPullRequest
-  const branchProfile = read.profiles.find(profile => profile.id === read.branchProfileId) ?? null
+  const { fromPullRequest, profiles, decision } = read
+  const branchProfile = profiles?.offered.find(profile => profile.id === profiles.default) ?? null
+  const confirmations = decision?.confirmations ?? []
+  // the push dismisses approvals of the pull request: the ones Patronus counts refuse the start, others it confirms
+  const dismisses = confirmations.find(confirmation => confirmation.kind === "dismissesApprovals") ?? decision?.blockers.find(reason => reason.code === "dismissesApprovals")
+  const rulesUnknown = confirmations.find(confirmation => confirmation.kind === "rulesUnknown")
+  const rules = rulesUnknown === undefined ? null : peekBranchRules(read.target)
   return (
     <>
+      {read.start.effects.map(effect =>
+        effect.kind === "retarget" ? (
+          <Line key={effect.number} testId="safe-push-retarget">
+            {`Retargets #${effect.number} of ${effect.branch} from ${effect.from} to ${effect.to} first: every pull request of a virtual branch goes into ${effect.to}.`}
+          </Line>
+        ) : null,
+      )}
       {fromPullRequest !== null && (
         <Line testId="safe-push-from-pull-request">
-          {`Comments ${fromPullRequest.command} on #${fromPullRequest.number}: Patronus reports there${facts.mode === "dryRun" ? "" : " and closes it once merged"}.`}
+          {`Comments ${fromPullRequest.command} on #${fromPullRequest.number}: Patronus reports there${read.mode === "dryRun" ? "" : " and closes it once merged"}.`}
           {branchProfile !== null && ` A comment runs the default checks: it can't choose ${branchProfile.name}.`}
         </Line>
       )}
       {/* only while its approvals matter: next to "No code-owner review needed" it would say what doesn't hold */}
-      {facts.mode === "rebaseAutosquash" &&
+      {read.mode === "rebaseAutosquash" &&
         fromPullRequest !== null &&
         read.wholeStack !== null &&
-        facts.review.kind === "loaded" &&
-        facts.review.readiness.kind !== "notRequired" && <Line testId="safe-push-whole-stack-approvals">{`${formatWholeStackApprovals(fromPullRequest.number)}.`}</Line>}
-      {read.wholeStack !== null && read.start.needsPush && (
+        read.review.kind === "loaded" &&
+        read.review.readiness.kind !== "notRequired" && <Line testId="safe-push-whole-stack-approvals">{`${formatWholeStackApprovals(fromPullRequest.number)}.`}</Line>}
+      {read.wholeStack !== null && read.start.effects.some(effect => effect.kind === "push") && (
         <Line testId="safe-push-stack-branch">{describeStackBranchPush(read.wholeStack.stackBranch, read.wholeStack.members, read.wholeStack.onRemote)}</Line>
       )}
       {read.wholeStackPullRequest !== null && (
         <Line tone="info" testId="safe-push-whole-stack-pull-request">
-          {`${describeWholeStackApprovalsForPiece(read.wholeStackPullRequest.root, read.wholeStackPullRequest.number, facts.branchName)}.`}
+          {`${describeWholeStackApprovalsForPiece(read.wholeStackPullRequest.root, read.wholeStackPullRequest.number, read.branchName)}.`}
         </Line>
       )}
       {landing?.children != null && <Line testId="safe-push-children">{landing.children}</Line>}
-      {fromPullRequest === null && facts.options.status === "loaded" && (read.profiles.length > 0 || read.bypassProfiles !== null) && (
-        <ProfileField read={read} onChange={onProfile} />
+      {fromPullRequest === null && profiles !== null && (profiles.offered.length > 0 || read.withoutReview) && (
+        <ProfileField read={read} profiles={profiles} onChange={onProfile} />
       )}
       <ReviewLine read={read} pullRequest={pullRequest} />
-      {facts.replaces !== null && (
+      {read.replaces !== null && (
         <Line tone="warning" testId="safe-push-replaces">
-          {`Cancels the ${formatPushMode(facts.mode)} of ${facts.subject} running on ${formatShortHash(facts.replaces)}.`}
+          {`Cancels the ${formatPushMode(read.mode)} of ${read.subject} running on ${formatShortHash(read.replaces.sourceRevision ?? "")}.`}
         </Line>
       )}
-      {facts.dismiss?.dismisses === "dismiss" && (
+      {dismisses !== undefined && (
         <Line tone="warning" testId="safe-push-dismisses">
-          {`The push dismisses the approvals of #${facts.dismiss.pullRequest}: the rules of the repository dismiss stale reviews when new commits are pushed.`}
+          {`The push dismisses the approvals of #${dismisses.number}: the rules of the repository dismiss stale reviews when new commits are pushed.`}
         </Line>
       )}
-      {facts.dismiss !== null && facts.dismiss.dismisses !== null && isRulesUnknown(facts.dismiss.dismisses) && (
+      {rulesUnknown?.kind === "rulesUnknown" && rules !== null && isRulesUnknown(rules) && (
         <Line tone="warning" testId="safe-push-rules-unknown">
-          {`Cannot check whether the push keeps the approvals of #${facts.dismiss.pullRequest}: ${facts.dismiss.dismisses.reason}. Patronus counts them when the robot starts.`}
+          {`Cannot check whether the push keeps the approvals of #${rulesUnknown.number}: ${rules.reason}. Patronus counts them when the robot starts.`}
         </Line>
       )}
     </>
@@ -359,20 +373,21 @@ function Lines({
  * the description Patronus gives; for a start without review the groups by what Patronus says of them (skips the review,
  * unknown, emergency) and no default checks, the emergency one told in red
  */
-function ProfileField({ read, onChange }: { read: SafePushRead; onChange: (id: string | null) => void }) {
-  const { facts, bypassProfiles } = read
-  const selected = facts.profile
-  const groups =
-    bypassProfiles === null
-      ? [{ label: null, items: [{ value: DEFAULT_CHECKS, label: "Default checks" }, ...read.profiles.map(it => ({ value: it.id, label: it.name }))] }]
-      : [
-          { label: "Skip the code-owner review", items: bypassProfiles.skipping.map(it => ({ value: it.id, label: it.name })) },
-          { label: bypassProfiles.skipping.length === 0 ? "Profiles" : "Other profiles", items: bypassProfiles.other.map(it => ({ value: it.id, label: it.name })) },
-          { label: "Emergency", items: bypassProfiles.emergency.map(it => ({ value: it.id, label: it.name })) },
-        ].filter(group => group.items.length > 0)
+function ProfileField({ read, profiles, onChange }: { read: SafePushRead; profiles: LandProfiles; onChange: (id: string | null) => void }) {
+  const selected = read.profile
+  const bypass = read.withoutReview
+  const groups = bypass
+    ? [
+        { label: "Skip the code-owner review", items: profiles.offered.filter(it => it.skipsReview === true) },
+        { label: profiles.offered.some(it => it.skipsReview === true) ? "Other profiles" : "Profiles", items: profiles.offered.filter(it => it.skipsReview === null) },
+        { label: "Emergency", items: profiles.emergency },
+      ]
+        .map(group => ({ label: group.label, items: group.items.map(it => ({ value: it.id, label: it.name })) }))
+        .filter(group => group.items.length > 0)
+    : [{ label: null, items: [{ value: DEFAULT_CHECKS, label: "Default checks" }, ...profiles.offered.map(it => ({ value: it.id, label: it.name }))] }]
   const items = groups.flatMap(group => group.items)
-  const isEmergency = selected !== null && bypassProfiles?.emergency.some(it => it.id === selected.id) === true
-  const value = selected?.id ?? (bypassProfiles === null ? DEFAULT_CHECKS : null)
+  const isEmergency = selected !== null && bypass && profiles.emergency.some(it => it.id === selected.id)
+  const value = selected?.id ?? (bypass ? null : DEFAULT_CHECKS)
   return (
     <div className="flex flex-col gap-1.5" data-testid="safe-push-profile-field">
       <label className="flex items-center gap-3">
@@ -403,8 +418,8 @@ function ProfileField({ read, onChange }: { read: SafePushRead; onChange: (id: s
           </SelectContent>
         </Select>
       </label>
-      {selected !== null && selected.id === read.branchProfileId && (
-        <Line testId="safe-push-profile-source">{`The profile of the last ${formatPushMode(facts.mode)} of ${facts.subject}.`}</Line>
+      {selected !== null && selected.id === profiles.default && (
+        <Line testId="safe-push-profile-source">{`The profile of the last ${formatPushMode(read.mode)} of ${read.subject}.`}</Line>
       )}
       {selected?.description != null && <Line testId="safe-push-profile-description">{selected.description}</Line>}
       {selected !== null &&
@@ -414,7 +429,7 @@ function ProfileField({ read, onChange }: { read: SafePushRead; onChange: (id: s
             {`${selected.name} skips all checks of the Safe Push, not only the code-owner review: Patronus pushes into the target without testing it.`}
           </p>
         ) : (
-          facts.bypassReview && (
+          bypass && (
             <Line testId="safe-push-profile-note">
               {selected.skipsReview === true
                 ? `${selected.name} skips the code-owner review: the last Safe Push of the branch ran with it.`
@@ -451,10 +466,9 @@ function formatUnknown(readiness: Extract<ReviewReadiness, { kind: "unknown" | "
  * merge request needs. Nothing for a dry run, nor while it loads (the footer says so)
  */
 function ReviewLine({ read, pullRequest }: { read: SafePushRead; pullRequest: PullRequest | undefined }) {
-  const { review, profile } = read.facts
+  const { review, profile } = read
   switch (review.kind) {
     case "none":
-    case "loading":
       return null
     case "unlisted":
       return <Line testId="safe-push-review">GitHub doesn't list the pull requests of the repository: Patronus checks the approvals when the robot starts.</Line>
@@ -492,7 +506,7 @@ function ReviewLine({ read, pullRequest }: { read: SafePushRead; pullRequest: Pu
                 {`Open ${mergeRequest.reviewKey}`}
               </Button>
             )}
-            {requirement !== null && <ReviewChanges branchName={read.facts.branchName} requirement={requirement} />}
+            {requirement !== null && <ReviewChanges branchName={read.branchName} requirement={requirement} />}
           </div>
         </div>
       )
@@ -525,7 +539,7 @@ function ReviewLine({ read, pullRequest }: { read: SafePushRead; pullRequest: Pu
               <Line tone="warning" testId="safe-push-review">
                 {`Starts without the approvals of ${joinNames(readiness.groups.map(group => group.name))}: ${profile === null ? "the profile you choose has to skip" : `${profile.name} skips`} the code-owner review.`}
               </Line>
-              {read.readiness?.requirement != null && <ReviewChanges branchName={read.facts.branchName} requirement={read.readiness.requirement} />}
+              {read.readiness?.requirement != null && <ReviewChanges branchName={read.branchName} requirement={read.readiness.requirement} />}
             </div>
           )
       }
@@ -559,7 +573,7 @@ function ReviewChanges({ branchName, requirement }: { branchName: string; requir
 
 /** What the start waits for, why it can't start (the push alone where it helps), or nothing: left of the buttons */
 function Status({ read, busy, placement, onPiece }: { read: SafePushRead | null; busy: string | null; placement: SafePushPlacement; onPiece: () => void }) {
-  const decision = read?.decision ?? null
+  const decision = read?.prompt ?? null
   // an operation on the branch: the unstack or the move started here ("Unstacking auth…"), or one started before
   if (busy !== null) {
     return (
@@ -588,10 +602,8 @@ function Status({ read, busy, placement, onPiece }: { read: SafePushRead | null;
           {decision.kind === "refuse" && <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />}
           {decision.reason}
         </p>
-        {decision.kind === "refuse" && decision.offersPush && read !== null && <PushAlone branchName={read.facts.branchName} />}
-        {decision.kind === "refuse" && read?.wholeStack?.piece != null && (
-          <LandInPieces piece={read.wholeStack.piece} mode={read.facts.mode} placement={placement} onSelect={onPiece} />
-        )}
+        {decision.kind === "refuse" && decision.offersPush && read !== null && <PushAlone branchName={read.branchName} />}
+        {decision.kind === "refuse" && read?.wholeStack?.piece != null && <LandInPieces piece={read.wholeStack.piece} mode={read.mode} placement={placement} onSelect={onPiece} />}
       </div>
     )
   }

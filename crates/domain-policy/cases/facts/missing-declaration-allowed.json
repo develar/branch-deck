@@ -1,5 +1,48 @@
 {
   "given": {"flags": ["allowMissing"], "landingNeeds": true},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [
+        {
+          "code": "landingRefused",
+          "refusal": {
+            "branch": "auth",
+            "declaredBy": {"branch": "codec", "id": "codec-c0", "subject": "Add controlUrl"},
+            "file": "src/b/Use.kt",
+            "fix": {"branch": "auth", "kind": "restack", "onto": "codec"},
+            "identifier": "controlUrl",
+            "kind": "missingDeclaration",
+            "landingIn": null,
+            "line": 3,
+            "usedBy": {"branch": "auth", "id": "auth-c1", "subject": "Start with controlUrl"}
+          }
+        }
+      ],
+      "confirmations": [],
+      "effects": [
+        {"branches": ["auth"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

@@ -1,5 +1,33 @@
 {
   "given": {"branch": "login", "commits": ["(auth) Add auth", "(auth/login) Add login"], "parked": "builtOn"},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [{"branch": "login", "code": "parked", "note": "", "with": "auth"}],
+      "confirmations": [{"count": 1, "kind": "landsMoreThanRow"}],
+      "effects": [
+        {"branches": ["auth", "login"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth", "login"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "login": {

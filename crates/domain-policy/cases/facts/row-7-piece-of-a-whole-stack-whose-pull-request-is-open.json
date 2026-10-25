@@ -5,6 +5,34 @@
     "readiness": "missing",
     "stackPullRequest": true
   },
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [{"code": "approvalsMissing", "groups": ["Air Plugin Release Team"]}],
+      "confirmations": [{"count": 1, "kind": "landsMoreThanRow"}, {"kind": "stackPullRequestApprovalsDontCount", "number": 12}],
+      "effects": [
+        {"branches": ["auth", "login"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "api", "profile": null}}
+      ],
+      "lands": ["auth", "login"],
+      "pullRequest": null,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {
     "stack:auth": {
       "base": {"kind": "target"},

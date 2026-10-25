@@ -1,5 +1,33 @@
 {
   "given": {"pullRequest": {"approvers": ["alice"], "changesRequested": ["bob"]}, "readiness": "unknown"},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [],
+      "confirmations": [{"kind": "approvalsJudgedAtStart"}],
+      "effects": [
+        {"branches": ["auth"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "comment", "number": 7}}
+      ],
+      "lands": ["auth"],
+      "pullRequest": 7,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {"auth": {"base": {"kind": "target"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {

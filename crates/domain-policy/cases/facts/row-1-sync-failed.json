@@ -1,5 +1,30 @@
 {
   "given": {"conflicts": "auth"},
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [{"block": "Conflict", "branch": "auth", "code": "cantPush"}],
+      "confirmations": [],
+      "effects": [{"kind": "startRobot", "route": {"kind": "api", "profile": null}}],
+      "lands": ["auth"],
+      "pullRequest": null,
+      "waits": [{"fact": {"kind": "remote"}, "failed": null}, {"fact": {"kind": "readiness"}, "failed": null}]
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},

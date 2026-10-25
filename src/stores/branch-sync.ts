@@ -12,6 +12,7 @@ import type {
   Commit,
   CommitSyncStatus,
   DroppedCommit,
+  LandDecisions,
   PullRequestView,
   PushAction,
   Reason,
@@ -247,6 +248,12 @@ export interface BranchSyncState {
    * without an open pull request is not listed
    */
   openPullRequests: Readonly<Record<string, PullRequestView>>
+  /**
+   * What a Safe Push and a Dry Run of each subject (a branch, `stack:<root>` the whole stack) do now and what stands in
+   * their way, as Rust decides their default intents (`RepositoryView.lands`, `domain_policy::land::decide`); none
+   * before the Patronus view
+   */
+  lands: Readonly<Record<string, LandDecisions>>
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -277,6 +284,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   stackBranches: {},
   pushes: {},
   openPullRequests: {},
+  lands: {},
 }))
 
 /**
@@ -667,6 +675,11 @@ export function getOpenPullRequest(subject: string): PullRequestView | undefined
 /** `getOpenPullRequest`, re-rendering when it changes */
 export function useOpenPullRequest(subject: string): PullRequestView | undefined {
   return useStore(branchSyncStore, state => state.openPullRequests[subject])
+}
+
+/** The decisions of the default starts of `subject` (a branch, `stackReadinessKey(root)`) as Rust decides them; undefined before the Patronus view */
+export function getLands(subject: string): LandDecisions | undefined {
+  return branchSyncStore.getState().lands[subject]
 }
 
 /** The branches stacked directly on `name`, newest first */

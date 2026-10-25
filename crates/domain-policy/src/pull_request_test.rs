@@ -1,4 +1,4 @@
-use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals, start_pull_request};
+use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals, start_base, start_pull_request};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::pull_request;
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestState, Reviewer, ReviewerState};
@@ -56,20 +56,32 @@ fn a_pull_request_goes_into_the_target_into_a_virtual_branch_it_leaves_or_into_a
 }
 
 #[test]
-fn a_safe_push_starts_from_the_open_pull_request_into_the_target_while_patronus_names_the_github_repository() {
+fn a_safe_push_starts_from_the_open_pull_request_into_the_target_or_a_virtual_branch_while_patronus_names_the_github_repository() {
+  let github = Some("acme/monorepo");
   let open = pull_request("auth", 7);
-  assert_eq!(start_pull_request(Some(&open), "master", Some("acme/monorepo")).map(|it| it.number), Some(7));
+  assert_eq!(start_pull_request(Some(&open), "master", "user", github, false).map(|it| it.number), Some(7));
   // a base not read yet counts as the target
-  assert_eq!(start_pull_request(Some(&into("")), "master", Some("acme/monorepo")).map(|it| it.number), Some(7));
+  assert_eq!(start_pull_request(Some(&into("")), "master", "user", github, false).map(|it| it.number), Some(7));
+  // a branch starts from one into a virtual branch, which its start retargets first (D11); a whole stack doesn't: its
+  // stack branch is no virtual branch
+  let virtual_base = into("user/virtual/login");
+  assert_eq!(start_pull_request(Some(&virtual_base), "master", "user", github, false).map(|it| it.number), Some(7));
+  assert_eq!(start_pull_request(Some(&virtual_base), "master", "user", github, true), None);
+  assert_eq!(
+    start_base(&virtual_base, "master", "user", true),
+    PullRequestBase::Other {
+      base: "user/virtual/login".to_owned()
+    }
+  );
   // through the API: another base, a closed one, none, or no GitHub repository Patronus knows
   let closed = PullRequest {
     state: PullRequestState::Closed,
     ..open.clone()
   };
-  assert_eq!(start_pull_request(Some(&into("user/virtual/login")), "master", Some("acme/monorepo")), None);
-  assert_eq!(start_pull_request(Some(&closed), "master", Some("acme/monorepo")), None);
-  assert_eq!(start_pull_request(None, "master", Some("acme/monorepo")), None);
-  assert_eq!(start_pull_request(Some(&open), "master", None), None);
+  assert_eq!(start_pull_request(Some(&into("release-252")), "master", "user", github, false), None);
+  assert_eq!(start_pull_request(Some(&closed), "master", "user", github, false), None);
+  assert_eq!(start_pull_request(None, "master", "user", github, false), None);
+  assert_eq!(start_pull_request(Some(&open), "master", "user", None, false), None);
 }
 
 /// A push of new commits into an approved pull request keeps or dismisses its approvals by the rules of its base, as the

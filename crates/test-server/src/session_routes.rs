@@ -24,6 +24,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
+use domain_types::landing::{DecideLandParams, LandAnswer};
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
@@ -256,6 +257,12 @@ async fn session_key(state: &AppState, repository_path: &str) -> Result<SessionK
 pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Json<SessionRequest>) -> CommandResult<Option<RepositoryView>> {
   let key = session_key(&state, &request.repository_path).await?;
   Ok(Json(state.sessions.get_snapshot(&key).await))
+}
+
+/// The decision of a start over the facts of the session, as the app's `decide_land`: the same function of the session
+pub async fn decide_land(State(state): State<Arc<AppState>>, Json(params): Json<DecideLandParams>) -> CommandResult<Option<LandAnswer>> {
+  let key = session_key(&state, &params.repository_path).await?;
+  Ok(Json(state.sessions.decide_land(&key, params.land).await))
 }
 
 /// The stream of a window's subscription: its answer, then the patches. A call without a channel (a test of this crate

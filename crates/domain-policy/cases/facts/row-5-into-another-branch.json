@@ -4,6 +4,35 @@
     "commits": ["(auth) Add auth", "(session) Add session"],
     "pullRequest": {"base": "test-user/virtual/session"}
   },
+  "land": {
+    "decision": {
+      "approvalsSkippedBy": null,
+      "blockers": [],
+      "confirmations": [],
+      "effects": [
+        {"branch": "auth", "from": "test-user/virtual/session", "kind": "retarget", "number": 7, "to": "master"},
+        {"branches": ["auth"], "force": false, "kind": "push"},
+        {"kind": "startRobot", "route": {"kind": "comment", "number": 7}}
+      ],
+      "lands": ["auth"],
+      "pullRequest": 7,
+      "waits": []
+    },
+    "profiles": {
+      "default": null,
+      "emergency": [],
+      "offered": [
+        {"allowedPushModes": [], "description": null, "id": "default", "name": "Default", "skipsReview": null},
+        {
+          "allowedPushModes": ["rebaseAutosquash", "dryRun"],
+          "description": "All the tests",
+          "id": "lsc",
+          "name": "Large Scale Change",
+          "skipsReview": null
+        }
+      ]
+    }
+  },
   "openPullRequests": {
     "auth": {
       "base": {"from": "session", "kind": "virtual", "retarget": "master"},
@@ -14,7 +43,7 @@
   },
   "readiness": {
     "auth": {
-      "pullRequest": null,
+      "pullRequest": 7,
       "readiness": {"kind": "notRequired"},
       "requirement": {"groups": [], "mergeRequest": null, "required": false, "skipped": false},
       "tip": "auth-tip"
