@@ -56,7 +56,7 @@ fn pushes_with_a_lease_and_prints_the_pull_request() {
     })
   );
 
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 
   // nothing new: the lease is the remote head the sync saw
@@ -201,7 +201,7 @@ fn with_children_takes_the_stack_branch_along_once_it_is_on_the_remote() {
     (&json!(stack), &json!("master"), &json!("Add auth, with the 2 branches built on it"))
   );
   assert_eq!(remote_tip(&remote, &stack), tip);
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 
   // on the remote as it is: nothing to push
@@ -280,7 +280,7 @@ fn a_parked_branch_and_what_is_built_on_it_are_never_pushed() {
   let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
   assert_eq!(names, [&json!("auth")]);
   assert_eq!(output["skipped"], json!([{"name": "login", "code": "parked", "message": "login is parked: IJPL-1"}]));
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 
   // a parked root keeps its child local too
@@ -359,7 +359,7 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   assert_eq!((&rejected["remote"]["head"], &rejected["remote"]["behind"]), (&json!(short_id(&other)), &json!(1)));
   assert_eq!(dropped_subjects(&rejected["remote"]), ["Someone else"]);
   assert_eq!(rejected["remote"]["dropped_commits"][0]["author"], json!("Other"));
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &output, "error");
 
   // the remote branch has a commit the branch lacks: a push needs --force, leased on what the sync saw
@@ -619,7 +619,7 @@ fn amended_and_restacked_commits_push_without_force() {
     auth.get("restacked").is_none() && branch(&output, "login")["remote"].get("amended").is_none(),
     "a zero count is left out: {output}"
   );
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
   // their next step: a push without --force, also for the restacked branches with no commit of their own
   for name in ["auth", "login", "oauth"] {
@@ -662,7 +662,7 @@ fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
     json!([{"commit": short_id(&pushed_auth), "subject": "Add auth", "baseline_commit": short_id(&landed)}])
   );
   assert_eq!(branch(&output, "auth")["push"], json!("bd push auth"));
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
 
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--dry-run"]);

@@ -43,7 +43,7 @@ fn asks_the_suggested_code_owner_of_the_missing_group_once() {
 
   let (exit_code, output) = request_review(&environment, &["auth"]);
   assert_eq!(exit_code, 0, "{output}");
-  let (_, schema) = run_json(&environment, &["schema"]);
+  let (_, schema) = run_json(&environment, &["schema", "--all"]);
   let schema = &schema["outputs"]["request_review"];
   assert_covered(schema, schema, &output, "request_review");
   assert_eq!(bodies(&github), [json!({"reviewers": ["ikorennoy"]})]);

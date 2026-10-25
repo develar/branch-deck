@@ -373,6 +373,6 @@ impl Space {
 
 /// The output matches the schema of `bd robot`
 pub fn assert_schema(space: &Space, output: &Value) {
-  let (_, schema) = run_json(&environment(space.repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(space.repo.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["robot"], &schema["outputs"]["robot"], output, "robot");
 }

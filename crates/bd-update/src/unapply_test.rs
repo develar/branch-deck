@@ -74,7 +74,7 @@ fn unapply_refuses_an_unknown_branch_one_not_built_and_local_changes_in_the_way(
 #[test_log::test]
 fn unapply_outputs_match_the_schema() {
   let (repo, _) = synced_repo();
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   let (_, output) = run_in(&repo, &["unapply", "docs"]);
   assert_covered(&schema["outputs"]["unapply"], &schema["outputs"]["unapply"], &output, "unapply");
   let (_, undo) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);
@@ -111,7 +111,7 @@ fn status_lists_an_unapplied_branch_push_refuses_it_by_its_name_and_pushes_it_wi
   );
   let (_, status) = run_in(&repo, &["status"]);
   assert_eq!(status["unapplied"][0]["remote"], json!({"head": tip, "up_to_date": true}), "{status}");
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &pushed, "push --unapplied");
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with an unapplied branch");
 }
@@ -141,7 +141,7 @@ fn reapply_puts_the_branch_back_with_its_prefix_and_the_undo_takes_it_out_again(
   assert!(repo.path().join("f0.txt").exists());
   assert_eq!(git(&repo, &["branch", "--list", "test-user/unapplied/docs"]), "");
 
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["reapply"], &schema["outputs"]["reapply"], &output, "reapply");
   let (exit_code, undo) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);
   assert_eq!((exit_code, &undo["restored_branch"]), (0, &json!("test-user/unapplied/docs")), "{undo}");

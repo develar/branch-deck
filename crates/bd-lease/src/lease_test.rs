@@ -1321,7 +1321,7 @@ fn a_failed_get_rolls_the_lease_back() {
 #[test_log::test]
 fn lease_outputs_match_the_schema() {
   let fixture = Fixture::new();
-  let (_, schema) = fixture.run(&["schema"]);
+  let (_, schema) = fixture.run(&["schema", "--all"]);
   let outputs = &schema["outputs"];
   let first = path_of(&fixture.get(&[]));
   fixture.give_back(&first);

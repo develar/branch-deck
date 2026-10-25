@@ -75,8 +75,8 @@ setting, else the global `branchdeck.branchPrefix`; `prefix_source` of `bd statu
 ",
   read_only!(),
   "
-`bd schema` prints the JSON Schema of every output (every `state` with its values), `bd version` the version of bd
-and git.
+`bd schema <command>` prints the JSON Schema of the outputs of a command (every `state` with its values), `bd schema`
+the index of the commands, `bd version` the version of bd and git.
 
 Workflow: the commits into pull requests
 1. Look. `bd suggest` prints a plan, clustered and checked by a trial sync (exit 1: `check.ok` is false, edit the
@@ -510,7 +510,7 @@ When several sessions or worktrees work on one branch, run `bd help worktrees` f
 - Run bd in the repository, or pass `-C <repo>`.
 - Land the commits of another worktree with `bd pick`, never with `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
-  `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
+  `bd schema <command>` prints the JSON Schema of its output, `bd version` the version of bd and git.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
   change between commits only with `bd move-hunk`, change a message only with `bd reword`; never push, start a Safe Push or create pull requests before the
   user approved them.

@@ -74,7 +74,8 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   an unassigned commit. In a `--brief` view a field is also left out when another field says it: `issue_key` when it
   is the `group` (`bd commits --brief`) or the `name` (`bd status --brief`) of an issue branch, and the `(prefix)` of a
   subject when it is exactly the `group`.
-- `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
+- `bd schema <command>` prints the JSON Schema of the outputs of a command, `bd schema` their index (see `bd schema`
+  below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `robot-stats`, `schema`, `version`, `update --dry-run`, `update --status`,
   `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
@@ -1674,11 +1675,13 @@ branch name, in the branch table and the branch preview.
 
 ### `bd schema`
 
-Prints `{"schema":2,"outputs":{"<name>":<JSON Schema>,…}}`, one schema per output, every output named by the test
-`schema_lists_every_output`;
-`rewrite` is the output of `group`, `rename`, `restack`, `unstack` and `reword`, `commits_brief` and `status_brief` the
-outputs of `--brief`, `update_status` and `update_abort` those of `bd update --status` and `--abort`, and `lease_get`,
-`lease_return`, `lease_status` and `lease_adopt` those of `bd lease`.
+Without a name it prints the index `{"schema":2,"commands":{"<command>":["<output>",…]}}` (under 1 KB), because every
+schema together is about 350 KB, some 90k tokens that an agent would read for one field. `bd schema <name>...` prints
+`{"schema":2,"outputs":{"<output>":<JSON Schema>,…}}` of those commands or outputs, `--all` of every output, each named
+by the test `schema_lists_every_output`. `COMMAND_OUTPUTS` in `schema.rs` is the index: `rewrite` is the output of
+`group`, `rename`, `restack`, `unstack` and `reword`, `commits_brief` and `status_brief` the outputs of `--brief`,
+`update_status` and `update_abort` those of `bd update --status` and `--abort`, `lease_get` … `lease_clean` those of
+`bd lease`; `error` is the error of any command. An unknown name is `invalid_arguments` with every name.
 
 ### `bd workspace`
 

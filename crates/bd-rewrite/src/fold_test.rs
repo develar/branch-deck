@@ -93,7 +93,7 @@ fn fold_is_refused_on_another_head_or_while_the_lock_is_held() {
   drop(held);
   assert_eq!(repo.head(), head);
 
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   let (_, output) = run_in(&repo, &["fold"]);
   assert_covered(&schema["outputs"]["fold"], &schema["outputs"]["fold"], &output, "fold");
 }

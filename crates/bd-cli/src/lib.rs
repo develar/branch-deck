@@ -7,7 +7,7 @@ pub mod schema;
 
 use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
 use crate::install::{InstallArgs, install};
-use crate::schema::schema_output;
+use crate::schema::{SchemaArgs, schema};
 use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError};
@@ -183,8 +183,11 @@ enum Command {
   /// A commit whose subject groups elsewhere gets its `(name)` prefix back; one HEAD has is left out. `reapply_conflict`
   /// and `uncommitted_overlap` (exit 4) change nothing; `bd undo` of its `undo_token` takes it out again
   Reapply(ReapplyArgs),
-  /// The JSON Schema of every output
-  Schema,
+  /// The JSON Schema of the output of a command: `bd schema status`; without a name, the index of the commands
+  ///
+  /// `bd schema <command>...` prints the schema of every output of those commands (`bd schema group`: `rewrite`, the
+  /// output of every rewrite), `bd schema error` that of the error any command prints, --all every schema
+  Schema(SchemaArgs),
   /// The version of Branch Deck and of the git it runs, as JSON; also `bd --version`
   Version,
   /// Let coding agents find bd: the `bd` command and the skill of `bd help skill`
@@ -358,7 +361,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Unapply(args) => context().and_then(|context| unapply(&context, args)).and_then(|output| print(out, &output)),
     Command::Reapply(args) => context().and_then(|context| reapply(&context, args)).and_then(|output| print(out, &output)),
     Command::Workspace => workspace(environment, options.repo).and_then(|output| print(out, &output)),
-    Command::Schema => print(out, &schema_output()),
+    Command::Schema(args) => schema(args).and_then(|output| print(out, &output)),
     Command::Version => print(out, &version(environment)),
     Command::Install(args) => install(environment, args).and_then(|output| print(out, &output)),
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),

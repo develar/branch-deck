@@ -40,7 +40,7 @@ fn short(space: &Space, rev: &str) -> String {
 fn covered_status(space: &Space) -> Value {
   let (exit_code, status) = bd(space, &["status"]);
   assert_eq!(exit_code, 0, "{status}");
-  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status");
   status
 }
@@ -68,7 +68,7 @@ fn status_names_the_branches_a_merged_safe_push_landed_and_what_is_left_of_them(
 
   // the brief view says it compactly
   let (_, brief) = bd(&space, &["status", "--brief"]);
-  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["status_brief"], &schema["outputs"]["status_brief"], &brief, "status_brief");
   let mut briefs: Vec<(String, Value)> = brief["branches"]
     .as_array()
@@ -141,7 +141,7 @@ fn push_leaves_out_a_named_branch_a_merged_safe_push_landed_whole_and_pushes_the
   // login is left out with who landed it, docs goes
   let (exit_code, output) = bd(&space, &["push", "login", "docs"]);
   assert_eq!(exit_code, 0, "{output}");
-  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
   assert_eq!(names(&output, "branches"), [&json!("docs")], "{output}");
   assert_eq!(names(&output, "skipped"), [&json!("login")], "{output}");

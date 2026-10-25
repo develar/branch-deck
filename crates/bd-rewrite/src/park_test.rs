@@ -26,7 +26,7 @@ fn park_and_unpark_print_the_note_and_status_names_the_parked_branches() {
     (&output["branch"], &output["parked"], &output["note"], &output["changed"]),
     (&json!("auth"), &json!(true), &json!("waits for the fix of IJPL-1"), &json!(true))
   );
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["park"], &schema["outputs"]["park"], &output, "park");
   assert_eq!(repo.head(), head);
 

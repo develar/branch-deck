@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 #[test_log::test]
 fn schema_lists_every_output() {
   let directory = tempfile::tempdir().unwrap();
-  let (exit_code, output) = run_json(&environment(directory.path()), &["schema"]);
+  let (exit_code, output) = run_json(&environment(directory.path()), &["schema", "--all"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["schema"], json!(2));
   let outputs = output["outputs"].as_object().unwrap();
@@ -87,7 +87,7 @@ fn outputs_match_schema() {
   write(&repo, "b.txt", "b\n");
   commit_all(&repo, "PROJ-1 Add b", 1_700_000_300);
 
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   let (_, status) = run_in(&repo, &["status", "--stats"]);
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status");
   let (_, commits) = run_in(&repo, &["commits", "--files", "--patch"]);
@@ -168,4 +168,63 @@ fn outputs_match_schema() {
 
   let (_, error) = run_in(&repo, &["status", "--branch", "missing"]);
   assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &error, "error");
+}
+
+/// Without a name, a few KB that name every command and its outputs; every subcommand either names outputs that exist
+/// or has none, and together the commands cover every output but `error`
+#[test]
+fn schema_without_a_name_is_the_index_of_the_commands() {
+  let directory = tempfile::tempdir().unwrap();
+  let environment = environment(directory.path());
+  let mut out = Vec::new();
+  assert_eq!(crate::run_with(["schema"].map(std::ffi::OsString::from), &environment, &mut out), 0);
+  assert!(out.len() < 4096, "{} bytes", out.len());
+  let index: Value = serde_json::from_slice(&out).unwrap();
+  assert_eq!(index["schema"], json!(2));
+  assert_eq!(index["commands"]["group"], json!(["rewrite"]));
+  assert_eq!(index["commands"]["status"], json!(["status", "status_brief"]));
+
+  let every: BTreeSet<String> = crate::schema::every_output().into_keys().collect();
+  let mut covered = BTreeSet::from(["error".to_string()]);
+  let mut command = <crate::Cli as clap::CommandFactory>::command();
+  command.build();
+  for subcommand in command.get_subcommands().map(clap::Command::get_name) {
+    if crate::schema::WITHOUT_OUTPUT.contains(&subcommand) {
+      assert_eq!(index["commands"].get(subcommand), None, "{subcommand}");
+      continue;
+    }
+    let keys = index["commands"][subcommand]
+      .as_array()
+      .unwrap_or_else(|| panic!("no outputs for `bd {subcommand}` in COMMAND_OUTPUTS"));
+    for key in keys {
+      let key = key.as_str().unwrap();
+      assert!(every.contains(key), "`bd {subcommand}` names the output {key}, which doesn't exist");
+      covered.insert(key.to_string());
+    }
+  }
+  assert_eq!(covered, every, "outputs that no command names");
+}
+
+/// A command prints the schemas of its outputs, an output name its own; an unknown name names them all
+#[test]
+fn schema_of_a_command_is_only_its_outputs() {
+  let directory = tempfile::tempdir().unwrap();
+  let environment = environment(directory.path());
+  let keys = |names: &[&str]| -> Vec<String> {
+    let (exit_code, output) = run_json(&environment, &[&["schema"][..], names].concat());
+    assert_eq!(exit_code, 0, "{output}");
+    output["outputs"].as_object().unwrap().keys().cloned().collect()
+  };
+  assert_eq!(keys(&["group"]), ["rewrite"]);
+  assert_eq!(keys(&["status"]), ["status", "status_brief"]);
+  assert_eq!(keys(&["safe-push", "error"]), ["error", "safe_push"]);
+  assert_eq!(keys(&["lease_get"]), ["lease_get"]);
+
+  let (exit_code, output) = run_json(&environment, &["schema", "stauts"]);
+  assert_eq!(exit_code, 2, "{output}");
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.contains("\"stauts\"") && message.contains("safe-push") && message.contains("status_brief"),
+    "{message}"
+  );
 }

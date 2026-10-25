@@ -71,7 +71,7 @@ fn the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch(
   let statuses = sync_statuses(&output);
   assert!(statuses.contains(&(&json!("docs"), &json!("unchanged"))), "{statuses:?}");
 
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["move_hunk"], &schema["outputs"]["move_hunk"], &output, "move_hunk");
 
   assert_eq!(output["commits"][1]["commit"], json!(short_id(&docs)));
@@ -164,7 +164,7 @@ fn a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_ref
   drop(held);
   assert_eq!(repo.head(), b);
 
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "b.txt", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_covered(&schema["outputs"]["move_hunk"], &schema["outputs"]["move_hunk"], &output, "move_hunk dry run");

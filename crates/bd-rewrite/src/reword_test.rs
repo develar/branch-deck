@@ -75,7 +75,7 @@ fn reword_subject_changes_only_that_commit() {
       "new_subject": "(feat) Add the second part",
     }])
   );
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["rewrite"], &schema["outputs"]["rewrite"], &output, "rewrite");
   assert_undo_restores(&repo, &output, &head);
   assert!(!mapping_note(&repo, &ids[1]).is_empty(), "the old commits keep their notes for the undo");

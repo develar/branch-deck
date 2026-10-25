@@ -50,7 +50,7 @@ fn the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothin
   assert!(check["robot_url"].as_str().is_some_and(|url| url.ends_with("/robot/failed")), "{check}");
   assert_eq!(output["failures"]["checks"].as_array().map(Vec::len), Some(1));
   assert_eq!(output["start_hours"].as_array().unwrap().len(), 24);
-  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["robot_stats"], &schema["outputs"]["robot_stats"], &output, "robot_stats");
 
   // everyone's robots into the target, week by week: the UTC weeks of 30 days are 5 or 6, by the weekday

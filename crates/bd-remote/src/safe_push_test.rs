@@ -26,7 +26,7 @@ fn check_names_the_profiles_and_the_review_and_starts_nothing() {
   let space = Space::new(&["(auth) Add auth"]);
   let (exit_code, output) = space.run(&["auth", "--check"]);
   assert_eq!(exit_code, 0, "{output}");
-  let (_, schema) = run_json(&environment(space.repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(space.repo.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
   assert_eq!(output["mode"], json!("safe_push"));
   assert_eq!(output["target"], json!("master"));
@@ -244,7 +244,7 @@ fn check_auth_needs_a_push(space: &Space) -> Value {
   assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
   assert_eq!(output["push_needed"], json!(true));
   assert_eq!(output["remotes"][0]["name"], json!("auth"));
-  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
   output["remotes"][0]["remote"].clone()
 }
@@ -353,7 +353,7 @@ fn check_login_lands_auth(space: &Space) -> Value {
   let (exit_code, output) = space.run(&["login", "--check"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((output["lands"].clone(), output.get("refusals")), (json!(["auth", "login"]), None));
-  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
   output
 }
@@ -1144,7 +1144,7 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
     warning.starts_with("cannot retarget pull request #8 of login to master: ") && warning.ends_with("; `gh pr edit 8 --repo acme/monorepo --base master` retargets it"),
     "{output}"
   );
-  let (_, schema) = run_json(&environment, &["schema"]);
+  let (_, schema) = run_json(&environment, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 }
 
@@ -1203,7 +1203,7 @@ fn the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_targ
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((&output["retargeted"], &output["pull_request"]["number"]), (&retargeted, &json!(7)));
   assert_eq!(retargets_sent(&github), []);
-  let (_, schema) = run_json(&environment, &["schema"]);
+  let (_, schema) = run_json(&environment, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
 
   let (exit_code, output) = safe_push(&environment, &["login"]);
@@ -1273,7 +1273,7 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
   let space = forking_stack();
   let (exit_code, output) = space.run(&["login", "--whole-stack", "--check"]);
   assert_eq!(exit_code, 0, "{output}");
-  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
   assert_eq!(
     (output["lands"].clone(), output["whole_stack"].clone(), output.get("refusals"), output.get("alone")),

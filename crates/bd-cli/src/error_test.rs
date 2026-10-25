@@ -103,7 +103,7 @@ fn every_error_code_has_the_exit_code_and_the_retry_of_its_class() {
   }
   // every code is in the table: as many as `bd schema` names
   let directory = tempfile::tempdir().unwrap();
-  let (_, schema) = run_json(&environment(directory.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(directory.path()), &["schema", "--all"]);
   let codes = &schema["outputs"]["error"]["$defs"]["ErrorCode"];
   let count = codes["oneOf"].as_array().or_else(|| codes["enum"].as_array()).map(Vec::len).unwrap();
   assert_eq!(count, CODES.len());

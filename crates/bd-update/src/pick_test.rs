@@ -200,7 +200,7 @@ fn a_pick_during_an_open_update_session_is_carried_by_its_finish() {
 #[test_log::test]
 fn pick_outputs_match_the_schema() {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   let pick_schema = &schema["outputs"]["pick"];
   let lane = TestWorktree::detached(&repo);
   lane.commit("(lane) Change a", "a.txt", "lane\n");
@@ -229,7 +229,7 @@ fn pick_outputs_match_the_schema() {
 
 /// `output` matches the `pick` output of `bd schema`
 fn assert_pick_schema(repo: &TestRepo, output: &Value, what: &str) {
-  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   let pick_schema = &schema["outputs"]["pick"];
   assert_covered(pick_schema, pick_schema, output, what);
 }

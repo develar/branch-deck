@@ -202,7 +202,7 @@ fn clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing() {
   assert!(!Path::new(&slots[0]).join("tests/results").exists());
   assert!(Path::new(&slots[1]).join("tests/results").exists() && Path::new(&slots[2]).join("tests/results").exists());
 
-  let (_, schema) = fixture.run(&["schema"]);
+  let (_, schema) = fixture.run(&["schema", "--all"]);
   let outputs = &schema["outputs"];
   assert_covered(&outputs["lease_clean"], &outputs["lease_clean"], &output, "lease_clean");
   // the return of the leased one, with what its rules did

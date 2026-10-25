@@ -718,7 +718,7 @@ fn likely_landed_commits_get_the_hint() {
 #[test_log::test]
 fn session_outputs_match_the_schema() {
   let (_upstream, clone) = conflicting_clone();
-  let (_, schema) = bd_cli::fixture_test::run_json(&bd_cli::fixture_test::environment(clone.path()), &["schema"]);
+  let (_, schema) = bd_cli::fixture_test::run_json(&bd_cli::fixture_test::environment(clone.path()), &["schema", "--all"]);
   let outputs = &schema["outputs"];
   let (_, round) = run_in(&clone, &["update"]);
   bd_cli::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &round, "round");

@@ -181,12 +181,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   mark, or as UTF-16 with one, which Windows PowerShell 5.1 writes.
   [@test] ../../crates/bd-core/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
-- `bd schema` must print the JSON Schema of every output (the list is the test's), and the real outputs must use only
-  the properties it declares.
+- `bd schema --all` must print the JSON Schema of every output (the list is the test's), and the real outputs must use
+  only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
   [@test] ../../crates/bd-update/src/update_test.rs (`update_outputs_match_the_schema`)
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
+- `bd schema` without a name must print the index of every command and the names of its outputs, under 4 KB, so that an
+  agent never reads every schema for one field; every command but `help` and `schema` must name outputs that exist,
+  and together they every output but `error`. `bd schema <command or output>...` must print only those schemas
+  (`group`: `rewrite`), and an unknown name must be `invalid_arguments` naming every command and output.
+  [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_without_a_name_is_the_index_of_the_commands`, `schema_of_a_command_is_only_its_outputs`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
   `request-review --check`, `update --status` without `--materialize`, `lease status`, and the `--dry-run` of `group`, `rename`,
   `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold`, `move-hunk` and `reword` must write no ref,

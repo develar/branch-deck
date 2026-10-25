@@ -36,7 +36,7 @@ fn get_with_steps(fixture: &Fixture, holder: &str, steps: &Mutex<Vec<GetStep>>) 
 /// The output of a get as bd prints it, checked against `bd schema`
 fn printed(fixture: &Fixture, output: &LeaseGetOutput) -> Value {
   let value = serde_json::to_value(output).unwrap();
-  let (_, schema) = fixture.run(&["schema"]);
+  let (_, schema) = fixture.run(&["schema", "--all"]);
   assert_covered(&schema["outputs"]["lease_get"], &schema["outputs"]["lease_get"], &value, "lease_get");
   value
 }

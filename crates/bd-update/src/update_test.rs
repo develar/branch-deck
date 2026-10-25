@@ -140,7 +140,7 @@ fn a_dry_run_of_a_wide_conflict_lists_the_first_files_and_counts_the_rest() {
     "{conflict}"
   );
   assert_eq!(conflict["commits"][0]["files"].as_array().map(Vec::len), Some(50));
-  let (_, schema) = run_json(&environment(clone.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(clone.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["update"], &schema["outputs"]["update"], &output, "wide conflict");
 }
 
@@ -378,7 +378,7 @@ fn a_failed_fetch_is_a_network_error() {
 #[test_log::test]
 fn update_outputs_match_the_schema() {
   let (upstream, clone) = clone_of_upstream();
-  let (_, schema) = run_json(&environment(clone.path()), &["schema"]);
+  let (_, schema) = run_json(&environment(clone.path()), &["schema", "--all"]);
   let update_schema = &schema["outputs"]["update"];
 
   clone.create_commit("(auth) Change line 2", "shared.txt", "one\nmine\nthree\n");

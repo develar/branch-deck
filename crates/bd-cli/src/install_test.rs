@@ -79,7 +79,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
       skills: skill_files(&home),
     }
   );
-  let (_, schema) = run_install(&home, &app, &["schema"]);
+  let (_, schema) = run_install(&home, &app, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["install"], &schema["outputs"]["install"], &output, "install");
   let skill = std::fs::read_to_string(&skill_files(&home)[0]).unwrap();
   assert!(skill.starts_with("---\nname: branch-deck\ndescription: "), "{skill}");

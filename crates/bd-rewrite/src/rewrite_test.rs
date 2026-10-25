@@ -389,7 +389,7 @@ fn a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_toke
   // the error of the step after the rewrite, never the error envelope: the output of the rewrite stays
   assert_eq!((exit_code, &output["after_error"]["code"], output.get("error")), (5, &json!("git_error"), None), "{output}");
   assert_eq!((&output["rewritten"], output.get("described"), output.get("sync")), (&json!(1), None, None), "{output}");
-  let (_, schema) = run_in(&repo, &["schema"]);
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["rewrite"], &schema["outputs"]["rewrite"], &output, "rewrite with an error");
   assert_eq!(description_count(&repo), 0);
   let (exit_code, undone) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);
