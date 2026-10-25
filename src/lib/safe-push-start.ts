@@ -1,17 +1,17 @@
-import { toast } from "@/components/ui/toast"
 import { restackBranch } from "@/hooks/useStackActions"
 import type { LandingAllowances, PatronusMergeRequest, PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { cancelHoldingRobot, pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import type { LandingDecision } from "@/lib/landing-gate"
 import { checkLandingBeforeStart, formatLandingFix } from "@/lib/landing-gate"
 import type { PullRequestStart } from "@/lib/patronus"
-import { canCancelRobot, describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
-import { runRobotAction } from "@/lib/patronus-actions"
+import { describeRobot, formatPushMode } from "@/lib/patronus"
+import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequestUrl } from "@/lib/pull-request"
+import { showRobotEventToast } from "@/lib/robot-toast"
 import { checkTargetBeforeStart } from "@/lib/target-conflict"
-import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordActivity, recordRobot } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { StartRepository } from "@/stores/patronus"
@@ -116,7 +116,7 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
     const number = start.fromPullRequest.number
     const started = await startPatronusFromPullRequest(number, mode, { branchName: root ?? branchName, stack: root !== null, allow }, request)
     if (started.robot === null) {
-      announceCommentStart(title, number, started.commentUrl, note === "" ? null : note, repositoryPath)
+      announceCommentStart(start, title, number, started.commentUrl, note === "" ? null : note, repositoryPath)
       held = holdUntilListed(branchName, mode, started.listed, repositoryPath)
     } else {
       announceStart(title, started.robot, null, note === "" ? null : note, repositoryPath)
@@ -199,46 +199,39 @@ function pushFirst(start: SafePushStart, errorTitle: string, repositoryPath: str
 
 /**
  * The toast of a start Patronus accepted on pull request `number` (👍) whose robot it lists not yet: the start is made,
- * the robot shows once listed (looked for in the background); the toast opens the comment
+ * the robot shows once listed (looked for in the background); the toast opens the comment. It is the toast of the
+ * robots of the subject (`robotToastKeys`): it takes the place of the toast of the robot it restarts, or of the
+ * approvals it starts on
  */
-function announceCommentStart(title: string, number: number, commentUrl: string, note: string | null, repositoryPath: string): void {
+function announceCommentStart(start: SafePushStart, title: string, number: number, commentUrl: string, note: string | null, repositoryPath: string): void {
   const accepted = `Patronus accepted the comment on #${number}: the robot shows once Patronus lists it`
   const description = note === null ? accepted : `${accepted}. ${note}`
   recordActivity({ repositoryPath, kind: "patronus", title, description, details: { type: "pullRequest", url: commentUrl } })
-  toast.add({
-    type: "success",
-    title,
-    description,
-    timeout: ACTION_TOAST_TIMEOUT_MS,
-    actionProps: { children: `Open Pull Request #${number}`, onClick: () => openPullRequestUrl(commentUrl) },
+  // the key of the subject: the branch, or the key of the whole stack (`stackReadinessKey`), as `robotToastSubject`
+  const subject = toastKeys.robotSubject(repositoryPath, start.branchName, start.mode)
+  showEventToast({
+    key: subject,
+    supersedes: start.mode === "dryRun" ? [] : [toastKeys.approval(repositoryPath, start.branchName)],
+    render: () => ({ type: "success", title, description, action: { label: `Open Pull Request #${number}`, onClick: () => openPullRequestUrl(commentUrl) } }),
   })
 }
 
 /**
- * The toast of a started robot, as `announceRobot` says it, with "Cancel Safe Push" below the text: a start asked by
- * mistake costs only the robot (the push and the comment stay); Activity records it. `note` follows the description:
- * the target conflict check did not run, or used the last fetched target
+ * The toast of a started robot, as `announceRobot` says it, with "Cancel Safe Push" below the text while the robot can
+ * be canceled: a start asked by mistake costs only the robot (the push and the comment stay); Activity records it.
+ * `note` follows the description: the target conflict check did not run, or used the last fetched target. The toast
+ * follows the robot (`showRobotEventToast`): its failure or its merge take its place
  */
 function announceStart(title: string, robot: PatronusRobot, profileName: string | null, note: string | null, repositoryPath: string): void {
   const description = note === null ? describeRobot(robot, profileName) : `${describeRobot(robot, profileName)}. ${note}`
   recordRobot(title, description, robot, repositoryPath)
-  const mode = formatPushMode(robot.pushMode)
-  const id = toast.add({
+  showRobotEventToast({
+    repositoryPath,
+    robot,
     type: "success",
     title,
     description,
-    timeout: ACTION_TOAST_TIMEOUT_MS,
-    actionProps: { children: "Open in Patronus", onClick: () => openRobot(robot) },
-    ...(canCancelRobot(robot) && {
-      data: {
-        secondaryAction: {
-          label: `Cancel ${mode}`,
-          onClick: () => {
-            toast.close(id)
-            void runRobotAction("cancel-robot", robot)
-          },
-        },
-      },
-    }),
+    stepLast: true,
+    stepOf: (current, branch) => getRobotActions(current, branch).find(action => action.id === "cancel-robot") ?? null,
   })
 }

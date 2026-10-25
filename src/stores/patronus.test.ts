@@ -15,9 +15,12 @@ import type {
   PatronusView,
 } from "@/lib/bindings"
 import { notifyError, setErrorRecorder } from "@/lib/errors"
+import { resetEventToasts } from "@/lib/event-toast"
 import { setWindowFocus } from "@/lib/os-notification"
 import { formatPushHoldReason } from "@/lib/patronus"
+import { showRobotToast } from "@/lib/patronus-actions"
 import { formatFailedRobotToast, resetFailingAnnouncements, tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
+import { showRobotEventToast } from "@/lib/robot-toast"
 import { currentDemand, resetDemand } from "@/model/demand"
 import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
 import {
@@ -56,6 +59,7 @@ import { applyRobotDetailsFacts, resetRobotDetails } from "@/stores/robot-detail
 import { testRemoteStatus } from "@/stores/test-branch"
 import { emptyView } from "@/test-support/fake-sessions"
 import { branchFacts, landedWhole, robotOf, withRowRobots } from "@/test-support/patronus-repository"
+import { describeToast, openToasts, resetToasts, toastModule, toasts as shownToasts } from "@/test-support/toast-mock"
 
 const { patronus, branches } = vi.hoisted(() => ({
   patronus: {
@@ -145,13 +149,6 @@ vi.mock("@/lib/bindings", async importOriginal => ({
 
 const { notices } = vi.hoisted(() => ({
   notices: {
-    toasts: [] as {
-      type?: string
-      title: string
-      description?: string
-      actionProps?: { children: string; onClick: () => void }
-      data?: { secondaryAction: { label: string; onClick: () => void } }
-    }[],
     notifications: [] as { title: string; body: string }[],
     permissionRequests: 0,
     fetches: [] as string[],
@@ -190,15 +187,7 @@ vi.mock("@/stores/pull-requests", () => ({
   },
 }))
 
-vi.mock("@/components/ui/toast", () => ({
-  toast: {
-    add: (options: (typeof notices.toasts)[number]) => {
-      notices.toasts.push(options)
-      return "toast"
-    },
-    close: () => {},
-  },
-}))
+vi.mock("@/components/ui/toast", async () => (await import("@/test-support/toast-mock")).toastModule)
 
 vi.mock("@tauri-apps/plugin-notification", () => ({
   isPermissionGranted: async () => false,
@@ -209,14 +198,21 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
   sendNotification: (options: { title: string; body: string }) => notices.notifications.push(options),
 }))
 
-vi.mock("@/stores/update-project", () => ({
-  runFetchBaseline: async (repositoryPath: string) => {
-    notices.fetches.push(repositoryPath)
-  },
-  runUpdateProjectOf: async (repositoryPath: string) => {
-    notices.updates.push(repositoryPath)
-  },
-}))
+vi.mock("@/stores/update-project", async () => {
+  const { createStore } = await import("zustand/vanilla")
+  // what runs, by repository, as a test sets it: the merge toast shows the update while it runs
+  const updateProjectStore = createStore<{ running: Record<string, { run: { kind: "update" | "fetch" }; endedAt: null }> }>(() => ({ running: {} }))
+  return {
+    updateProjectStore,
+    selectRunningUpdate: (state: { running: Record<string, unknown> }, repositoryPath: string) => state.running[repositoryPath],
+    runFetchBaseline: async (repositoryPath: string) => {
+      notices.fetches.push(repositoryPath)
+    },
+    runUpdateProjectOf: async (repositoryPath: string) => {
+      notices.updates.push(repositoryPath)
+    },
+  }
+})
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: async (url: string) => {
@@ -506,7 +502,8 @@ beforeEach(() => {
   patronus.commitMapCalls = []
   robotCoverageStore.setState({ maps: {} })
   notices.pullRequestRefreshes = []
-  notices.toasts = []
+  resetEventToasts()
+  resetToasts()
   notices.notifications = []
   notices.permissionRequests = 0
   notices.fetches = []
@@ -576,7 +573,7 @@ describe("holds", () => {
     // sso, built on login too, lands only itself now
     expect(getLandingBranchCount("sso")).toBe(1)
     // no toast: no robot was seen running
-    expect(notices.toasts).toEqual([])
+    expect(shownToasts).toEqual([])
   })
 
   it("holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them", async () => {
@@ -728,20 +725,31 @@ describe("merges", () => {
     await list()
     patronus.poll = available(robot({ status: "success", finishTime: 200 }))
     await poll()
-    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
+    expect(shownToasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction?.label])).toEqual([
       ["auth merged into master", "Safe Push", "Update Project", "Open in Patronus"],
     ])
     expect(notices.notifications).toEqual([])
-    notices.toasts[0]?.data?.secondaryAction.onClick()
+    shownToasts[0]?.data?.secondaryAction?.onClick()
     expect(notices.opened).toEqual(["u"])
     // one click picks the merge up: Update Project fetches first
-    notices.toasts[0]?.actionProps?.onClick()
+    shownToasts[0]?.actionProps?.onClick()
     expect(notices.updates).toEqual(["/repo"])
     expect(notices.fetches).toEqual([])
 
     // the same robot in a later answer is no news
     await list()
-    expect(notices.toasts).toHaveLength(1)
+    expect(shownToasts).toHaveLength(1)
+  })
+
+  it("takes the place of the toast of the robot's start: one toast of the robot", async () => {
+    patronus.list = available(robot())
+    await list()
+    showRobotEventToast({ repositoryPath: "/repo", robot: robot(), type: "success", title: "Safe Push started", description: "auth → master" })
+    const started = openToasts()[0]!
+    patronus.poll = available(robot({ status: "success", finishTime: 200 }))
+    await poll()
+    expect(openToasts()).toEqual([started])
+    expect(openToasts().map(describeToast)).toEqual([["auth merged into master", "Safe Push", "Update Project", "Open in Patronus"]])
   })
 
   it("offers Update Project also after a fetch since the merge: the update is what picks it up", async () => {
@@ -754,10 +762,10 @@ describe("merges", () => {
     await poll()
     expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push" }])
     setWindowFocus(true)
-    expect(notices.toasts.map(it => [it.title, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
+    expect(shownToasts.map(it => [it.title, it.actionProps?.children, it.data?.secondaryAction?.label])).toEqual([
       ["auth merged into master", "Update Project", "Open in Patronus"],
     ])
-    notices.toasts[0]?.actionProps?.onClick()
+    shownToasts[0]?.actionProps?.onClick()
     expect(notices.updates).toEqual(["/repo"])
   })
 
@@ -773,7 +781,7 @@ describe("merges", () => {
     expect(currentDemand().watchedRobots).toEqual(["pr"])
     patronus.poll = available(robot({ ...ofReview, status: "success", finishTime: 200 }))
     await poll()
-    expect(notices.toasts.map(it => it.title)).toEqual(["#101 Rework the session store merged into master"])
+    expect(shownToasts.map(it => it.title)).toEqual(["#101 Rework the session store merged into master"])
   })
 
   it("tells a merge in the background by an OS notification, and in a toast on focus", async () => {
@@ -785,10 +793,10 @@ describe("merges", () => {
     // the notification says what merged, as the toast does
     expect(notices.notifications).toEqual([{ title: "auth merged into master", body: "Safe Push" }])
     expect(notices.permissionRequests).toBe(1)
-    expect(notices.toasts).toEqual([])
+    expect(shownToasts).toEqual([])
 
     setWindowFocus(true)
-    expect(notices.toasts.map(it => it.title)).toEqual(["auth merged into master"])
+    expect(shownToasts.map(it => it.title)).toEqual(["auth merged into master"])
   })
 
   it("closes the pull requests of the ancestors a stacked branch landed, and says so", async () => {
@@ -808,7 +816,7 @@ describe("merges", () => {
     await vi.waitFor(() => expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."]))
     // the pull request of the robot's repository
     expect(notices.closedIn).toEqual(["/repo\nuser"])
-    expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
+    expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
   })
 
   it("closes no pull request of the repository shown when the merged robot's repository was left before its view came", async () => {
@@ -829,9 +837,9 @@ describe("merges", () => {
     branches.selected = "/other"
     synced()
 
-    await vi.waitFor(() => expect(notices.toasts).toHaveLength(1))
+    await vi.waitFor(() => expect(shownToasts).toHaveLength(1))
     expect(notices.closed).toEqual([])
-    expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · the pull requests of the branches it landed stay open: repo is no longer the open repository"])
+    expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · the pull requests of the branches it landed stay open: repo is no longer the open repository"])
   })
 
   it("closes the pull requests of what a merged robot landed as the view says it, the toast waiting for the view of the merge", async () => {
@@ -854,7 +862,7 @@ describe("merges", () => {
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
     await poll()
     await vi.waitFor(() => expect(notices.closed).toEqual(["login Landed in master with the Safe Push of user/virtual/oauth, which is built on this branch."]))
-    expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of login: it landed with oauth"])
+    expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of login: it landed with oauth"])
   })
 
   it("closes the pull requests of the branches the whole stack landed", async () => {
@@ -890,7 +898,7 @@ describe("merges", () => {
     await poll()
     const comment = "Landed in master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."
     await vi.waitFor(() => expect(notices.closed).toEqual([`air ${comment}`, `bazel ${comment}`]))
-    expect(notices.toasts.map(it => [it.title, it.description])).toEqual([
+    expect(shownToasts.map(it => [it.title, it.description])).toEqual([
       ["Whole air stack merged into master", "Safe Push · closes the pull requests of air and bazel: they landed with the whole stack"],
     ])
   })
@@ -905,7 +913,7 @@ describe("merges", () => {
     await list()
     patronus.poll = available({ ...auth, status: "success", finishTime: 200 })
     await poll()
-    expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · #12 no longer matches the air stack: auth landed"])
+    expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · #12 no longer matches the air stack: auth landed"])
     expect(getStackLandedBy("air")).toBe("auth")
     expect(notices.closed).toEqual([])
   })
@@ -917,7 +925,7 @@ describe("merges", () => {
     patronus.poll = available(robot({ pushMode: "dryRun", status: "success" }))
     await poll()
     expect(getBranchRobot("auth")?.status).toBe("success")
-    expect(notices.toasts).toEqual([])
+    expect(shownToasts).toEqual([])
   })
 })
 
@@ -1196,38 +1204,36 @@ describe("failing robots", () => {
     await list()
     await vi.advanceTimersByTimeAsync(0)
     expect(patronus.detailCalls).toEqual(["r1"])
-    expect(notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])).toEqual([
+    expect(shownToasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction?.label])).toEqual([
       ["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "Open in Patronus"],
     ])
     // still failing in the next answer: told once
     await list()
-    expect(notices.toasts).toHaveLength(1)
+    expect(shownToasts).toHaveLength(1)
     stop()
   })
 })
 
-describe("toast steps decided again at the click", () => {
-  function infoToasts() {
-    return notices.toasts.filter(it => it.type === "info").map(it => [it.title, it.description, it.actionProps?.children])
-  }
-
-  it("cancels nothing once the robot finished: the toast says it merged", async () => {
+describe("the toast of a robot follows the robot", () => {
+  it("drops Cancel Safe Push once the robot was canceled elsewhere, in place: the toast keeps the robot page", async () => {
     const stop = watchFailures()
     patronus.list = available(robot())
     patronus.failing = ["r1"]
     await list()
     await vi.advanceTimersByTimeAsync(0)
-    const failing = notices.toasts[0]!
-    expect(failing.actionProps?.children).toBe("Cancel Safe Push")
-    patronus.poll = available(robot({ status: "success", finishTime: 200 }))
+    expect(openToasts().map(describeToast)).toEqual([["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "Open in Patronus"]])
+    const shown = openToasts()[0]!
+    // canceled in the Patronus page: no news, the poll says it
+    patronus.poll = available(robot({ status: "canceled", finishTime: 200 }))
     await poll()
-
-    failing.actionProps!.onClick()
-    expect(infoToasts()).toEqual([["Safe Push of auth merged", "Cancel Safe Push no longer applies", "Open in Patronus"]])
+    expect(openToasts()).toEqual([shown])
+    expect(openToasts().map(describeToast)).toEqual([["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Open in Patronus", undefined]])
+    shown.actionProps!.onClick!()
+    expect(notices.opened).toEqual(["u"])
     stop()
   })
 
-  it("restarts nothing once the branch has a newer robot: the toast says it was restarted", async () => {
+  it("says in place that the robot was restarted elsewhere, and opens the newer one", async () => {
     patronus.problems = []
     patronus.failureKind = "infrastructure"
     const stop = watchFailures()
@@ -1236,14 +1242,13 @@ describe("toast steps decided again at the click", () => {
     await vi.advanceTimersByTimeAsync(0)
     patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
     await poll()
-    const failed = notices.toasts.find(it => it.title === "Safe Push of auth failed")!
-    expect(failed.actionProps?.children).toBe("Restart Safe Push")
+    expect(openToasts().map(describeToast)).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"]])
     // restarted elsewhere (the IDE, bd): a new robot of the branch
-    patronus.list = available(robot({ status: "failure", finishTime: 200 }), robot({ id: "r2", startTime: 300 }))
+    patronus.list = available(robot({ status: "failure", finishTime: 200 }), robot({ id: "r2", startTime: 300, url: "u2" }))
     await list()
-
-    failed.actionProps!.onClick()
-    expect(infoToasts()).toEqual([["Safe Push of auth was restarted", "auth → master", "Open in Patronus"]])
+    expect(openToasts().map(it => [it.type, ...describeToast(it)])).toEqual([["info", "Safe Push of auth was restarted", "auth → master", "Open in Patronus", undefined]])
+    openToasts()[0]!.actionProps!.onClick!()
+    expect(notices.opened).toEqual(["u2"])
     stop()
   })
 })
@@ -1294,7 +1299,7 @@ describe("failed robots", () => {
   }
 
   function toasts() {
-    return notices.toasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction.label])
+    return shownToasts.map(it => [it.title, it.description, it.actionProps?.children, it.data?.secondaryAction?.label])
   }
 
   it("tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read", async () => {
@@ -1305,7 +1310,21 @@ describe("failed robots", () => {
     // a later answer with the same robot tells nothing
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
     await poll()
-    expect(notices.toasts).toHaveLength(1)
+    expect(shownToasts).toHaveLength(1)
+    stop()
+  })
+
+  it("is replaced in place by the toast of its restart, a newer robot of the branch", async () => {
+    patronus.problems = []
+    patronus.failureKind = "infrastructure"
+    const stop = watchFailures()
+    await failRunningRobot()
+    const failed = openToasts()[0]!
+    expect(describeToast(failed)).toEqual(["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"])
+    // what the restart says once Patronus answered it (`announceRobot`)
+    showRobotToast("Safe Push restarted", robot({ id: "r2", startTime: 300 }))
+    expect(openToasts()).toEqual([failed])
+    expect(openToasts().map(describeToast)).toEqual([["Safe Push restarted", "auth → master", "Open in Patronus", undefined]])
     stop()
   })
 
@@ -1343,12 +1362,30 @@ describe("failed robots", () => {
     })
   })
 
-  it("tells no second time a robot told failing while it ran", async () => {
+  it("tells no second time a robot told failing while it ran: its toast, while open, says in place that it failed", async () => {
     patronus.problems = []
     patronus.failing = ["r1"]
     const stop = watchFailures()
     await failRunningRobot()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Copy Prompt for Agent", "Open in Patronus"]])
+    stop()
+  })
+
+  it("tells nothing of a robot told failing whose toast is gone: Activity says it failed", async () => {
+    patronus.problems = []
+    patronus.failing = ["r1"]
+    const stop = watchFailures()
+    patronus.list = available(robot())
+    await list()
+    await vi.advanceTimersByTimeAsync(0)
+    // its 10 s are over
+    toastModule.toast.close(openToasts()[0]!.id)
+    patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
+    await poll()
+    await vi.advanceTimersByTimeAsync(0)
     expect(toasts()).toEqual([["A required check of auth failed", "Fast Tests · the Safe Push will fail", "Cancel Safe Push", "Open in Patronus"]])
+    expect(openToasts()).toEqual([])
     stop()
   })
 

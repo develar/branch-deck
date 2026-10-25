@@ -92,6 +92,9 @@ targets:
   - ../../src-tauri/src/commands/fetch_baseline.rs
   - ../../src/lib/patronus-actions.ts
   - ../../src/components/ui/toast.tsx
+  - ../../src/lib/event-toast.ts
+  - ../../src/lib/robot-toast.ts
+  - ../../src/lib/landing-toast.ts
   - ../../src/components/branch/BranchRowStatus.tsx
   - ../../src/hooks/useRowRobot.ts
 ---
@@ -657,6 +660,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   waits for that answer. When the approvals the push dismisses are the ones Patronus counts (the readiness is
   `approved`), the robot would start without them: the start is refused with "The push dismisses the approvals of #7: push first, then
   ask for the review again", and "Push" alone is offered (the action of the `info` toast, the button of the popover).
+  The toast of a start that can't run is of the robots of its subject: a later start takes its place, and its Push
+  closes it when pressed (a step of the start, which the row shows, and no Push is left behind that pushes nothing).
   `bd safe-push` reads the same rules with the same function before the same start, refuses
   `push_dismisses_approvals` where the app refuses, says the dismissed approvals Patronus doesn't count in `rules`, and
   refuses rules GitHub doesn't answer with `rules_unknown` unless `--allow-unknown-rules`
@@ -767,8 +772,14 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the profile, never the ref the robot runs on ("auth → master · profile Large Scale Change", `describeRobot`), with
   "Open in Patronus" (the robot page) and below the text "Cancel Safe Push": a start asked by mistake costs only the
   robot (the push and the comment stay), for 10 s; Activity records it in the same words. A failed start is an error
-  toast "Cannot start the Safe Push" with what Patronus said.
+  toast "Cannot start the Safe Push" with what Patronus said. It is the toast of the robot
+  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event), `showRobotEventToast`): its Cancel
+  only while the robot can be canceled, and its later states take its place (its failure, its merge, its cancel, a
+  restart); it takes the place of the toast of the robot it restarts and of the approvals it starts on
+  ([Review Requests](../repository/review-requests.spec.md#approval-news)).
   [@test] ../../src/lib/patronus.test.ts (`describes a robot by its branch and target, with the profile it was started with`)
+  [@test] ../../src/stores/patronus.test.ts (`takes the place of the toast of the robot's start: one toast of the robot`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should turn the toast of the approval into the start of the branch, in place, when the row starts it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
 - A start is never repeated by itself, not even right after the push: Patronus fetches the pushed branch while it
   handles the start.
@@ -915,11 +926,28 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   updates the shown one), or only "Open in Patronus" once its baseline was fetched since the merge (`lastFetchTime`:
   Branch Deck's fetch, or one elsewhere by `FETCH_HEAD`). Its "Update Project" acts on the repository of the merge
   (`runUpdateProjectOf`): clicked after a switch of the repository, it only fetches that repository, never updates the
-  one shown since.
+  one shown since; the toast says Fetch from the switch on, and Update Project again on the way back.
   [@test] ../../src/stores/update-project.test.ts (`updates the repository a toast is about only while it is shown, else only fetches it: never the one shown since`)
   [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
   [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Update Project and the robot page when a running robot of a branch merged`, `offers Update Project also after a fetch since the merge: the update is what picks it up`)
+  [@test] ../../src/lib/landing-toast.test.ts (`offers Fetch once the main window shows another repository, and Update Project again on the way back`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and update the project on request`)
+- The toast of the merge is the toast of the landing, until the update lands it
+  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event), `showMergeToast` of
+  `src/lib/landing-toast.ts`): it takes the place of the toast of the robot (its start), and while an update or a
+  fetch of its repository runs, started from the toast, the header or a key, its Update Project is "Updating…"
+  ("Fetching…"), disabled, and the toast stays. The outcome of that update takes its place, in place: what landed
+  ("auth landed in origin/master, squashed" / "Updated master: rebased 104 commits", the toast of the update of
+  [Landed Commits](../repository/landed-commits.spec.md#after-the-update), several merges in one), or "master is
+  already up to date with origin/master"; a run that ended otherwise (a conflict, whose dialog says it, an error toast,
+  the fetch of a repository not shown) closes it. A landing of its branches that a sync found after an update
+  elsewhere (`bd update`, the IDE) says itself in place: "auth landed in origin/master" / "Found by a sync", the words
+  of its Activity entry; one that came before the toast showed (it waits for the focus) is said at once. Activity
+  keeps both entries, the merge and the landing.
+  [@test] ../../src/lib/landing-toast.test.ts (`is one toast from the merge to the landing: Update Project, Updating… while the update runs, then what the update landed in place`, `says in place what a sync found landed after an update elsewhere (bd update, the IDE)`, `closes after an update that ended without an outcome of its own: the dialog of the conflict says it`, `shows the landing at once when an update elsewhere landed it before the toast showed: the toast waited for the focus`)
+  [@test] ../../src/stores/patronus.test.ts (`takes the place of the toast of the robot's start: one toast of the robot`)
+  [@test] ../../src/stores/update-project.test.ts (`takes the place of the toasts of the merges of its repository it brought in: what landed, or up to date`)
+  [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should turn the toast of a merge into what the update landed, in place, when its Update Project is pressed`, `should turn the toast of a merge into what the update landed, in place, when the update starts from the header`, `should say in the toast of a merge what a sync found landed after an update outside the app`)
 - A watched robot of no branch (the Safe Push of a reviewed pull request, `watchRobot`) is polled with the robots of
   the branches, and its merge is named by what it tested: "#101 Rework the session store merged into master".
   [@test] ../../src/stores/patronus.test.ts (`polls a watched robot of no branch and names its merge by what it tests`)
@@ -1040,17 +1068,22 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
     the toast on the next focus.
   The issue keys of the toast's title and description ("Safe Push of JIRA-456 failed" / "JIRA-456 → master") link to the
   tracker. A robot told failing while it ran ([above](#failing)) is told no second time: its Activity entry says it
-  failed. The watched robot of a reviewed pull request is told by what it tests.
+  failed, and its toast, while still open, says it in place, with the step of the failure. The toast of the failure
+  takes the place of the toast of the robot's start. The watched robot of a reviewed pull request is told by what it
+  tests.
   [@test] ../../crates/repository-model/src/facts_test.rs (`a_merge_is_news_at_once_and_a_failure_once_its_problems_say_why`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`, `should restart from the toast a Safe Push whose builds never started`)
-  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems didn't come without them`, `names the profile of a robot started without the approvals whose profile checks them all the same`)
-- The step of a failing or failed toast is decided when it shows and again at the click: a toast stays 10 s, longer in
-  the background. A step on the robot (Cancel, Restart, Copy Prompt for Agent) whose robot was
-  restarted (a newer robot of the branch), finished or canceled since, or that is disabled now, does nothing and says
-  why in an `info` toast (a precondition, [UX Writing](../../docs/guidelines/ux-writing.md)): "Safe Push of auth was
-  restarted" / "auth → master", "Safe Push of auth merged" / "Cancel Safe Push no longer applies", with "Open in
-  Patronus" (the newer robot). The pull request step opens what the branch has at the click.
-  [@test] ../../src/stores/patronus.test.ts (`cancels nothing once the robot finished: the toast says it merged`, `restarts nothing once the branch has a newer robot: the toast says it was restarted`)
+  [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran: its toast, while open, says in place that it failed`, `tells nothing of a robot told failing whose toast is gone: Activity says it failed`, `tells a robot whose problems didn't come without them`, `names the profile of a robot started without the approvals whose profile checks them all the same`)
+- The step of a failing or failed toast is the step of the robot as the stores have it, rendered again on every change
+  of the robots, the branches, the running operations and the shown repository
+  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)), and a click runs the step shown
+  now: Cancel Safe Push leaves the toast once the robot finished or was canceled, a step that runs is disabled, a
+  disabled one is not offered, and a robot of another repository than the shown one offers no step of a branch (the
+  branch of the same name there is another one). A restart made here takes the place of the toast; one made elsewhere
+  (a newer robot of the same subject and push mode in the next list) turns it into an `info` toast "Safe Push of auth
+  was restarted" / "auth → master" with "Open in Patronus" of the newer robot. The pull request step opens what the
+  branch has at the click.
+  [@test] ../../src/stores/patronus.test.ts (`drops Cancel Safe Push once the robot was canceled elsewhere, in place: the toast keeps the robot page`, `says in place that the robot was restarted elsewhere, and opens the newer one`)
 
 ### Code-owner review
 
@@ -1270,9 +1303,13 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/patronus/src/actions_test.rs (`restart_answers_the_new_robot_and_cancel_the_canceling_one`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
 - A restart is the toast "Safe Push restarted", a cancel "Safe Push is canceling", each naming the branch and the
-  target ("auth → master") with "Open in Patronus" (the new robot's page for a restart), as a start does; Activity
-  records them in the same words. A failure is "Cannot restart the Safe Push" / "Cannot cancel the Safe Push".
+  target ("auth → master") with "Open in Patronus" (the new robot's page for a restart), as a start does, in place of
+  the toast of the robot they restart or cancel; Activity records them in the same words. A failure is "Cannot restart
+  the Safe Push" / "Cannot cancel the Safe Push".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
+  [@test] ../../src/stores/patronus.test.ts (`is replaced in place by the toast of its restart, a newer robot of the branch`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart from the toast a Safe Push whose builds never started`)
+  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
 - Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks (by content,
   or commits reworded since its push: the remote has them with the old messages, which Patronus would land), every
   surface offers "Restart Safe Push" instead of Restart: the push of the row, then the restart on the pushed commit,

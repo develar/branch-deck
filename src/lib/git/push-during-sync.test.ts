@@ -23,6 +23,7 @@ vi.mock("@/components/ui/toast", () => ({
       toasts.push(`${options.title}: ${String(options.description)}`)
       return "toast"
     },
+    update: () => {},
     close: () => {},
   },
 }))
@@ -48,7 +49,8 @@ vi.mock("@/lib/bindings", async () => {
   }
 })
 
-vi.mock("@/stores/repository", () => ({
+vi.mock("@/stores/repository", async () => ({
+  repositoryStore: (await import("@/test-support/quiet-store")).quietStore,
   getSelectedProject: () => ({ path: "/repo" }),
   vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo" }) },
   getSelectedRepositoryPath: () => "/repo",
@@ -75,7 +77,8 @@ vi.mock("@/stores/patronus", () => ({
   cancelPatronusRobot: async () => null,
   restartPatronusRobot: async () => null,
 }))
-vi.mock("@/stores/pull-requests", () => ({
+vi.mock("@/stores/pull-requests", async () => ({
+  pullRequestsStore: (await import("@/test-support/quiet-store")).quietStore,
   getPullRequest: () => undefined,
   getStackPullRequest: () => undefined,
   getGitHubRepository: () => null,

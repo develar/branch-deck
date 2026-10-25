@@ -29,6 +29,7 @@ targets:
   - ../../src/lib/review-request-actions.ts
   - ../../src/lib/pull-request-review.ts
   - ../../src/lib/pull-request-review-window.ts
+  - ../../src/lib/event-toast.ts
   - ../../src/lib/sub-window-link.ts
   - ../../src/hooks/useMainWindowLink.ts
   - ../../src/lib/range-review.ts
@@ -186,9 +187,13 @@ there, in the preview and in the review alike, on the commit the review shows; t
 - While a Branch Deck window has the focus (a conflict window counts), one toast tells the new requests of an answer:
   "dave requested your review" / "#104 Document the CLI", or "3 reviews requested" / "#1 … · #2 … · #3 …" (four of
   four named, from five on the first three and "2 more", `cutList`), with the action "Review", which opens the first
-  one, for 10 s.
+  one that still waits, for 10 s. The toast of one request is the toast of its pull request
+  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)): the review the user submits takes
+  its place ("Approved #104"); a toast of several closes once none of them waits, and so does either while the main
+  window shows another repository, where Review would open nothing.
   [@test] ../../src/lib/review-requests.test.ts (`tells one request by who asked, several in one notice`)
   [@test] ../../src/stores/review-requests.test.ts (`tells the requests the session tells new in one toast with Review, unread until opened, recorded in Activity`)
+  [@test] ../../src/stores/review-requests.test.ts (`replaces the toast of a request with the review of it, and closes a toast of several once none of them waits`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
 - In the background an OS notification says it at once, with the words of the toast, when "Review requests" is on in
   Settings; the toast shows on the next focus. The permission is asked on the first notification, never at start. A
@@ -230,7 +235,9 @@ Safe Push it allows.
   "The code owners approved …" when Patronus names nobody) / "#1078 · IJPL Code Platform", with "Safe Push" first
   (the start of the row's Safe Push, `requestSafePush`, the row revealed: it starts at once or opens its popover at the
   row's slot; decided again at the click: a reason that came since is an `info` toast) and "Open Pull Request" below
-  the text, for 10 s. In the background an OS notification says it with the words of the toast
+  the text, for 10 s. A start of the subject from any surface takes its place ("Safe Push started", the toast of the
+  robot), and its Safe Push is offered only while the main window shows its repository. In the background an OS
+  notification says it with the words of the toast
   while "Approvals of my pull requests" is on in Settings (`notifyApprovals`); the toast shows on the next focus. An
   Activity entry, kind `review`, keeps it with "Open Pull Request".
   [@test] ../../src/lib/approval-news.test.ts (`names every approver of the groups that waited, each once; a group approved before isn't news`, `says the code owners approved when Patronus needs no approval any more and names nobody`)
@@ -393,7 +400,9 @@ Safe Push it allows.
 - A write of the window (Approve, Request Changes, Approve and Safe Push, Open Pull Request) is a
   `pull-request-review/request` with the whole request; the main window runs it on the window's repository, the toast
   goes back to the window (`pull-request-review/feedback`, its action opens the pull request or the robot) while it
-  still shows the request, else (it closed, or shows another one) the main window shows it; Activity records it in the
+  still shows the request, and the toast of the request in the main window closes, else (it closed, or shows another
+  one) the main window shows it in place of that toast; in either window the toasts of one pull request are one
+  (`toastKeys.review`), so the start of Approve and Safe Push takes the place of its approval; Activity records it in the
   main window, and `pull-request-review/reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
   Patronus of the repository the main window shows: for another one the main window switches to the request's
   repository first (`showRepository`, it waits for its sync), and the window keeps the Safe Push of the Patronus it last
@@ -476,8 +485,9 @@ Safe Push it allows.
   [Landing Overview](landing-overview.spec.md#overview)), its failure a move (and in the Dock badge) only while it is
   the newest robot of "#101 <title>": once the pull request is started again, the old failure is in the line of the last day of the overview; not found (Patronus may count it as the author's),
   the toast "Safe Push started" / "#101 <title>" opens the pull request, and Activity says "Safe Push started on #101".
-  A 👎 is "Cannot start the Safe Push" with the bot's reason; the approval stays.
-  [@test] ../../src/stores/review-requests.test.ts (`approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start`, `refuses a pull request that got commits since the review, and says the reason of the bot`)
+  Either toast of the start takes the place of the toast "Approved #101". A 👎 is "Cannot start the Safe Push" with
+  the bot's reason; the approval stays.
+  [@test] ../../src/stores/review-requests.test.ts (`approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start, in the toast of the approval`, `refuses a pull request that got commits since the review, and says the reason of the bot`)
   [@test] ../../src/stores/patronus.test.ts (`starts a reviewed pull request of someone else with its thumbs up, the robot only if the user's robots list it`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should watch the robot of a reviewed pull request: listed by what it tests, its merge told`)
   [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for the failure of a watched robot once its pull request was started again: the newest robot is the one to act on`)

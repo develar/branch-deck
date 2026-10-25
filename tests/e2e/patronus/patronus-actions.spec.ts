@@ -1257,6 +1257,8 @@ test.describe("Patronus actions", () => {
         await expect(refused).toContainText("The push dismisses the approvals of #7: push first, then ask for the review again")
         await refused.getByRole("button", { name: "Push", exact: true }).click()
         await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
+        // the push was the step it offered: no Push is left that pushes nothing
+        await expect(refused).toHaveCount(0)
         expect(await comments(repo)).toEqual([])
       })
 

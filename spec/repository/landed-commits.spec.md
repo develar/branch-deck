@@ -12,6 +12,8 @@ targets:
   - ../../crates/bd-core/src/sync_command.rs
   - ../../src-tauri/src/commands/update_project.rs
   - ../../src/lib/landed.ts
+  - ../../src/lib/landing-toast.ts
+  - ../../src/lib/event-toast.ts
   - ../../src/stores/landed.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/branch-sync.ts
@@ -52,7 +54,8 @@ by the next sync the same way.
 ## Non-goals
 
 - No count of the upstream's commits; only the user's own landed commits are named.
-- No notification of its own: the moment a robot merges is the Patronus toast (`spec/branch/patronus.spec.md`).
+- No notification of its own: the moment a robot merges is the Patronus toast (`spec/branch/patronus.spec.md`), and the
+  landing is the next state of that toast, never a second toast of the same landing.
 
 ## Requirements
 
@@ -153,6 +156,18 @@ by the next sync the same way.
   anything landed it stays "Updated master: rebased 2 commits onto origin/master".
   [@test] ../../src/lib/landed.test.ts (`leads with what landed, then how the branch was updated`)
   [@test] ../../src/lib/landed.test.ts (`keeps the fast-forward wording`)
+- The toast of the update, and the "already up to date" toast, take the place of the open toasts of the merges of its
+  repository, whose Update Project it did ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)):
+  in place of the newest, the others closed, one toast of the update whatever started it (the toast's Update Project,
+  the header, a key). "auth merged into master" / Update Project becomes "auth landed in origin/master, squashed" /
+  "Updated master: rebased 104 commits", with no action: the update is done, the island has the rest.
+  [@test] ../../src/stores/update-project.test.ts (`takes the place of the toasts of the merges of its repository it brought in: what landed, or up to date`)
+  [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should turn the toast of a merge into what the update landed, in place, when its Update Project is pressed`, `should turn the toast of a merge into what the update landed, in place, when the update starts from the header`)
+- A report a sync found after an update elsewhere (`bd update`, the IDE, `git pull`) has no toast of its own: the open
+  toast of a merge of its branches says it in place, "auth landed in origin/master" / "Found by a sync", in the words of
+  its Activity entry (`foundLandedNews`); with no toast of a merge open nothing shows but the island and Activity.
+  [@test] ../../src/lib/landing-toast.test.ts (`says in place what a sync found landed after an update elsewhere (bd update, the IDE)`)
+  [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should say in the toast of a merge what a sync found landed after an update outside the app`)
 - The Landed island sits above the branches: "Landed in origin/master" and when, a row per branch with "1 landed",
   "40 landed · 12 stay local" or "3 landed · squashed", the pull request and Patronus chips and the committer; a row
   expands to the commits, each with the short baseline commit (copy), its committer and time, or "squashed upstream".

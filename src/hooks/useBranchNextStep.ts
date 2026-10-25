@@ -1,6 +1,5 @@
 import { ClipboardCopyIcon, RefreshCwIcon } from "lucide-react"
 import { useStore } from "zustand"
-import { toast } from "@/components/ui/toast"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
@@ -11,6 +10,7 @@ import type { BranchNextStep, NextStepBusy, NextStepFacts, NextStepPullRequest, 
 import { formatLandedState, formatPendingFact, getBranchNextStep } from "@/lib/branch-next-step"
 import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
+import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
 import type { MenuItem } from "@/lib/menu"
@@ -33,7 +33,7 @@ import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingRev
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { stackProblemOf } from "@/lib/stack"
-import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
+import { showToast } from "@/lib/toast-message"
 import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { recordApproval, recordRetarget } from "@/stores/activity"
@@ -73,7 +73,7 @@ import {
   pullRequestsStore,
   retargetPullRequest,
 } from "@/stores/pull-requests"
-import { getSelectedProject } from "@/stores/repository"
+import { getSelectedProject, isSelectedRepository, repositoryStore } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { getSafePushStarting, safePushStore } from "@/stores/safe-push"
@@ -475,22 +475,32 @@ export function announceApproval(news: ApprovalNews, pullRequest: PullRequest | 
   }
   const { title, description } = describeApprovalNews(news)
   recordApproval(repositoryPath, title, description, pullRequest.url)
-  announce("approvals", { title, body: description }, () => {
-    const id = toast.add({
-      type: "success",
-      title,
-      description,
-      timeout: ACTION_TOAST_TIMEOUT_MS,
-      actionProps: {
-        children: start.label,
-        onClick: () => {
-          toast.close(id)
-          start.onClick()
-        },
-      },
-      data: { secondaryAction: { label: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } },
-    })
-  })
+  // the toast of the approvals of the subject: its start takes its place (`robotToastKeys`), from the toast or any other
+  // surface; the start only while the main window shows the repository, whose branch it starts
+  const key = toastKeys.approval(repositoryPath, news.branchName)
+  const openPullRequestAction = { label: "Open Pull Request", onClick: () => openPullRequest(pullRequest) }
+  announce("approvals", { title, body: description }, () =>
+    showEventToast({
+      key,
+      watch: [repositoryStore],
+      render: () =>
+        isSelectedRepository(repositoryPath)
+          ? {
+              type: "success",
+              title,
+              description,
+              action: {
+                label: start.label,
+                onClick: () => {
+                  closeEventToasts(key)
+                  start.onClick()
+                },
+              },
+              secondaryAction: openPullRequestAction,
+            }
+          : { type: "success", title, description, action: openPullRequestAction },
+    }),
+  )
 }
 
 /** The actions of a failed robot that read why it failed: a restart, the prompts for an agent */

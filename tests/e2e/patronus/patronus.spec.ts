@@ -12,6 +12,7 @@ import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { holdToast } from "../helpers/toast-helpers"
 import { holdCommandCalls } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
@@ -427,9 +428,12 @@ test.describe("Patronus failure", () => {
     await repo.setPatronusDetails(buildsNeverStarted(RUNNING.id))
     await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
     await emitTauriEvent(page, "tauri://focus")
-    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of JIRA-456 failed" })
+    const toast = await holdToast(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of JIRA-456 failed" }))
     await toast.getByRole("button", { name: "Restart Safe Push" }).click()
-    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toBeVisible()
+    // the restart is the next state of the toast of the robot: in place, with the newer robot
+    await expect(toast.locator("[data-slot=toast-title]")).toHaveText("Safe Push restarted")
+    await expect(toast.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
     expect((await repo.getPatronusLog()).restarts).toEqual([RUNNING.id])
   })
 })

@@ -6,6 +6,7 @@ import type { Fact, PatronusProfile, PatronusRobot, PatronusRobotProfile, Patron
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
+import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { FROM_MENU } from "@/lib/menu"
@@ -30,7 +31,6 @@ import type { SafePushStart } from "@/lib/safe-push-start"
 import { admitStart, startSafePush } from "@/lib/safe-push-start"
 import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
-import { showToast } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
@@ -51,7 +51,7 @@ import {
   useStartProfiles,
 } from "@/stores/patronus"
 import { askBranchRulesAgain, getPullRequest, getPullRequestListing, getStackPullRequest, peekBranchRules, pullRequestsStore } from "@/stores/pull-requests"
-import { getRepositorySwitchReason } from "@/stores/repository"
+import { getRepositorySwitchReason, getSelectedRepositoryPath } from "@/stores/repository"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { readRobotDetails } from "@/stores/robot-details"
@@ -470,8 +470,30 @@ async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "pl
 }
 
 /**
+ * The toast of a start that didn't run, of the robots of its subject (`toastKeys.robotSubject`): a later start takes its
+ * place. Its step closes it when pressed (`closes`): the push alone, a step of the start with no toast of its own, which
+ * the row shows, would leave a Push behind that pushes nothing
+ */
+function showStartToast(branchName: string, mode: SafePushMode, title: string, description: string, action: ToastActionProps | undefined, closes = false): void {
+  const key = toastKeys.robotSubject(getSelectedRepositoryPath(), branchName, mode)
+  const step =
+    action === undefined
+      ? undefined
+      : {
+          label: action.children,
+          onClick: () => {
+            if (closes) {
+              closeEventToasts(key)
+            }
+            action.onClick()
+          },
+        }
+  showEventToast({ key, render: () => ({ type: "info", title, description, ...(step !== undefined && { action: step }) }) })
+}
+
+/**
  * A start that can't run: the reason as an `info` toast (a precondition); the push alone where it is the step (of the
- * stack branch for the whole stack, `pushAlone`)
+ * stack branch for the whole stack, `pushAlone`), which closes the toast
  */
 function tellRefusal(branchName: string, mode: SafePushMode, reason: string, offersPush: boolean, opens?: "pullRequest" | "robot"): void {
   let action: ToastActionProps | undefined
@@ -480,12 +502,7 @@ function tellRefusal(branchName: string, mode: SafePushMode, reason: string, off
   } else if (opens !== undefined) {
     action = refusalObjectAction(branchName, opens)
   }
-  showToast({
-    type: "info",
-    title: `${formatPushMode(mode)} of ${formatReadinessSubject(branchName)} can't start`,
-    description: reason,
-    ...(action !== undefined && { action }),
-  })
+  showStartToast(branchName, mode, `${formatPushMode(mode)} of ${formatReadinessSubject(branchName)} can't start`, reason, action, offersPush)
 }
 
 /** The action that opens what a refusal names: the pull request of a draft, the robot that holds the branch */
@@ -537,7 +554,7 @@ function tellNotice(branchName: string, step: BranchNextStep, notice: { readonly
     // nothing to take: a robot that runs on it or lands it holds the start back, the notice opens it
     action = refusalObjectAction(branchName, "robot")
   }
-  showToast({ type: "info", title: notice.title, description: notice.description, ...(action !== undefined && { action }) })
+  showStartToast(branchName, request.mode, notice.title, notice.description, action)
 }
 
 /**

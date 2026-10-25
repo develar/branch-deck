@@ -38,6 +38,7 @@ import { openSubmenu } from "../helpers/selection-helpers"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, oneCommitUnpushedRemote, pushedRemote } from "../helpers/sync-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
+import { holdToast } from "../helpers/toast-helpers"
 import { holdCommand, holdCommandCalls, recordCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
@@ -693,6 +694,24 @@ test.describe("Next step", () => {
     // Activity keeps it
     const activity = await openActivityWindow(page)
     await expect(activity.getByTestId("activity-list")).toContainText(`Ilya Korennoy approved ${BRANCH}`)
+  })
+
+  test("should turn the toast of the approval into the start of the branch, in place, when the row starts it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED], availableRobots(), { reviewRequests: availableReviewRequests([]) })
+    const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "approved")] })
+    await repo.setPullRequests(availablePullRequests(approved))
+    await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
+    await repo.advanceBackendClock(300_000)
+    const toast = await holdToast(page.locator("[data-slot=toast]", { hasText: `Ilya Korennoy approved ${BRANCH}` }))
+    await expect(toast.getByRole("button", { name: "Safe Push", exact: true })).toBeVisible()
+
+    // the row's Safe Push, not the toast's: the start is the next state of the approvals of the branch
+    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+    await slotSafePush(page, BRANCH).click()
+    await expectStartedFromPullRequest(page, repo)
+    await expect(toast.locator("[data-slot=toast-title]")).toHaveText("Safe Push started")
+    await expect(toast.getByRole("button", { name: "Safe Push", exact: true })).toHaveCount(0)
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
   })
 
   test("should offer only the push when it dismisses the approvals Patronus counts", async ({ page, setupRepo, syncAndWaitForBranches }) => {

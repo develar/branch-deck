@@ -7,11 +7,11 @@ import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { useWindowTitle } from "@/hooks/useWindowTitle"
 import type { PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
+import { showEventToast } from "@/lib/event-toast"
 import { openRobotUrl } from "@/lib/patronus"
 import { PULL_REQUEST_REVIEW_WINDOW, getReviewSafePush, pullRequestReviewWindowKey, reviewWindowTitle } from "@/lib/pull-request-review"
 import type { PullRequestReviewWindowData, ReviewWindowFeedback, ReviewWindowRequest } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
-import { showToast } from "@/lib/toast-message"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 
 /**
@@ -137,10 +137,15 @@ function showFeedback(feedback: ReviewWindowFeedback, openOnGitHub: () => void):
     notifyError(feedback.title, feedback.message)
     return
   }
-  const { title, description, target } = feedback.toast
-  showToast({
-    title,
-    description,
-    action: target.kind === "robot" ? { children: "Open in Patronus", onClick: () => openRobotUrl(target.url) } : { children: "Open Pull Request", onClick: openOnGitHub },
+  const { key, title, description, target } = feedback.toast
+  // the approval, then the Safe Push started after it, are one toast of the pull request
+  showEventToast({
+    key,
+    render: () => ({
+      type: "success",
+      title,
+      description,
+      action: target.kind === "robot" ? { label: "Open in Patronus", onClick: () => openRobotUrl(target.url) } : { label: "Open Pull Request", onClick: openOnGitHub },
+    }),
   })
 }

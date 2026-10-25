@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import { toast } from "@/components/ui/toast"
 import { internalError } from "@/lib/api-error"
 import type { FetchBaselineResult, TransferProgress, UpdateCheck, UpdateProjectResult } from "@/lib/bindings"
+import { resetEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { getOperationBlocker, getOperations, operationsStore, runOperation } from "@/stores/operations"
 import { retryUpdateWithoutFetch, runFetchBaseline, runUpdateProject, runUpdateProjectOf, selectRunningUpdate, updateProjectStore } from "@/stores/update-project"
+import { openToasts, resetToasts, toasts } from "@/test-support/toast-mock"
 
 /** A command of the backend that runs until the test finishes it */
 interface RunningCommand {
@@ -45,7 +46,7 @@ vi.mock("@/lib/bindings", () => {
 })
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
-vi.mock("@/components/ui/toast", () => ({ toast: { add: vi.fn(() => "toast"), close: () => {} } }))
+vi.mock("@/components/ui/toast", async () => (await import("@/test-support/toast-mock")).toastModule)
 vi.mock("@/stores/branch-sync", () => ({
   // the last check found the selected repository up to date
   branchSyncStore: { getState: () => ({ baselineStatus: { repositoryPath: "/a", update: { state: { status: "upToDate" } } } }) },
@@ -99,7 +100,7 @@ const APPLIED: UpdateProjectResult = {
 
 /** The toast shown last */
 function lastToast() {
-  return vi.mocked(toast.add).mock.lastCall?.[0]
+  return toasts.at(-1)
 }
 
 function runningIn(repositoryPath: string) {
@@ -142,7 +143,8 @@ beforeEach(() => {
   syncs.requested = []
   fetchTimes.length = 0
   timings.length = 0
-  vi.mocked(toast.add).mockClear()
+  resetEventToasts()
+  resetToasts()
 })
 
 describe("the running update", () => {
@@ -352,6 +354,37 @@ describe("the running update", () => {
     expect(runningIn("/a")).toBeUndefined()
     // the bar shows the end for a moment
     expect(updateProjectStore.getState().running["/a"]?.endedAt).not.toBeNull()
+  })
+
+  it("takes the place of the toasts of the merges of its repository it brought in: what landed, or up to date", async () => {
+    const merge = (id: string, repositoryPath = "/a") =>
+      showEventToast({
+        key: toastKeys.robot(repositoryPath, id),
+        aliases: [toastKeys.merged(repositoryPath)],
+        render: () => ({ type: "success", title: `${id} merged into master` }),
+      })
+    const kept = merge("auth")
+    merge("login")
+    merge("ui", "/b")
+    const landed = [{ name: "auth", commits: [{ id: "c", subject: "Add login", upstream: null }], remaining: 0, landedAt: 1 }]
+    const update = runUpdateProject()
+    const command = await fetched("/a")
+    command.finish({ status: "ok", data: { ...APPLIED, landed } })
+    await vi.waitFor(() => expect(syncs.requested).toHaveLength(1))
+    // in the place of the newest one, the others of the repository closed: their Update Project is done
+    expect(openToasts().map(it => [it.id === kept, it.title, it.description])).toEqual([
+      [false, "auth landed in origin/master, squashed", "Updated master: rebased 2 commits"],
+      [false, "ui merged into master", undefined],
+    ])
+    syncs.requested[0]!.end()
+    await update
+
+    merge("oauth")
+    backend.commands = []
+    const upToDate = runUpdateProject()
+    ;(await fetched("/a")).finish({ status: "ok", data: UP_TO_DATE })
+    await upToDate
+    expect(openToasts().map(it => it.title)).toEqual(["ui merged into master", "master is already up to date with origin/master"])
   })
 
   it("ignores a progress message that arrives after the command answered", async () => {

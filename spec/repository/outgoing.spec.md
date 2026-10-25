@@ -24,6 +24,7 @@ targets:
   - ../../crates/git-ops/src/push_contents.rs
   - ../../src/lib/git/push.ts
   - ../../src/lib/toast-message.ts
+  - ../../src/lib/event-toast.ts
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../src/lib/transfer-progress.ts
   - ../../src/stores/commit-move.ts
@@ -210,8 +211,13 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   10 s. A failed push is the error toast "Cannot push JIRA-456" with git's reason. One action is one toast: a push that
   is a step of another action (a Safe Push start, a merge request, a restart, [Patronus](../branch/patronus.spec.md))
   has none, and a push of several branches of a stack is one toast
-  ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)).
+  ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)). It is the toast of the pushes of the branch
+  ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)): a later push of the branch, or of a
+  stack with it, takes its place, and its pull request action is the one the branch has now, "Create Pull Request…"
+  becoming "Open Pull Request" once it has one.
   [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
+  [@test] ../../src/lib/git/push.test.ts (`is one toast per branch: a later push of it takes its place, its pull request action as the branch has it now`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should tell a later push of the branch in the toast of the first, in place: one toast per branch`)
 - A push must send the remote head of the row's remote status (`expectedRemote`, null when the row showed no remote
   branch) and lease on it. A Force Push drops the commits the row listed and nothing else, also when someone else's
   commit was fetched after Branch Deck's last push; a plain push of a branch that took that commit in goes through.
@@ -294,9 +300,10 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   the last of those checks, right before the push is sent: a switch before it cancels nothing, and from the cancel on
   the push goes on in its repository with the branches as they were, so no cancel is followed by "Cannot push auth".
   The restart goes to the push's repository, its robot and its Activity entry there, also after a switch. The "auth
-  changed on the remote" toast of a push pushes only while its repository is shown; after a switch its Push says
-  "Cannot push auth" with "idea-1 is no longer the open repository".
-  [@test] ../../src/lib/git/push.test.ts (`restarts the robot of Restart Safe Push where the push went, after a switch during the push`, `pushes and restarts the robot it canceled after a switch during the cancel: no cancel is followed by a refusal`, `pushes the branches over the robot a start replaces after a switch during the cancel`, `cancels nothing when the switch comes before the push's last check`, `pushes and restarts the whole stack's robot in the repository of the push after a switch during the cancel`, `pushes nothing of the branch of the same name from the toast of a remote that moved during the push`)
+  changed on the remote" toast of a push offers its push only while its repository is shown: after a switch it says
+  what the remote has without the push (it offers it again on the way back), and it closes once the branch is gone;
+  a push of the branch takes its place ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)).
+  [@test] ../../src/lib/git/push.test.ts (`restarts the robot of Restart Safe Push where the push went, after a switch during the push`, `pushes and restarts the robot it canceled after a switch during the cancel: no cancel is followed by a refusal`, `pushes the branches over the robot a start replaces after a switch during the cancel`, `cancels nothing when the switch comes before the push's last check`, `pushes and restarts the whole stack's robot in the repository of the push after a switch during the cancel`, `offers no push of the branch of the same name in the toast of a remote that moved during the push`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
   a stage; the compact button of the row "45%" after the spinner, the label its accessible name), and its description on hover the last progress line of git, then what was sent so far and how fast,
   "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)), unless git's

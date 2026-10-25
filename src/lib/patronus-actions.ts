@@ -21,6 +21,7 @@ import {
 } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { copyRobotFullPrompt, copyRobotPrompt } from "@/lib/robot-prompt-copy"
+import { showRobotEventToast } from "@/lib/robot-toast"
 import type { RunningMove } from "@/lib/running-move"
 import { robotRestartMove } from "@/lib/running-move"
 import { showToast } from "@/lib/toast-message"
@@ -41,6 +42,7 @@ import {
   isRobotNeedingReview,
   restartPatronusRobot,
 } from "@/stores/patronus"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
  * Says that a robot started, restarted or is canceling, in a toast and in Activity: "Safe Push started" / "auth → master
@@ -51,9 +53,13 @@ export function announceRobot(title: string, robot: PatronusRobot, profileName: 
   recordRobot(title, describeRobot(robot, profileName), robot)
 }
 
-/** The toast of `announceRobot` alone, for a robot Activity has already (a restart after a push) */
+/**
+ * The toast of `announceRobot` alone, for a robot Activity has already (a restart after a push): the toast of the robot
+ * in the repository the main window shows, where its action ran, which takes the place of the toast of the robot it
+ * restarted or cancels ("Safe Push of auth failed" becomes "Safe Push restarted")
+ */
 export function showRobotToast(title: string, robot: PatronusRobot, profileName: string | null = null): void {
-  showToast({ title, description: describeRobot(robot, profileName), action: { children: "Open in Patronus", onClick: () => openRobot(robot) } })
+  showRobotEventToast({ repositoryPath: getSelectedRepositoryPath(), robot, type: "success", title, description: describeRobot(robot, profileName) })
 }
 
 /**

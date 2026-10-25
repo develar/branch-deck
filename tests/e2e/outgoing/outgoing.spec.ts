@@ -5,7 +5,7 @@ import type { DroppedCommit } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
-import { closeToast } from "../helpers/toast-helpers"
+import { closeToast, holdToast } from "../helpers/toast-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
@@ -131,6 +131,22 @@ test.describe("Force push", () => {
 
     await expect.poll(() => requests).toHaveLength(2)
     await expect(page.getByTestId("push-confirm")).toHaveCount(0)
+  })
+})
+
+test.describe("Push toast", () => {
+  test("should tell a later push of the branch in the toast of the first, in place: one toast per branch", async ({ page }) => {
+    // the first push leaves a commit the remote lacks (one made meanwhile): the row pushes it again
+    await routePush(page, { "JIRA-456": [{ unpushedCommits: ["j3"] }, {}] })
+    const row = findBranchRow(page, "JIRA-456")
+    await getPushButton(row).click()
+    const toast = await holdToast(pushedToast(page, "JIRA-456"))
+    await expect(toast.locator("[data-slot=toast-description]")).toContainText("created the remote branch")
+
+    await expect(getPushButton(row)).toHaveAccessibleName("Push (1)")
+    await getPushButton(row).click()
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText("1 commit")
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
   })
 })
 

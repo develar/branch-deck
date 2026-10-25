@@ -21,6 +21,8 @@ export interface LandedState {
   landing: readonly LandedBranch[]
   /** Commits that landed with an update and that the user has not dismissed */
   landed: readonly LandedBranch[]
+  /** The upstream of the baseline they landed in ("origin/master"); null before the first check */
+  upstream: string | null
   /**
    * When the user saw the island (it showed while the window had focus), ms, with the newest `landedAt` it showed then;
    * null until they have. A sync hides what they saw (`hideAfterSync`).
@@ -34,21 +36,25 @@ export const landedStore = createStore<LandedState>(() => ({
   repositoryPath: null,
   landing: empty,
   landed: empty,
+  upstream: null,
   seenAt: null,
 }))
 
-/** The landing and the report of a sync (`baselineStatus`); a report of an update made elsewhere goes to Activity */
+/**
+ * The landing and the report of a sync (`baselineStatus`); a report of an update made elsewhere goes to Activity, and the
+ * toast of a merge it lands says so in place (`src/lib/landing-toast.ts`)
+ */
 export function setLandedStatus(repositoryPath: string, landing: readonly LandedBranch[], landed: readonly LandedBranch[], upstream: string): void {
-  landedStore.setState(state => ({ repositoryPath, landing, landed, seenAt: state.repositoryPath === repositoryPath ? state.seenAt : null }))
+  landedStore.setState(state => ({ repositoryPath, landing, landed, upstream, seenAt: state.repositoryPath === repositoryPath ? state.seenAt : null }))
   recordLanded(repositoryPath, landed, upstream)
 }
 
 /** An applied update: its commits are in the report at once, before the sync that follows; nothing is incoming */
-export function addLandedUpdate(repositoryPath: string, found: readonly LandedBranch[]): void {
+export function addLandedUpdate(repositoryPath: string, found: readonly LandedBranch[], upstream: string): void {
   landedStore.setState(state => {
     const own = state.repositoryPath === repositoryPath
     const report = own ? state.landed : empty
-    return { repositoryPath, landing: empty, landed: found.length === 0 ? report : mergeLandedReport(report, found), seenAt: own ? state.seenAt : null }
+    return { repositoryPath, landing: empty, landed: found.length === 0 ? report : mergeLandedReport(report, found), upstream, seenAt: own ? state.seenAt : null }
   })
 }
 

@@ -5,6 +5,7 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { holdToast } from "../helpers/toast-helpers"
 import type { YouTrackFixture } from "../helpers/youtrack-helpers"
 import { issueKeyLink, linkIssuesToYouTrack, openIssue, resolvedIssue, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
@@ -49,8 +50,12 @@ test.describe("YouTrack issue popover", () => {
     await page.keyboard.press("Escape")
     await expect(page.getByTestId("issue-popover")).toHaveCount(0)
 
-    await toast.getByRole("button", { name: "Undo" }).click()
-    await expect(page.locator("[data-slot=toast]").filter({ hasText: "JIRA-456 is Open again" })).toBeVisible()
+    // the toast of the issue: its Undo says in place that the issue is open again
+    const held = await holdToast(toast)
+    await held.getByRole("button", { name: "Undo" }).click()
+    await expect(held.locator("[data-slot=toast-title]")).toHaveText("JIRA-456 is Open again")
+    await expect(held.getByRole("button", { name: "Undo" })).toHaveCount(0)
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
     expect((await repo.getYouTrack()).commands).toEqual([
       { query: "State Fixed", issues: ["JIRA-456"] },
       { query: "State Open", issues: ["JIRA-456"] },

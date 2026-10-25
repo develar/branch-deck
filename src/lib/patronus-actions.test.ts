@@ -21,6 +21,8 @@ const { calls, landing, stacks } = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }))
 vi.mock("@/stores/activity", () => ({ recordRobot: () => {} }))
+// the toast of a robot follows the robot in the stores: these tests are about the actions
+vi.mock("@/lib/robot-toast", () => ({ showRobotEventToast: () => {} }))
 vi.mock("@/lib/git/push", () => ({
   pushBranch: async (name: string, options: { restartRobot?: PatronusRobot; announce?: boolean }) => {
     calls.push(`push ${name}, restart ${options.restartRobot?.id}, announce ${options.announce}`)

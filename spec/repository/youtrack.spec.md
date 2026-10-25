@@ -245,7 +245,8 @@ client takes a pasted token.
   [@test] ../../crates/youtrack/src/service_test.rs (`a_state_change_returns_the_previous_state_and_an_undo_checks_the_state_first`, `a_resolved_issue_is_not_marked_again`)
 - It is one operation (`mark-fixed` of `issue:<key>`, remote): a second click joins it. "Marked ABC-1 Fixed", "Was
   Open", with Undo, which sets the previous state only while the issue is still Fixed ("ABC-1 is now Verified"
-  otherwise), then "ABC-1 is Open again"; YouTrack clears `resolved` itself. A failure is "Cannot mark ABC-1 fixed" or
+  otherwise), then "ABC-1 is Open again" in place of the toast it was pressed on (one toast of the issue,
+  [One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)); YouTrack clears `resolved` itself. A failure is "Cannot mark ABC-1 fixed" or
   "Cannot undo the Fixed state of ABC-1" with YouTrack's reason (`notifyError`, so in Activity too).
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
 - Surfaces: the popover of every key (the rows, the commits, the preview, the toasts, the merge toast of a robot

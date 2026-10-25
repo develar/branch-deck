@@ -1,5 +1,6 @@
 import type { ReviewRequest } from "@/lib/bindings"
 import { getErrorDetails, logError, notifyError, recordError } from "@/lib/errors"
+import { closeEventToasts } from "@/lib/event-toast"
 import { PULL_REQUEST_REVIEW_WINDOW, reviewWindowTitle } from "@/lib/pull-request-review"
 import type {
   PullRequestReviewWindowData,
@@ -140,15 +141,23 @@ export function broadcastReviewWindowState(): void {
 }
 
 /**
- * The feedback of a write the window asked for: the window shows the toast while it still shows the request; once it
- * closed or moved to another one (approve, then Escape), the main window does. The main window records the error in
- * Activity either way.
+ * The feedback of a write the window asked for: the window shows the toast while it still shows the request, and the
+ * toast of the request in the main window closes; once it closed or moved to another one (approve, then Escape), the
+ * main window does, in place of that toast. The main window records the error in Activity either way.
  */
 function windowFeedback(request: ReviewRequest, send: (feedback: ReviewWindowFeedback) => void): ReviewFeedback {
   const isShown = () => link.shown()?.number === request.number
   const main = mainReviewFeedback(request)
   return {
-    toast: (toast: ReviewToast) => (isShown() ? send({ kind: "toast", toast }) : main.toast(toast)),
+    toast: (toast: ReviewToast) => {
+      if (!isShown()) {
+        main.toast(toast)
+        return
+      }
+      // the window says it: the toast of the request in the main window has nothing left to offer
+      closeEventToasts(toast.key)
+      send({ kind: "toast", toast })
+    },
     error: (title, error) => (isShown() ? send({ kind: "error", title, message: recordError(title, error) }) : main.error(title, error)),
   }
 }

@@ -60,6 +60,8 @@ export type ReviewToastTarget = { readonly kind: "pullRequest"; readonly url: st
 
 /** A toast of a write: "Approved #101" / its title, with "Open Pull Request" or "Open in Patronus" */
 export interface ReviewToast {
+  /** The toast of the pull request (`toastKeys.review`): its next state, the start after an approval, takes its place */
+  readonly key: string
   readonly title: string
   readonly description: string
   readonly target: ReviewToastTarget

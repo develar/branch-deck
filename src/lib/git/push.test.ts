@@ -3,15 +3,18 @@ import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import { resetEventToasts } from "@/lib/event-toast"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushBranch, pushForAction } from "@/lib/git/push"
 import { pushStack, pushUpTo, pushWholeStack, pushWithChildren } from "@/lib/git/stack-push"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { operationsStore, runOperation } from "@/stores/operations"
+import { pullRequestsStore } from "@/stores/pull-requests"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { openToasts, resetToasts, toasts } from "@/test-support/toast-mock"
 
-const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
+const { calls, records, robots, stores } = vi.hoisted(() => ({
   /** What reached the backend, Patronus, the clipboard and the browser, in order */
   calls: [] as string[],
   /** What Activity recorded */
@@ -40,7 +43,6 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     /** Runs while the repository view of the robots is brought up to date (`whenRepositoryViewCurrent`) */
     whileViewing: () => {},
   },
-  toasts: [] as { type?: string; title?: string; description?: unknown; actionProps?: { children: string; onClick: () => void } }[],
   stores: {
     /** The branch table, by name */
     branches: {} as Record<string, Branch>,
@@ -97,15 +99,7 @@ vi.mock("@/lib/clipboard", () => ({
     calls.push(`copy ${text}`)
   },
 }))
-vi.mock("@/components/ui/toast", () => ({
-  toast: {
-    add: (options: (typeof toasts)[number]) => {
-      toasts.push(options)
-      return "toast"
-    },
-    close: () => {},
-  },
-}))
+vi.mock("@/components/ui/toast", async () => (await import("@/test-support/toast-mock")).toastModule)
 
 /**
  * What the session of the repository does with the outcome of a push: the remote statuses go into the rows and the
@@ -181,7 +175,7 @@ vi.mock("@/lib/bindings", () => ({
 }))
 
 vi.mock("@/stores/branch-sync", () => ({
-  branchSyncStore: { getState: () => ({ baselineBranch: "origin/master" }) },
+  branchSyncStore: { getState: () => ({ baselineBranch: "origin/master", branches: stores.branches }), subscribe: () => () => {} },
   getBranch: (name: string) => stores.branches[name],
   getStackBranch: (root: string) => stores.stackBranches[root],
   getStackDescendants: (name: string) => stores.descendants[name] ?? [],
@@ -227,7 +221,10 @@ function remoteStatusOf(status: RemoteStatusFields): RemoteStatus {
   }
 }
 
-vi.mock("@/stores/patronus", () => ({
+vi.mock("@/stores/patronus", async () => ({
+  patronusStore: (await import("@/test-support/quiet-store")).quietStoreOf({ repositories: {} }),
+  getBranchRobot: () => undefined,
+  getStackRobot: () => undefined,
   getPushHold: (name: string) => {
     const landed = robots.landed[name]
     if (landed !== undefined) {
@@ -274,7 +271,9 @@ vi.mock("@/stores/patronus", () => ({
   },
 }))
 
-vi.mock("@/stores/pull-requests", () => ({
+vi.mock("@/stores/pull-requests", async () => ({
+  // the pull requests GitHub lists are `stores.pullRequests`: a set of the store tells the toasts that read them
+  pullRequestsStore: (await import("zustand/vanilla")).createStore(() => ({})),
   getPullRequest: (name: string) => stores.pullRequests[name],
   getStackPullRequest: (root: string) => stores.stackPullRequests[root],
   getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
@@ -300,7 +299,8 @@ vi.mock("@/stores/activity", async () => ({
     records.push(`${title}: ${description}`)
   },
 }))
-vi.mock("@/stores/repository", () => ({
+vi.mock("@/stores/repository", async () => ({
+  repositoryStore: (await import("@/test-support/quiet-store")).quietStore,
   vcsRequestFactory: { createRequest: () => ({ repositoryPath: stores.selected }) },
   getSelectedRepositoryPath: () => stores.selected,
   isSelectedRepository: (path: string) => path === stores.selected,
@@ -339,7 +339,8 @@ function text(description: unknown): string {
 beforeEach(() => {
   calls.length = 0
   records.length = 0
-  toasts.length = 0
+  resetEventToasts()
+  resetToasts()
   robots.running = { ...RUNNING }
   robots.status = "running"
   robots.spans = {}
@@ -387,6 +388,25 @@ describe("the toast of a push", () => {
     expect(createPullRequestDialogStore.getState().branchName).toBe("auth")
     // "Continue on GitHub" of the dialog opens the form into the same base
     expect(getNewPullRequestUrl(stores.branches.auth!)).toBe(`${COMPARE}/master...user/virtual/auth?expand=1`)
+  })
+
+  it("is one toast per branch: a later push of it takes its place, its pull request action as the branch has it now", async () => {
+    expect(await pushBranch("auth")).toBe(true)
+    const pushed = openToasts()[0]!
+    expect(pushed.actionProps?.children).toBe("Create Pull Request…")
+    // created meanwhile on another surface (the row, bd): the toast opens it
+    stores.pullRequests.auth = { url: "https://github.com/JetBrains/ultimate/pull/7", state: "open" } as PullRequest
+    pullRequestsStore.setState({})
+    expect(openToasts()).toEqual([pushed])
+    expect(pushed.actionProps?.children).toBe("Open Pull Request")
+
+    stores.branches.auth = {
+      ...stores.branches.auth!,
+      remoteStatus: testRemoteStatus({ exists: true, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: ["a2"], remoteTip: "a1" }),
+    }
+    expect(await pushBranch("auth")).toBe(true)
+    expect(openToasts()).toEqual([pushed])
+    expect(text(pushed.description)).toBe("1 commit")
   })
 
   it("opens the pull request the branch has", async () => {
@@ -1128,15 +1148,14 @@ describe("a push that started in another repository", () => {
     expect(robots.recordedIn).toEqual(["/repo"])
   })
 
-  it("pushes nothing of the branch of the same name from the toast of a remote that moved during the push", async () => {
+  it("offers no push of the branch of the same name in the toast of a remote that moved during the push", async () => {
     stores.movedRemotes = [{ commitsBehind: 2, remoteTip: "theirs" }]
     stores.whilePushing = switchRepository
     expect(await pushBranch("auth")).toBe(false)
-    const moved = toasts.find(toast => toast.title === "auth changed on the remote")
-    expect(moved?.actionProps).toBeDefined()
-    moved!.actionProps!.onClick()
+    // what the remote has is said all the same; only the push is of the repository the main window no longer shows
+    const moved = openToasts().find(toast => toast.title === "auth changed on the remote")
+    expect(moved).toMatchObject({ type: "warning", actionProps: undefined, timeout: 10_000 })
     expect(calls).toEqual(["push auth"])
-    expect(toasts.at(-1)).toMatchObject({ title: "Cannot push auth", description: "/repo is no longer the open repository" })
   })
 
   it("retargets no pull request of the branch of the same name there after a switch during a retarget of the stack", async () => {

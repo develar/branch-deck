@@ -166,6 +166,21 @@ export class TestRepositoryBuilder {
     this.path = data.path
   }
 
+  /**
+   * Updates the checked out branch onto the fetched baseline behind the app's back, as `bd update` beside the app does:
+   * the core of Update Project, called by no page, so only the next sync of the page learns what it landed
+   */
+  async updateOutsideTheApp(): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/invoke/update_project`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repositoryPath: this.path, fetch: false }),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to update the repository: ${response.status} ${await response.text()}`)
+    }
+  }
+
   /** Rewrites the message of a commit behind the app's back (as `git rebase -i` would); returns the new commit id. */
   async reword(commitId: string, message: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/repositories/${this.id}/reword`, {

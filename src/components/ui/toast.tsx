@@ -5,7 +5,8 @@
 // `App.tsx`; this file imports nothing of the app, which imports `toast` everywhere); the default `render` of the
 // action and the close button in the body, not a parameter default (React Compiler cannot compile a JSX parameter
 // default); an action whose label ends with "…" (it opens a dialog or a popover) closes its toast when pressed
-// (`opensDialog`)
+// (`opensDialog`); `data.running` disables the primary action, `secondaryAction.disabled` the secondary one, while the
+// operation it started runs ("Updating…", `src/lib/event-toast.ts`)
 "use client"
 
 import * as React from "react"
@@ -137,7 +138,9 @@ function ToastIcon({ type }: { type: string | undefined }) {
 /** Custom toast data */
 interface ToastData {
   /** A second action after the primary one (`actionProps`): both go below the text, e.g. Fetch, then "Open in Patronus" */
-  secondaryAction?: { label: string; onClick: () => void }
+  secondaryAction?: { label: string; onClick: () => void; disabled?: boolean }
+  /** The operation of the primary action runs (from any surface): the action is disabled, its label says so */
+  running?: boolean
 }
 
 /** Renders a text title or description of a toast, e.g. with its issue keys as links */
@@ -162,7 +165,7 @@ function ToastList({ renderText }: { renderText?: ToastTextRenderer }) {
 
   return toasts.map(toastItem => {
     const closeOnPress = opensDialog(toastItem.actionProps?.children) ? () => close(toastItem.id) : undefined
-    const action = <ToastAction onClick={closeOnPress} />
+    const action = <ToastAction onClick={closeOnPress} disabled={toastItem.data?.running === true} />
     const secondaryAction = toastItem.data?.secondaryAction
     // an action beside a title and a description squeezes them into a narrow column: it goes below them, as two do
     const stacked = secondaryAction !== undefined || (toastItem.description != null && toastItem.actionProps != null)
@@ -181,6 +184,7 @@ function ToastList({ renderText }: { renderText?: ToastTextRenderer }) {
                   <Button
                     variant="ghost"
                     size="sm"
+                    disabled={secondaryAction.disabled === true}
                     onClick={() => {
                       secondaryAction.onClick()
                       if (opensDialog(secondaryAction.label)) {

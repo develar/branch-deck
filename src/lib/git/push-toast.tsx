@@ -1,8 +1,8 @@
 import { Fragment } from "react"
 import type { ReactNode } from "react"
-import { toast } from "@/components/ui/toast"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
+import { showEventToast, toastKeys } from "@/lib/event-toast"
 import type { Retargeted } from "@/lib/git/new-pull-request"
 import { getPullRequestRetarget, getPullRequestToastAction, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { formatPushMode, openRobot } from "@/lib/patronus"
@@ -10,11 +10,11 @@ import { openPullRequest } from "@/lib/pull-request"
 import type { BranchPush, PushNews } from "@/lib/push-summary"
 import { describePush, describeStackPush } from "@/lib/push-summary"
 import type { ToastActionProps } from "@/lib/toast-message"
-import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
-import { formatWholeStackBranch } from "@/lib/whole-stack"
+import { formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
-import { getBranch } from "@/stores/branch-sync"
-import { isSelectedRepository } from "@/stores/repository"
+import { branchSyncStore, getBranch } from "@/stores/branch-sync"
+import { pullRequestsStore } from "@/stores/pull-requests"
+import { isSelectedRepository, repositoryStore } from "@/stores/repository"
 
 /**
  * A push of a branch, the robot it restarted on the pushed commit (a Safe Push the push had to cancel), and the pull
@@ -71,12 +71,31 @@ function renderClauses(clauses: readonly Clause[]): ReactNode {
   ))
 }
 
-function addPushToast(title: string, clauses: readonly Clause[], action: ToastActionProps | null): void {
-  toast.add({
-    type: "success",
-    title,
-    description: renderClauses(clauses),
-    ...(action !== null && { timeout: ACTION_TOAST_TIMEOUT_MS, actionProps: action }),
+/**
+ * The toast of a push into `repositoryPath`, one per pushed branch (`toastKeys.push`): a later push of the branch takes
+ * its place, and its action is the one `actionOf` gives now, rendered again as the branches, the pull requests and the
+ * shown repository change: "Create Pull Request…" becomes "Open Pull Request" once the branch has one, and the pull
+ * request action leaves once the main window shows another repository
+ */
+function addPushToast(
+  repositoryPath: string,
+  branchNames: readonly [string, ...string[]],
+  title: string,
+  clauses: readonly Clause[],
+  actionOf: () => ToastActionProps | null,
+): void {
+  const keys = branchNames.map(name => toastKeys.push(repositoryPath, name))
+  // the clauses of one toast never change: one node, so a render that changes nothing keeps the toast as it is
+  const description = renderClauses(clauses)
+  showEventToast({
+    key: keys[0]!,
+    aliases: keys,
+    supersedes: keys,
+    watch: [branchSyncStore, pullRequestsStore, repositoryStore],
+    render: () => {
+      const action = actionOf()
+      return { type: "success", title, description, ...(action !== null && { action: { label: action.children, onClick: action.onClick } }) }
+    },
   })
 }
 
@@ -97,7 +116,6 @@ function pushedBranch(branchName: string, repositoryPath: string): Branch | unde
  */
 export function showPushToast(branchName: string, repositoryPath: string, news: PushNews, restarted?: PatronusRobot, retargeted?: Retargeted): void {
   const branch = pushedBranch(branchName, repositoryPath)
-  const retargetCommand = branch === undefined ? null : getRetargetCommand(branch)
   const retargetNeeded = branch === undefined ? null : describeRetargetNeeded(branch)
   const clauses: Clause[] = []
   if (news.description !== undefined) {
@@ -111,9 +129,13 @@ export function showPushToast(branchName: string, repositoryPath: string, news: 
   if (restarted !== undefined) {
     clauses.push(restartClause(restarted))
   }
-  const action: ToastActionProps | null =
-    restarted !== undefined ? { children: "Open in Patronus", onClick: () => openRobot(restarted) } : branch === undefined ? null : getPushAction(branch, retargetCommand)
-  addPushToast(news.title, clauses, action)
+  addPushToast(repositoryPath, [branchName], news.title, clauses, () => {
+    if (restarted !== undefined) {
+      return { children: "Open in Patronus", onClick: () => openRobot(restarted) }
+    }
+    const now = pushedBranch(branchName, repositoryPath)
+    return now === undefined ? null : getPushAction(now, getRetargetCommand(now))
+  })
 }
 
 /** The stack branch of a whole stack a push of its branches took along (Push with Children of the root) */
@@ -139,8 +161,9 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
     if (wholeStack !== null) {
       const news = describePush(formatWholeStackBranch(wholeStack.root), wholeStack.before)
       const pullRequest = wholeStack.pullRequest
-      const action: ToastActionProps | null = pullRequest === undefined ? null : { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) }
-      addPushToast(news.title, news.description === undefined ? [] : [{ text: news.description }], action)
+      addPushToast(repositoryPath, [stackReadinessKey(wholeStack.root)], news.title, news.description === undefined ? [] : [{ text: news.description }], () =>
+        pullRequest === undefined ? null : { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) },
+      )
     }
     return
   }
@@ -156,22 +179,34 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
       clauses.push({ ...retargetedClause(push.retargeted), text: `retargeted pull request #${push.retargeted.number} of ${push.name} to ` })
     }
   }
-  let retargeted: { branch: Branch; command: string } | null = null
-  for (const push of pushes) {
-    const branch = pushedBranch(push.name, repositoryPath)
-    const command = branch === undefined ? null : getRetargetCommand(branch)
-    if (branch !== undefined && command !== null) {
-      retargeted = { branch, command }
-      clauses.push(describeRetargetNeeded(branch, branch.name)!)
-      break
-    }
+  const retarget = findRetargetCommand(pushes, repositoryPath)
+  if (retarget !== null) {
+    clauses.push(describeRetargetNeeded(retarget.branch, retarget.branch.name)!)
   }
   for (const push of pushes) {
     if (push.restarted !== undefined) {
       clauses.push(restartClause(push.restarted, push.name))
     }
   }
-  const started = pushedBranch(startedFrom, repositoryPath)
-  const action = retargeted !== null ? getPushAction(retargeted.branch, retargeted.command) : started === undefined ? null : getPullRequestToastAction(started)
-  addPushToast(news.title, clauses, action)
+  const names = [startedFrom, ...pushes.map(push => push.name).filter(name => name !== startedFrom)] as const
+  addPushToast(repositoryPath, names, news.title, clauses, () => {
+    const retargeted = findRetargetCommand(pushes, repositoryPath)
+    if (retargeted !== null) {
+      return getPushAction(retargeted.branch, retargeted.command)
+    }
+    const started = pushedBranch(startedFrom, repositoryPath)
+    return started === undefined ? null : getPullRequestToastAction(started)
+  })
+}
+
+/** The first pushed branch whose pull request goes into a virtual branch and needs a retarget, with its command */
+function findRetargetCommand(pushes: readonly PushOutcome[], repositoryPath: string): { branch: Branch; command: string } | null {
+  for (const push of pushes) {
+    const branch = pushedBranch(push.name, repositoryPath)
+    const command = branch === undefined ? null : getRetargetCommand(branch)
+    if (branch !== undefined && command !== null) {
+      return { branch, command }
+    }
+  }
+  return null
 }

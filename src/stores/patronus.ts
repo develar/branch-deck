@@ -1,7 +1,6 @@
 import { useMemo } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import { toast } from "@/components/ui/toast"
 import type {
   Fact,
   FactState,
@@ -28,16 +27,16 @@ import { commandFailure, getErrorDetails } from "@/lib/errors"
 import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-stack"
+import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
-import { formatLandedWholeReason, formatMergedRobotTitle, formatPushMode, formatStackPushHoldReason, isHoldingRobot, isLandedWhole, isRobotActive, openRobot } from "@/lib/patronus"
+import { formatLandedWholeReason, formatMergedRobotTitle, formatPushMode, formatStackPushHoldReason, isHoldingRobot, isLandedWhole, isRobotActive } from "@/lib/patronus"
 import { withoutKeys } from "@/lib/record"
 import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import type { RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
 import { stackAncestors } from "@/lib/stack"
-import { lastFetchTime } from "@/lib/update-state"
 import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { recordRobot } from "@/stores/activity"
@@ -47,8 +46,6 @@ import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
-import { getRepositoryState } from "@/stores/settings/repositoryState"
-import { runFetchBaseline, runUpdateProjectOf } from "@/stores/update-project"
 
 /**
  * A robot a `/patronus` comment started may have started this long before the comment was posted (the clocks of the
@@ -816,8 +813,8 @@ const announcedMerges = new Set<string>()
 
 /**
  * A robot merged a branch or the whole stack ("Whole air stack merged into master"), as the news of the session says
- * (`tellRobotNews`), once: a toast with Fetch, so the header
- * learns that an update brings the branch in, and "Open in Patronus". While no window is focused, an OS notification
+ * (`tellRobotNews`), once: a toast with Update Project and "Open in Patronus", which follows the merge until the update
+ * lands it (`showMergeToast`). While no window is focused, an OS notification
  * says it at once (unless Settings turned it off), and the toast waits for the focus.
  * A stacked branch landed its ancestors too, the whole stack every branch of it: their open pull requests are closed
  * as the session's view says it (`closeLandedPullRequests`, `landedByRobot`), and the toast says so: it waits for the
@@ -848,51 +845,8 @@ function tellMerge(key: string, robot: PatronusRobot): void {
   recordRobot(title, description, robot, repositoryPath)
   // the toast's button picks it up (Update Project fetches first): the notification says what merged, as the toast
   const notification = { title, body: description }
-  announce("patronusMerges", notification, () => showMergeToast(repositoryPath, robot, title, description))
-}
-
-/**
- * The baseline was fetched after `finishTime` (Unix seconds), by Branch Deck or elsewhere (`FETCH_HEAD`,
- * `lastFetchTime`): the header knows already what the update brings in
- */
-function isFetchedSince(repositoryPath: string, finishTime: number | null): boolean {
-  if (finishTime === null) {
-    return false
-  }
-  const baseline = branchSyncStore.getState().baselineStatus
-  const update = baseline?.repositoryPath === repositoryPath ? baseline.update : null
-  const fetched = lastFetchTime(update, getRepositoryState(repositoryPath)?.lastFetchTime)
-  return fetched !== null && fetched > finishTime * 1000
-}
-
-/**
- * The merge toast: "Update Project", which fetches the baseline and updates onto it (the click is the consent; a
- * conflict or local changes say so as Update Project does), then "Open in Patronus". A merge in a repository the main
- * window doesn't show is fetched only (Update Project updates the shown one), and once the baseline was fetched since
- * the merge in it, the toast opens the robot page alone (decided when it shows, also after the focus).
- */
-function showMergeToast(repositoryPath: string, robot: PatronusRobot, title: string, description: string): void {
-  const shown = getSelectedProject()?.path === repositoryPath
-  if (!shown && isFetchedSince(repositoryPath, robot.finishTime)) {
-    toast.add({ type: "success", title, description, timeout: 10_000, actionProps: { children: "Open in Patronus", onClick: () => openRobot(robot) } })
-    return
-  }
-  const id = toast.add({
-    type: "success",
-    title,
-    description,
-    timeout: 10_000,
-    actionProps: {
-      children: shown ? "Update Project" : "Fetch",
-      onClick: () => {
-        toast.close(id)
-        // the repository of the merge, whichever the main window shows at the click: a fetch only once it is another
-        void (shown ? runUpdateProjectOf(repositoryPath) : runFetchBaseline(repositoryPath))
-      },
-    },
-    // Fetch is the primary action, the robot page the second one
-    data: { secondaryAction: { label: "Open in Patronus", onClick: () => openRobot(robot) } },
-  })
+  const landedBranches = landed.map(branch => branch.branch)
+  announce("patronusMerges", notification, () => showMergeToast(repositoryPath, robot, title, description, landedBranches))
 }
 
 // ---- the robots of the session ----

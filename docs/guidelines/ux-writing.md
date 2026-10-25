@@ -1,7 +1,7 @@
 # UX Writing: Toasts, Errors and Labels
 
 **Status:** Active  
-**Updated:** 2026-10-20  
+**Updated:** 2026-10-25  
 **Tags:** [ui, wording, toasts, actions]
 
 ## Summary
@@ -9,8 +9,9 @@
 One vocabulary for the whole app. A toast says what happened, to what, in sentence case; its description is the detail;
 an error says what could not be done and why; a toast about an object opens it. Buttons, menu items and toast actions
 are Title Case; everything that reads as a sentence is sentence case. [Activity](../../spec/repository/activity.spec.md)
-records the toasts in their words, so a toast and its entry take their text from one function. An object's actions
-are one list, under one name each, wherever the object is.
+records the toasts in their words, so a toast and its entry take their text from one function. A toast is one per
+event of an object: its later states replace it in place, and its actions are those of the state now. An object's
+actions are one list, under one name each, wherever the object is.
 
 ## Context
 
@@ -51,6 +52,42 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 - **No toast for feedback in place**: a copy button says "Copied" in place (`CopyButton`, `useCopyToClipboard`), the
   "Copy Prompt for Agent" button too; a menu item copies without a toast; an amend conflict opens its viewer below the
   row and says nothing else.
+
+## One toast per event
+
+A robot merged auth: "auth merged into master" with Update Project. The user pressed it, and the update said "auth
+landed in origin/master, squashed" in a second toast, while the first stayed with an Update Project already done: one
+landing told twice, in two words, one of them with a stale action. A toast tells an event of an object, and its later
+states are that toast, not new ones.
+
+- **One toast per event of an object**: a toast is keyed by what it tells (`toastKeys` in `src/lib/event-toast.ts`):
+  the robot, the robots of a subject in one push mode, the push of a branch, the approvals of a subject, a pull
+  request of someone else, an issue, the update of a repository. A later state of the event replaces the open toast
+  of its key in place, where it is, with its timer started again: "auth merged into master" becomes "Updating…" while
+  the update runs, then "auth landed in origin/master, squashed" / "Updated master: rebased 104 commits". A state
+  that supersedes another event names that one's key too: the outcome of an update takes the place of the merges of
+  its repository it brought in, a restart or a new start the toast of the older robot of the subject, a Safe Push the
+  toast of the approvals it starts on, a review the toast of the request, the start of Approve and Safe Push the
+  toast of its approval, a push of a branch the toast of its earlier push. Several toasts it supersedes become one:
+  the update that lands three merges is one toast, "3 branches landed in origin/master", in the place of the newest.
+- **Its actions are those of the state now**: the toast renders its state from the stores it reads, at the show and
+  on every change of them. Update Project leaves once the update landed the merge; it is "Updating…", disabled, while
+  an update runs, started from the toast, the header or a key, and the toast stays until its outcome; Cancel Safe Push
+  leaves once the robot finished; a restart made elsewhere turns the toast into "Safe Push of auth was restarted" with
+  the newer robot; "Create Pull Request…" becomes "Open Pull Request" once the branch has one. A click runs the action
+  of the latest state, never one decided when the toast showed.
+- **A toast outlives no object**: an action of a branch of the table leaves once the main window shows another
+  repository, whose branch of the same name is another branch (the push, the start, the pull request: Fetch instead of
+  Update Project, the toast of a remote that moved without its push); a toast whose object is gone closes (the remote
+  that moved of a deleted branch, the review requests none of which waits).
+- **A state that is no news of its own only replaces**: a landing a sync found after an update elsewhere (`bd update`,
+  the IDE) says itself in the toast of its merge while that one is open ("auth landed in origin/master" / "Found by a
+  sync") and shows nothing otherwise; so does a failure told failing before ("A required check of auth failed" becomes
+  "Safe Push of auth failed").
+- **A run without an outcome of its own closes it**: a toast whose action ran (Updating…) closes once the run ended
+  with a dialog or an error toast that says why (the update conflicts, the fetch of another repository).
+- **Activity keeps every entry**: it is the log of the events, each in the words its toast had then; only the toasts
+  are one per event.
 
 ## Errors
 
@@ -192,9 +229,14 @@ indicator could cancel a robot but not restart it.
 
 ## How to
 
-- A success or info toast: `showToast({ title, description, action })` from `src/lib/toast-message.ts`
-  (`type: "info"` for a precondition), or `toast.add` from `@/components/ui/toast` for a custom one (a loading toast, a
-  custom body).
+- A toast of an event of an object (a robot, a push, a merge, a review, an issue): `showEventToast({ key, render })`
+  from `src/lib/event-toast.ts`, with its key from `toastKeys`, `supersedes` for the events it takes the place of,
+  `aliases` for the keys a later event finds it by, and `watch` for the stores its `render` reads;
+  `replaceEventToast` for a state that is no news of its own. A robot's: `showRobotEventToast`
+  (`src/lib/robot-toast.ts`); a merge's: `showMergeToast` (`src/lib/landing-toast.ts`).
+- A success or info toast of nothing that follows: `showToast({ title, description, action })` from
+  `src/lib/toast-message.ts` (`type: "info"` for a precondition), or `toast.add` from `@/components/ui/toast` for a
+  custom one (a loading toast, a custom body).
 - A history rewrite with an Undo: `showUndoToast(title, undo)` from `src/lib/command.ts`.
 - A rewrite (a regroup, a squash, a reword, an undo): `runRewrite(spec, failureTitle, command, applied)` from
   `src/lib/rewrite.ts`, its toast with Undo after the sync.

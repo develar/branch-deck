@@ -1,8 +1,9 @@
 import { Channel } from "@tauri-apps/api/core"
-import { toast } from "@/components/ui/toast"
 import type { PatronusRobot, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getErrorDetails, notifyError } from "@/lib/errors"
+import type { EventToastAction } from "@/lib/event-toast"
+import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { retargetBeforePush } from "@/lib/git/new-pull-request"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showPushToast } from "@/lib/git/push-toast"
@@ -25,7 +26,7 @@ import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
 import { requestPushConfirm } from "@/stores/push-confirm"
-import { getRepositorySwitchReason, getSelectedRepositoryPath, vcsRequestFactory } from "@/stores/repository"
+import { getRepositorySwitchReason, getSelectedRepositoryPath, repositoryStore, vcsRequestFactory } from "@/stores/repository"
 
 export interface PushOptions {
   /** The remote commit the push replaces; by default the `remoteTip` of the branch's remote status, the row's view */
@@ -469,8 +470,8 @@ export function pushFromButton(branchName: string): void {
  * and its action pushes over exactly that, through the Safe Push question as any push; a push that drops the commits
  * the remote has now confirms in the row first. A Safe Push the push canceled to restart is restarted by that push;
  * with nothing left to push it is restarted at once, and the toast says so and opens it. The toast is of the repository
- * the push went to (`request`): its push refuses while the main window shows another one, whose branch of the same name
- * is another branch.
+ * the push went to (`request`): it offers its push only while the main window shows that one (the branch of the same
+ * name in another one is another branch), and closes once the branch is gone; a push of the branch takes its place.
  */
 export async function showRemoteMovedToast(request: VcsRequest, branchName: string, remoteStatus: RemoteStatus, restartRobot: PatronusRobot | undefined): Promise<void> {
   const texts = buildRemoteMovedTexts(branchName, remoteStatus)
@@ -482,27 +483,38 @@ export async function showRemoteMovedToast(request: VcsRequest, branchName: stri
   } else if (restartRobot !== undefined && texts.action !== null) {
     note = ` The ${formatPushMode(restartRobot.pushMode)} is canceled: the push restarts it.`
   }
-  const id = toast.add({
-    type: "warning",
-    title: texts.title,
-    description: `${texts.description}${note}`,
-    // the user decides: the toast stays until then
-    timeout: texts.action === null && restarted !== undefined ? ACTION_TOAST_TIMEOUT_MS : 0,
-    ...(texts.action !== null && {
-      actionProps: {
-        children: texts.action,
-        onClick: () => {
-          toast.close(id)
-          if (isStillIn(request.repositoryPath, branchName, notifyError)) {
-            pushOrConfirm(branchName, "row", { expectedRemote: remoteStatus.remoteTip, restartRobot })
-          }
-        },
+  const key = toastKeys.push(request.repositoryPath, branchName)
+  const description = `${texts.description}${note}`
+  let action: EventToastAction | undefined
+  if (texts.action !== null) {
+    const label = texts.action
+    action = {
+      label,
+      onClick: () => {
+        closeEventToasts(key)
+        if (isStillIn(request.repositoryPath, branchName, notifyError)) {
+          pushOrConfirm(branchName, "row", { expectedRemote: remoteStatus.remoteTip, restartRobot })
+        }
       },
-    }),
-    ...(texts.action === null &&
-      restarted !== undefined && {
-        actionProps: { children: "Open in Patronus", onClick: () => openRobot(restarted) },
-      }),
+    }
+  } else if (restarted !== undefined) {
+    action = { label: "Open in Patronus", onClick: () => openRobot(restarted) }
+  }
+  // the toast of the pushes of the branch: a push of it since takes its place. Its push only while the main window shows
+  // the repository, whose branch it pushes (the branch of the same name in another one is another branch), and it closes
+  // once the branch is gone
+  showEventToast({
+    key,
+    watch: [branchSyncStore, repositoryStore],
+    render: () => {
+      if (getRepositorySwitchReason(request.repositoryPath) !== null) {
+        return { type: "warning", title: texts.title, description, ...(texts.action === null && { action }), timeout: ACTION_TOAST_TIMEOUT_MS }
+      }
+      // the user decides: the toast stays until then
+      return getBranch(branchName) === undefined
+        ? null
+        : { type: "warning", title: texts.title, description, action, timeout: texts.action === null && restarted !== undefined ? ACTION_TOAST_TIMEOUT_MS : 0 }
+    },
   })
 }
 

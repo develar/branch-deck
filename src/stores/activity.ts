@@ -3,7 +3,7 @@ import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import type { LandedBranch, PatronusRobot, ReviewRequest, UpdateProjectResult } from "@/lib/bindings"
 import { setErrorRecorder } from "@/lib/errors"
-import { appliedUpdateToast, landedNews } from "@/lib/landed"
+import { appliedUpdateToast, foundLandedNews } from "@/lib/landed"
 import { describePush } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { describeRequestActivity } from "@/lib/review-requests"
@@ -254,17 +254,11 @@ export function recordLanded(repositoryPath: string, report: readonly LandedBran
   }
   const recorded = recordedLandedCommits(repositoryPath)
   const found = report.map(branch => ({ ...branch, commits: branch.commits.filter(commit => !recorded.has(commit.id)) })).filter(branch => branch.commits.length > 0)
-  const news = landedNews(found, upstream)
+  const news = foundLandedNews(found, upstream)
   if (news === null) {
     return
   }
-  recordActivity({
-    repositoryPath,
-    kind: "landed",
-    title: news.title,
-    description: news.description === undefined ? "Found by a sync" : `${news.description} · found by a sync`,
-    details: { type: "landed", upstream, report: found },
-  })
+  recordActivity({ repositoryPath, kind: "landed", ...news, details: { type: "landed", upstream, report: found } })
 }
 
 /**

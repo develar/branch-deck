@@ -12,3 +12,5 @@ export const useSelectedRepositoryState = () => undefined
 export const useEffectiveBranchPrefix = () => "user"
 export const getFullBranchName = (name: string) => `user/virtual/${name}`
 export const getFullStackBranchName = (root: string) => `user/stack/${root}`
+/** The selection never changes: nothing to tell its subscribers */
+export { quietStore as repositoryStore } from "@/test-support/quiet-store"

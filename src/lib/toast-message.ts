@@ -18,6 +18,9 @@ export interface ToastMessage {
 /** A toast with an action stays 10 s, as the Undo of a rewrite, so there is time to act */
 export const ACTION_TOAST_TIMEOUT_MS = 10_000
 
+/** A toast without an action stays 5 s, the timeout of the `Toaster` */
+export const TOAST_TIMEOUT_MS = 5_000
+
 /** Shows the toast of what happened */
 export function showToast({ type = "success", title, description, action }: ToastMessage): void {
   toast.add({ type, title, description, ...(action !== undefined && { timeout: ACTION_TOAST_TIMEOUT_MS, actionProps: action }) })

@@ -23,6 +23,7 @@ import { availablePullRequests, createPullRequestDialog, getOpenedUrls } from ".
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { holdToast } from "../helpers/toast-helpers"
 
 const NOW = ROBOTS_NOW
 const { running: RUNNING, failed: FAILED, merged: MERGED } = DAY_ROBOTS
@@ -172,9 +173,12 @@ test.describe("Landing overview", () => {
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
 
-    // no use waiting for it: the toast cancels it
-    await toast.getByRole("button", { name: "Cancel Safe Push" }).click()
-    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push is canceling" })).toBeVisible()
+    // no use waiting for it: the toast cancels it, and says so in place, the toast of the robot
+    const held = await holdToast(toast)
+    await held.getByRole("button", { name: "Cancel Safe Push" }).click()
+    await expect(held.locator("[data-slot=toast-title]")).toHaveText("Safe Push is canceling")
+    await expect(held.getByRole("button", { name: "Cancel Safe Push" })).toHaveCount(0)
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
     expect((await repo.getPatronusLog()).cancels).toEqual(["running-robot"])
   })
 

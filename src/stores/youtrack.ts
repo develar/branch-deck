@@ -7,6 +7,7 @@ import { useWindowFocus } from "@/hooks/useWindowFocus"
 import type { YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackStateChange } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { compileIssuePatterns, parseTextSegments } from "@/lib/issue-links"
 import type { SelectContext } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
@@ -230,10 +231,15 @@ export function markIssueFixed(key: string, context: SelectContext): Promise<voi
       return
     }
     const change = result.data
-    showToast({
-      title: `Marked ${key} Fixed`,
-      ...(change.previous !== null && { description: `Was ${change.previous}` }),
-      ...(change.previous !== null && { action: { children: "Undo", onClick: () => void undoMarkFixed(key, change) } }),
+    const previous = change.previous
+    // the toast of the issue: its Undo says in place that the issue is in its state again
+    showEventToast({
+      key: toastKeys.issue(key),
+      render: () => ({
+        type: "success",
+        title: `Marked ${key} Fixed`,
+        ...(previous !== null && { description: `Was ${previous}`, action: { label: "Undo", onClick: () => void undoMarkFixed(key, change) } }),
+      }),
     })
   }).then(() => {})
 }
@@ -248,7 +254,8 @@ async function undoMarkFixed(key: string, change: YouTrackStateChange): Promise<
     notifyError(`Cannot undo the Fixed state of ${key}`, result.error)
     return
   }
-  showToast({ title: `${key} is ${change.previous} again` })
+  const title = `${key} is ${change.previous} again`
+  showEventToast({ key: toastKeys.issue(key), render: () => ({ type: "success", title }) })
 }
 
 /** The subject of an issue's operations */

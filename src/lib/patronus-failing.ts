@@ -1,20 +1,18 @@
-import { toast } from "@/components/ui/toast"
 import { getPullRequestItem } from "@/hooks/useBranchContextActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { News, PatronusRobot, RobotFailureKind } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatFailedCheckNames } from "@/lib/check-counts"
+import { closeEventToasts, isEventToastOpen, replaceEventToast, toastKeys } from "@/lib/event-toast"
 import type { MenuItem } from "@/lib/menu"
-import { FROM_MENU } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
-import { describeRobot, formatPushMode, formatRobotSubject, openRobot } from "@/lib/patronus"
+import { describeRobot, formatPushMode, formatRobotSubject } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { copyRobotPrompt, robotAncestors } from "@/lib/robot-prompt-copy"
-import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
+import { robotToastKeys, showRobotEventToast } from "@/lib/robot-toast"
 import { recordRobot } from "@/stores/activity"
-import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { announceMerge, getBranchRobot, getStackRobot, patronusStore, repositoryKey } from "@/stores/patronus"
+import { announceMerge, patronusStore, repositoryKey } from "@/stores/patronus"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
 import { readRobotDetails } from "@/stores/robot-details"
 
@@ -102,36 +100,85 @@ export function formatFailedRobotToast(
  * A robot failed (the news of the session): a toast with its next step and "Open in Patronus", in Activity, and the OS notification of "Safe Push
  * failures" in the background. The step is "Copy Prompt for Agent", "Restart Safe Push" when only the CI failed (its
  * builds never started, `infrastructure`), or the pull request for the review. A robot told failing while it ran is told
- * no second time: its Activity entry says it finished.
+ * no second time: its Activity entry says it finished, and its toast, while still open, says in place that it failed.
+ * The toast is the robot's (`showRobotEventToast`): it takes the place of the start's, and a restart takes its place.
  */
 async function announceFailed(key: string, robot: PatronusRobot, needsReview: boolean, label: string | undefined): Promise<void> {
   const [repositoryPath] = key.split("\n") as [string, string]
-  if (announced.has(robot.id)) {
+  const toldFailing = announced.has(robot.id)
+  if (toldFailing) {
     const { title, description } = formatFailedRobotToast(robot, needsReview, null, label)
     recordRobot(title, description, robot, repositoryPath)
-    return
+    if (!isEventToastOpen(toastKeys.robot(repositoryPath, robot.id))) {
+      return
+    }
   }
   // the failure also warms the backend's cache of the details, so the prompt copies at once
   const [failedChecks, kind] = needsReview ? [null, null] : await Promise.all([readFailedChecks(robot.id), readFailureKind(repositoryPath, robot)])
   const { title, description } = formatFailedRobotToast(robot, needsReview, failedChecks, label, kind)
+  if (toldFailing) {
+    showFailedToast(repositoryPath, robot, needsReview, kind, title, description, true)
+    return
+  }
   recordRobot(title, description, robot, repositoryPath)
-  announce("patronusFailures", { title, body: description }, () => showFailedToast(robot, needsReview, kind, title, description))
+  announce("patronusFailures", { title, body: description }, () => showFailedToast(repositoryPath, robot, needsReview, kind, title, description, false))
 }
 
-function showFailedToast(robot: PatronusRobot, needsReview: boolean, kind: RobotFailureKind | null, title: string, description: string): void {
-  // the robot and the branch as the stores have them now: restarted meanwhile, nothing is left to restart
-  showRobotToast(robot, needsReview ? "warning" : "error", title, description, (current, branch) => {
-    if (needsReview) {
-      // the approvals of the whole stack count in the pull request of its stack branch
-      if (current.stackRoot != null) {
-        return getWholeStackMenuItems(current.stackRoot, { withPush: false }).find(item => item.id === "open-stack-pull-request" || item.id === "create-stack-pull-request") ?? null
+function showFailedToast(
+  repositoryPath: string,
+  robot: PatronusRobot,
+  needsReview: boolean,
+  kind: RobotFailureKind | null,
+  title: string,
+  description: string,
+  replaceOnly: boolean,
+): void {
+  showRobotEventToast({
+    repositoryPath,
+    robot,
+    type: needsReview ? "warning" : "error",
+    title,
+    description,
+    replaceOnly,
+    // the robot and the branch as the stores have them now: restarted meanwhile, nothing is left to restart
+    stepOf: (current, branch) => {
+      if (needsReview) {
+        // the approvals of the whole stack count in the pull request of its stack branch
+        if (current.stackRoot != null) {
+          return (
+            getWholeStackMenuItems(current.stackRoot, { withPush: false }).find(item => item.id === "open-stack-pull-request" || item.id === "create-stack-pull-request") ?? null
+          )
+        }
+        return branch === null ? null : getPullRequestItem(branch)
       }
-      return branch === null ? null : getPullRequestItem(branch)
-    }
-    const actions = getRobotActions(current, branch, false, false)
-    const restart = actions.find(action => action.id === "restart-robot" || action.id === "push-and-restart-robot") ?? null
-    return kind === "infrastructure" ? restart : (actions.find(action => action.id === "copy-robot-prompt") ?? restart)
+      const actions = getRobotActions(current, branch, false, false)
+      const restart = actions.find(action => action.id === "restart-robot" || action.id === "push-and-restart-robot") ?? null
+      const copy = actions.find(action => action.id === "copy-robot-prompt")
+      return kind === "infrastructure" || copy === undefined ? restart : copyInPlace(repositoryPath, copy, current)
+    },
   })
+}
+
+/**
+ * "Copy Prompt for Agent" of a toast: the toast says in place that it copied ("Copied the prompt for auth" / "Paste it
+ * into your coding agent"), as the clipboard shows nothing, and closes when it didn't
+ */
+function copyInPlace(repositoryPath: string, copy: MenuItem, robot: PatronusRobot): MenuItem {
+  return {
+    ...copy,
+    onSelect: () =>
+      void copyRobotPrompt(robot).then(copied => {
+        const keys = robotToastKeys(repositoryPath, robot)
+        if (copied) {
+          replaceEventToast({
+            ...keys,
+            render: () => ({ type: "success", title: `Copied the prompt for ${formatRobotSubject(robot)}`, description: "Paste it into your coding agent" }),
+          })
+        } else {
+          closeEventToasts(keys.key)
+        }
+      }),
+  }
 }
 
 /** "A required check of auth failed" / "Fast Tests · the Safe Push will fail" ("… of the whole air stack failed") */
@@ -149,136 +196,17 @@ async function announceFailing(key: string, robot: PatronusRobot, label: string 
   const failedChecks = await readFailedChecks(robot.id)
   const { title, description } = formatFailingRobotToast(robot, failedChecks, label)
   recordRobot(title, description, robot, repositoryPath)
-  announce("patronusFailures", { title, body: description }, () => showFailingToast(robot, title, description))
-}
-
-function showFailingToast(robot: PatronusRobot, title: string, description: string): void {
-  // the robot as the store has it now: canceled meanwhile, it has nothing to cancel
-  showRobotToast(robot, "warning", title, description, (current, branch) => getRobotActions(current, branch).find(action => action.id === "cancel-robot") ?? null)
-}
-
-/**
- * The toast of a robot: its step as the action (`stepOf` the robot and its branch as the stores have them when it
- * shows), unless disabled, and "Open in Patronus" below the text (`secondaryAction`)
- */
-function showRobotToast(
-  robot: PatronusRobot,
-  type: "warning" | "error",
-  title: string,
-  description: string,
-  stepOf: (current: PatronusRobot, branch: Branch | null) => MenuItem | null,
-): void {
-  const current = currentRobot(robot.id) ?? robot
-  const branchName = current.branchName
-  const branchOf = (name: string | null): Branch | null => (name === null ? null : (branchSyncStore.getState().branches[name] ?? null))
-  const step = stepOf(current, branchOf(branchName))
-  /**
-   * The step as the stores have it at the click; null after an info toast said why it no longer applies. A step on the
-   * robot is checked (`ROBOT_STEPS`); the pull request of the branch opens whatever the robot did since.
-   */
-  const stepAtClick = (offered: MenuItem): MenuItem | null => {
-    const latest = currentRobot(robot.id) ?? current
-    const now = stepOf(latest, branchOf(latest.branchName))
-    if (!ROBOT_STEPS.has(offered.id ?? "")) {
-      return now ?? offered
-    }
-    // a restart is a newer robot of the branch, or of the whole stack
-    const newer = latest.branchName !== null ? getBranchRobot(latest.branchName) : latest.stackRoot != null ? getStackRobot(latest.stackRoot) : undefined
-    const stale = formatStaleRobotStep(offered, now, current, latest, newer !== undefined && newer.id !== latest.id && newer.startTime > latest.startTime ? newer : null)
-    if (stale === null) {
-      return now
-    }
-    showToast({ type: "info", ...stale, action: { children: "Open in Patronus", onClick: () => openRobot(newer ?? latest) } })
-    return null
-  }
-  const id = toast.add({
-    type,
-    title,
-    description,
-    timeout: ACTION_TOAST_TIMEOUT_MS,
-    ...(step !== null &&
-      step.disabled !== true && {
-        actionProps: {
-          children: step.label,
-          onClick:
-            step.id === "copy-robot-prompt"
-              ? // the toast says in place that it copied: the clipboard shows nothing
-                () => {
-                  if (stepAtClick(step) === null) {
-                    toast.close(id)
-                    return
-                  }
-                  void copyRobotPrompt(current).then(copied => {
-                    if (copied) {
-                      toast.update(id, {
-                        type: "success",
-                        title: `Copied the prompt for ${formatRobotSubject(current)}`,
-                        description: "Paste it into your coding agent",
-                        actionProps: undefined,
-                      })
-                    } else {
-                      toast.close(id)
-                    }
-                  })
-                }
-              : () => {
-                  toast.close(id)
-                  // decided when the toast showed: a restart, a cancel or a finish since leaves nothing to do
-                  stepAtClick(step)?.onSelect(FROM_MENU)
-                },
-        },
-      }),
-    data: { secondaryAction: { label: "Open in Patronus", onClick: () => openRobot(current) } },
-  })
-}
-
-/** The steps of a robot toast that act on the robot, decided again at the click */
-const ROBOT_STEPS: ReadonlySet<string> = new Set(["restart-robot", "push-and-restart-robot", "cancel-robot", "copy-robot-prompt"])
-
-/** How a robot's status reads after its subject: "Safe Push of auth merged" */
-function formatRobotStatus(robot: PatronusRobot): string {
-  switch (robot.status) {
-    case "running":
-      return "is running"
-    case "success":
-      return robot.pushMode === "dryRun" ? "passed" : "merged"
-    case "failure":
-      return "failed"
-    case "canceled":
-      return "was canceled"
-    case "canceling":
-      return "is canceling"
-    case "unknown":
-      return "changed"
-  }
-}
-
-/**
- * Why the step a robot toast offered (`offered`, for the robot as it was then, `shown`) no longer applies at the click,
- * in the words of an info toast (a precondition, nothing failed): a newer robot of the branch (restarted meanwhile), a
- * robot that finished or was canceled since, or a step disabled now (`now`, with its reason). Null while it applies.
- */
-export function formatStaleRobotStep(
-  offered: MenuItem,
-  now: MenuItem | null,
-  shown: PatronusRobot,
-  current: PatronusRobot,
-  newer: PatronusRobot | null,
-): { title: string; description: string } | null {
-  if (newer === null && now !== null && now.id === offered.id && now.disabled !== true) {
-    return null
-  }
-  const subject = `${formatPushMode(current.pushMode)} of ${formatRobotSubject(current)}`
-  if (newer !== null) {
-    return { title: `${subject} was restarted`, description: describeRobot(newer) }
-  }
-  if (current.status !== shown.status) {
-    return { title: `${subject} ${formatRobotStatus(current)}`, description: `${offered.label} no longer applies` }
-  }
-  if (now !== null && now.id === offered.id) {
-    return { title: `${offered.label} isn't possible now`, description: now.description ?? describeRobot(current) }
-  }
-  return { title: `${offered.label} no longer applies`, description: now === null ? describeRobot(current) : `${now.label} is the next step` }
+  announce("patronusFailures", { title, body: description }, () =>
+    // the robot as the store has it now: canceled meanwhile, it has nothing to cancel
+    showRobotEventToast({
+      repositoryPath,
+      robot,
+      type: "warning",
+      title,
+      description,
+      stepOf: (current, branch) => getRobotActions(current, branch).find(action => action.id === "cancel-robot") ?? null,
+    }),
+  )
 }
 
 /** What failed, which decides the step of the toast; null when Patronus can't tell */
@@ -306,16 +234,6 @@ async function readFailedChecks(robotId: string): Promise<string | null> {
   const details = await readRobotDetails(robotId)
   // without them the toast says it without the names
   return details?.checks == null ? null : formatFailedCheckNames(details.checks)
-}
-
-function currentRobot(id: string): PatronusRobot | undefined {
-  for (const repository of Object.values(patronusStore.getState().repositories)) {
-    const robot = repository.robots[id]
-    if (robot !== undefined) {
-      return robot
-    }
-  }
-  return undefined
 }
 
 /** Forgets the robots told about (tests) */

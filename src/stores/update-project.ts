@@ -1,11 +1,12 @@
 import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import { toast } from "@/components/ui/toast"
 import type { TransferProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { notifyError } from "@/lib/errors"
+import type { EventToastState } from "@/lib/event-toast"
+import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { appliedUpdateToast } from "@/lib/landed"
 import { canceledBeforeStart, isLockWaitCanceled, stopLockWait } from "@/lib/lock-wait"
 import { showToast } from "@/lib/toast-message"
@@ -287,14 +288,14 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
   switch (check.state.status) {
     case "upToDate":
       setBaselineUpdate(repositoryPath, check)
-      toast.add({ type: "info", title: `${check.branch} is already up to date with ${check.upstream}` })
+      showUpdateToast(repositoryPath, { type: "info", title: `${check.branch} is already up to date with ${check.upstream}` })
       break
     case "clean":
       if (applied !== null) {
         setBaselineUpdate(repositoryPath, { ...check, head: applied.newHead, state: { status: "upToDate" } })
+        showUpdateToast(repositoryPath, { type: "success", ...appliedUpdateToast(check, applied, landed) })
         // the island of what landed shows at once, the sync that follows confirms it
-        addLandedUpdate(repositoryPath, landed)
-        toast.add({ type: "success", ...appliedUpdateToast(check, applied, landed) })
+        addLandedUpdate(repositoryPath, landed, check.upstream)
       }
       break
     case "conflict":
@@ -318,6 +319,15 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
     patchRunning(repositoryPath, running => ({ ...running, syncRun }))
   })
   return syncing.done
+}
+
+/**
+ * The outcome of an update: the merges of the repository it brought in were told by toasts of their own, whose Update
+ * Project is done now, so it takes the place of theirs (`showMergeToast`): "auth merged into master" becomes "auth
+ * landed in origin/master" in place, never a second toast of the same landing
+ */
+function showUpdateToast(repositoryPath: string, state: EventToastState): void {
+  showEventToast({ key: toastKeys.update(repositoryPath), supersedes: [toastKeys.merged(repositoryPath)], render: () => state })
 }
 
 /**

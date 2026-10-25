@@ -481,7 +481,10 @@ The checklist:
 - **Icons**: lucide-react components (`<GitBranchIcon />`). Inside `Button`, add `data-icon="inline-start"` (or `inline-end`)
   and no size classes; the button sizes them. Elsewhere use `size-*` classes (e.g. `size-3`).
 - **Components**: `Tooltip` for simple text tooltips, `Popover` for rich content, `Kbd` for keyboard shortcuts,
-  `showToast({ title, description, action })` from `@/lib/toast-message` for notifications. Every user-facing error
+  `showToast({ title, description, action })` from `@/lib/toast-message` for notifications; a toast of an event of
+  an object (a robot, a push, a merge, a review) is `showEventToast` of `src/lib/event-toast.ts`, one per event, its
+  later states and their actions in place ([One toast per event](docs/guidelines/ux-writing.md#one-toast-per-event)),
+  never a second toast of the same event. Every user-facing error
   goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity),
   which words it by its code (`describeError`: a held lock names its holder); a store decides by `error.code`
   (`canceled` toasts nothing), never by `error.message`.

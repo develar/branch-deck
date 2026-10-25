@@ -81,6 +81,9 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   `describeRobot`, `appliedUpdateToast`). A push that is a step of another action, which has no toast of its own (a
   Safe Push start, a merge request), and each branch of a stack push are recorded too, in the words their toast would
   have. A sub-window records nothing: the main window owns the log, the Activity window is told it over its link.
+  A toast whose later states replace it in place ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event):
+  the merge, then the landing; the failure of a robot, then its restart) leaves an entry per state: Activity is the
+  log of the events, the toasts are one per event.
   [@test] ../../src/stores/activity.test.ts (`keeps the log of each repository apart, newest first`, `records nothing without a repository`)
 - A push: "Pushed feature-auth" / "3 commits", "4 commits · created the remote branch"; a force push "Force pushed
   ABC-123" / "1 commit · dropped 1 remote commit" with the dropped remote commits (`DroppedCommitList`), or "replaced the

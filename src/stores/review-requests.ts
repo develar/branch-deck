@@ -1,9 +1,9 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import { toast } from "@/components/ui/toast"
 import type { FactsChanges, FactsView, News, PullRequestAvailability, PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { formatShortHash } from "@/lib/hash"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, openRobotUrl } from "@/lib/patronus"
@@ -14,14 +14,13 @@ import type { ReviewIntent } from "@/lib/review-request-actions"
 import { isApprovedCommit } from "@/lib/review-request-actions"
 import { describeNewRequests, mergeReviewRequests, reviewRequestKey } from "@/lib/review-requests"
 import { showRepository } from "@/lib/show-repository"
-import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { refreshSessionFacts } from "@/model/store"
 import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
 import type { Operations } from "@/stores/operations"
 import { operationsStore, runOperation } from "@/stores/operations"
 import { startPatronusFromReviewedPullRequest, watchRobot } from "@/stores/patronus"
 import { getGitHubRepository } from "@/stores/pull-requests"
-import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
+import { getSelectedProject, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
 
 /*
  * "Your Turn": the pull requests of others that wait for the user's review in the selected repository
@@ -234,9 +233,17 @@ function githubRepositoryOfPullRequests(): string | null {
 
 // ---- news ----
 
+/** The requests of `numbers` that still wait for the user's review in the repository: listed, not reviewed */
+function waitingRequests(repositoryPath: string, numbers: readonly number[]): ReviewRequest[] {
+  const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
+  return numbers.flatMap(number => entry.requests.find(request => request.number === number && entry.reviewed[number] === undefined) ?? [])
+}
+
 /**
  * New requests: one toast "alice requested your review" (or "3 reviews requested") with "Review", which opens the first
- * one; in the background an OS notification and the toast on focus. Each is an Activity entry.
+ * one that still waits; in the background an OS notification and the toast on focus. Each is an Activity entry. The
+ * toast of one request is the toast of its pull request (`toastKeys.review`): the review the user submits takes its
+ * place; a toast of several closes once none of them waits, and while the main window shows another repository
  */
 function tellNews(repositoryPath: string, news: readonly ReviewRequest[]): void {
   const first = news[0]
@@ -247,21 +254,32 @@ function tellNews(repositoryPath: string, news: readonly ReviewRequest[]): void 
     recordReviewRequest(repositoryPath, request)
   }
   const { title, description } = describeNewRequests(news)
-  announce("reviewRequests", { title, body: description }, () => {
-    const id = toast.add({
-      type: "info",
-      title,
-      description,
-      timeout: ACTION_TOAST_TIMEOUT_MS,
-      actionProps: {
-        children: "Review",
-        onClick: () => {
-          toast.close(id)
-          openReviewRequest(repositoryPath, first.number)
-        },
+  const numbers = news.map(request => request.number)
+  const key = news.length === 1 ? toastKeys.review(repositoryPath, first.number) : toastKeys.reviewRequests(repositoryPath, numbers)
+  announce("reviewRequests", { title, body: description }, () =>
+    showEventToast({
+      key,
+      watch: [reviewRequestsStore, repositoryStore],
+      render: () => {
+        const [waiting] = waitingRequests(repositoryPath, numbers)
+        if (waiting === undefined || currentRepositoryPath() !== repositoryPath) {
+          return null
+        }
+        return {
+          type: "info",
+          title,
+          description,
+          action: {
+            label: "Review",
+            onClick: () => {
+              closeEventToasts(key)
+              openReviewRequest(repositoryPath, waiting.number)
+            },
+          },
+        }
       },
-    })
-  })
+    }),
+  )
 }
 
 // ---- the review ----
@@ -314,11 +332,15 @@ function githubRepositoryOfRequests(repositoryPath: string): string | null {
  */
 export function mainReviewFeedback(request: ReviewRequest): ReviewFeedback {
   return {
-    toast: ({ title, description, target }) =>
-      showToast({
-        title,
-        description,
-        action: { children: reviewToastActionLabel(target), onClick: () => (target.kind === "robot" ? openRobotUrl(target.url) : openRequestOnGitHub(request)) },
+    toast: ({ key, title, description, target }) =>
+      showEventToast({
+        key,
+        render: () => ({
+          type: "success",
+          title,
+          description,
+          action: { label: reviewToastActionLabel(target), onClick: () => (target.kind === "robot" ? openRobotUrl(target.url) : openRequestOnGitHub(request)) },
+        }),
       }),
     error: notifyError,
   }
@@ -374,10 +396,11 @@ export async function submitReview(
   if (!submitted) {
     return false
   }
+  const title = describeReview(event, number)
+  // the review is the next state of the toast of the request (`tellNews`), before the request it closes leaves
+  feedback.toast({ key: toastKeys.review(repositoryPath, number), title, description: request.title, target: { kind: "pullRequest", url: request.url } })
   markRead(repositoryPath, request)
   update(repositoryPath, entry => ({ reviewed: { ...entry.reviewed, [number]: { event, commitId } } }))
-  const title = describeReview(event, number)
-  feedback.toast({ title, description: request.title, target: { kind: "pullRequest", url: request.url } })
   recordReview(repositoryPath, title, request)
   void refreshReviewRequests()
   return true
@@ -435,14 +458,16 @@ async function startReviewedSafePush(
     }
     const robot = await startPatronusFromReviewedPullRequest(number, githubRepository)
     const title = "Safe Push started"
+    // the start after the approval is its next state: one toast of the pull request
+    const key = toastKeys.review(repositoryPath, number)
     if (robot === null) {
       // the robot is not the user's: the pull request tells how it goes
-      feedback.toast({ title, description: `#${number} ${request.title}`, target: { kind: "pullRequest", url: request.url } })
+      feedback.toast({ key, title, description: `#${number} ${request.title}`, target: { kind: "pullRequest", url: request.url } })
       recordReview(repositoryPath, `${title} on #${number}`, request)
     } else {
       watchRobot(robot, `#${number} ${request.title}`)
       const description = describeRobot(robot)
-      feedback.toast({ title, description, target: { kind: "robot", url: robot.url } })
+      feedback.toast({ key, title, description, target: { kind: "robot", url: robot.url } })
       recordRobot(title, description, robot)
     }
     return true

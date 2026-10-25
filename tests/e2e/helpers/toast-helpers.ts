@@ -11,3 +11,16 @@ export async function closeToast(toast: Locator): Promise<void> {
   await toast.locator("[data-slot=toast-close]").click()
   await expect(toast).toHaveCount(0)
 }
+
+let held = 0
+
+/**
+ * The toast `toast` finds now, held by its element: a later state of its event replaces it in place
+ * (`src/lib/event-toast.ts`), with words `toast` no longer finds, and this locator finds the same element wherever it
+ * is. The element is marked (`data-held`), so a new toast in its place is not it.
+ */
+export async function holdToast(toast: Locator): Promise<Locator> {
+  const mark = `held-${++held}`
+  await toast.evaluate((element, value) => element.setAttribute("data-held", value), mark)
+  return toast.page().locator(`[data-slot=toast][data-held="${mark}"]`)
+}

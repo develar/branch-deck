@@ -150,6 +150,18 @@ export function landedNews(landed: readonly LandedBranch[], upstream: string): U
 }
 
 /**
+ * What a sync found landed after an update elsewhere (the IDE, `git pull`, `bd update`), as Activity records it and the
+ * toast of the merge says it in place: "wsm landed in origin/master" / "Found by a sync". Null when nothing landed.
+ */
+export function foundLandedNews(found: readonly LandedBranch[], upstream: string): Required<UpdateToast> | null {
+  const news = landedNews(found, upstream)
+  if (news === null) {
+    return null
+  }
+  return { title: news.title, description: news.description === undefined ? "Found by a sync" : `${news.description} · found by a sync` }
+}
+
+/**
  * The toast after an applied update. What landed is the news and leads; how the branch was updated follows. Without
  * anything landed, the title says how the branch was updated, as before. The conflicts of git that the update resolved
  * by words come last: "Resolved 1 conflict by words in “Capitalize line 2”".

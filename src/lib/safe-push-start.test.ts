@@ -66,14 +66,16 @@ vi.mock("@/lib/errors", () => ({
     }
   },
 }))
-vi.mock("@/components/ui/toast", () => ({ toast: { add: () => "toast", close: () => {} } }))
+vi.mock("@/components/ui/toast", async () => (await import("@/test-support/toast-mock")).toastModule)
 vi.mock("@/stores/update-project", () => ({
   runUpdateProjectOf: async (repositoryPath: string) => {
     calls.push(`update project of ${repositoryPath}`)
   },
 }))
 vi.mock("@/hooks/useStackActions", () => ({ restackBranch: async () => true }))
-vi.mock("@/lib/patronus-actions", () => ({ runRobotAction: async () => {} }))
+vi.mock("@/lib/patronus-actions", () => ({ runRobotAction: async () => {}, getRobotActions: () => [] }))
+// the toast of the robot follows it in the stores: this test is about the repository of the start
+vi.mock("@/lib/robot-toast", () => ({ showRobotEventToast: () => {} }))
 
 const ROBOT: PatronusRobot = {
   id: "r1",

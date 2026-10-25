@@ -1,6 +1,7 @@
 // @spec spec/repository/review-requests.spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { News, PullRequestAvailability, ReviewRequest } from "@/lib/bindings"
+import { resetEventToasts, toastKeys } from "@/lib/event-toast"
 import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { getOperations } from "@/stores/operations"
 import {
@@ -19,6 +20,7 @@ import {
 } from "@/stores/review-requests"
 import { emptyView } from "@/test-support/fake-sessions"
 import { reviewRequest as request } from "@/test-support/review-request"
+import { describeToast, openToasts, resetToasts, toasts } from "@/test-support/toast-mock"
 
 /** What GitHub answers of the review requests, as the session reads it */
 interface Listing {
@@ -34,7 +36,6 @@ const { gh } = vi.hoisted(() => ({
     /** The refreshes the page asked the session for: the family and the reason of each */
     refreshes: [] as string[],
     prunes: [] as { repositoryPath: string; keep: number[] }[],
-    toasts: [] as { title: string; description?: string; actionProps?: { children: string; onClick: () => void } }[],
     notifications: [] as { title: string; body: string }[],
     activity: [] as string[],
     reviews: [] as unknown[],
@@ -74,7 +75,8 @@ vi.mock("@/lib/show-repository", () => ({
   },
 }))
 
-vi.mock("@/stores/repository", () => ({
+vi.mock("@/stores/repository", async () => ({
+  repositoryStore: (await import("@/test-support/quiet-store")).quietStore,
   getSelectedProject: () => ({ path: gh.selected }),
   useSelectedProject: () => ({ path: gh.selected }),
 }))
@@ -102,15 +104,7 @@ vi.mock("@/stores/patronus", () => ({
 
 vi.mock("@/lib/patronus", () => ({ describeRobot: () => "auth → master", openRobotUrl: () => {} }))
 
-vi.mock("@/components/ui/toast", () => ({
-  toast: {
-    add: (options: (typeof gh.toasts)[number]) => {
-      gh.toasts.push(options)
-      return "toast"
-    },
-    close: () => {},
-  },
-}))
+vi.mock("@/components/ui/toast", async () => (await import("@/test-support/toast-mock")).toastModule)
 
 vi.mock("@tauri-apps/plugin-notification", () => ({
   isPermissionGranted: async () => true,
@@ -180,7 +174,8 @@ beforeEach(() => {
   gh.refreshes = []
   lastNews = 0
   gh.prunes = []
-  gh.toasts = []
+  resetEventToasts()
+  resetToasts()
   gh.notifications = []
   gh.activity = []
   gh.reviews = []
@@ -194,19 +189,46 @@ beforeEach(() => {
 describe("answers", () => {
   it("tells the requests the session tells new in one toast with Review, unread until opened, recorded in Activity", async () => {
     listed(available(request(1)))
-    expect(gh.toasts).toEqual([])
+    expect(toasts).toEqual([])
     listed(available(request(1), request(2), request(3)), [2, 3])
-    expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["2 reviews requested", "#2 Change 2 · #3 Change 3", "Review"]])
+    expect(toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["2 reviews requested", "#2 Change 2 · #3 Change 3", "Review"]])
     expect(gh.activity).toEqual(["#2", "#3"])
     expect([...entry().unread]).toEqual(["2@1002", "3@1003"])
 
     // Review of the toast: the review window of the first one
-    gh.toasts[0]!.actionProps!.onClick()
+    toasts[0]!.actionProps!.onClick()
     expect(reviewWindow.opens).toEqual([{ number: 2, index: 1, intent: null }])
     expect([...entry().unread]).toEqual(["3@1003"])
     // a request that left the list is unread no more
     listed(available(request(1)))
     expect([...entry().unread]).toEqual([])
+  })
+
+  it("replaces the toast of a request with the review of it, and closes a toast of several once none of them waits", async () => {
+    const HEAD = "0123456789abcdef0123456789abcdef01234567"
+    listed(available(request(1)))
+    listed(available(request(1), request(7)), [7])
+    expect(openToasts().map(describeToast)).toEqual([["bob requested your review", "#7 Change 7", "Review", undefined]])
+    const asked = openToasts()[0]!
+    gh.result = available(request(1))
+    expect(await submitReview("/repo", request(7), "approve", HEAD)).toBe(true)
+    // the same toast: what the user did with the request, no Review of a reviewed one
+    expect(openToasts()).toEqual([asked])
+    expect(openToasts().map(describeToast)).toEqual([["Approved #7", "Change 7", "Open Pull Request", undefined]])
+
+    resetToasts()
+    listed(available(request(1), request(2), request(3)), [2, 3])
+    expect(openToasts().map(describeToast)).toEqual([["2 reviews requested", "#2 Change 2 · #3 Change 3", "Review", undefined]])
+    // #2 was reviewed elsewhere: Review opens the one that still waits
+    listed(available(request(1), request(3)))
+    openToasts()[0]!.actionProps!.onClick!()
+    expect(reviewWindow.opens).toEqual([{ number: 3, index: 1, intent: null }])
+
+    listed(available(request(1), request(2), request(3)), [2, 3])
+    expect(openToasts()).toHaveLength(1)
+    // none of them waits: nothing is left to review
+    listed(available(request(1)))
+    expect(openToasts()).toEqual([])
   })
 
   it("keeps the list and the rows of an answer that changed nothing", async () => {
@@ -224,9 +246,9 @@ describe("answers", () => {
     setWindowFocus(false)
     listed(available(request(7)), [7])
     await vi.waitFor(() => expect(gh.notifications).toEqual([{ title: "bob requested your review", body: "#7 Change 7" }]))
-    expect(gh.toasts).toEqual([])
+    expect(toasts).toEqual([])
     setWindowFocus(true)
-    expect(gh.toasts.map(it => it.title)).toEqual(["bob requested your review"])
+    expect(toasts.map(it => it.title)).toEqual(["bob requested your review"])
   })
 })
 
@@ -279,7 +301,7 @@ describe("reviews", () => {
     gh.result = available(request(8))
     expect(await submitReview("/repo", request(7), "approve", HEAD)).toBe(true)
     expect(gh.reviews).toEqual([{ repositoryPath: "/repo", githubRepository: "acme/monorepo", pullRequestNumber: 7, event: "approve", commitId: HEAD, body: null }])
-    expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Approved #7", "Change 7", "Open Pull Request"]])
+    expect(toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Approved #7", "Change 7", "Open Pull Request"]])
     expect(gh.activity).toEqual(["Approved #7"])
     expect(entry().reviewed[7]).toEqual({ event: "approve", commitId: HEAD })
     expect(getReviewBusy(getOperations(), "/repo")).toEqual({})
@@ -292,11 +314,11 @@ describe("reviews", () => {
     listed(available(request(7)))
     expect(await submitReview("/repo", request(7), "requestChanges", HEAD, "Sort by the snapshot")).toBe(true)
     expect(gh.reviews).toMatchObject([{ event: "requestChanges", body: "Sort by the snapshot" }])
-    expect(gh.toasts.at(-1)?.title).toBe("Requested changes on #7")
+    expect(toasts.at(-1)?.title).toBe("Requested changes on #7")
 
     gh.reviewError = "User can only have one pending review per pull request"
     expect(await submitReview("/repo", request(7), "approve", HEAD)).toBe(false)
-    expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot approve pull request #7", description: "User can only have one pending review per pull request" })
+    expect(toasts.at(-1)).toMatchObject({ title: "Cannot approve pull request #7", description: "User can only have one pending review per pull request" })
     expect(entry().reviewed[7]).toEqual({ event: "requestChanges", commitId: HEAD })
   })
 })
@@ -304,17 +326,14 @@ describe("reviews", () => {
 describe("Safe Push of a reviewed pull request", () => {
   const HEAD = "0123456789abcdef0123456789abcdef01234567"
 
-  it("approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start", async () => {
+  it("approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start, in the toast of the approval", async () => {
     listed(available(request(7)))
     gh.head = HEAD
     expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(true)
     expect(gh.reviews).toMatchObject([{ event: "approve", commitId: HEAD }])
     expect(gh.safePushes).toEqual([{ number: 7, githubRepository: "acme/monorepo" }])
-    // no robot of the user's: the toast opens the pull request
-    expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([
-      ["Approved #7", "Change 7", "Open Pull Request"],
-      ["Safe Push started", "#7 Change 7", "Open Pull Request"],
-    ])
+    // no robot of the user's: the toast opens the pull request; "Approved #7" became the start in place
+    expect(toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Safe Push started", "#7 Change 7", "Open Pull Request"]])
     expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
 
     // approved already: no second approval; a robot of the user's is announced as any
@@ -323,7 +342,7 @@ describe("Safe Push of a reviewed pull request", () => {
     expect(gh.reviews).toHaveLength(1)
     // the robot of no branch is watched: polled, its merge told, listed in the header
     expect(gh.announced).toEqual(["watch #7 Change 7"])
-    expect(gh.toasts.at(-1)).toMatchObject({ title: "Safe Push started", description: "auth → master", actionProps: { children: "Open in Patronus" } })
+    expect(toasts.at(-1)).toMatchObject({ title: "Safe Push started", description: "auth → master", actionProps: { children: "Open in Patronus" } })
     expect(gh.activity.at(-1)).toBe("robot: Safe Push started")
     expect(getReviewBusy(getOperations(), "/repo")).toEqual({})
   })
@@ -333,12 +352,12 @@ describe("Safe Push of a reviewed pull request", () => {
     gh.head = "f".repeat(40)
     expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(false)
     expect(gh.safePushes).toEqual([])
-    expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "#7 has new commits since you reviewed 01234567: review ffffffff first" })
+    expect(toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "#7 has new commits since you reviewed 01234567: review ffffffff first" })
 
     gh.head = HEAD
     gh.safePushResult = new Error("A robot is already running for the branch.")
     expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(false)
-    expect(gh.toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "A robot is already running for the branch." })
+    expect(toasts.at(-1)).toMatchObject({ title: "Cannot start the Safe Push", description: "A robot is already running for the branch." })
   })
 
   it("tells the window that asked, records Activity in the main window, and switches it to the request's repository first", async () => {
@@ -348,10 +367,12 @@ describe("Safe Push of a reviewed pull request", () => {
     const feedback = { toast: (toast: unknown) => told.push(toast), error: (title: string, error: unknown) => told.push({ title, error }) }
     expect(await approveAndSafePush("/repo", request(7), HEAD, feedback)).toBe(true)
     // no toast in the main window: the window says it
-    expect(gh.toasts).toEqual([])
+    expect(toasts).toEqual([])
+    // one toast of the pull request in the window: the start takes the place of the approval
+    const key = toastKeys.review("/repo", 7)
     expect(told).toEqual([
-      { title: "Approved #7", description: "Change 7", target: { kind: "pullRequest", url: request(7).url } },
-      { title: "Safe Push started", description: "#7 Change 7", target: { kind: "pullRequest", url: request(7).url } },
+      { key, title: "Approved #7", description: "Change 7", target: { kind: "pullRequest", url: request(7).url } },
+      { key, title: "Safe Push started", description: "#7 Change 7", target: { kind: "pullRequest", url: request(7).url } },
     ])
     expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
 
