@@ -6,12 +6,11 @@
 //! keychain can't be used (locked, no session), the 0600 file (`private_file`). A file the keychain does not have yet
 //! is copied into it on the first read, and removed by the next write or sign-out.
 
-use crate::child_process::run_child;
+use crate::child_process::{run_child, windowless_command};
 use crate::private_file::{read_private, remove_private, write_private};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{info, warn};
@@ -126,7 +125,7 @@ impl Keychain {
   }
 
   fn run(&self, args: &[&str], stdin: Option<Vec<u8>>) -> Result<crate::child_process::ChildOutput, String> {
-    run_child(Command::new(&self.security).args(args), stdin, SECURITY_TIMEOUT, &|| false).map_err(|e| format!("security: {e:?}"))
+    run_child(windowless_command(&self.security).args(args), stdin, SECURITY_TIMEOUT, &|| false).map_err(|e| format!("security: {e:?}"))
   }
 }
 

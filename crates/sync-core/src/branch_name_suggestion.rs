@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
-use sync_utils::child_process::{ChildOutput, ChildProcessError, find_tool, run_child};
+use sync_utils::child_process::{ChildOutput, ChildProcessError, find_tool, run_child, windowless_command};
 use sync_utils::known_tools::CLAUDE;
 use sync_utils::list_cut;
 use tracing::{info, instrument, warn};
@@ -112,7 +112,7 @@ pub fn suggest_branch_names_with(
 /// `apiKeyHelper`; `--strict-mcp-config` makes Claude Code exit where a `managed-mcp.json` is installed. The temp dir
 /// keeps the settings and `.mcp.json` of a project out.
 pub(crate) fn claude_command(claude: &Path) -> Command {
-  let mut command = Command::new(claude);
+  let mut command = windowless_command(claude);
   command
     .args([
       "-p",

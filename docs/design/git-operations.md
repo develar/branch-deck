@@ -298,6 +298,10 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
   `notes.displayRef=refs/notes/*`, `%N` would otherwise print the notes of every ref, and the mapping readers would take
   a wrong id. The mapping readers also parse only the first line of a note.
 - stdout is a pipe, so git never starts a pager and callers do not need `--no-pager`.
+- On Windows git opens no console window (`CREATE_NO_WINDOW`, `sync_utils::child_process::windowless_command`) while our process has none. The release
+  app is a GUI program, so Windows gave every git a console of its own, which Windows Terminal showed as a window in
+  front of the app, five to thirteen a second. `bd` and a debug build of the app have a console, and their gits share
+  it, so a Ctrl+C ends them too. Every other program starts the same way (`console_window_scan_test.rs`).
 - Paths after `--` are names: an argument list that puts any there starts with `--literal-pathspecs` (git's global
   option, the same as `GIT_LITERAL_PATHSPECS=1`), so `a*.txt` matches no `ab.txt` and `:name` is no pathspec magic.
   No call needs a glob or magic; `git_usage_scan_test.rs` checks the lists.

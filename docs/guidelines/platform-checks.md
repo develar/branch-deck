@@ -36,5 +36,13 @@ tree-sitter finds no Windows headers.
   VM takes a source and a target directory of its own (`C:\dev\<name>`, a cold build of the tests takes about 8
   minutes) with `CARGO_INCREMENTAL=0`: the disk has little free space, and the incremental caches of one full run and
   one clippy took 18 GB.
+- **The app on Windows**: a debug build has a console of its own, which its processes share, so what the release shows
+  (a console window per git) needs a GUI build: `cargo build -p branch-deck --features tauri/custom-protocol --config
+  "profile.dev.package.branch-deck.debug-assertions=false"` with the `dist/` of `pnpm build` copied along (no `/XD
+  dist`), about 4 minutes cold. `settings.json` in `%APPDATA%\org.develar.branch-deck` with `{"recentProjects":
+  [{"path":"C:\\dev\\<repo>"}]}` opens a repository without the folder dialog. `prlctl capture` shows the screen of the
+  VM; Peekaboo of the Parallels window gets a stale frame while it is in the background. The windows that open are
+  counted by an `EnumWindows` poll in PowerShell (class `CASCADIA_HOSTING_WINDOW_CLASS`: Windows Terminal hosts the
+  consoles), not by eye. Every `prlctl exec --current-user` opens a terminal window of its own.
 - **Commands**: the clippy of CI, `cargo clippy --workspace --all-targets --features branch-deck/auto-update -- -D
   warnings`, then `cargo nextest run --workspace` (or `-E 'test(/…/)'` for the tests of the change).

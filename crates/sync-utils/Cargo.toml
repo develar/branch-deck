@@ -19,9 +19,10 @@ tracing.workspace = true
 libc = "0.2.191"
 
 # the start time of a process (`process_scan`: `OpenProcess`, `GetProcessTimes`) and the sharing errors that a rename
-# or a removal waits out (`fs_retry`)
+# or a removal waits out (`fs_retry`), the console of the process, without which a child gets no window
+# (`child_process::windowless_command`)
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading"] }
 
 [dev-dependencies]
 pretty_assertions.workspace = true

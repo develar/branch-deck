@@ -46,6 +46,30 @@ impl ChildOutput {
   }
 }
 
+/// The command of `program`, which on Windows opens no console window: the one way a process that is not git starts
+/// (`console_window_scan_test.rs`; git starts in `GitCommandExecutor`, on this too). The release app is a GUI
+/// program without a console, so Windows gives every console program it starts (`gh`, `claude`, the `cmd` of a `.cmd`
+/// shim) a console of its own, which Windows Terminal shows as a window in front of the app for each process. A
+/// process with a console (`bd`, a debug build of the app) keeps sharing it with its children, so a Ctrl+C ends them too
+pub fn windowless_command(program: impl AsRef<OsStr>) -> Command {
+  #[cfg_attr(not(windows), expect(unused_mut, reason = "the creation flags exist on Windows only"))]
+  let mut command = Command::new(program);
+  #[cfg(windows)]
+  if !has_console() {
+    std::os::windows::process::CommandExt::creation_flags(&mut command, windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+  }
+  command
+}
+
+/// Whether this process has a console, asked once: a console program has one from its start, a GUI program never gets one
+#[cfg(windows)]
+#[expect(unsafe_code, reason = "Win32: the console window of this process")]
+fn has_console() -> bool {
+  static HAS_CONSOLE: OnceLock<bool> = OnceLock::new();
+  // SAFETY: no arguments; the result is only compared with null
+  *HAS_CONSOLE.get_or_init(|| !unsafe { windows_sys::Win32::System::Console::GetConsoleWindow() }.is_null())
+}
+
 /// Runs `command` with `stdin` (None = no input), reading stdout and stderr while it runs, so a full pipe never blocks the
 /// child. The child is killed after `timeout`, and within one poll interval after `is_superseded` turns true.
 pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duration, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
@@ -316,7 +340,7 @@ pub fn login_shell_path() -> Option<OsString> {
   let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into());
   // an rc file that waits for input or hangs must not block the caller (and every later lookup) for good
   let output = run_child(
-    Command::new(&shell).args(["-i", "-l", "-c", "printf '\\n%s' \"$PATH\""]),
+    windowless_command(&shell).args(["-i", "-l", "-c", "printf '\\n%s' \"$PATH\""]),
     None,
     LOGIN_SHELL_TIMEOUT,
     &|| false,

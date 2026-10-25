@@ -1,4 +1,4 @@
-use std::process::Command;
+use sync_utils::child_process::windowless_command;
 
 /// Minimum supported Git version. 2.54 is the first release where `git replay` has `--ref` (to read the new tip
 /// of a range ending in a commit), replays down to the root commit and drops commits that become empty.
@@ -63,7 +63,10 @@ impl GitInfo {
   /// Run `git_path version`. An error is one line, "Cannot find Git: <reason>": the program is missing, or it fails
   /// (the macOS `/usr/bin/git` stub without the Command Line Tools exits with an `xcrun: error`)
   pub fn from_path(git_path: &str) -> Result<Self, String> {
-    let output = Command::new(git_path).arg("version").output().map_err(|e| format!("Cannot find Git: {git_path}: {e}"))?;
+    let output = windowless_command(git_path)
+      .arg("version")
+      .output()
+      .map_err(|e| format!("Cannot find Git: {git_path}: {e}"))?;
     if !output.status.success() {
       let stderr = String::from_utf8_lossy(&output.stderr);
       return Err(match stderr.lines().map(str::trim).find(|line| !line.is_empty()) {
@@ -128,7 +131,7 @@ fn homebrew_git() -> Option<GitInfo> {
 /// Without a git of Homebrew (`homebrew_git`), the git of the login shell; `discover` runs it and validates its version
 #[cfg(target_os = "macos")]
 fn get_git_path() -> Result<String, String> {
-  let output = Command::new("/bin/zsh")
+  let output = windowless_command("/bin/zsh")
     .args(["-l", "-c", "which git"])
     .output()
     .map_err(|e| format!("Cannot find Git: cannot run the login shell: {e}"))?;

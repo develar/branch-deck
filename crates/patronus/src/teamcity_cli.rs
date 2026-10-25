@@ -7,10 +7,9 @@ use crate::ci_text::{cut_tail, strip_ansi};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
-use sync_utils::child_process::{ChildOutput, find_tool, run_child};
+use sync_utils::child_process::{ChildOutput, find_tool, run_child, windowless_command};
 use sync_utils::known_tools::TEAMCITY;
 use sync_utils::span::in_current_span;
 use tokio::sync::Semaphore;
@@ -185,7 +184,7 @@ impl TeamCityCli {
 /// Runs the CLI without prompts and colours; `server` picks the server of a CLI logged in to several. None, logged, when
 /// it can't run, times out or fails.
 fn run(binary: &Path, args: &[&str], server: Option<&str>, timeout: Duration) -> Option<ChildOutput> {
-  let mut command = Command::new(binary);
+  let mut command = windowless_command(binary);
   command.args(args).args(["--no-input", "--no-color"]).env("NO_COLOR", "1");
   if let Some(server) = server {
     command.env("TEAMCITY_URL", server);

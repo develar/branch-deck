@@ -15,24 +15,25 @@ fn code_lines_with(source: &Source, needle: &str) -> Vec<usize> {
   source.code_lines().filter(|(_, line)| line.contains(needle)).map(|(number, _)| number).collect()
 }
 
-/// The lines of `source` that start a process whose program may be git: a `Command::new` (std or tokio) whose argument
-/// names git (`"git"`, `git_path`, `&git_info.path`, but not `github`), or any `Command::new` of a file that reads the
-/// discovered git (`GitInfo`, `.get_info()`)
+/// The lines of `source` that start a process whose program may be git: a `Command::new` (std or tokio) or a
+/// `windowless_command` whose argument names git (`"git"`, `git_path`, `&git_info.path`, but not `github`), or any of
+/// them in a file that reads the discovered git (`GitInfo`, `.get_info()`)
 fn git_spawn_lines(source: &Source) -> Vec<usize> {
-  const SPAWN: &str = "Command::new(";
+  const SPAWNS: [&str; 2] = ["Command::new(", "windowless_command("];
   let reads_git_info = source.code_lines().any(|(_, line)| line.contains("GitInfo") || line.contains(".get_info()"));
   let mut lines = Vec::new();
-  for (index, _) in source.text.match_indices(SPAWN) {
+  for (index, spawn) in SPAWNS.iter().flat_map(|spawn| source.text.match_indices(spawn)) {
     let line_start = source.text[..index].rfind('\n').map_or(0, |end| end + 1);
     if source.text[line_start..index].trim_start().starts_with("//") {
       continue;
     }
-    let argument = &source.text[index + SPAWN.len()..];
+    let argument = &source.text[index + spawn.len()..];
     let argument = &argument[..argument.find(')').unwrap_or(argument.len())];
     if reads_git_info || argument.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| word.eq_ignore_ascii_case("git")) {
       lines.push(line_at(&source.text, index));
     }
   }
+  lines.sort_unstable();
   lines
 }
 
@@ -351,6 +352,7 @@ fn a_git_spawn_is_told_from_another_process() {
     Vec::<usize>::new()
   );
   assert_eq!(lines("let info = executor.get_info()?;\nlet c = tokio::process::Command::new(&info.path);"), [2]);
+  assert_eq!(lines("let a = windowless_command(\"git\");\nlet b = windowless_command(claude);"), [1]);
 }
 
 #[test]

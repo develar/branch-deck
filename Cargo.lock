@@ -2454,6 +2454,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "rustix",
+ "sync-utils",
  "tempfile",
  "tracing",
  "windows-sys 0.61.2",

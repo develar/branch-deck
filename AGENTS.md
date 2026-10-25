@@ -542,6 +542,9 @@ The checklist:
   `remove_file`, `rename`), never `std::fs`: on Windows a git or a shell whose current directory is in the path, or a
   scanner with a file open, fails them at once (`fs_retry_scan_test.rs`). A process that works in a test's directory is
   `test_utils::git_in_directory::GitInDirectory`.
+- **A process** starts through `sync_utils::child_process::windowless_command`, git through `GitCommandExecutor`,
+  never `Command::new`: the release app on Windows is a GUI program, and every console program it started got a
+  console window of its own, a Windows Terminal window in front of the app for each git (`console_window_scan_test.rs`).
 - **Rust imports** ([Import Guidelines](docs/guidelines/imports.md)): never `pub use` re-exports (except for internal
   module organization); make modules public with `pub mod`; every import uses the full module path, so it shows where
   a type or function comes from:

@@ -12,10 +12,9 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use sync_utils::child_process::{find_tool, run_child};
+use sync_utils::child_process::{find_tool, run_child, windowless_command};
 use sync_utils::known_tools::GH;
 use sync_utils::span::in_current_span;
 use tracing::{debug, info, instrument, warn};
@@ -289,7 +288,7 @@ async fn run_source(read: impl FnOnce() -> Option<Token> + Send + 'static) -> Op
 
 /// `gh auth token` of github.com; None when gh is not logged in (it exits with 1) or fails
 pub fn read_gh_token(gh: &Path, timeout: Duration) -> Option<Token> {
-  let mut command = Command::new(gh);
+  let mut command = windowless_command(gh);
   command
     .args(["auth", "token", "--hostname", "github.com"])
     .env("GH_PROMPT_DISABLED", "1")

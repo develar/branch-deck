@@ -10,6 +10,7 @@ use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitSta
 use std::sync::mpsc::{RecvTimeoutError, SyncSender};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
+use sync_utils::child_process::windowless_command;
 use tracing::instrument;
 
 /// Environment set for every git invocation: never prompt (there is no terminal to answer), never take optional locks
@@ -162,7 +163,7 @@ impl GitCommandExecutor {
       return Err(anyhow!("repository path cannot be blank"));
     }
     let git_info = self.get_info()?;
-    let mut cmd = Command::new(&git_info.path);
+    let mut cmd = windowless_command(&git_info.path);
     for name in REMOVED_ENV {
       cmd.env_remove(name);
     }

@@ -19,9 +19,8 @@ use anyhow::{Context, Result, bail};
 use git_ops::commit_utils::blob_id;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::OnceLock;
-use sync_utils::child_process::{ChildProcessError, cached_login_shell_path, find_executable, run_child_until_superseded};
+use sync_utils::child_process::{ChildProcessError, cached_login_shell_path, find_executable, run_child_until_superseded, windowless_command};
 
 /// The declarations a lookup answers at most
 const LIMIT: &str = "20";
@@ -174,7 +173,7 @@ impl AccioSearch<'_> {
     if !index_dir(repository_root).is_some_and(|dir| dir.join("meta.json").is_file()) {
       return Ok(None);
     }
-    let mut command = Command::new(&self.accio.executable);
+    let mut command = windowless_command(&self.accio.executable);
     command.args([command_name, "--format", "json", "--limit", limit, "--project", repository_root]);
     if let Some(revision) = revision {
       command.args(["--ref", revision]);

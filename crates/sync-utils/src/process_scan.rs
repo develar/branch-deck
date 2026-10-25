@@ -394,7 +394,7 @@ mod platform {
 
   /// `lsof -t -w -- <path>`: the pids on exit 0; exit 1 without a message is no process
   pub(super) fn processes_with_open_file(path: &std::path::Path) -> Option<Vec<u32>> {
-    let mut command = std::process::Command::new("/usr/sbin/lsof");
+    let mut command = crate::child_process::windowless_command("/usr/sbin/lsof");
     command.args(["-t", "-w", "--"]).arg(path);
     let output = crate::child_process::run_child(&mut command, None, std::time::Duration::from_secs(10), &|| false).ok()?;
     match output.status.code() {

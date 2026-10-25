@@ -626,7 +626,7 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
 /// `sh -c <command>`
 #[cfg(not(windows))]
 fn shell(command: &str) -> std::process::Command {
-  let mut shell = std::process::Command::new("sh");
+  let mut shell = sync_utils::child_process::windowless_command("sh");
   shell.arg("-c").arg(command);
   shell
 }
@@ -636,7 +636,7 @@ fn shell(command: &str) -> std::process::Command {
 /// quotes, also from a command that starts with a quoted program; `/D` skips the `AutoRun` commands of the registry
 #[cfg(windows)]
 fn shell(command: &str) -> std::process::Command {
-  let mut shell = std::process::Command::new("cmd");
+  let mut shell = sync_utils::child_process::windowless_command("cmd");
   std::os::windows::process::CommandExt::raw_arg(&mut shell, format!("/D /S /C \"{command}\""));
   shell
 }

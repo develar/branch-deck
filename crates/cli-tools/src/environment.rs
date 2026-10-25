@@ -6,7 +6,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
-use sync_utils::child_process::{ChildOutput, ChildProcessError, ToolLookup, cached_login_shell_path, find_executable, find_tool_in, run_child};
+use sync_utils::child_process::{ChildOutput, ChildProcessError, ToolLookup, cached_login_shell_path, find_executable, find_tool_in, run_child, windowless_command};
 use sync_utils::known_tools::{TEAMCITY, YOUTRACK};
 use tracing::warn;
 
@@ -69,7 +69,7 @@ impl ToolEnvironment {
   /// `binary` without colours, prompts or an update check, without the credential variables of the app's environment;
   /// with the test's home as `HOME`
   pub fn command(&self, binary: &Path) -> Command {
-    let mut command = Command::new(binary);
+    let mut command = windowless_command(binary);
     command.env("NO_COLOR", "1").env("YOUTRACK_NO_UPDATE", "1");
     for variable in CREDENTIAL_VARIABLES {
       command.env_remove(variable);

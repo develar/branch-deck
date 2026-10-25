@@ -8,6 +8,8 @@ description = "Core git command execution utilities for Branch Deck"
 
 [dependencies]
 anyhow.workspace = true
+# the command of git, without a console window on Windows (`child_process::windowless_command`)
+sync-utils = { path = "../sync-utils" }
 tracing.workspace = true
 
 [target.'cfg(unix)'.dependencies]
