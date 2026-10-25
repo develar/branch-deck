@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { SetDemandParams } from "@/lib/bindings"
-import { DEMAND_SEND_INTERVAL_MS, needBranch, resetDemand, setDemandFocused, setDemandSubscription, showBranch, showRobotDetails } from "@/model/demand"
+import {
+  DEMAND_SEND_INTERVAL_MS,
+  demandReviewReadiness,
+  needBranch,
+  onShownReadinessChange,
+  resetDemand,
+  setDemandFocused,
+  setDemandSubscription,
+  setReadinessShown,
+  showBranch,
+  showReviewReadiness,
+  showRobotDetails,
+  shownReadinessKeys,
+} from "@/model/demand"
 
 const { sent } = vi.hoisted(() => ({ sent: [] as SetDemandParams[] }))
 vi.mock("@/lib/bindings", () => ({
@@ -81,5 +94,27 @@ describe("the demand of the window", () => {
     await vi.runAllTimersAsync()
     expect(sent.map(it => it.subscription)).toEqual([1, 2])
     expect(sent[1]!.demand.visibleBranches).toEqual(["api", "ui"])
+  })
+
+  it("sends the readiness a surface needs now as needed, and of the shown subjects those whose step waits for it", async () => {
+    setDemandSubscription(3)
+    const release = demandReviewReadiness("stack:air")
+    // a shown subject is the window's own until the main window tells which of them wait
+    let changes = 0
+    const stop = onShownReadinessChange(() => changes++)
+    const hide = showReviewReadiness("auth")
+    expect([...shownReadinessKeys()]).toEqual(["auth"])
+    expect(changes).toBe(1)
+    await vi.runAllTimersAsync()
+    expect(sent.at(-1)!.demand).toMatchObject({ needed: ["stack:air"], visibleBranches: [], visibleStacks: [] })
+    setReadinessShown(["auth"], ["air"])
+    await vi.advanceTimersByTimeAsync(DEMAND_SEND_INTERVAL_MS)
+    expect(sent.at(-1)!.demand).toMatchObject({ needed: ["stack:air"], visibleBranches: ["auth"], visibleStacks: ["air"] })
+    release()
+    hide()
+    stop()
+    expect([...shownReadinessKeys()]).toEqual([])
+    await vi.advanceTimersByTimeAsync(DEMAND_SEND_INTERVAL_MS)
+    expect(sent.at(-1)!.demand.needed).toEqual([])
   })
 })

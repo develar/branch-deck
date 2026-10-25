@@ -551,9 +551,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/lib/safe-push-decision.test.ts (`starts a lone branch at once when there is nothing to say: default checks, approved or not needed`, `opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the profiles, the remote status, the review and the rules, each saying what it waits for, a failed read of the rules unknown with its reason`, `refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`, `confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals`, `lets a profile that skips the review start without the approvals, and a start without review wait for its profile`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`, `the_safe_push_profile_cases_answer_as_bd_answers_today`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`, `the safe push profile cases answer as the app answers today`, `the safe push review cases answer as the app answers today`)
-- A click waits for the facts its decision needs, at most 20 s (`SAFE_PUSH_SETTLE_MS`), its button busy with
-  "Checking…"; then it starts at once, says the refusal in an `info` toast ("Push" its action where the push alone is
-  the step), or opens the popover (also after the 20 s: the popover says what it still waits for). The second click of
+- A click waits for the facts its decision needs, its button busy with "Checking…": the session answers each of them,
+  a failure too (the review it asks at once, `unavailable` while Patronus can't be asked), so the wait ends; then it
+  starts at once, says the refusal in an `info` toast ("Push" its action where the push alone is the step), or opens
+  the popover. The second click of
   a double click and a click on a button that just took the place of another step under a pointer that stayed (a poll
   changed the step, 700 ms) are ignored: they were meant for what was there before.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
@@ -1051,16 +1052,20 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   dry run is not checked.
 - Patronus is the only judge of whose approvals count; the app and `bd` ask it and render its answer
   ([Git Operations](../../docs/design/git-operations.md#patronus-review-pre-check)).
-- A Safe Push checks the review before the start (never a dry run, never for the chip) with
-  `get_branch_review_readiness`, which `bd safe-push` shares (`remote_facts::review_readiness`): the commits of the
-  branches at the tips the page sends (an answer is keyed by its branch and tip), from one `git log --topo-order` of
-  all of them (a stacked branch shares its parents' commits; 500 commits or more of a branch skip its check, as the IDE
-  does), their changed paths from the `commit_files` store of the object cache (one `diff-tree --stdin` for the commits
-  it misses; a rename is a delete and an add, a deleted path counts, a merge has none), then one
-  `POST /pre-merge-approval-required-check` per branch, one after another.
+- A Safe Push checks the review before the start (never a dry run, never for the chip) with the readiness the session
+  of the repository reads ([Next Step](next-step.spec.md#the-readiness-store): what a surface needs at once in a call
+  of its own, the rest a queue of at most 4 at a time after the answers the object cache keeps), with the core
+  `bd safe-push` shares (`remote_facts::review_readiness`): the commits of the branches at the tips of the session's
+  view (an answer is keyed by its branch and tip), from one `git log --topo-order` of all the branches of a call (a
+  stacked branch shares its parents' commits; 500 commits or more of a branch skip its check, as the IDE does), their
+  changed paths from the `commit_files` store of the object cache (one `diff-tree --stdin` for the commits it misses; a
+  rename is a delete and an add, a deleted path counts, a merge has none), then one
+  `POST /pre-merge-approval-required-check` per branch whose kept answer doesn't hold.
   [@test] ../../crates/remote-facts/src/patronus_review_test.rs (`reads_the_commits_of_the_branch_with_their_changed_paths`)
   [@test] ../../crates/remote-facts/src/patronus_review_test.rs (`reads_several_branches_in_one_log`)
   [@test] ../../crates/remote-facts/src/patronus_review_test.rs (`does_not_read_a_branch_with_too_many_commits`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`the_kept_answers_come_from_the_cache_without_asking_patronus`)
+  [@test] ../../crates/test-server/src/review_readiness_test.rs (`the_session_asks_the_readiness_a_window_needs_from_the_fake_patronus`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
 - The check takes the pull request the robot would start from (`githubPullRequest`, `ReviewStart::PullRequest`: the
   open pull request into the target), and Patronus evaluates its reviews as that robot would: every group the changes
@@ -1528,9 +1533,10 @@ explicit choice of the user, offered only where the approvals count in a pull re
   running robot `started-<n>` on the commit its branch is at, a restart `restarted-<n>`, a cancel makes the robot
   canceling. `GET …/patronus` (`getPatronusLog`) returns how often the app listed, polled and
   read details, and the start requests, the restarts, the cancels and the status reads the fake got, in order.
-  `get_branch_review_readiness` runs the real core against the fake's pre-check, which answers per branch what
-  `POST /repositories/{id}/review-answers` sets, else by the code owners of the branch's paths (none without
-  `OWNERSHIP` files). The `/patronus` comment goes to the fake GitHub, whose bot replies as `…/patronus-replies` says
+  The readiness reads of the sessions run the real core against the fake's pre-check (`readiness_of`, logged with
+  their subjects and `recheck`), which answers per branch what `POST /repositories/{id}/review-answers` sets (with
+  `mergeRequest` the Space merge request found open for every branch and the answers asked with its review), else by the code owners of the branch's paths
+  (none without `OWNERSHIP` files). The `/patronus` comment goes to the fake GitHub, whose bot replies as `…/patronus-replies` says
   (👍 by default); a test asserts the comment GitHub got. The E2E repositories
   have no remote: a push answered in the page (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
   No test answers a Patronus write in the page (`routeCommand`, a fulfilling `page.route`): the registry test fails it,

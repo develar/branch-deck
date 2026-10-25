@@ -9,7 +9,7 @@
 //! test fetches as the browser would.
 
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
-use crate::review_fixtures::review_check_answer;
+use crate::review_fixtures::{ReviewAnswers, review_check_answer};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
 use github::client::GitHubClient;
@@ -86,7 +86,7 @@ pub struct RemoteHost {
   /// The `gh` the token chain asks: none until a fixture gives it a token
   gh: RwLock<GhSource>,
   /// What the pre-check answers by branch, in wire form (`review_fixtures::ReviewAnswersFixture`)
-  review_answers: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+  review_answers: Arc<RwLock<ReviewAnswers>>,
   /// The pull requests of the review requests: GitHub keeps them beside the ones of a GitHub fixture
   review_pulls: Mutex<Vec<FakePull>>,
   /// The YouTrack of the issue links a test names, with its built-in Hub
@@ -113,7 +113,7 @@ pub enum HeldAnswer {
   ReviewRequests,
   /// The list of the robots (`get_patronus_robots`, `GET /app/rest/v1/robots`)
   Robots,
-  /// The pre-check of the code-owner review (`get_branch_review_readiness`)
+  /// The pre-check of the code-owner review (the readiness reads of the sessions, `readiness_of`)
   Readiness,
   /// The computation of the landing needs of a session (`TestSessionEnvironment::landing_needs`): held there
   LandingNeeds,
@@ -146,7 +146,7 @@ impl RemoteHost {
     let git = git.clone();
     let (git_of_hook, path) = (git.clone(), repository_path.to_string());
     *patronus.robots_hook.lock().expect("robots hook lock") = Some(Arc::new(move |robot| crate::remote_fixtures::resolve_source_revision(&git_of_hook, &path, robot)));
-    let review_answers: Arc<RwLock<HashMap<String, serde_json::Value>>> = Arc::default();
+    let review_answers: Arc<RwLock<ReviewAnswers>> = Arc::default();
     let (git_of_review, path_of_review, answers) = (git.clone(), repository_path.to_string(), Arc::clone(&review_answers));
     *patronus.review_hook.lock().expect("review hook lock") = Some(Arc::new(move |body| {
       // a copy: the git of the answer runs outside the lock a fixture writes under
@@ -286,7 +286,7 @@ impl RemoteHost {
   }
 
   /// What the pre-check answers by branch from now on (wire form); a new service, which has kept no answer
-  pub fn set_review_answers(&self, answers: HashMap<String, serde_json::Value>) {
+  pub fn set_review_answers(&self, answers: ReviewAnswers) {
     *self.review_answers.write().expect("review answers lock") = answers;
     self.renew_patronus_service();
   }

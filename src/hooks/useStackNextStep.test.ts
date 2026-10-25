@@ -117,7 +117,7 @@ function setReadiness(readiness: ReviewReadiness, key = stackReadinessKey("air")
     repositories: {
       [KEY]: {
         ...state.repositories[KEY],
-        [key]: { key: "k", readiness, requirement: null, stale: false, answeredAt: 0, tip: "stack-tip", pullRequest: 12, waitingFor: [], approvedBy: [] },
+        [key]: { key: "k", readiness, requirement: null, stale: false, tip: "stack-tip", pullRequest: 12 },
       },
     },
   }))

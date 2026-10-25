@@ -568,20 +568,7 @@ impl ReviewReadinessBranch {
   }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetBranchReviewReadinessParams {
-  pub repository_path: String,
-  /// As the sync detected it, e.g. `origin/master`
-  pub baseline_branch: String,
-  pub branches: Vec<ReviewReadinessBranch>,
-  /// Ask Patronus again instead of the cached answer (the user waits for approvals)
-  #[serde(default)]
-  pub recheck: bool,
-}
-
-/// The answer for one branch of `GetBranchReviewReadinessParams`, keyed by its input
+/// The readiness of one branch as Patronus answered it, keyed by its input (`branch_review_readiness`)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

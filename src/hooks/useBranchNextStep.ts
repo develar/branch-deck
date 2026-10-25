@@ -35,6 +35,7 @@ import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commi
 import { stackProblemOf } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
+import { useShowReviewReadiness } from "@/model/demand"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
@@ -74,7 +75,7 @@ import {
 } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
+import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { getSafePushStarting, safePushStore } from "@/stores/safe-push"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
@@ -451,7 +452,7 @@ export function isAwaitingApproval(name: string): boolean {
 }
 
 /**
- * Tells that the approvals of a branch arrived (`findApprovalNews`, the readiness store of the main window): a toast
+ * Tells that the approvals of a branch arrived (the news of the session, `approvalNewsOf`): a toast
  * "Ilya Korennoy approved auth" / "#1078 · IJPL Code Platform" with "Safe Push" first (the start of the row, the row
  * revealed; decided again at the click: a reason that came since is an `info` toast) and "Open Pull Request"; in the
  * background the OS notification of "Approvals of my pull requests" and the toast on the next focus; an Activity entry

@@ -1384,20 +1384,6 @@ fn rejected(rejection: Rejection) -> ApiError {
   }
 }
 
-/// The readiness of each branch as the page asks it, the session's read (`readiness_of`)
-pub async fn get_branch_review_readiness(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<domain_types::patronus::GetBranchReviewReadinessParams>,
-) -> CommandResult<Vec<domain_types::patronus::BranchReviewReadiness>> {
-  let prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let key = SessionKey {
-    worktree: params.repository_path,
-    prefix,
-  };
-  let readiness = readiness_of(&state, &key, params.baseline_branch, params.branches, params.recheck).await;
-  readiness.map(Json).map_err(|error| failed("read the code-owner review", error))
-}
-
 /// The readiness of `asks` as the session of a test repository reads it (`TestFactSources`), as the app reads it
 /// (`remote_facts::review_readiness`) but without the object cache, so every call asks: the fake Patronus answers the
 /// pre-check of a branch whose tip is the tip of a branch of `POST /repositories/{id}/review-answers`, else by the

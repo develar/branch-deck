@@ -774,7 +774,7 @@ repository». Аудит всех функций в тот же день наш�
 | C7 | открытие range review | 2 `diff-tree` | 1 | process-бюджет `file-diffs` | live |
 | C8 | Find в review на 2000 блобов | ~32 `cat-file --batch` параллельно | ≤ 1 в полёте | `blob-texts.test.ts` | live |
 | C9 | lock rewrite приложения | +1 `rev-parse --git-common-dir`; unapply — 10 `rev-parse` | 0 на lock; 1 `rev-parse` на фазу | `crates/sync-core/src/process_budget_test.rs` | s7, s11 |
-| C10 | demand readiness при batch в полёте | до 8 pre-check перед своим | ≤ 1 | `review-readiness.test.ts`, HTTP-бюджет | s7 |
+| C10 | demand readiness при batch в полёте | до 8 pre-check перед своим | ≤ 1 | `scheduler_test.rs` (`asks_a_demanded_branch_at_once_in_its_own_call_while_the_batch_is_in_flight`), HTTP-бюджет | s7 |
 | C11 | процессы под lock в Update Project | весь check, replay, landed report | `rev-parse`, `status`/`diff-index`, `update-ref`, `read-tree` | lock span в `update_project_test.rs` | s11 |
 | C12 | удаление archived или unapplied ветки | полный sync | 0 sync | e2e `data-sync-count` | s6 |
 | C13 | обновление PR токеном без `read:org` | 2 GraphQL на каждое | 1 после первого | `pull_requests_test.rs` | live |
@@ -1841,6 +1841,22 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `refreshPullRequestsAfterPush(es)`, кэш профилей страницы; `COMMAND_COUNT` 120. `refresh-gate.ts` остаётся до s7-7:
     им пользуется `review-requests.ts`. E2E: правила и профили держит и роняет fake (`branchRules`, `profiles` в
     `holdRemoteAnswers`), новый старт приложения — `closeSessions`.
+  - s7-6 (по коду): readiness — факт сессии (`repository_model::readiness_facts::ReadinessFact`, часть `facts.readiness`
+    по subject: ветка или `stack:<root>`). Ask строит актор из вида, как его видит страница (вершина — копия новейшего
+    коммита, стек — только `Built`; старт — `domain_policy::readiness::start_pull_request` с GitHub-репозиторием из
+    ответа Patronus), ожидаемые inputs (хэш ask и числа перепроверок) ставятся перед каждым патчем, так что патч с новой
+    вершиной несёт `Stale`; Check Approvals Again — новые inputs (`refresh_facts { readiness, manual, subject }` через
+    актор). Планировщик (`scheduler_readiness.rs`): `needed` и перепроверки — сразу, каждый своим вызовом; очередь —
+    показанные, затем скрытые с ожиданием approvals той же вершины и старта, ≤ 4 одновременно (счётчик цикла событий
+    вместо `buffer_unordered`), перед ней одно чтение сохранённых ответов (`kept_review_readiness`, кэш LMDB в blocking
+    pool); `unavailable` — снова через 5 минут на часах сессии; Patronus не отвечает репозиторию — ничего не
+    спрашивается, нужные subject — `Unavailable`. Ответ — по `seq`; пришедшие approvals — `News::ApprovalsArrived`
+    (`domain_policy::readiness::approval_news`). Страница: аппликатор `applyReadinessFacts`, demand и показ — в
+    `src/model/demand.ts` (страница шлёт показанные subject, чей шаг ждёт readiness, как `visibleBranches`/
+    `visibleStacks` до s8); 20-секундная сдача клика удалена (каждый факт отвечает). Удалены IPC
+    `get_branch_review_readiness`, `GetBranchReviewReadinessParams`, маршрут и ответ в странице
+    (`routeReviewRequirement`; Space merge request — фикстура `mergeRequest` fake), `scan`, батч в 8, `findApprovalNews`;
+    `COMMAND_COUNT` 119.
   - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
     requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
     `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):

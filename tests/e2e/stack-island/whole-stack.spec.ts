@@ -33,7 +33,7 @@ import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
-import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
+import type { HeldAnswer, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import { advanceBackendClock, holdCommand, recordCommand } from "../helpers/wait-helpers"
 
@@ -163,7 +163,7 @@ async function setupUnaskedStackPullRequest(
   syncAndWaitForBranches: () => Promise<void>,
   template: string,
   root: string,
-  syncOverrides?: SyncOverrides,
+  { syncOverrides, hold = [] }: { syncOverrides?: SyncOverrides; hold?: HeldAnswer[] } = {},
 ): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo(template, {
     syncOverrides,
@@ -172,6 +172,8 @@ async function setupUnaskedStackPullRequest(
     pullRequests: withStackPullRequests({ ...availablePullRequests(), users: [{ login: "ikorennoy", name: "Ilya Korennoy" }] }, { [root]: stackPullRequest(root, 12) }),
     reviewAnswers: { [`stack:${root}`]: AWAITING_CODE_OWNER },
   })
+  // the answers of the fakes a test holds back from the first sync on
+  await repo.holdRemoteAnswers({ hold })
   await syncAndWaitForBranches()
   return repo
 }
@@ -413,7 +415,7 @@ test.describe("Whole stack", () => {
     syncAndWaitForBranches,
   }) => {
     // the code owner of the whole stack has to approve in #12, and nobody asked him yet
-    const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stack_island", "air", stackBranchAheadOfRemote("air"))
+    const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stack_island", "air", { syncOverrides: stackBranchAheadOfRemote("air") })
     const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
     const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
     await expect(slot).toHaveAttribute("data-step", "requestReview")
@@ -497,14 +499,13 @@ test.describe("Whole stack", () => {
 
   test("should choose the code owner of a readiness of the whole stack that comes after its Request Review… opened", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the readiness waits: "Whole Stack ›" of the root opens the popover before it knows whom to suggest
-    const release = await holdCommand(page, "get_branch_review_readiness")
-    await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stacked_branches", "auth")
+    const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stacked_branches", "auth", { hold: ["readiness"] })
     await expect(findBranchRow(page, "auth").getByTestId("request-review-anchor")).toBeAttached()
     const popover = await openWholeStackRequestReview(page, "auth")
     await expect(popover.getByTestId("request-review-submit")).toBeDisabled()
 
     // it comes: its code owner is chosen, as in a popover opened after it
-    release()
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
     await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
     await expect(popover.getByTestId("request-review-submit")).toBeEnabled()
   })

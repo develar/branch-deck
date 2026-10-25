@@ -507,7 +507,7 @@ test.describe("Next step", () => {
     await expect(node).toHaveAttribute("data-kind", "yourStep")
     const releaseRequest = await holdCommand(page, "request_pull_request_reviewers")
     // Patronus answers again only when the test lets it: the wait shows before its new answer
-    const releaseReadiness = await holdCommand(page, "get_branch_review_readiness")
+    await repo.holdRemoteAnswers({ hold: ["readiness"] })
     await popover.getByTestId("request-review-submit").click()
     // the request is the move made: the branch waits for the reviewer from the click on
     await expect(node).toHaveAttribute("data-kind", "waiting")
@@ -518,7 +518,7 @@ test.describe("Next step", () => {
     // the pull request asks him now: the wait, while Patronus is still to answer again
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
     await expect(node).toHaveAttribute("data-kind", "waiting")
-    releaseReadiness()
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
   })
 

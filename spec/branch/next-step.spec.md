@@ -11,6 +11,10 @@ targets:
   - ../../src/lib/approval-news.ts
   - ../../src/components/branch/WholeStackSlot.tsx
   - ../../src/stores/review-readiness.ts
+  - ../../src/model/demand.ts
+  - ../../crates/repository-model/src/readiness_facts.rs
+  - ../../crates/remote-facts/src/scheduler_readiness.rs
+  - ../../crates/domain-policy/src/readiness.rs
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/lib/landing-node.ts
   - ../../src/hooks/useLandingNode.ts
@@ -403,48 +407,71 @@ branch from all the facts (the branch, its robots, its pull request and the read
 
 ### The readiness store
 
-- `src/stores/review-readiness.ts` is the one reader of the readiness, for the row, the start, the "Create pull
-  request" dialog (its code owners) and the stack header. It asks `get_branch_review_readiness` for the branches whose
-  next step depends on it (`needsReadiness`: on GitHub with the pull requests listed, and past rows 1 to 6; pushed or
-  not, as Patronus judges the local commits, so an unpushed branch's step is never an answer left from before; a
-  stacked branch too, for its own pull request), and of them only the ones a surface shows (`showReviewReadiness`,
-  through `useBranchNextStep`): a row on the screen, not one a collapsed stack, side stack or island hides (it is not
-  rendered), and of the root of a stack that forks its whole stack too, so a small stack without an island knows the
-  approvals of its whole stack before a click; the header of an island (its whole stack, below, or the last branch of
-  a straight chain, also while collapsed); the preview; the review window (its chain, or `stack:<root>` of the review of the whole stack). They go in table order, at most 8 per call, one call in flight per repository (a switch asks the new
-  one at once). The branches a start (a click that waits, its popover) or the dialog asks (`demandReviewReadiness`)
-  and the rechecks of Check Approvals Again go at once, each in a call of its own beside the batch in flight, once per
-  input: a click never waits for 8 background pre-checks. An answer equal to the one shown (the batch beside a demand
-  answering the same input) changes nothing, so no surface renders again. An answer of a call made before the one the
-  entry shows (the batch that asked before Check Approvals Again answering after it) is dropped, and its pre-check
-  replaces no answer the cache kept since it was asked: the recheck is the last word. A hidden branch is asked once it shows; its answer stays meanwhile, marked
-  stale when it shows with another input. One exception: a hidden branch whose last answer waits for an approval in its
-  pull request stays asked, so a new review of it asks once and its approval is still news. The start is the one of
-  the robot: the open pull request into the target with its reviewers and author, else through the API
-  (`readinessInputOf`). The whole stack is one more key, `stack:<root>` (`stackReadinessKey`, a name no branch has):
-  asked as its stack branch (`ReviewReadinessBranch.source`) with the pull request of the whole stack, right before its
-  root in the order, only while the sync built the stack branch (another state has nothing its Safe Push would land).
-  [@test] ../../src/stores/review-readiness.test.ts (`asks for the whole stack its header shows as its stack branch with its pull request, right before its root, only while the sync built it`)
-  [@test] ../../src/stores/review-readiness.test.ts (`asks for the wanted branches in one batch, with the start the robot would take`, `keeps one batch in flight, of at most READINESS_BATCH_SIZE branches`, `asks only the branches whose next step depends on the readiness`, `asks only the branches a surface shows, and keeps asking the hidden ones that wait for an approval`)
-  [@test] ../../src/stores/review-readiness.test.ts (`asks a demanded branch at once in its own call while the background batch is in flight`, `asks the branches of another repository at once while the batch of the one before is in flight`, `keeps the entry when the batch answers what the demand beside it answered: no surface renders again`, `keeps the answer of Check Approvals Again when the background batch asked before it answers later`)
-  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_background_answer_after_a_recheck_beside_it_keeps_the_answer_of_the_recheck`)
+- The session of the repository asks the readiness (`remote_facts::scheduler`, `repository_model::readiness_facts`;
+  `facts.readiness` of its view, by subject); `src/stores/review-readiness.ts` only applies its answers, for the row,
+  the start, the "Create pull request" dialog (its code owners) and the stack header. The window tells what to ask
+  (`src/model/demand.ts`): the subjects a start (a click that waits, its popover) or the dialog needs now
+  (`demandReviewReadiness`, `needed`), and of the subjects a surface shows (`showReviewReadiness`, through
+  `useBranchNextStep`) those whose next step depends on the readiness (`needsReadiness`: on GitHub with the pull requests
+  listed, and past rows 1 to 6; pushed or not, as Patronus judges the local commits, so an unpushed branch's step is
+  never an answer left from before; a stacked branch too, for its own pull request), as visible branches and stacks: a
+  row on the screen, not one a collapsed stack, side stack or island hides (it is not rendered), and of the root of a
+  stack that forks its whole stack too, so a small stack without an island knows the approvals of its whole stack before
+  a click; the header of an island (its whole stack, below, or the last branch of a straight chain, also while
+  collapsed); the preview; the review window (its chain, or `stack:<root>` of the review of the whole stack).
+  [@test] ../../src/stores/review-readiness.test.ts (`tells the session the shown subjects whose step waits for the readiness, the whole stack by its root`)
+  [@test] ../../src/model/demand.test.ts (`sends the readiness a surface needs now as needed, and of the shown subjects those whose step waits for it`)
   [@test] ../../src/lib/branch-next-step.test.ts (`asks for the readiness of a branch on GitHub, pushed or not: Patronus judges the local commits`)
+  [@test] ../../crates/test-server/src/review_readiness_test.rs (`the_session_asks_the_readiness_a_window_needs_from_the_fake_patronus`)
+- The ask of a subject is what its row shows: the tip (the copy the sync built), and the start of the robot: the open
+  pull request into the target with its reviewers and author while Patronus names the GitHub repository, else through
+  the API (`domain_policy::readiness::start_pull_request`; the page's own `readinessInputOf` follows the same rule).
+  The whole stack is one more subject, `stack:<root>` (`stackReadinessKey`, a name no branch has): asked as its stack
+  branch (`ReviewReadinessBranch.source`) with the pull request of the whole stack, only while the sync built the stack
+  branch (another state has nothing its Safe Push would land).
+  [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`the_ask_is_the_tip_a_window_shows_and_the_pull_request_its_robot_starts_from`)
+  [@test] ../../crates/domain-policy/src/readiness_test.rs (`a_safe_push_starts_from_the_open_pull_request_into_the_target_while_patronus_names_the_github_repository`)
+- What a surface needs and the rechecks of Check Approvals Again go at once, each in a call of its own beside whatever
+  is in flight: a click waits for no pre-check but its own. The rest is a queue: the kept answers of all of it first,
+  in one read (the object cache keeps them by what Patronus decides on), then the shown subjects before the hidden ones,
+  at most 4 pre-checks at a time, in table order, the next as one answers. A hidden subject is asked once it shows; its
+  answer stays meanwhile, marked stale when it shows with another input. One exception: a hidden subject whose last
+  answer waits for an approval in the pull request of the same tip and start is still asked when a review of it
+  changes, so its approval is still news. Another repository is another session, which waits for none of the calls of
+  the one before. Patronus not answering for the repository (not logged in, failing), nothing is asked: the subjects a
+  window asks for are `unavailable` with why, so a click never waits for an answer that can't come.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_a_demanded_branch_at_once_in_its_own_call_while_the_batch_is_in_flight`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_the_shown_rows_before_the_hidden_awaiting_ones_at_most_four_in_parallel`, `answers_the_cache_before_the_queue`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_repository_change_during_a_batch_does_not_wait_for_it`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`the_kept_answers_come_from_the_cache_without_asking_patronus`)
+  [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`new_inputs_make_the_readiness_stale_and_a_hidden_subject_is_asked_only_for_new_reviews`, `a_needed_subject_is_unavailable_while_patronus_does_not_answer_for_the_repository`)
+  [@test] ../../crates/domain-policy/src/refresh_test.rs (`a_demanded_readiness_is_asked_at_once_then_the_shown_ones_then_the_hidden_that_wait_for_an_approval`)
 - An answer is keyed by its input: the tip, the start and the reviews. A sync onto a new baseline that keeps them asks
-  nothing (the backend keeps the answers on disk by what Patronus decides on); a new tip or a new review asks once. The
-  answer of the old input stays, marked stale, until the new one arrives, so the row doesn't flicker; a start never
-  acts on a stale one, nor on one whose input the branch moved past while another batch is in flight (`freshReadiness`
-  compares the key). A failed answer is `unavailable`, asked again after 5 minutes on the next change.
-  [@test] ../../src/stores/review-readiness.test.ts (`asks nothing again while the input stays: another sync, the same reviews`, `keeps the answer of the old input, stale, while a new review loads: the row doesn't flicker`)
+  nothing; a new tip or a new review asks once, its readiness stale in the patch that shows it. The answer of the old
+  input stays, marked stale, until the new one arrives, so the row doesn't flicker; a start never acts on a stale one,
+  nor on one whose input the branch moved past before the session's patch of it (`freshReadiness` compares the key).
+  An answer Patronus didn't give is `unavailable`, asked again 5 minutes later on the clock of the session; a read that
+  failed after an answer is `unavailable` too, never a stale answer the start would wait on.
+  [@test] ../../crates/domain-policy/src/refresh_test.rs (`the_readiness_is_asked_for_new_inputs_a_recheck_and_five_minutes_after_patronus_failed_never_for_the_same_inputs`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_again_five_minutes_after_patronus_did_not_answer`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_readiness_a_window_needs_is_in_its_view_and_stale_in_the_patch_of_a_new_tip`)
+  [@test] ../../src/stores/review-readiness.test.ts (`shows the readiness the session answered for the input the branch has, and none while it loads`, `keeps the answer of the old input, stale, while a new review loads: the row doesn't flicker`)
+  [@test] ../../src/stores/review-readiness.test.ts (`is not fresh for an input the branch moved past before the session's patch of it`, `is unavailable when the session can't ask Patronus, and when its read failed after an answer`)
   [@test] ../../src/lib/branch-next-step.test.ts (`keeps a stale answer while the new one loads, so the row doesn't flicker, and its action waits for the new one`)
-- "Check Approvals Again" refreshes the pull requests from GitHub, then asks Patronus again
-  with `recheck`, the answer stale meanwhile. A recheck is the repository's own and is dropped for a branch without a
-  tip, so it never holds the other branches back. While a row waits for an approval (Awaiting), a window focus asks GitHub
-  for the pull requests at once, not after the usual 2 minutes: the user comes back from asking for the review; and
-  each poll of the review requests asks for them too (also while the header of a whole stack waits). The approval that
-  ends the wait is news with "Safe Push" ([Review Requests](../repository/review-requests.spec.md#approval-news)); in
-  the pull request of the whole stack, "Ilya Korennoy approved the whole air stack" with "Safe Push Whole Stack".
+- "Check Approvals Again" refreshes the pull requests from GitHub, then asks the session to ask Patronus again with
+  `recheck` (`refresh_facts { readiness, manual, subject }`: new inputs, the answer stale from the press on). An answer
+  of an ask that started before it (the queue's) never replaces the recheck's, and its pre-check replaces no answer the
+  cache kept since it was asked: the recheck is the last word. While a row waits for an approval (Awaiting), a window
+  focus asks GitHub for the pull requests at once, not after the usual 2 minutes: the user comes back from asking for
+  the review; and each poll of the review requests asks for them too (also while the header of a whole stack waits).
+  The approval that ends the wait is news of the session with "Safe Push" ([Review
+  Requests](../repository/review-requests.spec.md#approval-news)); in the pull request of the whole stack, "Ilya
+  Korennoy approved the whole air stack" with "Safe Push Whole Stack".
   [@test] ../../src/lib/approval-news.test.ts (`names the whole stack for the approvals of its pull request`)
-  [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`, `drops the recheck of a branch without a tip: the other branches are asked`, `is not fresh for an input the branch moved past while another batch is in flight`)
+  [@test] ../../src/stores/review-readiness.test.ts (`asks again with recheck after the pull requests from GitHub, the answer stale meanwhile`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`keeps_the_answer_of_a_recheck_when_the_batch_asked_before_it_answers_later`)
+  [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`the_answer_of_an_ask_started_before_a_recheck_never_replaces_the_rechecks`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_background_answer_after_a_recheck_beside_it_keeps_the_answer_of_the_recheck`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask Patronus again from Check Approvals Again, after the pull request from GitHub`)
 
 ## User Experience
@@ -464,7 +491,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/lib/branch-next-step.test.ts`, `src/stores/review-readiness.test.ts`.
+- `pnpm test:unit`: `src/lib/branch-next-step.test.ts`, `src/stores/review-readiness.test.ts`; `cargo nextest run -p
+  remote-facts -p repository-model -p domain-policy -E 'test(/readiness/)'` for the queue of the session.
 - `pnpm e2e`: `tests/e2e/next-step` (`TestRepositoryBuilder.setReviewAnswers`, the answers of the fake Patronus's
   pre-check `AWAITING_CODE_OWNER`, `APPROVED_BY_CODE_OWNER`, `NOT_EVALUATED`, `NO_REVIEW_NEEDED` of
   `tests/e2e/helpers/patronus-helpers.ts`, judged by the real core); a start from the pull request asserts the

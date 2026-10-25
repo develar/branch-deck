@@ -11,9 +11,9 @@ use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{LandingCheck, LandingGateParams};
 use domain_types::patronus::{
-  BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
-  PatronusCommandSubject, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
-  PostPatronusCommandParams, ReadPatronusCommandReplyParams, ReviewReadinessBranch, StartPatronusRobotParams,
+  BranchReviewReadiness, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject,
+  PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams,
+  ReadPatronusCommandReplyParams, ReviewReadinessBranch, StartPatronusRobotParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
@@ -527,33 +527,6 @@ async fn act_on_robot(
 #[specta::specta]
 pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotStatus, ApiError> {
   operation(async move { patronus.service.robot_status(&params.robot_id).await.map_err(patronus_error) }).await
-}
-
-/// Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows: the
-/// session's read (`PatronusState::readiness`) under the prefix the commands resolve
-// `instrument` must come before `specta::specta`, which rejects the expressions of `fields`
-#[tauri::command]
-#[instrument(skip_all, fields(branches = params.branches.len(), recheck = params.recheck))]
-#[specta::specta]
-pub async fn get_branch_review_readiness(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  patronus: State<'_, PatronusState>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
-  params: GetBranchReviewReadinessParams,
-) -> Result<Vec<BranchReviewReadiness>, ApiError> {
-  operation(async move {
-    let prefix = PrefixInputs::new(&git_executor, &settings, &prefixes).resolve(&params.repository_path).await?;
-    let key = SessionKey {
-      worktree: params.repository_path,
-      prefix,
-    };
-    patronus
-      .readiness(&git_executor, &repository_state, &key, &params.baseline_branch, params.branches, params.recheck)
-      .await
-  })
-  .await
 }
 
 /// Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the

@@ -22,10 +22,10 @@ import { FROM_MENU } from "@/lib/menu"
 import { getRobotTiming } from "@/lib/robot-eta"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
 import { orderLandingRobots } from "@/lib/robot-overview"
+import { useShowReviewReadiness } from "@/model/demand"
 import { requestReveal } from "@/stores/commit-move"
 import { showMainView } from "@/stores/main-view"
 import { getRobotEstimate } from "@/stores/patronus"
-import { useShowReviewReadiness } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 
 export interface LandingPopoverProps {

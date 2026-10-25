@@ -13,7 +13,6 @@ import { getStackNextStepNow } from "@/hooks/useStackNextStep"
 import { internalError } from "@/lib/api-error"
 import type { BranchRules, Fact, PatronusProfile, PatronusReviewRequirement, PatronusRobot, PatronusStartOptions, PatronusView, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
-import { waitingReviewers } from "@/lib/pull-request"
 import { robotsById } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
@@ -354,8 +353,7 @@ function seedGitHub(given: Given, facts: ScenarioFacts): void {
 /**
  * The answers of the review scan as the facts hold them (Rust asked Patronus and GitHub for the branch, and for the
  * whole stack of its root while the sync built its stack branch), each under the key of the input the branch has now
- * (`readinessInputOf`, so a start reads them as fresh), with the reviewers waited for and approved as the scan derives
- * them of the input; none while the app hasn't asked (`notAsked`). Seeded after the branches and the pull requests,
+ * (`readinessInputOf`, so a start reads them as fresh); none while the app hasn't asked (`notAsked`). Seeded after the branches and the pull requests,
  * which the input is computed from. An answer asked with another tip or start than the app computes now is refused:
  * the rule of the start lives in the app (`getPullRequestStart`), and Rust's facts follow it or the Vitest reddens
  */
@@ -370,17 +368,13 @@ export function seedReadiness(facts: ScenarioFacts): void {
         `${key}: the facts asked another input (${JSON.stringify(asked)}) than the app asks now (${JSON.stringify(asks)}): the start rule changed on one side; ${UPDATE_FACTS} rewrites the facts`,
       )
     }
-    const reviewers = input.branch.reviewers ?? []
     entries[key] = {
       key: input.key,
       readiness: answer.readiness,
       requirement: answer.requirement,
       stale: false,
-      answeredAt: 0,
       tip: answer.tip,
       pullRequest: answer.pullRequest,
-      waitingFor: waitingReviewers({ reviewers }),
-      approvedBy: reviewers.filter(it => it.state === "approved").map(it => it.login),
     }
   }
   reviewReadinessStore.setState({ repositories: { [KEY]: entries } })

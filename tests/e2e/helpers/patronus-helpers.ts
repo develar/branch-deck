@@ -1,15 +1,5 @@
 import type { Page } from "@playwright/test"
-import type {
-  PullRequest,
-  BranchReviewReadiness,
-  PatronusAvailability,
-  PatronusReviewer,
-  PatronusReviewerGroup,
-  PatronusReviewRequirement,
-  PatronusRobot,
-  ReviewReadiness,
-  ReviewReadinessBranch,
-} from "../../../src/lib/bindings"
+import type { PullRequest, PatronusAvailability, PatronusReviewer, PatronusReviewerGroup, PatronusReviewRequirement, PatronusRobot } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
 import { dismissingApprovals } from "./pull-request-helpers"
@@ -17,7 +7,6 @@ import { waitForStepFacts } from "./safe-push-helpers"
 import type { SetupRepoOptions } from "./setup-options"
 import { emitTauriEvent } from "./sync-helpers"
 import type { PatronusStartRequest, SyncOverrides, TestRepositoryBuilder } from "./test-repository"
-import { routeCommand } from "./wait-helpers"
 
 /**
  * What the fake Patronus of a test repository answers the lists and polls of its session (`TestRepositoryBuilder.setPatronus`,
@@ -310,34 +299,6 @@ export async function setupRobotsWith(
   await waitForStepFacts(page.getByTestId("next-step-slot"))
   await expect(page.locator('[data-testid="next-step-slot"][data-step="pending"]')).toHaveCount(0)
   return repo
-}
-
-/**
- * Answers `get_branch_review_readiness` in the page with the requirement `answer` gives for the call, for every branch
- * asked; the readiness is that of a Patronus that doesn't evaluate pull requests (missing while required, unless the
- * groups say they approved). For the readiness the app computes, set the answer on the test server instead
- * (`TestRepositoryBuilder.setReviewAnswers`). The params of each call.
- */
-export function routeReviewRequirement(page: Page, answer: (params: Record<string, unknown>) => PatronusReviewRequirement): Promise<Record<string, unknown>[]> {
-  return routeCommand(page, "get_branch_review_readiness", params =>
-    (params.branches as ReviewReadinessBranch[]).map(branch => {
-      const requirement = answer(params)
-      return { branchName: branch.branchName, tip: branch.tip, requirement, readiness: readinessOf(requirement) } satisfies BranchReviewReadiness
-    }),
-  )
-}
-
-function readinessOf(requirement: PatronusReviewRequirement): ReviewReadiness {
-  if (requirement.skipped) {
-    return { kind: "unknown", reason: "skipped" }
-  }
-  if (!requirement.required) {
-    return { kind: "notRequired" }
-  }
-  const groups = requirement.groups
-    .filter(group => group.approved !== true)
-    .map(group => ({ name: group.name, needed: null, approvedBy: [], requested: [], suggested: [], changesRequestedBy: [] }))
-  return { kind: "missing", groups, notCounted: [], reason: "approvalsMissing" }
 }
 
 /** A member of a reviewer group, as Patronus names it */

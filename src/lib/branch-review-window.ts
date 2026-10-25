@@ -24,6 +24,7 @@ import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { showToast } from "@/lib/toast-message"
 import { formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
+import { demandReviewReadiness, showReviewReadiness } from "@/model/demand"
 import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, stackMainLineIn } from "@/stores/branch-sync"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { requestCommitForm, requestReveal } from "@/stores/commit-move"
@@ -31,7 +32,6 @@ import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
 import { getOperations } from "@/stores/operations"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
-import { demandReviewReadiness, showReviewReadiness } from "@/stores/review-readiness"
 import type {
   BranchReviewFeedback,
   BranchReviewGroup,

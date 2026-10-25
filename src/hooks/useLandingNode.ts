@@ -8,11 +8,11 @@ import type { FoundMove, RunningMove } from "@/lib/running-move"
 import { findRunningMove, safePushStartMoves } from "@/lib/running-move"
 import { blockingBranchOf, stackAncestors } from "@/lib/stack"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { useShowReviewReadiness } from "@/model/demand"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getParkedState, getStackBranch, isBranchPushing, stackMainLineIn } from "@/stores/branch-sync"
 import { getOperationMoves } from "@/stores/operations"
 import { getBranchRobot, getLandingSpan, getStackRobot, isPatronusKnown } from "@/stores/patronus"
-import { useShowReviewReadiness } from "@/stores/review-readiness"
 import { getSafePushStarts } from "@/stores/safe-push"
 
 /** What decides the node of a branch now, from the stores */

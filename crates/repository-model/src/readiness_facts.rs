@@ -3,8 +3,8 @@
 //! as `stack:<root>`), which the scheduler of the facts asks Patronus for (`remote_facts::scheduler`) by what the
 //! session tells it (`ReadinessDigest`, after each patch).
 //!
-//! - The ask of a subject is what a window shows of it: the tip (the copy of the newest commit, else the commit; the
-//!   stack branch of a whole stack while it is built), the pull request its robot would start from
+//! - The ask of a subject is what a window shows of it: the tip (the copy of the newest commit, which the row shows
+//!   once the sync built it; the stack branch of a whole stack while it is built), the pull request its robot would start from
 //!   (`domain_policy::readiness::start_pull_request`, with the GitHub repository Patronus names) and the reviews of it.
 //!   Its inputs are the hash of the ask and of the rechecks (Check Approvals Again): a new tip, start or review, and a
 //!   recheck, make the readiness `Stale` in the patch that changes them, until the answer of the new inputs.
@@ -269,7 +269,7 @@ pub fn local_tip(branch: &BranchView) -> Option<&str> {
     .or_else(|| branch.commits.first().map(|commit| commit.id.as_str()))
 }
 
-/// The ask of the subject `key` as the session has it now; `None` without a tip (a whole stack not built)
+/// The ask of the subject `key` as the session has it now; `None` without a tip (a branch or a whole stack not built)
 fn subject_ask(state: &TableState, pull_requests: &PullRequestsView, github: Option<&str>, target: &str, key: &str) -> Option<ReviewReadinessBranch> {
   if let Some(root) = stack_root_of_readiness_key(key) {
     let stack = state.stack(root)?;
@@ -277,7 +277,8 @@ fn subject_ask(state: &TableState, pull_requests: &PullRequestsView, github: Opt
     let start = start_pull_request(pull_requests.stack_pull_requests.get(root), target, github);
     return Some(ReviewReadinessBranch::starting_from(key.to_owned(), Some(stack.branch_name.clone()), tip.clone(), start));
   }
-  let tip = local_tip(state.branch(key)?).filter(|tip| !tip.is_empty())?;
+  // the copy the row shows: none before the sync built the branch
+  let tip = state.branch(key)?.copies.first()?.hash.as_deref().filter(|tip| !tip.is_empty())?;
   let start = start_pull_request(pull_requests.pull_requests.get(key), target, github);
   Some(ReviewReadinessBranch::starting_from(key.to_owned(), None, tip.to_owned(), start))
 }

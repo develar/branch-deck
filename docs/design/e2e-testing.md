@@ -295,8 +295,10 @@ Mock implementation:
   an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
   answers a range of source `local`; `fetchError` fails it instead. `get_range_files` and
   `prune_review_refs` run the real functions, `cancel_review_fetch` does nothing (`review_requests_test.rs`)
-- **Code-owner review**: `get_branch_review_readiness` runs the app's core (`remote_facts::review_readiness`, without the
-  object cache, so every call asks the fake Patronus; Space and the target branch as the app needs them), see
+- **Code-owner review**: the readiness reads of the sessions (`TestFactSources::readiness`, `readiness_of` of the bridge)
+  run the app's core (`remote_facts::review_readiness`, without the object cache, so every call asks the fake Patronus
+  and no kept answer is read first; Space and the target branch as the app needs them); a test holds or fails the
+  pre-check of the fake (`holdRemoteAnswers({ hold: ["readiness"] })`), never the page's call, see
   [Remote services](#remote-services). `POST /repositories/{id}/review-answers` (`setReviewAnswers`, the `reviewAnswers`
   setup option) sets what the pre-check answers by branch (`{answers: {<branch> | stack:<root>: PatronusReviewRequirement}}`;
   `AWAITING_CODE_OWNER`, `APPROVED_BY_CODE_OWNER`, `NOT_EVALUATED` in `patronus-helpers.ts`), written once in the wire
@@ -305,9 +307,10 @@ Mock implementation:
   `{prefix}/virtual/<branch>` (or `{prefix}/stack/<root>`) with its answer, any other by the code owners of the paths of
   its commits by the `OWNERSHIP` files of the target (`origin/<target>`), one group per owner, none approved, as a
   Patronus that doesn't evaluate pull requests; the core attributes the paths (`review_readiness_test.rs`). A template
-  without `OWNERSHIP` files needs no review. `GET` returns the page's `calls` (the branches, the recheck: only the page
-  knows it) and the `checks` the fake got (the tip, the pull request). A test of one surface that only Space answers
-  (a merge request) still answers in the page (`routeReviewRequirement`)
+  without `OWNERSHIP` files needs no review. `mergeRequest: { request, answers }` is the Space merge request the fake
+  finds open for every branch (a repository only on Space counts its approvals) with what the pre-check answers asked
+  with its review. `GET` returns the sessions' `calls` (the subjects of each,
+  the recheck) and the `checks` the fake got (the tip, the pull request)
 - **Window**: `plugin:window` answers from `__e2eWindowState` (fullscreen, maximized) and records the actions in
   `__e2eWindowCalls` (with `show_window_menu`); a test fires `tauri://resize`, `tauri://focus` and `tauri://blur` with
   `emitTauriEvent`. E2E has no `__BD_TITLE_BAR__`, so the toolbar renders as under a native title bar
@@ -440,7 +443,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
   so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
 - **Bridge**: the reads of the session's robots (`TestFactSources`: `list_robots`, `poll_robots`, `failing_robots` and
-  `robot_problems` of the bridge, and the merge profiles, `profiles_of`), `get_patronus_robot_details`,
+  `robot_problems` of the bridge, the merge profiles, `profiles_of`, and the review readiness, `readiness_of`), `get_patronus_robot_details`,
   `get_robot_failure`, `get_patronus_target_branch`, `start_patronus_robot`,
   `restart_patronus_robot`, `cancel_patronus_robot` and `get_patronus_robot_status` call the service as
   `src-tauri/src/commands/patronus.rs` does (a start, a restart and a cancel give their robot to the session, as the
@@ -618,7 +621,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   ~150 s, ~2075 s of test time, a mean test 3.1 s (p50 2.8 s, p99 12 s). A test spends 17% in `setupRepo` (the
   repository 177 ms, the page ~300 ms until Sync is enabled), 31% in its syncs (~1 s each, of which `sync_branches`
   takes 519 ms on the server), 5% in the browser fixtures, the rest in its body; the landing needs (384 ms, then
-  `wait_landing_needs`; the session computes them since s7-4) and `get_branch_review_readiness` follow most syncs. The run is CPU-bound: the test server and its git processes used
+  `wait_landing_needs`; the session computes them since s7-4) and the readiness of the shown rows (the session's reads since s7-6) follow most syncs. The run is CPU-bound: the test server and its git processes used
   374 s user and 817 s system time (about 136 git processes per test: `rev-parse` 25, `config` 23, `cat-file` 16,
   `unpack-objects` after each small `fast-import` 8), the browsers and the workers 1084 s, so the wall time follows
   the CPU work, not the waits. Measured and left as they are: Playwright's retry backoff of an expect (500 ms steps,
@@ -647,7 +650,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`safe-push-helpers.ts`) gives each fact an assertion's time of its own before the step is asserted. The steps
   measured in the traces of the failed waits (2026-10-24):
   `fetch_baseline` 2-4 s, `check_landing_gate` 2-3.5 s (a start runs the gate again in `start_patronus_robot`, 2-2.7 s:
-  the test server has no object cache), the landing needs 2-5 s (then `wait_landing_needs`), `get_branch_review_readiness` 1-5 s
+  the test server has no object cache), the landing needs 2-5 s (then `wait_landing_needs`), the readiness 1-5 s
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,
   which is until the toast times out (5 s, 10 s with an action). A test closes a toast it has read with its close

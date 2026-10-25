@@ -3,6 +3,7 @@ import { isAwaitingApproval } from "@/hooks/useBranchNextStep"
 import { isStackAwaitingApproval, readinessKeysNeedingAnswer, tellReadinessNews } from "@/hooks/useStackNextStep"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
+import { approvalNewsOf } from "@/lib/approval-news"
 import { isWindowFocused, setWindowFocus } from "@/lib/os-notification"
 import { tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
 import { setDemandFocused } from "@/model/demand"
@@ -11,7 +12,7 @@ import { branchSyncStore } from "@/stores/branch-sync"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
 import { applySessionFacts } from "@/stores/patronus"
 import { applyPullRequestsFacts, refreshPullRequests } from "@/stores/pull-requests"
-import { hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
+import { applyReadinessFacts, hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
 import { onReviewRequestsPoll, refreshReviewRequests } from "@/stores/review-requests"
 import { watchRobotCoverage } from "@/stores/robot-coverage"
 
@@ -31,9 +32,10 @@ function isAwaiting(): boolean {
  * it started (`watchRobotCoverage`). The review requests of others after every successful sync, on window focus and
  * every five minutes, focused or not. A sign-in or a sign-out of GitHub (`github-auth-changed`, from any window) asks
  * GitHub again at once. The readiness of the branches whose next step depends on it is asked as they change
- * (`watchReviewReadiness`), the whole stack of an island header too; while a row or such a header waits for an approval
- * (Awaiting), a focus asks the session for the pull requests at once (the user comes back from asking for it), and so
- * does every poll of the review requests; an approval that arrives is news (`tellReadinessNews`).
+ * (`watchReviewReadiness` tells the session which shown subjects wait for it: the session asks them), the whole stack of an
+ * island header too; while a row or such a header waits for an approval (Awaiting), a focus asks the session for the
+ * pull requests at once (the user comes back from asking for it), and so does every poll of the review requests; the
+ * approvals that arrived are news of the session (`tellReadinessNews`).
  */
 export function useReviewStatusRefresh(): void {
   useEffect(
@@ -41,7 +43,9 @@ export function useReviewStatusRefresh(): void {
       onSessionFacts((repositoryPath, view, changes, news) => {
         applySessionFacts(repositoryPath, view, changes)
         applyPullRequestsFacts(repositoryPath, view.facts, changes?.facts ?? null)
+        applyReadinessFacts(repositoryPath, view.facts, changes?.facts ?? null)
         tellRobotNews(repositoryPath, news)
+        approvalNewsOf(news).forEach(tellReadinessNews)
       }),
     [],
   )
@@ -49,7 +53,7 @@ export function useReviewStatusRefresh(): void {
   useEffect(() => setDemandFocused(isWindowFocused()), [])
   useEffect(() => watchFailingRobots(), [])
   useEffect(() => watchRobotCoverage(), [])
-  useEffect(() => watchReviewReadiness(readinessKeysNeedingAnswer, tellReadinessNews), [])
+  useEffect(() => watchReviewReadiness(readinessKeysNeedingAnswer), [])
   // a row waits for an approval: each poll of the review requests asks GitHub for the user's pull requests too, whose
   // new reviews make the readiness ask Patronus once
   useEffect(

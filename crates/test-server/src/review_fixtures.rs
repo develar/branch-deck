@@ -7,7 +7,7 @@ use crate::remote_fixtures::{FixtureResult, host_of, unknown_repository};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use domain_types::patronus::{PatronusCommandReply, PatronusReviewRequirement, PatronusReviewer, ReviewPathsSource, ReviewerApprovalState};
+use domain_types::patronus::{PatronusCommandReply, PatronusMergeRequest, PatronusReviewRequirement, PatronusReviewer, ReviewPathsSource, ReviewerApprovalState};
 use domain_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState};
 use domain_types::review_request::{ReviewRequest, ReviewRequestsResult};
 use git_ops::ownership::read_file_owners;
@@ -31,6 +31,28 @@ pub struct ReviewAnswersFixture {
   /// requests answers
   #[serde(default)]
   pub answers: HashMap<String, PatronusReviewRequirement>,
+  /// The merge request Space finds open for every branch (`GET /app/rest/v1/space/merge-requests`), whose approvals a
+  /// repository only on Space counts; none by default
+  #[serde(default)]
+  pub merge_request: Option<MergeRequestFixture>,
+}
+
+/// The Space merge request of every branch and what the pre-check answers asked with its review (the approvals of it
+/// counted), by branch as `answers`; without one of a branch, as asked without the review
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MergeRequestFixture {
+  pub request: PatronusMergeRequest,
+  #[serde(default)]
+  pub answers: HashMap<String, PatronusReviewRequirement>,
+}
+
+/// What the pre-check answers by branch, in wire form: asked without a review, and asked with the review of the Space
+/// merge request
+#[derive(Clone, Debug, Default)]
+pub struct ReviewAnswers {
+  pub plain: HashMap<String, Value>,
+  pub with_review: HashMap<String, Value>,
 }
 
 /// `requirement` as Patronus answers the pre-check of a branch with a GitHub pull request, after a check that the real
@@ -83,7 +105,13 @@ fn fixture_reviewer(reviewer: &PatronusReviewer) -> Value {
 /// What the fake Patronus answers the pre-check `body` of the test repository at `repository_path` (its hook): the
 /// answer of the fixture branch whose tip is the newest commit of the request, else the owners of the paths it changes
 /// (`ReviewAnswersFixture`). Branches and `OWNERSHIP` files are read as they are when Patronus is asked
-pub fn review_check_answer(git: &git_executor::git_command_executor::GitCommandExecutor, repository_path: &str, answers: &HashMap<String, Value>, body: &Value) -> (u16, Value) {
+pub fn review_check_answer(git: &git_executor::git_command_executor::GitCommandExecutor, repository_path: &str, answers: &ReviewAnswers, body: &Value) -> (u16, Value) {
+  // asked with the review of a merge request, its approvals count
+  let answers = if body["spaceReviewKey"].is_string() && !answers.with_review.is_empty() {
+    &answers.with_review
+  } else {
+    &answers.plain
+  };
   match answer_for(git, repository_path, answers, body) {
     Ok(answer) => (200, answer),
     Err(error) => (500, json!({"error": "INTERNAL_ERROR", "description": format!("{error:#}")})),
@@ -126,17 +154,29 @@ fn answer_for(git: &git_executor::git_command_executor::GitCommandExecutor, repo
 /// Sets what the Patronus pre-check answers by branch from now on (`ReviewAnswersFixture`)
 pub async fn set_review_answers(Path(id): Path<String>, State(state): State<Arc<crate::state::AppState>>, Json(fixture): Json<ReviewAnswersFixture>) -> FixtureResult {
   let (host, _) = host_of(&state, &id)?;
-  let answers = fixture
-    .answers
-    .iter()
-    .map(|(branch, requirement)| Ok((branch.clone(), fixture_review_answer(requirement)?)))
-    .collect::<anyhow::Result<HashMap<_, _>>>()
-    .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))?;
+  let wire = |answers: &HashMap<String, PatronusReviewRequirement>| {
+    answers
+      .iter()
+      .map(|(branch, requirement)| Ok((branch.clone(), fixture_review_answer(requirement)?)))
+      .collect::<anyhow::Result<HashMap<_, _>>>()
+      .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("{e:#}")))
+  };
+  let answers = ReviewAnswers {
+    plain: wire(&fixture.answers)?,
+    with_review: fixture
+      .merge_request
+      .as_ref()
+      .map(|merge_request| wire(&merge_request.answers))
+      .transpose()?
+      .unwrap_or_default(),
+  };
   host.set_review_answers(answers);
+  let merge_request = fixture.merge_request.map(|merge_request| json!(merge_request.request));
+  *host.patronus().merge_request.lock().expect("merge request lock") = merge_request;
   Ok(StatusCode::OK)
 }
 
-/// The page's `get_branch_review_readiness` calls (`calls`: the branches and the recheck of each), and the pre-checks
+/// The readiness reads of the sessions (`calls`: the subjects and the recheck of each, `readiness_of`), and the pre-checks
 /// that reached the fake Patronus (`checks`: the tip and the pull request of each), in order
 pub async fn get_review_answers(Path(id): Path<String>, State(state): State<Arc<crate::state::AppState>>) -> Result<Json<Value>, (StatusCode, String)> {
   let calls = {

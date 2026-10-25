@@ -298,7 +298,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
-    .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
     .route("/invoke/post_patronus_command", post(tauri_command_bridge::post_patronus_command))
     .route("/invoke/read_patronus_command_reply", post(tauri_command_bridge::read_patronus_command_reply))
     .route("/invoke/submit_pull_request_review", post(tauri_command_bridge::submit_pull_request_review))

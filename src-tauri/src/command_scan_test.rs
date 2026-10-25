@@ -2,7 +2,7 @@
 //! sources of `src-tauri`: every `#[tauri::command]` has an `#[instrument]` span; a command that can fail
 //! (`Result<_, ApiError>`) runs its body as an operation (`operation`, `operation_now`, or the one blocking step
 //! `run_blocking`); and the span records no argument that holds a collection, whose Debug text a line of the log would
-//! carry whole (`skip_all` and a field or two instead, as `get_branch_review_readiness` does).
+//! carry whole (`skip_all` and a field or two instead, as `add_issue_reference` does).
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;

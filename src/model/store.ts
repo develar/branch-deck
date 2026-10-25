@@ -188,8 +188,8 @@ export async function whenSessionViewAt(repositoryPath: string, version: Version
  * Asks the session of `repositoryPath` to read a fact again (`refresh_facts`) and resolves once the patch of that read is
  * in the store; false when nothing was asked (the rules held it back, no session is open) or the request failed
  */
-export async function refreshSessionFacts(repositoryPath: string, family: FactFamily, reason: FactRefreshReason): Promise<boolean> {
-  const result = await commands.refreshFacts({ repositoryPath, family, reason })
+export async function refreshSessionFacts(repositoryPath: string, family: FactFamily, reason: FactRefreshReason, subject?: string): Promise<boolean> {
+  const result = await commands.refreshFacts({ repositoryPath, family, reason, ...(subject !== undefined && { subject }) })
   if (result.status === "error") {
     console.warn("Cannot ask the session to read its facts again", result.error)
     return false

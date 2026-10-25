@@ -191,16 +191,19 @@ Safe Push it allows.
   refresh button's reason): they bring the latest reviews and the review requests, no other query. A new review changes the input of the readiness, which
   asks Patronus once.
 - An approval is news when the readiness of a branch goes from `missing` to `approved` (or `notRequired`) for the same
-  tip and the same pull request with other reviews (`findApprovalNews`): a new review, not a new commit of the user,
+  tip and the same pull request with other reviews (`approval_news`): a new review, not a new commit of the user,
   nor a recheck of a kept answer; an unavailable answer between the two hides nothing (the last answer Patronus gave
   counts). An approval that arrives together with a new tip (a sync after a push) is not told: the row shows it. The first answer of
   a session is no news: an approval made while the app was closed brings none, the row shows it. Each approval is told
-  once (by the branch, the pull request and the approvers), decided in the main window only. While Patronus can't judge
+  once (by the branch, the pull request and the approvers), decided by the session of the repository
+  (`domain_policy::readiness::approval_news`, told as its news `approvalsArrived`) and told in the main window only. While Patronus can't judge
   the approvals (`unknown`, `unavailable` on both answers), GitHub's wait is the news: the pull request waited for
   requested reviewers ([Next Step](../branch/next-step.spec.md) row 10′), now it waits for nobody and some of them
   approved: "ikorennoy approved wsm-skip-wa-2", "#1078".
-  [@test] ../../src/lib/approval-news.test.ts (`tells the approvals that made a waiting pull request ready, for the same tip`, `tells the approval of a reviewer GitHub waited for while Patronus can't judge the approvals`, `is no news for the first answer, another tip, a start through the API or a readiness still missing`, `keys an approval by the branch, the pull request and the approvers, whatever their order`)
-  [@test] ../../src/stores/review-readiness.test.ts (`tells once when a new review made the waiting pull request ready`)
+  [@test] ../../crates/domain-policy/src/readiness_test.rs (`tells_the_approvals_that_made_a_waiting_pull_request_ready_for_the_same_tip`, `tells_the_approval_of_a_reviewer_github_waited_for_while_patronus_cannot_judge_the_approvals`)
+  [@test] ../../crates/domain-policy/src/readiness_test.rs (`is_no_news_for_another_tip_a_start_through_the_api_the_same_reviews_or_a_readiness_still_missing`)
+  [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`the_approvals_that_arrived_are_news_once`)
+  [@test] ../../src/lib/approval-news.test.ts (`takes the approvals of the session's news, each with its subject, and none of the robots'`, `tells the approvals that made a waiting pull request ready, for the same tip`)
 - The news is a `success` toast "Ilya Korennoy approved wsm-skip-wa-2" ("Ilya Korennoy and Anna Ivanova approved …";
   "The code owners approved …" when Patronus names nobody) / "#1078 · IJPL Code Platform", with "Safe Push" first
   (the start of the row's Safe Push, `requestSafePush`, the row revealed: it starts at once or opens its popover at the
@@ -209,6 +212,7 @@ Safe Push it allows.
   while "Approvals of my pull requests" is on in Settings (`notifyApprovals`); the toast shows on the next focus. An
   Activity entry, kind `review`, keeps it with "Open Pull Request".
   [@test] ../../src/lib/approval-news.test.ts (`names every approver of the groups that waited, each once; a group approved before isn't news`, `says the code owners approved when Patronus needs no approval any more and names nobody`)
+  [@test] ../../crates/domain-policy/src/readiness_test.rs (`names_every_approver_of_the_groups_that_waited_each_once_a_group_approved_before_is_not_news`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push of the branch first`)
 - Changes requested by a reviewer stay the "Returned to you" line of the card (below): its own pull requests with the
   review decision `changesRequested`.

@@ -209,11 +209,6 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  Whether a Safe Push of each branch would pass the code-owner review, for the tip and the start the page shows: the
-	 *  session's read (`PatronusState::readiness`) under the prefix the commands resolve
-	 */
-	getBranchReviewReadiness: (params: GetBranchReviewReadinessParams) => typedError<BranchReviewReadiness[], ApiError>(__TAURI_INVOKE("get_branch_review_readiness", { params })),
-	/**
 	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
 	 *  branch: Patronus links the robot to the pull request only from its comment. The comment of the user's own branch
 	 *  comes after the checks of `start_patronus_robot` (`RemoteActions::check_start_from_pull_request`), which the test
@@ -874,15 +869,6 @@ export type BranchReviewPart =
 "own" | 
 /**  The stack from the baseline */
 "all";
-
-/**  The answer for one branch of `GetBranchReviewReadinessParams`, keyed by its input */
-export type BranchReviewReadiness = {
-	branchName: string,
-	tip: string,
-	/**  What Patronus answered; null when it didn't */
-	requirement: PatronusReviewRequirement | null,
-	readiness: ReviewReadiness,
-};
 
 /**  A branch of the chain: its commits on top of its parent (the baseline for the root) */
 export type BranchReviewSegment = {
@@ -2158,15 +2144,6 @@ export type GetBranchReviewParams = {
 	 *  one part named by the root
 	 */
 	wholeStack?: boolean,
-};
-
-export type GetBranchReviewReadinessParams = {
-	repositoryPath: string,
-	/**  As the sync detected it, e.g. `origin/master` */
-	baselineBranch: string,
-	branches: ReviewReadinessBranch[],
-	/**  Ask Patronus again instead of the cached answer (the user waits for approvals) */
-	recheck?: boolean,
 };
 
 export type GetCommitFilesParams = {

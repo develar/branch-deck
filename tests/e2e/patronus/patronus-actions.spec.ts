@@ -25,17 +25,7 @@ import {
   verifyBranchState,
   verifyCommitCount,
 } from "../helpers/branch-helpers"
-import {
-  availableRobots,
-  missingApprovals,
-  robot,
-  robotUrl,
-  routeReviewRequirement,
-  setupRobots,
-  setupRobotsWith,
-  startRequest,
-  setupApprovalsDismissedByPush,
-} from "../helpers/patronus-helpers"
+import { availableRobots, missingApprovals, robot, robotUrl, setupRobots, setupRobotsWith, startRequest, setupApprovalsDismissedByPush } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
   createPullRequestDialog,
@@ -815,10 +805,8 @@ test.describe("Patronus actions", () => {
     test("should name the approvals a Safe Push needs on Space, and start with the merge request found open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
       const pushes = await routePush(page, {})
-      // the merge request needs the approvals until a recheck finds them
-      const checks = await routeReviewRequirement(page, params =>
-        params.recheck === true ? { ...REVIEW_REQUIRED, required: false, groups: [], mergeRequest: MERGE_REQUEST } : { ...REVIEW_REQUIRED, mergeRequest: MERGE_REQUEST },
-      )
+      // the merge request Space finds open needs the approvals: Patronus checks its review
+      await repo.setReviewAnswers({ answers: { "JIRA-456": REVIEW_REQUIRED }, mergeRequest: { request: MERGE_REQUEST, answers: { "JIRA-456": REVIEW_REQUIRED } } })
 
       // on Space the robot decides on the approvals: the click says first what the merge request needs
       await slotSafePush(page, "JIRA-456").click()
@@ -833,11 +821,13 @@ test.describe("Patronus actions", () => {
       await popover.getByRole("button", { name: "Cancel" }).click()
       await expect(popover).toHaveCount(0)
 
-      // Check Approvals Again asks Patronus again: it finds them now
+      // the approvals come; Check Approvals Again asks Patronus again, not the kept answer: it finds them now
+      const approved = { ...REVIEW_REQUIRED, required: false, groups: [] }
+      await repo.setReviewAnswers({ answers: { "JIRA-456": REVIEW_REQUIRED }, mergeRequest: { request: MERGE_REQUEST, answers: { "JIRA-456": approved } } })
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
       await openSubmenu(page, "Patronus")
       await page.getByRole("menuitem", { name: "Check Approvals Again" }).click()
-      await expect.poll(() => checks.some(params => params.recheck === true)).toBe(true)
+      await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.recheck)).toBe(true)
       expect((await repo.getPatronusLog()).starts).toEqual([])
 
       // nothing to say any more: the click starts at once, with the merge request whose approvals count

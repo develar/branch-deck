@@ -1,9 +1,14 @@
 use crate::review_fixtures::fixture_review_answer;
-use crate::test_support::{create_repository, post, start_test_server};
+use crate::session_routes_test::{subscribe, subscription};
+use crate::state::AppState;
+use crate::tauri_command_bridge::{branch_prefix_of, readiness_of};
+use crate::test_support::{Named, create_repository, post, post_as, start_test_server, start_test_server_with_state, sync};
 use domain_types::patronus::PatronusReviewRequirement;
+use domain_types::patronus::ReviewReadinessBranch;
 use patronus::client::PreMergeCheckResponse;
 use patronus::review::to_requirement;
 use pretty_assertions::assert_eq;
+use repository_model::session::SessionKey;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::git_command;
 
@@ -17,13 +22,13 @@ fn awaiting_code_owner() -> Value {
   })
 }
 
-/// The server, a repository of the `simple` template: its id, its path and the tip of `HEAD`
-async fn setup() -> (std::net::SocketAddr, reqwest::Client, String, String, String) {
-  let addr = start_test_server().await;
+/// The server with its state, a repository of the `simple` template: its id, its path and the tip of `HEAD`
+async fn setup() -> (std::net::SocketAddr, std::sync::Arc<AppState>, reqwest::Client, String, String, String) {
+  let (addr, state) = start_test_server_with_state().await;
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
   let tip = git(&repository_path, &["rev-parse", "HEAD"]);
-  (addr, client, id, repository_path, tip)
+  (addr, state, client, id, repository_path, tip)
 }
 
 fn git(repository_path: &str, args: &[&str]) -> String {
@@ -52,12 +57,23 @@ fn a_fixture_answer_reads_back_through_the_real_parser() {
   fixture_review_answer(&ownership).unwrap_err();
 }
 
+/// The readiness as the session of the repository at `path` reads it (`TestFactSources`), against `origin/master`
+async fn readiness(state: &AppState, path: &str, asks: Value, recheck: bool) -> Value {
+  let prefix = branch_prefix_of(state, path).await.ok().unwrap();
+  let key = SessionKey {
+    worktree: path.to_owned(),
+    prefix,
+  };
+  let asks: Vec<ReviewReadinessBranch> = serde_json::from_value(asks).unwrap();
+  serde_json::to_value(readiness_of(state, &key, "origin/master".to_owned(), asks, recheck).await.unwrap()).unwrap()
+}
+
 /// The readiness comes through the real core from the fake Patronus: without an answer for the branch the owners of its
 /// paths review (none without `OWNERSHIP` files); with one the answer of the branch whose tip the pre-check names,
-/// judged with the reviewers and the start the page sends; the pre-check names the pull request of the start
+/// judged with the reviewers and the start the session asks with; the pre-check names the pull request of the start
 #[tokio::test]
 async fn the_readiness_comes_from_the_fake_patronus_through_the_real_core() {
-  let (addr, client, id, repository_path, tip) = setup().await;
+  let (addr, state, client, id, repository_path, tip) = setup().await;
   git(&repository_path, &["update-ref", "refs/remotes/origin/master", "HEAD~1"]);
   git(&repository_path, &["update-ref", "refs/heads/user-name/virtual/IJPL-1", "HEAD"]);
   post(
@@ -67,13 +83,10 @@ async fn the_readiness_comes_from_the_fake_patronus_through_the_real_core() {
     json!({"availability": {"status": "available"}, "robots": [], "githubRepository": "acme/monorepo"}),
   )
   .await;
-  let params = json!({
-    "repositoryPath": repository_path, "baselineBranch": "origin/master",
-    "branches": [{"branchName": "IJPL-1", "tip": tip, "start": {"kind": "pullRequest", "number": 7}, "author": "user-name",
-      "reviewers": [{"login": "junie-jetbrains", "state": "approved", "requested": false}, {"login": "ikorennoy", "state": "requested", "requested": true}]}],
-  });
+  let asks = json!([{"branchName": "IJPL-1", "tip": tip, "start": {"kind": "pullRequest", "number": 7}, "author": "user-name",
+    "reviewers": [{"login": "junie-jetbrains", "state": "approved", "requested": false}, {"login": "ikorennoy", "state": "requested", "requested": true}]}]);
 
-  let answer = post(&client, addr, "/invoke/get_branch_review_readiness", params.clone()).await;
+  let answer = readiness(&state, &repository_path, asks.clone(), false).await;
   assert_eq!((answer[0]["tip"].clone(), answer[0]["readiness"].clone()), (json!(tip), json!({"kind": "notRequired"})));
 
   post(
@@ -83,7 +96,7 @@ async fn the_readiness_comes_from_the_fake_patronus_through_the_real_core() {
     json!({"answers": {"IJPL-1": awaiting_code_owner()}}),
   )
   .await;
-  let answer = post(&client, addr, "/invoke/get_branch_review_readiness", params.clone()).await;
+  let answer = readiness(&state, &repository_path, asks, true).await;
   let ilya = json!({"login": "ikorennoy", "fullName": "Ilya Korennoy"});
   assert_eq!(
     answer[0]["readiness"],
@@ -100,27 +113,28 @@ async fn the_readiness_comes_from_the_fake_patronus_through_the_real_core() {
     .unwrap();
   assert_eq!(unknown_field.status(), 422);
 
-  let log: Value = client
+  let log = review_log(&client, addr, &id).await;
+  assert_eq!(log["calls"], json!([{"branches": ["IJPL-1"], "recheck": false}, {"branches": ["IJPL-1"], "recheck": true}]));
+  let check = json!({"tip": tip, "pullRequest": {"repository": "acme/monorepo", "number": 7}});
+  assert_eq!(log["checks"], json!([check, check]));
+}
+
+async fn review_log(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str) -> Value {
+  client
     .get(format!("http://{addr}/repositories/{id}/review-answers"))
     .send()
     .await
     .unwrap()
     .json()
     .await
-    .unwrap();
-  assert_eq!(
-    log["calls"],
-    json!([{"branches": ["IJPL-1"], "recheck": false}, {"branches": ["IJPL-1"], "recheck": false}])
-  );
-  let check = json!({"tip": tip, "pullRequest": {"repository": "acme/monorepo", "number": 7}});
-  assert_eq!(log["checks"], json!([check, check]));
+    .unwrap()
 }
 
 /// A branch the fixture doesn't answer is reviewed by the owners of its paths by the `OWNERSHIP` files of the target,
 /// one group per owner with its paths, none approved
 #[tokio::test]
 async fn a_branch_without_an_answer_is_reviewed_by_the_owners_of_its_paths() {
-  let (addr, client, id, repository_path, tip) = setup().await;
+  let (addr, state, client, id, repository_path, tip) = setup().await;
   let changed = git(&repository_path, &["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]);
   let changed = changed.lines().next().unwrap().to_string();
   // the target has the OWNERSHIP file: the owners of the target decide; written without the working tree
@@ -133,11 +147,8 @@ async fn a_branch_without_an_answer_is_reviewed_by_the_owners_of_its_paths() {
     json!({"availability": {"status": "available"}, "robots": []}),
   )
   .await;
-  let params = json!({
-    "repositoryPath": repository_path, "baselineBranch": "origin/master",
-    "branches": [{"branchName": "IJPL-1", "tip": tip, "start": {"kind": "rest"}}],
-  });
-  let answer = post(&client, addr, "/invoke/get_branch_review_readiness", params).await;
+  let asks = json!([{"branchName": "IJPL-1", "tip": tip, "start": {"kind": "rest"}}]);
+  let answer = readiness(&state, &repository_path, asks, false).await;
   assert_eq!(answer[0]["requirement"]["required"], json!(true), "{answer}");
   let group = &answer[0]["requirement"]["groups"][0];
   assert_eq!(
@@ -145,6 +156,56 @@ async fn a_branch_without_an_answer_is_reviewed_by_the_owners_of_its_paths() {
     (json!("IJPL Code Platform"), json!([changed]), json!("ownership"))
   );
   assert_eq!(answer[0]["readiness"]["kind"], json!("missing"));
+}
+
+/// The session asks the readiness a window needs at once, through the real core against the fake Patronus, once
+/// Patronus answered the list of the robots: the answer comes as a patch of the window's view, the call logged with
+/// its subject
+#[tokio::test]
+async fn the_session_asks_the_readiness_a_window_needs_from_the_fake_patronus() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, path) = create_repository(&client, addr).await;
+  post(
+    &client,
+    addr,
+    &format!("/repositories/{id}/patronus"),
+    json!({"availability": {"status": "available"}, "robots": [], "githubRepository": "acme/monorepo"}),
+  )
+  .await;
+  let mut messages = subscribe(&client, addr, &id, &path, 31).await;
+  let subscribed = subscription(&mut messages).await;
+  sync(&client, addr, &path).await;
+  let snapshot = view_when(&client, addr, &path, |view| view["facts"]["robots"]["head"]["state"]["kind"] == "fresh").await;
+  let branch = snapshot["order"][0].as_str().unwrap().to_owned();
+  let demand = json!({
+    "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [branch], "previewed": [],
+    "reviewWindows": [], "robotDetails": [], "watchedRobots": [],
+  });
+  post_as(
+    &client,
+    addr,
+    Named::Id(&id),
+    "/invoke/set_demand",
+    json!({ "subscription": subscribed["id"], "demand": demand }),
+  )
+  .await;
+  let view = view_when(&client, addr, &path, |view| view["facts"]["readiness"][&branch]["state"]["kind"] == "fresh").await;
+  assert_eq!(view["facts"]["readiness"][&branch]["value"]["readiness"], json!({"kind": "notRequired"}));
+  assert_eq!(review_log(&client, addr, &id).await["calls"], json!([{"branches": [branch], "recheck": false}]));
+  post_as(&client, addr, Named::Id(&id), "/invoke/unsubscribe_view", json!({ "id": subscribed["id"] })).await;
+}
+
+/// The view of the session of `path` once `done` says it is, asked again until then
+async fn view_when(client: &reqwest::Client, addr: std::net::SocketAddr, path: &str, done: impl Fn(&Value) -> bool) -> Value {
+  for _ in 0..2000 {
+    let view = post(client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
+    if done(&view) {
+      return view;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+  }
+  panic!("the view of {path} never came")
 }
 
 /// A commit on `HEAD~1` that adds the `OWNERSHIP` file `text` at the root, built in a temporary index

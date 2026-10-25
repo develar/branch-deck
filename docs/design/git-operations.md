@@ -3049,6 +3049,11 @@ whose approvals count: the app and `bd` ask it with the pull request the robot w
 - Starting a robot pushes nothing itself: the branch is pushed by `push_branch` first, then Patronus is asked over HTTP.
 - When Patronus names a reviewer group without its paths, the union of the paths of all branches asked is given to
   the code owners (below) in one read, and a group gets the paths of its branch whose owner has its name.
+- Who asks: `bd safe-push` for the branch it starts, and the session of a repository in the app for the subjects its
+  windows need and show (`remote_facts::scheduler`, [Next Step](../../spec/branch/next-step.spec.md#the-readiness-store)):
+  each ask a call of its own (one `git log` of its tip), what a surface needs at once, the queue at most 4 at a time;
+  before the queue one read of the kept answers of all of it (`kept_review_readiness`: one `git log` for all, the
+  `review_answer` store, no request), whose hits apply before any pre-check. The calls run without the repository lock.
 
 #### Code owners (OWNERSHIP)
 

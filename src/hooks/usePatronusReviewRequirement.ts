@@ -1,5 +1,6 @@
 import type { PatronusReviewRequirement, ReviewReadiness } from "@/lib/bindings"
-import { freshReadiness, getReviewReadiness, recheckReviewReadiness, useDemandReviewReadiness, useReviewReadiness } from "@/stores/review-readiness"
+import { useDemandReviewReadiness } from "@/model/demand"
+import { freshReadiness, getReviewReadiness, recheckReviewReadiness, useReviewReadiness } from "@/stores/review-readiness"
 
 export type ReviewRequirementState =
   | { status: "loading" }

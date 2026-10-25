@@ -2,6 +2,7 @@ import type {
   BranchNameSuggestionOutcome,
   IssueNavigationConfig,
   PatronusCommandReply,
+  PatronusMergeRequest,
   PatronusProfile,
   PatronusReviewRequirement,
   PatronusRobot,
@@ -357,22 +358,27 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * Sets what the fake Patronus answers the pre-check of `get_branch_review_readiness` with, by branch (see
+   * Sets what the fake Patronus answers the pre-check of the readiness reads of the session with, by branch (see
    * `patronus-helpers.ts`): a virtual branch by its name, the stack branch of a whole stack as `stack:<root>`, the
    * answer of the pre-check whose newest commit is that branch's tip; the real core judges it. A branch without an
    * answer: the owners of its files by the `OWNERSHIP` files of the target, as a Patronus that doesn't evaluate pull
-   * requests. An answer Patronus could not give is refused
+   * requests. An answer Patronus could not give is refused. `mergeRequest`: the Space merge request found open for
+   * every branch, whose approvals a repository only on Space counts, with what the pre-check answers asked with its
+   * review (as `answers`; a branch without one answers as without the review)
    */
-  async setReviewAnswers(fixture: { answers: Record<string, PatronusReviewRequirement> }): Promise<void> {
+  async setReviewAnswers(fixture: {
+    answers: Record<string, PatronusReviewRequirement>
+    mergeRequest?: { request: PatronusMergeRequest; answers: Record<string, PatronusReviewRequirement> }
+  }): Promise<void> {
     await this.setFixture("review-answers", fixture)
   }
 
-  /** The page's `get_branch_review_readiness` calls: the branches each asked and whether it was a recheck */
+  /** The readiness reads of the sessions: the subjects each asked and whether it was a recheck */
   async getReviewReadinessCalls(): Promise<{ branches: string[]; recheck: boolean }[]> {
     return (await this.getReviewChecks()).calls
   }
 
-  /** The page's readiness calls, and the pre-checks that reached the fake Patronus: the tip and the pull request of each */
+  /** The readiness reads of the sessions, and the pre-checks that reached the fake Patronus: the tip and the pull request of each */
   async getReviewChecks(): Promise<{ calls: { branches: string[]; recheck: boolean }[]; checks: { tip: string; pullRequest: { repository: string; number: number } | null }[] }> {
     return this.getFixture("review-answers")
   }

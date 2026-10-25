@@ -1055,22 +1055,14 @@ test.describe("Stacked branches", () => {
       setupRepo,
       syncAndWaitForBranches,
     }) => {
+      // the answers of Patronus wait
       const repo = await setupRepo("stacked_branches", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+      await repo.holdRemoteAnswers({ hold: ["readiness"] })
       await repo.setReviewAnswers({ answers: { "stack:auth": AWAITING_CODE_OWNER } })
       const missing = "Code owners must approve in a pull request: IJPL Code Platform"
-      // the row of the root asks Patronus for the whole stack, before any surface of it opens; that answer waits
-      const asksForStack = (postData: string | null) => (postData ?? "").includes('"branchName":"stack:auth"')
-      const asked = page.waitForRequest(request => request.url().endsWith("/invoke/get_branch_review_readiness") && asksForStack(request.postData()))
-      let release!: () => void
-      const held = new Promise<void>(resolve => (release = resolve))
-      await page.route("**/invoke/get_branch_review_readiness", async route => {
-        if (asksForStack(route.request().postData())) {
-          await held
-        }
-        await route.fallback()
-      })
+      // the row of the root asks Patronus for the whole stack, before any surface of it opens
       await syncAndWaitForBranches()
-      await asked
+      await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.branches.includes("stack:auth"))).toBe(true)
 
       // before the answer the menu says what the whole stack waits for: no Safe Push a later answer refuses
       await findBranchRow(page, "auth").click({ button: "right" })
@@ -1082,7 +1074,7 @@ test.describe("Stacked branches", () => {
       await page.keyboard.press("Escape")
       await page.keyboard.press("Escape")
       await expect(page.getByRole("menu")).toHaveCount(0)
-      release()
+      await repo.holdRemoteAnswers({ release: ["readiness"] })
 
       // now the menu knows: its Safe Push disabled with the reason, its pull request offered
       await findBranchRow(page, "auth").click({ button: "right" })
@@ -1701,7 +1693,7 @@ test.describe("Stacked branches", () => {
       syncAndWaitForBranches,
     }) => {
       // perf-part-2 is stacked on IJPL-257337 by the stack parents; its commit needs one commit of IJPL-257337
-      await setupRepo("stack_push_alone", { patronus: availableRobots() })
+      const repo = await setupRepo("stack_push_alone", { patronus: availableRobots() })
       await syncAndWaitForBranches()
 
       await slotSafePush(page, "perf-part-2").click()
@@ -1729,20 +1721,13 @@ test.describe("Stacked branches", () => {
       expect(await tree(page)).toEqual(["IJPL-257337@0", "perf-part-2@1"])
 
       // the review of the new tip waits: until it answers, the popover says so and shows no review of the whole stack
-      let releaseReview = () => {}
-      const reviewHeld = new Promise<void>(resolve => {
-        releaseReview = resolve
-      })
-      await page.route("**/invoke/get_branch_review_readiness", async route => {
-        await reviewHeld
-        await route.fallback()
-      })
+      await repo.holdRemoteAnswers({ hold: ["readiness"] })
       await alone.getByRole("button", { name: "Unstack from IJPL-257337" }).click()
       // the popover shows itself again, without a start: a root with its 2 commits, reviewed alone
       await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands perf-part-2 into master: 2 commits.")
       await expect(popover.getByTestId("safe-push-status")).toHaveText("Checking the code-owner review…")
       await expect(review).toHaveCount(0)
-      releaseReview()
+      await repo.holdRemoteAnswers({ release: ["readiness"] })
       // two roots now, in the order of their latest commits
       expect((await tree(page)).toSorted()).toEqual(["IJPL-257337@0", "perf-part-2@0"])
       await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")

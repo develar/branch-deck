@@ -34,6 +34,7 @@ import type { ToastActionProps } from "@/lib/toast-message"
 import { showToast } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
 import { branchSyncStore, getBranch, getStackBranch, getStackBranchOf, getStackIslandRoots, stackDescendantsIn, stackMainLineIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import {
@@ -55,13 +56,10 @@ import {
 import { askBranchRulesAgain, getPullRequest, getPullRequestListing, getStackPullRequest, peekBranchRules, pullRequestsStore } from "@/stores/pull-requests"
 import { getRepositorySwitchReason } from "@/stores/repository"
 import type { ReadinessEntry } from "@/stores/review-readiness"
-import { demandReviewReadiness, freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useDemandReviewReadiness } from "@/stores/review-readiness"
+import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { getSafePushStarting, openSafePushPopover, safePushStore, setSafePushStarting } from "@/stores/safe-push"
 import { getShownBranchTableOrder } from "@/stores/stack-collapse"
-
-/** How long a click waits for the facts its decision needs (the review, the rules) before the popover says what it waits for */
-export const SAFE_PUSH_SETTLE_MS = 20_000
 
 /** What asks a start: its mode, how (a click, a key), where its popover opens, a profile chosen where it was asked */
 export interface SafePushRequest {
@@ -445,38 +443,34 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
   }
 }
 
-/** Resolves on the next change of a store the facts are read from, or after `ms` */
-function nextChange(ms: number): Promise<void> {
+/** Resolves on the next change of a store the facts are read from */
+function nextChange(): Promise<void> {
   return new Promise(resolve => {
     const stores = [branchSyncStore, reviewReadinessStore, pullRequestsStore, patronusStore]
     let unsubscribes: (() => void)[] = []
     const done = () => {
-      clearTimeout(timer)
       unsubscribes.forEach(unsubscribe => unsubscribe())
       unsubscribes = []
       resolve()
     }
-    const timer = setTimeout(done, ms)
     unsubscribes = stores.map(store => store.subscribe(done))
   })
 }
 
-/** The facts of a click, read again on every change until the decision waits for nothing, at most `SAFE_PUSH_SETTLE_MS` */
+/**
+ * The facts of a click, read again on every change until the decision waits for nothing: the session answers every
+ * fact it waits for (the review it is asked at once, the rules, the profiles), a failure too, so the wait ends
+ */
 async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "placement">): Promise<SafePushRead | null> {
   // the profiles as the session has them now, the rules GitHub didn't give read again: the start decides on new answers
   await Promise.all([askStartOptions(branchName), askBranchRulesAgain()])
-  const deadline = Date.now() + SAFE_PUSH_SETTLE_MS
   for (;;) {
     const read = readSafePush(branchName, ask, getStartOptions(branchName))
     if (read === null || read.decision.kind !== "wait") {
       return read
     }
-    const left = deadline - Date.now()
-    if (left <= 0) {
-      return read
-    }
     // the rules come with the listing that has the approval: the session reads them then
-    await nextChange(left)
+    await nextChange()
   }
 }
 

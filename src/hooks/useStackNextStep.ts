@@ -28,6 +28,7 @@ import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { useShowReviewReadiness } from "@/model/demand"
 import type { StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getParkedState, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
@@ -43,7 +44,7 @@ import {
 } from "@/stores/patronus"
 import { getPullRequestAvailability, getPullRequestListing, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { freshReadiness, getReadinessTarget, getReviewReadiness, useShowReviewReadiness } from "@/stores/review-readiness"
+import { freshReadiness, getReadinessTarget, getReviewReadiness } from "@/stores/review-readiness"
 
 /**
  * The next step of the whole stack of a root ([Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)): of its
@@ -370,7 +371,7 @@ export function isStackAwaitingApproval(): boolean {
 }
 
 /**
- * Tells that approvals arrived (`findApprovalNews`): of a branch (`tellApprovalNews`), or in the pull request of the
+ * Tells that approvals arrived (the news of the session): of a branch (`tellApprovalNews`), or in the pull request of the
  * whole stack, "Ilya Korennoy approved the whole air stack" / "#12 · IJPL Code Platform", with "Safe Push Whole Stack"
  * first (the start of the whole stack, decided again at the click) and "Open Pull Request"
  */
