@@ -38,17 +38,26 @@
 //! computes) are a fact of their inputs (`landing_inputs`: the baseline, the tips and what the view names landed): one
 //! computation at a time, the newest wanted inputs next, nothing again while they stay; the part names them for the
 //! branches once they are of its inputs.
+//!
+//! GitHub and the merge profiles: the pull requests (`pull_request_facts::PullRequestsFact`, the part
+//! `facts.pullRequests` by branch and stack, which the listings and the app's writes leave in their order), the rules of
+//! the bases of the approved ones (`rules`, read once each; a failure `Unavailable` until read again), and the merge
+//! profiles of the target of the baseline (`profiles`, of the baseline they were read for: `Stale` once the table has
+//! another, `Unknown` until a start or its popover asks for them).
 
 use crate::branch_table::{BranchTable, remote_fact};
 use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
+use crate::pull_request_facts::PullRequestsFact;
 use crate::table::TableState;
 use domain_policy::refresh::{ActiveRobots, FactTiming, ReadState, robot_failing_due};
 use domain_policy::robot_match::{RobotIndex, Tips, match_table};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::LandingRefusal;
 use domain_types::patronus::{
-  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, REVIEW_APPROVAL_SUBSYSTEM,
+  KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusPushMode, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  REVIEW_APPROVAL_SUBSYSTEM,
 };
+use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use domain_types::repository_view::{PatronusView, RemoteFacts};
 use domain_types::session::Version;
 use domain_types::session::{Fact, FactState, NEWS_KEPT, News, NewsEvent, PatronusPart, RobotsHead, RobotsView};
@@ -240,6 +249,18 @@ pub enum FactResult {
     id: String,
     result: Result<Vec<PatronusProblem>, ApiError>,
   },
+  /// A listing of the pull requests
+  PullRequests(PullRequestsResult),
+  /// The rules of the base `branch`
+  Rules {
+    branch: String,
+    result: Result<BranchRules, ApiError>,
+  },
+  /// The merge profiles of the target `baseline` pushes to
+  Profiles {
+    baseline: String,
+    result: Result<PatronusStartOptions, ApiError>,
+  },
 }
 
 /// What applying an answer left: the version of the view after its patch and what the scheduler asks about the robots
@@ -248,6 +269,8 @@ pub enum FactResult {
 pub struct AppliedFacts {
   pub version: Version,
   pub robots: RobotsDigest,
+  /// The bases of the open pull requests someone approved (`PullRequestsFact::approved_bases`): their rules are read
+  pub approved_bases: Vec<String>,
 }
 
 /// The table of a session, the memo of the content walks of its views and the remote branches as the session knows
@@ -288,6 +311,12 @@ pub struct FactStore {
   pub robots: RobotsFact,
   /// What the robots land, landed and hold of the table, with its landing needs
   pub patronus: PatronusFact,
+  /// The GitHub pull requests of the branches and whole stacks
+  pub pull_requests: PullRequestsFact,
+  /// By base, the rules of the bases of the approved pull requests
+  pub rules: BTreeMap<String, FactRecord<BranchRules>>,
+  /// The merge profiles of the target of the baseline, of the baseline they were read for (`baseline_inputs`)
+  pub profiles: FactRecord<PatronusStartOptions>,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
   /// The number of the last news
@@ -304,6 +333,9 @@ impl FactStore {
       memo: Arc::new(Mutex::new(ContentMemo::default())),
       robots: RobotsFact::default(),
       patronus: PatronusFact::default(),
+      pull_requests: PullRequestsFact::default(),
+      rules: BTreeMap::new(),
+      profiles: FactRecord::unknown(),
       news: Vec::new(),
       last_news: 0,
       failures: BTreeSet::new(),
@@ -334,7 +366,21 @@ impl FactStore {
         }
         changed
       }
+      FactResult::PullRequests(result) => self.pull_requests.answer(observation, result),
+      FactResult::Rules { branch, result } => self.rules.entry(branch).or_insert_with(FactRecord::loading).answer(observation, result) == Applied::Applied,
+      FactResult::Profiles { baseline, result } => {
+        let observation = Observation {
+          inputs: baseline_inputs(&baseline),
+          ..observation
+        };
+        self.profiles.answer(observation, result) == Applied::Applied
+      }
     }
+  }
+
+  /// The table committed with the baseline `baseline`: the merge profiles are of its target from now
+  pub fn table_committed(&mut self, baseline: &str) {
+    self.profiles.expect(baseline_inputs(baseline));
   }
 
   /// The robot an action of the app answered (`RobotsFact::write`); whether it changed the robots
@@ -391,6 +437,14 @@ impl Default for FactStore {
   fn default() -> Self {
     Self::new()
   }
+}
+
+/// What the merge profiles of a session are of: the baseline whose target they are of
+#[must_use]
+pub fn baseline_inputs(baseline: &str) -> u64 {
+  let mut hasher = DefaultHasher::new();
+  baseline.hash(&mut hasher);
+  hasher.finish()
 }
 
 /// The robots of Patronus as a session keeps them (the module's header): the part of the view, and by robot id the

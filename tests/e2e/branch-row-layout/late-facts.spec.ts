@@ -65,6 +65,7 @@ test.describe("Late facts", () => {
     // the next start: GitHub answers after the first rows
     await repo.holdRemoteAnswers({ hold: ["pullRequests", "reviewRequests"] })
     // a repository synced before syncs when the window opens it; GitHub is asked once that sync ended
+    await repo.closeSessions()
     await page.reload()
     await expect.poll(() => repo.getArrivedAnswers()).toEqual(expect.arrayContaining(["pullRequests", "reviewRequests"]))
     // Your Turn holds its place as it checks, the columns their widths, no pull request and no step known yet
@@ -146,6 +147,7 @@ test.describe("Late facts", () => {
 
     // the next start: GitHub answers after the first rows, the line keeps its place empty
     await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
+    await repo.closeSessions()
     await page.reload()
     await expect.poll(() => repo.getArrivedAnswers()).toContain("pullRequests")
     await expect(lines).toHaveAttribute("data-reserved", "true")

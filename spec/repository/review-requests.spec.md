@@ -187,8 +187,8 @@ The other side of the review: the user waits for the code owners of their own pu
 Safe Push it allows.
 
 - While a row waits for an approval (Awaiting), each poll of the review requests (every five minutes, later after
-  failures) asks GitHub for the user's pull requests too (`onReviewRequestsPoll`, `refreshPullRequests`): they bring
-  the latest reviews and the review requests, no other query. A new review changes the input of the readiness, which
+  failures) asks the session for the user's pull requests too (`onReviewRequestsPoll`, `refreshPullRequests`, the
+  refresh button's reason): they bring the latest reviews and the review requests, no other query. A new review changes the input of the readiness, which
   asks Patronus once.
 - An approval is news when the readiness of a branch goes from `missing` to `approved` (or `notRequired`) for the same
   tip and the same pull request with other reviews (`findApprovalNews`): a new review, not a new commit of the user,

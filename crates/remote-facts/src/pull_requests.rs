@@ -16,13 +16,6 @@ use sync_utils::list_cut::kept;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};
 
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetPullRequestsParams {
-  pub repository_path: String,
-}
-
 /// The search of the user's pull requests, newest first: the virtual branches under review are among the 50 most
 /// recently updated. `repository` tells "no pull requests" from "the token can't see the repository". The fields are
 /// those `gh pr list --json` read; a reviewer team needs `read:org` (`PULL_REQUESTS_QUERY_WITHOUT_TEAMS`).

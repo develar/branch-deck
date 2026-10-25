@@ -2,11 +2,13 @@
 //! session it names (its worktree, and the branch prefix the robots are matched under). The hosts implement it over
 //! their services: the app over the Patronus service and the GitHub mirror of each repository it keeps (src-tauri,
 //! `AppFactSources`), the E2E server over the fakes of each test repository, counting the reads as its tests check them
-//! (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus); the
-//! reads of what the session asks about its robots answer their failure, which the facts keep.
+//! (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus, of
+//! GitHub for the pull requests); the reads of what the session asks about its robots, the rules of a base and the
+//! merge profiles answer their failure, which the facts keep.
 
 use domain_types::error::ApiError;
-use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobotsResult};
+use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobotsResult, PatronusStartOptions};
+use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use repository_model::session::SessionKey;
 use std::future::Future;
 use std::pin::Pin;
@@ -28,4 +30,15 @@ pub trait FactSources: Send + Sync + 'static {
 
   /// The error problems of the finished robot `id`
   fn problems<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>>;
+
+  /// The GitHub pull requests of the branches and whole stacks of `key` (`pull_requests::list_pull_requests`, one
+  /// search), in the GitHub repository of its worktree; `NotGitHub` without one
+  fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult>;
+
+  /// What the rules of the base `branch` do to the pull requests into it (`branch_rules::read_branch_rules`)
+  fn branch_rules<'a>(&'a self, key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>>;
+
+  /// The merge profiles of the target `baseline` pushes to, without the default of a last robot
+  /// (`PatronusService::start_options`)
+  fn profiles<'a>(&'a self, key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>>;
 }

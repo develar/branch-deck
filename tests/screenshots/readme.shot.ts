@@ -4,9 +4,10 @@
 // SHOTS_DIR=<dir> writes them there instead of docs/screenshots.
 import path from "node:path"
 import type { Page } from "@playwright/test"
-import type { PullRequest, PullRequestsResult } from "../../src/lib/bindings"
+import type { PullRequest } from "../../src/lib/bindings"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { expandBranch, findBranchRow } from "../e2e/helpers/branch-helpers"
+import type { PullRequestsFixture } from "../e2e/helpers/pull-request-helpers"
 import { pullRequest, reviewer } from "../e2e/helpers/pull-request-helpers"
 import { routePush } from "../e2e/helpers/push-helpers"
 import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
@@ -25,7 +26,7 @@ function showcasePullRequest(branch: string, number: number, title: string, patc
   })
 }
 
-const PULL_REQUESTS: PullRequestsResult = {
+const PULL_REQUESTS: PullRequestsFixture = {
   availability: { status: "available", ...REPOSITORY },
   pullRequests: {
     sync: showcasePullRequest("sync", 412, "Download only the edits after the last sync", {

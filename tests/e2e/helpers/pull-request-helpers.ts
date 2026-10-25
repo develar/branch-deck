@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test"
 import type { Locator, Page } from "@playwright/test"
-import type { GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState } from "../../../src/lib/bindings"
+import type { GitHubUser, PullRequest, PullRequestAvailability, Reviewer, ReviewerState } from "../../../src/lib/bindings"
 
 /** The branch prefix of the E2E repositories */
 const BRANCH_PREFIX = "user-name"
@@ -9,13 +9,23 @@ const BRANCH_PREFIX = "user-name"
 export const GITHUB_REPOSITORY = { owner: "acme", name: "monorepo" }
 
 /**
- * What the fake GitHub of a test repository holds (`setPullRequests`): the answer of `get_pull_requests` the page knows,
+ * A listing of the pull requests as the session's list answers it (`PullRequestsResult` of Rust, which no command
+ * carries to the page any more): the availability, the pull requests by branch and by the root of a whole stack
+ */
+export interface PullRequestsFixture {
+  availability: PullRequestAvailability
+  pullRequests: Record<string, PullRequest>
+  stackPullRequests?: Record<string, PullRequest>
+}
+
+/**
+ * What the fake GitHub of a test repository holds (`setPullRequests`): the listing the session of the repository reads,
  * which the real service reads back through the real parser (the server refuses one it would not), and what only the
  * writes see: `repository` of an availability that names none, the `users` a review can be asked from and assigned
  * (the collaborators: GitHub refuses a review request of anyone else), whether the rules of every branch dismiss
  * approvals on a push, the number of the next pull request created, the branches a mirror has not copied yet
  */
-export type GitHubFixture = PullRequestsResult & {
+export type GitHubFixture = PullRequestsFixture & {
   repository?: string
   users?: GitHubUser[]
   dismissStaleReviewsOnPush?: boolean
@@ -26,7 +36,7 @@ export type GitHubFixture = PullRequestsResult & {
 /** A request that reached the fake GitHub: method, path and JSON body (null for none) */
 export type GitHubRequest = { method: string; path: string; body: unknown }
 
-/** What the page asked of GitHub (`calls`: its `get_pull_requests`) and every request that reached the fake, in order */
+/** What the app asked of GitHub (`calls`: the session's lists of the pull requests) and every request that reached the fake, in order */
 export type GitHubLog = { calls: number; requests: GitHubRequest[] }
 
 /** The REST path of the fake's repository: `repoPath("pulls", 7)` is `/repos/acme/monorepo/pulls/7` */

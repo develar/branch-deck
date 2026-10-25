@@ -48,7 +48,7 @@ import {
 } from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
 import { getPushHold, getStackBranchHoldReason, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
-import { getStackPullRequest, refreshPullRequests, refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
+import { getStackPullRequest } from "@/stores/pull-requests"
 import { isSelectedRepository } from "@/stores/repository"
 
 export interface StackPushOptions {
@@ -455,11 +455,7 @@ async function sendTogether(
     if (stack !== null) {
       recordPush(request.repositoryPath, formatWholeStackBranch(stack.root), stack.remoteStatus, null)
     }
-    // one refresh of the pull requests, the whole stack's too
-    void refreshPullRequestsAfterPushes(
-      branches.map(branch => [branch.name, tips.get(branch.name) ?? branch.commits[0]?.hash] as const),
-      request,
-    )
+    // the session lists the pull requests after the push, the whole stack's too
     return null
   } catch (error) {
     report(`Cannot push ${joinNames(subjects)}`, error)
@@ -693,7 +689,6 @@ async function sendStackBranch(request: VcsRequest, sent: StackBranchToSend, rep
     if (outcome.type === "remoteMoved") {
       return status ?? undefined
     }
-    void refreshPullRequests("push", request)
     return null
   } catch (error) {
     report(`Cannot push ${subject}`, error)

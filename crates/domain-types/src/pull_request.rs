@@ -260,3 +260,14 @@ pub struct GitHubUser {
   /// The profile name; null when the user set none
   pub name: Option<String>,
 }
+
+/// What the rules of a branch do to the pull requests into it (`remote_facts::branch_rules`): a fact of the session for
+/// the bases of the open pull requests someone approved, which the Safe Push popover and the Request Review form read
+/// before a push takes the approvals away
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BranchRules {
+  /// A push of new commits dismisses the approvals of a pull request into the branch
+  pub dismiss_stale_reviews_on_push: bool,
+}

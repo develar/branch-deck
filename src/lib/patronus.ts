@@ -1,5 +1,14 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusReviewerGroup, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
+import type {
+  PatronusAvailability,
+  PatronusProfile,
+  PatronusPushMode,
+  PatronusReviewerGroup,
+  PatronusRobot,
+  PatronusRobotProfile,
+  PatronusStartOptions,
+  PullRequest,
+} from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
@@ -681,6 +690,27 @@ export function describeStart(mode: PatronusPushMode, subject: string, branchCou
 /** The profile allows the mode; no modes listed = any */
 export function allowsPushMode(profile: PatronusProfile, mode: PatronusPushMode): boolean {
   return profile.allowedPushModes.length === 0 || profile.allowedPushModes.includes(mode)
+}
+
+/**
+ * The merge profiles of a target with the profile of the branch's last robot (`last`, as an answer named it) as the
+ * default when it is still offered (never an emergency one: a start with one is chosen each time), and its
+ * `skipsReview` from the robot's options on its profile: the options of a target don't describe the review of a profile
+ * but an emergency one's (`PatronusService::start_options`, which `bd` gives the last robot)
+ */
+export function withLastRobotProfile(options: PatronusStartOptions, last: PatronusRobotProfile | null): PatronusStartOptions {
+  const id = last?.id ?? null
+  if (id === null) {
+    return options
+  }
+  const described = (profile: PatronusProfile): PatronusProfile =>
+    profile.id === id && profile.skipsReview == null && last?.skipsReview != null ? { ...profile, skipsReview: last.skipsReview } : profile
+  return {
+    ...options,
+    profiles: options.profiles.map(described),
+    emergencyProfiles: options.emergencyProfiles.map(described),
+    defaultProfileId: options.profiles.some(profile => profile.id === id) ? id : null,
+  }
 }
 
 /**

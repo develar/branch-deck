@@ -1,7 +1,10 @@
 use crate::remote_fixtures::fixture_pulls;
-use crate::test_support::{Named, command, create_repository, delete_repository, head, post, post_as, start_test_server};
+use crate::session_routes_test::{subscribe, subscription};
+use crate::tauri_command_bridge::list_pull_requests_of;
+use crate::test_support::{Messages, Named, command, create_repository, delete_repository, head, post, post_as, start_test_server, start_test_server_with_state};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
+use repository_model::session::SessionKey;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use test_utils::git_test_utils::git_command;
@@ -100,6 +103,49 @@ async fn get(client: &reqwest::Client, addr: std::net::SocketAddr, path: &str) -
   client.get(format!("http://{addr}{path}")).send().await.unwrap().json().await.unwrap()
 }
 
+/// A window on the session of the repository `id` at `path`: the session lists the pull requests while one watches it
+async fn window(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, path: &str) -> Messages {
+  let mut messages = subscribe(client, addr, id, path, 1).await;
+  subscription(&mut messages).await;
+  messages
+}
+
+/// The refresh button of the pull requests of the session at `path`, which a window watches
+fn refresh(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, path: &str) -> reqwest::RequestBuilder {
+  command(
+    client,
+    addr,
+    Named::Id(id),
+    "refresh_facts",
+    &json!({"repositoryPath": path, "family": "pullRequests", "reason": "manual"}),
+  )
+}
+
+/// The pull requests of the session at `path` after the refresh button, as a listing names them
+async fn listed(client: &reqwest::Client, addr: std::net::SocketAddr, path: &str) -> Value {
+  post(
+    client,
+    addr,
+    "/invoke/refresh_facts",
+    json!({"repositoryPath": path, "family": "pullRequests", "reason": "manual"}),
+  )
+  .await;
+  let view = post(client, addr, "/invoke/get_snapshot", json!({"repositoryPath": path})).await;
+  of_view(&view["facts"]["pullRequests"])
+}
+
+/// The part `facts.pullRequests` of a view as a listing names it
+fn of_view(part: &Value) -> Value {
+  json!({"availability": part["head"]["value"], "pullRequests": part["pullRequests"], "stackPullRequests": part["stackPullRequests"]})
+}
+
+/// Waits until the session of the repository `id` listed the pull requests `calls` times
+async fn until_listings(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, calls: u64) {
+  while get(client, addr, &format!("/repositories/{id}/pull-requests")).await["calls"].as_u64() < Some(calls) {
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+  }
+}
+
 /// The pull requests of the fixture come through the real service from the fake GitHub of the repository, with the
 /// head of an empty `headRefOid` resolved; a creation, a retarget and a close run the app's cores against the fake,
 /// which lists what they changed and logs each request (`GET …/pull-requests`)
@@ -110,34 +156,41 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   let (id, repository_path) = create_repository(&client, addr).await;
   branch_at_head(&repository_path, "user-name/virtual/auth");
   let tip = branch_at_head(&repository_path, "user-name/virtual/login");
-  let list = json!({"repositoryPath": repository_path});
-  assert_eq!(
-    post(&client, addr, "/invoke/get_pull_requests", list.clone()).await["availability"],
-    json!({"status": "notGitHub"})
-  );
+  let _window = window(&client, addr, &id, &repository_path).await;
+  assert_eq!(listed(&client, addr, &repository_path).await["availability"], json!({"status": "notGitHub"}));
 
   let fixture = available(BTreeMap::from([("login".to_string(), pull_request("login", 7))]), BTreeMap::new());
   let mut fixture = serde_json::to_value(fixture).unwrap();
   fixture["users"] = json!([{"login": "bob", "name": "Bob"}]);
   post(&client, addr, &format!("/repositories/{id}/pull-requests"), fixture).await;
-  let listed = post(&client, addr, "/invoke/get_pull_requests", list.clone()).await;
-  assert_eq!(listed["availability"], json!({"status": "available", "owner": "acme", "name": "monorepo"}));
-  assert_eq!(listed["pullRequests"]["login"]["headRefOid"], tip.as_str());
+  let pull_requests = listed(&client, addr, &repository_path).await;
+  assert_eq!(pull_requests["availability"], json!({"status": "available", "owner": "acme", "name": "monorepo"}));
+  assert_eq!(pull_requests["pullRequests"]["login"]["headRefOid"], tip.as_str());
 
+  // each write is in the session at once; a creation and a retarget list the pull requests again, a close does not
   let create = json!({"repositoryPath": repository_path, "branchName": "auth", "head": "user-name/virtual/auth",
     "base": "master", "title": "Add auth", "body": "b", "reviewers": ["bob", "user-name"], "assignSelf": true});
   let created = post(&client, addr, "/invoke/create_pull_request", create).await;
+  assert!(created["version"].is_object(), "{created}");
+  let created = &created["outcome"];
   assert_eq!((created["created"].clone(), created["assignees"].clone()), (json!(true), json!(["user-name"])));
   assert_eq!(created["pullRequest"]["number"], 8);
   assert_eq!(created["pullRequest"]["reviewers"], json!([{"login": "bob", "state": "requested", "requested": true}]));
+  until_listings(&client, addr, &id, 3).await;
   let retarget = json!({"repositoryPath": repository_path, "pullRequestNumber": 7, "base": "user-name/virtual/auth"});
   post(&client, addr, "/invoke/retarget_pull_request", retarget).await;
+  until_listings(&client, addr, &id, 4).await;
   let close = json!({"repositoryPath": repository_path, "pullRequestNumber": 8, "comment": "Landed with login"});
   post(&client, addr, "/invoke/close_pull_request", close).await;
+  let view = post(&client, addr, "/invoke/get_snapshot", json!({"repositoryPath": repository_path})).await;
+  assert_eq!(
+    view["facts"]["pullRequests"]["pullRequests"]["auth"]["state"], "closed",
+    "the close is in the session at once"
+  );
 
-  let listed = post(&client, addr, "/invoke/get_pull_requests", list).await;
-  assert_eq!(listed["pullRequests"]["login"]["baseRefName"], "user-name/virtual/auth");
-  assert_eq!(listed["pullRequests"]["auth"]["state"], "closed");
+  let pull_requests = listed(&client, addr, &repository_path).await;
+  assert_eq!(pull_requests["pullRequests"]["login"]["baseRefName"], "user-name/virtual/auth");
+  assert_eq!(pull_requests["pullRequests"]["auth"]["state"], "closed");
   let log = get(&client, addr, &format!("/repositories/{id}/pull-requests")).await;
   let writes: Vec<Value> = log["requests"]
     .as_array()
@@ -157,7 +210,7 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
       json!(["PATCH", "/repos/acme/monorepo/pulls/8", {"state": "closed"}]),
     ]
   );
-  assert_eq!(log["calls"], 3);
+  assert_eq!(log["calls"], 5);
 }
 
 /// Signed out is no token file, which the status of the sign-in names too; a failure of the fixture is what the real
@@ -167,7 +220,7 @@ async fn signed_out_and_no_access_are_what_the_real_service_makes_of_the_fake() 
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
-  let list = json!({"repositoryPath": repository_path});
+  let _window = window(&client, addr, &id, &repository_path).await;
   let status = || post_as(&client, addr, Named::Id(&id), "/invoke/get_github_auth_status", json!({}));
   assert_eq!(
     status().await,
@@ -185,7 +238,7 @@ async fn signed_out_and_no_access_are_what_the_real_service_makes_of_the_fake() 
   let signed_in_as = [Value::Null, json!("user-name")];
   for ((fixture, answer), login) in fixtures.into_iter().zip(answers).zip(signed_in_as) {
     post(&client, addr, &format!("/repositories/{id}/pull-requests"), fixture).await;
-    assert_eq!(post(&client, addr, "/invoke/get_pull_requests", list.clone()).await["availability"], answer);
+    assert_eq!(listed(&client, addr, &repository_path).await["availability"], answer);
     assert_eq!(status().await["signedInAs"], login);
   }
 }
@@ -265,7 +318,11 @@ async fn until_arrived(client: &reqwest::Client, addr: std::net::SocketAddr, id:
 /// A server with a repository of the simple template whose GitHub lists the pull request #7 of login: the server, its
 /// client, the repository's id and path
 async fn listing_login() -> (std::net::SocketAddr, reqwest::Client, String, String) {
-  let addr = start_test_server().await;
+  listing_login_at(start_test_server().await).await
+}
+
+/// `listing_login` on the server at `addr`
+async fn listing_login_at(addr: std::net::SocketAddr) -> (std::net::SocketAddr, reqwest::Client, String, String) {
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
   let fixture = available(BTreeMap::from([("login".to_string(), pull_request("login", 7))]), BTreeMap::new());
@@ -308,14 +365,17 @@ async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
   .await;
   assert_eq!(get(&client, addr, &format!("/repositories/{id}/remote-gates")).await, json!({"arrived": []}));
 
-  let listed = invoke(&client, addr, &id, "get_pull_requests", &repository_path);
+  let _window = window(&client, addr, &id, &repository_path).await;
+  let listing = tokio::spawn(refresh(&client, addr, &id, &repository_path).send());
   until_arrived(&client, addr, &id, "pullRequests").await;
   let requests = invoke(&client, addr, &id, "get_review_requests", &repository_path);
   until_arrived(&client, addr, &id, "reviewRequests").await;
-  assert!(!listed.is_finished() && !requests.is_finished(), "a held answer came");
+  assert!(!listing.is_finished() && !requests.is_finished(), "a held answer came");
 
   post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({"release": ["pullRequests"]})).await;
-  assert_eq!(listed.await.unwrap()["pullRequests"]["login"]["number"], 7);
+  assert_eq!(listing.await.unwrap().unwrap().status(), 200);
+  let view = post(&client, addr, "/invoke/get_snapshot", json!({"repositoryPath": repository_path})).await;
+  assert_eq!(view["facts"]["pullRequests"]["pullRequests"]["login"]["number"], 7);
   assert!(!requests.is_finished(), "the review requests are still held");
   post(&client, addr, &format!("/repositories/{id}/remote-gates"), json!({"release": ["reviewRequests"]})).await;
   assert!(requests.await.unwrap().get("availability").is_some());
@@ -323,12 +383,13 @@ async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
   delete_repository(&client, addr, &id, &repository_path).await;
 }
 
-/// A deleted repository releases what its test held: a command waiting at a fake ends instead of holding the deletion,
-/// and the deletion removes the files only once it ended, so the git of the fake's answer still reads them (on Windows
-/// that git, its current directory in them, failed the removal under it)
+/// A deleted repository releases what its test held: a read of its session or a command waiting at a fake ends instead
+/// of holding the deletion, and the deletion removes the files only once it ended, so the git of the fake's answer still
+/// reads them (on Windows that git, its current directory in them, failed the removal under it)
 #[tokio::test]
 async fn a_deleted_repository_releases_the_answers_its_test_held() {
-  let (addr, client, id, repository_path) = listing_login().await;
+  let (addr, state) = start_test_server_with_state().await;
+  let (addr, client, id, repository_path) = listing_login_at(addr).await;
   let tip = branch_at_head(&repository_path, "user-name/virtual/login");
   post(
     &client,
@@ -337,14 +398,21 @@ async fn a_deleted_repository_releases_the_answers_its_test_held() {
     json!({"hold": ["pullRequests", "reviewRequests"]}),
   )
   .await;
-  // one held at the fake, one in the bridge
-  let listed = invoke(&client, addr, &id, "get_pull_requests", &repository_path);
+  // the session's listing held at the fake, the review requests in the bridge
+  let key = SessionKey {
+    worktree: repository_path.clone(),
+    prefix: "user-name".to_owned(),
+  };
+  let listing = tokio::spawn(async move { list_pull_requests_of(&state, &key).await });
   until_arrived(&client, addr, &id, "pullRequests").await;
   let requests = invoke(&client, addr, &id, "get_review_requests", &repository_path);
   until_arrived(&client, addr, &id, "reviewRequests").await;
   delete_repository(&client, addr, &id, &repository_path).await;
-  let listed = tokio::time::timeout(std::time::Duration::from_mins(1), listed).await.expect("the held listing ended");
-  assert_eq!(listed.unwrap()["pullRequests"]["login"]["headRefOid"], tip.as_str());
+  let listed = tokio::time::timeout(std::time::Duration::from_mins(1), listing)
+    .await
+    .expect("the held listing ended")
+    .unwrap();
+  assert_eq!(listed.pull_requests["login"].head_ref_oid, tip);
   assert!(
     tokio::time::timeout(std::time::Duration::from_mins(1), requests).await.is_ok(),
     "the held review requests ended"

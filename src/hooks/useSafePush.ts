@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useStore } from "zustand"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
-import { forgetUnknownRules, peekDismissesStaleReviews, readDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import { getStackNextStepNow, getWholeStackRest, isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
-import type { PatronusProfile, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, PullRequest } from "@/lib/bindings"
+import type { Fact, PatronusProfile, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, PullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
@@ -14,6 +13,7 @@ import { FROM_MENU } from "@/lib/menu"
 import type { BypassProfiles, PullRequestStart } from "@/lib/patronus"
 import {
   allowsPushMode,
+  withLastRobotProfile,
   formatPushHoldReason,
   formatPushMode,
   getBypassProfiles,
@@ -37,6 +37,7 @@ import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackR
 import { branchSyncStore, getBranch, getStackBranch, getStackBranchOf, getStackIslandRoots, stackDescendantsIn, stackMainLineIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import {
+  askStartProfiles,
   getBranchRobot,
   getLandedBy,
   getLandingNeeds,
@@ -44,11 +45,14 @@ import {
   getPushHold,
   getStackPushHold,
   getStackRobot,
+  getStartProfiles,
   isPatronusAvailable,
   patronusRequest,
   patronusStore,
+  rememberRobotProfile,
+  useStartProfiles,
 } from "@/stores/patronus"
-import { getPullRequest, getPullRequestListing, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
+import { askBranchRulesAgain, getPullRequest, getPullRequestListing, getStackPullRequest, peekBranchRules, pullRequestsStore } from "@/stores/pull-requests"
 import { getRepositorySwitchReason } from "@/stores/repository"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { demandReviewReadiness, freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useDemandReviewReadiness } from "@/stores/review-readiness"
@@ -58,8 +62,6 @@ import { getShownBranchTableOrder } from "@/stores/stack-collapse"
 
 /** How long a click waits for the facts its decision needs (the review, the rules) before the popover says what it waits for */
 export const SAFE_PUSH_SETTLE_MS = 20_000
-/** The merge profiles of a target are asked again after this: Patronus caches the answer for the app (10 minutes) */
-const START_OPTIONS_TTL_MS = 60_000
 
 /** What asks a start: its mode, how (a click, a key), where its popover opens, a profile chosen where it was asked */
 export interface SafePushRequest {
@@ -127,82 +129,73 @@ export interface WholeStackRead {
 
 // ---- the merge profiles ----
 
-interface OptionsEntry {
-  readonly at: number
-  readonly promise: Promise<StartOptionsFact>
-  value: StartOptionsFact | null
-}
-
-const optionsCache = new Map<string, OptionsEntry>()
-
 /** The last robot of the branch, or of the whole stack of a key (`stackReadinessKey`): its profile is the default */
 function lastRobotOf(branchName: string): PatronusRobot | undefined {
   const root = stackRootOfReadinessKey(branchName)
   return root === null ? getBranchRobot(branchName) : getStackRobot(root)
 }
 
-/** The profile the list named for the last robot: with the new API (Rust reads the setting) the default without reading the robot */
-function lastRobotProfile(robot: PatronusRobot | undefined): PatronusRobotProfile | null {
-  return robot?.profile ?? null
+/** The profile of the last robot of the branch when an answer named it (a poll, a start, its details, the New API's list) */
+function lastRobotProfile(branchName: string): PatronusRobotProfile | null {
+  const profile = lastRobotOf(branchName)?.profile ?? null
+  return profile?.id == null ? null : profile
 }
 
-/** By repository, baseline and the branch's last robot (whose profile is the default), and what the list says of it */
-function optionsKey(branchName: string): string {
-  const { repositoryPath } = patronusRequest()
+/** The robots whose details were read for their profile in this window: once each */
+const profileReads = new Set<string>()
+
+/**
+ * The profile of the last robot of the branch, which a list doesn't name: read from its details once
+ * (`get_patronus_robot_details`, cached by the backend; `rememberRobotProfile` keeps it on the robot), as the default
+ * profile of a start is the last robot's
+ */
+async function readLastRobotProfile(branchName: string): Promise<void> {
   const robot = lastRobotOf(branchName)
-  return JSON.stringify([repositoryPath, branchSyncStore.getState().baselineBranch ?? "", robot?.id ?? null, lastRobotProfile(robot)?.id ?? null])
+  if (robot === undefined || lastRobotProfile(branchName) !== null || profileReads.has(robot.id)) {
+    return
+  }
+  profileReads.add(robot.id)
+  const result = await commands.getPatronusRobotDetails({ ...patronusRequest(), robotId: robot.id }).catch(() => null)
+  if (result?.status === "ok") {
+    rememberRobotProfile(result.data.robot)
+  }
 }
 
-/** The target and the merge profiles of a start of the branch (`get_patronus_start_options`), asked once a minute */
-export function loadStartOptions(branchName: string): Promise<StartOptionsFact> {
-  const key = optionsKey(branchName)
-  const cached = optionsCache.get(key)
-  if (cached !== undefined && Date.now() - cached.at < START_OPTIONS_TTL_MS && cached.value?.status !== "error") {
-    return cached.promise
+/**
+ * The target and the merge profiles of a start (`facts.profiles` of the session) with the profile of the last robot as
+ * the default: loading while the session reads them (or reads them again for another baseline), an error when it
+ * couldn't and had none; the profiles of an earlier read stay through a failed one
+ */
+export function startOptionsOf(fact: Fact<PatronusStartOptions> | null, last: PatronusRobotProfile | null): StartOptionsFact {
+  if (fact === null || fact.value === null || (fact.state.kind === "stale" && fact.state.reason == null)) {
+    return fact?.state.kind === "unavailable" ? { status: "error", message: fact.state.reason.message } : { status: "loading" }
   }
-  const entry: OptionsEntry = {
-    at: Date.now(),
-    value: null,
-    promise: commands
-      .getPatronusStartOptions({
-        repositoryPath: patronusRequest().repositoryPath,
-        baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
-        lastRobotId: lastRobotOf(branchName)?.id ?? null,
-        lastRobotProfile: lastRobotProfile(lastRobotOf(branchName)),
-      })
-      .then(
-        (result): StartOptionsFact => (result.status === "ok" ? { status: "loaded", options: result.data } : { status: "error", message: result.error.message }),
-        (error: unknown): StartOptionsFact => ({ status: "error", message: error instanceof Error ? error.message : String(error) }),
-      )
-      .then(value => {
-        entry.value = value
-        return value
-      }),
-  }
-  optionsCache.set(key, entry)
-  return entry.promise
+  return { status: "loaded", options: withLastRobotProfile(fact.value, last) }
 }
 
-/** The answer of `loadStartOptions` while the popover shows: loading until it arrives */
+/** `startOptionsOf` of the branch, as the stores have it now */
+function getStartOptions(branchName: string): StartOptionsFact {
+  return startOptionsOf(getStartProfiles(), lastRobotProfile(branchName))
+}
+
+/** Asks what a start of the branch reads of its profiles: the merge profiles of the target, the last robot's profile */
+function askStartOptions(branchName: string): Promise<unknown> {
+  return Promise.all([askStartProfiles(), readLastRobotProfile(branchName)])
+}
+
+/** The merge profiles of a start of the branch while the popover shows: asked when it opens, loading until they come */
 export function useStartOptions(branchName: string): StartOptionsFact {
-  const [state, setState] = useState<{ branchName: string; value: StartOptionsFact } | null>(null)
+  const profiles = useStartProfiles()
+  const last = useStore(patronusStore, () => lastRobotProfile(branchName))
   useEffect(() => {
-    let current = true
-    void loadStartOptions(branchName).then(value => {
-      if (current) {
-        setState({ branchName, value })
-      }
-    })
-    return () => {
-      current = false
-    }
+    void askStartOptions(branchName)
   }, [branchName])
-  return state?.branchName === branchName ? state.value : { status: "loading" }
+  return startOptionsOf(profiles, last)
 }
 
-/** Forgets the profiles asked (tests) */
+/** Forgets the profiles of the robots read (tests) */
 export function resetStartOptions(): void {
-  optionsCache.clear()
+  profileReads.clear()
 }
 
 // ---- the facts ----
@@ -263,7 +256,7 @@ function readStartBasics(key: string, pullRequest: PullRequest | undefined, mode
   const readiness = checksReview ? freshReadiness(getReviewReadiness(key), key) : null
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approvedPullRequest = needsPush && fromPullRequest !== null && pullRequest?.reviewers.some(reviewer => reviewer.state === "approved") === true
-  const dismiss = approvedPullRequest ? { pullRequest: fromPullRequest.number, dismisses: peekDismissesStaleReviews(patronusRequest().repositoryPath, target) } : null
+  const dismiss = approvedPullRequest ? { pullRequest: fromPullRequest.number, dismisses: peekBranchRules(target) } : null
   return { loaded, target, fromPullRequest, profiles, branchProfileId, readiness, review: reviewFactOf(checksReview, readiness), dismiss }
 }
 
@@ -470,10 +463,11 @@ function nextChange(ms: number): Promise<void> {
 
 /** The facts of a click, read again on every change until the decision waits for nothing, at most `SAFE_PUSH_SETTLE_MS` */
 async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "placement">): Promise<SafePushRead | null> {
-  const options = await loadStartOptions(branchName)
+  // the profiles as the session has them now, the rules GitHub didn't give read again: the start decides on new answers
+  await Promise.all([askStartOptions(branchName), askBranchRulesAgain()])
   const deadline = Date.now() + SAFE_PUSH_SETTLE_MS
   for (;;) {
-    const read = readSafePush(branchName, ask, options)
+    const read = readSafePush(branchName, ask, getStartOptions(branchName))
     if (read === null || read.decision.kind !== "wait") {
       return read
     }
@@ -481,8 +475,8 @@ async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "pl
     if (left <= 0) {
       return read
     }
-    const dismiss = read.facts.dismiss
-    await (dismiss?.dismisses === null ? Promise.race([readDismissesStaleReviews(patronusRequest().repositoryPath, read.facts.target), nextChange(left)]) : nextChange(left))
+    // the rules come with the listing that has the approval: the session reads them then
+    await nextChange(left)
   }
 }
 
@@ -617,8 +611,8 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   if (placement === "row" && !getShownBranchTableOrder().includes(row)) {
     requestReveal({ branchName: row, commitIds: [] })
   }
-  // a failed read of the rules is asked again by each start: it waits for the new answer, the popover reads anew
-  forgetUnknownRules()
+  // a failed read of the rules is asked again by each start: the click waits for the new answer, the popover reads anew
+  void askBranchRulesAgain()
   shownRead = null
   const ask: SafePushAsk = {
     branchName,
@@ -683,10 +677,10 @@ export async function requestSafePush(branchName: string, request: SafePushReque
 let shownRead: { inputs: readonly unknown[]; read: SafePushRead | null } | null = null
 
 /**
- * `readSafePush` of the popover, once per change of what it reads (the stores, the profiles, the rules asked): the
- * subscriptions of the popover share the answer, and a selector returns the same object for the same state
+ * `readSafePush` of the popover, once per change of what it reads (the stores, the profiles): the subscriptions of the
+ * popover share the answer, and a selector returns the same object for the same state
  */
-function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placement">, options: StartOptionsFact, rules: number): SafePushRead | null {
+function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placement">, options: StartOptionsFact): SafePushRead | null {
   const inputs = [
     branchSyncStore.getState(),
     reviewReadinessStore.getState(),
@@ -699,7 +693,6 @@ function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placeme
     ask.profileId,
     ask.bypassReview,
     options,
-    rules,
   ]
   if (shownRead !== null && shownRead.inputs.every((input, index) => input === inputs[index])) {
     return shownRead.read
@@ -709,35 +702,19 @@ function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placeme
   return read
 }
 
-/** `readSafePush` of the popover's ask, read again on every change of the stores it reads; the review demanded meanwhile */
+/**
+ * `readSafePush` of the popover's ask, read again on every change of the stores it reads (the rules of the bases come
+ * with the pull requests); the review demanded meanwhile
+ */
 export function useSafePushRead(ask: SafePushAsk, profileId: string | null | undefined): SafePushRead | null {
   const options = useStartOptions(ask.branchName)
   useDemandReviewReadiness(ask.branchName, ask.mode === "rebaseAutosquash")
-  // the rules of the repository, asked while the start would push into an approved pull request: an answer reads again
-  const [rules, setRules] = useState(0)
   const request: Omit<SafePushRequest, "placement"> = { mode: ask.mode, via: "key", bypassReview: ask.bypassReview, ...(profileId !== undefined && { profileId }) }
   // the read flows out of the subscriptions: a value read beside them would be memoized by the compiler
-  const select = () => readSafePushNow(ask.branchName, request, options, rules)
+  const select = () => readSafePushNow(ask.branchName, request, options)
   useStore(branchSyncStore, select)
   useStore(reviewReadinessStore, select)
   useStore(pullRequestsStore, select)
   useStore(patronusStore, select)
-  const read = useStore(safePushStore, select)
-  const dismissPending = read?.facts.dismiss?.dismisses === null
-  const target = read?.facts.target ?? ""
-  useEffect(() => {
-    if (!dismissPending) {
-      return
-    }
-    let current = true
-    void readDismissesStaleReviews(patronusRequest().repositoryPath, target).then(() => {
-      if (current) {
-        setRules(count => count + 1)
-      }
-    })
-    return () => {
-      current = false
-    }
-  }, [dismissPending, target])
-  return read
+  return useStore(safePushStore, select)
 }

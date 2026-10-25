@@ -569,11 +569,11 @@ test.describe("Whole stack", () => {
 
   test("should follow the pull requests in the island's ⋯ while it is open: they load after the sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // GitHub answers once the menu is open
-    const release = await holdCommand(page, "get_pull_requests")
-    await setupRepo("stack_island", {
+    const repo = await setupRepo("stack_island", {
       patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
       pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
     })
+    await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
     await syncAndWaitForBranches()
     await openIslandMenu(page, "air")
     const menu = page.getByRole("menu", { name: "More actions for the air stack" })
@@ -581,7 +581,7 @@ test.describe("Whole stack", () => {
     await expect(menu.getByRole("menuitem", { name: "Request Review…" })).toHaveCount(0)
 
     // #12 arrives: the open menu has its items in place of the creation
-    release()
+    await repo.holdRemoteAnswers({ release: ["pullRequests"] })
     await expect(menu.getByRole("menuitem", { name: "Open Pull Request #12" })).toBeVisible()
     await expect(menu.getByRole("menuitem", { name: "Create Pull Request of the Stack…" })).toHaveCount(0)
     await menu.getByRole("menuitem", { name: "Request Review…" }).click()

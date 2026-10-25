@@ -15,21 +15,24 @@ use crate::remote_host::HeldAnswer;
 use crate::state::AppState;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
-  CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, failing_robots, list_robots, poll_robots, repository_by_path, robot_problems,
+  CommandResult, Rejection, branch_prefix_now, branch_prefix_of, branch_rules_of, failed, failing_robots, list_pull_requests_of, list_robots, poll_robots, profiles_of,
+  repository_by_path, robot_problems,
 };
 use app_api::api_error::{api_error, no_branch_prefix};
 use axum::Json;
-use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use domain_types::error::ApiError;
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotsResult};
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotsResult, PatronusStartOptions};
+use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use domain_types::{ProgressReporter, RemoteStatusUpdate};
 use object_cache::cache::ObjectCache;
 use remote_facts::fact_sources::{FactSources, Read};
 use repository_model::facts::Needs;
-use repository_model::runtime::{RunSetup, SessionEnvironment};
+use repository_model::pull_request_facts::PullRequestWrite;
+use repository_model::runtime::{RunSetup, SessionEnvironment, pushed_heads};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::RemoteSubject;
 use serde::Deserialize;
@@ -145,17 +148,51 @@ impl FactSources for TestFactSources {
 
   fn failing<'a>(&'a self, key: &'a SessionKey, ids: Vec<String>) -> Read<'a, Result<Vec<String>, ApiError>> {
     Box::pin(async move {
-      let state = self.state.upgrade().ok_or_else(|| ApiError::internal("The test server stopped"))?;
+      let state = self.state.upgrade().ok_or_else(stopped)?;
       failing_robots(&state, key, &ids).await
     })
   }
 
   fn problems<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
     Box::pin(async move {
-      let state = self.state.upgrade().ok_or_else(|| ApiError::internal("The test server stopped"))?;
+      let state = self.state.upgrade().ok_or_else(stopped)?;
       robot_problems(&state, key, &id).await
     })
   }
+
+  fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
+    Box::pin(async move {
+      let Some(state) = self.state.upgrade() else {
+        return PullRequestsResult::unavailable(PullRequestAvailability::Error { message: stopped().message });
+      };
+      list_pull_requests_of(&state, key).await
+    })
+  }
+
+  fn branch_rules<'a>(&'a self, key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
+    Box::pin(async move {
+      let state = self.state.upgrade().ok_or_else(stopped)?;
+      branch_rules_of(&state, key, &branch).await
+    })
+  }
+
+  fn profiles<'a>(&'a self, key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
+    Box::pin(async move {
+      let state = self.state.upgrade().ok_or_else(stopped)?;
+      profiles_of(&state, key, baseline).await
+    })
+  }
+}
+
+fn stopped() -> ApiError {
+  ApiError::internal("The test server stopped")
+}
+
+/// The write of the app to a pull request goes into the session of its repository, as the app's commands write it:
+/// the version of the view after its patch, none when no session of the repository is open
+pub(crate) async fn write_pull_request(state: &AppState, repository_path: &str, write: PullRequestWrite) -> Option<Version> {
+  let key = session_key(state, repository_path).await.ok()?;
+  state.sessions.write_pull_request(&key, write).await
 }
 
 /// The patches of a session to the event stream of `subscribe_view`
@@ -226,6 +263,15 @@ pub struct ClockAdvanceRequest {
   ms: u64,
 }
 
+/// The app quits (`POST /repositories/{id}/sessions/close`): the sessions of the repository go with the subscriptions of
+/// their windows, so the window that opens it next (a reload) opens a new session, whose facts are asked anew as at a
+/// start of the app
+pub async fn close_sessions(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
+  let path = state.repositories.get(&id).map(|repository| repository.path.clone()).ok_or(StatusCode::NOT_FOUND)?;
+  state.sessions.close_worktree(&path);
+  Ok(StatusCode::OK)
+}
+
 /// Moves the clock of the sessions (`AppState::session_clock`) by `ms`: the timers of the sessions that decide what to
 /// ask and when wake (`advanceBackendClock` of wait-helpers.ts), and the sessions idle for `IDLE_LIMIT` since go
 /// (`Sessions::sweep`). The time of the page (`page.clock`) and the 16 ms merge of the patches do not move with it
@@ -270,6 +316,9 @@ pub struct PushedInPageRequest {
   branches: Vec<StackPushBranch>,
   /// The remote statuses the page's answer has, in the order of the branches
   remote_statuses: Vec<RemoteStatusUpdate>,
+  /// The answer said the remote moved: nothing was pushed
+  #[serde(default)]
+  moved: bool,
 }
 
 /// A push the page answered (`routePush` of push-helpers.ts: the templates name the repository itself as `origin`, so a
@@ -281,12 +330,18 @@ pub struct PushedInPageRequest {
 pub async fn pushed_in_page(State(state): State<Arc<AppState>>, Json(request): Json<PushedInPageRequest>) -> CommandResult<Option<Version>> {
   let key = session_key(&state, &request.repository_path).await?;
   let subjects: Vec<RemoteSubject> = request.branches.iter().map(RemoteSubject::of).collect();
+  let heads = pushed_heads(&subjects, &request.remote_statuses);
   let statuses = request.remote_statuses;
   let applied = state.sessions.apply(&key, move |table| {
     table.begin_push(&subjects);
     table.end_push(&subjects, Some(statuses));
   });
-  Ok(Json(applied.version().await))
+  let version = applied.version().await;
+  if !request.moved && !heads.is_empty() {
+    // the pull requests are listed as after the app's push
+    state.sessions.tell_push(&key, heads);
+  }
+  Ok(Json(version))
 }
 
 /// Asks the session of the repository to read a fact again, as the app's `refresh_facts`: the version after the patch

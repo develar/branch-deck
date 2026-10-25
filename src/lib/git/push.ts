@@ -23,7 +23,6 @@ import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, isBranchPushing, setBranchPushing, setBranchPushProgress, toRemoteStatus, whenBranchPushed, whenSynced } from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
-import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getRepositorySwitchReason, getSelectedRepositoryPath, vcsRequestFactory } from "@/stores/repository"
@@ -351,7 +350,6 @@ async function pushWithProgress(
       if (outcome.type === "remoteMoved") {
         return { moved: remoteStatus }
       }
-      void refreshPullRequestsAfterPush(branchName, options.tip ?? branch.commits[0]?.hash, request)
       return { moved: null }
     }
     reportPushError(report, branchName, result.error)

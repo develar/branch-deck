@@ -32,15 +32,11 @@ export const commands = {
 	 */
 	cancelLockWait: (channel: number) => __TAURI_INVOKE<boolean>("cancel_lock_wait", { channel }),
 	/**
-	 *  The GitHub pull requests of the virtual branches (their heads under the prefix resolved for the repository), one
-	 *  GraphQL search; when GitHub can't answer, the availability says why
-	 */
-	getPullRequests: (params: GetPullRequestsParams) => typedError<PullRequestsResult, ApiError>(__TAURI_INVOKE("get_pull_requests", { params })),
-	/**
 	 *  Changes the base of a pull request of the virtual branches: the push of a stacked branch keeps its pull request on
-	 *  the branch it is built on
+	 *  the branch it is built on. The session of the repository has the new base at once, newer than every listing that
+	 *  started before (`write_pull_request`), and lists the pull requests again; the version of the view after its patch
 	 */
-	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("retarget_pull_request", { params })),
+	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("retarget_pull_request", { params })),
 	/**
 	 *  The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
 	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
@@ -54,9 +50,10 @@ export const commands = {
 	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_stack_pull_request", { params })),
 	/**
 	 *  Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
-	 *  already exists is found instead
+	 *  already exists is found instead. The session of the repository has it at once, until GitHub's search lists it, and
+	 *  lists the pull requests again
 	 */
-	createPullRequest: (params: CreatePullRequestParams) => typedError<CreatedPullRequest, ApiError>(__TAURI_INVOKE("create_pull_request", { params })),
+	createPullRequest: (params: CreatePullRequestParams) => typedError<ViewAnswer<CreatedPullRequest>, ApiError>(__TAURI_INVOKE("create_pull_request", { params })),
 	/**
 	 *  Waits until GitHub has the branch just pushed (a mirror copies it a moment later): false when it still doesn't after
 	 *  `MIRROR_WAIT`
@@ -64,25 +61,20 @@ export const commands = {
 	waitForGithubBranch: (params: WaitForGitHubBranchParams) => typedError<boolean, ApiError>(__TAURI_INVOKE("wait_for_github_branch", { params })),
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>(__TAURI_INVOKE("search_github_users", { params })),
-	/**
-	 *  What the rules of a branch do to the pull requests into it: the Safe Push popover warns before a push that dismisses
-	 *  the approvals of the pull request
-	 */
-	getBranchRules: (params: GetBranchRulesParams) => typedError<BranchRules, ApiError>(__TAURI_INVOKE("get_branch_rules", { params })),
 	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
 	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
 	/**  The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one */
 	getPullRequestHead: (params: GetPullRequestHeadParams) => typedError<string, ApiError>(__TAURI_INVOKE("get_pull_request_head", { params })),
 	/**
 	 *  Closes a pull request of the virtual branches with a comment: an ancestor a Safe Push of a stacked branch landed
-	 *  with it
+	 *  with it. The session of the repository has it closed at once; the version of the view after its patch
 	 */
-	closePullRequest: (params: ClosePullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("close_pull_request", { params })),
+	closePullRequest: (params: ClosePullRequestParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("close_pull_request", { params })),
 	/**
 	 *  Asks users to review an open pull request of the virtual branches (Request Review…): whom GitHub asked, and whom it
-	 *  refused with its reason
+	 *  refused with its reason. The session of the repository has whom it asked at once and lists the pull requests again
 	 */
-	requestPullRequestReviewers: (params: RequestPullRequestReviewersParams) => typedError<RequestedReviewers, ApiError>(__TAURI_INVOKE("request_pull_request_reviewers", { params })),
+	requestPullRequestReviewers: (params: RequestPullRequestReviewersParams) => typedError<ViewAnswer<RequestedReviewers>, ApiError>(__TAURI_INVOKE("request_pull_request_reviewers", { params })),
 	/**  The app's own sign-in and where the token comes from, for Settings */
 	getGithubAuthStatus: () => typedError<GitHubAuthStatus, ApiError>(__TAURI_INVOKE("get_github_auth_status")),
 	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
@@ -176,8 +168,6 @@ export const commands = {
 	 *  while Patronus answers 404
 	 */
 	getPatronusRobotDetails: (params: PatronusRobotParams) => typedError<PatronusRobotDetails, ApiError>(__TAURI_INVOKE("get_patronus_robot_details", { params })),
-	/**  The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default */
-	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, ApiError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
 	/**
 	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
 	 *  stack; the frontend pushes it first. The whole sequence is `RemoteActions::start_robot` (`start_guard`), which the test
@@ -907,7 +897,11 @@ export type BranchReviewSegment = {
 	commits: ReviewCommit[],
 };
 
-/**  What the rules of a branch do to the pull requests into it */
+/**
+ *  What the rules of a branch do to the pull requests into it (`remote_facts::branch_rules`): a fact of the session for
+ *  the bases of the open pull requests someone approved, which the Safe Push popover and the Request Review form read
+ *  before a push takes the approvals away
+ */
 export type BranchRules = {
 	/**  A push of new commits dismisses the approvals of a pull request into the branch */
 	dismissStaleReviewsOnPush: boolean,
@@ -1787,15 +1781,25 @@ export type FactFamily =
  *  Why the failed robots of the table failed (`RobotsView::needs_review`): Check Approvals Again asks those Patronus
  *  didn't give again; their reads come as patches, the refresh answers at once
  */
-"robotProblems";
+"robotProblems" | 
+/**  The GitHub pull requests of the branches and whole stacks (`FactsView::pull_requests`) */
+"pullRequests" | 
+/**  The rules of the bases of the approved pull requests (`FactsView::rules`): those GitHub didn't give are asked again */
+"branchRules" | 
+/**
+ *  The merge profiles of the target of the baseline (`FactsView::profiles`), asked when unknown, after a failure and
+ *  a minute after the last read
+ */
+"profiles";
 
 /**  Why a window asks a fact again */
 export type FactRefreshReason = 
 /**  The refresh button: always asks, the robots of the full window */
 "manual" | 
 /**
- *  An action of the window changed the remote and needs the fact now (the robot a `/patronus` comment started):
- *  asks, and once more after a read in flight
+ *  An action of the window changed the remote or needs the fact now: the robot a `/patronus` comment started, a
+ *  merge Patronus closed a pull request of, a start that reads the rules and the profiles, a form that opens; asks
+ *  when the rules of the family say so for a write (`domain_policy::refresh`), and once more after a read in flight
  */
 "afterWrite";
 
@@ -1821,6 +1825,10 @@ export type FactState =
 /**  The parts of the facts that changed */
 export type FactsChanges = {
 	robots?: RobotsChange | null,
+	pullRequests?: PullRequestsChange | null,
+	/**  All the rules, when one of them changed: a handful of bases */
+	rules?: { [key in string]: Fact<BranchRules> } | null,
+	profiles?: Fact<PatronusStartOptions> | null,
 };
 
 /**
@@ -1829,6 +1837,17 @@ export type FactsChanges = {
  */
 export type FactsView = {
 	robots: RobotsView,
+	pullRequests: PullRequestsView,
+	/**
+	 *  By branch, the rules of the bases of the open pull requests someone approved: what a push of new commits does to
+	 *  the approvals; a base the session has not read yet has none
+	 */
+	rules: { [key in string]: Fact<BranchRules> },
+	/**
+	 *  The merge profiles of the target the baseline pushes to (`targetBranch`), without the default of the last robot
+	 *  (the page's until the policy moves into Rust): `Unknown` until a start or its popover asks for them
+	 */
+	profiles: Fact<PatronusStartOptions>,
 };
 
 /**  A failed build of the dependency chain of a check (never a composite one) */
@@ -2135,12 +2154,6 @@ export type GetBranchReviewReadinessParams = {
 	recheck?: boolean,
 };
 
-export type GetBranchRulesParams = {
-	repositoryPath: string,
-	/**  The branch pull requests merge into, as GitHub names it (`master`) */
-	branch: string,
-};
-
 export type GetCommitFilesParams = {
 	repositoryPath: string,
 	commitId: string,
@@ -2199,20 +2212,6 @@ export type GetNewStackPullRequestParams = {
 	target: string,
 };
 
-/**  The running robots to ask whether they will fail */
-export type GetPatronusStartOptionsParams = {
-	repositoryPath: string,
-	/**  As the sync detected it, e.g. `origin/master`: the robot pushes to the branch it tracks */
-	baselineBranch: string,
-	/**  The last robot of the branch: its profile is the default */
-	lastRobotId: string | null,
-	/**
-	 *  The profile of the last robot as the list named it: with the new API of Settings → Patronus (Rust reads the setting)
-	 *  the default without reading the robot; null, without an id or with the new API off, the robot is read for it
-	 */
-	lastRobotProfile?: PatronusRobotProfile | null,
-};
-
 export type GetPatronusTargetBranchParams = {
 	repositoryPath: string,
 	baselineBranch: string,
@@ -2223,10 +2222,6 @@ export type GetPullRequestHeadParams = {
 	/**  `owner/name` when the review requests already resolved it */
 	githubRepository: string | null,
 	pullRequestNumber: number,
-};
-
-export type GetPullRequestsParams = {
-	repositoryPath: string,
 };
 
 /**  Two commits of the repository to diff, `base..head` */
@@ -3313,15 +3308,29 @@ export type PullRequestStartBranch = {
 
 export type PullRequestState = "open" | "closed" | "merged";
 
-export type PullRequestsResult = {
-	availability: PullRequestAvailability,
-	/**  By virtual branch name (without the `{prefix}/virtual/` namespace); empty unless available */
-	pullRequests: { [key in string]: PullRequest },
-	/**
-	 *  The pull requests of the stack branches (`{prefix}/stack/<root>`, the whole stack), by the root of the stack; the
-	 *  same preference of one per branch. Never in `pull_requests`: a stack branch is no row
-	 */
+/**  What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went */
+export type PullRequestsChange = {
+	head?: Fact<PullRequestAvailability> | null,
+	pullRequests?: { [key in string]: PullRequest },
+	removedPullRequests?: string[],
 	stackPullRequests?: { [key in string]: PullRequest },
+	removedStackPullRequests?: string[],
+};
+
+/**
+ *  The GitHub pull requests of the virtual branches and the whole stacks, as the session listed them and the app's
+ *  writes left them: the availability of the last answer with how the listing stands (`head`: `Loading` until the first
+ *  answer; `Fresh` while GitHub lists them, and for a repository not on GitHub; `Stale` with the reason when GitHub
+ *  failed for a while after a listing, which stays; `Unavailable` when no listing stands: a failure before any, or
+ *  GitHub refused the token), the pull requests by branch and by the root of the stack. A failed listing is never an
+ *  empty one: without a standing listing no pull request of a branch is known
+ */
+export type PullRequestsView = {
+	head: Fact<PullRequestAvailability>,
+	/**  By virtual branch name (without the `{prefix}/virtual/` namespace) */
+	pullRequests: { [key in string]: PullRequest },
+	/**  By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's */
+	stackPullRequests: { [key in string]: PullRequest },
 };
 
 export type PushBranchParams = {

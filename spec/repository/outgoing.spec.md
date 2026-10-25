@@ -263,10 +263,11 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   the retarget of login retargets no pull request of the other repository's ui. A push that ends after a switch says
   "Pushed auth" with what it pushed and the robot it restarted, but offers no pull request (no Open Pull Request, no
   Create Pull Request, no retarget clause), since the branch of the same name there has its own; the pull requests it
-  refreshes are of its repository.
+  lists again are of its repository: the session that ran the push lists them (its `PushEnded`), never the selected
+  one's.
   [@test] ../../src/lib/git/push.test.ts (`pushes nothing of the branch of the same name there, and says why`, `pushes no stack of the same names there`, `refuses the push of an action in place`)
   [@test] ../../src/lib/git/push.test.ts (`retargets no pull request of the branch of the same name there after a switch during a retarget of the stack`, `offers no pull request of the branch of the same name there in the toast of a push that ends after a switch`, `offers no pull request of the branches of the same names there in the toast of a stack push that ends after a switch`)
-  [@test] ../../src/stores/pull-requests.test.ts (`refreshes the repository the push went to, after a switch too, never the selected one`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_them`)
   [@test] ../../src/stores/branch-sync.test.ts (`keeps the spinner of a push that ends after a switch of the repository off the branch of the same name there`, `drops the progress of a push that ends after a switch: the next push of the branch starts without its percent`, `keeps a stack push that runs on after a switch off the row of the same name there`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_outcome_of_a_push_in_one_session_leaves_the_branch_of_the_same_name_in_another`)
 - The robot a push cancels, to restart it (Restart Safe Push) or because a start replaces it, must be canceled after

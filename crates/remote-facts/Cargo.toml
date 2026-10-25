@@ -37,6 +37,7 @@ specta = ["dep:specta", "sync-core/specta", "domain-types/specta", "git-ops/spec
 github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
 youtrack = { path = "../youtrack", features = ["fake"] }
+domain-types = { path = "../domain-types", features = ["fixtures"] }
 reqwest.workspace = true
 test-utils = { path = "../test-utils" }
 tempfile.workspace = true

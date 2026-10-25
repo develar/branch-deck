@@ -5,7 +5,8 @@
 
 use domain_types::commit::Commit;
 use domain_types::session::{
-  BranchChange, BranchRemote, BranchSync, BranchView, CommitSync, NEWS_KEPT, PatronusChange, PatronusPart, RepositoryView, RobotsChange, TableChanges, Version, ViewPatch,
+  BranchChange, BranchRemote, BranchSync, BranchView, CommitSync, FactsChanges, NEWS_KEPT, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView,
+  RobotsChange, TableChanges, Version, ViewPatch,
 };
 use std::collections::BTreeMap;
 
@@ -125,7 +126,18 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
   if let Some(patronus) = patronus {
     apply_patronus_change(&mut view.patronus, patronus);
   }
-  if let Some(robots) = facts.and_then(|facts| facts.robots) {
+  let FactsChanges {
+    robots,
+    pull_requests,
+    rules,
+    profiles,
+  } = facts.unwrap_or_default();
+  if let Some(pull_requests) = pull_requests {
+    apply_pull_requests_change(&mut view.facts.pull_requests, pull_requests);
+  }
+  set_if_some(&mut view.facts.rules, rules);
+  set_if_some(&mut view.facts.profiles, profiles);
+  if let Some(robots) = robots {
     let RobotsChange {
       head,
       robots,
@@ -230,4 +242,25 @@ fn apply_patronus_change(part: &mut PatronusPart, change: PatronusChange) {
   }
   view.stacks.extend(stacks);
   set_if_some(&mut view.landed_by_robot, landed_by_robot);
+}
+
+/// The pull requests after a patch: its head when it names one, the pull requests it names replace theirs, those it
+/// removes go
+fn apply_pull_requests_change(view: &mut PullRequestsView, change: PullRequestsChange) {
+  let PullRequestsChange {
+    head,
+    pull_requests,
+    removed_pull_requests,
+    stack_pull_requests,
+    removed_stack_pull_requests,
+  } = change;
+  set_if_some(&mut view.head, head);
+  for name in &removed_pull_requests {
+    view.pull_requests.remove(name);
+  }
+  view.pull_requests.extend(pull_requests);
+  for root in &removed_stack_pull_requests {
+    view.stack_pull_requests.remove(root);
+  }
+  view.stack_pull_requests.extend(stack_pull_requests);
 }

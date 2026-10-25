@@ -13,7 +13,9 @@
 //! page went away (the command awaited the prefix and the session meanwhile) ends at once.
 
 use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
+use crate::commands::github::GitHubState;
 use crate::commands::patronus::PatronusState;
+use crate::commands::pull_requests::github_repository;
 use crate::operation::operation;
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::{api_error, no_branch_prefix};
@@ -21,10 +23,13 @@ use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::landing::{LandingCheck, LandingGateParams};
-use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotsResult};
+use domain_types::patronus::{KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotsResult, PatronusStartOptions};
+use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
+use remote_facts::branch_rules::read_branch_rules;
 use remote_facts::fact_sources::{FactSources, Read};
+use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use remote_facts::scheduler::Scheduler;
 use repository_model::facts::Needs;
 use repository_model::landing::LandingGate;
@@ -222,7 +227,8 @@ impl LandingGate for AppLandingGate {
 }
 
 /// What the scheduler of the facts reads the remote services of the app's sessions with: the Patronus service of the app
-/// and the repository's Space repository and GitHub mirror (`PatronusState::robots`), the settings when a read starts
+/// and the repository's Space repository and GitHub mirror (`PatronusState::robots`), the GitHub service with the GitHub
+/// repository of the worktree (`github_repository`), the settings when a read starts
 struct AppFactSources {
   app: AppHandle,
 }
@@ -251,6 +257,36 @@ impl FactSources for AppFactSources {
 
   fn problems<'a>(&'a self, _key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
     Box::pin(async move { self.app.state::<PatronusState>().problems(&id).await })
+  }
+
+  fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
+    Box::pin(async move {
+      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
+      match github_repository(&git, &repository_state, &key.worktree, None).await {
+        Ok(Some(repository)) => list_pull_requests(&self.app.state::<GitHubState>().service, &key.worktree, &repository, &key.prefix).await,
+        Ok(None) => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
+        Err(error) => PullRequestsResult::unavailable(PullRequestAvailability::Error { message: error.message }),
+      }
+    })
+  }
+
+  fn branch_rules<'a>(&'a self, key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
+    Box::pin(async move {
+      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
+      let repository = github_repository(&git, &repository_state, &key.worktree, None)
+        .await?
+        .ok_or_else(|| ApiError::internal(NOT_ON_GITHUB_MESSAGE))?;
+      read_branch_rules(&self.app.state::<GitHubState>().service, &key.worktree, &repository, &branch)
+        .await
+        .map_err(|failure| ApiError::internal(failure_message(&failure)))
+    })
+  }
+
+  fn profiles<'a>(&'a self, key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
+    Box::pin(async move {
+      let git = self.app.state::<GitCommandExecutor>();
+      self.app.state::<PatronusState>().profiles(&git, &key.worktree, &baseline).await
+    })
   }
 }
 

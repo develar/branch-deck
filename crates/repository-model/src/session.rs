@@ -17,6 +17,7 @@
 use crate::branch_table::BranchTable;
 use crate::facts::{AppliedFacts, FactResult, FactTicket, Needs, RobotsDigest, TableFacts};
 use crate::patronus_view::ContentMemo;
+use crate::pull_request_facts::{PullRequestWrite, PushedHead};
 use crate::runtime::{Message, spawn_actor};
 use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
@@ -69,8 +70,14 @@ pub enum SessionEventKind {
   Focus(bool),
   /// The demand of all the windows of the session changed (`set_demand`)
   Demand(Demand),
-  /// A sync of the session succeeded: the table is committed
-  TableCommitted,
+  /// A sync of the session succeeded: the table is committed, with `baseline` (the merge profiles are of its target)
+  TableCommitted { baseline: String },
+  /// A push of the app ended and pushed `heads` (the remote did not move): the pull requests are listed again, once more
+  /// a little later when GitHub still shows another head of one
+  PushEnded { heads: Vec<PushedHead> },
+  /// The app wrote a pull request that the next step reads (a retarget, the reviewers asked, one created): the pull
+  /// requests are listed again, as after a push
+  PullRequestWritten,
   /// The robots the poll asks about changed (`facts::robots_digest`)
   Robots(RobotsDigest),
   /// A window asks to read a fact again (`refresh`); `reply` gets the version of the view after the patch of that read,
@@ -339,6 +346,22 @@ impl Sessions {
     self.ask(key, |reply| Message::WriteRobot { robot, reply }).await
   }
 
+  /// The write of the app to a pull request (`PullRequestWrite`, as its command answered it) goes into the pull
+  /// requests of the open session of `key`, newer than every listing that started before; a write that changes what
+  /// the next step reads lists them again. Answers the version of the view after its patch; `None` for a session that
+  /// is not open
+  pub async fn write_pull_request(&self, key: &SessionKey, write: PullRequestWrite) -> Option<Version> {
+    self.ask(key, |reply| Message::WritePullRequest { write, reply }).await
+  }
+
+  /// A push the session did not run ended and pushed `heads` (one the page of the E2E server answered): the scheduler of
+  /// the facts lists the pull requests as after the session's own push
+  pub fn tell_push(&self, key: &SessionKey, heads: Vec<PushedHead>) {
+    if self.is_open(key) {
+      self.events.emit(key, SessionEventKind::PushEnded { heads });
+    }
+  }
+
   /// A window of the open session of `key` asks to read a fact again; answers the version of the view after the patch
   /// of that read once it is applied, `None` when nothing was asked (the rules held it back, the session is not open,
   /// nothing takes the events)
@@ -466,7 +489,8 @@ impl Sessions {
     let statuses = outcome.as_ref().ok().map(|outcome| match outcome {
       PushBranchesOutcome::Pushed { remote_statuses } | PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => remote_statuses.clone(),
     });
-    let version = running.end(statuses).version().await;
+    let pushed = matches!(outcome, Ok(PushBranchesOutcome::Pushed { .. }));
+    let version = running.end(statuses, pushed).version().await;
     outcome.map(|outcome| ViewAnswer { outcome, version })
   }
 
@@ -590,23 +614,30 @@ struct RunningPush<'a> {
 }
 
 impl RunningPush<'_> {
-  fn end(&mut self, statuses: Option<Vec<RemoteStatusUpdate>>) -> Applied {
+  /// `pushed`: the push pushed (the remote did not move)
+  fn end(&mut self, statuses: Option<Vec<RemoteStatusUpdate>>, pushed: bool) -> Applied {
     let Some(subjects) = self.subjects.take() else {
       return Applied(None);
     };
     let (reply, version) = oneshot::channel();
-    let sent = self
-      .sessions
-      .lock()
-      .get(self.key)
-      .is_some_and(|entry| entry.mailbox.send(Message::PushEnded { subjects, statuses, reply }).is_ok());
+    let sent = self.sessions.lock().get(self.key).is_some_and(|entry| {
+      entry
+        .mailbox
+        .send(Message::PushEnded {
+          subjects,
+          statuses,
+          pushed,
+          reply,
+        })
+        .is_ok()
+    });
     Applied(sent.then_some(version))
   }
 }
 
 impl Drop for RunningPush<'_> {
   fn drop(&mut self) {
-    drop(self.end(None));
+    drop(self.end(None, false));
   }
 }
 

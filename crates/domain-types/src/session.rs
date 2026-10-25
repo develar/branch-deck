@@ -19,7 +19,8 @@ use crate::conflict::WordResolutionSummary;
 use crate::error::ApiError;
 use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
-use crate::patronus::{PatronusAvailability, PatronusRobot};
+use crate::patronus::{PatronusAvailability, PatronusRobot, PatronusStartOptions};
+use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability};
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, StackPatronus};
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
@@ -147,6 +148,13 @@ pub enum FactFamily {
   /// Why the failed robots of the table failed (`RobotsView::needs_review`): Check Approvals Again asks those Patronus
   /// didn't give again; their reads come as patches, the refresh answers at once
   RobotProblems,
+  /// The GitHub pull requests of the branches and whole stacks (`FactsView::pull_requests`)
+  PullRequests,
+  /// The rules of the bases of the approved pull requests (`FactsView::rules`): those GitHub didn't give are asked again
+  BranchRules,
+  /// The merge profiles of the target of the baseline (`FactsView::profiles`), asked when unknown, after a failure and
+  /// a minute after the last read
+  Profiles,
 }
 
 /// Why a window asks a fact again
@@ -156,8 +164,9 @@ pub enum FactFamily {
 pub enum FactRefreshReason {
   /// The refresh button: always asks, the robots of the full window
   Manual,
-  /// An action of the window changed the remote and needs the fact now (the robot a `/patronus` comment started):
-  /// asks, and once more after a read in flight
+  /// An action of the window changed the remote or needs the fact now: the robot a `/patronus` comment started, a
+  /// merge Patronus closed a pull request of, a start that reads the rules and the profiles, a form that opens; asks
+  /// when the rules of the family say so for a write (`domain_policy::refresh`), and once more after a read in flight
   AfterWrite,
 }
 
@@ -329,6 +338,30 @@ pub struct PatronusPart {
 #[serde(rename_all = "camelCase")]
 pub struct FactsView {
   pub robots: RobotsView,
+  pub pull_requests: PullRequestsView,
+  /// By branch, the rules of the bases of the open pull requests someone approved: what a push of new commits does to
+  /// the approvals; a base the session has not read yet has none
+  pub rules: BTreeMap<String, Fact<BranchRules>>,
+  /// The merge profiles of the target the baseline pushes to (`targetBranch`), without the default of the last robot
+  /// (the page's until the policy moves into Rust): `Unknown` until a start or its popover asks for them
+  pub profiles: Fact<PatronusStartOptions>,
+}
+
+/// The GitHub pull requests of the virtual branches and the whole stacks, as the session listed them and the app's
+/// writes left them: the availability of the last answer with how the listing stands (`head`: `Loading` until the first
+/// answer; `Fresh` while GitHub lists them, and for a repository not on GitHub; `Stale` with the reason when GitHub
+/// failed for a while after a listing, which stays; `Unavailable` when no listing stands: a failure before any, or
+/// GitHub refused the token), the pull requests by branch and by the root of the stack. A failed listing is never an
+/// empty one: without a standing listing no pull request of a branch is known
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestsView {
+  pub head: Fact<PullRequestAvailability>,
+  /// By virtual branch name (without the `{prefix}/virtual/` namespace)
+  pub pull_requests: BTreeMap<String, PullRequest>,
+  /// By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's
+  pub stack_pull_requests: BTreeMap<String, PullRequest>,
 }
 
 /// The user's robots of Patronus in the repository, as the session listed and polled them: what Patronus said of the
@@ -696,6 +729,38 @@ pub struct FactsChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub robots: Option<RobotsChange>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub pull_requests: Option<PullRequestsChange>,
+  /// All the rules, when one of them changed: a handful of bases
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub rules: Option<BTreeMap<String, Fact<BranchRules>>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub profiles: Option<Fact<PatronusStartOptions>>,
+}
+
+/// What changed of the pull requests: the head when it differs, the pull requests that changed and the keys that went
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestsChange {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub head: Option<Fact<PullRequestAvailability>>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub pull_requests: BTreeMap<String, PullRequest>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_pull_requests: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub stack_pull_requests: BTreeMap<String, PullRequest>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_stack_pull_requests: Vec<String>,
 }
 
 /// What changed of the robots: the head when it differs, the robots that changed and the ids that went

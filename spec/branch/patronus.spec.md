@@ -61,7 +61,7 @@ targets:
   - ../../crates/repository-model/src/push_guard.rs
   - ../../crates/repository-model/src/start_guard.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
-  - ../../src/hooks/useDismissesStaleReviews.ts
+  - ../../src/lib/branch-rules.ts
   - ../../crates/remote-facts/src/branch_rules.rs
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../crates/domain-policy/src/robot_match.rs
@@ -548,7 +548,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   Patronus can't judge the approvals before the start (`unknown`, `unavailable`, GitHub doesn't list the pull requests,
   a repository only on Space whose merge request needs approvals), the push dismisses approvals Patronus doesn't count,
   the rules of the repository can't be read for a push into an approved pull request, a start without review. S, "Safe Push With Profile…" and the start without review always confirm.
-  [@test] ../../src/lib/safe-push-decision.test.ts (`starts a lone branch at once when there is nothing to say: default checks, approved or not needed`, `opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the profiles, the remote status, the review and the rules, each saying what it waits for, the rules asked again after a failed read`, `refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`, `confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals`, `lets a profile that skips the review start without the approvals, and a start without review wait for its profile`)
+  [@test] ../../src/lib/safe-push-decision.test.ts (`starts a lone branch at once when there is nothing to say: default checks, approved or not needed`, `opens the popover for a key, a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the profiles, the remote status, the review and the rules, each saying what it waits for, a failed read of the rules unknown with its reason`, `refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`, `confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals`, `lets a profile that skips the review start without the approvals, and a start without review wait for its profile`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`, `the_safe_push_profile_cases_answer_as_bd_answers_today`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`, `the safe push profile cases answer as the app answers today`, `the safe push review cases answer as the app answers today`)
 - A click waits for the facts its decision needs, at most 20 s (`SAFE_PUSH_SETTLE_MS`), its button busy with
@@ -581,8 +581,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   apart, `emergencyProfiles`), by default the profile of the last robot of the branch (never an emergency one), named
   so: "The profile of the last Safe Push of auth."; its description from Patronus below. Nothing is remembered by
   Branch Deck: the profile is the branch's by its robots. The profiles are `GET /robot-start-supported`, cached for 10
-  minutes (an error for 1), asked by the app once a minute per branch and last robot (`loadStartOptions`). A target
-  branch Patronus does not protect can't be started. A profile carries `skipsReview`: true for an emergency profile and
+  minutes (an error for 1), a fact of the session for the target of its baseline (`facts.profiles`), which the popover
+  when it opens and a click before it decides ask (`refresh_facts { profiles }`): read when unknown, after a failure, a
+  minute after the last read, or for another baseline. The default of the last robot is the page's
+  (`withLastRobotProfile`): the profile an answer named on the robot (a poll, a start, the New API's list), else the
+  one its details name, read once for it. A target branch Patronus does not protect can't be started. A profile carries `skipsReview`: true for an emergency profile and
   for the profile of the last robot whose options say `patronus.review.approval.check.skip=true` (false when they say
   otherwise), null for the rest, which Patronus doesn't describe; a robot's profile carries it from its options
   (`robot_profile`), null while Patronus hasn't written them. A profile known to skip the review lets the start run
@@ -593,6 +596,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   for them (`lastRobotProfile`); a null `mergeProfile` leaves the profile unknown, as a list without it, never "none".
   [@test] ../../crates/patronus/src/service_test.rs (`with_the_new_api_a_list_names_the_merge_profile_patronus_put_on_a_robot`)
   [@test] ../../crates/patronus/src/actions_test.rs (`start_options_take_the_profile_the_list_named_without_reading_the_last_robot`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_profiles_are_asked_when_a_start_needs_them_and_a_minute_later`)
+  [@test] ../../src/lib/patronus.test.ts (`makes the profile of the last robot the default, with whether it skips the review`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…`, `should open the popover of a click for the profile of the last Safe Push, and start with the one chosen`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
   [@test] ../../crates/patronus/src/actions_test.rs (`start_options_keep_the_emergency_profiles_apart_and_default_to_the_profile_of_the_last_robot`)
@@ -629,17 +634,19 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start the Safe Push in its repository when another repository opens during its checks`)
 - A push before the start of a branch with an open pull request into the target that someone approved, in a
   repository whose GitHub rules dismiss stale reviews on push (a `pull_request` rule with `dismiss_stale_reviews_on_push`
-  of `GET repos/<owner>/<name>/rules/branches/<target>`, readable with read access; `get_branch_rules`,
-  `remote_facts::branch_rules`), is told before the start, as a warning of the popover: "The push dismisses the approvals
-  of #7: the rules of the repository dismiss stale reviews when new commits are pushed." The rules are asked once per
-  repository and target in a session (`useDismissesStaleReviews`: `keep`, `dismiss`, or `unknown` with the reason),
-  only while the start would push into an approved pull request. Until the rules answer, the start waits ("Checking
+  of `GET repos/<owner>/<name>/rules/branches/<target>`, readable with read access; `remote_facts::branch_rules`), is
+  told before the start, as a warning of the popover: "The push dismisses the approvals of #7: the rules of the
+  repository dismiss stale reviews when new commits are pushed." The rules are a fact of the session (`facts.rules`,
+  `peekBranchRules`: `keep`, `dismiss`, or `unknown` with the reason), read once per session for each base of the open
+  pull requests someone approved (an unknown base is the target), after the listing that has the approval; the start
+  reads them only while it would push into an approved pull request. Until the rules answer, the start waits ("Checking
   whether the push keeps the approvals of #7…"): a start that pushed meanwhile would take the approvals away. Rules
   that can't be read (no token, no access, GitHub failed) are never "keeps the approvals": the start confirms first,
   a warning of the popover ("Cannot check whether the push keeps the approvals of #7: GitHub answered 500. Patronus
   counts them when the robot starts."), which Enter or the start accepts. A failed read is not kept: each start asks
-  GitHub again and waits for that answer. When the approvals the push dismisses are the ones Patronus counts (the readiness is `approved`), the
-  robot would start without them: the start is refused with "The push dismisses the approvals of #7: push first, then
+  the session to read again the rules GitHub didn't give (`refresh_facts { branchRules, afterWrite }`), and the click
+  waits for that answer. When the approvals the push dismisses are the ones Patronus counts (the readiness is
+  `approved`), the robot would start without them: the start is refused with "The push dismisses the approvals of #7: push first, then
   ask for the review again", and "Push" alone is offered (the action of the `info` toast, the button of the popover).
   `bd safe-push` reads the same rules with the same function before the same start, refuses
   `push_dismisses_approvals` where the app refuses, says the dismissed approvals Patronus doesn't count in `rules`, and
@@ -648,10 +655,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should offer only the push when it dismisses the approvals Patronus counts`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for the rules before a push into an approved pull request: Enter must not dismiss its approvals`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should confirm a push into an approved pull request whose rules can't be read, never reading them as keeping the approvals`, `should ask again for the rules a start couldn't read, and confirm with the key`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should confirm a push into an approved pull request whose rules can't be read, never reading them as keeping the approvals`, `should ask again for the rules a start couldn't read, and start with the key once GitHub gives them`)
   [@test] ../../src/lib/safe-push-decision.test.ts (`confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse the click with the push alone in its toast`, `should say in the popover why it can't start, and push alone from it`)
   [@test] ../../crates/remote-facts/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_rules_of_an_approved_base_are_read_once_and_a_failed_read_again_when_a_start_asks`)
+  [@test] ../../crates/repository-model/src/pull_request_facts_test.rs (`the_rules_are_of_the_bases_of_the_approved_open_pull_requests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - git merges a branch that uses a name only another branch adds, and the robot's build fails (the robots of
   2026-10-17 and 2026-10-21). So a start first asks the landing gate, the rule of `bd safe-push` in Rust

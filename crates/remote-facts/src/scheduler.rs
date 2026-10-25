@@ -20,6 +20,19 @@
 //!   that failed again only after the next answer, `robot_problems_due`); a change of the table asks the problems of a
 //!   failed robot it matched anew, never the failing ones: a sync end or a focus whose list the rules hold back asks
 //!   nothing of Patronus.
+//!
+//! GitHub and the merge profiles (`scheduler_github.rs`):
+//! - a list of the pull requests by `pull_requests_due`: a committed table at most once a minute, a focus when they are
+//!   older than two minutes, a push of the app that pushed (`PushEnded`) and a write of a pull request that the next
+//!   step reads (`PullRequestWritten`) always, the refresh button always; a push or the refresh button during a list asks
+//!   once more after it; off GitHub only the refresh button, after the rate limit nothing before its `retry_at` but the
+//!   refresh button; never a timer, but one: when the list after a push still shows another head of a pushed branch,
+//!   one more list five seconds later on the clock (`pull_requests_push_recheck_at`), which asks no further one;
+//! - after each list, the rules of the bases of the open pull requests someone approved not read yet (one read per
+//!   base, once per session); those GitHub didn't give again when a start or a form asks them (`refresh_facts
+//!   { branchRules, afterWrite }`) or by the refresh button;
+//! - the merge profiles of the target of the baseline, when a start or its popover asks (`refresh_facts { profiles }`)
+//!   and they are unknown, failed, a minute old or of another baseline (`profiles_due`).
 
 use crate::fact_sources::{FactSources, Read};
 use domain_policy::refresh::{
@@ -27,6 +40,7 @@ use domain_policy::refresh::{
 };
 use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
+use github::{GitHubFamily, GitHubSchedule};
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, RobotsDigest, RobotsRead};
 use repository_model::runtime::sleep_until;
 use repository_model::session::{SessionEvent, SessionEventKind, SessionKey, Sessions};
@@ -112,6 +126,7 @@ impl Scheduler {
       focused: None,
       table_committed: false,
       robots: RobotsSchedule::default(),
+      github: GitHubSchedule::default(),
     };
     let span = tracing::info_span!("session_facts", worktree = %key.worktree, prefix = %key.prefix);
     span.in_scope(|| tokio::spawn(facts.run(messages).in_current_span()));
@@ -145,6 +160,20 @@ enum Input {
   },
   /// A read of what the session asks about its robots ended
   Read(RobotRead),
+  /// A list of the pull requests ended
+  PullRequests(github::PullRequestsListed),
+  /// A read of the rules of `branch` ended: `known` whether GitHub gave them (`None`: the session was gone), the version
+  /// after its patch
+  Rules {
+    branch: String,
+    known: Option<bool>,
+    version: Option<Version>,
+  },
+  /// A read of the merge profiles ended: whether it failed (`None`: the session was gone), the version after its patch
+  Profiles {
+    failed: Option<bool>,
+    version: Option<Version>,
+  },
 }
 
 /// A read of what the session asks about its robots, one of each in flight
@@ -216,19 +245,20 @@ struct SessionFacts {
   /// A sync of the session committed its table: the first list waits for it, as the robots are matched to its branches
   table_committed: bool,
   robots: RobotsSchedule,
+  github: GitHubSchedule,
 }
 
 impl SessionFacts {
   async fn run(mut self, mut inbox: mpsc::UnboundedReceiver<Input>) {
     loop {
-      let input = match self.robots.poll_at {
+      let timer = [self.robots.poll_at, self.github.timer()].into_iter().flatten().min();
+      let input = match timer {
         Some(at) => {
           let clock = Arc::clone(&self.scheduler.clock);
           tokio::select! {
             input = inbox.recv() => input,
             () = sleep_until(&*clock, at) => {
-              self.robots.poll_at = None;
-              self.poll();
+              self.timers();
               continue;
             }
           }
@@ -246,6 +276,18 @@ impl SessionFacts {
     self.scheduler.clock.now()
   }
 
+  /// The timers whose time came: the poll of the robots, the look again at the pull requests after a push
+  fn timers(&mut self) {
+    let now = self.now();
+    if self.robots.poll_at.is_some_and(|at| at <= now) {
+      self.robots.poll_at = None;
+      self.poll();
+    }
+    if self.github.timer().is_some_and(|at| at <= now) {
+      self.recheck_pull_requests();
+    }
+  }
+
   fn handle(&mut self, input: Input) {
     match input {
       Input::Event(kind) => self.event(kind),
@@ -260,6 +302,9 @@ impl SessionFacts {
       Input::Read(read) => {
         self.robots.reading.remove(&read);
       }
+      Input::PullRequests(listed) => self.pull_requests_listed(&listed),
+      Input::Rules { branch, known, version } => self.rule_read(&branch, known, version),
+      Input::Profiles { failed, version } => self.profiles_read(failed, version),
     }
   }
 
@@ -269,10 +314,12 @@ impl SessionFacts {
         self.watched = watched;
         if !watched {
           self.robots.poll_at = None;
+          self.github_unwatched();
           return;
         }
         if self.table_committed {
           self.ask_list(RefreshReason::Sync, None);
+          self.github_table_committed(None);
         }
         self.schedule_poll(false);
       }
@@ -280,10 +327,13 @@ impl SessionFacts {
       SessionEventKind::Closed => {}
       SessionEventKind::Focus(focused) => self.focus(focused),
       SessionEventKind::Demand(demand) => self.demand(&demand),
-      SessionEventKind::TableCommitted => {
+      SessionEventKind::TableCommitted { baseline } => {
         self.table_committed = true;
         self.ask_list(RefreshReason::Sync, None);
+        self.github_table_committed(Some(baseline));
       }
+      SessionEventKind::PushEnded { heads } => self.pull_requests_pushed(heads),
+      SessionEventKind::PullRequestWritten => self.ask_pull_requests(RefreshReason::Push, None),
       SessionEventKind::Robots(digest) => {
         self.robots.digest = digest;
         self.schedule_poll(false);
@@ -303,6 +353,9 @@ impl SessionFacts {
           self.read_problems(true);
           let _ = reply.send(None);
         }
+        FactFamily::PullRequests => self.refresh_github(GitHubFamily::PullRequests, reason, reply),
+        FactFamily::BranchRules => self.refresh_github(GitHubFamily::Rules, reason, reply),
+        FactFamily::Profiles => self.refresh_github(GitHubFamily::Profiles, reason, reply),
       },
     }
   }
@@ -316,6 +369,7 @@ impl SessionFacts {
       return;
     }
     self.ask_list(RefreshReason::Focus, None);
+    self.ask_pull_requests(RefreshReason::Focus, None);
     self.robots.poll_at = None;
     if robots_poll_due(self.now(), self.robots.last_poll_started, self.robots.digest.active_robots()) {
       self.poll();
@@ -540,6 +594,9 @@ impl SessionFacts {
     );
   }
 }
+
+#[path = "scheduler_github.rs"]
+mod github;
 
 #[cfg(test)]
 #[path = "scheduler_test.rs"]

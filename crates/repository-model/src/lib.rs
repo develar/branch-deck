@@ -6,8 +6,8 @@
 //! The crate grows into the model of a repository (docs/design/rust-domain-authority.md): the sessions of the process
 //! own the table of each worktree and run its syncs (`session`, `runtime`, `sync_scheduler`), and hold its facts
 //! (`facts`): the table of the last sync, the robots of Patronus and what they land, landed and hold with the landing
-//! needs, the other facts of the remote services in the steps of s7-session-facts (the scheduler of `remote-facts` reads
-//! them). Besides them: the table of a sync (`branch_table`), the rule of what the robots land (`patronus_view`) and the
+//! needs, the pull requests of GitHub with the rules of their bases, the merge profiles, the other facts of the remote
+//! services in the steps of s7-session-facts (the scheduler of `remote-facts` reads them). Besides them: the table of a sync (`branch_table`), the rule of what the robots land (`patronus_view`) and the
 //! guards of the app's actions on the remote (`push_guard`, `start_guard`, run through `actions`). It holds what the
 //! checks and the remote services found and runs no check and asks no remote service itself (the hosts answer the
 //! landing needs and the landing gate), except the Patronus client `RemoteActions` carries until the engine of the
@@ -28,6 +28,8 @@
 //!   base, in the same epoch
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
+//! - `pull_request_facts`: the pull requests of a session by branch and stack, as the listings and the app's writes
+//!   (`PullRequestWrite`, `write_pull_request`) leave them in their order, and the pushed heads a listing checks
 //! - `runtime`: the actor of a session: its mailbox, the runs of its syncs with the mailbox as their reporter, the
 //!   patches at most every 16 ms; `GitSessionHost`, the syncs, the Patronus views and the landing needs of the app's
 //!   sessions with git
@@ -38,7 +40,8 @@
 //!   snapshot, focus, the demand of each window (`set_demand`), sync tickets, `apply` and `push` (the result of an
 //!   operation, with the version of its patch), and their removal once idle (`sweep`, on the session clock); the
 //!   timers of a session wait on its clock (`runtime::sleep_until`); the events of the sessions for the scheduler of the
-//!   facts (`events`, `SessionEvent`), which reads with `begin` and applies with `apply_facts`; `write_robot`
+//!   facts (`events`, `SessionEvent`), which reads with `begin` and applies with `apply_facts`; `write_robot`,
+//!   `write_pull_request`
 //! - `start_guard`: the checks of the app's start, restart and cancel of a robot, by the rules of `bd safe-push`: parked,
 //!   landed whole, not built, a robot on its last commit or one that lands a part of it; the words of the robot refusals
 //!   for both sides, and the whole sequence of the action (`start_robot`, `restart_robot`, `cancel_robot`) and of the
@@ -58,6 +61,7 @@ pub mod facts;
 pub mod landing;
 pub mod patch;
 pub mod patronus_view;
+pub mod pull_request_facts;
 pub mod push_guard;
 pub mod runtime;
 pub mod session;

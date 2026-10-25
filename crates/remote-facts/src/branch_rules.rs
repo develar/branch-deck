@@ -3,31 +3,14 @@
 //! of new commits. One `GET rules/branches/<branch>`, readable with read access to the repository (classic branch
 //! protection needs admin rights and is not read).
 
+use domain_types::pull_request::BranchRules;
 use github::service::{GitHubFailure, GitHubService, RequestKind};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sync_core::github_repository::GitHubRepository;
 use tracing::instrument;
 
 /// GitHub lists at most this many rules per page; a branch has a handful
 const RULES_PER_PAGE: &str = "100";
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetBranchRulesParams {
-  pub repository_path: String,
-  /// The branch pull requests merge into, as GitHub names it (`master`)
-  pub branch: String,
-}
-
-/// What the rules of a branch do to the pull requests into it
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct BranchRules {
-  /// A push of new commits dismisses the approvals of a pull request into the branch
-  pub dismiss_stale_reviews_on_push: bool,
-}
 
 /// One rule of a branch (`GET repos/<owner>/<name>/rules/branches/<branch>`); only the pull request rule is read
 #[derive(Debug, Deserialize)]

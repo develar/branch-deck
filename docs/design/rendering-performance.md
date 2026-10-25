@@ -126,7 +126,8 @@ flowchart LR
    - a part of the session's view equal to the one it sent last (`View::diff`, by `PartialEq`): no patch names it, so
      the page keeps its record (a remote status, the commits of a branch whose state alone changed);
    - the same issue groups;
-   - the pull requests a refresh answers unchanged (`mergePullRequests`, as `mergeRobots` does for robots);
+   - the pull requests a listing answers unchanged (the session's `PullRequestsFact`, keyed by branch: a patch names
+     only the pull requests that changed, as the robots by id);
    - an archived branch whose integration info is the same.
 
    **Rationale**: every row selects from these records. A new object with the same content re-renders every row and

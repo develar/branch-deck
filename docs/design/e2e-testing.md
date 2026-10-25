@@ -193,7 +193,8 @@ Mock implementation:
   remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the end of
   the app's push writes it into the table (`answeredInSession` posts its remote statuses to `POST
   /sessions/pushed-in-page`, the server's `TableState::end_push` through `Sessions::apply`; unlike the app's push it
-  moved no remote-tracking ref, so the inputs the session knows stay), and the answer names the version of that patch,
+  moved no remote-tracking ref, so the inputs the session knows stay; one that pushed (no `remoteMoved`) lists the pull
+  requests again as the app's push does, `Sessions::tell_push`), and the answer names the version of that patch,
   so the rows show the status the push left from the session, with no sync after it (a test that ends before its push is answered closed its pages and deleted its
   repository: the server answers 410, and the answer, which no page reads, names no version). An answer
   counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
@@ -386,7 +387,11 @@ State isolation:
   session no window shows) wake only when a test moves it with `advanceBackendClock(ms)` (wait-helpers.ts, `POST
   /clock/advance { ms }`, which also sweeps the idle sessions): the poll of the robots a minute after the last one
   while the window is focused, so a test that waits for a merge a poll tells moves it in a loop until the toast shows;
-  a focus (`tauri://focus`) polls at once, unless a poll ran less than 50 s ago on that clock. Neither moves the 16 ms merge of the patches or a
+  a focus (`tauri://focus`) polls at once, unless a poll ran less than 50 s ago on that clock; a focus lists the pull
+  requests only two minutes after their last answer on it, and the look again five seconds after a push that GitHub
+  shows on an old head waits for it too. A test of a new start of the app closes the sessions of its repository before
+  the reload (`closeSessions`, `POST /repositories/{id}/sessions/close`): the reload opens a new session, whose facts
+  are asked anew. Neither clock moves the 16 ms merge of the patches or a
   bounded lock wait, which run on wall time: a test waits for the patch an advance causes (its DOM state,
   `data-view-version`), never for time
 - **Motion**: `base-test.ts` switches the enter animations off in every window of a test (a constructable sheet,
@@ -435,8 +440,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
   so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
 - **Bridge**: the reads of the session's robots (`TestFactSources`: `list_robots`, `poll_robots`, `failing_robots` and
-  `robot_problems` of the bridge), `get_patronus_robot_details`, `get_robot_failure`, `get_patronus_start_options`,
-  `get_patronus_target_branch`, `start_patronus_robot`,
+  `robot_problems` of the bridge, and the merge profiles, `profiles_of`), `get_patronus_robot_details`,
+  `get_robot_failure`, `get_patronus_target_branch`, `start_patronus_robot`,
   `restart_patronus_robot`, `cancel_patronus_robot` and `get_patronus_robot_status` call the service as
   `src-tauri/src/commands/patronus.rs` does (a start, a restart and a cancel give their robot to the session, as the
   app's commands do): the list answers `notPatronus` while the repository is not on Space and names the GitHub
@@ -500,12 +505,14 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `GET rules/branches/<b>`; a write changes what the next read answers. Its Patronus bot answers a `/patronus` comment
   at once: 👍, or 👎 and a `⚠️` comment of the reason, as `patronus_replies` says (accepted by default). A branch
   is on GitHub when the test repository has it (its `origin` is itself). The service is replaced on each fixture.
-- **GitHub bridge**: `get_pull_requests`, `get_branch_rules`, `create_pull_request`, `retarget_pull_request`,
-  `close_pull_request`, `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request` (the text of
-  the real core, the viewer GitHub answers), `wait_for_github_branch`, `search_github_users`,
-  `request_pull_request_reviewers` and `submit_pull_request_review` call the cores as
-  `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real `resolve_github_repository` reads
-  (or the one the page names); `post_patronus_command` and `read_patronus_command_reply` as `commands/patronus.rs` does.
+- **GitHub bridge**: the reads of the session's pull requests and of the rules of their bases (`TestFactSources`:
+  `list_pull_requests_of`, counted, and `branch_rules_of` of the bridge, each holding the repository as a command does),
+  `create_pull_request`, `retarget_pull_request`, `close_pull_request` and `request_pull_request_reviewers` (which
+  give what they wrote to the session of the repository and answer the version of its patch, as the app's commands
+  do), `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request` (the text of the real core, the
+  viewer GitHub answers), `wait_for_github_branch`, `search_github_users` and `submit_pull_request_review` call the
+  cores as `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real
+  `resolve_github_repository` reads (or the one the page names); `post_patronus_command` and `read_patronus_command_reply` as `commands/patronus.rs` does.
 - **GitHub sign-in**: `get_github_auth_status`, `start_github_sign_in`, `wait_github_sign_in`, `cancel_github_sign_in`
   and `sign_out_of_github` (the page's repository by `X-Repository-Id`) call the host's `GitHubSignInSession`
   (`crates/github/src/sign_in_session.rs`), the core of the app's commands, with the host's service. The fake answers
@@ -535,8 +542,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `/patronus-replies` (`setPatronusReplies`) sets the bot's reply by pull request number (a `PatronusCommandReply`);
   `/github-answer` (`answerGitHub(method, path, status, body)`) scripts the answer of one request before the state, for
   a failure no state gives (GitHub refusing a review, another head than the one reviewed).
-- **GitHub log**: `GET /repositories/{id}/pull-requests` (`getGitHubLog`) answers `calls`, the page's
-  `get_pull_requests`, and `requests`, every request that reached the fake in order (`method`, `path`, JSON `body`);
+- **GitHub log**: `GET /repositories/{id}/pull-requests` (`getGitHubLog`) answers `calls`, the session's lists of the
+  pull requests, and `requests`, every request that reached the fake in order (`method`, `path`, JSON `body`);
   `gitHubWrites` keeps the writes and `repoPath` names a path of the repository. A test asserts what GitHub got (the
   `POST pulls`, the `PATCH` of a retarget, the reviewers asked, the review, the `/patronus` comment and the reads of its
   reply, the comment and the close; `gitHubRequests(repo, method, …segments)` filters them, `skipCommandReplyWait` runs
@@ -550,8 +557,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold` matches any one) and
   the answers the bridge gives itself, which wait in their command: `reviewRequests` (`get_review_requests`, from their
   fixture), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
-  `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules`
-  (`get_branch_rules`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
+  `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
+  session's read of the rules of a base, `branch_rules_of`), `profiles` (its read of the merge profiles,
+  `profiles_of`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
   (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
   shows before the answer, and a release lets it through with what the fixture holds then. `fail` makes a route of
   the fake Patronus answer 500 (`FakePatronus::set_failing`) or the bridge reject the command ("the fixture fails this

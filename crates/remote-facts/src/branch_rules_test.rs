@@ -1,5 +1,6 @@
-use crate::branch_rules::{BranchRules, read_branch_rules};
+use crate::branch_rules::read_branch_rules;
 use crate::patronus_command_test::repository;
+use domain_types::pull_request::BranchRules;
 use github::fake_github::{FakeAnswer, start_fake_service};
 use pretty_assertions::assert_eq;
 use serde_json::json;

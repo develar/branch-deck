@@ -406,7 +406,8 @@ function derive(): void {
   } else {
     sessionPart = { state: { kind: "fresh" }, landingNeeds: patronus.landingNeeds, view: withRowRobots(patronus.view, sessionRobots.robots) }
   }
-  applySessionFacts("/repo", { ...emptyView(), facts: { robots: sessionRobots }, patronus: sessionPart }, { patronus: {} })
+  const view = emptyView()
+  applySessionFacts("/repo", { ...view, facts: { ...view.facts, robots: sessionRobots }, patronus: sessionPart }, { patronus: {} })
 }
 
 /** A test watches the failing and the failed robots (`watchFailures`) */
@@ -1053,7 +1054,7 @@ describe("pull request start", () => {
     patronus.poll = { ...available({ ...ofPullRequest, status: "success", finishTime: 200 }), githubRepository: null }
     await poll()
     expect(patronusStore.getState().repositories["/repo\nuser"]?.githubRepository).toBe("acme/monorepo")
-    expect(notices.pullRequestRefreshes).toEqual(["push"])
+    expect(notices.pullRequestRefreshes).toEqual(["afterWrite"])
   })
 })
 

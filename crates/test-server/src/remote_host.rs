@@ -54,6 +54,7 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::ReviewRequests
     | HeldAnswer::LandingNeeds
     | HeldAnswer::BranchRules
+    | HeldAnswer::Profiles
     | HeldAnswer::RepositoryView
     | HeldAnswer::GitHubAuth
     | HeldAnswer::YouTrackAuth
@@ -106,7 +107,7 @@ pub struct RemoteHost {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HeldAnswer {
-  /// GitHub's search of the user's pull requests (`get_pull_requests`, `author:@me` of `remote_facts::pull_requests`)
+  /// GitHub's search of the user's pull requests (the session's list, `author:@me` of `remote_facts::pull_requests`)
   PullRequests,
   /// The review requests (`get_review_requests`, which the bridge answers from its fixture: held there)
   ReviewRequests,
@@ -118,8 +119,10 @@ pub enum HeldAnswer {
   LandingNeeds,
   /// Why a robot failed (`GET /app/rest/v1/robots/{id}/problems`, of every robot)
   RobotProblems,
-  /// The rules of a branch (`get_branch_rules`, in the bridge): whether a push dismisses the approvals
+  /// The rules of a base (the session's read, `branch_rules_of` of the bridge): whether a push dismisses the approvals
   BranchRules,
+  /// The merge profiles of the target (the session's read, `profiles_of` of the bridge): held there
+  Profiles,
   /// The view of the robots a session derives (`TestSessionEnvironment::before_patronus_view`): what they hold and
   /// land; failed there
   RepositoryView,
@@ -349,6 +352,7 @@ impl RemoteHost {
         HeldAnswer::ReviewRequests
         | HeldAnswer::LandingNeeds
         | HeldAnswer::BranchRules
+        | HeldAnswer::Profiles
         | HeldAnswer::RepositoryView
         | HeldAnswer::GitHubAuth
         | HeldAnswer::YouTrackAuth

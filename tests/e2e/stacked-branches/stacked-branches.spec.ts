@@ -959,7 +959,7 @@ test.describe("Stacked branches", () => {
       const { repo } = await setupStack(page, setupRepo, syncAndWaitForBranches, true)
       const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("auth"), 45)
       // the facts the start decides on, and the start itself, wait: what the slot shows meanwhile
-      const releaseOptions = await holdCommand(page, "get_patronus_start_options")
+      await repo.holdRemoteAnswers({ hold: ["profiles"] })
       const releaseStart = await holdCommand(page, "start_patronus_robot")
       const popover = safePushPopover(page)
       const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
@@ -984,7 +984,7 @@ test.describe("Stacked branches", () => {
       await expect(start).toHaveText("Checking…")
       await expect(start).toHaveAttribute("aria-busy", "true")
       await expectMoreInPlace()
-      releaseOptions()
+      await repo.holdRemoteAnswers({ release: ["profiles"] })
       await expectWholeAuthStackPopover(page)
       // Enter: only the stack branch is pushed, its progress in the button of the start, the one indicator: the rows of
       // the root and of the branches show no push (the remote lacks them, their first push is a step of their landing);

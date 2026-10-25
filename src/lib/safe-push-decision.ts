@@ -1,7 +1,7 @@
-import type { BranchRulesAnswer } from "@/hooks/useDismissesStaleReviews"
-import { isRulesUnknown } from "@/hooks/useDismissesStaleReviews"
 import type { LandingRefusal, PatronusProfile, PatronusStartOptions, ReviewReadiness } from "@/lib/bindings"
 import type { NextStepKind } from "@/lib/branch-next-step"
+import type { BranchRulesAnswer } from "@/lib/branch-rules"
+import { isRulesUnknown } from "@/lib/branch-rules"
 import type { PullRequestStart, StartPush } from "@/lib/patronus"
 import type { SafePushMode } from "@/stores/safe-push"
 
@@ -24,8 +24,8 @@ export type ReviewFact =
   | { readonly kind: "space"; readonly required: boolean }
 
 /**
- * A push into an approved pull request: what the rules of the repository do to its approvals (`readDismissesStaleReviews`),
- * `unknown` when they can't be read; null while asked
+ * A push into an approved pull request: what the rules of the repository do to its approvals (`peekBranchRules` of the
+ * session's `facts.rules`), `unknown` when they can't be read; null while asked
  */
 export interface DismissFact {
   readonly pullRequest: number

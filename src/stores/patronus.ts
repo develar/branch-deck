@@ -3,6 +3,7 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
 import type {
+  Fact,
   FactState,
   LandingAllowances,
   LandingRefusal,
@@ -13,6 +14,7 @@ import type {
   PatronusPushMode,
   PatronusRobot,
   PatronusRobotStatus,
+  PatronusStartOptions,
   PatronusView,
   PullRequestStartBranch,
   RepositoryView,
@@ -119,9 +121,14 @@ export interface RepositoryPatronus {
 export interface PatronusState {
   /** By `repositoryKey`; in memory only, Patronus is asked again after a restart */
   readonly repositories: Readonly<Record<string, RepositoryPatronus>>
+  /**
+   * By `repositoryKey`, the merge profiles of the target the baseline pushes to (`facts.profiles` of the session), which
+   * a start and its popover ask for (`askStartProfiles`), without the default of the last robot
+   */
+  readonly profiles: Readonly<Record<string, Fact<PatronusStartOptions>>>
 }
 
-export const patronusStore = createStore<PatronusState>(() => ({ repositories: {} }))
+export const patronusStore = createStore<PatronusState>(() => ({ repositories: {}, profiles: {} }))
 
 const EMPTY: RepositoryPatronus = {
   availability: null,
@@ -842,7 +849,7 @@ export function announceMerge(key: string, robot: PatronusRobot): void {
   announcedMerges.add(robot.id)
   if (robot.pullRequest != null) {
     // Patronus closed the pull request with the label `merged`
-    void refreshPullRequests("push")
+    void refreshPullRequests("afterWrite")
   }
   // which pull requests it landed: the view of the merged robot, once it is of the robots as they are now
   void whenRepositoryViewCurrent().then(() => tellMerge(key, robot))
@@ -919,6 +926,33 @@ export function applySessionFacts(repositoryPath: string, view: RepositoryView, 
   }
   if (changes === null || changes.patronus != null) {
     applyPatronusPart(repositoryPath, view.patronus)
+  }
+  const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
+  if ((changes === null || changes.facts?.profiles != null) && patronusStore.getState().profiles[key] !== view.facts.profiles) {
+    patronusStore.setState(state => ({ profiles: { ...state.profiles, [key]: view.facts.profiles } }))
+  }
+}
+
+/** The merge profiles of the selected repository (`PatronusState.profiles`); null before its session's first view */
+export function getStartProfiles(): Fact<PatronusStartOptions> | null {
+  const key = currentKey()
+  return key === null ? null : (patronusStore.getState().profiles[key] ?? null)
+}
+
+/** `getStartProfiles` for a component */
+export function useStartProfiles(): Fact<PatronusStartOptions> | null {
+  const key = repositoryKey(useSelectedProjectPath() ?? "", useEffectiveBranchPrefix())
+  return useStore(patronusStore, state => state.profiles[key] ?? null)
+}
+
+/**
+ * Asks the session for the merge profiles when it has none, the last read failed, is a minute old or of another
+ * baseline (`domain_policy::refresh::profiles_due`); resolves once they are in the store, at once when they are current
+ */
+export async function askStartProfiles(): Promise<void> {
+  const key = currentKey()
+  if (key !== null) {
+    await refreshSessionFacts(patronusRequest().repositoryPath, "profiles", "afterWrite")
   }
 }
 
@@ -1512,5 +1546,5 @@ export function resetPatronus(): void {
   announcedMerges.clear()
   lastFacts = NO_FACTS
   lastFactsOf = { view: null, robots: null }
-  patronusStore.setState({ repositories: {} })
+  patronusStore.setState({ repositories: {}, profiles: {} })
 }

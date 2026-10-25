@@ -94,8 +94,9 @@ type RemoteStatus = ReturnType<typeof pushOutcome>["remoteStatus"]
 /**
  * What `push_branch` or `push_branches` answer for a push the page answered, `outcome`: the session of the repository
  * gets its remote statuses first, as the app's push gives them (`POST /sessions/pushed-in-page`, the server's own
- * `Sessions::push`), and the answer names the version of the view whose patch has them, which the page waits for as it
- * waits after the app's push. `request` is the page's request of the push, whose repository the server holds meanwhile.
+ * `Sessions::push`; one that pushed lists the pull requests again, as the app's), and the answer names the version of
+ * the view whose patch has them, which the page waits for as it waits after the app's push. `request` is the page's
+ * request of the push, whose repository the server holds meanwhile.
  * A test may end while its push is still answered (it asserted what the push sent): its pages are closed and its
  * repository deleted, the server answers 410, and the answer goes to no page, so it names no version
  */
@@ -113,6 +114,8 @@ export async function answeredInSession<T extends { remoteStatus: RemoteStatus }
       repositoryPath: params.repositoryPath,
       branches,
       remoteStatuses: "remoteStatus" in outcome ? [outcome.remoteStatus] : outcome.remoteStatuses,
+      // a push that found the remote moved pushed nothing: the session lists no pull requests after it
+      moved: (outcome as { type?: string }).type === "remoteMoved",
     }),
   })
   if (response.status === 410) {

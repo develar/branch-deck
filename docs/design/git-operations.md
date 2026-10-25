@@ -2600,7 +2600,7 @@ sync, before anything is asked of Patronus.
    sync read after the fetch (`check_target`, one `replay` when it applies).
    A Safe Push that pushes new commits into the pull request the robot starts from, which someone approved, asks
    GitHub for the rules of the target: one `GET rules/branches/<target>` (`remote_facts::branch_rules::read_branch_rules`,
-   the function of the app's `get_branch_rules`), HTTP, no process. Rules that dismiss stale reviews on push refuse
+   the function the app's sessions read the rules of the approved bases with), HTTP, no process. Rules that dismiss stale reviews on push refuse
    the start where the approvals count (`push_dismisses_approvals`), and rules GitHub doesn't answer refuse it as
    `rules_unknown` (`--allow-unknown-rules`), never "keeps the approvals" (`rules_check`).
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
@@ -3328,6 +3328,20 @@ required check dooms (one read) and the problems of the failed robots of the tab
 an answer that shows a robot known running merged or failed is news of the session (`News`, with growing ids, the last
 32 in the view): a failure once its problems say whether for missing approvals. The page stores what the patches bring
 (`applyRobotsFacts`), tells each news once (`tellRobotNews`) and asks no list, poll or problems of its own.
+
+The GitHub pull requests are the next (`FactStore::pull_requests`, `facts.pullRequests` by branch and by the root of a
+whole stack, `repository_model::pull_request_facts`): one GraphQL search per listing (`list_pull_requests`, in the
+GitHub repository the host resolves, the `RepositoryStateCache` of the app, so a listing runs no git), by the rules of
+[Refreshing](../../spec/branch/pull-requests.spec.md#refreshing): a committed table at most once a minute, a focus
+after two minutes, a push of the app that pushed (`SessionEventKind::PushEnded` with the tips it left, and once more
+five seconds later while GitHub shows an old head), a write of the app and the refresh button. The writes of the
+commands (`retarget_pull_request`, `close_pull_request`, `request_pull_request_reviewers`, `create_pull_request` of
+both hosts) go into the session (`Sessions::write_pull_request`), numbered when they apply, so a listing that started
+before one keeps what it wrote. After a listing, the rules of the bases of the open pull requests someone approved are
+read once per session (`read_branch_rules`, one `GET rules/branches/<base>`); the merge profiles of the target of the
+baseline when a start or its popover asks (`refresh_facts { profiles }`: `GET /robot-start-supported`, cached by the
+Patronus service). The page stores the patches (`applyPullRequestsFacts`, the profiles in the Patronus store) and asks
+GitHub nothing for them; it asks the session (`refreshPullRequests`, `askBranchRulesAgain`, `askStartProfiles`).
 
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table

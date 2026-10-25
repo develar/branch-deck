@@ -1,14 +1,16 @@
-use crate::commands::branch_prefix::PrefixInputs;
+use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::commands::github::GitHubState;
+use crate::commands::session::SessionsState;
 use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
-use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
+use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, RequestedReviewers};
+use domain_types::session::{Version, ViewAnswer};
 use git_executor::git_command_executor::GitCommandExecutor;
-use remote_facts::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
+use github::service::GitHubService;
 use remote_facts::pull_request_create::{
   CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
   new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
@@ -18,74 +20,112 @@ use remote_facts::pull_request_writes::{
   close_pull_request as core_close_pull_request, read_pull_request_head, request_pull_request_reviewers as core_request_pull_request_reviewers,
   retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
 };
-use remote_facts::pull_requests::{GetPullRequestsParams, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
+use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
+use repository_model::pull_request_facts::PullRequestWrite;
+use repository_model::session::SessionKey;
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository};
 use tauri::State;
 use tracing::instrument;
 
-/// The GitHub pull requests of the virtual branches (their heads under the prefix resolved for the repository), one
-/// GraphQL search; when GitHub can't answer, the availability says why
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, github, settings, prefixes))]
-#[specta::specta]
-pub async fn get_pull_requests(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  github: State<'_, GitHubState>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
-  params: GetPullRequestsParams,
-) -> Result<PullRequestsResult, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, None).await? else {
-      return Ok(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
-    };
-    let branch_prefix = inputs.resolve(&params.repository_path).await?;
-    Ok(list_pull_requests(&github.service, &params.repository_path, &repository, &branch_prefix).await)
-  })
-  .await
-}
-
 /// Changes the base of a pull request of the virtual branches: the push of a stacked branch keeps its pull request on
-/// the branch it is built on
+/// the branch it is built on. The session of the repository has the new base at once, newer than every listing that
+/// started before (`write_pull_request`), and lists the pull requests again; the version of the view after its patch
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
+#[instrument(skip(git_executor, repository_state, github, sessions, settings, prefixes))]
 #[specta::specta]
 pub async fn retarget_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
+  sessions: State<'_, SessionsState>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
   params: RetargetPullRequestParams,
-) -> Result<(), ApiError> {
+) -> Result<Option<Version>, ApiError> {
   operation(async move {
-    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-    core_retarget_pull_request(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.base)
-      .await
-      .map_err(|e| ApiError::internal(e.to_string()))
+    let writer = PullRequestWriter::new(&git_executor, &repository_state, &github, &sessions, &settings, &prefixes);
+    let (path, number, base) = (params.repository_path.as_str(), params.pull_request_number, &params.base);
+    let retarget = async |service: &GitHubService, repository: &GitHubRepository| core_retarget_pull_request(service, path, repository, number, base).await;
+    let retargeted = |&(): &()| PullRequestWrite::Retargeted { number, base: base.clone() };
+    Ok(writer.write(path, retarget, retargeted).await?.version)
   })
   .await
 }
 
 /// Closes a pull request of the virtual branches with a comment: an ancestor a Safe Push of a stacked branch landed
-/// with it
+/// with it. The session of the repository has it closed at once; the version of the view after its patch
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
+#[instrument(skip(git_executor, repository_state, github, sessions, settings, prefixes))]
 #[specta::specta]
 pub async fn close_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
+  sessions: State<'_, SessionsState>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
   params: ClosePullRequestParams,
-) -> Result<(), ApiError> {
+) -> Result<Option<Version>, ApiError> {
   operation(async move {
-    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-    core_close_pull_request(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment)
-      .await
-      .map_err(|e| ApiError::internal(e.to_string()))
+    let writer = PullRequestWriter::new(&git_executor, &repository_state, &github, &sessions, &settings, &prefixes);
+    let (path, number) = (params.repository_path.as_str(), params.pull_request_number);
+    let close = async |service: &GitHubService, repository: &GitHubRepository| core_close_pull_request(service, path, repository, number, &params.comment).await;
+    Ok(writer.write(path, close, |&(): &()| PullRequestWrite::Closed { number }).await?.version)
   })
   .await
+}
+
+/// What a write of the app to a pull request runs with: the GitHub of the repository, and its session, which the result
+/// goes into under the prefix Rust resolves
+struct PullRequestWriter<'a> {
+  git_executor: &'a GitCommandExecutor,
+  repository_state: &'a RepositoryStateCache,
+  github: &'a GitHubState,
+  sessions: &'a SessionsState,
+  inputs: PrefixInputs,
+}
+
+impl<'a> PullRequestWriter<'a> {
+  fn new(
+    git_executor: &'a State<'_, GitCommandExecutor>,
+    repository_state: &'a State<'_, RepositoryStateCache>,
+    github: &'a State<'_, GitHubState>,
+    sessions: &'a State<'_, SessionsState>,
+    settings: &Settings<'_>,
+    prefixes: &Prefixes<'_>,
+  ) -> Self {
+    Self {
+      inputs: PrefixInputs::new(git_executor, settings, prefixes),
+      git_executor,
+      repository_state,
+      github,
+      sessions,
+    }
+  }
+
+  /// Runs `write` on GitHub in the repository at `path`, then puts what it changed (`change` of its outcome) into the
+  /// session of the repository, newer than every listing that started before: the outcome with the version of the view
+  /// after its patch; none when no session is open (or the prefix is gone), the next listing reads it
+  async fn write<T, E: std::fmt::Display>(
+    self,
+    path: &str,
+    write: impl AsyncFnOnce(&GitHubService, &GitHubRepository) -> Result<T, E>,
+    change: impl FnOnce(&T) -> PullRequestWrite,
+  ) -> Result<ViewAnswer<T>, ApiError> {
+    let repository = required_github_repository(self.git_executor, self.repository_state, path, None).await?;
+    let outcome = write(&self.github.service, &repository).await.map_err(|e| ApiError::internal(e.to_string()))?;
+    let write = change(&outcome);
+    let key = match self.inputs.resolve(path).await {
+      Ok(prefix) => SessionKey {
+        worktree: path.to_owned(),
+        prefix,
+      },
+      Err(_) => return Ok(ViewAnswer { outcome, version: None }),
+    };
+    let version = self.sessions.sessions().write_pull_request(&key, write).await;
+    Ok(ViewAnswer { outcome, version })
+  }
 }
 
 /// Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed
@@ -116,7 +156,7 @@ pub async fn submit_pull_request_review(
 }
 
 /// Asks users to review an open pull request of the virtual branches (Request Review…): whom GitHub asked, and whom it
-/// refused with its reason
+/// refused with its reason. The session of the repository has whom it asked at once and lists the pull requests again
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, pull_request_number = params.pull_request_number, reviewers = params.reviewers.len()))]
 #[specta::specta]
@@ -124,13 +164,20 @@ pub async fn request_pull_request_reviewers(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
+  sessions: State<'_, SessionsState>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
   params: RequestPullRequestReviewersParams,
-) -> Result<RequestedReviewers, ApiError> {
+) -> Result<ViewAnswer<RequestedReviewers>, ApiError> {
   operation(async move {
-    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-    core_request_pull_request_reviewers(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
-      .await
-      .map_err(|e| ApiError::internal(e.to_string()))
+    let writer = PullRequestWriter::new(&git_executor, &repository_state, &github, &sessions, &settings, &prefixes);
+    let (path, number) = (params.repository_path.as_str(), params.pull_request_number);
+    let request = async |service: &GitHubService, repository: &GitHubRepository| core_request_pull_request_reviewers(service, path, repository, number, &params.reviewers).await;
+    let requested = |outcome: &RequestedReviewers| PullRequestWrite::ReviewersRequested {
+      number,
+      requested: outcome.requested.clone(),
+    };
+    writer.write(path, request, requested).await
   })
   .await
 }
@@ -217,21 +264,27 @@ pub async fn get_new_stack_pull_request(
 }
 
 /// Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
-/// already exists is found instead
+/// already exists is found instead. The session of the repository has it at once, until GitHub's search lists it, and
+/// lists the pull requests again
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, github, params), fields(branch = %params.branch_name, head = %params.head, base = %params.base))]
+#[instrument(skip(git_executor, repository_state, github, sessions, settings, prefixes, params), fields(branch = %params.branch_name, head = %params.head, base = %params.base))]
 #[specta::specta]
 pub async fn create_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
+  sessions: State<'_, SessionsState>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
   params: CreatePullRequestParams,
-) -> Result<CreatedPullRequest, ApiError> {
+) -> Result<ViewAnswer<CreatedPullRequest>, ApiError> {
   operation(async move {
-    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-    core_create_pull_request(&github.service, &repository, &params)
-      .await
-      .map_err(|e| ApiError::internal(e.to_string()))
+    let writer = PullRequestWriter::new(&git_executor, &repository_state, &github, &sessions, &settings, &prefixes);
+    let create = async |service: &GitHubService, repository: &GitHubRepository| core_create_pull_request(service, repository, &params).await;
+    let created = |outcome: &CreatedPullRequest| PullRequestWrite::Created {
+      pull_request: outcome.pull_request.clone(),
+    };
+    writer.write(&params.repository_path, create, created).await
   })
   .await
 }
@@ -269,26 +322,6 @@ pub async fn search_github_users(
   operation(async move {
     let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
     core_search_github_users(&github.service, &params.repository_path, &repository, &params.query)
-      .await
-      .map_err(|failure| ApiError::internal(failure_message(&failure)))
-  })
-  .await
-}
-
-/// What the rules of a branch do to the pull requests into it: the Safe Push popover warns before a push that dismisses
-/// the approvals of the pull request
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
-#[specta::specta]
-pub async fn get_branch_rules(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  github: State<'_, GitHubState>,
-  params: GetBranchRulesParams,
-) -> Result<BranchRules, ApiError> {
-  operation(async move {
-    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
-    read_branch_rules(&github.service, &params.repository_path, &repository, &params.branch)
       .await
       .map_err(|failure| ApiError::internal(failure_message(&failure)))
   })

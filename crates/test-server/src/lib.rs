@@ -218,6 +218,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       "/repositories/{id}/cli-tools",
       post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
     )
+    .route("/repositories/{id}/sessions/close", post(session_routes::close_sessions))
     .route("/sessions/pushed-in-page", post(session_routes::pushed_in_page))
     .route("/clock/advance", post(session_routes::advance_clock))
     // Store endpoints
@@ -264,7 +265,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/push_branch", post(tauri_command_bridge::push_branch))
     .route("/invoke/cancel_lock_wait", post(tauri_command_bridge::cancel_lock_wait))
     .route("/invoke/push_branches", post(tauri_command_bridge::push_branches))
-    .route("/invoke/get_pull_requests", post(tauri_command_bridge::get_pull_requests))
     .route("/invoke/get_review_requests", post(tauri_command_bridge::get_review_requests))
     .route("/invoke/get_github_auth_status", post(tauri_command_bridge::get_github_auth_status))
     .route("/invoke/start_github_sign_in", post(tauri_command_bridge::start_github_sign_in))
@@ -279,7 +279,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/sign_out_of_youtrack", post(tauri_command_bridge::sign_out_of_youtrack))
     .route("/invoke/get_youtrack_issue", post(tauri_command_bridge::get_youtrack_issue))
     .route("/invoke/set_youtrack_issue_state", post(tauri_command_bridge::set_youtrack_issue_state))
-    .route("/invoke/get_branch_rules", post(tauri_command_bridge::get_branch_rules))
     .route("/invoke/retarget_pull_request", post(tauri_command_bridge::retarget_pull_request))
     .route("/invoke/close_pull_request", post(tauri_command_bridge::close_pull_request))
     .route("/invoke/get_pull_request_head", post(tauri_command_bridge::get_pull_request_head))
@@ -304,7 +303,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/read_patronus_command_reply", post(tauri_command_bridge::read_patronus_command_reply))
     .route("/invoke/submit_pull_request_review", post(tauri_command_bridge::submit_pull_request_review))
     .route("/invoke/request_pull_request_reviewers", post(tauri_command_bridge::request_pull_request_reviewers))
-    .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))
     .route("/invoke/get_patronus_target_branch", post(tauri_command_bridge::get_patronus_target_branch))
     .route("/invoke/start_patronus_robot", post(tauri_command_bridge::start_patronus_robot))
     .route("/invoke/restart_patronus_robot", post(tauri_command_bridge::restart_patronus_robot))

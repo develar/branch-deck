@@ -39,7 +39,6 @@ import {
 import {
   availablePullRequests,
   createPullRequestDialog,
-  dismissingApprovals,
   getOpenedUrls,
   gitHubRequests,
   gitHubWrites,
@@ -59,7 +58,7 @@ import { expectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { nextAnswer, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
-import type { PatronusLog, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
+import type { HeldAnswer, PatronusLog, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
@@ -234,7 +233,8 @@ test.describe("Patronus actions", () => {
   test("should start a Safe Push from the branch menu, pushing the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     const { pushes, release } = await routeHeldPush(page, "JIRA-456", 45)
-    const options = await holdCommandCalls(page, "get_patronus_start_options")
+    // the merge profiles the session reads for the start answer when the test says
+    await repo.holdRemoteAnswers({ hold: ["profiles"] })
     const starts = await holdCommandCalls(page, "start_patronus_robot")
 
     // a lone branch, the default checks, no review needed: nothing to say, the click starts
@@ -252,7 +252,7 @@ test.describe("Patronus actions", () => {
     await expect(button).toHaveText("Checking…")
     await expect(button).toHaveAttribute("aria-busy", "true")
     await expectInPlace()
-    options.release()
+    await repo.holdRemoteAnswers({ release: ["profiles"] })
     // its push as the compact push of a row shows one: the spinner and the percent, the push in its name and hover
     await expect(button).toHaveText("45%")
     await expect(button).toHaveAccessibleName("Pushing 45%")
@@ -268,7 +268,6 @@ test.describe("Patronus actions", () => {
 
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
-    expect(options.calls[0]).toMatchObject({ baselineBranch: "origin/master", lastRobotId: null })
     // Patronus got one start of the pushed virtual branch with the default checks
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
     expect(starts.calls).toHaveLength(1)
@@ -493,7 +492,6 @@ test.describe("Patronus actions", () => {
     // the last robot of ABC-123 ran with Large Scale Change: its next start runs with it unless another is chosen
     const lastProfile = { id: "lsc", name: "Large Scale Change", skipsReview: null }
     const repo = await setupStarts(page, setupRepo, syncAndWaitForBranches, { ...FAILED, profile: lastProfile })
-    const options = await recordCommand(page, "get_patronus_start_options")
 
     await findBranchRow(page, "ABC-123").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Safe Push S", exact: true }).click()
@@ -502,7 +500,6 @@ test.describe("Patronus actions", () => {
     await expect(popover).toHaveAttribute("data-decision", "confirm")
     await expect(popover.getByTestId("safe-push-profile")).toContainText("Large Scale Change")
     await expect(popover.getByTestId("safe-push-profile-source")).toHaveText("The profile of the last Safe Push of ABC-123.")
-    expect(options[0]).toMatchObject({ lastRobotId: "failed-robot" })
     await chooseProfile(page, "Default checks")
     await expect(popover.getByTestId("safe-push-profile-source")).toHaveCount(0)
     await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
@@ -945,12 +942,26 @@ test.describe("Patronus actions", () => {
       return setupGitHubWith(page, setupRepo, syncAndWaitForBranches, {}, ...pullRequests)
     }
 
-    /** `setupGitHub` with what the pre-check answers by branch; without, no review is needed (no `OWNERSHIP` files) */
+    /**
+     * `setupGitHub` with what the pre-check answers by branch (without, no review is needed: no `OWNERSHIP` files), whether
+     * the rules dismiss stale reviews, and the answers of the fakes held or failed before the first sync (the session
+     * reads the rules of an approved pull request right after the listing that has it)
+     */
     async function setupGitHubWith(
       page: Page,
       setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
       syncAndWaitForBranches: () => Promise<unknown>,
-      { reviewAnswers, syncOverrides }: { reviewAnswers?: Record<string, PatronusReviewRequirement>; syncOverrides?: SyncOverrides },
+      {
+        reviewAnswers,
+        syncOverrides,
+        dismissStaleReviewsOnPush,
+        gates,
+      }: {
+        reviewAnswers?: Record<string, PatronusReviewRequirement>
+        syncOverrides?: SyncOverrides
+        dismissStaleReviewsOnPush?: boolean
+        gates?: { hold?: HeldAnswer[]; fail?: HeldAnswer[] }
+      },
       ...pullRequests: PullRequest[]
     ): Promise<TestRepositoryBuilder> {
       const repo = await setupRepo("issue_links", {
@@ -958,8 +969,11 @@ test.describe("Patronus actions", () => {
         syncOverrides,
         patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
         patronusProfiles: { profiles: PROFILES },
-        pullRequests: { ...availablePullRequests(...pullRequests), users: [{ login: "alice-gh", name: "Alice" }] },
+        pullRequests: { ...availablePullRequests(...pullRequests), users: [{ login: "alice-gh", name: "Alice" }], dismissStaleReviewsOnPush },
       })
+      if (gates !== undefined) {
+        await repo.holdRemoteAnswers(gates)
+      }
       await syncAndWaitForBranches()
       await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
       for (const it of pullRequests) {
@@ -985,8 +999,9 @@ test.describe("Patronus actions", () => {
       setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
       syncAndWaitForBranches: () => Promise<unknown>,
       patch: Partial<PullRequest> = {},
+      github: Parameters<typeof setupGitHubWith>[3] = {},
     ): Promise<TestRepositoryBuilder> {
-      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, patch))
+      const repo = await setupGitHubWith(page, setupRepo, syncAndWaitForBranches, github, pullRequest("JIRA-456", 7, patch))
       await routePush(page, {})
       return repo
     }
@@ -1009,12 +1024,18 @@ test.describe("Patronus actions", () => {
      * A click on the slot of JIRA-456 confirms first with the warning `testId` saying `text`, after one read of the rules
      * of master and before any comment; a warning, not a refusal: the start comments on #7
      */
-    async function expectWarnedStart(page: Page, repo: TestRepositoryBuilder, rules: readonly unknown[], testId: string, text: string): Promise<void> {
+    /** Enter in the popover starts the Safe Push of #7: the comment on it */
+    async function startWithEnter(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+      await expect(popoverStart(page)).toBeFocused()
+      await page.keyboard.press("Enter")
+      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+    }
+
+    async function expectWarnedStart(page: Page, repo: TestRepositoryBuilder, testId: string, text: string): Promise<void> {
       await slotSafePush(page, "JIRA-456").click()
       const popover = safePushPopover(page)
       await expect(popover).toHaveAttribute("data-decision", "confirm")
       await expect(popover.getByTestId(testId)).toHaveText(text)
-      expect(rules).toEqual([expect.objectContaining({ branch: "master" })])
       expect(await comments(repo)).toEqual([])
       await popoverStart(page).click()
       await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
@@ -1144,24 +1165,24 @@ test.describe("Patronus actions", () => {
     })
 
     test("should warn before a push that dismisses the approvals of the pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
       // the rules of the repository dismiss stale reviews
-      await repo.setPullRequests(dismissingApprovals(pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice", "approved")] })))
-      const rules = await recordCommand(page, "get_branch_rules")
+      const approved = { reviewers: [reviewer("alice", "approved")] }
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, approved, { dismissStaleReviewsOnPush: true })
 
-      // the approvals of alice don't count for Patronus, the push dismisses them: the click says so first
+      // the approvals of alice don't count for Patronus, the push dismisses them: the click says so first; the session
+      // read the rules of master once, after the listing that has the approval
       await expectWarnedStart(
         page,
         repo,
-        rules,
         "safe-push-dismisses",
         "The push dismisses the approvals of #7: the rules of the repository dismiss stale reviews when new commits are pushed.",
       )
+      expect(await gitHubRequests(repo, "GET", "rules", "branches", "master")).toHaveLength(1)
     })
 
     test("should wait for the rules before a push into an approved pull request: Enter must not dismiss its approvals", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, { reviewers: [reviewer("alice", "approved")] })
-      const rules = await holdCommandCalls(page, "get_branch_rules")
+      const approved = { reviewers: [reviewer("alice", "approved")] }
+      const repo = await setupPullRequestStart(page, setupRepo, syncAndWaitForBranches, approved, { gates: { hold: ["branchRules"] } })
 
       const popover = await openSafePushWithKey(page, "JIRA-456")
       const status = popover.getByTestId("safe-push-status")
@@ -1170,32 +1191,27 @@ test.describe("Patronus actions", () => {
       await expect(popoverStart(page)).toBeDisabled()
       // Enter while the rules load pushes nothing
       await page.keyboard.press("Enter")
-      rules.release()
+      await repo.holdRemoteAnswers({ release: ["branchRules"] })
       // the rules keep the approvals: the start, and no warning
       await expect(popoverStart(page)).toBeEnabled()
       await expect(status).toHaveCount(0)
       await expect(popover.getByTestId("safe-push-dismisses")).toHaveCount(0)
-      await expect(popoverStart(page)).toBeFocused()
-      await page.keyboard.press("Enter")
-      // only the Enter after the rules started it
-      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+      // only the Enter after the rules starts it
+      await startWithEnter(page, repo)
     })
 
     /**
-     * #7 approved by alice, and every read of the rules of master fails with `reason`; the reads recorded. The push of
-     * the start runs through the test server (`origin` is the repository itself), not answered in the page
+     * #7 approved by alice, and every read of the rules of master fails (the fake fails it: "the fixture fails this
+     * read") until the test releases it. The push of the start runs through the test server (`origin` is the repository
+     * itself), not answered in the page
      */
     async function setupUnreadableRules(
       page: Page,
       setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
       syncAndWaitForBranches: () => Promise<unknown>,
-      reason: string,
-    ): Promise<{ repo: TestRepositoryBuilder; rules: readonly unknown[] }> {
-      const repo = await setupGitHub(page, setupRepo, syncAndWaitForBranches, pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice", "approved")] }))
-      await routeCommandError(page, "get_branch_rules", { code: "internal", message: reason })
-      // the later route sees each read first
-      const rules = await recordCommand(page, "get_branch_rules")
-      return { repo, rules }
+    ): Promise<TestRepositoryBuilder> {
+      const approved = pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice", "approved")] })
+      return setupGitHubWith(page, setupRepo, syncAndWaitForBranches, { gates: { fail: ["branchRules"] } }, approved)
     }
 
     test("should confirm a push into an approved pull request whose rules can't be read, never reading them as keeping the approvals", async ({
@@ -1203,34 +1219,32 @@ test.describe("Patronus actions", () => {
       setupRepo,
       syncAndWaitForBranches,
     }) => {
-      const { repo, rules } = await setupUnreadableRules(page, setupRepo, syncAndWaitForBranches, "GitHub answered 403: Resource not accessible by integration")
+      const repo = await setupUnreadableRules(page, setupRepo, syncAndWaitForBranches)
 
       // the click has something to say: the popover, not a start
       await expectWarnedStart(
         page,
         repo,
-        rules,
         "safe-push-rules-unknown",
-        "Cannot check whether the push keeps the approvals of #7: GitHub answered 403: Resource not accessible by integration. Patronus counts them when the robot starts.",
+        "Cannot check whether the push keeps the approvals of #7: the fixture fails this read. Patronus counts them when the robot starts.",
       )
     })
 
-    test("should ask again for the rules a start couldn't read, and confirm with the key", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const { repo, rules } = await setupUnreadableRules(page, setupRepo, syncAndWaitForBranches, "GitHub answered 500")
+    test("should ask again for the rules a start couldn't read, and start with the key once GitHub gives them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupUnreadableRules(page, setupRepo, syncAndWaitForBranches)
 
       const first = await openSafePushWithKey(page, "JIRA-456")
-      await expect(first.getByTestId("safe-push-rules-unknown")).toContainText("Cannot check whether the push keeps the approvals of #7: GitHub answered 500.")
+      await expect(first.getByTestId("safe-push-rules-unknown")).toContainText("Cannot check whether the push keeps the approvals of #7: the fixture fails this read.")
       await page.keyboard.press("Escape")
       await expect(first).toHaveCount(0)
-      expect(rules).toHaveLength(1)
+      expect(await gitHubRequests(repo, "GET", "rules", "branches", "master")).toEqual([])
 
-      // a failed read is not kept: the next start asks GitHub again, and Enter confirms the start
+      // a failed read is not kept: the next start asks GitHub again, which answers that the push keeps the approvals
+      await repo.holdRemoteAnswers({ release: ["branchRules"] })
       const popover = await openSafePushWithKey(page, "JIRA-456")
-      await expect(popover.getByTestId("safe-push-rules-unknown")).toBeVisible()
-      await expect.poll(() => rules.length).toBe(2)
-      await expect(popoverStart(page)).toBeFocused()
-      await page.keyboard.press("Enter")
-      await expect.poll(() => comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+      await expect.poll(async () => (await gitHubRequests(repo, "GET", "rules", "branches", "master")).length).toBe(1)
+      await expect(popover.getByTestId("safe-push-rules-unknown")).toHaveCount(0)
+      await startWithEnter(page, repo)
     })
 
     test.describe("a push that dismisses the approvals Patronus counts", () => {

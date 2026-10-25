@@ -11,9 +11,9 @@ use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{LandingCheck, LandingGateParams};
 use domain_types::patronus::{
-  BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability,
-  PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
-  PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply,
+  PatronusCommandSubject, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions,
+  PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
@@ -136,6 +136,18 @@ impl PatronusState {
   /// The Space repository, for an action: not on Space is an error
   async fn required_space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<SpaceRepository, ApiError> {
     self.space_repository(git_executor, repository_path).await?.ok_or_else(not_on_space)
+  }
+
+  /// The merge profiles of the target `baseline` pushes to, for the session of the repository (`AppFactSources`): the
+  /// default of the last robot is the page's
+  pub(crate) async fn profiles(&self, git_executor: &GitCommandExecutor, repository_path: &str, baseline: &str) -> Result<PatronusStartOptions, ApiError> {
+    let repository = self.required_space_repository(git_executor, repository_path).await?;
+    let target = target_branch(git_executor, repository_path, baseline).await?;
+    self
+      .service
+      .start_options(&repository.project_key, &repository.name, &target, None, None)
+      .await
+      .map_err(patronus_error)
   }
 }
 
@@ -282,30 +294,6 @@ pub async fn get_robot_commit_map(
       &params.ancestors,
     )
     .map(Option::unwrap_or_default)
-  })
-  .await
-}
-
-/// The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default
-#[tauri::command]
-#[instrument(skip(git_executor, patronus, settings))]
-#[specta::specta]
-pub async fn get_patronus_start_options(
-  git_executor: State<'_, GitCommandExecutor>,
-  patronus: State<'_, PatronusState>,
-  settings: State<'_, SettingsService>,
-  params: GetPatronusStartOptionsParams,
-) -> Result<PatronusStartOptions, ApiError> {
-  operation(async move {
-    // the profile the list named is the default only with the new API, which named it
-    let last_profile = params.last_robot_profile.filter(|_| settings.app().patronus_new_api);
-    let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
-    let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
-    patronus
-      .service
-      .start_options(&repository.project_key, &repository.name, &target, params.last_robot_id.as_deref(), last_profile)
-      .await
-      .map_err(patronus_error)
   })
   .await
 }

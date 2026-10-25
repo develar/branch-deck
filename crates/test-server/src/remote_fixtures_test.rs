@@ -1,4 +1,5 @@
 use crate::remote_fixtures::{HistoryRobotFixture, fixture_history_robot, fixture_progress, fixture_robot};
+use crate::session_routes_test::{subscribe, subscription};
 use crate::test_support::{create_repository, create_repository_from, post, start_test_server, sync};
 use domain_types::patronus::{
   PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
@@ -294,14 +295,14 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
   )
   .await;
 
-  let options = post(
-    &client,
-    addr,
-    "/invoke/get_patronus_start_options",
-    json!({"repositoryPath": repository_path, "baselineBranch": "origin/master", "lastRobotId": null}),
-  )
-  .await;
-  let options: PatronusStartOptions = serde_json::from_value(options).unwrap();
+  // the session of a window reads them when a start asks
+  let mut window = subscribe(&client, addr, &id, &repository_path, 1).await;
+  subscription(&mut window).await;
+  let refresh = json!({"repositoryPath": repository_path, "family": "profiles", "reason": "afterWrite"});
+  assert!(post(&client, addr, "/invoke/refresh_facts", refresh).await.is_object());
+  let view = post(&client, addr, "/invoke/get_snapshot", json!({"repositoryPath": repository_path})).await;
+  assert_eq!(view["facts"]["profiles"]["state"]["kind"], "fresh");
+  let options: PatronusStartOptions = serde_json::from_value(view["facts"]["profiles"]["value"].clone()).unwrap();
   assert_eq!(
     (options.target_branch.as_str(), options.profiles, options.emergency_profiles),
     ("master", vec![lsc], vec![emergency])

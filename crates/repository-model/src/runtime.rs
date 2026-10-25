@@ -11,12 +11,14 @@
 //!   inputs the scheduler knows (`SyncScheduler::pushed`), so a focus after it compares equal and runs nothing.
 //! - Facts: a read of a remote service takes its number (`Message::Begin`, of the session's epoch) and its answer applies
 //!   to the facts (`Message::ApplyFacts`) unless the session is another one by then; a write of the app (the robot of a
-//!   start, a restart, a cancel) is numbered when it applies. The facts are parts of the view, sent with the table's
+//!   start, a restart, a cancel; a retarget, a close, the reviewers asked or a creation of a pull request) is numbered
+//!   when it applies. The facts are parts of the view, sent with the table's
 //!   patches. After the table committed, an answer or a write of the robots and the end of a push, the actor derives the
 //!   Patronus view again when what it is of changed (`derive_patronus` of the host in the blocking pool, one at a time,
 //!   `Message::PatronusDerived`), then the landing needs of its inputs (`Message::NeedsComputed`), and the part
 //!   `patronus` of the view has both. The actor tells the scheduler of the facts what it asks by (`SessionEventKind`): its first window and its
-//!   last, the union of the demands, the committed table, and after each patch the robots the poll asks about
+//!   last, the union of the demands, the committed table with its baseline, a push that pushed with the tips it left, a
+//!   write of a pull request that lists them again, and after each patch the robots the poll asks about
 //!   (`facts::robots_digest`), when they changed.
 //! - Patches: each event changes the state at once; the patch of what changed goes out at most every
 //!   `PATCH_INTERVAL` (wall time, `Instant`: it only bounds the delay of the delivery), and at once at the start of a
@@ -35,6 +37,7 @@ use crate::facts::{
   session_remote,
 };
 use crate::patronus_view::{ContentMemo, lock_memo};
+use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
 use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
 use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
@@ -98,6 +101,11 @@ pub(crate) enum Message {
     robot: PatronusRobot,
     reply: oneshot::Sender<Version>,
   },
+  /// A write of the app to a pull request; `reply` gets the version of the view after its patch
+  WritePullRequest {
+    write: PullRequestWrite,
+    reply: oneshot::Sender<Version>,
+  },
   Sync {
     reason: SyncReason,
     waiter: Waiter,
@@ -107,11 +115,12 @@ pub(crate) enum Message {
     change: Box<dyn FnOnce(&mut TableState) + Send>,
     reply: oneshot::Sender<Version>,
   },
-  /// A push of `subjects` ended with the remote statuses it left, in their order (`None`: it failed); `reply` gets the
-  /// version of the view after its patch
+  /// A push of `subjects` ended with the remote statuses it left, in their order (`None`: it failed), `pushed` when it
+  /// pushed (the remote did not move); `reply` gets the version of the view after its patch
   PushEnded {
     subjects: Vec<RemoteSubject>,
     statuses: Option<Vec<RemoteStatusUpdate>>,
+    pushed: bool,
     reply: oneshot::Sender<Version>,
   },
   /// An event of the run `run`
@@ -230,8 +239,9 @@ impl Actor {
         let _ = reply.send(self.view.snapshot());
         if self.subscribers.len() == 1 {
           self.events.emit(&self.key, SessionEventKind::Watched(true));
-          if self.facts.table.value().is_some() {
-            self.events.emit(&self.key, SessionEventKind::TableCommitted);
+          if let Some(table) = self.facts.table.value() {
+            let baseline = table.baseline.clone();
+            self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline });
           }
           self.tell_digest();
         }
@@ -294,7 +304,17 @@ impl Actor {
         let _ = reply.send(Some(AppliedFacts {
           version: self.view.version(),
           robots,
+          approved_bases: self.facts.pull_requests.approved_bases(self.facts.table.value().map(|table| table.baseline.as_str())),
         }));
+      }
+      Message::WritePullRequest { write, reply } => {
+        let seq = self.state.next_seq();
+        let lists_again = write.lists_again();
+        if self.facts.pull_requests.write(seq, self.life.now(), &self.key.prefix, write) && lists_again {
+          self.events.emit(&self.key, SessionEventKind::PullRequestWritten);
+        }
+        self.flush();
+        let _ = reply.send(self.view.version());
       }
       Message::WriteRobot { robot, reply } => {
         let seq = self.state.next_seq();
@@ -319,7 +339,12 @@ impl Actor {
         self.flush();
         let _ = reply.send(self.view.version());
       }
-      Message::PushEnded { subjects, statuses, reply } => {
+      Message::PushEnded {
+        subjects,
+        statuses,
+        pushed,
+        reply,
+      } => {
         if let Some(statuses) = &statuses {
           let prefix = &self.key.prefix;
           let refs = subjects
@@ -328,6 +353,10 @@ impl Actor {
             .filter_map(|(subject, status)| Some((subject.remote_ref(prefix)?, status.remote_tip.clone())))
             .collect();
           self.scheduler.pushed(refs);
+          let heads = pushed_heads(&subjects, statuses);
+          if pushed && !heads.is_empty() {
+            self.events.emit(&self.key, SessionEventKind::PushEnded { heads });
+          }
         }
         self.state.end_push(&subjects, statuses);
         // the remote branches the push moved are what the view of the robots is of
@@ -477,8 +506,10 @@ impl Actor {
       }
       (_, Ok(synced)) => {
         self.state.finish_sync(Ok(()));
+        let baseline = synced.table.baseline.clone();
         let _ = self.facts.table.answer(observation, Ok(Arc::new(synced.table)));
-        self.events.emit(&self.key, SessionEventKind::TableCommitted);
+        self.facts.table_committed(&baseline);
+        self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline });
         self.derive_patronus();
       }
       (_, Err(error)) if is_deferred(&error) => self.state.defer_sync(),
@@ -773,4 +804,23 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError> {
     self.environment.landing_needs(key, landed).map_err(|error| self.environment.api_error(error))
   }
+}
+
+/// The branches and whole stacks a push pushed, with the tips it left (an unapplied branch has no pull request)
+pub fn pushed_heads(subjects: &[RemoteSubject], statuses: &[RemoteStatusUpdate]) -> Vec<PushedHead> {
+  subjects
+    .iter()
+    .zip(statuses)
+    .filter_map(|(subject, status)| {
+      let subject = match subject {
+        RemoteSubject::Branch(name) => PullRequestSubject::Branch(name.clone()),
+        RemoteSubject::WholeStack(root) => PullRequestSubject::Stack(root.clone()),
+        RemoteSubject::Unapplied(_) => return None,
+      };
+      Some(PushedHead {
+        subject,
+        tip: status.remote_tip.clone(),
+      })
+    })
+    .collect()
 }

@@ -45,7 +45,8 @@ export const SetupRepoOptionsSchema = z.object({
   initialStoreValues: z.record(z.string(), z.any()).default({}),
 
   /**
-   * What `get_pull_requests` answers (a `PullRequestsResult`, see `pull-request-helpers.ts`), set before the first sync
+   * What the session's list of the pull requests answers (a `PullRequestsFixture`, see `pull-request-helpers.ts`), set
+   * before the first sync
    * Default: undefined - the repository is not on GitHub
    */
   pullRequests: z.any().optional(),

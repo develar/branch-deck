@@ -391,8 +391,8 @@ pub async fn get_patronus_fixture(Path(id): Path<String>, State(state): State<Ar
   })))
 }
 
-/// What the GitHub of a test repository holds (`POST /repositories/{id}/pull-requests`): the answer of
-/// `get_pull_requests` the page knows (`PullRequestsResult`), and what only the writes and the other reads see
+/// What the GitHub of a test repository holds (`POST /repositories/{id}/pull-requests`): the listing of the session's
+/// pull requests (`PullRequestsResult`), and what only the writes and the other reads see
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitHubFixture {
@@ -550,7 +550,7 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
   Ok(StatusCode::OK)
 }
 
-/// What the page asked of GitHub (`calls`: its `get_pull_requests`) and every request that reached the fake GitHub, in
+/// What the app asked of GitHub (`calls`: the session's lists of the pull requests) and every request that reached the fake GitHub, in
 /// order: method, path and JSON body (null for none)
 pub async fn get_github_log(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
   let repo = state.repositories.get(&id).ok_or_else(unknown_repository)?;

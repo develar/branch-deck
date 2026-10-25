@@ -7,7 +7,10 @@
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
-use domain_types::session::{ArchivedChanges, FactsChanges, News, PatronusChange, PatronusPart, RepositoryView, RobotsChange, RobotsView, TableChanges, Version, ViewPatch};
+use domain_types::session::{
+  ArchivedChanges, FactsChanges, FactsView, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, RobotsChange, RobotsView, TableChanges,
+  Version, ViewPatch,
+};
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, RandomState};
 
@@ -73,7 +76,7 @@ impl View {
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),
       landed: changed(&last.sections.landed, &parts.sections.landed),
       patronus: patronus_change(&last.patronus, facts.patronus.part()),
-      facts: robots_change(&last.facts.robots, facts.robots.view()).map(|robots| FactsChanges { robots: Some(robots) }),
+      facts: facts_change(&last.facts, facts),
       news: new_news(&last.news, facts.news()),
     };
     if changes.is_empty() {
@@ -90,6 +93,32 @@ impl View {
     }
     Some(patch)
   }
+}
+
+/// What changed of the facts of the remote services, by part
+fn facts_change(last: &FactsView, facts: &FactStore) -> Option<FactsChanges> {
+  let rules_changed = last.rules.len() != facts.rules.len() || facts.rules.iter().any(|(branch, rules)| last.rules.get(branch) != Some(rules.fact()));
+  let change = FactsChanges {
+    robots: robots_change(&last.robots, facts.robots.view()),
+    pull_requests: pull_requests_change(&last.pull_requests, facts.pull_requests.view()),
+    rules: rules_changed.then(|| facts.rules.iter().map(|(branch, rules)| (branch.clone(), rules.fact().clone())).collect()),
+    profiles: changed(&last.profiles, facts.profiles.fact()),
+  };
+  (change != FactsChanges::default()).then_some(change)
+}
+
+/// What changed of the pull requests: the head when it differs, the pull requests by branch and by stack
+fn pull_requests_change(last: &PullRequestsView, now: &PullRequestsView) -> Option<PullRequestsChange> {
+  let (pull_requests, removed_pull_requests) = diff_keyed(&last.pull_requests, &now.pull_requests);
+  let (stack_pull_requests, removed_stack_pull_requests) = diff_keyed(&last.stack_pull_requests, &now.stack_pull_requests);
+  let change = PullRequestsChange {
+    head: changed(&last.head, &now.head),
+    pull_requests,
+    removed_pull_requests,
+    stack_pull_requests,
+    removed_stack_pull_requests,
+  };
+  (change != PullRequestsChange::default()).then_some(change)
 }
 
 /// What changed of the robots: the head when it differs, the robots by id

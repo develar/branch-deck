@@ -46,7 +46,7 @@ use domain_types::patronus::{
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewerApprovalState, UnavailableReadinessReason,
   UnknownReadinessReason,
 };
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
+use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
@@ -56,7 +56,7 @@ use patronus::client::PatronusClient;
 use patronus::review_readiness::evaluates_pull_request;
 use patronus::service::PatronusService;
 use patronus::token::{TokenLookup, find_token};
-use remote_facts::branch_rules::{BranchRules, read_branch_rules};
+use remote_facts::branch_rules::read_branch_rules;
 use remote_facts::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
 use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};

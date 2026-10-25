@@ -27,7 +27,8 @@ targets:
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/hooks/useReviewStatusRefresh.ts
-  - ../../src/lib/refresh-gate.ts
+  - ../../crates/repository-model/src/pull_request_facts.rs
+  - ../../crates/remote-facts/src/scheduler_github.rs
   - ../../src/components/branch/StatusChip.tsx
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/WholeStackSlot.tsx
@@ -227,37 +228,49 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 
 ### Refreshing
 
-- The pull requests are kept in memory per repository and branch prefix; nothing is persisted.
-- At most one request per repository is in flight. A push or a manual refresh during a request asks once more after it;
-  a sync or a focus during a request adds nothing. The gate is shared with [Patronus](patronus.spec.md)
-  (`src/lib/refresh-gate.ts`), each with its own policy.
-  [@test] ../../src/stores/pull-requests.test.ts (`keeps one request in flight; a push during it asks again after it`)
-  [@test] ../../src/lib/refresh-gate.test.ts (`runs one task per key; a follow-up reason asks once more after it, with its reason`)
-- A pull request the app wrote (a retarget, a close, the reviewers it asked, one it created) is in the store at once,
-  and an answer of a request that started before the write keeps it as written: a retarget during a refresh never
-  comes back as "Retarget #7", so the next push does not retarget again. A retarget asks GitHub once more, after the
-  request in flight, whose answer then is the truth.
-  [@test] ../../src/stores/pull-requests.test.ts (`keeps a retarget made while a refresh is in flight, then asks GitHub again`)
+- The pull requests are a fact of the session of the repository and branch prefix (`facts.pullRequests` of its view,
+  `repository_model::pull_request_facts`), kept in memory: the session lists them by the rules of
+  `domain_policy::refresh` (`remote_facts::scheduler`) while a window shows it, and the page only stores what its view
+  says. Nothing is persisted.
+- At most one listing per session is in flight. A push, a write of the app or the refresh button during a listing asks
+  once more after it; a sync or a focus during a listing adds nothing.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_retarget_asks_the_pull_requests_again`)
+- A pull request the app wrote (a retarget, a close, the reviewers it asked, one it created) is in the session at once
+  (`Sessions::write_pull_request`, from the command of the write), numbered when it applies: a listing that started
+  before it keeps the pull request as written, so a retarget during a listing never comes back as "Retarget #7" and the
+  next push does not retarget again. A retarget, the reviewers and a creation list them once more, after the listing in
+  flight, whose answer then is the truth; a close lists nothing. The command answers once the view has the write, so
+  the toast of the push that follows reads it. A pull request the app created stays until GitHub's search lists it, at
+  most five minutes.
+  [@test] ../../crates/repository-model/src/pull_request_facts_test.rs (`a_late_listing_keeps_the_retarget_the_reviewers_and_the_close_written_after_it_started`, `a_created_pull_request_stays_until_the_search_lists_it`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_them`)
+  [@test] ../../src/stores/pull-requests.test.ts (`resolves a retarget once the session has it`)
 - A repository that answered "not on GitHub" is asked again only by the refresh button: a sync or a focus does not run
-  `git remote get-url` for it again.
-- After every successful sync, GitHub is asked again if the last request started at least 60 s ago.
-  [@test] ../../src/stores/pull-requests.test.ts (`asks once a minute at most after syncs`)
-- On window focus, GitHub is asked again if the pull requests are older than 2 minutes. Nothing runs while the window is
-  not focused.
-  [@test] ../../src/stores/pull-requests.test.ts (`asks on focus only when the pull requests are older than two minutes`)
-- A push and the Refresh button ask right away, whatever the gap.
-  [@test] ../../src/stores/pull-requests.test.ts (`asks right after a push and on a manual refresh, ignoring the gap`)
+  `git remote get-url` for it again. After GitHub's rate limit nothing but the refresh button asks before its
+  `retry_at`, which the GitHub service holds per token too.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`after_a_rate_limit_nothing_is_asked_before_retry_at_but_manual`)
+- After every committed table of a sync, the pull requests are listed if the last listing started at least 60 s ago; on
+  a focus of a window if they are older than 2 minutes (the time on the session's clock); a push of the app that pushed
+  (the remote did not move) and the refresh button always. Nothing polls GitHub.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_pull_requests_are_listed_by_a_sync_a_focus_a_push_and_the_refresh_button`)
+  [@test] ../../src/stores/pull-requests.test.ts (`asks the session for the pull requests, the refresh button showing it runs`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should refresh after a push`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should refresh from the overview`)
-- GitHub can show the old head for a moment after a push: when the pull request of the pushed branch does not show the
-  pushed commit yet, it is asked once more 5 s later.
-  [@test] ../../src/stores/pull-requests.test.ts (`looks again a little later while GitHub still shows the old head`)
-  [@test] ../../src/stores/pull-requests.test.ts (`does not look again when the pull request shows the pushed commit`)
+- GitHub can show the old head for a moment after a push: when the listing after the push still shows another head of a
+  pushed branch (or whole stack), it is listed once more 5 s later on the session clock; that listing asks no further
+  one.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_push_github_shows_on_an_old_head_is_looked_at_again_five_seconds_later_once`)
+  [@test] ../../crates/repository-model/src/pull_request_facts_test.rs (`a_listing_shows_the_pushed_head_or_an_old_one`)
 - A robot linked to a pull request that merged ([Patronus](patronus.spec.md#pull-requests)) asks again right away: the
   pull request is closed with the label `merged` now.
   [@test] ../../src/stores/patronus.test.ts (`keeps the GitHub repository of a list through a poll, and refreshes the pull requests when a robot of one merged`)
-- A failed refresh must keep the pull requests shown and only change the availability.
-  [@test] ../../src/stores/pull-requests.test.ts (`keeps the shown pull requests when a refresh fails`)
+- A failed listing is never an empty one: before any listing it is unavailable with its reason, so no pull request of a
+  branch is known; after a listing, a failure GitHub recovers from (an error, the rate limit) keeps the listing, stale
+  with the reason, and only the availability changes; once GitHub refuses the token no listing stands. A listing that
+  answers the same pull requests changes nothing, and a patch keeps every pull request it doesn't name as the same
+  object.
+  [@test] ../../crates/repository-model/src/pull_request_facts_test.rs (`a_failed_listing_is_unavailable_never_empty`, `a_failed_refresh_after_a_listing_keeps_it_stale`, `a_listing_of_the_same_pull_requests_changes_nothing`)
+  [@test] ../../src/stores/pull-requests.test.ts (`stores the pull requests of the view as they are, the record kept while a patch names none`)
 
 ### Chip
 
@@ -493,7 +506,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   request is a draft ("#1078 is a draft: mark it ready for review on GitHub first"). Work the remote lacks by content is
   no reason: the request pushes it first (`pushForAction`, no push toast; one only rebuilt on a newer baseline is up to
   date, an unknown remote status pushes nothing), so the reviewers see the commits. A push that dismisses the
-  approvals the pull request has (the rules of the repository, `useDismissesStaleReviews` answers `dismiss`) is said in
+  approvals the pull request has (the rules of its base as the session read them, `useBranchRules` answers `dismiss`) is said in
   the popover, a consequence the user decides by Request: "The push of the new commits dismisses the approvals of
   #1078: the rules of the repository dismiss stale reviews when new commits are pushed." Rules that can't be read are
   said, never read as keeping the approvals, and are asked again by the next form; the request still goes (it counts

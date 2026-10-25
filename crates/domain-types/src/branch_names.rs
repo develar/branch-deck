@@ -62,6 +62,14 @@ pub fn strip_branch_namespace<'a>(full_branch_name: &'a str, branch_prefix: &str
     .strip_prefix('/')
 }
 
+/// The branch of the remote a baseline names, the part after its remote (`origin/master` -> `master`, a local `master`
+/// -> `master`): the target the page names the readiness by (`baselineOnRemote` of `src/lib/stack.ts`), and the base of
+/// a pull request whose base is unknown (empty). The Patronus target of a start is git's (the branch the baseline
+/// tracks, `sync_core::patronus::find_target_branch`)
+pub fn baseline_on_remote(baseline: &str) -> &str {
+  baseline.split_once('/').map_or(baseline, |(_, branch)| branch)
+}
+
 /// As `qualified_branch_name` builds `{prefix}/virtual/{name}`: `jane/` and ` jane ` are `jane`
 /// (`normalizeBranchPrefix` of `src/lib/branch-prefix.ts`)
 pub fn normalize_branch_prefix(prefix: &str) -> &str {

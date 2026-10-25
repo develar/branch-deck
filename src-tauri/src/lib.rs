@@ -50,12 +50,12 @@ use commands::move_commits::move_commits_to_branch;
 use commands::parked_branches::{park_branches, unpark_branches};
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, check_landing_gate, check_target_conflict, get_branch_review_readiness, get_patronus_robot_details, get_patronus_robot_status,
-  get_patronus_start_options, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_stats, post_patronus_command, read_patronus_command_reply,
-  restart_patronus_robot, start_patronus_robot,
+  get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_stats, post_patronus_command, read_patronus_command_reply, restart_patronus_robot,
+  start_patronus_robot,
 };
 use commands::pull_requests::{
-  close_pull_request, create_pull_request, get_branch_rules, get_new_pull_request, get_new_stack_pull_request, get_pull_request_head, get_pull_requests,
-  request_pull_request_reviewers, retarget_pull_request, search_github_users, submit_pull_request_review, wait_for_github_branch,
+  close_pull_request, create_pull_request, get_new_pull_request, get_new_stack_pull_request, get_pull_request_head, request_pull_request_reviewers, retarget_pull_request,
+  search_github_users, submit_pull_request_review, wait_for_github_branch,
 };
 use commands::push::{push_branch, push_branches};
 use commands::repository_browser::{browse_repository, validate_repository_path};
@@ -106,14 +106,12 @@ fn specta_builder() -> Builder<tauri::Wry> {
       push_branch,
       push_branches,
       cancel_lock_wait,
-      get_pull_requests,
       retarget_pull_request,
       get_new_pull_request,
       get_new_stack_pull_request,
       create_pull_request,
       wait_for_github_branch,
       search_github_users,
-      get_branch_rules,
       submit_pull_request_review,
       get_pull_request_head,
       close_pull_request,
@@ -141,7 +139,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       prefetch_branch_review,
       get_robot_stats,
       get_patronus_robot_details,
-      get_patronus_start_options,
       start_patronus_robot,
       check_landing_gate,
       check_target_conflict,

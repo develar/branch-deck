@@ -211,12 +211,14 @@ async fn synced_window(template: &str, channel: u32) -> (reqwest::Client, Socket
   (client, addr, path, messages, listed)
 }
 
-/// The version of the view once the robots of the session at `path` are answered (the list after its first sync) and
-/// the view of what they hold is derived of them
+/// The version of the view once the robots and the pull requests of the session at `path` are answered (the lists after
+/// its first sync) and the view of what the robots hold is derived of them
 async fn listed(client: &reqwest::Client, addr: SocketAddr, path: &str) -> Value {
   loop {
     let view = post(client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
-    if view["facts"]["robots"]["head"]["state"]["kind"] != "loading" && view["patronus"]["state"]["kind"] == "fresh" {
+    let facts = &view["facts"];
+    let answered = |part: &Value| part["head"]["state"]["kind"] != "loading";
+    if answered(&facts["robots"]) && answered(&facts["pullRequests"]) && view["patronus"]["state"]["kind"] == "fresh" {
       return view["version"].clone();
     }
     tokio::task::yield_now().await;

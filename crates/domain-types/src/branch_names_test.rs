@@ -1,5 +1,6 @@
 use crate::branch_names::{
-  BranchKind, is_valid_branch_prefix, normalize_branch_prefix, qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name, to_stack_branch_name,
+  BranchKind, baseline_on_remote, is_valid_branch_prefix, normalize_branch_prefix, qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name,
+  to_stack_branch_name,
 };
 
 #[test]
@@ -141,4 +142,12 @@ fn is_valid_branch_prefix_accepts_names_git_takes_as_a_ref_part() {
   for prefix in ["", "jane doe", "a..b", "a:b", "a~1", "a^", "a?", "a*", "a[b", "a\\b", "a@{b", "a\tb"] {
     assert!(!is_valid_branch_prefix(prefix), "{prefix:?}");
   }
+}
+
+/// The branch a baseline names on its remote, as the page reads the target of the readiness
+#[test]
+fn a_baseline_names_its_branch_on_the_remote() {
+  assert_eq!(baseline_on_remote("origin/master"), "master");
+  assert_eq!(baseline_on_remote("upstream/release/2026"), "release/2026");
+  assert_eq!(baseline_on_remote("master"), "master");
 }

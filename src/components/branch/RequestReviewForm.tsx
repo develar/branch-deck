@@ -5,9 +5,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { PopoverDescription, PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
-import { isRulesUnknown, useDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import type { GitHubUser, PullRequest, ReviewReadiness } from "@/lib/bindings"
+import { isRulesUnknown } from "@/lib/branch-rules"
 import { isLogin } from "@/lib/create-pull-request"
 import { notifyError } from "@/lib/errors"
 import { pushForAction } from "@/lib/git/push"
@@ -27,7 +27,7 @@ import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { runOperation, useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { usePatronusAvailable } from "@/stores/patronus"
-import { requestReviewers } from "@/stores/pull-requests"
+import { requestReviewers, useBranchRules } from "@/stores/pull-requests"
 import { getRepositorySwitchReason, useSelectedProjectPath } from "@/stores/repository"
 
 export interface RequestReviewFormProps {
@@ -89,7 +89,7 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
   const approved = pushes && pullRequest.reviewers.some(reviewer => reviewer.state === "approved")
   // only a warning here: the request counts no approvals, so it never waits for the rules; rules it can't read are said
   // as such, never as "keeps them"
-  const rules = useDismissesStaleReviews(pullRequest.baseRefName || null, approved)
+  const rules = useBranchRules(pullRequest.baseRefName || null, approved)
   const dismissesApprovals = rules === "dismiss"
   const rulesUnknown = rules !== null && isRulesUnknown(rules) ? rules.reason : null
   // whom Patronus asks for: a check that failed or doesn't tell yet is said, never "no code owner needed"

@@ -1,15 +1,17 @@
 use crate::branch_table::BranchTable;
 use crate::facts::{FactResult, Needs, RobotsDigest, RobotsRead, derive_patronus};
 use crate::patronus_view::ContentMemo;
+use crate::pull_request_facts::PullRequestWrite;
 use crate::runtime::{GitSessionHost, PATCH_INTERVAL, RunSetup, SessionEnvironment, sleep_until};
 use crate::session::SyncTicket;
 use crate::session::{IDLE_LIMIT, RunReporter, SessionEvent, SessionEventKind, SessionHost, SessionKey, Sessions, Subscriber, SubscriberGone, SyncRun, SyncedTable};
 use crate::table::RemoteSubject;
 use crate::table::table_test::{branch_status, grouped, grouping, remote_at, synced, unapplied};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::fixtures::robot;
+use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{LandingFix, LandingRefusal, StackCommit};
 use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult};
+use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState};
 use domain_types::repository_view::{LandingNeeds, PatronusView, RemoteFacts};
 use domain_types::session::{BranchStatus, Demand, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, ViewPatch};
 use domain_types::stack::BlockReason;
@@ -940,7 +942,9 @@ fn heard(events: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEvent>) -> Vec
       SessionEventKind::Closed => "closed".to_owned(),
       SessionEventKind::Focus(focused) => format!("focus {focused}"),
       SessionEventKind::Demand(demand) => format!("demand focused {}", demand.focused),
-      SessionEventKind::TableCommitted => "table committed".to_owned(),
+      SessionEventKind::TableCommitted { .. } => "table committed".to_owned(),
+      SessionEventKind::PushEnded { heads } => format!("pushed {:?}", heads.iter().map(|head| head.subject.name()).collect::<Vec<_>>()),
+      SessionEventKind::PullRequestWritten => "pull request written".to_owned(),
       SessionEventKind::Robots(RobotsDigest { active, .. }) => format!("robots {:?}", active.iter().map(|robot| robot.id.as_str()).collect::<Vec<_>>()),
       SessionEventKind::Refresh { .. } => "refresh".to_owned(),
     });
@@ -996,6 +1000,55 @@ async fn the_reads_of_the_facts_reach_the_windows_and_the_scheduler_hears_what_i
   assert_eq!(heard(&mut events), vec!["closed", "watched true"]);
   assert_eq!(sessions.apply_facts(&key, late, FactResult::Robots { read, result: listed }).await, None);
   assert!(snapshot(&sessions, &key).await.facts.robots.robots.is_empty());
+}
+
+/// The pull requests: a listing reaches the windows as a patch and tells the scheduler the bases whose rules it reads; a
+/// retarget of the app applies at once, newer than the listing that started before it, which keeps it, and lists them
+/// again (a close lists nothing); a push that pushed lists them again with the heads it left, an unapplied branch none
+#[tokio::test]
+async fn the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_them() {
+  let host = Arc::new(ScriptedHost::default());
+  let (sessions, _clock) = scripted(&host);
+  let mut events = sessions.events().unwrap();
+  let (key, window) = synced_window(&sessions, &host, "/repo", auth_built()).await;
+  let mut approved = pull_request("auth", 7);
+  approved.reviewers.push(Reviewer {
+    login: "alice".to_owned(),
+    state: ReviewerState::Approved,
+    requested: false,
+  });
+  let listed = PullRequestsResult {
+    pull_requests: [("auth".to_owned(), approved)].into(),
+    ..PullRequestsResult::unavailable(PullRequestAvailability::Available {
+      owner: "acme".to_owned(),
+      name: "monorepo".to_owned(),
+    })
+  };
+  let ticket = sessions.begin(&key).await.unwrap();
+  let applied = sessions.apply_facts(&key, ticket, FactResult::PullRequests(listed.clone())).await.unwrap();
+  assert_eq!(applied.approved_bases, vec!["master".to_owned()]);
+  let patch = window.take().pop().unwrap();
+  assert_eq!(patch.changes.facts.unwrap().pull_requests.unwrap().pull_requests.keys().collect::<Vec<_>>(), vec!["auth"]);
+  drop(heard(&mut events));
+
+  let late = sessions.begin(&key).await.unwrap();
+  let retarget = PullRequestWrite::Retargeted {
+    number: 7,
+    base: "release".to_owned(),
+  };
+  let version = sessions.write_pull_request(&key, retarget).await.unwrap();
+  assert_eq!(window.take().pop().unwrap().next, version);
+  assert_eq!(heard(&mut events), vec!["pull request written"]);
+  sessions.apply_facts(&key, late, FactResult::PullRequests(listed)).await.unwrap();
+  assert_eq!(snapshot(&sessions, &key).await.facts.pull_requests.pull_requests["auth"].base_ref_name, "release");
+  sessions.write_pull_request(&key, PullRequestWrite::Closed { number: 7 }).await.unwrap();
+  assert_eq!(heard(&mut events), Vec::<String>::new(), "a close lists nothing");
+
+  sessions.push(&key, pushing("auth"), async { Ok(pushed("auth", "pushed")) }).await.unwrap();
+  assert_eq!(heard(&mut events), vec![r#"pushed ["auth"]"#]);
+  let unapplied = vec![RemoteSubject::Unapplied("old".to_owned())];
+  sessions.push(&key, unapplied, async { Ok(pushed("old", "pushed")) }).await.unwrap();
+  assert_eq!(heard(&mut events), Vec::<String>::new(), "an unapplied branch has no pull request");
 }
 
 /// The Patronus part of the session's view once `done` says it is, asked again until then (the view and the landing

@@ -76,9 +76,6 @@ vi.mock("@/stores/patronus", () => ({
   restartPatronusRobot: async () => null,
 }))
 vi.mock("@/stores/pull-requests", () => ({
-  refreshPullRequests: async () => {},
-  refreshPullRequestsAfterPush: async () => {},
-  refreshPullRequestsAfterPushes: async () => {},
   getPullRequest: () => undefined,
   getStackPullRequest: () => undefined,
   getGitHubRepository: () => null,

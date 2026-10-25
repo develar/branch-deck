@@ -5,10 +5,13 @@ use crate::fact_sources::{FactSources, Read};
 use crate::scheduler::{FactsPort, Scheduler};
 use domain_policy::refresh::ReadState;
 use domain_types::error::ApiError;
-use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotStatus, PatronusRobotsResult};
+use domain_types::fixtures::pull_request;
+use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions};
+use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use pretty_assertions::assert_eq;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, ProblemsRead, RobotsDigest, RobotsRead, Seq};
+use repository_model::pull_request_facts::{PullRequestSubject, PushedHead};
 use repository_model::session::{SessionEvent, SessionEventKind, SessionKey};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -30,17 +33,40 @@ enum Call {
   Problems(String),
 }
 
+/// A read of GitHub or of the merge profiles the host was asked for
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum GitHubCall {
+  PullRequests,
+  Rules(String),
+  Profiles(String),
+}
+
 /// The host: records each read and answers what the test set
 #[derive(Default)]
 struct ScriptedSources {
   calls: Mutex<Vec<Call>>,
+  github_calls: Mutex<Vec<GitHubCall>>,
   answer: Mutex<Option<PatronusRobotsResult>>,
+  pull_requests: Mutex<Option<PullRequestsResult>>,
+  /// The reads of the rules and of the profiles fail
+  github_fails: AtomicBool,
+  /// While set, each list of the pull requests waits until the test releases it
+  hold_pull_requests: AtomicBool,
   /// While set, each list waits until the test releases it
   hold: AtomicBool,
   held: Mutex<Vec<oneshot::Sender<()>>>,
 }
 
 impl ScriptedSources {
+  /// While `hold` is set, the release a read waits for, which `Harness::release` sends
+  fn held(&self, hold: &AtomicBool) -> Option<oneshot::Receiver<()>> {
+    hold.load(Ordering::SeqCst).then(|| {
+      let (release, released) = oneshot::channel();
+      lock(&self.held).push(release);
+      released
+    })
+  }
+
   fn answer(&self) -> PatronusRobotsResult {
     lock(&self.answer).clone().unwrap_or_else(|| PatronusRobotsResult::from(PatronusAvailability::Available))
   }
@@ -51,11 +77,7 @@ impl FactSources for ScriptedSources {
     // to ten seconds: the second may tick between the window and the read
     let since_ago = since.map(|since| (unix_now().saturating_sub(since) + 5) / 10 * 10);
     lock(&self.calls).push(Call::List { since_ago, background });
-    let held = self.hold.load(Ordering::SeqCst).then(|| {
-      let (release, released) = oneshot::channel();
-      lock(&self.held).push(release);
-      released
-    });
+    let held = self.held(&self.hold);
     Box::pin(async move {
       if let Some(released) = held {
         let _ = released.await;
@@ -78,6 +100,56 @@ impl FactSources for ScriptedSources {
     lock(&self.calls).push(Call::Problems(id));
     Box::pin(async move { Ok(Vec::new()) })
   }
+
+  fn pull_requests<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
+    lock(&self.github_calls).push(GitHubCall::PullRequests);
+    let held = self.held(&self.hold_pull_requests);
+    Box::pin(async move {
+      if let Some(released) = held {
+        let _ = released.await;
+      }
+      lock(&self.pull_requests).clone().unwrap_or_else(|| PullRequestsResult::unavailable(available_on_github()))
+    })
+  }
+
+  fn branch_rules<'a>(&'a self, _key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
+    lock(&self.github_calls).push(GitHubCall::Rules(branch));
+    let fails = self.github_fails.load(Ordering::SeqCst);
+    Box::pin(async move {
+      if fails {
+        Err(ApiError::internal("GitHub answered 500"))
+      } else {
+        Ok(BranchRules {
+          dismiss_stale_reviews_on_push: false,
+        })
+      }
+    })
+  }
+
+  fn profiles<'a>(&'a self, _key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
+    lock(&self.github_calls).push(GitHubCall::Profiles(baseline));
+    let fails = self.github_fails.load(Ordering::SeqCst);
+    Box::pin(async move {
+      if fails {
+        Err(ApiError::internal("Patronus did not answer"))
+      } else {
+        Ok(PatronusStartOptions {
+          target_branch: "master".to_owned(),
+          supported: true,
+          profiles: Vec::new(),
+          emergency_profiles: Vec::new(),
+          default_profile_id: None,
+        })
+      }
+    })
+  }
+}
+
+fn available_on_github() -> PullRequestAvailability {
+  PullRequestAvailability::Available {
+    owner: "acme".to_owned(),
+    name: "monorepo".to_owned(),
+  }
 }
 
 /// The sessions: numbers each read and records the robots it applies; after an answer the scheduler asks about the
@@ -87,6 +159,8 @@ struct RecordingPort {
   seq: AtomicU32,
   applied: Mutex<Vec<RobotsRead>>,
   after_answer: Mutex<RobotsDigest>,
+  /// The bases of the approved pull requests after each answer
+  approved_bases: Mutex<Vec<String>>,
 }
 
 impl FactsPort for RecordingPort {
@@ -100,10 +174,12 @@ impl FactsPort for RecordingPort {
       lock(&self.applied).push(read);
     }
     let robots = lock(&self.after_answer).clone();
+    let approved_bases = lock(&self.approved_bases).clone();
     Box::pin(async move {
       Some(AppliedFacts {
         version: Version { epoch: 1, seq: ticket.seq.0 },
         robots,
+        approved_bases,
       })
     })
   }
@@ -155,7 +231,7 @@ impl Harness {
   async fn watched() -> Self {
     let harness = Self::new();
     harness.send(SessionEventKind::Watched(true)).await;
-    harness.send(SessionEventKind::TableCommitted).await;
+    harness.send(committed()).await;
     harness
   }
 
@@ -177,13 +253,18 @@ impl Harness {
   /// An hour later a sync commits the table and a window gains the focus
   async fn sync_and_focus_an_hour_later(&self) {
     self.advance(3600).await;
-    self.send(SessionEventKind::TableCommitted).await;
+    self.send(committed()).await;
     self.send(SessionEventKind::Focus(true)).await;
   }
 
   /// The reads asked since the last call
   fn calls(&self) -> Vec<Call> {
     std::mem::take(&mut *lock(&self.sources.calls))
+  }
+
+  /// The reads of GitHub and of the merge profiles asked since the last call
+  fn github_calls(&self) -> Vec<GitHubCall> {
+    std::mem::take(&mut *lock(&self.sources.github_calls))
   }
 
   fn answer(&self, result: PatronusRobotsResult) {
@@ -231,6 +312,13 @@ impl Harness {
 async fn settle() {
   for _ in 0..50 {
     tokio::task::yield_now().await;
+  }
+}
+
+/// The table of a sync committed, on `origin/master`
+fn committed() -> SessionEventKind {
+  SessionEventKind::TableCommitted {
+    baseline: "origin/master".to_owned(),
   }
 }
 
@@ -289,7 +377,7 @@ async fn lists_the_last_days_first_then_only_the_robots_started_since_shortly_be
   let session = Harness::watched().await;
   assert_eq!(session.calls(), vec![full(true)]);
   session.advance(300).await;
-  session.send(SessionEventKind::TableCommitted).await;
+  session.send(committed()).await;
   // two minutes before the list five minutes ago
   assert_eq!(session.calls(), vec![since(420)]);
   assert_eq!(*lock(&session.port.applied), vec![RobotsRead::List { full: true }, RobotsRead::List { full: false }]);
@@ -300,7 +388,7 @@ async fn asks_after_a_sync_every_five_minutes_at_most_on_focus_when_older_than_t
   let session = Harness::watched().await;
   session.calls();
   session.advance(100).await;
-  session.send(SessionEventKind::TableCommitted).await;
+  session.send(committed()).await;
   session.send(SessionEventKind::Focus(true)).await;
   // a push changes what the poll asks about, never the list
   session.send(running(&[], false)).await;
@@ -309,10 +397,10 @@ async fn asks_after_a_sync_every_five_minutes_at_most_on_focus_when_older_than_t
   session.send(SessionEventKind::Focus(true)).await;
   assert_eq!(session.calls(), vec![since(240)]);
   session.advance(180).await;
-  session.send(SessionEventKind::TableCommitted).await;
+  session.send(committed()).await;
   assert_eq!(session.calls(), vec![], "the focus list started three minutes ago");
   session.advance(120).await;
-  session.send(SessionEventKind::TableCommitted).await;
+  session.send(committed()).await;
   assert_eq!(session.calls(), vec![since(420)]);
 }
 
@@ -322,7 +410,8 @@ async fn lists_the_full_window_on_the_refresh_button_asked_by_the_user() {
   session.calls();
   let version = session.refresh(FactRefreshReason::Manual).await;
   assert_eq!(session.calls(), vec![full(false)]);
-  assert_eq!(version, Some(Version { epoch: 1, seq: 2 }), "the version of the view after the list's patch");
+  // the first list of the robots and of the pull requests were 1 and 2
+  assert_eq!(version, Some(Version { epoch: 1, seq: 3 }), "the version of the view after the list's patch");
 }
 
 #[tokio::test]
@@ -330,7 +419,7 @@ async fn does_not_ask_again_for_a_repository_that_is_not_on_space_until_the_refr
   let session = Harness::new();
   session.answer(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
   session.send(SessionEventKind::Watched(true)).await;
-  session.send(SessionEventKind::TableCommitted).await;
+  session.send(committed()).await;
   assert_eq!(session.calls(), vec![full(true)]);
   session.sync_and_focus_an_hour_later().await;
   assert_eq!(session.calls(), vec![]);
@@ -344,7 +433,7 @@ async fn does_not_ask_again_for_a_repository_that_is_not_on_space_until_the_refr
 async fn lists_the_robot_a_start_needs_at_once_since_shortly_before_the_last_list() {
   let session = Harness::watched().await;
   session.calls();
-  assert_eq!(session.refresh(FactRefreshReason::AfterWrite).await, Some(Version { epoch: 1, seq: 2 }));
+  assert_eq!(session.refresh(FactRefreshReason::AfterWrite).await, Some(Version { epoch: 1, seq: 3 }));
   assert_eq!(session.calls(), vec![since(120)]);
 }
 
@@ -355,7 +444,7 @@ async fn the_refresh_button_and_a_start_during_a_list_ask_once_more_after_it() {
   let session = Harness::new();
   session.hold_lists(true);
   session.send(SessionEventKind::Watched(true)).await;
-  session.send(SessionEventKind::TableCommitted).await;
+  session.send(committed()).await;
   let start = session.ask_refresh(FactRefreshReason::AfterWrite).await;
   let manual = session.ask_refresh(FactRefreshReason::Manual).await;
   session.advance(600).await;
@@ -366,7 +455,8 @@ async fn the_refresh_button_and_a_start_during_a_list_ask_once_more_after_it() {
   assert_eq!(session.calls(), vec![full(false)]);
   assert_eq!(
     (start.await.unwrap(), manual.await.unwrap()),
-    (Some(Version { epoch: 1, seq: 2 }), Some(Version { epoch: 1, seq: 2 }))
+    // after the robots and the pull requests the table listed (1, 2), the pull requests of the focus (3)
+    (Some(Version { epoch: 1, seq: 4 }), Some(Version { epoch: 1, seq: 4 }))
   );
 }
 
@@ -460,13 +550,13 @@ async fn asks_after_an_answer_only_sync_ends_and_focus_events_the_list_gate_refu
   });
   session.send(SessionEventKind::Watched(true)).await;
   session.send(focused(true)).await;
-  session.send(SessionEventKind::TableCommitted).await;
+  session.send(committed()).await;
   assert_eq!(session.calls(), vec![full(true), Call::Failing(names(&["a"]))]);
   // the first focus polls the running robot at once
   session.send(SessionEventKind::Focus(true)).await;
   assert_eq!(session.calls(), vec![poll(&["a"]), Call::Failing(names(&["a"]))]);
   for _ in 0..3 {
-    session.send(SessionEventKind::TableCommitted).await;
+    session.send(committed()).await;
     session.send(SessionEventKind::Focus(true)).await;
   }
   assert_eq!(session.calls(), vec![], "neither a list nor a poll is due: nothing asks");
@@ -518,4 +608,174 @@ async fn a_change_of_the_table_asks_the_problems_of_a_failed_robot_it_matched_an
     }))
     .await;
   assert_eq!(session.calls(), vec![Call::Problems("matched".to_owned())]);
+}
+
+impl Harness {
+  async fn refresh_family(&self, family: FactFamily, reason: FactRefreshReason) -> Option<Version> {
+    let (reply, answer) = oneshot::channel();
+    self.send(SessionEventKind::Refresh { family, reason, reply }).await;
+    answer.await.unwrap()
+  }
+
+  fn answer_pull_requests(&self, result: PullRequestsResult) {
+    *lock(&self.sources.pull_requests) = Some(result);
+  }
+}
+
+fn pushed(branch: &str, tip: &str) -> SessionEventKind {
+  SessionEventKind::PushEnded {
+    heads: vec![PushedHead {
+      subject: PullRequestSubject::Branch(branch.to_owned()),
+      tip: Some(tip.to_owned()),
+    }],
+  }
+}
+
+/// The pull requests: the first committed table lists them, a sync at most once a minute, a focus when they are older
+/// than two minutes, a push and the refresh button always; GitHub is never polled
+#[tokio::test]
+async fn the_pull_requests_are_listed_by_a_sync_a_focus_a_push_and_the_refresh_button() {
+  let session = Harness::watched().await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  session.advance(30).await;
+  session.send(committed()).await;
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.github_calls(), vec![], "a sync within a minute, a focus within two");
+  session.send(pushed("auth", "auth-tip")).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  assert!(session.refresh_family(FactFamily::PullRequests, FactRefreshReason::Manual).await.is_some());
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  session.advance(61).await;
+  session.send(committed()).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  session.advance(121).await;
+  session.send(SessionEventKind::Focus(true)).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  session.advance(3600).await;
+  assert_eq!(session.github_calls(), vec![], "no timer");
+}
+
+/// A retarget, the reviewers asked or a pull request created list them again, once more after a list in flight, which
+/// may have started before the write
+#[tokio::test]
+async fn a_retarget_asks_the_pull_requests_again() {
+  let session = Harness::watched().await;
+  session.github_calls();
+  session.sources.hold_pull_requests.store(true, Ordering::SeqCst);
+  session.send(SessionEventKind::PullRequestWritten).await;
+  session.send(SessionEventKind::PullRequestWritten).await;
+  session.sources.hold_pull_requests.store(false, Ordering::SeqCst);
+  session.release().await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests, GitHubCall::PullRequests]);
+}
+
+/// When the list after a push still shows another head of the pushed branch, one more list five seconds later on the
+/// clock, which asks no further one; a list that shows the pushed commit asks none
+#[tokio::test]
+async fn a_push_github_shows_on_an_old_head_is_looked_at_again_five_seconds_later_once() {
+  let session = Harness::watched().await;
+  let mut listed = PullRequestsResult::unavailable(available_on_github());
+  listed.pull_requests.insert("auth".to_owned(), pull_request("auth", 1));
+  session.answer_pull_requests(listed);
+  session.github_calls();
+  session.send(pushed("auth", "pushed")).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  session.advance(4).await;
+  assert_eq!(session.github_calls(), vec![]);
+  session.advance(1).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  session.advance(60).await;
+  assert_eq!(session.github_calls(), vec![], "the look again asks no further one");
+
+  session.send(pushed("auth", "auth-tip")).await;
+  session.advance(60).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests], "the pushed commit shows");
+}
+
+/// After GitHub's rate limit nothing but the refresh button lists the pull requests before its `retry_at`; off GitHub
+/// only the refresh button
+#[tokio::test]
+async fn after_a_rate_limit_nothing_is_asked_before_retry_at_but_manual() {
+  let session = Harness::new();
+  session.answer_pull_requests(PullRequestsResult::unavailable(PullRequestAvailability::RateLimited { retry_at: unix_now() + 600 }));
+  session.send(SessionEventKind::Watched(true)).await;
+  session.send(committed()).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  session.advance(300).await;
+  session.send(committed()).await;
+  session.send(SessionEventKind::Focus(true)).await;
+  session.send(pushed("auth", "pushed")).await;
+  session.send(SessionEventKind::PullRequestWritten).await;
+  assert_eq!(session.github_calls(), vec![]);
+  session.refresh_family(FactFamily::PullRequests, FactRefreshReason::Manual).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+  // limited again until ten minutes after that answer
+  session.advance(301).await;
+  session.send(committed()).await;
+  assert_eq!(session.github_calls(), vec![]);
+  session.advance(300).await;
+  session.send(committed()).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+
+  session.answer_pull_requests(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
+  session.refresh_family(FactFamily::PullRequests, FactRefreshReason::Manual).await;
+  session.github_calls();
+  session.advance(3600).await;
+  session.send(committed()).await;
+  session.send(pushed("auth", "pushed")).await;
+  assert_eq!(session.github_calls(), vec![]);
+  session.refresh_family(FactFamily::PullRequests, FactRefreshReason::Manual).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+}
+
+/// The rules of the bases of the approved pull requests are read once per session after a list; a failed read is
+/// asked again only when a start or a form asks, which waits for it
+#[tokio::test]
+async fn the_rules_of_an_approved_base_are_read_once_and_a_failed_read_again_when_a_start_asks() {
+  let session = Harness::new();
+  *lock(&session.port.approved_bases) = vec!["master".to_owned(), "user/virtual/auth".to_owned()];
+  session.sources.github_fails.store(true, Ordering::SeqCst);
+  session.send(SessionEventKind::Watched(true)).await;
+  session.send(committed()).await;
+  let rules = |base: &str| GitHubCall::Rules(base.to_owned());
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests, rules("master"), rules("user/virtual/auth")]);
+  session.send(pushed("auth", "pushed")).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests], "a failed read waits for a start");
+
+  session.sources.github_fails.store(false, Ordering::SeqCst);
+  assert!(session.refresh_family(FactFamily::BranchRules, FactRefreshReason::AfterWrite).await.is_some());
+  assert_eq!(session.github_calls(), vec![rules("master"), rules("user/virtual/auth")]);
+  assert_eq!(session.refresh_family(FactFamily::BranchRules, FactRefreshReason::AfterWrite).await, None, "all known");
+  session.send(pushed("auth", "pushed")).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+}
+
+/// The merge profiles are asked when a start or its popover needs them: unknown, after a failure, a minute after the
+/// last read, of another baseline, and by the refresh button
+#[tokio::test]
+async fn the_profiles_are_asked_when_a_start_needs_them_and_a_minute_later() {
+  let session = Harness::watched().await;
+  session.github_calls();
+  let profiles = |baseline: &str| GitHubCall::Profiles(baseline.to_owned());
+  assert!(session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await.is_some());
+  assert_eq!(session.github_calls(), vec![profiles("origin/master")]);
+  assert_eq!(session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await, None);
+  session.advance(60).await;
+  session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await;
+  assert_eq!(session.github_calls(), vec![profiles("origin/master")]);
+  session
+    .send(SessionEventKind::TableCommitted {
+      baseline: "origin/main".to_owned(),
+    })
+    .await;
+  session.github_calls();
+  session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await;
+  assert_eq!(session.github_calls(), vec![profiles("origin/main")]);
+  session.refresh_family(FactFamily::Profiles, FactRefreshReason::Manual).await;
+  assert_eq!(session.github_calls(), vec![profiles("origin/main")]);
+  session.sources.github_fails.store(true, Ordering::SeqCst);
+  session.advance(60).await;
+  session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await;
+  session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await;
+  assert_eq!(session.github_calls(), vec![profiles("origin/main"), profiles("origin/main")], "a failure asks again");
 }

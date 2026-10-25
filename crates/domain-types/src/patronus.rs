@@ -265,23 +265,6 @@ pub struct PatronusRobotParams {
   pub replaced: bool,
 }
 
-/// The running robots to ask whether they will fail
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetPatronusStartOptionsParams {
-  pub repository_path: String,
-  /// As the sync detected it, e.g. `origin/master`: the robot pushes to the branch it tracks
-  pub baseline_branch: String,
-  /// The last robot of the branch: its profile is the default
-  pub last_robot_id: Option<String>,
-  /// The profile of the last robot as the list named it: with the new API of Settings → Patronus (Rust reads the setting)
-  /// the default without reading the robot; null, without an id or with the new API off, the robot is read for it
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub last_robot_profile: Option<PatronusRobotProfile>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

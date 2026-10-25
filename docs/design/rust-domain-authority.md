@@ -1821,6 +1821,26 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `watchRepositoryView`, `findBranchRobot`/`findStackRobot` и их тесты удалены, кейсы matching —
     `crates/domain-policy/src/robot_match_cases.json` (в `cases/` их читали бы сценарии); читатели берут `robotId`
     вида (`useBranchRobot`, `useRowRobots` для обзора).
+  - s7-5 (по коду): pull requests — факт сессии (`repository_model::pull_request_facts::PullRequestsFact`, часть
+    `facts.pullRequests` по ветке и корню стека, патч несёт только изменённые). Список — `refresh::pull_requests_due`
+    (зафиксированная таблица раз в минуту, фокус после двух минут, push, который запушил, — `SessionEventKind::PushEnded`
+    с вершинами, — и запись приложения — `PullRequestWritten` — всегда, кнопка обновления; во время списка push и кнопка
+    повторяют после него; вне GitHub и до `retry_at` rate limit — только кнопка), и ещё один через 5 с на часах сессии,
+    если GitHub показал старую вершину запушенной ветки. Записи (retarget, close, reviewers, create) команды обоих хостов
+    кладут в сессию (`Sessions::write_pull_request`), номер — когда запись применяется (как у push и робота: список,
+    начатый во время записи, мог прочитать до неё), список с номером старше сохраняет записанное; retarget, reviewers и
+    create спрашивают список снова, close — нет (сегодня страница не спрашивала, закрытия при merge дали бы списки);
+    созданный PR держится до списка, который его покажет, не дольше 5 минут; команды отвечают версией вида после патча.
+    Правила (`facts.rules` по base) читаются раз за сессию для base открытых PR с approve (пустой base — цель baseline,
+    `branch_names::baseline_on_remote`), `Unavailable` — снова по `refresh_facts { branchRules, afterWrite }`, который шлёт
+    старт, и кнопкой. Профили (`facts.profiles`) — один факт на сессию (цель baseline таблицы, `TableCommitted {
+    baseline }`), спрашиваются поповером и кликом (`refresh_facts { profiles, afterWrite }`) по `profiles_due` или при
+    смене baseline; default по последнему роботу — страница (`withLastRobotProfile`: профиль, названный ответом, иначе
+    из его details, один раз). Удалены IPC `get_pull_requests`, `get_branch_rules`, `get_patronus_start_options`,
+    `GetPatronusStartOptionsParams`, `useDismissesStaleReviews.ts`, `mergePullRequests`, `recheckTimer`, `writeSeq`,
+    `refreshPullRequestsAfterPush(es)`, кэш профилей страницы; `COMMAND_COUNT` 120. `refresh-gate.ts` остаётся до s7-7:
+    им пользуется `review-requests.ts`. E2E: правила и профили держит и роняет fake (`branchRules`, `profiles` в
+    `holdRemoteAnswers`), новый старт приложения — `closeSessions`.
   - `News` в s7 — переходы, которые знают аппликаторы фактов (робот слился, упал, отменён; approvals пришли; новые review
     requests), часть `news` вида с растущими id; страница показывает их как сегодня (toast, OS-уведомление, закрытие PR
     `landed-stack.ts` до s9); правило `domain-policy::news` — s8. Семейство `auth` — s11 (как в «Зависимостях этапов»):
@@ -2386,7 +2406,7 @@ B3 (перерисованные строки) не измеряется: в pro
 | s4-errors | приземлён |
 | s5-settings | приземлён: один писатель `SettingsService` (`app-settings`) для `settings.json` и `repository-state.json`, окна шлют патчи через `set_setting` и применяют версии, снимок в init script каждого окна, `restart_app` и выход через писателя, `bd` читает через `app-settings`; префикс разрешает Rust на каждую команду (`BranchPrefixes`, `PrefixInputs`) у семейств sync, Patronus, push, pull request, обзора ветки, независимости стека, unapply, reapply и поиска исправления конфликта; `lastFetchTime` и `landedHiddenUntil` — в `repositoryState`; defaults Rust-полей `appSettings` страница берёт из bindings. Осталось: Real App Check первого кадра ждёт владельца (агенты его не выполняли) |
 | s6-session-table | приземлён: `TableState` (`repository-model::table`, `state`, `patch`) сворачивает события sync в части вида (`TableView`: у ветки head, commits, sync, copies, remote; стеки по корню; секции) и шлёт `ViewPatch { base, next, changes }` только изменившихся частей не чаще раза в 16 мс, `Version { epoch, seq }`, чужая эпоха или пропуск — снимок; сессии процесса (`session.rs`, актор `runtime.rs`, `SyncScheduler`) по `SessionKey` (worktree и префикс, разрешённый Rust): билеты `sync(reason)`, повтор по `SyncReport.retry`, отложенный и неудачный sync сохраняют таблицу, без подписчиков ничего не запускается, удаление через 2 мин по `Clock`; хосты — команды `get_snapshot`, `subscribe_view` (она же открывает сессию; отдельный `open_session` удалён: страница его не звала), `unsubscribe_view`, `set_window_focus`, `sync` приложения и маршруты test-server (патчи через SSE); страница — `src/model/store.ts` применяет вид и патчи за прежними селекторами, `data-view-version`; `sync_branches`, `Channel<SyncEvent>`, очередь, flush и applier TS, глобальный `AtomicU32`, `GetRepositoryViewParams.revision` и `batchTimer` удалены; фикстура `sync-overrides` вместо перезаписи потока в странице; outcome push и удаление archived и unapplied ветки — патч сессии без sync после (C3, C12); фокус — `set_window_focus`, `autoSyncOnFocus` читает Rust; окно review подписано на сессию своего репозитория (tips, baseline, stack commits); `bd sync` сворачивает события тем же `TableState`, JSON `bd sync` и `bd status` прежний. Остаётся: s7 — факты (remote tips как `Fact` с `seq`, роботы, PR, readiness; `get_repository_view` с `remote` и `matched` страницы), факты `one_shot` у `bd`, `Demand` и C4 (отпечаток входов по частям); s8 — `structureOf`, `branchTableRowsIn`, `stackDescendantsIn` и `items`/`menus` реле под-окон (их строят правила TS) |
-| s7-session-facts | не начат |
+| s7-session-facts | в работе: роботы, matching, вид Patronus и landing needs, pull requests, правила и профили — факты сессии (s7-1…s7-5) |
 | s8-policy | не начат |
 | s9-engine-remote | не начат |
 | s10-registry-journal | не начат |

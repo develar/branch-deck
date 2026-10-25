@@ -1,8 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test"
-import { forgetUnknownRules, peekDismissesStaleReviews, readDismissesStaleReviews, resetDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
+import { describe, expect, it } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
-import type { LandingRefusal, PatronusProfile, PatronusStartOptions } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
+import type { BranchRules, Fact, LandingRefusal, PatronusProfile, PatronusStartOptions } from "@/lib/bindings"
+import { rulesAnswerOf } from "@/lib/branch-rules"
 import type { SafePushFacts } from "@/lib/safe-push-decision"
 import { getSafePushDecision } from "@/lib/safe-push-decision"
 
@@ -84,12 +83,7 @@ describe("getSafePushDecision", () => {
     })
   })
 
-  afterEach(() => {
-    vi.restoreAllMocks()
-    resetDismissesStaleReviews()
-  })
-
-  it("waits for the profiles, the remote status, the review and the rules, each saying what it waits for, the rules asked again after a failed read", async () => {
+  it("waits for the profiles, the remote status, the review and the rules, each saying what it waits for, a failed read of the rules unknown with its reason", () => {
     expect(getSafePushDecision(facts({ options: { status: "loading" } }))).toEqual({ kind: "wait", what: "Asking Patronus for the merge profiles…" })
     expect(getSafePushDecision(facts({ startPush: { kind: "unknown" } }))).toEqual({ kind: "wait", what: "Checking auth…" })
     expect(getSafePushDecision(facts({ review: { kind: "loading" } }))).toEqual({ kind: "wait", what: "Checking the code-owner review…" })
@@ -97,21 +91,15 @@ describe("getSafePushDecision", () => {
       kind: "wait",
       what: "Checking whether the push keeps the approvals of #7…",
     })
-    // a failed read is no answer kept for the session: the next read asks GitHub again, and the start waits for it
-    const rules = vi
-      .spyOn(commands, "getBranchRules")
-      .mockResolvedValueOnce({ status: "error", error: internalError("GitHub answered 500.") })
-      .mockResolvedValueOnce({ status: "ok", data: { dismissStaleReviewsOnPush: false } })
-    expect(await readDismissesStaleReviews("/repo", "master")).toEqual({ kind: "unknown", reason: "GitHub answered 500" })
-    expect(peekDismissesStaleReviews("/repo", "master")).toEqual({ kind: "unknown", reason: "GitHub answered 500" })
-    // the next start forgets it: its decision waits (null) while the read asks again
-    forgetUnknownRules()
-    expect(peekDismissesStaleReviews("/repo", "master")).toBeNull()
-    const again = readDismissesStaleReviews("/repo", "master")
-    expect(await again).toBe("keep")
-    // an answer is kept: no third ask
-    expect(await readDismissesStaleReviews("/repo", "master")).toBe("keep")
-    expect(rules).toHaveBeenCalledTimes(2)
+    // the session's fact of the rules: none while it reads them, the reason of a failed read without its final period
+    const fact = (state: Fact<BranchRules>["state"], value: BranchRules | null = null): Fact<BranchRules> => ({ value, state, seq: 1, observedAt: 1 })
+    expect(rulesAnswerOf(undefined)).toBeNull()
+    expect(rulesAnswerOf(fact({ kind: "loading" }))).toBeNull()
+    const failed = fact({ kind: "unavailable", reason: internalError("GitHub answered 500.") })
+    expect(rulesAnswerOf(failed)).toEqual({ kind: "unknown", reason: "GitHub answered 500" })
+    expect(rulesAnswerOf(failed)).toBe(rulesAnswerOf(failed))
+    expect(rulesAnswerOf(fact({ kind: "fresh" }, { dismissStaleReviewsOnPush: false }))).toBe("keep")
+    expect(rulesAnswerOf(fact({ kind: "stale", reason: internalError("offline") }, { dismissStaleReviewsOnPush: true }))).toBe("dismiss")
   })
 
   it("confirms a start whose rules can't be read for a push into an approved pull request, never reading it as keeping the approvals", () => {

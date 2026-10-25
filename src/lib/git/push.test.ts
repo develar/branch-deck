@@ -75,8 +75,6 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     whilePushing: () => {},
     /** Runs while GitHub retargets a pull request: what the user does meanwhile */
     whileRetargeting: () => {},
-    /** The repository of each refresh of the pull requests after a push, in order */
-    refreshedIn: [] as string[],
     /** The repository the main window shows */
     selected: "/repo",
   },
@@ -277,13 +275,6 @@ vi.mock("@/stores/patronus", () => ({
 }))
 
 vi.mock("@/stores/pull-requests", () => ({
-  refreshPullRequests: async () => {},
-  refreshPullRequestsAfterPush: async (_name: string, _tip: string | undefined, repository: { repositoryPath: string }) => {
-    stores.refreshedIn.push(repository.repositoryPath)
-  },
-  refreshPullRequestsAfterPushes: async (_pushed: unknown, repository: { repositoryPath: string }) => {
-    stores.refreshedIn.push(repository.repositoryPath)
-  },
   getPullRequest: (name: string) => stores.pullRequests[name],
   getStackPullRequest: (root: string) => stores.stackPullRequests[root],
   getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
@@ -375,7 +366,6 @@ beforeEach(() => {
   stores.selected = "/repo"
   stores.whilePushing = () => {}
   stores.whileRetargeting = () => {}
-  stores.refreshedIn = []
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
 })
@@ -1182,8 +1172,6 @@ describe("a push that started in another repository", () => {
     expect(toast.title).toBe("Pushed auth")
     expect(text(toast.description)).toBe("1 commit · created the remote branch")
     expect(toast.actionProps).toBeUndefined()
-    // the pull requests the push refreshes are of its repository
-    expect(stores.refreshedIn).toEqual(["/repo"])
   })
 
   it("offers no pull request of the branches of the same names there in the toast of a stack push that ends after a switch", async () => {
@@ -1194,7 +1182,6 @@ describe("a push that started in another repository", () => {
     expect(toast.title).toBe("Pushed auth and login")
     expect(text(toast.description)).not.toContain("retarget")
     expect(toast.actionProps).toBeUndefined()
-    expect(stores.refreshedIn).toEqual(["/repo"])
   })
 })
 

@@ -30,6 +30,7 @@ import {
   isHoldingRobot,
   isStartBlocked,
   needsRobotAttention,
+  withLastRobotProfile,
 } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -358,6 +359,26 @@ describe("actions", () => {
     expect([ids(offered.skipping), ids(offered.other), ids(offered.emergency), offered.defaultProfileId]).toEqual([["lsc"], ["external"], ["emergency"], "lsc"])
     // the last robot's profile checks the review: none is chosen for the user
     expect(getBypassProfiles({ ...options, defaultProfileId: "optional" }, "rebaseAutosquash").defaultProfileId).toBeNull()
+  })
+
+  it("makes the profile of the last robot the default, with whether it skips the review", () => {
+    const profile = (id: string, skipsReview: boolean | null = null): PatronusProfile => ({ id, name: id, description: null, allowedPushModes: [], skipsReview })
+    // the profiles of the target as the session read them: Patronus describes only the emergency ones
+    const options: PatronusStartOptions = {
+      targetBranch: "master",
+      supported: true,
+      profiles: [profile("lsc"), profile("optional")],
+      emergencyProfiles: [profile("emergency", true)],
+      defaultProfileId: null,
+    }
+    expect(withLastRobotProfile(options, null)).toBe(options)
+    expect(withLastRobotProfile(options, { id: null, name: "Gone", skipsReview: true })).toBe(options)
+    const last = withLastRobotProfile(options, { id: "lsc", name: "Large Scale Change", skipsReview: true })
+    expect(last.defaultProfileId).toBe("lsc")
+    expect(last.profiles).toEqual([profile("lsc", true), profile("optional")])
+    // a profile no longer offered, or an emergency one, is no default
+    expect(withLastRobotProfile(options, { id: "retired", name: "Retired", skipsReview: null }).defaultProfileId).toBeNull()
+    expect(withLastRobotProfile(options, { id: "emergency", name: "emergency", skipsReview: true }).defaultProfileId).toBeNull()
   })
 })
 

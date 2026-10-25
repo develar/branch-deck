@@ -6,14 +6,12 @@
 // `given` to store-shaped facts (the table of the sync, the landing report, the pull requests, the rules: the README
 // names what it still models) and decides nothing of either side. A value the README doesn't map fails with "not
 // mapped yet"
-import { vi } from "vite-plus/test"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
-import { readDismissesStaleReviews, resetDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import type { SafePushRead } from "@/hooks/useSafePush"
 import { readSafePush } from "@/hooks/useSafePush"
 import { getStackNextStepNow } from "@/hooks/useStackNextStep"
-import type { PatronusProfile, PatronusReviewRequirement, PatronusRobot, PatronusStartOptions, PatronusView, PullRequest, ReviewReadiness } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
+import { internalError } from "@/lib/api-error"
+import type { BranchRules, Fact, PatronusProfile, PatronusReviewRequirement, PatronusRobot, PatronusStartOptions, PatronusView, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { waitingReviewers } from "@/lib/pull-request"
 import { robotsById } from "@/lib/test-robot"
@@ -346,7 +344,7 @@ function seedGitHub(given: Given, facts: ScenarioFacts): void {
         stackPullRequests: given.stackPullRequest === true && listed ? { [root]: stackPullRequestOf(facts, root) } : {},
         fetchedAt: 1,
         // the error of an unlisted case is GitHub's first answer: no listing before it
-        listedAt: listed ? 1 : 0,
+        listed,
         isRefreshing: false,
       },
     },
@@ -399,28 +397,19 @@ function seedLanded(given: Given): void {
 }
 
 /**
- * The rules of the repository as the app read them (`readDismissesStaleReviews` of the target): `get_branch_rules`
- * answers `keep` or `dismiss`, fails for `unknown` (a failed read, never "keeps the approvals": the start confirms
- * `rulesUnknown`), `loading` has no answer yet
+ * The rules of the repository as the session read them (`facts.rules` of the target): `keep` or `dismiss`, a failed
+ * read for `unknown` (never "keeps the approvals": the start confirms `rulesUnknown`), `loading` has no answer yet
  */
-async function seedRules(given: Given): Promise<void> {
-  resetDismissesStaleReviews()
+function seedRules(given: Given): void {
   if (given.rules === "loading") {
+    pullRequestsStore.setState({ rules: {} })
     return
   }
-  const rules = vi.spyOn(commands, "getBranchRules")
-  try {
-    rules.mockImplementation(() =>
-      Promise.resolve(
-        given.rules === "unknown"
-          ? { status: "error" as const, error: { message: "GitHub answered 500" } as never }
-          : { status: "ok" as const, data: { dismissStaleReviewsOnPush: given.rules === "dismiss" } as never },
-      ),
-    )
-    await readDismissesStaleReviews(REPOSITORY_PATH, TARGET)
-  } finally {
-    rules.mockRestore()
-  }
+  const rules: Fact<BranchRules> =
+    given.rules === "unknown"
+      ? { value: null, state: { kind: "unavailable", reason: internalError("GitHub answered 500") }, seq: 1, observedAt: 1 }
+      : { value: { dismissStaleReviewsOnPush: given.rules === "dismiss" }, state: { kind: "fresh" }, seq: 1, observedAt: 1 }
+  pullRequestsStore.setState({ rules: { [KEY]: { [TARGET]: rules } } })
 }
 
 // ---- the answers ----
@@ -463,7 +452,7 @@ export async function seedScenario(id: string, given: Given): Promise<void> {
   seedGitHub(given, facts)
   seedReadiness(facts)
   seedLanded(given)
-  await seedRules(given)
+  seedRules(given)
 }
 
 /**

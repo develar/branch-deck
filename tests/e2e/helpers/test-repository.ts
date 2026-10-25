@@ -17,8 +17,9 @@ import { TEST_SERVER_URL } from "./test-server-url"
 /**
  * An answer of a fake a test holds back (`HeldAnswer` of `remote_host.rs`): GitHub's search of the user's pull
  * requests, the review requests, the list of the robots, the pre-check of the code-owner review, the answer of the
- * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the view
- * of the robots, the statuses of Settings (the GitHub and the YouTrack sign-in, the tools)
+ * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the merge
+ * profiles of the target, the view of the robots, the statuses of Settings (the GitHub and the YouTrack sign-in, the
+ * tools)
  */
 export type HeldAnswer =
   | "pullRequests"
@@ -28,6 +29,7 @@ export type HeldAnswer =
   | "landingNeeds"
   | "robotProblems"
   | "branchRules"
+  | "profiles"
   | "repositoryView"
   | "gitHubAuth"
   | "youTrackAuth"
@@ -418,6 +420,14 @@ export class TestRepositoryBuilder {
    */
   async holdRemoteAnswers({ hold = [], fail = [], release = [] }: { hold?: HeldAnswer[]; fail?: HeldAnswer[]; release?: HeldAnswer[] }): Promise<void> {
     await this.setFixture("remote-gates", { hold, fail, release })
+  }
+
+  /**
+   * The app quits: the sessions of the repository go with the subscriptions of their windows (`POST …/sessions/close`),
+   * so a reload opens a new session whose facts are asked anew, as the next start of the app does
+   */
+  async closeSessions(): Promise<void> {
+    await this.setFixture("sessions/close", {})
   }
 
   /** The held answers a request of the page reached and waits at: the page asked, the answer is still to come */

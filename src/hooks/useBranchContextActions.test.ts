@@ -22,7 +22,7 @@ const KEY = "/repo\nuser"
 function setPullRequestsListed(): void {
   pullRequestsStore.setState({
     repositories: {
-      [KEY]: { availability: { status: "available", owner: "acme", name: "air" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, listedAt: 1, isRefreshing: false },
+      [KEY]: { availability: { status: "available", owner: "acme", name: "air" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, listed: true, isRefreshing: false },
     },
   })
 }
@@ -43,7 +43,7 @@ describe("getSafePushBlocker", () => {
     // the readiness of a branch is asked by its row; nothing else holds the start back
     expect(getSafePushBlocker(testBranch("login", null))).toBe("Waits for Patronus to check the approvals")
     pullRequestsStore.setState({
-      repositories: { [KEY]: { availability: { status: "notGitHub" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, listedAt: 1, isRefreshing: false } },
+      repositories: { [KEY]: { availability: { status: "notGitHub" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, listed: false, isRefreshing: false } },
     })
     expect(getSafePushBlocker(testBranch("login", null))).toBeNull()
     expect(getSafePushBlocker(testBranch("login", null, { hasError: true }))).toBe("The branch failed to sync")

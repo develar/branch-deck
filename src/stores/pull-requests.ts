@@ -1,30 +1,31 @@
+import { useEffect } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { CreatedPullRequest, PullRequest, PullRequestAvailability, RequestedReviewers } from "@/lib/bindings"
+import type { BranchRules, CreatedPullRequest, Fact, FactsChanges, FactsView, PullRequest, PullRequestAvailability, RequestedReviewers } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { isLogin } from "@/lib/create-pull-request"
+import type { BranchRulesAnswer } from "@/lib/branch-rules"
+import { isRulesUnknown, rulesAnswerOf } from "@/lib/branch-rules"
 import { commandFailure } from "@/lib/errors"
 import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
-import type { RefreshReason } from "@/lib/refresh-gate"
-import { createRefreshGates } from "@/lib/refresh-gate"
-import { stableStringify } from "@/lib/stable-stringify"
 import { formatReadinessSubject, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { refreshSessionFacts, whenSessionViewAt } from "@/model/store"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 
-/** Calls closer together than this are skipped, except right after a push and on a manual refresh */
-export const MIN_REFRESH_GAP_MS = 60_000
-/** On window focus, pull requests older than this are refreshed */
-export const FOCUS_REFRESH_AGE_MS = 120_000
-/** GitHub may show the old head for a moment after a push: one more look after this */
-export const PUSH_RECHECK_DELAY_MS = 5_000
-
-/** The pull requests of one repository and branch prefix */
+/**
+ * The pull requests of one repository and branch prefix, as the session of the repository lists them and the app's
+ * writes leave them (`facts.pullRequests` of its view, `repository_model::pull_request_facts`): the session asks GitHub
+ * by its rules (a committed table at most once a minute, a focus after two minutes, a push and a write of the app
+ * always, the refresh button; `remote_facts::scheduler`) and orders the listings against the writes, so a listing that
+ * started before a retarget never rolls it back; the page only stores them
+ */
 export interface RepositoryPullRequests {
-  /** null until the first answer */
+  /** What the last answer said; null until the first */
   readonly availability: PullRequestAvailability | null
+  /** A listing stands: GitHub listed them, or failed for a while after a listing, whose pull requests stay */
+  readonly listed: boolean
   /** By virtual branch name */
   readonly pullRequests: Readonly<Record<string, PullRequest>>
   /**
@@ -34,19 +35,20 @@ export interface RepositoryPullRequests {
   readonly stackPullRequests: Readonly<Record<string, PullRequest>>
   /** `Date.now()` of the last answer, 0 = never */
   readonly fetchedAt: number
-  /** `Date.now()` of the last answer that listed the pull requests (`available`), 0 = never */
-  readonly listedAt: number
+  /** The refresh button's listing runs */
   readonly isRefreshing: boolean
 }
 
 export interface PullRequestsState {
-  /** By `repositoryKey`; in memory only, GitHub is asked again after a restart */
+  /** By `repositoryKey`, of the session of the window */
   readonly repositories: Readonly<Record<string, RepositoryPullRequests>>
+  /** By `repositoryKey`, then by base: the rules of the bases of the approved pull requests (`facts.rules`) */
+  readonly rules: Readonly<Record<string, Readonly<Record<string, Fact<BranchRules>>>>>
 }
 
-export const pullRequestsStore = createStore<PullRequestsState>(() => ({ repositories: {} }))
+export const pullRequestsStore = createStore<PullRequestsState>(() => ({ repositories: {}, rules: {} }))
 
-const EMPTY: RepositoryPullRequests = { availability: null, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, listedAt: 0, isRefreshing: false }
+const EMPTY: RepositoryPullRequests = { availability: null, listed: false, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, isRefreshing: false }
 
 /**
  * Whether the pull requests of a repository are known: `loading` before GitHub's first answer (after a start or a
@@ -57,17 +59,11 @@ const EMPTY: RepositoryPullRequests = { availability: null, pullRequests: {}, st
  */
 export type PullRequestListing = "loading" | "listed" | "unlisted"
 
-/** The availabilities after which the last listing stays: GitHub is to answer again, nothing of the user changed */
-function isTransientFailure(availability: PullRequestAvailability): boolean {
-  return availability.status === "error" || availability.status === "rateLimited"
-}
-
 function listingOf(entry: RepositoryPullRequests | undefined): PullRequestListing {
-  const availability = entry?.availability ?? null
-  if (availability === null) {
+  if ((entry?.availability ?? null) === null) {
     return "loading"
   }
-  return availability.status === "available" || (isTransientFailure(availability) && (entry?.listedAt ?? 0) > 0) ? "listed" : "unlisted"
+  return entry?.listed === true ? "listed" : "unlisted"
 }
 
 function repositoryKey(repositoryPath: string, branchPrefix: string): string {
@@ -159,38 +155,10 @@ export function getPullRequestListing(): PullRequestListing {
   return key === null ? "loading" : listingOf(pullRequestsStore.getState().repositories[key])
 }
 
-// ---- refresh ----
-
-/**
- * A sync asks at most once a minute, a focus when the pull requests are older than two minutes; a push and the refresh
- * button always ask, after the request in flight if any. GitHub is never polled.
- */
-const gates = createRefreshGates({
-  isDue: (reason, sinceStart, sinceAnswer) => {
-    switch (reason) {
-      case "push":
-      case "manual":
-        return true
-      case "sync":
-        return sinceStart >= MIN_REFRESH_GAP_MS
-      case "focus":
-        return sinceStart >= MIN_REFRESH_GAP_MS && sinceAnswer >= FOCUS_REFRESH_AGE_MS
-      case "poll":
-        return false
-    }
-  },
-  followUpReasons: new Set<RefreshReason>(["push", "manual"]),
-})
-
 function currentKey(): string | null {
   const repositoryPath = getSelectedProject()?.path ?? ""
   const branchPrefix = getEffectiveBranchPrefix()
   return repositoryPath === "" || branchPrefix === "" ? null : repositoryKey(repositoryPath, branchPrefix)
-}
-
-/** The key the pull requests of `repositoryPath` are stored under (`storeKeyOf`); null for one never read */
-function pullRequestsKeyOf(repositoryPath: string): string | null {
-  return storeKeyOf(repositoryPath, currentKey(), Object.keys(pullRequestsStore.getState().repositories))
 }
 
 function update(key: string, patch: Partial<RepositoryPullRequests>): void {
@@ -199,147 +167,67 @@ function update(key: string, patch: Partial<RepositoryPullRequests>): void {
   }))
 }
 
-function sameJson(a: unknown, b: unknown): boolean {
-  return a === b || stableStringify(a) === stableStringify(b)
+/** The path of a repository key */
+function pathOf(key: string): string {
+  return key.split("\n")[0]!
 }
 
 /**
- * The answered pull requests, each unchanged one the object shown before, and `previous` itself when none changed:
- * every row selects its pull request, and a refresh (every sync, focus and push) answers mostly the same ones
+ * The pull requests and the rules of the bases of the session of `repositoryPath` as its view has them now
+ * (`facts.pullRequests`, `facts.rules`), with the patch that brought them (`change`; null for a snapshot, which
+ * replaces them). A patch replaces the pull requests it names, keeps the object of each it doesn't, so a row that reads
+ * one doesn't render again
  */
-export function mergePullRequests(previous: RepositoryPullRequests["pullRequests"], incoming: RepositoryPullRequests["pullRequests"]): RepositoryPullRequests["pullRequests"] {
-  const next: Record<string, PullRequest> = {}
-  let changed = Object.keys(previous).length !== Object.keys(incoming).length
-  for (const [branchName, pullRequest] of Object.entries(incoming)) {
-    const known = previous[branchName]
-    if (known !== undefined && sameJson(known, pullRequest)) {
-      next[branchName] = known
-    } else {
-      next[branchName] = pullRequest
-      changed = true
+export function applyPullRequestsFacts(repositoryPath: string, facts: FactsView, change: FactsChanges | null): void {
+  const key = repositoryKey(repositoryPath, getEffectiveBranchPrefix())
+  if (change === null || change.pullRequests != null) {
+    const { head, pullRequests, stackPullRequests } = facts.pullRequests
+    const entry = pullRequestsStore.getState().repositories[key]
+    const listed = head.state.kind === "stale" || (head.state.kind === "fresh" && head.value?.status === "available")
+    if (entry === undefined && head.value === null) {
+      // a session GitHub has not answered yet: no pull request is known, as without an entry
+    } else if (
+      entry?.availability !== head.value ||
+      entry.listed !== listed ||
+      entry.pullRequests !== pullRequests ||
+      entry.stackPullRequests !== stackPullRequests ||
+      entry.fetchedAt !== head.observedAt * 1000
+    ) {
+      update(key, { availability: head.value, listed, pullRequests, stackPullRequests, fetchedAt: head.observedAt * 1000 })
     }
   }
-  return changed ? next : previous
+  if ((change === null || change.rules != null) && pullRequestsStore.getState().rules[key] !== facts.rules) {
+    pullRequestsStore.setState(state => ({ rules: { ...state.rules, [key]: facts.rules } }))
+  }
 }
 
 /**
- * Asks GitHub for the pull requests of the selected repository, or of `repository` (the one a push went to, also after
- * a switch), if the reason allows it now (see the policy above).
- * One request per repository at a time. Never fails: what went wrong is the availability. A repository that is not on
- * GitHub is asked again only by the refresh button.
+ * Asks the session of the selected repository to list the pull requests again: the refresh button (`manual`, which the
+ * status line shows running) and the app's own reasons that follow a write (`afterWrite`: the merge of a robot whose
+ * pull request Patronus closed). Resolves once the listing's patch is in the store; never fails
  */
-export function refreshPullRequests(reason: RefreshReason, repository?: VcsRequest): Promise<void> {
-  const key = repository === undefined ? currentKey() : pullRequestsKeyOf(repository.repositoryPath)
+export async function refreshPullRequests(reason: "manual" | "afterWrite" = "manual"): Promise<void> {
+  const key = currentKey()
   if (key === null) {
-    return Promise.resolve()
+    return
   }
-  const entry = pullRequestsStore.getState().repositories[key] ?? EMPTY
-  if (entry.availability?.status === "notGitHub" && reason !== "manual") {
-    return Promise.resolve()
-  }
-  const [repositoryPath] = key.split("\n") as [string, string]
-  return gates.refresh(key, reason, entry.fetchedAt, async () => {
+  const manual = reason === "manual"
+  if (manual) {
     update(key, { isRefreshing: true })
-    // a pull request the app wrote after this point (a retarget, a close, reviewers) is newer than the answer
-    const since = ++writeSeq
-    try {
-      const result = await commands.getPullRequests({ repositoryPath })
-      const previous = pullRequestsStore.getState().repositories[key] ?? EMPTY
-      if (result.status === "ok" && isTransientFailure(result.data.availability) && previous.listedAt > 0) {
-        // GitHub failed for a while (an error, the rate limit): the last listing stays, as a failed command keeps it
-        update(key, { availability: sameJson(previous.availability, result.data.availability) ? previous.availability : result.data.availability, fetchedAt: Date.now() })
-      } else if (result.status === "ok") {
-        const pullRequests = keepWritten(writtenKey(key, false), since, previous.pullRequests, withCreated(key, result.data.pullRequests, Date.now()))
-        const stackPullRequests = keepWritten(writtenKey(key, true), since, previous.stackPullRequests, withCreated(stackKey(key), result.data.stackPullRequests ?? {}, Date.now()))
-        const now = Date.now()
-        update(key, {
-          availability: sameJson(previous.availability, result.data.availability) ? previous.availability : result.data.availability,
-          pullRequests: mergePullRequests(previous.pullRequests, pullRequests),
-          stackPullRequests: mergePullRequests(previous.stackPullRequests, stackPullRequests),
-          fetchedAt: now,
-          ...(result.data.availability.status === "available" && { listedAt: now }),
-        })
-      } else {
-        // keep what was shown: a failed refresh does not make the pull requests go away
-        update(key, { availability: { status: "error", message: result.error.message }, fetchedAt: Date.now() })
-      }
-    } catch (error) {
-      update(key, { availability: { status: "error", message: error instanceof Error ? error.message : String(error) }, fetchedAt: Date.now() })
-    } finally {
+  }
+  try {
+    await refreshSessionFacts(pathOf(key), "pullRequests", reason)
+  } finally {
+    if (manual) {
       update(key, { isRefreshing: false })
     }
-  })
-}
-
-let recheckTimer: ReturnType<typeof setTimeout> | undefined
-
-/** Counts the refreshes started and the pull requests the app wrote, in order */
-let writeSeq = 0
-/** By `writtenKey`, then branch (or root): the `writeSeq` of the app's last write of the pull request */
-const written = new Map<string, Map<string, number>>()
-
-/** The key of the writes of the pull requests of the branches, or of the stack branches (`stack`), of a repository */
-function writtenKey(key: string, stack: boolean): string {
-  return stack ? stackKey(key) : key
-}
-
-/**
- * The answer of a refresh started at `since`, with each pull request the app wrote after that kept as the store has it:
- * the search answered before the write, so its retarget, close or reviewers would come back otherwise, and the next push
- * would retarget again
- */
-function keepWritten(
-  writes: string,
-  since: number,
-  current: Readonly<Record<string, PullRequest>>,
-  incoming: Readonly<Record<string, PullRequest>>,
-): Readonly<Record<string, PullRequest>> {
-  let result = incoming
-  for (const [branchName, at] of written.get(writes) ?? []) {
-    const kept = current[branchName]
-    if (at > since && kept !== undefined) {
-      result = { ...result, [branchName]: kept }
-    }
-  }
-  return result
-}
-
-/** The app wrote the pull request of `branchName` (or of the whole stack of a root) now */
-function noteWritten(writes: string, branchName: string): void {
-  const writesOf = written.get(writes) ?? new Map<string, number>()
-  writesOf.set(branchName, ++writeSeq)
-  written.set(writes, writesOf)
-}
-
-/**
- * Right after a push: the pull request of the branch shows the pushed commit. If GitHub still reports the old head,
- * asks once more a little later. Both ask in the repository of the push (`repository`), also after a switch.
- */
-export async function refreshPullRequestsAfterPush(branchName: string, pushedTip: string | undefined, repository: VcsRequest): Promise<void> {
-  await refreshPullRequestsAfterPushes([[branchName, pushedTip]], repository)
-}
-
-/**
- * `refreshPullRequestsAfterPush` of the branches of one push, `[branch, pushed tip]`: one refresh, and one more a
- * little later if GitHub still reports an old head of any of them
- */
-export async function refreshPullRequestsAfterPushes(pushed: readonly (readonly [string, string | undefined])[], repository: VcsRequest): Promise<void> {
-  await refreshPullRequests("push", repository)
-  const key = pullRequestsKeyOf(repository.repositoryPath)
-  const pullRequests = (key === null ? undefined : pullRequestsStore.getState().repositories[key])?.pullRequests ?? {}
-  const stale = pushed.some(([branchName, pushedTip]) => {
-    const pullRequest = pullRequests[branchName]
-    return pullRequest !== undefined && pushedTip !== undefined && pullRequest.headRefOid !== pushedTip
-  })
-  if (stale) {
-    clearTimeout(recheckTimer)
-    recheckTimer = setTimeout(() => void refreshPullRequests("push", repository), PUSH_RECHECK_DELAY_MS)
   }
 }
 
 /**
- * Changes the base of the pull request of a branch on GitHub, and in the store at once: the toast
- * of the push that follows reads it before the next refresh. Throws what GitHub said.
+ * Changes the base of the pull request of a branch on GitHub: resolves once the session has it (its patch is in the
+ * store), so the toast of the push that follows reads it; the session lists the pull requests again. Throws what GitHub
+ * said.
  */
 export async function retargetPullRequest(branchName: string, base: string): Promise<void> {
   const key = currentKey()
@@ -347,19 +235,17 @@ export async function retargetPullRequest(branchName: string, base: string): Pro
   if (key === null || pullRequest === undefined) {
     return
   }
-  const result = await commands.retargetPullRequest({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, base })
+  const repositoryPath = pathOf(key)
+  const result = await commands.retargetPullRequest({ repositoryPath, pullRequestNumber: pullRequest.number, base })
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
-  setPullRequest(key, branchName, { ...pullRequest, baseRefName: base })
-  // the retarget changes what the next step of the branch reads: GitHub is asked after the refresh in flight, if any
-  const [repositoryPath] = key.split("\n") as [string, string]
-  void refreshPullRequests("push", { repositoryPath })
+  await whenSessionViewAt(repositoryPath, result.data)
 }
 
 /**
- * Closes the pull request of a branch on GitHub with `comment`, and in the store at once; of the repository of `key`
- * (`repositoryKey`), by default the selected one. Throws what GitHub said.
+ * Closes the pull request of a branch on GitHub with `comment`, of the repository of `key` (`repositoryKey`), by default
+ * the selected one; resolves once the session has it closed. Throws what GitHub said.
  */
 export async function closePullRequest(branchName: string, comment: string, key: string | null = currentKey()): Promise<void> {
   const pullRequest = key === null ? undefined : pullRequestsStore.getState().repositories[key]?.pullRequests[branchName]
@@ -367,12 +253,11 @@ export async function closePullRequest(branchName: string, comment: string, key:
     return
   }
   await closeOnGitHub(key, pullRequest, comment)
-  setPullRequest(key, branchName, { ...pullRequest, state: "closed" })
 }
 
 /**
  * Closes the pull request of the whole stack of `root` on GitHub with `comment` (the user asked: one that no longer
- * matches the stack is never closed by itself), and in the store at once. Throws what GitHub said.
+ * matches the stack is never closed by itself); resolves once the session has it closed. Throws what GitHub said.
  */
 export async function closeStackPullRequest(root: string, comment: string): Promise<void> {
   const key = currentKey()
@@ -381,31 +266,34 @@ export async function closeStackPullRequest(root: string, comment: string): Prom
     return
   }
   await closeOnGitHub(key, pullRequest, comment)
-  setStackPullRequest(key, root, { ...pullRequest, state: "closed" })
 }
 
 async function closeOnGitHub(key: string, pullRequest: PullRequest, comment: string): Promise<void> {
-  const result = await commands.closePullRequest({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, comment })
+  const repositoryPath = pathOf(key)
+  const result = await commands.closePullRequest({ repositoryPath, pullRequestNumber: pullRequest.number, comment })
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
+  await whenSessionViewAt(repositoryPath, result.data)
+}
+
+/** The key the pull requests of `repositoryPath` are stored under (`storeKeyOf`); null for one the store doesn't have */
+function pullRequestsKeyOf(repositoryPath: string): string | null {
+  return storeKeyOf(repositoryPath, currentKey(), Object.keys(pullRequestsStore.getState().repositories))
 }
 
 /**
  * Asks `logins` to review the open pull request of a branch on GitHub (Request Review…), or of the whole stack of a
- * root for its readiness key (`stackReadinessKey`), and marks whom GitHub asked as requested in the store at once: the
- * review readiness reads the reviews of the pull request. A refresh follows. Throws what GitHub said when it refused the
- * request as a whole.
+ * root for its readiness key (`stackReadinessKey`), in the repository it was asked in; resolves once the session has
+ * whom GitHub asked marked requested (the review readiness reads the reviews of the pull request), and lists the pull
+ * requests again. Throws what GitHub said when it refused the request as a whole.
  */
 export async function requestReviewers(branchName: string, logins: readonly string[], repository: VcsRequest): Promise<RequestedReviewers> {
-  // the repository the request was asked in: its pull request, also once the main window shows another repository
+  // the repository the request was asked in: its pull request, never the one of the same branch selected now
   const key = pullRequestsKeyOf(repository.repositoryPath)
   const root = stackRootOfReadinessKey(branchName)
-  const pullRequestOf = () => {
-    const entry = key === null ? undefined : pullRequestsStore.getState().repositories[key]
-    return root === null ? entry?.pullRequests[branchName] : entry?.stackPullRequests[root]
-  }
-  const pullRequest = pullRequestOf()
+  const entry = key === null ? undefined : pullRequestsStore.getState().repositories[key]
+  const pullRequest = root === null ? entry?.pullRequests[branchName] : entry?.stackPullRequests[root]
   if (pullRequest === undefined) {
     throw new Error(`${formatReadinessSubject(branchName)} has no pull request`)
   }
@@ -413,51 +301,8 @@ export async function requestReviewers(branchName: string, logins: readonly stri
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
-  const requested = result.data.requested
-  const current = pullRequestOf() ?? pullRequest
-  const reviewers = current.reviewers.map(reviewer => (requested.some(login => isLogin(login, reviewer.login)) ? { ...reviewer, requested: true } : reviewer))
-  for (const login of requested) {
-    if (!reviewers.some(reviewer => isLogin(reviewer.login, login))) {
-      reviewers.push({ login, state: "requested", requested: true })
-    }
-  }
-  if (key === null) {
-    // the repository's pull requests left the store meanwhile: the next refresh reads them
-  } else if (root === null) {
-    setPullRequest(key, branchName, { ...current, reviewers })
-  } else {
-    setStackPullRequest(key, root, { ...current, reviewers })
-  }
-  void refreshPullRequests("push")
-  return result.data
-}
-
-/** GitHub's search lists a new pull request only after a while: one the app created is kept this long meanwhile */
-export const CREATED_KEEP_MS = 5 * 60_000
-
-/** The key of the pull requests of the stack branches the app created (`created`), beside those of the branches */
-function stackKey(key: string): string {
-  return `${key}\nstack`
-}
-
-/** By repository key, then branch: the pull requests the app created, until the search lists them */
-const created = new Map<string, Map<string, { pullRequest: PullRequest; until: number }>>()
-
-/** The answered pull requests with the ones the app created that the search doesn't list yet */
-function withCreated(key: string, incoming: Readonly<Record<string, PullRequest>>, now: number): Readonly<Record<string, PullRequest>> {
-  const pending = created.get(key)
-  if (pending === undefined) {
-    return incoming
-  }
-  let result = incoming
-  for (const [branchName, { pullRequest, until }] of pending) {
-    if (incoming[branchName]?.number === pullRequest.number || now > until) {
-      pending.delete(branchName)
-    } else if (incoming[branchName] === undefined || incoming[branchName].state === "closed") {
-      result = { ...result, [branchName]: pullRequest }
-    }
-  }
-  return result
+  await whenSessionViewAt(repository.repositoryPath, result.data.version)
+  return result.data.outcome
 }
 
 /** What the "Create pull request" dialog asks for */
@@ -479,49 +324,61 @@ export interface NewPullRequestRequest {
 }
 
 /**
- * Opens the pull request of a branch on GitHub (or finds the one it has), and puts it into the store at once:
- * the row's chip and the Safe Push popover read it before the next refresh, which follows. Throws what GitHub said.
+ * Opens the pull request of a branch on GitHub (or finds the one it has) in the repository of the dialog: resolves once
+ * the session has it (until GitHub's search lists it), so the row's chip and the Safe Push popover read it; the session
+ * lists the pull requests again. Throws what GitHub said.
  */
 export async function createPullRequest(request: NewPullRequestRequest): Promise<CreatedPullRequest> {
-  const key = pullRequestsKeyOf(request.repositoryPath)
-  const { wholeStack = false, ...params } = request
+  // the session tells the pull request of a whole stack by its head, the stack branch
+  const { wholeStack: _wholeStack = false, ...params } = request
   const result = await commands.createPullRequest(params)
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
-  // a repository whose pull requests the store never read gets the new one from its first refresh
-  if (key !== null) {
-    const createdKey = wholeStack ? stackKey(key) : key
-    const pending = created.get(createdKey) ?? new Map()
-    pending.set(request.branchName, { pullRequest: result.data.pullRequest, until: Date.now() + CREATED_KEEP_MS })
-    created.set(createdKey, pending)
-    if (wholeStack) {
-      setStackPullRequest(key, request.branchName, result.data.pullRequest)
-    } else {
-      setPullRequest(key, request.branchName, result.data.pullRequest)
+  await whenSessionViewAt(request.repositoryPath, result.data.version)
+  return result.data.outcome
+}
+
+// ---- the rules of the bases ----
+
+/**
+ * The rules of `branch` (a base of the approved pull requests, which the session reads once each after a listing) of
+ * the selected repository; null while not read, for a decision read outside React
+ */
+export function peekBranchRules(branch: string): BranchRulesAnswer | null {
+  const key = currentKey()
+  return key === null ? null : rulesAnswerOf(pullRequestsStore.getState().rules[key]?.[branch])
+}
+
+/**
+ * The rules of `branch` while `enabled`: the Request Review form warns before a push takes the approvals away. Null
+ * while not read; `keep` when not `enabled`. A form that opens on rules GitHub didn't give asks them again
+ */
+export function useBranchRules(branch: string | null, enabled: boolean): BranchRulesAnswer | null {
+  const key = useRepositoryKey()
+  const fact = useStore(pullRequestsStore, state => (branch === null ? undefined : state.rules[key]?.[branch]))
+  const answer = rulesAnswerOf(fact)
+  const unknown = enabled && answer !== null && isRulesUnknown(answer)
+  useEffect(() => {
+    if (unknown) {
+      void askBranchRulesAgain()
     }
+  }, [unknown])
+  return enabled ? answer : "keep"
+}
+
+/**
+ * Asks the session to read again the rules GitHub didn't give (a start reads its decision on the new answer, not the old
+ * reason); resolves once their reads applied, at once when none failed
+ */
+export async function askBranchRulesAgain(): Promise<void> {
+  const key = currentKey()
+  if (key !== null) {
+    await refreshSessionFacts(pathOf(key), "branchRules", "afterWrite")
   }
-  void refreshPullRequests("push")
-  return result.data
 }
 
-function setPullRequest(key: string, branchName: string, pullRequest: PullRequest): void {
-  const pullRequests = pullRequestsStore.getState().repositories[key]?.pullRequests ?? {}
-  noteWritten(writtenKey(key, false), branchName)
-  update(key, { pullRequests: { ...pullRequests, [branchName]: pullRequest } })
-}
-
-function setStackPullRequest(key: string, root: string, pullRequest: PullRequest): void {
-  const stackPullRequests = pullRequestsStore.getState().repositories[key]?.stackPullRequests ?? {}
-  noteWritten(writtenKey(key, true), root)
-  update(key, { stackPullRequests: { ...stackPullRequests, [root]: pullRequest } })
-}
-
-/** Forgets the gates and the data (tests) */
+/** Forgets the pull requests and the rules (tests) */
 export function resetPullRequests(): void {
-  gates.reset()
-  created.clear()
-  written.clear()
-  clearTimeout(recheckTimer)
-  pullRequestsStore.setState({ repositories: {} })
+  pullRequestsStore.setState({ repositories: {}, rules: {} })
 }

@@ -13,16 +13,16 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use domain_types::calendar::Calendar;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
-  GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject,
-  PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams,
-  ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusProblem, PatronusRobot,
+  PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams, ReadPatronusCommandReplyParams,
+  StartPatronusRobotParams,
 };
 use domain_types::pull_request::{
-  CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
+  BranchRules, CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
 };
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
-use domain_types::session::Version;
+use domain_types::session::{Version, ViewAnswer};
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use file_diffs::model::{
@@ -36,7 +36,7 @@ use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::reword::{RewordRequest, reword_request_core};
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
-use remote_facts::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
+use remote_facts::branch_rules::read_branch_rules;
 use remote_facts::patronus_command::{
   UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
 };
@@ -48,10 +48,11 @@ use remote_facts::pull_request_writes::{
   ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, close_pull_request as core_close_pull_request, read_pull_request_head,
   retarget_pull_request as core_retarget_pull_request,
 };
-use remote_facts::pull_requests::{GetPullRequestsParams, NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
+use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use remote_facts::review_readiness::{branch_review_readiness, prepare_review_readiness};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_model::actions::{NOT_ON_SPACE, RemoteActions};
+use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::SessionKey;
 use repository_model::table::TableState;
 use serde::Deserialize;
@@ -75,6 +76,7 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
+use crate::session_routes::write_pull_request;
 use crate::state::AppState;
 
 use crate::state::TestRepository;
@@ -851,25 +853,40 @@ async fn required_github_of(state: &AppState, path: &str, known: Option<&str>, o
   }
 }
 
-/// The pull requests of the virtual branches as the app lists them: the real service asks the fake GitHub of the
-/// repository, which holds the fixture of `POST /repositories/{id}/pull-requests`
-pub async fn get_pull_requests(State(state): State<Arc<AppState>>, Json(params): Json<GetPullRequestsParams>) -> CommandResult<PullRequestsResult> {
-  repository_by_path(&state, &params.repository_path)?.pull_request_calls.fetch_add(1, Ordering::SeqCst);
-  let (host, repository) = github_of(&state, &params.repository_path, None).await?;
-  let Some(repository) = repository else {
-    return Ok(Json(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)));
+/// The pull requests of the virtual branches as the session of a test repository lists them (`TestFactSources`), counted:
+/// the real service asks the fake GitHub of the repository, which holds the fixture of `POST /repositories/{id}/pull-requests`.
+/// The listing holds the repository as a command does: its deletion waits for it (the fake reads the heads from its files)
+pub(crate) async fn list_pull_requests_of(state: &AppState, key: &SessionKey) -> PullRequestsResult {
+  let failure = |message: String| PullRequestsResult::unavailable(PullRequestAvailability::Error { message });
+  let in_flight = match repository_by_path(state, &key.worktree) {
+    Ok(repository) => {
+      repository.pull_request_calls.fetch_add(1, Ordering::SeqCst);
+      Arc::clone(&repository.in_flight)
+    }
+    Err(rejection) => return failure(rejected(rejection).message),
   };
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  Ok(Json(list_pull_requests(&host.github_service(), &params.repository_path, &repository, &branch_prefix).await))
+  let _command = in_flight.read_owned().await;
+  match github_of(state, &key.worktree, None).await {
+    Ok((host, Some(github))) => list_pull_requests(&host.github_service(), &key.worktree, &github, &key.prefix).await,
+    Ok((_, None)) => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
+    Err(rejection) => failure(rejected(rejection).message),
+  }
 }
 
-/// What the rules of a branch do to the pull requests into it, as the app reads them
-pub async fn get_branch_rules(State(state): State<Arc<AppState>>, Json(params): Json<GetBranchRulesParams>) -> CommandResult<BranchRules> {
+/// The repository of a session, held as a command holds it while a read of its facts runs: its deletion waits
+async fn holding(state: &AppState, key: &SessionKey) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, ApiError> {
+  let in_flight = Arc::clone(&repository_by_path(state, &key.worktree).map_err(rejected)?.in_flight);
+  Ok(in_flight.read_owned().await)
+}
+
+/// What the rules of a base do to the pull requests into it, as the session of a test repository reads them
+pub(crate) async fn branch_rules_of(state: &AppState, key: &SessionKey, branch: &str) -> Result<BranchRules, ApiError> {
   let operation = "read the rules of the branch";
-  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
-  held_or_failed(&host, HeldAnswer::BranchRules, operation).await?;
-  let rules = read_branch_rules(&host.github_service(), &params.repository_path, &repository, &params.branch).await;
-  rules.map(Json).map_err(|failure| failed(operation, failure_message(&failure)))
+  let _command = holding(state, key).await?;
+  let (host, repository) = required_github_of(state, &key.worktree, None, operation).await.map_err(rejected)?;
+  held_or_failed(&host, HeldAnswer::BranchRules, operation).await.map_err(rejected)?;
+  let rules = read_branch_rules(&host.github_service(), &key.worktree, &repository, branch).await;
+  rules.map_err(|failure| ApiError::internal(failure_message(&failure)))
 }
 
 /// The sign-in of the requesting page's repository, as the app reads it, with the OAuth app of a fixture (none by
@@ -911,20 +928,29 @@ pub async fn sign_out_of_github(State(state): State<Arc<AppState>>, headers: Hea
   signed_out.map(Json).map_err(|e| failed("sign out of GitHub", e))
 }
 
-/// Changes the base of a pull request, as the app does
-pub async fn retarget_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<RetargetPullRequestParams>) -> CommandResult<()> {
+/// Changes the base of a pull request, as the app does: the session of the repository has it at once
+pub async fn retarget_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<RetargetPullRequestParams>) -> CommandResult<Option<Version>> {
   let operation = "retarget the pull request";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let retarget = core_retarget_pull_request(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.base).await;
-  retarget.map(Json).map_err(|e| failed(operation, e.to_string()))
+  retarget.map_err(|e| failed(operation, e.to_string()))?;
+  let write = PullRequestWrite::Retargeted {
+    number: params.pull_request_number,
+    base: params.base,
+  };
+  Ok(Json(write_pull_request(&state, &params.repository_path, write).await))
 }
 
-/// Closes a pull request with a comment, as the app does
-pub async fn close_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<ClosePullRequestParams>) -> CommandResult<()> {
+/// Closes a pull request with a comment, as the app does: the session of the repository has it at once
+pub async fn close_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<ClosePullRequestParams>) -> CommandResult<Option<Version>> {
   let operation = "close the pull request";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let close = core_close_pull_request(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.comment).await;
-  close.map(Json).map_err(|e| failed(operation, e.to_string()))
+  close.map_err(|e| failed(operation, e.to_string()))?;
+  let write = PullRequestWrite::Closed {
+    number: params.pull_request_number,
+  };
+  Ok(Json(write_pull_request(&state, &params.repository_path, write).await))
 }
 
 /// The commit a pull request shows now on GitHub, as the app reads it
@@ -955,17 +981,24 @@ pub async fn submit_pull_request_review(
   review.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
-/// Asks users to review a pull request, as the app does: the fake GitHub asks its collaborators only
+/// Asks users to review a pull request, as the app does: the fake GitHub asks its collaborators only, the session of the
+/// repository has whom it asked at once
 pub async fn request_pull_request_reviewers(
   State(state): State<Arc<AppState>>,
   Json(params): Json<remote_facts::pull_request_writes::RequestPullRequestReviewersParams>,
-) -> CommandResult<RequestedReviewers> {
+) -> CommandResult<ViewAnswer<RequestedReviewers>> {
   let operation = "request the reviews";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let requested =
     remote_facts::pull_request_writes::request_pull_request_reviewers(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
       .await;
-  requested.map(Json).map_err(|e| failed(operation, e.to_string()))
+  let outcome = requested.map_err(|e| failed(operation, e.to_string()))?;
+  let write = PullRequestWrite::ReviewersRequested {
+    number: params.pull_request_number,
+    requested: outcome.requested.clone(),
+  };
+  let version = write_pull_request(&state, &params.repository_path, write).await;
+  Ok(Json(ViewAnswer { outcome, version }))
 }
 
 /// The text a new pull request starts with and the user of the token, as the app reads them: the issue summaries
@@ -985,12 +1018,17 @@ async fn with_viewer(state: &AppState, path: &str, mut pull_request: NewPullRequ
   Ok(Json(pull_request))
 }
 
-/// Opens the pull request of a pushed virtual branch, as the app does
-pub async fn create_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<CreatePullRequestParams>) -> CommandResult<CreatedPullRequest> {
+/// Opens the pull request of a pushed virtual branch, as the app does: the session of the repository has it at once
+pub async fn create_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<CreatePullRequestParams>) -> CommandResult<ViewAnswer<CreatedPullRequest>> {
   let operation = "create the pull request";
   let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
   let created = core_create_pull_request(&host.github_service(), &repository, &params).await;
-  created.map(Json).map_err(|e| failed(operation, e.to_string()))
+  let outcome = created.map_err(|e| failed(operation, e.to_string()))?;
+  let write = PullRequestWrite::Created {
+    pull_request: outcome.pull_request.clone(),
+  };
+  let version = write_pull_request(&state, &params.repository_path, write).await;
+  Ok(Json(ViewAnswer { outcome, version }))
 }
 
 /// Waits until GitHub has the branch just pushed, as the app does
@@ -1432,20 +1470,22 @@ fn required_space_of(state: &AppState, path: &str, operation: &str) -> Result<(A
   space_of(state, path)?.ok_or_else(|| failed(operation, ApiError::new(ErrorCode::NotOnSpace, NOT_ON_SPACE)))
 }
 
-/// The branch a start pushes to and the merge profiles Patronus answers for it, as the app reads them
-pub async fn get_patronus_start_options(State(state): State<Arc<AppState>>, Json(params): Json<GetPatronusStartOptionsParams>) -> CommandResult<PatronusStartOptions> {
+/// The merge profiles of the target `baseline` pushes to, as the session of a test repository reads them: the default
+/// of the last robot is the page's
+pub(crate) async fn profiles_of(state: &AppState, key: &SessionKey, baseline: String) -> Result<PatronusStartOptions, ApiError> {
   let operation = "read the Safe Push options";
-  let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
-  let new_api = patronus_new_api_of(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  let (path, baseline) = (params.repository_path.clone(), params.baseline_branch.clone());
-  let Json(target) = run_command(operation, move || required_target_branch(&git_executor, &path, &baseline)).await?;
-  let last_profile = params.last_robot_profile.filter(|_| new_api);
-  let options = host
+  let _command = holding(state, key).await?;
+  let (host, space) = required_space_of(state, &key.worktree, operation).map_err(rejected)?;
+  held_or_failed(&host, HeldAnswer::Profiles, operation).await.map_err(rejected)?;
+  let (git_executor, path) = (state.git_executor.clone(), key.worktree.clone());
+  let Json(target) = run_command(operation, move || required_target_branch(&git_executor, &path, &baseline))
+    .await
+    .map_err(rejected)?;
+  host
     .patronus_service()
-    .start_options(&space.project_key, &space.name, &target, params.last_robot_id.as_deref(), last_profile)
-    .await;
-  options.map(Json).map_err(|e| failed(operation, patronus_error(e)))
+    .start_options(&space.project_key, &space.name, &target, None, None)
+    .await
+    .map_err(patronus_error)
 }
 
 /// The branch of origin a robot pushes into, as the app reads it

@@ -5,7 +5,20 @@
  * it names. The page's store (`src/model/store.ts`) applies the patches of its session with it, the fake sessions of
  * the store tests (`src/test-support/fake-sessions.ts`) keep their views with it
  */
-import type { BranchChange, BranchView, PatronusChange, PatronusPart, RepositoryView, RobotsChange, RobotsView, ViewPatch } from "@/lib/bindings"
+import type {
+  BranchChange,
+  BranchView,
+  FactsChanges,
+  FactsView,
+  PatronusChange,
+  PatronusPart,
+  PullRequestsChange,
+  PullRequestsView,
+  RepositoryView,
+  RobotsChange,
+  RobotsView,
+  ViewPatch,
+} from "@/lib/bindings"
 import { withoutKeys } from "@/lib/record"
 
 /** The view after `patch`; the caller checked that `view` is at its base */
@@ -28,7 +41,6 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
   }
   const sections = view.sections
   const archived = changes.archived
-  const robots = changes.facts?.robots
   return {
     version: patch.next,
     sync: changes.sync ?? view.sync,
@@ -50,13 +62,40 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
             },
     },
     patronus: changes.patronus == null ? view.patronus : patchedPatronus(view.patronus, changes.patronus),
-    facts: robots == null ? view.facts : { robots: patchedRobots(view.facts.robots, robots) },
+    facts: changes.facts == null ? view.facts : patchedFacts(view.facts, changes.facts),
     news: (changes.news?.length ?? 0) === 0 ? view.news : [...view.news, ...changes.news!].slice(-NEWS_KEPT),
   }
 }
 
 /** How many news a view keeps, as `domain_types::session::NEWS_KEPT` */
 const NEWS_KEPT = 32
+
+/** A keyed part after a patch: the entries it names replace theirs, those it removes go; the same object without either */
+function keyed<T>(entries: Readonly<Record<string, T>>, changed: Readonly<Record<string, T>> | undefined, removed: readonly string[] | undefined): Readonly<Record<string, T>> {
+  return Object.keys(changed ?? {}).length === 0 && (removed?.length ?? 0) === 0 ? entries : { ...withoutKeys(entries, removed ?? []), ...changed }
+}
+
+/** The facts after a patch: each part it names, the keyed ones by key */
+function patchedFacts(facts: FactsView, change: FactsChanges): FactsView {
+  return {
+    robots: change.robots == null ? facts.robots : patchedRobots(facts.robots, change.robots),
+    pullRequests: change.pullRequests == null ? facts.pullRequests : patchedPullRequests(facts.pullRequests, change.pullRequests),
+    rules: change.rules ?? facts.rules,
+    profiles: change.profiles ?? facts.profiles,
+  }
+}
+
+/**
+ * The pull requests after a patch: its head when it names one, the pull requests it names replace theirs, those it
+ * removes go; one it doesn't name keeps its object, so a row that reads one doesn't render again
+ */
+function patchedPullRequests(part: PullRequestsView, change: PullRequestsChange): PullRequestsView {
+  return {
+    head: change.head ?? part.head,
+    pullRequests: keyed(part.pullRequests, change.pullRequests, change.removedPullRequests),
+    stackPullRequests: keyed(part.stackPullRequests, change.stackPullRequests, change.removedStackPullRequests),
+  }
+}
 
 /** The robots after a patch: its head when it names one, the robots it names replace theirs, those it removes go */
 function patchedRobots(robots: RobotsView, change: RobotsChange): RobotsView {
@@ -75,8 +114,6 @@ function patchedRobots(robots: RobotsView, change: RobotsChange): RobotsView {
  */
 function patchedPatronus(part: PatronusPart, change: PatronusChange): PatronusPart {
   const { view } = part
-  const keyed = <T>(entries: Readonly<Record<string, T>>, changed: Readonly<Record<string, T>> | undefined, removed: readonly string[] | undefined) =>
-    Object.keys(changed ?? {}).length === 0 && (removed?.length ?? 0) === 0 ? entries : { ...withoutKeys(entries, removed ?? []), ...changed }
   return {
     state: change.state ?? part.state,
     landingNeeds: change.landingNeeds ?? part.landingNeeds,
