@@ -6,6 +6,8 @@ targets:
   - ../../crates/history-rewrite/src/autosquash.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/history-rewrite/src/commit_grouper.rs
+  - ../../crates/sync-utils/src/commit_subject.rs
+  - ../../crates/git-ops/src/autosquash_targets.rs
   - ../../src-tauri/src/commands/squash_fixups.rs
   - ../../src/lib/autosquash.ts
   - ../../src/lib/commit.ts

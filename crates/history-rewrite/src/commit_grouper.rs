@@ -1,5 +1,6 @@
 //! The group of each commit ahead of the baseline (`CommitGrouper`): its `(prefix)`, else the issue group of its issue
-//! key, else the key itself, else none; a pure function of the subjects and the `GroupingInputs`, no git.
+//! key, else the key itself, else none; a pure function of the subjects and the `GroupingInputs`, no git. The grammar
+//! of a subject (the autosquash markers, the `(prefix)`) is `sync_utils::commit_subject`.
 
 use crate::stack::{StackDeclarations, StackForest};
 use crate::store_lines::StoreLines;
@@ -7,9 +8,9 @@ use domain_types::branch_names::sanitize_branch_name;
 use domain_types::commit::Commit;
 use domain_types::stack::{leaf_of, stack_path};
 use indexmap::IndexMap;
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use sync_utils::issue_pattern::{find_issue_number, has_issue_reference, issue_key_position};
+use sync_utils::commit_subject::{ParsedSubject, parse_subject, subject_after_prefix};
+use sync_utils::issue_pattern::find_issue_number;
 use tracing::info;
 
 /// Branch data combining commits and author frequency tracking
@@ -96,89 +97,10 @@ impl GroupingInputs {
   }
 }
 
-/// Git's autosquash markers; each needs the space, `fixup!X` is an ordinary subject (`git help rebase`, `--autosquash`)
-pub const AUTOSQUASH_MARKERS: [&str; 3] = ["fixup! ", "squash! ", "amend! "];
-
-/// A commit subject split into the parts that decide its group
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParsedSubject<'a> {
-  /// The leading git autosquash markers (`fixup! `, `squash! `, `amend! `, repeated as in `fixup! fixup! X`) with the
-  /// whitespace after them, or empty
-  pub autosquash: &'a str,
-  /// The unsanitized text of a leading non-empty `(prefix)`
-  pub prefix: Option<&'a str>,
-  /// The subject after the autosquash marker and the prefix
-  pub rest: &'a str,
-}
-
-/// Splits a subject the way the grouper reads it: an explicit `(prefix)` at the start (after an autosquash marker,
-/// so `fixup! (feat) X` stays in `feat`) names the branch; otherwise the rest may still carry an issue key.
-pub fn parse_subject(subject: &str) -> ParsedSubject<'_> {
-  let body = strip_autosquash_markers(subject);
-  let autosquash = &subject[..subject.len() - body.len()];
-  if body.starts_with('(')
-    && let Some(close_paren_pos) = body.find(')')
-    && close_paren_pos > 1
-  {
-    return ParsedSubject {
-      autosquash,
-      prefix: Some(&body[1..close_paren_pos]),
-      rest: body[close_paren_pos + 1..].trim_start(),
-    };
-  }
-  ParsedSubject {
-    autosquash,
-    prefix: None,
-    rest: body,
-  }
-}
-
-/// The subject after all leading autosquash markers, as git reads the target of `fixup! squash! X`: each marker and
-/// the whitespace after it are skipped
-fn strip_autosquash_markers(subject: &str) -> &str {
-  let mut rest = subject;
-  while let Some(stripped) = AUTOSQUASH_MARKERS.iter().find_map(|marker| rest.strip_prefix(marker)) {
-    rest = stripped.trim_start();
-  }
-  rest
-}
-
 /// The virtual branch a commit with this subject is grouped into: its sanitized `(prefix)`, else the issue key of the
 /// subject; `None` for an unassigned commit
 pub fn branch_name_of(subject: &str) -> Option<String> {
   branch_of(&parse_subject(subject), &BTreeMap::new())
-}
-
-/// The subject of the commit's virtual branch commit: an explicit prefix (and the autosquash marker before it) is
-/// stripped (`subject_after_prefix`), an issue-based or unassigned subject stays as is
-pub fn stripped_subject(subject: &str) -> Cow<'_, str> {
-  let parsed = parse_subject(subject);
-  match parsed.prefix {
-    Some(prefix) => subject_after_prefix(prefix, parsed.rest),
-    None => Cow::Borrowed(subject),
-  }
-}
-
-/// The subject after the prefix `prefix`. A prefix whose branch is an issue key names the issue of a commit that has no
-/// key of its own, so the key stays where `find_issue_number` reads one: `(IJPL-1) docs: x` becomes `docs: IJPL-1 x`,
-/// and the commit that lands still names its issue. A rest with a key of its own stays as is
-fn subject_after_prefix<'a>(prefix: &str, rest: &'a str) -> Cow<'a, str> {
-  let leaf = prefix.rsplit('/').next().unwrap_or(prefix).trim();
-  if find_issue_number(leaf) != Some(leaf) || has_issue_reference(rest) {
-    return Cow::Borrowed(rest);
-  }
-  let (before, after) = rest.split_at(issue_key_position(rest).unwrap_or(0));
-  let mut subject = String::with_capacity(rest.len() + leaf.len() + 2);
-  subject.push_str(before);
-  if !before.is_empty() && !before.ends_with(char::is_whitespace) {
-    subject.push(' ');
-  }
-  subject.push_str(leaf);
-  if !after.is_empty() {
-    subject.push(' ');
-    subject.push_str(after);
-  }
-  Cow::Owned(subject)
 }
 
 /// `branch_name_of` with stacked branches on: the leaf of a stack prefix, so `(auth/login) X` is in `login`

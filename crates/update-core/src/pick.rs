@@ -13,7 +13,7 @@ use git_ops::pick::{AppliedPick, PickCheck, PickPlan, PickRequest, PickSource, P
 use git_ops::revs::{git_common_dir, is_object_id, with_dirs_of};
 use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update, pending_update};
-use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
+use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of};
 use history_rewrite::repository_lock::{RewriteOptions, lock_repository};
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
 use history_rewrite::stack::{StackForest, stack_top};
@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::baseline_tracking_ref;
+use sync_utils::commit_subject::parse_subject;
 use tracing::{debug, info, instrument, warn};
 use trial_check::dependencies::compute_dependencies;
 use trial_check::diff_scan::read_commit_diffs_cached;

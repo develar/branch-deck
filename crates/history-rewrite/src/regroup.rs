@@ -8,7 +8,7 @@
 
 use crate::autosquash::plan_autosquash;
 use crate::baseline::NoBaseline;
-use crate::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
+use crate::commit_grouper::{GroupingInputs, issue_group_of};
 use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::fixup_targets::check_fixup_targets;
 use crate::issue_groups::{ISSUE_GROUPS, validate_issue_group_name, validate_issue_key, validate_leaf_name};
@@ -32,6 +32,7 @@ use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::restore_branch_head_with;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use sync_utils::commit_subject::parse_subject;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::{info, instrument};
 

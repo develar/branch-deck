@@ -9,11 +9,11 @@ use commit_clustering::areas::DirLines;
 use commit_clustering::generated::generated_paths;
 use domain_types::commit::Commit;
 use git_ops::commit_files::read_files_from_base;
-use history_rewrite::commit_grouper::parse_subject;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use sync_utils::commit_subject::parse_subject;
 use sync_utils::issue_pattern::find_issue_number;
 use trial_check::diff_scan::read_commit_diffs_cached;
 

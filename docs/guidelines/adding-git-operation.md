@@ -90,7 +90,8 @@ Reuse one of these before writing a parser or a process of your own.
 | `ConfigSnapshot` | `sync_core::config_snapshot` | the `branchdeck.*` settings and the descriptions from one `git config` |
 | `Snapshot`, `CommitsAhead`, `read_grouping_inputs` | `history_rewrite::snapshot` | the commits ahead of the baseline and what groups them, once per operation; `Snapshot::read_with` with the stack setting and the commits ahead a caller read |
 | `LineStore`; `ISSUE_GROUPS`, `STACK_PARENTS` | `history_rewrite::store_lines`; `issue_groups`, `stack_parents` | a `key<TAB>value` map in a ref of its own: read, CAS write |
-| `walk_commits`, `CommitKey` | `sync_core::commit_walk`, `sync_core::commit_key` | a `rev-list` walk matched across a rebase |
+| `walk_commits`, `CommitKey`, `same_changes`, `pair_by_patch_id` | `git_ops::landed_pairing` | a `rev-list` walk matched across a rebase; the patch ids of commits, without context or with it |
+| `parse_subject`, `stripped_subject` | `sync_utils::commit_subject` | the autosquash markers and the `(prefix)` of a subject |
 | `resolve_commit_ids` | `history_rewrite::commit_ids` | the ids of a request, abbreviated or full, among the commits ahead of the baseline |
 | `CacheMemo`, `ConflictMemo` | `sync_core::cache_memo` | merges, commit trees and conflict views in the object cache |
 | `lock_repository`, `RewriteOptions`, `ensure_expected_head` | `history_rewrite::repository_lock` | the repository lock and the expected HEAD |

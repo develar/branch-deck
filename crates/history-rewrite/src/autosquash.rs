@@ -2,13 +2,13 @@
 //! touching the working tree (docs/design/git-operations.md, "Squash fixups"). The plan is pure; the rewrite is one
 //! `prepare_squash` with a group per target.
 
-use crate::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
+use crate::commit_grouper::GroupingInputs;
 use crate::repository_lock::RewriteOptions;
 use crate::snapshot::{CommitsAhead, read_grouping_inputs};
 use anyhow::{Result, anyhow, bail};
 use domain_types::commit::Commit;
-use domain_types::stack::leaf_of;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::autosquash_targets::{FixupTarget, fixup_targets};
 use git_ops::commit_writer::read_raw_commits;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
@@ -17,6 +17,7 @@ use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use sync_utils::commit_subject::first_marker;
 use tracing::{info, instrument};
 
 /// How a commit is squashed into its target; the first marker of the subject decides (`fixup! squash! X` is a fixup)
@@ -33,8 +34,7 @@ pub enum FixupKind {
 
 impl FixupKind {
   pub(crate) fn of(subject: &str) -> Option<Self> {
-    let marker = AUTOSQUASH_MARKERS.iter().position(|marker| subject.starts_with(marker))?;
-    Some([Self::Fixup, Self::Squash, Self::Amend][marker])
+    Some([Self::Fixup, Self::Squash, Self::Amend][first_marker(subject)?])
   }
 }
 
@@ -82,60 +82,26 @@ pub struct AutosquashPlan {
   pub orphans: Vec<OrphanFixup>,
 }
 
-/// How a commit of the range was resolved, by position
-enum Resolution {
-  /// Not a fixup
-  Commit,
-  /// A fixup of the commit at this position (the final target of a chain)
-  Fixup(usize),
-  Orphan,
-}
-
 /// Plans squashing every fixup of `commits` (oldest first, ending at `head`) into its target, with git's rules
-/// (`todo_list_rearrange_squash`): all leading markers are stripped, then the target is the oldest older commit with
-///   1. exactly that subject;
-///   2. an id starting with it, if it is a hash prefix of at least 4 hex digits that matches one commit;
-///   3. the same subject without the `(prefix)`, if the prefixes agree when the fixup names one;
-///   4. a subject (or, prefixes agreeing, a subject without the `(prefix)`) starting with it.
-///
-/// A fixup of a fixup (by hash) goes to the final target. A fixup without a target is an orphan. With stacked branches
-/// on (`grouping.stacks`), prefixes agree when they name the same branch, so `fixup! (login) X` finds `(auth/login) X`,
-/// and the branches are the leaves. The branches follow the issue groups of `grouping` too.
+/// (`git_ops::autosquash_targets::fixup_targets`). With stacked branches on (`grouping.stacks`), prefixes agree when
+/// they name the same branch, and the branches are the leaves. The branches follow the issue groups of `grouping` too.
 #[must_use]
 pub fn plan_autosquash(head: String, commits: &[Commit], grouping: &GroupingInputs) -> AutosquashPlan {
-  let stacks = grouping.stacks;
   let branch_of = |subject: &str| grouping.branch_of(subject);
-  let mut resolutions: Vec<Resolution> = Vec::with_capacity(commits.len());
-  // full subject -> oldest position
-  let mut by_subject: HashMap<&str, usize> = HashMap::new();
-  for (index, commit) in commits.iter().enumerate() {
-    let resolution = match FixupKind::of(&commit.subject) {
-      None => Resolution::Commit,
-      Some(_) => match find_target(commits, &by_subject, index, stacks) {
-        None => Resolution::Orphan,
-        Some(target) => match resolutions[target] {
-          Resolution::Commit => Resolution::Fixup(target),
-          Resolution::Fixup(final_target) => Resolution::Fixup(final_target),
-          Resolution::Orphan => Resolution::Orphan,
-        },
-      },
-    };
-    resolutions.push(resolution);
-    by_subject.entry(commit.subject.as_str()).or_insert(index);
-  }
+  let resolutions = fixup_targets(commits, grouping.stacks);
 
   // by target position, so the groups come out oldest target first
   let mut groups: BTreeMap<usize, PlannedGroup> = BTreeMap::new();
   let mut orphans = Vec::new();
   for (commit, resolution) in commits.iter().zip(&resolutions) {
     match *resolution {
-      Resolution::Commit => {}
-      Resolution::Orphan => orphans.push(OrphanFixup {
+      FixupTarget::Commit => {}
+      FixupTarget::Orphan => orphans.push(OrphanFixup {
         commit_id: commit.id.clone(),
         subject: commit.subject.clone(),
         branch: branch_of(&commit.subject),
       }),
-      Resolution::Fixup(target) => {
+      FixupTarget::Fixup(target) => {
         let group = groups.entry(target).or_insert_with(|| PlannedGroup {
           target: commits[target].id.clone(),
           target_subject: commits[target].subject.clone(),
@@ -155,50 +121,6 @@ pub fn plan_autosquash(head: String, commits: &[Commit], grouping: &GroupingInpu
     groups: groups.into_values().collect(),
     orphans,
   }
-}
-
-/// The position of the target of the fixup at `index`, among the older commits
-fn find_target(commits: &[Commit], by_subject: &HashMap<&str, usize>, index: usize, stacks: bool) -> Option<usize> {
-  let parsed = parse_subject(&commits[index].subject);
-  let wanted = &commits[index].subject[parsed.autosquash.len()..];
-  if wanted.is_empty() {
-    return None;
-  }
-  if let Some(&target) = by_subject.get(wanted) {
-    return Some(target);
-  }
-
-  let older = &commits[..index];
-  if wanted.len() >= 4 && wanted.bytes().all(|b| b.is_ascii_hexdigit()) {
-    let wanted = wanted.to_ascii_lowercase();
-    let mut matches = older.iter().enumerate().filter(|(_, commit)| commit.id.starts_with(&wanted));
-    if let (Some((target, _)), None) = (matches.next(), matches.next()) {
-      return Some(target);
-    }
-  }
-
-  // fixups are not targets of a subject match: their own subjects start with a marker
-  let candidates = || {
-    older
-      .iter()
-      .enumerate()
-      .map(|(position, commit)| (position, parse_subject(&commit.subject)))
-      .filter(|(_, candidate)| candidate.autosquash.is_empty())
-  };
-  let prefixes_agree = |candidate: Option<&str>| {
-    parsed.prefix.is_none_or(|prefix| match candidate {
-      Some(candidate) if stacks => leaf_of(prefix).is_some_and(|leaf| leaf_of(candidate).as_ref() == Some(&leaf)),
-      candidate => Some(prefix) == candidate,
-    })
-  };
-  if let Some((target, _)) = candidates().find(|(_, candidate)| candidate.rest == parsed.rest && prefixes_agree(candidate.prefix)) {
-    return Some(target);
-  }
-  candidates()
-    .find(|&(position, ref candidate)| {
-      older[position].subject.starts_with(wanted) || (!parsed.rest.is_empty() && prefixes_agree(candidate.prefix) && candidate.rest.starts_with(parsed.rest))
-    })
-    .map(|(target, _)| target)
 }
 
 /// The message of a squashed group, from the target's message and the folded commits' messages (oldest first), as

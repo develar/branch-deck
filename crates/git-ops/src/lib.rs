@@ -55,6 +55,10 @@
 //! - `update_resolve`: the resolve sessions of `bd update`, one round per conflicting commit
 //! - `resolve_check`: the checks of a resolved file of a round
 //! - `word_replay`: the local commits replayed onto the upstream, each conflict resolved by words, all or nothing
+//! - `landed_pairing`: a local commit paired with the upstream commit that carries its change, by identity
+//!   (`CommitKey`, the walks by author) and by patch id; also for the landed report, the remote status, the robot
+//!   commit map and the pick
+//! - `autosquash_targets`: the target of each fixup with git's autosquash rules, pure
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), the worktree following
 //! - `unapply`: the commits of a virtual branch out of the checked out branch, the files following, and its undo
 //! - `reapply`: the commits of an unapplied branch back on top, their prefixes restored, the files following, its undo
@@ -67,6 +71,7 @@
 
 pub mod amend_operations;
 pub mod attributes;
+pub mod autosquash_targets;
 pub mod branch_description;
 pub mod cat_file_batch;
 pub mod cherry_pick;
@@ -79,6 +84,7 @@ pub mod conflict_analysis;
 pub mod copy_commit;
 pub mod history;
 pub mod index_lock;
+pub mod landed_pairing;
 pub mod lease_slot;
 pub mod merge_conflict;
 pub mod merge_memo;

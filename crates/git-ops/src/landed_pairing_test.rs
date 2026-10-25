@@ -1,5 +1,4 @@
-use crate::commit_key::CommitKey;
-use crate::commit_walk::walk_commits;
+use crate::landed_pairing::{CommitKey, walk_commits};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;

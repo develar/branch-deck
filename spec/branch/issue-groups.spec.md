@@ -13,6 +13,7 @@ targets:
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/trial-check/src/check.rs
   - ../../crates/history-rewrite/src/autosquash.rs
+  - ../../crates/git-ops/src/autosquash_targets.rs
   - ../../crates/sync-core/src/landed.rs
   - ../../crates/update-core/src/update_project.rs
   - ../../crates/sync-core/src/stack_operations.rs

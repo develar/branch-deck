@@ -1,8 +1,6 @@
 use crate::paths::changed_paths;
 use crate::revs::ref_exists;
-use crate::update_branch::{
-  CheckPurpose, PENDING_UPDATE_PREFIX, UpstreamRef, check_update, finish_pending_update, index_left_behind, no_landed_candidates, previous_upstream_tips,
-};
+use crate::update_branch::{CheckPurpose, LandedLookup, PENDING_UPDATE_PREFIX, UpstreamRef, check_update, finish_pending_update, index_left_behind, previous_upstream_tips};
 use crate::word_resolve::ResolveMode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_log::test;
@@ -48,7 +46,7 @@ fn a_history_git_cannot_read_is_an_error_with_its_message_not_unrelated_historie
     repo.path_str(),
     upstream(TRACKING_REF),
     CheckPurpose::Preview,
-    &no_landed_candidates,
+    LandedLookup::Off,
     ResolveMode::Off,
   )
   .unwrap_err();
@@ -69,7 +67,7 @@ fn a_tracking_ref_that_is_not_a_ref_name_is_refused() {
       repo.path_str(),
       upstream(tracking_ref),
       CheckPurpose::Preview,
-      &no_landed_candidates,
+      LandedLookup::Off,
       ResolveMode::Off,
     )
     .unwrap_err();
@@ -91,7 +89,7 @@ fn unrelated_histories_have_no_common_history() {
     repo.path_str(),
     upstream(TRACKING_REF),
     CheckPurpose::Preview,
-    &no_landed_candidates,
+    LandedLookup::Off,
     ResolveMode::Off,
   )
   .unwrap_err();

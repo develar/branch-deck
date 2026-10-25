@@ -10,6 +10,7 @@ use crate::commit_writer::{
   EditedCommit, NewParent, RawCommit, STALE_TEMP_REF_AGE, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenEdit, WrittenStore, current_committer, discard_temp_refs,
   parse_raw_commit, sweep_stale_temp_refs, write_edited_commit, write_store_commits,
 };
+use crate::landed_pairing::{LandedDrop, patch_identical};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
 use crate::ref_transaction::RefTransaction;
@@ -312,13 +313,6 @@ pub struct SessionState {
   /// The indices of `local` where a run of consecutive commits starts after one left out: a replay covers one run
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub run_starts: Vec<usize>,
-}
-
-/// A local commit left out of the replay: the upstream has `upstream`, a commit with the same patch id
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LandedDrop {
-  pub commit: String,
-  pub upstream: String,
 }
 
 impl SessionState {
@@ -897,62 +891,6 @@ pub fn continue_session(
   let mut session = Session::new(session.ref_name, written.ids[0].clone(), state);
   session.objects = objects;
   Ok(Step::Round(session))
-}
-
-/// The local commits (`local`) whose patch id equals that of an upstream commit since the merge base, with that commit:
-/// one `rev-list --cherry-mark` marks the commits of both sides that have a counterpart, then one `diff-tree --stdin -p`
-/// and one `patch-id --stable` pair them. As `git rebase` does, they are left out of the replay; the patch id is the
-/// proof that the upstream has their change
-fn patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, upstream_head: &str, head: &str, local: &[String]) -> Result<Vec<LandedDrop>> {
-  let marked = git_executor.execute_command_lines(&["rev-list", "--cherry-mark", "--no-merges", &format!("{upstream_head}...{head}"), "--"], repo_path)?;
-  let equivalent: Vec<&str> = marked.iter().filter_map(|line| line.strip_prefix('=')).collect();
-  if equivalent.is_empty() {
-    return Ok(Vec::new());
-  }
-  let local_set: HashSet<&str> = local.iter().map(String::as_str).collect();
-  let (local, upstream): (Vec<&str>, Vec<&str>) = equivalent.into_iter().partition(|commit| local_set.contains(commit));
-  pair_by_patch_id(git_executor, repo_path, &local, &upstream)
-}
-
-/// Each commit of `local` with the first commit of `upstream` that has its patch id (`patch-id --stable` of one
-/// `diff-tree --stdin -p` of both lists), in the order of `local`; a commit without one is left out
-pub(crate) fn pair_by_patch_id(git_executor: &GitCommandExecutor, repo_path: &str, local: &[&str], upstream: &[&str]) -> Result<Vec<LandedDrop>> {
-  if local.is_empty() || upstream.is_empty() {
-    return Ok(Vec::new());
-  }
-  let input: String = local.iter().chain(upstream).fold(String::new(), |mut input, id| {
-    let _ = writeln!(input, "{id}");
-    input
-  });
-  let patches = git_executor
-    .cmd(&["diff-tree", "--stdin", "-p", "--no-renames", "--no-ext-diff", "--no-textconv"], repo_path)
-    .stdin(input.as_bytes())
-    .bytes()?;
-  let ids = git_executor.cmd(&["patch-id", "--stable"], repo_path).stdin(&patches).bytes()?;
-  // `<patch id> <commit>` per commit
-  let mut upstream_by_patch: HashMap<&str, &str> = HashMap::new();
-  let mut local_by_patch: Vec<(&str, &str)> = Vec::new();
-  let local: HashSet<&str> = local.iter().copied().collect();
-  let ids = String::from_utf8_lossy(&ids).into_owned();
-  for line in ids.lines() {
-    let Some((patch, commit)) = line.split_once(' ') else { continue };
-    if local.contains(commit) {
-      local_by_patch.push((patch, commit));
-    } else {
-      upstream_by_patch.entry(patch).or_insert(commit);
-    }
-  }
-  Ok(
-    local_by_patch
-      .into_iter()
-      .filter_map(|(patch, commit)| {
-        upstream_by_patch.get(patch).map(|upstream| LandedDrop {
-          commit: commit.to_string(),
-          upstream: (*upstream).to_string(),
-        })
-      })
-      .collect(),
-  )
 }
 
 /// What a resolution without changes does: `Ok(true)` keeps the empty commit (`--allow-empty`), `Ok(false)` drops it

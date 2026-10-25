@@ -4,13 +4,14 @@
 //! message at the next `bd fold`
 
 use crate::autosquash::{AutosquashPlan, FixupKind, plan_autosquash};
-use crate::commit_grouper::{GroupingInputs, parse_subject};
+use crate::commit_grouper::GroupingInputs;
 use crate::regroup::{FixupRefusal, RegroupError};
 use crate::reword::keeps_virtual_commit;
 use crate::snapshot::Snapshot;
 use domain_types::commit::Commit;
 use git_ops::revs::short_id;
 use std::collections::HashMap;
+use sync_utils::commit_subject::parse_subject;
 
 /// Refuses `regrouped` (the commits of `snapshot` with their new messages, by position) when a fixup would fold into
 /// another target than in `before` (the plan of the messages now) or into none, when a rewrite adds or removes a marker,

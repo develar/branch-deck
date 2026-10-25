@@ -1,6 +1,6 @@
 use crate::merge_tree_output::parse_merge_tree_output;
 use crate::revs::current_worktree;
-use crate::update_branch::{CheckPurpose, UpstreamRef, apply_update, check_update, no_landed_candidates};
+use crate::update_branch::{CheckPurpose, LandedLookup, UpstreamRef, apply_update, check_update};
 use crate::update_resolve::{
   ConflictFile, ConflictKind, Outcome, ResolveError, ResolvedRef, RoundInput, STATE_FILE, STATE_VERSION, SessionStart, SessionState, SessionStatus, Side, Step, conflict_files,
   continue_session, discard, follow_head, is_valid_tree_path, read_session, start_session, write_state,
@@ -256,7 +256,7 @@ const ORIGIN_MASTER: UpstreamRef<'static> = UpstreamRef {
 
 fn start_with(clone: &TestRepo, resolve: ResolveMode) -> Step {
   let (git, path) = (clone.git_executor(), clone.path_str());
-  let plan = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates, resolve).unwrap();
+  let plan = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Apply, LandedLookup::Off, resolve).unwrap();
   let worktree = current_worktree(git, path).unwrap();
   let start = SessionStart {
     plan: &plan,
@@ -282,14 +282,14 @@ fn an_update_whose_every_conflict_resolves_by_words_applies_without_a_session() 
   let (git, path) = (clone.git_executor(), clone.path_str());
 
   // the preview of each mode is its own replay
-  let preview = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Preview, &no_landed_candidates, ResolveMode::On).unwrap();
+  let preview = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Preview, LandedLookup::Off, ResolveMode::On).unwrap();
   assert_eq!(preview.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
   assert_eq!(preview.check.resolved_by_words.len(), 1);
-  let off = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Preview, &no_landed_candidates, ResolveMode::Off).unwrap();
+  let off = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Preview, LandedLookup::Off, ResolveMode::Off).unwrap();
   assert!(matches!(off.check.state, UpdateState::Conflict { .. }), "{:?}", off.check.state);
   assert_eq!(off.check.resolved_by_words, Vec::new());
 
-  let plan = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates, ResolveMode::On).unwrap();
+  let plan = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Apply, LandedLookup::Off, ResolveMode::On).unwrap();
   assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
   let resolved = plan.check.resolved_by_words.clone();
   assert_eq!(resolved.iter().map(|commit| commit.commit.as_str()).collect::<Vec<_>>(), [local.as_str()]);

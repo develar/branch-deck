@@ -21,7 +21,6 @@
 //! its commits. That holds only for the branches the sync built into that ref, the ancestors as the same sync placed
 //! them; the callers pass no others.
 
-use crate::commit_key::CommitKey;
 #[cfg(test)]
 use crate::robot_commits::head_commits;
 use crate::robot_commits::{HeadCommit, SourceWalk, mapped_virtual, rebased_versions};
@@ -32,6 +31,7 @@ use domain_types::robot_failure::RobotCommitState;
 use domain_types::robot_landing::{BranchLanding, BranchSpan, RobotLanding, RobotLandingRequest, RobotSpan};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::object_ids_and_types;
+use git_ops::landed_pairing::CommitKey;
 use git_ops::revs::is_object_id;
 use std::collections::HashMap;
 use tracing::{debug, instrument};

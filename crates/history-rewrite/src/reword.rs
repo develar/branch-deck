@@ -8,7 +8,6 @@
 
 use crate::autosquash::plan_autosquash;
 use crate::baseline::detect_baseline_branch;
-use crate::commit_grouper::{parse_subject, stripped_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::regroup::{Assignment, Change, FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, UndoToken, refuse_unresolved, regroup_with};
 use crate::snapshot::Snapshot;
@@ -22,6 +21,7 @@ use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use sync_utils::commit_subject::{parse_subject, stripped_subject};
 use tracing::{info, instrument};
 
 /// The new text of a commit; `{"message": …}` or `{"subject": …}` in the app's request

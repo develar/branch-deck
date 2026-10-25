@@ -16,8 +16,7 @@ targets:
   - ../../src/lib/remote-status.ts
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/object-cache/src/remote_status.rs
-  - ../../crates/sync-core/src/commit_key.rs
-  - ../../crates/sync-core/src/commit_walk.rs
+  - ../../crates/git-ops/src/landed_pairing.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push_size.rs

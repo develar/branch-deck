@@ -10,18 +10,17 @@ use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{Worktree, current_worktree, is_object_id, with_dirs_of};
 use git_ops::update_branch::{
-  CheckPurpose, LandedScope, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
+  CheckPurpose, LandedLookup, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
   check_update_undo, finish_pending_update, pending_update, recheck_update,
 };
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{LockWait, lock_repository};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::{fetch_baseline, last_fetch_time, read_check_inputs};
-use sync_core::landed::{LandedQuery, find_landed, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
+use sync_core::landed::{LandedQuery, find_landed, local_revs, record_update, remaining_revs, restore_before_update};
 use sync_core::repo_facts::{Baseline, read_baseline};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::timestamp::unix_now;
@@ -233,17 +232,12 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     on_progress(UpdatePhase::Checking.into());
     prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::Held)?;
   }
-  let Prepared {
-    grouping,
-    resolve_mode,
-    mut plan,
-    candidates,
-  } = prepared;
+  let Prepared { grouping, resolve_mode, mut plan } = prepared;
   plan.check.fetched_at = fetched_at;
 
   if let (UpdateState::Conflict { .. }, Resolve::Yes { dir, worktree }) = (&plan.check.state, resolve) {
     let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose()?;
-    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates, dir, resolve_mode, lock)?;
+    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, dir, resolve_mode, lock)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
   let moved = match &plan.check.state {
@@ -294,29 +288,17 @@ struct Prepared {
   grouping: GroupingInputs,
   resolve_mode: ResolveMode,
   plan: UpdatePlan,
-  /// The landed candidates the check found; a resolve session marks them as likely landed
-  candidates: Option<Vec<Vec<String>>>,
 }
 
 /// The inputs of the check, then the check of `upstream` for an apply
 fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, lock: Lock) -> Result<Prepared> {
   let (grouping, resolve_mode) = read_check_inputs(git_executor, repo_path)?;
-  let candidates: RefCell<Option<Vec<Vec<String>>>> = RefCell::new(None);
-  let found = |scope: LandedScope<'_>| {
-    let found = landed_candidates(git_executor, repo_path, scope, &grouping)?;
-    candidates.replace(Some(found.clone()));
-    Ok(found)
-  };
+  let landed = LandedLookup::ByKey { stacks: grouping.stacks };
   let plan = match lock {
-    Lock::NotHeld => check_update_before_lock(git_executor, repo_path, upstream, &found, resolve_mode)?,
-    Lock::Held => check_update(git_executor, repo_path, upstream, CheckPurpose::Apply, &found, resolve_mode)?,
+    Lock::NotHeld => check_update_before_lock(git_executor, repo_path, upstream, landed, resolve_mode)?,
+    Lock::Held => check_update(git_executor, repo_path, upstream, CheckPurpose::Apply, landed, resolve_mode)?,
   };
-  Ok(Prepared {
-    grouping,
-    resolve_mode,
-    plan,
-    candidates: candidates.into_inner(),
-  })
+  Ok(Prepared { grouping, resolve_mode, plan })
 }
 
 /// What an applied update landed, added to the report; `not_landed` are local commits that are gone for another reason

@@ -8,6 +8,7 @@
 //! the witness (`recheck_pick`) before the moves.
 
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
+use crate::landed_pairing::pair_by_patch_id;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
@@ -17,7 +18,6 @@ use crate::update_branch::{
   BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, blocking_paths, branch_fork_point, check_move_undo, check_update_guards,
   move_branch_and_files, move_branch_and_files_carrying, recheck_blocking_paths,
 };
-use crate::update_resolve::pair_by_patch_id;
 use anyhow::{Result, anyhow, bail};
 use domain_types::update_project::UpdateCommit;
 use git_executor::git_command_executor::GitCommandExecutor;

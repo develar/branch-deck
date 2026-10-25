@@ -4,11 +4,10 @@
 //! status runs no walk: the status of the same commits is remembered by the process and in the object cache, and the
 //! push times of all branches of an operation are one `reflog`.
 
-use crate::commit_key::CommitKey;
-use crate::commit_walk::{WalkedCommit, walk_commits, walk_commits_by_authors, walk_commits_with_messages};
 use anyhow::Result;
 use domain_types::{DroppedCommit, LandedRemoteCommit, ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::landed_pairing::{CommitKey, WalkedCommit, ids_by_key, same_changes, walk_commits, walk_commits_with_messages};
 use git_ops::revs::is_object_id;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
@@ -342,45 +341,13 @@ fn classify_behind(
 }
 
 /// The commits of the baseline above the remote branch (`<baseline> ^<remote_tip>`) by their identity, of the authors of
-/// `commits` only: one `rev-list`, as Update Project finds the landed commits (`landed::read_upstream`). A remote commit
-/// with the identity of one is an older version of a commit that landed, by a Safe Push rebuilt on a newer target or by
-/// a cherry-pick after a change below it, so its patch is not the baseline's and `--cherry-mark` misses it
+/// `commits` only: one `rev-list` (`landed_pairing::ids_by_key`). A remote commit with the identity of one is an older
+/// version of a commit that landed, by a Safe Push rebuilt on a newer target or by a cherry-pick after a change below
+/// it, so its patch is not the baseline's and `--cherry-mark` misses it
 fn baseline_commits_of(git_executor: &GitCommandExecutor, repository_path: &str, baseline: &str, remote_tip: &str, commits: &[BehindCommit]) -> Result<HashMap<CommitKey, String>> {
   let remote_exclusion = format!("^{remote_tip}");
   let emails = commits.iter().map(|commit| commit.key.email.as_str());
-  let mut by_key = HashMap::new();
-  for commit in walk_commits_by_authors(git_executor, repository_path, emails, &[baseline, remote_exclusion.as_str()])? {
-    // newest first: the newest commit of an identity names it
-    by_key.entry(commit.key).or_insert(commit.id);
-  }
-  Ok(by_key)
-}
-
-/// Which of the `(older, newer)` pairs make the same changes: the patch ids of their diffs without context (`-U0`; a
-/// patch id ignores the line numbers and whitespace) are equal. One `diff-tree --stdin` and one `patch-id`, none
-/// without pairs
-pub fn same_changes(git_executor: &GitCommandExecutor, repository_path: &str, pairs: &[(&str, &str)]) -> Result<Vec<bool>> {
-  if pairs.is_empty() {
-    return Ok(Vec::new());
-  }
-  let input = pairs.iter().fold(String::new(), |mut input, (older, newer)| {
-    let _ = writeln!(input, "{older}\n{newer}");
-    input
-  });
-  let patches = git_executor
-    .cmd(&["diff-tree", "--stdin", "-p", "-U0", "--no-renames", "--no-ext-diff", "--no-textconv"], repository_path)
-    .stdin(input.as_bytes())
-    .bytes()?;
-  let ids = git_executor.cmd(&["patch-id", "--stable"], repository_path).stdin(&patches).bytes()?;
-  // `<patch id> <commit>` per commit with changes
-  let ids = String::from_utf8_lossy(&ids);
-  let patch_of: HashMap<&str, &str> = ids.lines().filter_map(|line| line.split_once(' ').map(|(patch, commit)| (commit, patch))).collect();
-  Ok(
-    pairs
-      .iter()
-      .map(|(older, newer)| patch_of.get(older).is_some_and(|patch| patch_of.get(newer) == Some(patch)))
-      .collect(),
-  )
+  ids_by_key(git_executor, repository_path, emails, &[baseline, remote_exclusion.as_str()])
 }
 
 fn count(n: usize) -> u32 {

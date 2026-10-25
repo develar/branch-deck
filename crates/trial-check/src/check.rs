@@ -26,7 +26,7 @@ use git_ops::commit_list::{get_frozen_commit_list, on_local_baseline};
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::autosquash::plan_autosquash;
-use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
+use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits};
 use history_rewrite::commit_ids::{IdMatch, match_commit_id};
 use history_rewrite::regroup::{RegroupError, RegroupOutcome, RegroupPlan, plan_in_memory};
 use history_rewrite::snapshot::{CommitsAhead, Grouped, Snapshot, group_commits};
@@ -46,6 +46,7 @@ use sync_core::config_snapshot::SymbolMode;
 use sync_core::grouping::branch_tips;
 use sync_core::repo_facts::{ListedBaseline, read_listed_baseline};
 use sync_core::sync::{BuildBase, SyncReport, seeded_tree_cache};
+use sync_utils::commit_subject::parse_subject;
 use sync_utils::span::in_current_span;
 use tracing::instrument;
 

@@ -3,7 +3,6 @@
 //! computed and its notes returned for the one notes write of the sync. The trial build of `check` builds a branch with
 //! the same `build_branch`, which writes commit objects only, so these are public.
 
-use crate::commit_key::CommitKey;
 use crate::commit_owners::CommitOwners;
 use crate::conflict_chain::{ChainMemo, ConflictChain, conflict_ref};
 use crate::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, compute_remote_status_for_branch};
@@ -16,6 +15,7 @@ use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, ProgressRepo
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_chain::CommitChain;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, RememberedCopy, VirtualCommit, create_or_update_commit, read_virtual_commits};
+use git_ops::landed_pairing::CommitKey;
 use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{resolve_commit, short_id};

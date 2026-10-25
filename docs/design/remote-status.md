@@ -106,7 +106,7 @@ flowchart TD
    `1↓` on every descendant, because a child's remote branch contains the parent's commits as they were (11 of 28
    branches of a real repository, every one a false alarm). An amend and a rebuild keep the author, the author time
    and the subject, so the identity of [landed commits](integration-detection.md) tells the older version from
-   someone's work: `CommitKey` (`crates/sync-core/src/commit_key.rs`, author email, author time, subject without the
+   someone's work: `CommitKey` (`crates/git-ops/src/landed_pairing.rs`, author email, author time, subject without the
    `(prefix)`), shared with `landed.rs`. A remote commit with the key of an unpushed commit of the branch is
    amended, unless both make the same changes: a commit rebuilt on a parent or a baseline that changed the lines
    around its change has another patch id, which `--cherry-pick` can't match, and is only a rebased copy (in a real
@@ -159,7 +159,7 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
 - **Remote at the tip**: a remote tip equal to the branch's tip is up to date and a fast-forward without a walk; only
   the push time is read. It is the state of a branch after its push until the sync rebuilds it: the status the app's
   push computes after it, and the first sync after the push, whose statuses of the branch were of other commits.
-- **The walks** are one `rev-list` of `crates/sync-core/src/commit_walk.rs` (`walk_commits`, shared with the robot
+- **The walks** are one `rev-list` of `crates/git-ops/src/landed_pairing.rs` (`walk_commits`, shared with the robot
   commit map): `--format=%m%x00%H%x00%an%x00%ae%x00%at%x00%s`, the caller's options, then the revs between
   `--end-of-options` and `--`; the two walks of a pushed branch read the raw messages too
   (`walk_commits_with_messages`).

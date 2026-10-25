@@ -6,6 +6,7 @@ targets:
   - ../../crates/domain-types/src/landed.rs
   - ../../crates/domain-types/src/upstream_commit.rs
   - ../../crates/sync-core/src/landed.rs
+  - ../../crates/git-ops/src/landed_pairing.rs
   - ../../crates/update-core/src/update_project.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/git-ops/src/update_branch.rs

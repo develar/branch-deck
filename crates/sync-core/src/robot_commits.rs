@@ -6,9 +6,6 @@
 //! branch is compared with the source revision by content, and its commits are translated to the commits of the
 //! checked-out branch they are copies of: an agent edits those, no hash the CI reports is local.
 
-use crate::commit_key::CommitKey;
-use crate::commit_walk::{WalkedCommit, walk_commits, walk_commits_by_authors};
-use crate::remote_status::same_changes;
 use crate::review_fetch::present_commits;
 use anyhow::Result;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
@@ -16,6 +13,7 @@ use domain_types::commit::Commit;
 use domain_types::robot_failure::{RobotCommit, RobotCommitMap, RobotCommitState, RobotFailure, RobotFailureReport};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
+use git_ops::landed_pairing::{CommitKey, WalkedCommit, ids_by_key, same_changes, walk_commits};
 use git_ops::revs::{current_branch, is_object_id};
 use history_rewrite::snapshot::read_grouping_inputs;
 use std::collections::{HashMap, HashSet};
@@ -59,14 +57,13 @@ pub fn mapped_virtual(commit: &Commit) -> Option<&str> {
 }
 
 /// The identities of the baseline commits since `source_revision` by the authors of `commits`: one `rev-list`, the
-/// authors as fixed strings, so a monorepo baseline stays small (as `landed` reads the upstream)
+/// authors as fixed strings, so a monorepo baseline stays small (`landed_pairing::ids_by_key`)
 fn landed_keys(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, source_revision: &str, commits: &[&WalkedCommit]) -> Result<HashSet<CommitKey>> {
   let exclusion = format!("^{source_revision}");
   let emails = commits.iter().map(|commit| commit.key.email.as_str());
   Ok(
-    walk_commits_by_authors(git_executor, repository_path, emails, &[baseline_branch, exclusion.as_str()])?
-      .into_iter()
-      .map(|commit| commit.key)
+    ids_by_key(git_executor, repository_path, emails, &[baseline_branch, exclusion.as_str()])?
+      .into_keys()
       .collect(),
   )
 }

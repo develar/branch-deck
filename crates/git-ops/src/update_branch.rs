@@ -9,6 +9,7 @@
 use crate::commit_utils::blob_id;
 use crate::commit_writer::{current_committer, write_notes_to_refs};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
+use crate::landed_pairing::{LandedScope, landed_candidates};
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{merge_trees, replay_range_with_env};
@@ -63,23 +64,16 @@ pub enum CheckPurpose {
   Apply,
 }
 
-/// What a check knows when it asks which local commits the upstream may already have
-#[derive(Debug, Clone, Copy)]
-pub struct LandedScope<'a> {
-  pub head: &'a str,
-  pub upstream_head: &'a str,
-  pub base: &'a str,
-  /// The revisions excluded from the local commits besides the upstream (previous upstream tips)
-  pub excluded: &'a [String],
-}
-
-/// Asked when the replay conflicts: sets of local commits (each oldest first) that the upstream may already have, in the
-/// order to try leaving them out of the replay. A set is left out only if the result provably keeps every local change.
-pub type LandedCandidates<'a> = &'a dyn Fn(LandedScope<'_>) -> Result<Vec<Vec<String>>>;
-
-/// `LandedCandidates` for a check that leaves nothing out
-pub const fn no_landed_candidates(_scope: LandedScope<'_>) -> Result<Vec<Vec<String>>> {
-  Ok(Vec::new())
+/// Which local commits a check whose replay conflicts tries to leave out, e.g. those a Safe Push robot pushed with their
+/// fixups folded in: the target alone then adds other content than the upstream has. A set is left out only if the
+/// result provably keeps every local change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LandedLookup {
+  /// None: the check leaves nothing out
+  Off,
+  /// The local commits with a counterpart upstream by identity, with their fixups, then alone
+  /// (`landed_pairing::landed_candidates`); `stacks` is the stack setting, by which a fixup finds its target
+  ByKey { stacks: bool },
 }
 
 /// A fixed committer date for preview replays
@@ -104,6 +98,8 @@ pub struct UpdatePlan {
   excluded: Vec<String>,
   /// What the check read, kept apart from the public `check`: a resolve session starts from these (`update_resolve`)
   pub(crate) checked: CheckedState,
+  /// The landed candidates the replay that conflicted asked for (`LandedLookup::ByKey`); `None` when it asked for none
+  landed_candidates: Option<Vec<Vec<String>>>,
 }
 
 /// The branch and the commits a check read
@@ -132,6 +128,12 @@ impl UpdatePlan {
   pub fn excluded(&self) -> &[String] {
     &self.excluded
   }
+
+  /// The landed candidates the check found (`LandedLookup::ByKey`), when its replay conflicted and asked for them; a
+  /// resolve session marks them as likely landed
+  pub fn landed_candidates(&self) -> Option<&[Vec<String>]> {
+    self.landed_candidates.as_deref()
+  }
 }
 
 /// Check, without the network and without writing anything, whether the checked out branch can be updated to
@@ -141,9 +143,9 @@ impl UpdatePlan {
 /// The local commits are `HEAD ^upstream ^<previous tips>`: the previous tips are the tip before a forced fetch and the
 /// fork point from the tracking ref's reflog, so commits that a force-push removed upstream are not replayed back, as
 /// with `git pull --rebase`.
-#[instrument(skip(git_executor, candidates))]
+#[instrument(skip(git_executor))]
 ///
-/// A replay that conflicts is tried again without the commits `candidates` names, e.g. those a Safe Push robot pushed
+/// A replay that conflicts is tried again without the commits `landed` names, e.g. those a Safe Push robot pushed
 /// with their fixups folded in: the target alone then adds other content than the upstream has. Then, with
 /// `ResolveMode::On`, commit by commit with each conflict of git resolved by words, all or nothing (`word_replay`).
 pub fn check_update(
@@ -151,25 +153,19 @@ pub fn check_update(
   repo_path: &str,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  candidates: LandedCandidates<'_>,
+  landed: LandedLookup,
   resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
-  check_update_read(git_executor, repo_path, upstream, purpose, candidates, resolve, Blocks::Now)
+  check_update_read(git_executor, repo_path, upstream, purpose, landed, resolve, Blocks::Now)
 }
 
 /// `check_update` for an apply whose caller takes the repository lock only after it (Update Project): the replay, the
 /// resolution by words and the landed candidates run without the lock on the HEAD and the upstream read once; the
 /// local changes on the paths the update writes are left to `recheck_update`, which the caller runs under the lock, and
 /// `apply_update` refuses the plan before it
-#[instrument(skip(git_executor, candidates))]
-pub fn check_update_before_lock(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  upstream: UpstreamRef<'_>,
-  candidates: LandedCandidates<'_>,
-  resolve: ResolveMode,
-) -> Result<UpdatePlan> {
-  check_update_read(git_executor, repo_path, upstream, CheckPurpose::Apply, candidates, resolve, Blocks::UnderTheLock)
+#[instrument(skip(git_executor))]
+pub fn check_update_before_lock(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, landed: LandedLookup, resolve: ResolveMode) -> Result<UpdatePlan> {
+  check_update_read(git_executor, repo_path, upstream, CheckPurpose::Apply, landed, resolve, Blocks::UnderTheLock)
 }
 
 /// The check of the state `read_checked_head` reads
@@ -178,7 +174,7 @@ fn check_update_read(
   repo_path: &str,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  candidates: LandedCandidates<'_>,
+  landed: LandedLookup,
   resolve: ResolveMode,
   blocks: Blocks,
 ) -> Result<UpdatePlan> {
@@ -188,7 +184,7 @@ fn check_update_read(
     head: &head,
     upstream_head: &upstream_head,
   };
-  check_update_with(git_executor, repo_path, checked, upstream, purpose, candidates, resolve, blocks)
+  check_update_with(git_executor, repo_path, checked, upstream, purpose, landed, resolve, blocks)
 }
 
 /// The guards, then the checked out branch, HEAD and the upstream's tip: one `rev-parse` of two revisions, which takes
@@ -233,17 +229,17 @@ pub struct CheckedHead<'a> {
 
 /// `check_update` of a state the caller read with its own guards (the check inside a sync): no guard, branch or commit
 /// is read again
-#[instrument(skip(git_executor, candidates))]
+#[instrument(skip(git_executor))]
 pub fn check_update_of(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   checked: CheckedHead<'_>,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  candidates: LandedCandidates<'_>,
+  landed: LandedLookup,
   resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
-  check_update_with(git_executor, repo_path, checked, upstream, purpose, candidates, resolve, Blocks::Now)
+  check_update_with(git_executor, repo_path, checked, upstream, purpose, landed, resolve, Blocks::Now)
 }
 
 #[expect(clippy::too_many_arguments, reason = "check_update_of and when its blocks are read")]
@@ -253,7 +249,7 @@ fn check_update_with(
   checked: CheckedHead<'_>,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  candidates: LandedCandidates<'_>,
+  landed: LandedLookup,
   resolve: ResolveMode,
   blocks: Blocks,
 ) -> Result<UpdatePlan> {
@@ -288,6 +284,7 @@ fn check_update_with(
     blocks_unchecked: false,
     excluded: Vec::new(),
     checked,
+    landed_candidates: None,
   };
   if base == upstream_head {
     return Ok(plan);
@@ -307,12 +304,13 @@ fn check_update_with(
   let (outcome, mut probe) = match purpose {
     CheckPurpose::Preview => {
       let (cached, probe) = preview_cache().get(&key);
-      let outcome = match cached {
-        Some(outcome) => {
-          debug!("update check: the replay of this state is cached");
-          outcome
-        }
-        None => replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates, resolve)?,
+      let outcome = if let Some(outcome) = cached {
+        debug!("update check: the replay of this state is cached");
+        outcome
+      } else {
+        let (outcome, candidates) = replay_outcome(git_executor, repo_path, &plan, kind, purpose, landed, resolve)?;
+        plan.landed_candidates = candidates;
+        outcome
       };
       (outcome, probe)
     }
@@ -324,7 +322,8 @@ fn check_update_with(
         debug!("update check: the conflict of this state is cached");
         (outcome, probe)
       } else {
-        let outcome = replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates, resolve)?;
+        let (outcome, candidates) = replay_outcome(git_executor, repo_path, &plan, kind, purpose, landed, resolve)?;
+        plan.landed_candidates = candidates;
         if matches!(outcome, ReplayOutcome::Conflict { .. }) {
           preview_cache().put(key.clone(), outcome.clone(), probe);
         }
@@ -424,18 +423,20 @@ enum ReplayOutcome {
   },
 }
 
-/// Replay the local commits onto the upstream (a fast-forward needs no replay) and list the paths HEAD's tree changes
+/// Replay the local commits onto the upstream (a fast-forward needs no replay) and list the paths HEAD's tree changes;
+/// with the landed candidates a replay that conflicted asked for
 fn replay_outcome(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   plan: &UpdatePlan,
   kind: UpdateKind,
   purpose: CheckPurpose,
-  candidates: LandedCandidates<'_>,
+  landed: LandedLookup,
   resolve: ResolveMode,
-) -> Result<ReplayOutcome> {
+) -> Result<(ReplayOutcome, Option<Vec<Vec<String>>>)> {
   let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
   let mut resolved = Vec::new();
+  let mut candidates = None;
   let new_head = match kind {
     UpdateKind::FastForward => upstream_head.clone(),
     UpdateKind::Rebase => {
@@ -452,7 +453,7 @@ fn replay_outcome(
       };
       let mut replayed = match replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)? {
         Some(new_head) => Some(new_head),
-        None => replay_without_landed(git_executor, repo_path, plan, &revs, env, candidates)?,
+        None => replay_without_landed(git_executor, repo_path, plan, &revs, env, landed, &mut candidates)?,
       };
       if replayed.is_none()
         && resolve == ResolveMode::On
@@ -470,18 +471,19 @@ fn replay_outcome(
         let pathspecs: Vec<String> = paths.iter().filter_map(|path| path.to_str().ok()).map(str::to_string).collect();
         let (commits, upstream_commits) = conflict_commits(git_executor, repo_path, &revs, base, upstream_head, &pathspecs)?;
         debug!(file_count, commits = commits.len(), upstream_commits = upstream_commits.len(), "update conflicts");
-        return Ok(ReplayOutcome::Conflict {
+        let conflict = ReplayOutcome::Conflict {
           files,
           file_count,
           commits,
           upstream_commits,
-        });
+        };
+        return Ok((conflict, candidates));
       };
       new_head
     }
   };
   let changed = changed_paths(git_executor, repo_path, head, &new_head)?;
-  Ok(ReplayOutcome::Applies { new_head, changed, resolved })
+  Ok((ReplayOutcome::Applies { new_head, changed, resolved }, candidates))
 }
 
 /// The replay of the local commits (`local_revs`) onto the upstream with each conflict of git resolved by words: the
@@ -508,24 +510,30 @@ fn replay_by_words(
 }
 
 /// For a replay that conflicts: replay again without a set of local commits that the upstream already has, trying the
-/// sets of `candidates` in order. A result counts only if it keeps every local change: merging all local commits
-/// (merge base to HEAD) into it changes nothing. So a commit amended after it was pushed, or a fixup made after, is
-/// never lost; its set fails and the update conflicts as before. `None` when no set gives such a result.
+/// sets of `landed` in order; the sets go to `found` for a resolve session. A result counts only if it keeps every
+/// local change: merging all local commits (merge base to HEAD) into it changes nothing. So a commit amended after it
+/// was pushed, or a fixup made after, is never lost; its set fails and the update conflicts as before. `None` when no
+/// set gives such a result.
 fn replay_without_landed(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   plan: &UpdatePlan,
   local_revs: &[&str],
   env: &[(&str, &str)],
-  candidates: LandedCandidates<'_>,
+  landed: LandedLookup,
+  found: &mut Option<Vec<Vec<String>>>,
 ) -> Result<Option<String>> {
+  let LandedLookup::ByKey { stacks } = landed else {
+    return Ok(None);
+  };
   let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
-  let attempts = candidates(LandedScope {
+  let scope = LandedScope {
     head,
     upstream_head,
     base,
     excluded: &plan.excluded,
-  })?;
+  };
+  let attempts = found.insert(landed_candidates(git_executor, repo_path, scope, stacks)?);
   if attempts.iter().all(Vec::is_empty) {
     return Ok(None);
   }

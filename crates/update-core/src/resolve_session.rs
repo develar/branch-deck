@@ -11,9 +11,10 @@ use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
+use git_ops::landed_pairing::{LandedScope, landed_candidates};
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
-use git_ops::update_branch::{LandedScope, UpdatePlan};
+use git_ops::update_branch::UpdatePlan;
 use git_ops::update_resolve::{
   ConflictKind, EditCopy, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, Session, SessionStart, SessionState, SessionStatus, Side, Stage, Step, abort_session,
   commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths, start_session,
@@ -26,7 +27,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
-use sync_core::landed::landed_candidates;
 use sync_utils::paths::display_path;
 use tracing::{instrument, warn};
 
@@ -254,8 +254,9 @@ fn landed_dropped(git_executor: &GitCommandExecutor, repo_path: &str, state: &Se
 }
 
 /// Start the session of an update whose check conflicted, under the lock the update holds and passes as `lock`, which a
-/// session that finishes at once releases before its landed report. `candidates` are the landed candidates the check
-/// found, when it asked for them; `resolve` is the resolve by words of the check
+/// session that finishes at once releases before its landed report. The likely landed commits are the landed candidates
+/// the check found (`UpdatePlan::landed_candidates`), else the key match runs here; `resolve` is the resolve by words of
+/// the check
 #[expect(clippy::too_many_arguments, reason = "what the update read under its lock, passed on")]
 pub(crate) fn start_resolve(
   git_executor: &GitCommandExecutor,
@@ -263,24 +264,26 @@ pub(crate) fn start_resolve(
   worktree: &Worktree,
   plan: &UpdatePlan,
   grouping: &GroupingInputs,
-  candidates: Option<Vec<Vec<String>>>,
   dir: Option<(String, bool)>,
   resolve: ResolveMode,
   lock: RepositoryLock,
 ) -> Result<SessionOutcome> {
   let (check, excluded) = (&plan.check, plan.excluded());
-  let candidates = candidates.unwrap_or_else(|| {
-    let scope = LandedScope {
-      head: &check.head,
-      upstream_head: &check.upstream_head,
-      base: &check.base,
-      excluded,
-    };
-    landed_candidates(git_executor, repo_path, scope, grouping).unwrap_or_else(|e| {
-      warn!(error = %format!("{e:#}"), "can't find the likely landed commits");
-      Vec::new()
-    })
-  });
+  let candidates = plan.landed_candidates().map_or_else(
+    || {
+      let scope = LandedScope {
+        head: &check.head,
+        upstream_head: &check.upstream_head,
+        base: &check.base,
+        excluded,
+      };
+      landed_candidates(git_executor, repo_path, scope, grouping.stacks).unwrap_or_else(|e| {
+        warn!(error = %format!("{e:#}"), "can't find the likely landed commits");
+        Vec::new()
+      })
+    },
+    <[Vec<String>]>::to_vec,
+  );
   let mut likely_landed: Vec<String> = candidates.into_iter().flatten().collect();
   likely_landed.sort_unstable();
   likely_landed.dedup();

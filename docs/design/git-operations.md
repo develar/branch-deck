@@ -776,8 +776,9 @@ the scope (see "Rewrite history"), once the plan names the targets. The branch m
 CAS on that head; Undo is the squash undo. The core takes the repository lock first; `bd fold` passes its
 `--expect-head` and lock timeout to it, with the head it planned for.
 
-Code: `crates/history-rewrite/src/autosquash.rs`, `crates/history-rewrite/src/commit_grouper.rs` (`parse_subject`,
-`GroupingInputs::branch_of`).
+Code: `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/autosquash_targets.rs` (the target of each
+fixup), `crates/sync-utils/src/commit_subject.rs` (`parse_subject`), `crates/history-rewrite/src/commit_grouper.rs`
+(`GroupingInputs::branch_of`).
 
 #### Move a hunk
 
@@ -952,9 +953,10 @@ Details:
   ([Index lock](#index-lock)); one that stays 30 s moves the branch back as `locked`.
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
-  **Landed commits left out.** When the replay conflicts, the check asks sync-core for sets of landed local commits
-  (`LandedCandidates`): those with a counterpart upstream with their fixups, then those alone. Each set is left out as a
-  drop does, one `replay` per run of kept commits, the first run `<d_1>^ ^U ^<previous tips>` onto U. The result counts
+  **Landed commits left out.** When the replay conflicts, the check reads sets of landed local commits by their key
+  (`LandedLookup::ByKey`, `landed_pairing::landed_candidates`): those with a counterpart upstream with their fixups,
+  then those alone; the plan keeps the sets for a resolve session (`UpdatePlan::landed_candidates`). Each set is left
+  out as a drop does, one `replay` per run of kept commits, the first run `<d_1>^ ^U ^<previous tips>` onto U. The result counts
   only if `merge-tree --merge-base=<base> <result> H` gives the result's tree: merging every local change into it
   changes nothing, so nothing local is lost (an amend after the push, a fixup made after it). A robot that autosquashes
   pushes the target with its fixups folded in; the target alone then adds other content than the upstream has, and a
@@ -1333,8 +1335,8 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    another form becomes empty and drops: the copies are matched back to the kept commits by author, author time and
    subject, and the dropped ones are `already_present` with `by: empty`. Only when something is present, each gets the
    target's commit of the same patch id (`rev-list --cherry-mark --left-only` of the target's side, then
-   `pair_by_patch_id`, shared with the resolve session). A conflict: the first conflicting commit by a binary search
-   over the prefixes of the segment that conflicts, onto the tip before it (`replay::first_conflict`, shared with the
+   `landed_pairing::pair_by_patch_id`, shared with the resolve session). A conflict: the first conflicting commit by a
+   binary search over the prefixes of the segment that conflicts, onto the tip before it (`replay::first_conflict`, shared with the
    resolve session), its files from one `merge-tree --write-tree --name-only -z` onto the longest clean prefix;
    nothing moves. The upstream bounds both sides: a commit that reached the upstream in another form is not found by
    patch id, it drops as empty or conflicts.
@@ -3239,11 +3241,12 @@ same for the app and `bd robot`, runs one process per phase:
    commits too, each with its branch: a failure may come from a parent's commit.
 3. One `rev-list ^<baseline> <virtual branch>` and one
    `rev-list --left-right --cherry-mark ^<baseline> <source>...<virtual branch>`, both the walk of the remote status
-   (`walk_commits`, `crates/sync-core/src/commit_walk.rs`: the mark, the id, the author and the subject). A commit both reach (the symmetric
-   difference leaves it out, so the first walk is needed) or a patch-equivalent copy (`=`) is `tested`.
-4. A new commit (`>`) and a robot commit (`<`) with one identity (`CommitKey`) are compared by `same_changes` of the
-   remote status: one `diff-tree --stdin -p -U0` and one `patch-id --stable`, none without such pairs. The same
-   changes are `rebased`, others `changed`. The patch ids of `--cherry-mark` include three lines of context, which a
+   (`walk_commits`, `crates/git-ops/src/landed_pairing.rs`: the mark, the id, the author and the subject). A commit
+   both reach (the symmetric difference leaves it out, so the first walk is needed) or a patch-equivalent copy (`=`)
+   is `tested`.
+4. A new commit (`>`) and a robot commit (`<`) with one identity (`CommitKey`) are compared by `same_changes` of
+   `landed_pairing`, as the remote status compares them: one `diff-tree --stdin -p -U0` and one `patch-id --stable`,
+   none without such pairs. The same changes are `rebased`, others `changed`. The patch ids of `--cherry-mark` include three lines of context, which a
    rebuild on a newer baseline moves when the baseline changed lines near the change; without context only the
    changed lines count (a patch id ignores the line numbers).
 5. The other robot commits are `landed` when a baseline commit since the source revision has its identity, else
@@ -3888,7 +3891,7 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   `current_worktree` moved to `git_ops::revs`.
 - **One walk for the remote status**: its walks differ in their ranges on purpose (`^baseline`), and the walk saved
   would be a cheap one.
-- **The landing check reads `HEAD ^base` again** (`read_local` in `crates/sync-core/src/landed.rs`): one `log` per sync
+- **The landing check reads `HEAD ^base` again** (`read_local` in `crates/git-ops/src/landed_pairing.rs`): one `log` per sync
   of a fresh process while an update is pending, though the commit list of the sync has those commits.
 - **`fastimport.unpackLimit=0`** (a `fast-import` keeps its pack, however small, instead of an `unpack-objects` into
   loose objects; measured 2026-10-24 with `pnpm perf:monorepo` on two clones of the IntelliJ monorepo pinned at

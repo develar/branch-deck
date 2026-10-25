@@ -163,7 +163,8 @@ flowchart TB
    branch squashed into one commit (no upstream commit then). Without a replay (a commit the user squashed, reworded
    or dropped between two syncs is also gone), only key matches count.
 
-   Three moments, three places, no overlap (`crates/sync-core/src/landed.rs`):
+   Three moments, three places, no overlap (`crates/sync-core/src/landed.rs`; the pairing by key and by patch id is
+   `crates/git-ops/src/landed_pairing.rs`):
    - **Before the update** (the check of every sync, `BaselineStatus.landing`): the Update button says "brings in your
      wsm", the branch row shows "Landed", the commit row "in origin/master".
    - **The update** (`UpdateProjectResult.landed`): the toast leads with what landed.

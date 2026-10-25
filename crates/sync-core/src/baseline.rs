@@ -5,7 +5,7 @@
 //! pool and the reapply read the upstream from here (docs/design/git-operations.md, "Update project").
 
 use crate::config_snapshot::ConfigSnapshot;
-use crate::landed::{find_landing, landed_candidates};
+use crate::landed::find_landing;
 use crate::remote_command::execute_remote_command_with_progress;
 use crate::repo_facts::{Baseline, read_baseline};
 use crate::transfer_progress::TransferProgress;
@@ -14,7 +14,7 @@ use domain_types::landed::LandedBranch;
 use domain_types::update_project::UpdateCheck;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{current_branch, known_dirs};
-use git_ops::update_branch::{CheckPurpose, CheckedHead, LandedScope, UpdatePlan, UpstreamRef, check_update, check_update_of};
+use git_ops::update_branch::{CheckPurpose, CheckedHead, LandedLookup, UpdatePlan, UpstreamRef, check_update, check_update_of};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_grouper::GroupingInputs;
@@ -216,8 +216,8 @@ pub fn check_baseline_update_with(
     name: &upstream.name,
     previous: None,
   };
-  let candidates = |scope: LandedScope<'_>| landed_candidates(git_executor, repo_path, scope, grouping);
-  let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, &candidates, resolve)?;
+  let landed = LandedLookup::ByKey { stacks: grouping.stacks };
+  let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, landed, resolve)?;
   plan.check.fetched_at = last_fetch_time(git_executor, repo_path);
   Ok(Some(with_landing(git_executor, repo_path, plan, grouping)))
 }
@@ -255,8 +255,8 @@ pub fn check_known_baseline_update(
     head: &known.head,
     upstream_head: &known.upstream_head,
   };
-  let candidates = |scope: LandedScope<'_>| landed_candidates(git_executor, repo_path, scope, grouping);
-  let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, &candidates, resolve)?;
+  let landed = LandedLookup::ByKey { stacks: grouping.stacks };
+  let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, landed, resolve)?;
   plan.check.fetched_at = known.fetched_at;
   Ok(with_landing(git_executor, repo_path, plan, grouping))
 }

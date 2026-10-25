@@ -24,12 +24,11 @@
 //! - `stack_branch`: the stack branch `{prefix}/stack/<root>` of a stack that forks: all its commits in one branch
 //! - `issue_navigation`: the issue key patterns of `.idea/vcs.xml`
 //! - `remote_status`: what a virtual branch has that its remote branch lacks and the reverse, by content
-//! - `commit_walk`: one `rev-list` walk of commits that a caller matches across a rebase by `CommitKey`
-//! - `commit_key`: the identity of a commit across a rebase and an amend
 //! - `commit_owners`: where the commits of a sync go, so a conflict names the branch of each commit it likely needs
 //! - `cache_memo`: the merges, commit trees and conflict views in the object cache
 //! - `conflict_chain`: the copies of a conflicting branch before its conflict, kept by a ref and remembered
-//! - `landed`: the user's commits that reached the baseline, before and after an update
+//! - `landed`: the user's commits that reached the baseline, before and after an update (the pairing with the upstream
+//!   commits is `git_ops::landed_pairing`)
 //! - `baseline`: the remote branch the baseline tracks, its fetch, and the update check every sync runs, without the
 //!   network
 //! - `baseline_fetch`: the fetch of the baseline without an update
@@ -85,9 +84,7 @@ pub mod branch_prefix;
 pub mod branch_processor;
 pub mod branch_review;
 pub mod cache_memo;
-pub mod commit_key;
 pub mod commit_owners;
-pub mod commit_walk;
 pub mod config_snapshot;
 pub mod conflict_chain;
 pub mod delete_archived_branch;

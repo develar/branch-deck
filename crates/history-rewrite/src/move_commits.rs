@@ -1,7 +1,6 @@
 //! The app's move of commits to another branch or out of one, as the smallest regroup (`move_plan.rs`): the issue
 //! groups for a whole issue, the `(prefix)` of the subjects for the rest, one rewrite and one ref transaction for all.
 
-use crate::commit_grouper::parse_subject;
 use crate::move_plan::{move_target, plan_move};
 use crate::regroup::{RegroupOptions, RegroupOutcome, RegroupedCommit, UndoToken, regroup_planned};
 use crate::repository_lock::LockWait;
@@ -10,6 +9,7 @@ use domain_types::branch_names::sanitize_branch_name;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use sync_utils::commit_subject::parse_subject;
 use tracing::{info, instrument};
 
 #[derive(Debug, Deserialize)]
