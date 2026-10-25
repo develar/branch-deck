@@ -7,6 +7,7 @@ use history_rewrite::regroup::{FixupRefusal, RegroupError};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt;
+use sync_core::push_size::PushTooLarge;
 use sync_core::sync::SyncDeferred;
 
 /// The exit code of a conflict: the output of the command (`state: "conflict"`, a branch not built, `check.ok` false),
@@ -76,10 +77,22 @@ impl fmt::Display for CliError {
   }
 }
 
-/// A missing baseline (`NoBaseline`, also a repository without commits) is `no_baseline`; any other git failure, which
-/// has no more specific code, is `git_error`
+/// `push_too_large`, its `paths` the directory that holds most of the push and the largest files
+impl From<&PushTooLarge> for CliError {
+  fn from(too_large: &PushTooLarge) -> Self {
+    let mut error = Self::new(ErrorCode::PushTooLarge, too_large.to_string());
+    error.paths = too_large.paths();
+    error
+  }
+}
+
+/// A missing baseline (`NoBaseline`, also a repository without commits) is `no_baseline`, a push refused for its size
+/// `push_too_large`; any other git failure, which has no more specific code, is `git_error`
 impl From<anyhow::Error> for CliError {
   fn from(error: anyhow::Error) -> Self {
+    if let Some(too_large) = error.downcast_ref::<PushTooLarge>() {
+      return Self::from(too_large);
+    }
     let code = if error.downcast_ref::<NoBaseline>().is_some() {
       ErrorCode::NoBaseline
     } else {

@@ -22,6 +22,7 @@ use history_rewrite::parked::ParkError;
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryLocked};
 use std::time::{SystemTime, UNIX_EPOCH};
+use sync_core::push_size::PushTooLarge;
 use sync_core::reapply_branch::ReapplyRefusal;
 use sync_core::sync::SyncDeferred;
 use sync_core::unapply_branch::UnapplyRefusal;
@@ -213,6 +214,9 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   }
   if error.downcast_ref::<FetchFailed>().is_some() {
     return code(ErrorCode::NetworkError);
+  }
+  if let Some(too_large) = error.downcast_ref::<PushTooLarge>() {
+    return Some((ErrorCode::PushTooLarge, Some(ErrorDetails::Paths { paths: too_large.paths() })));
   }
   if error.downcast_ref::<NotAnUpdate>().is_some() {
     return code(ErrorCode::InvalidArguments);

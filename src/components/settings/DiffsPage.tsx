@@ -7,8 +7,8 @@ import { DiffLayoutButtons, WhitespaceMenu } from "@/components/shared/DiffViewT
 import { InlineCode } from "@/components/shared/InlineCode"
 import { useConfigWrite } from "@/hooks/useConfigWrite"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
-import type { ConfigSetting, RepositoryConfigChange, WriteScope } from "@/lib/bindings"
-import { CONFIG_KEYS, describeFallback, describeGlobalSource, overriddenReason, repositoryName, resetLabel, writeErrorTitle } from "@/lib/repository-config"
+import type { RepositoryConfigChange, WriteScope } from "@/lib/bindings"
+import { CONFIG_KEYS, describeEveryRepositorySource, describeFallback, overriddenReason, repositoryName, resetLabel, writeErrorTitle } from "@/lib/repository-config"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { setDiffLigatures, setDiffSoftWraps, useDiffLigatures, useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 
@@ -82,23 +82,6 @@ function onOff(value: boolean): string {
 }
 
 /**
- * Where the value of the switch comes from, and where a change goes: the global git config, unless `.git/config` of
- * the repository sets the key (then the switch changes that value, and the reset removes it)
- */
-function resolveByWordsSource(setting: ConfigSetting<boolean>, name: string): string {
-  switch (setting.scope) {
-    case null:
-    case "global":
-    case "system":
-      return describeGlobalSource(setting.scope, true)
-    case "local":
-      return setting.fallbackScope === null ? `Set in .git/config of ${name}, for this repository only` : `Set in .git/config of ${name}, which overrides your global Git config`
-    default:
-      return ""
-  }
-}
-
-/**
  * "Resolve conflicts by words" (`branchdeck.resolveByWords`, docs/design/git-operations.md "Resolve by words"): one
  * value for every repository in the global git config, which bd reads too. A repository whose `.git/config` sets the
  * key keeps its own value: the switch changes it there, and "Use Global" or "Use Default" removes it. The worktree
@@ -114,7 +97,7 @@ function ResolveByWordsSetting({ path }: { path: string }) {
 
   const write = (value: boolean | null, scope: WriteScope) => {
     const change: RepositoryConfigChange = { key: "resolveByWords", value }
-    config.write(change, scope, scope === "global" ? "Cannot change how every repository resolves conflicts by words" : writeErrorTitle(change, false, path))
+    void config.write(change, scope, scope === "global" ? "Cannot change how every repository resolves conflicts by words" : writeErrorTitle(change, false, path))
   }
 
   return (
@@ -136,7 +119,7 @@ function ResolveByWordsSetting({ path }: { path: string }) {
         {state.status === "error" && <ConfigReadError testId="setting-resolveByWords-error" message={state.message} onRetry={retry} />}
         {setting !== null && overridden === null && (
           <p className="flex items-center gap-2" data-testid="setting-resolveByWords-source">
-            {resolveByWordsSource(setting, name)}
+            {describeEveryRepositorySource(setting, name, "On")}
             {setting.localSet && (
               <Tooltip>
                 <TooltipTrigger render={<Button variant="ghost" size="xs" disabled={writing} onClick={() => write(null, "local")} />}>{resetLabel(setting)}</TooltipTrigger>

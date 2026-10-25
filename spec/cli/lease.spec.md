@@ -16,6 +16,7 @@ targets:
   - ../../crates/bd-core/src/error.rs
   - ../../.branchdeck.toml
   - ../../crates/sync-utils/src/process_scan.rs
+  - ../../crates/sync-utils/src/size.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/git-ops/src/lease_slot.rs
   - ../../crates/git-executor/src/worktree_safety_test.rs
@@ -79,7 +80,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   reserve there, so a queue of gets never adds slots past the minimum: a get that waited for the lock reads
   `branchdeck.leaseMinFree` again, and refuses with nothing reserved.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_refuses_and_names_it`)
-  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_size_is_a_number_and_a_binary_unit`)
+  [@test] ../../crates/sync-utils/src/size_test.rs (`a_size_is_a_number_and_a_binary_unit`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it`)
 - A free slot must be a linked worktree of the same git common dir whose directory exists, and no process of another
   session may work in it; a busy free slot is skipped (`skipped`, `reason: "busy"`, `processes` [{`pid`, `command`,

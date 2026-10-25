@@ -249,7 +249,14 @@ fn a_guarded_push_runs_the_processes_of_the_core_push() {
   );
   assert_eq!(
     git.process_stats().unwrap().counts(),
-    [("for-each-ref".to_string(), 2), ("push".to_string(), 1), ("reflog".to_string(), 1)]
+    [
+      ("cat-file".to_string(), 1),
+      ("config".to_string(), 1),
+      ("for-each-ref".to_string(), 2),
+      ("log".to_string(), 1),
+      ("push".to_string(), 1),
+      ("reflog".to_string(), 1)
+    ]
   );
 }
 

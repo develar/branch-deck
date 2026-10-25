@@ -32,6 +32,7 @@ targets:
   - ../../src/components/ui/tabs.tsx
   - ../../src/components/settings/SettingRow.tsx
   - ../../src/components/settings/GeneralPage.tsx
+  - ../../src/components/settings/PushSizeLimitSetting.tsx
   - ../../src/components/settings/AppearancePage.tsx
   - ../../src/components/settings/DiffsPage.tsx
   - ../../src/components/settings/AgentsPage.tsx
@@ -424,12 +425,30 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 ### Patronus
 
-- One section, "Robots", "How Branch Deck and bd read the robots of Patronus": the switch "New Patronus API"
+- A section "Robots", "How Branch Deck and bd read the robots of Patronus": the switch "New Patronus API"
   (`appSettings.patronusNewApi`, off by default): the progress of a running robot in one request and its merge profile
   in the robot list, the old requests while Patronus has them off ([Patronus](../branch/patronus.spec.md)). `bd` reads
   the setting from the settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
+- A second section, "Push" ("Every push of the app and of bd: one that adds more files is refused before it is sent ·
+  `branchdeck.pushSizeLimit`"), after it: "Push size limit", a size (`50M` the placeholder and the default, `1G`, `512K`), `0` or `off` for none
+  ([Outgoing](outgoing.spec.md#push)). As "Resolve conflicts by words", it is one value for every repository, written
+  to the global git config, which `bd` reads too, and the line under it says where the value comes from ("50M by
+  default. A change goes to your global Git config, which bd reads too", "Set in your global Git config, which bd
+  reads too", "Set in .git/config of <repository>, which overrides your global Git config"); a repository whose
+  `.git/config` sets the key keeps its own value, which the field changes, and "Use Global" (or "Use Default") removes
+  it. The worktree config and the command line disable the field with the reason of Repository; an invalid value says
+  why, in the words of the field. The field saves on Enter and when it is left, never on a key, and Escape takes the
+  typing back; typing the backend would refuse is refused in place (`isValidPushSizeLimit`): "lots is not a size such as
+  50M or 1G, nor 0 or off", the backend's words for an invalid value too. A write syncs nothing: a push reads the limit as
+  it starts. A failed write is a toast: "Cannot change the push size limit of every repository", or for the local
+  value "Cannot change the push size limit of <repository>". The section is here, beside the way to the Safe Push, because
+  Repository and General with it would not fit 720 × 540.
+  [@test] ../../src/lib/repository-config.test.ts (`takes a size with a binary unit, 0 or off, as the backend does`, `says where the value of every repository comes from, and that a change goes to the global config`, `titles a failed write by what it changes`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`invalid_values_are_refused_before_git_runs`, `the_push_size_limit_is_a_size_or_off_as_written`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
 
 ### Agents
 

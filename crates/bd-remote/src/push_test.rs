@@ -418,6 +418,35 @@ fn the_network_push_holds_no_repository_lock() {
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
+/// A push whose commits add more than `branchdeck.pushSizeLimit` of files is `push_too_large` before bd asks the remote,
+/// a dry run too: the message names the directory that holds most of it, `paths` it and the largest files, the remote
+/// has nothing; an invalid limit refuses the push as a wrong argument
+#[test_log::test]
+fn a_push_over_the_size_limit_is_push_too_large_before_the_remote() {
+  let (repo, remote) = repo_with_remote(&[]);
+  write(&repo, "tool/target/debug/app", "x".repeat(3000));
+  write(&repo, "tool/src/main.rs", "fn main() {}\n");
+  commit_all(&repo, "(auth) Add the tool", 1_700_000_000);
+  git(&repo, &["config", "branchdeck.pushSizeLimit", "2K"]);
+
+  for args in [&["push", "auth", "--dry-run"][..], &["push", "auth"]] {
+    let (exit_code, output) = run_in(&repo, args);
+    assert_error(&output, exit_code, (4, "push_too_large"));
+    let message = output["error"]["message"].as_str().unwrap();
+    assert!(message.contains("2.9 KiB of it in tool/target/debug/ (1 file)"), "{output}");
+    assert_eq!(
+      output["error"]["paths"],
+      json!(["tool/target/debug/", "tool/target/debug/app", "tool/src/main.rs"]),
+      "{output}"
+    );
+  }
+  assert_eq!(remote_tip(&remote, AUTH), "");
+
+  git(&repo, &["config", "branchdeck.pushSizeLimit", "lots"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+}
+
 /// The leases held, yet the remote refused the push (a hook, a protected branch): `push_refused` with what git and the
 /// remote said, nothing pushed, not `lease_rejected`
 #[test_log::test]

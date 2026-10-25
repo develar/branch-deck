@@ -98,7 +98,8 @@ An error looks like this:
 ```
 
 A refused resolution of `bd update --continue` has `paths` too, the conflicting files; `lease_rejected` and
-`push_refused` have `branches`, the branches with their remote status.
+`push_refused` have `branches`, the branches with their remote status; `push_too_large` has `paths`, the directory that
+holds most of the push (`dir/`) and its largest files.
 
 `approvals_missing` of `bd safe-push` has `review`, the code-owner review the Safe Push lacks (see `bd safe-push`).
 `target_conflict` has `commits` and `paths`: the commit that Patronus can't rebase onto the newest target and its files.
@@ -109,7 +110,7 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -1369,6 +1370,11 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 - A push the remote refuses while every lease holds (a hook, a protected branch, a pack too large) is
   `push_refused` with what git said of each ref and what the remote said why; nothing was pushed. Tell the user: a
   retry doesn't help.
+- A push whose commits add more files than the push size limit (`branchdeck.pushSizeLimit`, 50 MiB unless set) is
+  `push_too_large` before bd asks the remote, `--dry-run` too: the message says how much and where, `paths` lists the
+  directory and the largest files. It is mostly build output committed by mistake (a `target/`, `node_modules/`): show
+  it to the user, who takes the files out of the commits or raises the limit (Settings → Patronus); never raise it
+  yourself.
 - `pull_request.base` is the baseline without the remote (`master`), for every branch. `title` and `body` are the
   `bd describe` text, else the text of the commits: the issue key and its YouTrack summary as the title (the summary
   only when the link of `.idea/vcs.xml` is an issue page of the YouTrack you are signed in to), the issues linked, an

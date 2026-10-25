@@ -49,6 +49,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::EmptyResolution, 2, false),
   (ErrorCode::FinishPending, 4, false),
   (ErrorCode::PushRefused, 4, false),
+  (ErrorCode::PushTooLarge, 4, false),
   (ErrorCode::NoRemote, 4, false),
   (ErrorCode::InstallRefused, 4, false),
   (ErrorCode::ApprovalsMissing, 4, false),

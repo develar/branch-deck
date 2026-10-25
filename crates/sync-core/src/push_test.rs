@@ -1,4 +1,5 @@
 use crate::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, prepare_push_branches, push_branches};
+use crate::push_size::PushTooLarge;
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
 use domain_types::RemoteStatusUpdate;
@@ -322,6 +323,11 @@ fn a_branch_deleted_on_the_remote_is_shown_as_not_pushed() {
 
 /// The error of a push of `feature` the remote refuses, leased on `first`
 fn refused_push(local: &TestRepo, first: &str) -> String {
+  failed_push(local, first).to_string()
+}
+
+/// The error of a push of `feature` that fails, leased on `first`
+fn failed_push(local: &TestRepo, first: &str) -> anyhow::Error {
   let params = PushBranchParams {
     repository_path: path(local).to_string(),
     branch_name: "feature".to_string(),
@@ -331,7 +337,7 @@ fn refused_push(local: &TestRepo, first: &str) -> String {
     expected_remote: Some(first.to_string()),
     tip: None,
   };
-  push_branch(local.git_executor(), &params, &HashMap::new(), &mut |_| {}).unwrap_err().to_string()
+  push_branch(local.git_executor(), &params, &HashMap::new(), &mut |_| {}).unwrap_err()
 }
 
 /// The lease held, but the remote refused the push (a hook, a protected branch): an error
@@ -348,6 +354,46 @@ fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
   assert!(error.contains("pre-receive hook declined"), "the report of the ref: {error}");
   assert!(error.ends_with(". remote: protected branch"), "what the hook said, why: {error}");
   assert_eq!(remote_tip(&remote), Some(first));
+}
+
+/// A push whose commits add more than `branchdeck.pushSizeLimit` of files is refused before it talks to the remote: the
+/// error names the directory that holds most of it and the largest files, the remote has nothing of it; `0` turns the
+/// check off, and the same push goes
+#[test]
+fn a_push_over_the_size_limit_is_refused_before_the_remote() {
+  let (remote, local) = local_with_bare_remote();
+  let first = first_push(&remote, &local);
+  local.git(&["config", "branchdeck.pushSizeLimit", "2K"]);
+  let unit = "x".repeat(900);
+  let big = local.create_commit_with_files(
+    "(feature) Build",
+    &[
+      ("tool/target/debug/a.rlib", &unit.repeat(2)),
+      ("tool/target/debug/b.rlib", &unit),
+      ("tool/src/main.rs", "fn main() {}"),
+    ],
+  );
+  set_branch(&local, &big);
+
+  let error = failed_push(&local, &first);
+  let too_large = error.downcast_ref::<PushTooLarge>().unwrap_or_else(|| panic!("{error:#}"));
+  assert_eq!((too_large.size, too_large.limit, too_large.files), (2712, 2048, 3));
+  assert_eq!(
+    too_large.paths(),
+    ["tool/target/debug/", "tool/target/debug/a.rlib", "tool/target/debug/b.rlib", "tool/src/main.rs"]
+  );
+  assert_eq!(
+    error.to_string(),
+    "The push would add 2.6 KiB in 3 files, over the push size limit of 2.0 KiB: 2.6 KiB of it in tool/target/debug/ (2 files); the \
+     largest: tool/target/debug/a.rlib (1.8 KiB), tool/target/debug/b.rlib (900 B), tool/src/main.rs (12 B). Nothing was pushed. \
+     Remove the files from the commits (build output?), or raise the push size limit (branchdeck.pushSizeLimit, Settings → \
+     Patronus)"
+  );
+  assert_eq!(remote_tip(&remote), Some(first.clone()));
+
+  local.git(&["config", "branchdeck.pushSizeLimit", "0"]);
+  pushed(push(&local, Some(&first)));
+  assert_eq!(remote_tip(&remote), Some(big));
 }
 
 /// A pack larger than the remote takes fails its unpack: the report of each ref says only `unpacker error`, the error

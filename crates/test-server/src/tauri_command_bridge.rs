@@ -767,7 +767,15 @@ async fn guarded_push<T: serde::Serialize + Send + 'static>(
     let (common_dir, space) = push_inputs(&state, &params.repository_path, operation).await?;
     let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
     let service = space.as_ref().map(|(host, _)| host.patronus_service());
-    let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space), &branch_prefix);
+    // the git config of the push (its size limit) as the config commands of the test read and write it
+    let git = config_git(&state, &params.repository_path)?;
+    let actions = RemoteActions::new(
+      service.as_deref().zip(space.as_ref().map(|(_, space)| space)),
+      &git,
+      &state.sessions,
+      &state.landing_gate,
+      &branch_prefix,
+    );
     let ticket = register_wait(&state.lock_waits, channel, |_| {});
     let canceled = canceled_by(&ticket);
     let pushed = actions

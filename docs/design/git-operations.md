@@ -2635,7 +2635,7 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The agent shows what a
    push drops and, once the user approves, pushes with `--force --expect-remote <head>`. When every lease held, the
    remote refused for another reason (a hook, a protected branch, a pack too large): `push_refused` with what git
-   said of each ref and what the remote said why (`PushReport::messages`). A dry run that
+   said of each ref and what the remote said why (`PushRefsReport::messages`). A dry run that
    the remote would reject fetches nothing, so it can't tell which lease failed.
 5. After the push, with the lock released, the open pull requests of the pushed branches whose base is a virtual
    branch (`{prefix}/virtual/…`) are retargeted to the baseline over HTTP (`pull_request_retarget.rs`: one search of
@@ -2897,8 +2897,9 @@ The tests never call `enable_keychain`: a test that needs the keychain runs a fa
 #### Repository settings
 
 Settings → Repository shows and writes four keys of the repository's git config, Settings → Diffs & Merge the
-fifth, `branchdeck.resolveByWords`, and Settings → Agents the two rules of coding agents
-(`crates/sync-core/src/repository_config.rs`):
+fifth, `branchdeck.resolveByWords`, Settings → Patronus the sixth, `branchdeck.pushSizeLimit` (a size, `50M` when
+unset, `0` or `off` for none: see [Push size](#push-size); one value for every repository in the global config, as
+`resolveByWords`), and Settings → Agents the two rules of coding agents (`crates/sync-core/src/repository_config.rs`):
 `branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
@@ -2908,7 +2909,7 @@ two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspac
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `bd install` and the app's Install Agent CLI: no sync,
 no operation.
 
-- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|agentlease|agentsubjectbranch)$'`
+- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|agentlease|agentsubjectbranch)$'`
   (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from
   its value with a newline; a key without `=` (an implicit `true`) has no newline. Git prints the scopes in its order
   (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
@@ -2928,9 +2929,9 @@ no operation.
   (`turning_stacks_off_fails_the_sync_on_the_flat_child`); the page refuses the switch with those names
   (`stacks_off_clashes`). A failed grouping (no baseline yet) is no clash: the sync then says what fails.
 - **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
-  `git config -z --show-scope --get-regexp` of the five keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
+  `git config -z --show-scope --get-regexp` of the six keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
-  `resolve_mode`, `branch_prefix`, `github_repository` and `descriptions`. A sync reads it once for the stack setting and the
+  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit` and `descriptions`. A sync reads it once for the stack setting and the
   description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it
   before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `bd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
@@ -2944,9 +2945,9 @@ no operation.
   `true` or `false`, never left to an absent key, so a local `false` wins over a global `true`. The read before the
   write refuses a key that the worktree config or the command line (`git -c`, `GIT_CONFIG_*`) sets: they win over
   `.git/config`, so the write would change nothing. A branch prefix is normalized and validated as the app's field does
-  (`domain_types::branch_names::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace; an empty
-  text unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
-  (`{repositoryPath, key}`) to sync; the agent keys sync nothing.
+  (`domain_types::branch_names::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace, a push
+  size limit a size or off as the push reads it (`parse_push_size_limit`); an empty text unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
+  (`{repositoryPath, key}`) to sync; the agent keys and the push size limit sync nothing.
 - **Writes at once**: the app writes one config file at a time (a mutex per file in `run_config_write`: the local one
   by the repository's path, the global one), so a prefix saved on blur and a switch flipped right after do not race for
   `config.lock`; a lock that another process holds (`bd describe`, a `git config` of the user, a write of another
@@ -3024,8 +3025,39 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   large): an error with the report of each refused ref and what the remote said why. The report names only the kind
   (`n/a (unpacker error)`); the reason is in stderr (`remote: fatal: pack exceeds maximum allowed size`, `error: remote
   unpack failed: …`), which `push_refs` keeps also when it reads the progress (`GitCommand::progress` returns the
-  messages of stderr with an accepted exit code), without the progress lines (`PushReport::messages`).
+  messages of stderr with an accepted exit code), without the progress lines (`PushRefsReport::messages`).
   `push_branch` is the stack push of one branch (`push_branches`), so both answer alike.
+
+#### Push size
+
+A push whose commits add more than `branchdeck.pushSizeLimit` of files (50 MiB uncompressed unless set, `0` or `off`
+for none) is refused before it talks to the remote (`check_push_size`, `crates/sync-core/src/push_size.rs`). A server
+refuses such a pack only after the upload, and says it as `[remote rejected] (n/a (unpacker error))` with no file
+named: 2236 files of a cargo `target/` (229 MiB, a 67 MB pack) that a `git add -A` took along were refused that way,
+after a `cargo test --manifest-path` from another directory missed the workspace's `target-dir`. What a push of that
+size carries is mostly build output committed by mistake, and the error names it: how much the push adds, the deepest
+directory that holds four fifths of it (`main_directory`) and the three largest files, then what to do (`PushTooLarge`,
+`push_too_large`, its `paths` the directory and the files).
+
+- **What counts** (`git_ops::push_contents`): the blobs that the commits of the pushed tips add or change and that no
+  remote-tracking branch of the remote reaches: one `git log -z --raw --no-renames --no-abbrev --topo-order --reverse
+  --format= --stdin` (the tips, `--not`, `--remotes=<remote>` on stdin), each blob once at the first path a commit gave
+  it, a deleted file and a gitlink not; then one `cat-file --batch-check='%(objectname) %(objectsize)' -Z`
+  (`cat_file_batch::object_sizes`). On the monorepo the 106 commits of that history took 0.14 s and 0.19 s; a
+  `rev-list --objects --disk-usage` of the same push took 1.1 s, a walk of every tree, which the push's own
+  `pack-objects` makes again. A blob the remote holds under another commit counts too: the diffs don't say what the
+  remote holds, so the check may overcount a copied file, never undercount.
+- **Where**: at the start of `push_leased`, the one leased push of every push (the app's push and stack push, the whole
+  stack, an unapplied branch, `bd push`, `bd safe-push` of a whole stack), after the repository lock, since it only
+  reads; a dry run too, so `bd push --dry-run` answers what the push would. The limit comes with the operation's one
+  `git config` (`ConfigSnapshot::push_size_limit`): `bd` from the snapshot of its sync, the app's push read under the
+  lock by `prepare_push_branches` (one `config`); a value that is neither a size nor off refuses the push, rather
+  than send it unchecked. The E2E server pushes with the git of the config commands of its test repository
+  (`config_git`: the test's own global config), so a limit written on Settings → Patronus reaches its push.
+- **Not here**: the refusal of a server for any other reason (a hook, a protected branch, its own size limit) is the
+  push's error with what the remote said ([App stack push](#app-stack-push), step 5): `push_refs` keeps the `remote:`
+  and `error:` lines of stderr without the progress (`PushRefsReport::messages`), `remote: fatal: pack exceeds maximum
+  allowed size` and `error: remote unpack failed: …` for a pack a server refused.
 
 #### App stack push
 
@@ -3079,8 +3111,9 @@ lacks, and its pull request showing the parent's commits.
    or a ref another process moved leaves the virtual branch at an older build, of commits the branch may no longer
    have, and a push pressed while that sync ran would push it. Then it reads the tips of all branches with one
    `for-each-ref` (`prepare_push_expecting`), each leased on
-   the remote head its row showed, checks a branch pushed up to a commit (`check_push_tip`, one `rev-list`), and
-   pushes them with one `git push --porcelain --atomic --progress` (`push_leased`). The progress of the one push is
+   the remote head its row showed, checks a branch pushed up to a commit (`check_push_tip`, one `rev-list`), reads the
+   push size limit (one `config`), and after the lock checks the size of what the push adds ([Push size](#push-size):
+   one `log`, one `cat-file`) and pushes them with one `git push --porcelain --atomic --progress` (`push_leased`). The progress of the one push is
    the progress of each of its branches: every row shows it, the row it started from names it ("Pushing 7 branches
    45%").
 4. Pushed: one `for-each-ref` reads the local and the remote tips of every branch, one `reflog` their push times
@@ -3105,7 +3138,7 @@ lacks, and its pull request showing the parent's commits.
    of it runs at a time: a second request while one runs joins it (`runningStackBranchPushes`) and then pushes only
    what the remote still lacks, so no `push_branches` goes for a stack branch its remote already has.
 
-Code: `crates/sync-core/src/push.rs`, `crates/repository-model/src/push_guard.rs`, `crates/repository-model/src/session.rs`
+Code: `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_size.rs`, `crates/repository-model/src/push_guard.rs`, `crates/repository-model/src/session.rs`
 (`Sessions::push`), `src-tauri/src/commands/push.rs`, `src/lib/git/stack-push.ts`.
 
 #### Patronus review pre-check
@@ -3737,12 +3770,12 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | Squash two commits | `a_squash` | 18 | 14 |
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |
-| App stack push of two branches (`push_branches`; first a push per branch) | `an_atomic_push_of_a_stack` * | 8 | 4 |
+| App stack push of two branches (`push_branches`; first a push per branch; the size check since 2026-10-25: 3 more) | `an_atomic_push_of_a_stack` * | 8 | 7 |
 | The text of the app's pull request of the whole stack (`read_new_stack_pull_request`) | `the_text_of_a_new_pull_request_of_the_whole_stack` ** | 1 | 1 |
 | What a merged robot landed after a change below its commit (`robot_landings`, 2026-10-18) | `the_landing_of_a_merged_robot_after_a_change_below_its_commit` | 8 | 8 |
 | The target conflict check of a Safe Push start without its fetch, clean / one conflicting commit (2026-10-19) | `a_target_conflict_check` | 2 / 6 | 2 / 6 |
 | `bd check`, with `--build` of two paths | `a_check`, `a_check_with_a_build` | 20, 26 | 20, 23 |
-| `bd push --dry-run` | `a_push` | 54 | 25 |
+| `bd push --dry-run` (the size check since 2026-10-25: 2 more) | `a_push` | 54 | 27 |
 | `bd safe-push --check` (the fetch and the replay of the target conflict check since 2026-10-19: 8 more) | `a_safe_push_check` * | 57 | 40 |
 | `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 43 |
 | `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 47 |

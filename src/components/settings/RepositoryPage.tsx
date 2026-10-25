@@ -35,6 +35,7 @@ import {
   writeErrorTitle,
 } from "@/lib/repository-config"
 import type { RepositoryConfigKey } from "@/lib/repository-config"
+import { onSettingFieldKey } from "@/lib/setting-field"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
@@ -190,17 +191,7 @@ function ConfigRows({ path, config, startWrite }: { path: string; config: Reposi
             setDrafts(drafts => ({ ...drafts, [key]: value }))
           }}
           onBlur={() => void save(key)}
-          onKeyDown={event => {
-            if (event.key === "Enter") {
-              event.preventDefault()
-              void save(key)
-            } else if (event.key === "Escape" && draft !== undefined) {
-              // the window stays open: Escape takes the typing back first
-              event.preventDefault()
-              event.stopPropagation()
-              dropDraft(key)
-            }
-          }}
+          onKeyDown={event => onSettingFieldKey(event, () => void save(key), draft === undefined ? null : () => dropDraft(key))}
           placeholder={placeholder}
           aria-label={label}
           aria-invalid={reason !== null || undefined}

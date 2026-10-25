@@ -8,6 +8,7 @@ import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { commands } from "@/lib/bindings"
 import type { ResolvedBranchPrefix } from "@/lib/bindings"
 import { appPrefixOf, INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
+import { onSettingFieldKey } from "@/lib/setting-field"
 import { openSettings } from "@/lib/settings-window"
 import { setGlobalUserBranchPrefix, useAppSettings } from "@/stores/settings/appSettings"
 import { onWriterChange, snapshotValueOf } from "@/stores/settings/persistent-store"
@@ -55,17 +56,7 @@ export function BranchPrefixSetting() {
           value={value}
           onChange={event => setDraft(event.target.value)}
           onBlur={save}
-          onKeyDown={event => {
-            if (event.key === "Enter") {
-              event.preventDefault()
-              save()
-            } else if (event.key === "Escape" && draft !== null) {
-              // the window stays open: Escape takes the typing back first
-              event.preventDefault()
-              event.stopPropagation()
-              setDraft(null)
-            }
-          }}
+          onKeyDown={event => onSettingFieldKey(event, save, draft === null ? null : () => setDraft(null))}
           placeholder={globalPrefix || "your-name"}
           aria-label="Branch prefix"
           aria-invalid={invalid || undefined}

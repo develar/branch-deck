@@ -240,28 +240,6 @@ pub fn parse_age(text: &str) -> Result<Duration> {
   Ok(Duration::from_secs(number * seconds))
 }
 
-/// A size: a number and a binary unit, `200G` or `200GiB` (K, M, G, T, P; `B` or none for bytes), as `df -h` counts
-pub fn parse_size(text: &str) -> Result<u64> {
-  let text = text.trim();
-  let split = text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len());
-  let (number, unit) = text.split_at(split);
-  let number: u64 = number
-    .parse()
-    .map_err(|error| anyhow!("the size {text:?} is not a number and a unit, such as \"200G\" ({error})"))?;
-  let unit = unit.trim();
-  let unit = unit.strip_suffix("iB").or_else(|| unit.strip_suffix('B').filter(|rest| !rest.is_empty())).unwrap_or(unit);
-  let shift = match unit {
-    "" | "B" => 0,
-    "K" | "k" => 10,
-    "M" => 20,
-    "G" => 30,
-    "T" => 40,
-    "P" => 50,
-    _ => bail!("the size {text:?} has no unit K, M, G, T or P"),
-  };
-  number.checked_mul(1 << shift).ok_or_else(|| anyhow!("the size {text:?} is too large"))
-}
-
 /// `bytes` in GiB with one decimal, as a message names a size: `123.4 GiB`
 #[expect(clippy::cast_precision_loss, reason = "one decimal of a size in a message")]
 pub fn describe_size(bytes: u64) -> String {

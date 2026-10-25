@@ -162,11 +162,11 @@ function AgentRuleSetting({
         }
         checked={everywhere}
         disabled={setting === null || writing}
-        onCheckedChange={checked => write({ key: configKey, value: checked }, "global", globalErrorTitle)}
+        onCheckedChange={checked => void write({ key: configKey, value: checked }, "global", globalErrorTitle)}
       />
       <div className="flex min-h-6 flex-col justify-center gap-1.5 pl-9 text-xs text-muted-foreground">
         {state.status === "error" && <ConfigReadError testId={`setting-${configKey}-error`} message={state.message} onRetry={retry} />}
-        {setting !== null && <p data-testid={`setting-${configKey}-source`}>{describeGlobalSource(setting.fallbackScope, defaultValue)}</p>}
+        {setting !== null && <p data-testid={`setting-${configKey}-source`}>{describeGlobalSource(setting.fallbackScope, defaultValue ? "On" : "Off")}</p>}
         {setting !== null && path !== "" && (
           <div className="flex items-center gap-2" data-testid={`setting-${configKey}-repository`}>
             <span id={labelId}>{`In ${repositoryName(path)}`}</span>
@@ -184,7 +184,7 @@ function AgentRuleSetting({
                     onClick={() => {
                       if (!pressed) {
                         const change = { key: configKey, value: choice.value }
-                        write(change, "local", writeErrorTitle(change, false, path))
+                        void write(change, "local", writeErrorTitle(change, false, path))
                       }
                     }}
                   >

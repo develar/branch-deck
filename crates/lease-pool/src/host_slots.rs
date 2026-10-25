@@ -15,7 +15,7 @@ use crate::free_space::available_bytes;
 use crate::lease::{
   BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, canonical_path, get_host_slot, return_host_slot,
 };
-use crate::lease_clean::{CleanMode, CleanOverrides, Trash, apply_clean_rules, parse_size, read_clean_rules};
+use crate::lease_clean::{CleanMode, CleanOverrides, Trash, apply_clean_rules, read_clean_rules};
 use crate::state_file::StateFile;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -27,6 +27,7 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, kill, process_started, terminate};
+use sync_utils::size::parse_size;
 use tracing::{debug, warn};
 
 /// The prefix of the holders of the host slots: `bd-host/1`, `bd-host/2`, …
@@ -275,11 +276,11 @@ fn slot_count(config: &LeaseConfig) -> Result<u32> {
 fn config_size(key: &str, value: Option<&String>) -> Result<Option<u64>> {
   value
     .map(|value| {
-      parse_size(value).map_err(|error| {
+      parse_size(value).map_err(|reason| {
         HostSlotRefusal::InvalidConfig {
           key: key.to_string(),
           value: value.clone(),
-          reason: format!("{error:#}"),
+          reason,
         }
         .into()
       })

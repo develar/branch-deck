@@ -726,9 +726,10 @@ fn an_update_check() {
 }
 
 /// The app's push of a stack (Push Stack, Push with Children): `alpha` and `beta` built on it, to a bare `origin` that
-/// has neither, in one atomic push. The tips are one `for-each-ref`, the push one `push`, the remote statuses after it
-/// one `for-each-ref` of the local and the remote tips of both and one `reflog` of their push times: no walk, each
-/// remote branch is at its tip
+/// has neither, in one atomic push. The tips are one `for-each-ref`, the push size limit one `config`, the files the
+/// push adds one `log` and one `cat-file` (the size check), the push one `push`, the remote statuses after it one
+/// `for-each-ref` of the local and the remote tips of both and one `reflog` of their push times: no walk, each remote
+/// branch is at its tip
 #[test]
 fn an_atomic_push_of_a_stack() {
   let repo = stack_ahead_of_bare_origin();
@@ -753,7 +754,7 @@ fn an_atomic_push_of_a_stack() {
     matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
     "{outcome:?}"
   );
-  assert_processes(&git, &[("for-each-ref", 2), ("push", 1), ("reflog", 1)]);
+  assert_processes(&git, &[("cat-file", 1), ("config", 1), ("for-each-ref", 2), ("log", 1), ("push", 1), ("reflog", 1)]);
 }
 
 /// The question about the robot of `beta`, which ran on `source` and may land `alpha` and `beta`

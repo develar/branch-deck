@@ -262,8 +262,9 @@ fn a_status_of_a_forking_stack() {
 
 /// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
 /// stack, the tips, the remote tips, the remotes and the descriptions from the sync's report; besides the push only the
-/// push URL of `origin` (`remote`, for the Space and the GitHub repository) and the Space settings (`cat-file`, for the
-/// GitHub mirror `--repo` names: the remote is no GitHub URL)
+/// push URL of `origin` (`remote`, for the Space and the GitHub repository), the Space settings (`cat-file`, for the
+/// GitHub mirror `--repo` names: the remote is no GitHub URL) and the size check of the files the push adds (`log` and
+/// `cat-file`; the limit is the sync's `config`)
 #[test]
 fn a_push() {
   let (repo, _remote) = repo_with_remote(&["(auth) Add login", "(ui) Add form"]);
@@ -285,11 +286,11 @@ fn a_push() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 2),
+      ("cat-file", 3),
       ("config", 1),
       ("fast-import", 3),
       ("for-each-ref", 1),
-      ("log", 2),
+      ("log", 3),
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),
@@ -306,9 +307,10 @@ fn a_push() {
 }
 
 /// `bd push --dry-run env --alone` on Space while the Safe Push of auth runs, started before a restack placed the new
-/// root env below auth: the sync of branches it built already (no build), the push, and what the robot's commit lands of
-/// the branches as they are now, one `cat-file --batch-check` of its commit and the virtual branch and the two walks
-/// against it (`robot_spans`); a robot at the tip the sync left needs none of them
+/// root env below auth: the sync of branches it built already (no build), the push and its size check (`log`,
+/// `cat-file`), and what the robot's commit lands of the branches as they are now, one `cat-file --batch-check` of its
+/// commit and the virtual branch and the two walks against it (`robot_spans`); a robot at the tip the sync left needs
+/// none of them
 #[test]
 fn a_push_beside_a_robot_started_before_a_restack() {
   let space = Space::new(&["(auth) Add auth"]);
@@ -341,10 +343,10 @@ fn a_push_beside_a_robot_started_before_a_restack() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 3),
+      ("cat-file", 4),
       ("config", 1),
       ("for-each-ref", 1),
-      ("log", 4),
+      ("log", 5),
       ("merge-base", 1),
       ("push", 1),
       ("remote", 2),

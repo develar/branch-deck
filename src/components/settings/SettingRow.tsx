@@ -8,7 +8,7 @@ import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
 
 /** A group of settings on a page of Settings: its title, what the group is about, the settings */
-export function SettingsSection({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+export function SettingsSection({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) {
   const titleId = useId()
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3">

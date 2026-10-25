@@ -857,9 +857,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`the_network_push_holds_no_repository_lock`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
-- It must not read again what its sync read: the stack, the tips, the remote tips, the remotes and the descriptions
-  come from the sync of the same run; besides the push only the push URL of `origin`, once, and the Space settings
-  for a GitHub mirror.
+- It must not read again what its sync read: the stack, the tips, the remote tips, the remotes, the descriptions and
+  the push size limit come from the sync of the same run; besides the push only the push URL of `origin`, once, the
+  Space settings for a GitHub mirror, and the size check (one `log`, one `cat-file`).
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_push`)
 - A stacked branch must take the branches it is built on along, parents first, in the same atomic push, when they
   have commits for the remote, as the app's push button does ([Stacked Branches](../branch/stacked-branches.spec.md));
@@ -912,6 +912,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   remote said why (its `remote:` lines, git's `error:` lines, not the progress), nothing pushed.
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`, `a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved`, `a_push_the_remote_refuses_with_its_leases_holding_is_push_refused`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
+- A push whose commits add more files than the push size limit (`branchdeck.pushSizeLimit`, 50 MiB unless set, `0` or
+  `off` for none) must be `push_too_large` (exit 4) before bd asks the remote, a `--dry-run` too, with nothing pushed:
+  the message says how much it adds, the directory that holds most of it and the largest files, and `paths` lists the
+  directory (`dir/`) and the files ([Outgoing](../repository/outgoing.spec.md#push)); `bd safe-push` of a whole stack
+  and `bd push --unapplied` go through the same check. A limit that is neither a size nor off is
+  `invalid_arguments`.
+  [@test] ../../crates/bd-remote/src/push_test.rs (`a_push_over_the_size_limit_is_push_too_large_before_the_remote`)
 - Per branch it must print the pull request base, the baseline without the remote (`master`) for every branch, stacked
   or not ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)), the head, the title and the body as the
   app's dialog writes them ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request): the `bd describe`

@@ -19,6 +19,7 @@
 //! - `ownership`: the code owners of paths by the `OWNERSHIP` files of a tree
 //! - `commit_files`: the changed files of commits, their patches cut as they stream, blob contents for the diff view
 //! - `tree_archive`: the files of a commit's tree as a tar
+//! - `push_contents`: the files a push would send, with their sizes, from the diffs of its commits
 //!
 //! Writing objects and refs:
 //! - `ref_transaction`: `RefTransaction`, every ref move in one `update-ref --stdin` with compare-and-swap
@@ -88,6 +89,7 @@ pub mod object_texts;
 pub mod ownership;
 pub mod paths;
 pub mod pick;
+pub mod push_contents;
 pub mod reapply;
 pub mod ref_transaction;
 pub mod replay;
@@ -150,6 +152,9 @@ mod object_texts_test;
 
 #[cfg(test)]
 mod ownership_test;
+
+#[cfg(test)]
+mod push_contents_test;
 
 #[cfg(test)]
 mod ref_transaction_test;

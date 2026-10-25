@@ -569,6 +569,7 @@ pub fn push_locked(
     remote: &remote,
     baseline: &synced.baseline,
     my_email: None,
+    size_limit: push_size_limit(context)?,
   };
   let options = PushOptions {
     atomic: true,
@@ -586,6 +587,7 @@ pub fn push_locked(
         format!("Nothing was pushed: the remote refused the push ({summary})"),
       ));
     }
+    LeasedPush::TooLarge(too_large) => return Err(CliError::from(&too_large)),
     LeasedPush::WouldReject => {
       return Err(CliError::new(
         ErrorCode::LeaseRejected,
@@ -980,6 +982,15 @@ pub fn not_synced_reason(report: &SyncReport, branch: &SyncedBranch) -> Option<S
 }
 
 /// `<prefix>/virtual/<name>`
+/// `branchdeck.pushSizeLimit` of the command's config (`ConfigSnapshot::push_size_limit`); a value that is neither a
+/// size nor off refuses the push
+pub(crate) fn push_size_limit(context: &RepoContext) -> Result<Option<u64>, CliError> {
+  context
+    .config()?
+    .push_size_limit()
+    .map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))
+}
+
 fn final_name(context: &RepoContext, name: &str) -> Result<String, CliError> {
   to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))
 }

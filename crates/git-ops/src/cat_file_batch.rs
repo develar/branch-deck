@@ -1,7 +1,8 @@
 //! The objects of many names (an object id, `<rev>:<path>`, a ref) from one `git cat-file --batch --buffer -Z`, read as
-//! the output streams, or only their ids and types from one `--batch-check` (`object_ids_and_types`). Names and entries
-//! are NUL-terminated (`-Z`), so a name may hold a space or a newline; the content of an object over the caller's limit
-//! is skipped as it arrives, never buffered, so memory holds one object within the limit, not the output.
+//! the output streams, or only their ids and types (`object_ids_and_types`) or sizes (`object_sizes`) from one
+//! `--batch-check`. Names and entries are NUL-terminated (`-Z`), so a name may hold a space or a newline; the content
+//! of an object over the caller's limit is skipped as it arrives, never buffered, so memory holds one object within
+//! the limit, not the output.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -90,6 +91,32 @@ pub fn object_ids_and_types<S: AsRef<str>>(git: &GitCommandExecutor, repository_
     bail!("cat-file --batch-check answered {} of {} names", entries.len(), names.len());
   }
   Ok(entries)
+}
+
+/// The size of the object each of `ids` names, uncompressed, `None` for one git cannot resolve: one
+/// `cat-file --batch-check='%(objectname) %(objectsize)' -Z`, in the order of `ids`
+pub fn object_sizes<S: AsRef<str>>(git: &GitCommandExecutor, repository_path: &str, ids: &[S]) -> Result<Vec<Option<u64>>> {
+  if ids.is_empty() {
+    return Ok(Vec::new());
+  }
+  let input = nul_terminated(ids)?;
+  let output = git
+    .cmd(&["cat-file", "--batch-check=%(objectname) %(objectsize)", "-Z"], repository_path)
+    .stdin(&input)
+    .bytes()?;
+  // `<id> <size>` each, or `<name> missing` (`ambiguous`)
+  let sizes: Vec<Option<u64>> = output
+    .split(|&byte| byte == 0)
+    .take(ids.len())
+    .map(|reply| {
+      let space = reply.iter().rposition(|&byte| byte == b' ')?;
+      std::str::from_utf8(&reply[space + 1..]).ok()?.parse().ok()
+    })
+    .collect();
+  if sizes.len() != ids.len() {
+    bail!("cat-file --batch-check answered {} of {} names", sizes.len(), ids.len());
+  }
+  Ok(sizes)
 }
 
 /// `names` for the stdin of a `-Z` batch: each followed by a NUL, which none may hold

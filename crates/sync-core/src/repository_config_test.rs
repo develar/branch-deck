@@ -49,6 +49,8 @@ fn nothing_set_is_the_defaults() {
   assert_eq!(config.symbols, unset(SymbolMode::On));
   assert_eq!(config.github_repository, unset(None));
   assert_eq!(config.branch_prefix, unset(None));
+  // unset is the default limit of a push
+  assert_eq!(config.push_size_limit, unset(None));
   // an agent works in a lease of its own, and writes the subject as the repository does
   assert_eq!(config.agent_lease, unset(true));
   assert_eq!(config.agent_subject_branch, unset(false));
@@ -268,11 +270,31 @@ fn invalid_values_are_refused_before_git_runs() {
     RepositoryConfigChange::GithubRepository(Some("acme".to_string())),
     RepositoryConfigChange::GithubRepository(Some("acme/app/x".to_string())),
     RepositoryConfigChange::GithubRepository(Some("acme/my app".to_string())),
+    RepositoryConfigChange::PushSizeLimit(Some("lots".to_string())),
+    RepositoryConfigChange::PushSizeLimit(Some("1.5G".to_string())),
   ] {
     set_repository_config(git, path, &change).expect_err(&format!("{change:?}"));
   }
   assert_eq!(local_entries(&test_repo), []);
   set_repository_config(git, "", &RepositoryConfigChange::Stacks(Some(true))).expect_err("no repository");
+}
+
+/// The push size limit is written as set, trimmed, a size or off; a value git holds that is neither keeps its text and
+/// says why
+#[test]
+fn the_push_size_limit_is_a_size_or_off_as_written() {
+  let test_repo = TestRepo::new();
+  let (git, path) = (test_repo.git_executor(), test_repo.path_str());
+  let config = set_repository_config(git, path, &RepositoryConfigChange::PushSizeLimit(Some(" 200M ".to_string()))).unwrap();
+  assert_eq!((config.push_size_limit.value.as_deref(), config.push_size_limit.invalid), (Some("200M"), None));
+  let config = set_repository_config(git, path, &RepositoryConfigChange::PushSizeLimit(Some("off".to_string()))).unwrap();
+  assert_eq!(config.push_size_limit.value.as_deref(), Some("off"));
+  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.pushsizelimit", Some("off"))]);
+
+  test_repo.git(&["config", "branchdeck.pushSizeLimit", "lots"]);
+  let config = read_repository_config(git, path).unwrap();
+  assert_eq!(config.push_size_limit.value.as_deref(), Some("lots"));
+  assert_eq!(config.push_size_limit.invalid.as_deref(), Some("lots is not a size such as 50M or 1G, nor 0 or off"));
 }
 
 #[test]

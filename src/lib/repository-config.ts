@@ -21,6 +21,7 @@ export const CONFIG_KEYS: Record<RepositoryConfigKey, string> = {
   symbols: "branchdeck.symbols",
   githubRepository: "branchdeck.githubRepository",
   branchPrefix: "branchdeck.branchPrefix",
+  pushSizeLimit: "branchdeck.pushSizeLimit",
   resolveByWords: "branchdeck.resolveByWords",
   agentLease: "branchdeck.agentLease",
   agentSubjectBranch: "branchdeck.agentSubjectBranch",
@@ -40,6 +41,22 @@ export function isValidGitHubRepository(value: string): boolean {
 /** Why the backend refuses the text as a GitHub repository, in its words */
 export function invalidGitHubRepositoryReason(value: string): string {
   return `${value} is not a GitHub repository: use owner/name`
+}
+
+/** The push size limit while no config sets it (`DEFAULT_PUSH_SIZE_LIMIT` of `crates/sync-core/src/push_size.rs`) */
+export const DEFAULT_PUSH_SIZE_LIMIT = "50M"
+
+/**
+ * A size with a binary unit (`50M`, `1GiB`, `512`), `0` or off, as the backend takes it (`parse_push_size_limit`):
+ * the field refuses other typing in place
+ */
+export function isValidPushSizeLimit(value: string): boolean {
+  return /^(off|false|no)$/i.test(value) || /^\d+\s*(B|[KkMGTP](iB|B)?)?$/.test(value)
+}
+
+/** Why the backend refuses the text as a push size limit, as the field says it */
+export function invalidPushSizeLimitReason(value: string): string {
+  return `${value} is not a size such as ${DEFAULT_PUSH_SIZE_LIMIT} or 1G, nor 0 or off`
 }
 
 /** The modes of `branchdeck.symbols`, each with what it does (spec/commit/symbol-dependencies.spec.md) */
@@ -99,16 +116,35 @@ export function overriddenReason(setting: ConfigSetting<unknown>): string | null
 
 /**
  * Where the value of a setting with one value for every repository comes from (`scope` of the global or system entry,
- * null for the default), and where a change goes: the global git config, which bd reads too
+ * null for the default, `defaultText` its value: "On", "50M"), and where a change goes: the global git config, which bd
+ * reads too
  */
-export function describeGlobalSource(scope: ConfigScope | null, defaultValue: boolean): string {
+export function describeGlobalSource(scope: ConfigScope | null, defaultText: string): string {
   switch (scope) {
     case "global":
       return "Set in your global Git config, which bd reads too"
     case "system":
       return "Set in the system Git config. A change goes to your global Git config, which wins over it"
     default:
-      return `${defaultValue ? "On" : "Off"} by default. A change goes to your global Git config, which bd reads too`
+      return `${defaultText} by default. A change goes to your global Git config, which bd reads too`
+  }
+}
+
+/**
+ * Where the value of a setting of every repository comes from, and where a change goes: the global git config, unless
+ * `.git/config` of the repository `name` sets the key (then the control changes that value, and the reset removes it);
+ * empty for the worktree config or the command line, whose reason says it (`overriddenReason`)
+ */
+export function describeEveryRepositorySource(setting: ConfigSetting<unknown>, name: string, defaultText: string): string {
+  switch (setting.scope) {
+    case null:
+    case "global":
+    case "system":
+      return describeGlobalSource(setting.scope, defaultText)
+    case "local":
+      return setting.fallbackScope === null ? `Set in .git/config of ${name}, for this repository only` : `Set in .git/config of ${name}, which overrides your global Git config`
+    default:
+      return ""
   }
 }
 
@@ -211,6 +247,8 @@ export function writeErrorTitle(change: RepositoryConfigChange, fallbackStacks: 
       return `Cannot change the GitHub repository of ${name}`
     case "branchPrefix":
       return `Cannot change the branch prefix of ${name}`
+    case "pushSizeLimit":
+      return `Cannot change the push size limit of ${name}`
     case "resolveByWords":
       return `Cannot change how ${name} resolves conflicts by words`
     case "agentLease":

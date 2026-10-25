@@ -16,7 +16,7 @@ use lease_pool::lease::{
   Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, Pool, SkipReason,
   SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
 };
-use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age, parse_size};
+use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write;
@@ -24,6 +24,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_utils::list_cut::kept;
+use sync_utils::size::parse_size;
 
 /// How many local paths an error or a skipped slot names
 const PATH_LIMIT: usize = 100;
@@ -311,7 +312,7 @@ pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &Lease
 /// `bd lease get`, each step told to `progress` as it starts
 pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, args: &LeaseGetArgs, progress: &dyn Fn(GetStep)) -> Result<LeaseGetOutput, CliError> {
   let min_free = match &args.min_free {
-    Some(size) => Some(parse_size(size).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("--min-free: {error:#}")))?),
+    Some(size) => Some(parse_size(size).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("--min-free: {error}")))?),
     None => None,
   };
   let params = LeaseGetParams {

@@ -11,6 +11,7 @@ pub mod paths;
 pub mod private_file;
 pub mod process_scan;
 pub mod secret_store;
+pub mod size;
 pub mod span;
 pub mod timestamp;
 
@@ -32,3 +33,5 @@ mod paths_test;
 mod private_file_test;
 #[cfg(test)]
 mod secret_store_test;
+#[cfg(test)]
+mod size_test;

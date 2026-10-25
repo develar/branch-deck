@@ -26,7 +26,7 @@ use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
 use crate::patronus_facts::{PatronusFacts, table_of};
 use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{
-  PullRequestDraft, PushArgs, PushedBranch, github_repository, not_synced_reason, push_locked, pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft,
+  PullRequestDraft, PushArgs, PushedBranch, github_repository, not_synced_reason, push_locked, push_size_limit, pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft,
   unknown_or_unapplied, unpushed_pull_request_draft,
 };
 use crate::push_hold::PushHolds;
@@ -1441,6 +1441,7 @@ fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, sta
     remote: STACK_REMOTE,
     baseline: &synced.baseline,
     my_email: None,
+    size_limit: push_size_limit(context)?,
   };
   let leased = [LeasedBranch {
     name: root.to_string(),
@@ -1477,6 +1478,7 @@ fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, sta
       ));
     }
     LeasedPush::WouldReject => return Err(CliError::new(ErrorCode::LeaseRejected, format!("The remote would reject {}", stack.full_name))),
+    LeasedPush::TooLarge(too_large) => return Err(CliError::from(&too_large)),
   };
   let short = context.short_ids(std::iter::once(push.tip.as_str()).chain(push.lease.as_deref()));
   Ok(pushed_branch(root, &push, &statuses, stack.draft.clone(), &short, stack.replaced_landed.clone()))

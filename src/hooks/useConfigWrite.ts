@@ -7,8 +7,8 @@ import type { RepositoryConfigKey } from "@/lib/repository-config"
 export interface ConfigWrite {
   /** A write runs: its controls are disabled */
   writing: boolean
-  /** Writes `change` to `scope`; a failure is a toast titled `errorTitle` */
-  write: (change: RepositoryConfigChange, scope: WriteScope, errorTitle: string) => void
+  /** Writes `change` to `scope`; a failure is a toast titled `errorTitle`. True once the backend answered the settings */
+  write: (change: RepositoryConfigChange, scope: WriteScope, errorTitle: string) => Promise<boolean>
 }
 
 /**
@@ -23,7 +23,7 @@ export function useConfigWrite(path: string, startWrite: (key: RepositoryConfigK
     write: (change, scope, errorTitle) => {
       setWriting(true)
       const answered = startWrite(change.key)
-      commands
+      return commands
         .setRepositoryConfig({ repositoryPath: path, change, scope })
         .then(
           result => {
@@ -31,10 +31,12 @@ export function useConfigWrite(path: string, startWrite: (key: RepositoryConfigK
               notifyError(errorTitle, result.error)
             }
             answered(result.status === "ok" ? result.data : null)
+            return result.status === "ok"
           },
           (error: unknown) => {
             notifyError(errorTitle, error)
             answered(null)
+            return false
           },
         )
         .finally(() => setWriting(false))

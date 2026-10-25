@@ -1,4 +1,4 @@
-use crate::lease_clean::{CleanMode, CleanRule, Trash, apply_clean_rules, describe_size, parse_clean_rules, parse_size};
+use crate::lease_clean::{CleanMode, CleanRule, Trash, apply_clean_rules, describe_size, parse_clean_rules};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -89,24 +89,9 @@ fn a_delete_names_its_kept_entries_and_keeps_the_dirs_of_cargo_rules() {
   }
 }
 
-/// A size is a number and a binary unit, as `df -h` counts; a message names it in GiB
+/// The free space a message names is in GiB
 #[test]
-fn a_size_is_a_number_and_a_binary_unit() {
-  for (text, bytes) in [
-    ("0", 0),
-    ("512", 512),
-    ("200G", 200 << 30),
-    ("200GiB", 200 << 30),
-    ("1.5G", u64::MAX),
-    ("3T", 3 << 40),
-    ("1P", 1 << 50),
-    ("10KB", 10 << 10),
-  ] {
-    assert_eq!(parse_size(text).unwrap_or(u64::MAX), bytes, "{text}");
-  }
-  for text in ["", "G", "200X", "-1G"] {
-    assert!(parse_size(text).is_err(), "{text}");
-  }
+fn a_free_space_is_named_in_gib() {
   assert_eq!(describe_size(200 << 30), "200.0 GiB");
 }
 

@@ -45,6 +45,9 @@ export function useRepositoryConfigChanges(): void {
         // a conflict of git that its words resolve is a commit of the sync, or a conflict again
         resync()
         break
+      case "pushSizeLimit":
+        // a push reads it as it starts: nothing to sync
+        break
       case "agentLease":
       case "agentSubjectBranch":
         // only coding agents read them (`bd workspace`): the branches stay as they are

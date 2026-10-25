@@ -20,6 +20,8 @@ targets:
   - ../../crates/sync-core/src/commit_walk.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/push_lease.rs
+  - ../../crates/sync-core/src/push_size.rs
+  - ../../crates/git-ops/src/push_contents.rs
   - ../../src/lib/git/push.ts
   - ../../src/lib/toast-message.ts
   - ../../crates/sync-core/src/transfer_progress.rs
@@ -254,6 +256,22 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   that says why as the remote said it: the report of a ref names only the kind (`pre-receive hook declined`,
   `unpacker error`), the remote's `remote:` lines and git's `error:` lines name the reason, without the progress lines.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_the_remote_refuses_for_another_reason_is_an_error`, `a_push_the_remote_refuses_for_its_size_says_why`)
+- A push whose commits add more files than the push size limit (`branchdeck.pushSizeLimit`, 50 MiB uncompressed
+  unless set, `0` or `off` for none; [Settings → Patronus](settings.spec.md#patronus)) must be refused before it
+  talks to the remote: a server refuses such a pack only after the upload, as `unpacker error`, naming no file, and
+  what it carries is mostly build output committed by mistake. The error (`push_too_large`) says how much it adds, the
+  deepest directory that holds four fifths of it and the three largest files, then what to do: "The push would add
+  229.3 MiB in 2236 files, over the push size limit of 50.0 MiB: 228.9 MiB of it in tool/target/debug/ (2235 files);
+  the largest: … Nothing was pushed. Remove the files from the commits (build output?), or raise the push size limit
+  (branchdeck.pushSizeLimit, Settings → Patronus)". The files are the blobs the commits of the push add or change
+  that no remote-tracking branch of the remote reaches, each once (one `log --raw` and one `cat-file --batch-check`,
+  [Git Operations](../../docs/design/git-operations.md#push-size)); every push goes through it, the app's and `bd`'s,
+  a stack, a whole stack and an unapplied branch, a dry run too. A limit that is neither a size nor off refuses the
+  push.
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_push_over_the_size_limit_is_refused_before_the_remote`)
+  [@test] ../../crates/sync-core/src/push_size_test.rs (`the_limit_is_a_size_or_off`, `the_limit_of_an_operation_is_the_config_or_the_default`, `files_spread_over_the_tree_name_no_directory`)
+  [@test] ../../crates/git-ops/src/push_contents_test.rs (`a_push_sends_the_files_its_commits_add_that_the_remote_lacks`, `the_sizes_of_objects_are_one_batch_check`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off`)
 - A push belongs to the repository it started in. A switch of the repository while it waits (for the sync, the holds,
   a retarget) stops it before it reads the branches again: the branch of the same name there is another branch, so
   nothing of it is pushed, and "Cannot push auth" says "idea-1 is no longer the open repository" (a push of an action

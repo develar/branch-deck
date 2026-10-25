@@ -115,8 +115,13 @@ pub enum ErrorCode {
   /// The branch of a resolve session moved, but the files did not follow and bd can't finish it: show the user
   FinishPending,
   /// A branch can't be pushed: not synced, or behind its remote branch without --force; or the remote refused the push
-  /// with every lease holding (a hook, a protected branch). Nothing was pushed
+  /// with every lease holding (a hook, a protected branch, a pack too large). Nothing was pushed
   PushRefused,
+  /// The files the push would add exceed the push size limit (`branchdeck.pushSizeLimit`, 50 MiB unless set): mostly
+  /// build output committed by mistake. Nothing was pushed, the remote not asked; the message names the directory that
+  /// holds most of it and the largest files, `paths` lists them. Show the user: the files leave the commits, or the
+  /// user raises the limit
+  PushTooLarge,
   /// No remote to push to
   NoRemote,
   /// `bd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way
@@ -245,6 +250,7 @@ impl ErrorCode {
       | Self::UnsupportedConflict
       | Self::FinishPending
       | Self::PushRefused
+      | Self::PushTooLarge
       | Self::NoRemote
       | Self::InstallRefused
       | Self::ApprovalsMissing
@@ -383,7 +389,8 @@ pub enum ErrorDetails {
   /// The commit that conflicts and its files: `target_conflict`, `hunk_conflict`, `stack_conflict`,
   /// `reapply_conflict`, `drop_conflict`
   Conflict { commits: Vec<String>, paths: Vec<String> },
-  /// The files the error is about, relative to the repository: the local files of `uncommitted_overlap`
+  /// The files the error is about, relative to the repository: the local files of `uncommitted_overlap`; the directory
+  /// that holds most of a `push_too_large` push (`dir/`) and its largest files
   Paths { paths: Vec<String> },
   /// The full names of the branches the error is about: the rejected ones of `lease_rejected`
   Branches { branches: Vec<String> },

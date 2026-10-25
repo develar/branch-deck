@@ -14,7 +14,7 @@
 use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::available_bytes;
 use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
-use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, parse_size, read_clean_rules, remove_together};
+use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, read_clean_rules, remove_together};
 use crate::state_file::StateFile;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -36,6 +36,7 @@ use sync_core::baseline::baseline_tracking_ref;
 use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
+use sync_utils::size::parse_size;
 use tracing::{debug, instrument, warn};
 
 const STATE_FILE: &str = "leases.json";
@@ -790,10 +791,10 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> 
 fn required_free(params: &LeaseGetParams<'_>, config: &LeaseConfig) -> Result<u64, LeaseRefusal> {
   match (params.min_free, &config.min_free) {
     (Some(min_free), _) => Ok(min_free),
-    (None, Some(value)) => parse_size(value).map_err(|error| LeaseRefusal::InvalidSize {
+    (None, Some(value)) => parse_size(value).map_err(|reason| LeaseRefusal::InvalidSize {
       key: "branchdeck.leaseMinFree".to_string(),
       value: value.clone(),
-      reason: format!("{error:#}"),
+      reason,
     }),
     (None, None) => Ok(0),
   }

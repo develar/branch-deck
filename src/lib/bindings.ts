@@ -1589,9 +1589,16 @@ export type ErrorCode =
 "finish_pending" | 
 /**
  *  A branch can't be pushed: not synced, or behind its remote branch without --force; or the remote refused the push
- *  with every lease holding (a hook, a protected branch). Nothing was pushed
+ *  with every lease holding (a hook, a protected branch, a pack too large). Nothing was pushed
  */
 "push_refused" | 
+/**
+ *  The files the push would add exceed the push size limit (`branchdeck.pushSizeLimit`, 50 MiB unless set): mostly
+ *  build output committed by mistake. Nothing was pushed, the remote not asked; the message names the directory that
+ *  holds most of it and the largest files, `paths` lists them. Show the user: the files leave the commits, or the
+ *  user raises the limit
+ */
+"push_too_large" | 
 /**  No remote to push to */
 "no_remote" | 
 /**  `bd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way */
@@ -1719,7 +1726,10 @@ export type ErrorDetails =
  *  `reapply_conflict`, `drop_conflict`
  */
 { type: "conflict"; commits: string[]; paths: string[] } | 
-/**  The files the error is about, relative to the repository: the local files of `uncommitted_overlap` */
+/**
+ *  The files the error is about, relative to the repository: the local files of `uncommitted_overlap`; the directory
+ *  that holds most of a `push_too_large` push (`dir/`) and its largest files
+ */
 { type: "paths"; paths: string[] } | 
 /**  The full names of the branches the error is about: the rejected ones of `lease_rejected` */
 { type: "branches"; branches: string[] } | 
@@ -3565,6 +3575,8 @@ export type RepositoryConfig = {
 	githubRepository: ConfigSetting<string | null>,
 	/**  `branchdeck.branchPrefix`, normalized as the branches are named */
 	branchPrefix: ConfigSetting<string | null>,
+	/**  `branchdeck.pushSizeLimit` as written (`50M`, `0`, `off`); unset is `DEFAULT_PUSH_SIZE_LIMIT` (Settings → Patronus) */
+	pushSizeLimit: ConfigSetting<string | null>,
 	/**  `branchdeck.resolveByWords`, on by default */
 	resolveByWords: ConfigSetting<boolean>,
 	/**  `branchdeck.agentLease`, on by default */
@@ -3581,7 +3593,7 @@ export type RepositoryConfig = {
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
-export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null };
+export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null };
 
 /**
  *  The snapshot of the view of a session: the branch table, what the robots land, landed and hold of it, the facts of

@@ -178,12 +178,12 @@ fn objects_are_read_through_cat_file_batch() {
   check(
     "objects are read by a cat-file --batch of its own",
     "read objects with git_ops::cat_file_batch: for_each_object or read_objects for the content (streamed, with a size \
-     limit), object_types for the types; one cat-file -Z per call, the names NUL-terminated",
+     limit), object_types for the types, object_sizes for the sizes; one cat-file -Z per call, the names NUL-terminated",
     &[
       Exemption {
         path: "crates/git-ops/src/cat_file_batch.rs",
-        hits: 2,
-        reason: "the shared reader itself",
+        hits: 3,
+        reason: "the shared reader itself: the objects, their ids and types, their sizes",
       },
       Exemption {
         path: "crates/git-ops/src/update_branch.rs",

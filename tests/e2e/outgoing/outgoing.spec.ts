@@ -4,6 +4,7 @@ import { expectNothingToPush, findBranchRow, getPushButton } from "../helpers/br
 import type { DroppedCommit } from "../helpers/push-helpers"
 import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { openSettingsWindow } from "../helpers/settings-helpers"
 import { closeToast } from "../helpers/toast-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
@@ -233,5 +234,41 @@ test.describe("Push button", () => {
     await expect(button).toBeDisabled()
     await button.hover()
     await expect(page.getByTestId("push-description")).toContainText("Everything is pushed.")
+  })
+})
+
+test.describe("Push size", () => {
+  test("should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off", async ({ page }) => {
+    const window = await openSettingsWindow(page, { page: "patronus" })
+    const setting = window.getByTestId("setting-pushSizeLimit")
+    const field = setting.getByRole("textbox", { name: "Push size limit" })
+    const source = setting.getByTestId("setting-pushSizeLimit-source")
+    await expect(source).toHaveText("50M by default. A change goes to your global Git config, which bd reads too")
+    await expect(field).toHaveAttribute("placeholder", "50M")
+    // typing the backend would refuse is refused in place
+    await field.fill("lots")
+    await expect(field).toHaveAttribute("aria-invalid", "true")
+    await expect(setting.getByTestId("setting-pushSizeLimit-typing")).toHaveText("lots is not a size such as 50M or 1G, nor 0 or off")
+    await field.fill("1")
+    await field.press("Enter")
+    await expect(source).toHaveText("Set in your global Git config, which bd reads too")
+
+    // the push of the main window reads the limit as it starts: refused before it talks to the remote
+    const row = findBranchRow(page, "feature-auth")
+    const push = getPushButton(row)
+    await push.click()
+    const toast = page.locator("[data-slot=toast]", { hasText: "Cannot push feature-auth" })
+    await expect(toast).toContainText(/^Cannot push feature-authThe push would add .+, over the push size limit of 1 B/)
+    await expect(toast).toContainText(
+      "Nothing was pushed. Remove the files from the commits (build output?), or raise the push size limit (branchdeck.pushSizeLimit, Settings → Patronus)",
+    )
+    await expect(row.getByTestId("branch-status")).toHaveText("not pushed")
+    await closeToast(toast)
+
+    await field.fill("off")
+    await field.press("Enter")
+    await expect(field).toHaveValue("off")
+    await push.click()
+    await expectPushedToast(page, "feature-auth")
   })
 })

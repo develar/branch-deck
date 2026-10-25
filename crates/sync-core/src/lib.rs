@@ -55,6 +55,7 @@
 //! - `transfer_progress`: the progress of a fetch or a push, from its stderr lines
 //! - `push_lease`: the lease of a virtual branch push and `push_refs`, shared by the app and `bd push`
 //! - `push`: the app's push of a virtual branch
+//! - `push_size`: the size check of every push, refused over `branchdeck.pushSizeLimit` before the network
 //! - `remote_url`: the host and the repository path of a remote URL
 //! - `review_fetch`: the commits of a pull request to review, into `refs/branch-deck/review/<n>/`
 //!
@@ -100,6 +101,7 @@ pub mod patronus;
 pub mod patronus_start;
 pub mod push;
 pub mod push_lease;
+pub mod push_size;
 pub mod reapply_branch;
 pub mod remote_command;
 pub mod remote_status;
@@ -161,6 +163,8 @@ mod patronus_start_test;
 mod patronus_test;
 #[cfg(test)]
 mod process_budget_test;
+#[cfg(test)]
+mod push_size_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]

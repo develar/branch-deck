@@ -3,6 +3,7 @@
 //! instead of one process per key (docs/design/git-operations.md, "Repository settings").
 
 use crate::github_repository::GitHubRepository;
+use crate::push_size::{DEFAULT_PUSH_SIZE_LIMIT, PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
 use crate::remote_url::split_owner_and_name;
 use crate::repository_config::{ConfigEntry, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries};
 use anyhow::{Result, anyhow};
@@ -14,10 +15,10 @@ use history_rewrite::stack::STACKS_CONFIG_KEY;
 use std::collections::HashMap;
 use tracing::instrument;
 
-/// The five `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `bd workspace` and
+/// The six `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `bd workspace` and
 /// Settings read) and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
 /// lowercase, the branch name as it is
-const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords)|branch\..+\.description)$";
+const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit)|branch\..+\.description)$";
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
@@ -118,6 +119,15 @@ impl ConfigSnapshot {
         "{SYMBOLS_CONFIG_KEY} is not off, report or on: {}",
         self.last_value("branchdeck.symbols").unwrap_or_default().trim()
       )),
+    }
+  }
+
+  /// `branchdeck.pushSizeLimit`: the bytes a push may add, `DEFAULT_PUSH_SIZE_LIMIT` when unset, `None` for no check; an
+  /// error for a value that is neither a size nor off, which refuses the push rather than send it unchecked
+  pub fn push_size_limit(&self) -> Result<Option<u64>> {
+    match self.last_value("branchdeck.pushsizelimit") {
+      None => Ok(Some(DEFAULT_PUSH_SIZE_LIMIT)),
+      Some(value) => parse_push_size_limit(value).map_err(|reason| anyhow!("{PUSH_SIZE_LIMIT_CONFIG_KEY} is not a size: {reason}")),
     }
   }
 

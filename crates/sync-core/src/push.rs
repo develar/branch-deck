@@ -4,7 +4,9 @@
 //! and reported, never overwritten. The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the
 //! same way.
 
+use crate::config_snapshot::ConfigSnapshot;
 use crate::push_lease::{PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, prepare_push_expecting, push_refs};
+use crate::push_size::{PushTooLarge, check_push_size};
 use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_remote_statuses};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
@@ -228,6 +230,8 @@ pub struct PreparedPush {
   repository_path: String,
   baseline: String,
   my_email: Option<String>,
+  /// `branchdeck.pushSizeLimit` as the push was prepared; `None` for no check
+  size_limit: Option<u64>,
   branches: Vec<LeasedBranch>,
   /// `StackPushBranch::whole_stack` of each branch, in their order
   whole_stack: Vec<bool>,
@@ -275,6 +279,7 @@ pub fn prepare_push_branches(
     repository_path: repository_path.clone(),
     baseline: params.baseline_branch.clone(),
     my_email: params.my_email.clone(),
+    size_limit: ConfigSnapshot::read(git_executor, repository_path)?.push_size_limit()?,
     branches,
     whole_stack: params.branches.iter().map(|branch| branch.whole_stack).collect(),
   })
@@ -290,6 +295,7 @@ impl PreparedPush {
       remote: PUSH_REMOTE,
       baseline: &self.baseline,
       my_email: self.my_email.as_deref(),
+      size_limit: self.size_limit,
     };
     // one ref needs no `--atomic`, which a remote may not support
     let options = PushOptions {
@@ -306,6 +312,7 @@ impl PreparedPush {
         remote_statuses,
       }),
       LeasedPush::Refused { summary } => bail!("The remote rejected the push: {summary}"),
+      LeasedPush::TooLarge(too_large) => Err(anyhow::Error::new(too_large)),
       LeasedPush::WouldReject => bail!("The remote would reject the push"),
     }
   }
@@ -330,6 +337,8 @@ pub struct PushTarget<'a> {
   pub baseline: &'a str,
   /// The user's email: the statuses count the user's own commits; `None` counts none
   pub my_email: Option<&'a str>,
+  /// The bytes the push may add (`branchdeck.pushSizeLimit`, `ConfigSnapshot::push_size_limit`); `None` for no check
+  pub size_limit: Option<u64>,
 }
 
 /// What a leased push did
@@ -346,10 +355,13 @@ pub enum LeasedPush {
   Refused { summary: String },
   /// A dry run the remote would refuse: nothing is fetched on a dry run, so which lease failed is not known
   WouldReject,
+  /// The files the push adds exceed `PushTarget::size_limit`: it did not talk to the remote, a dry run neither
+  TooLarge(PushTooLarge),
 }
 
-/// The one leased push of the app and of `bd push`: one `git push --porcelain` of every branch to `target.remote`, each
-/// with its lease (`push_refs`), `--atomic` for a stack, so the remote takes all of them or none. A refused push
+/// The one leased push of the app and of `bd push`: first the size check of the files the push adds
+/// (`check_push_size`, under `target.size_limit`), then one `git push --porcelain` of every branch to `target.remote`,
+/// each with its lease (`push_refs`), `--atomic` for a stack, so the remote takes all of them or none. A refused push
 /// fetches every branch (`fetch_remote_branches`, not on a dry run) and compares the fetched heads with the leases: the
 /// branches whose remote moved are named, with the remote statuses after the fetch; when none moved, the remote
 /// refused for another reason.
@@ -361,6 +373,12 @@ pub fn push_leased(
   options: PushOptions,
   on_progress: Option<&mut dyn FnMut(TransferProgress)>,
 ) -> Result<LeasedPush> {
+  if let Some(limit) = target.size_limit {
+    let tips: Vec<&str> = branches.iter().map(|branch| branch.push.tip.as_str()).collect();
+    if let Some(too_large) = check_push_size(git_executor, target.repository_path, &tips, target.remote, limit)? {
+      return Ok(LeasedPush::TooLarge(too_large));
+    }
+  }
   let refs: Vec<PushRef> = branches.iter().map(|branch| branch.push.clone()).collect();
   // the remote policy keeps the user's credential helpers but never prompts: the push must not block on input
   let report = push_refs(git_executor, target.repository_path, target.remote, &refs, options, on_progress)?;

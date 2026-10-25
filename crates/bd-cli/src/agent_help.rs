@@ -155,6 +155,9 @@ Workflow: the commits into pull requests
      landed, a member's remote branch has its commits as they were; `replaced_landed` names them, nothing is lost),
      and the remote copies of commits reworded here (`remote.reworded`); a stacked branch whose remote branch lacks
      new commits of the branches it is built on (`remote.ancestors_ahead`) is pushed too: its Safe Push lands them.
+   - `push_too_large` (exit 4): the commits add more files than `branchdeck.pushSizeLimit` (50 MiB unless set), mostly
+     build output committed by mistake; `paths` names the directory and the largest files. Show the user; never raise
+     the limit yourself.
    - `lease_rejected` (exit 4): the remote changed; bd fetched it. For a branch behind or rejected,
      `error.branches[].remote.dropped_commits` lists what a push drops: show it; once approved, --force
      --expect-remote <remote.head> for that one branch.

@@ -1,12 +1,13 @@
 //! The `branchdeck.*` git config of a repository that Settings shows and writes: stacked branches, the symbol mode, the
-//! GitHub repository, the branch prefix and the resolve by words (Settings → Repository and Diffs & Merge), and how
-//! coding agents work (Settings → Agents, read by `bd workspace`). One `git config --get-regexp` reads all seven with
-//! their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one
-//! where the request names it (`WriteScope`), and `bd` reads the same keys.
+//! GitHub repository and the branch prefix (Settings → Repository), the resolve by words (Diffs & Merge), the push size
+//! limit (Patronus), and how coding agents work (Settings → Agents, read by `bd workspace`). One `git config
+//! --get-regexp` reads all eight with their scopes; a write goes to the local config (`.git/config`, shared by the
+//! linked worktrees), or to the global one where the request names it (`WriteScope`), and `bd` reads the same keys.
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
 use crate::config_snapshot::{SYMBOLS_CONFIG_KEY, SymbolMode};
 use crate::github_repository::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_source};
+use crate::push_size::{PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
 use crate::remote_url::split_owner_and_name;
 use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
@@ -23,8 +24,8 @@ use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
-/// The seven keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
-const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|agentlease|agentsubjectbranch)$";
+/// The eight keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
+const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|agentlease|agentsubjectbranch)$";
 
 /// Whether a sync resolves the conflicts of git by words (`git_ops::word_resolve`), a git boolean, on when unset
 pub const RESOLVE_BY_WORDS_CONFIG_KEY: &str = "branchdeck.resolveByWords";
@@ -128,6 +129,8 @@ pub struct RepositoryConfig {
   pub github_repository: ConfigSetting<Option<String>>,
   /// `branchdeck.branchPrefix`, normalized as the branches are named
   pub branch_prefix: ConfigSetting<Option<String>>,
+  /// `branchdeck.pushSizeLimit` as written (`50M`, `0`, `off`); unset is `DEFAULT_PUSH_SIZE_LIMIT` (Settings → Patronus)
+  pub push_size_limit: ConfigSetting<Option<String>>,
   /// `branchdeck.resolveByWords`, on by default
   pub resolve_by_words: ConfigSetting<bool>,
   /// `branchdeck.agentLease`, on by default
@@ -162,6 +165,7 @@ pub enum RepositoryConfigKey {
   Symbols,
   GithubRepository,
   BranchPrefix,
+  PushSizeLimit,
   ResolveByWords,
   AgentLease,
   AgentSubjectBranch,
@@ -175,6 +179,7 @@ impl RepositoryConfigKey {
       Self::Symbols => SYMBOLS_CONFIG_KEY,
       Self::GithubRepository => GITHUB_REPOSITORY_CONFIG,
       Self::BranchPrefix => BRANCH_PREFIX_CONFIG_KEY,
+      Self::PushSizeLimit => PUSH_SIZE_LIMIT_CONFIG_KEY,
       Self::ResolveByWords => RESOLVE_BY_WORDS_CONFIG_KEY,
       Self::AgentLease => AGENT_LEASE_CONFIG_KEY,
       Self::AgentSubjectBranch => AGENT_SUBJECT_BRANCH_CONFIG_KEY,
@@ -187,6 +192,7 @@ impl RepositoryConfigKey {
       Self::Symbols,
       Self::GithubRepository,
       Self::BranchPrefix,
+      Self::PushSizeLimit,
       Self::ResolveByWords,
       Self::AgentLease,
       Self::AgentSubjectBranch,
@@ -217,6 +223,7 @@ pub enum RepositoryConfigChange {
   Symbols(Option<SymbolMode>),
   GithubRepository(Option<String>),
   BranchPrefix(Option<String>),
+  PushSizeLimit(Option<String>),
   ResolveByWords(Option<bool>),
   AgentLease(Option<bool>),
   AgentSubjectBranch(Option<bool>),
@@ -229,6 +236,7 @@ impl RepositoryConfigChange {
       Self::Symbols(_) => RepositoryConfigKey::Symbols,
       Self::GithubRepository(_) => RepositoryConfigKey::GithubRepository,
       Self::BranchPrefix(_) => RepositoryConfigKey::BranchPrefix,
+      Self::PushSizeLimit(_) => RepositoryConfigKey::PushSizeLimit,
       Self::ResolveByWords(_) => RepositoryConfigKey::ResolveByWords,
       Self::AgentLease(_) => RepositoryConfigKey::AgentLease,
       Self::AgentSubjectBranch(_) => RepositoryConfigKey::AgentSubjectBranch,
@@ -247,6 +255,10 @@ impl RepositoryConfigChange {
       Self::BranchPrefix(value) => match value.as_deref().map(normalize_branch_prefix).filter(|value| !value.is_empty()) {
         None => None,
         Some(value) => Some(validate_branch_prefix(value).map_err(|reason| anyhow!(reason))?.to_string()),
+      },
+      Self::PushSizeLimit(value) => match value.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        None => None,
+        Some(value) => Some(validate_push_size_limit(value).map_err(|reason| anyhow!(reason))?.to_string()),
       },
     })
   }
@@ -268,6 +280,16 @@ fn validate_github_repository(value: &str) -> Result<&str, String> {
   Ok(value)
 }
 
+/// A size (`50M`, `1G`), or `0` or `off` for no limit
+fn validate_push_size_limit(value: &str) -> Result<&str, String> {
+  // the words of the field (`invalidPushSizeLimitReason` in src/lib/repository-config.ts)
+  if parse_push_size_limit(value).is_ok() {
+    Ok(value)
+  } else {
+    Err(format!("{value} is not a size such as 50M or 1G, nor 0 or off"))
+  }
+}
+
 fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   if !is_valid_branch_prefix(value) {
     // the words of the fields (`INVALID_PREFIX_TEXT` in src/lib/branch-prefix.ts), which show the value
@@ -276,7 +298,7 @@ fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   Ok(value)
 }
 
-/// The seven keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
+/// The eight keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
 /// config alone for an empty `repository_path`
 #[instrument(skip(git))]
 pub fn read_config_entries(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<ConfigEntry>> {
@@ -326,6 +348,9 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], detected_github_r
     }),
     branch_prefix: resolve_setting(entries, RepositoryConfigKey::BranchPrefix, None, |value| {
       text_setting(value.map(normalize_branch_prefix), validate_branch_prefix)
+    }),
+    push_size_limit: resolve_setting(entries, RepositoryConfigKey::PushSizeLimit, None, |value| {
+      text_setting(value.map(str::trim), validate_push_size_limit)
     }),
     resolve_by_words: resolve_setting(entries, RepositoryConfigKey::ResolveByWords, true, |value| bool_setting(value, true)),
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),

@@ -9,6 +9,7 @@ import {
   describeSource,
   detectedGitHubRepositoryText,
   isValidGitHubRepository,
+  isValidPushSizeLimit,
   overriddenReason,
   repositoryName,
   resetLabel,
@@ -37,6 +38,19 @@ describe("isValidGitHubRepository", () => {
     expect(isValidGitHubRepository("acme/my app")).toBe(false)
     expect(isValidGitHubRepository("/app")).toBe(false)
     expect(isValidGitHubRepository("acme/")).toBe(false)
+  })
+})
+
+describe("isValidPushSizeLimit", () => {
+  // the cases of `the_limit_is_a_size_or_off` in crates/sync-core/src/push_size_test.rs and `a_size_is_a_number_and_a_binary_unit`
+  // in crates/sync-utils/src/size_test.rs
+  it("takes a size with a binary unit, 0 or off, as the backend does", () => {
+    for (const value of ["50M", "1G", "200GiB", "10KB", "512", "0", "off", "OFF", "false", "1 G"]) {
+      expect(isValidPushSizeLimit(value), value).toBe(true)
+    }
+    for (const value of ["", "lots", "1.5G", "200X", "-1G", "G"]) {
+      expect(isValidPushSizeLimit(value), value).toBe(false)
+    }
   })
 })
 
@@ -118,6 +132,7 @@ describe("the rows of Settings → Repository", () => {
     // an unset turns them as the global value or the default says
     expect(writeErrorTitle({ key: "stacks", value: null }, true, "/repo/app")).toBe("Cannot turn on stacked branches in app")
     expect(writeErrorTitle({ key: "githubRepository", value: "acme/app" }, false, "C:\\repo\\app")).toBe("Cannot change the GitHub repository of app")
+    expect(writeErrorTitle({ key: "pushSizeLimit", value: "200M" }, false, "/repo/app")).toBe("Cannot change the push size limit of app")
     expect(writeErrorTitle({ key: "agentLease", value: null }, false, "/repo/app")).toBe("Cannot change where agents work in app")
     expect(writeErrorTitle({ key: "agentSubjectBranch", value: true }, false, "/repo/app")).toBe("Cannot change how agents write commit subjects in app")
   })
@@ -125,10 +140,10 @@ describe("the rows of Settings → Repository", () => {
 
 describe("describeGlobalSource", () => {
   it("says where the value of every repository comes from, and that a change goes to the global config", () => {
-    expect(describeGlobalSource(null, true)).toBe("On by default. A change goes to your global Git config, which bd reads too")
-    expect(describeGlobalSource(null, false)).toBe("Off by default. A change goes to your global Git config, which bd reads too")
-    expect(describeGlobalSource("global", false)).toBe("Set in your global Git config, which bd reads too")
-    expect(describeGlobalSource("system", true)).toBe("Set in the system Git config. A change goes to your global Git config, which wins over it")
+    expect(describeGlobalSource(null, "On")).toBe("On by default. A change goes to your global Git config, which bd reads too")
+    expect(describeGlobalSource(null, "50M")).toBe("50M by default. A change goes to your global Git config, which bd reads too")
+    expect(describeGlobalSource("global", "Off")).toBe("Set in your global Git config, which bd reads too")
+    expect(describeGlobalSource("system", "On")).toBe("Set in the system Git config. A change goes to your global Git config, which wins over it")
   })
 })
 
@@ -146,6 +161,7 @@ describe("ConfigWrites", () => {
     symbols: { value: "on", scope: null, localSet: false, invalid: null, fallbackValue: "on", fallbackScope: null },
     githubRepository: text(null),
     branchPrefix: text(prefix),
+    pushSizeLimit: text(null),
     resolveByWords: setting({}),
     agentLease: setting({}),
     agentSubjectBranch: setting({}),

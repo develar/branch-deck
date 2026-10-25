@@ -110,7 +110,7 @@ pub fn push_refs(
   refs: &[PushRef],
   options: PushOptions,
   on_progress: Option<&mut dyn FnMut(TransferProgress)>,
-) -> Result<PushReport> {
+) -> Result<PushRefsReport> {
   let lease_args: Vec<String> = refs.iter().map(PushRef::lease_arg).collect();
   let refspecs: Vec<String> = refs.iter().map(PushRef::refspec).collect();
   let mut args = vec!["push", "--porcelain"];
@@ -128,7 +128,7 @@ pub fn push_refs(
     None => execute_remote_command_output(git_executor, &args, repository_path, &[1])?,
   };
   let messages = remote_messages(&output.stderr);
-  Ok(PushReport {
+  Ok(PushRefsReport {
     refs: parse_push_porcelain(&output.into_text()),
     messages,
   })
@@ -136,7 +136,7 @@ pub fn push_refs(
 
 /// What a `push --porcelain` reported
 #[derive(Debug, Default)]
-pub struct PushReport {
+pub struct PushRefsReport {
   /// Remote ref -> its report; a ref git didn't report is absent
   pub refs: HashMap<String, PushedRefStatus>,
   /// Why, when the remote refused: the lines of stderr a hook or the server wrote (`remote: …`) and git's own errors
