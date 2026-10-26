@@ -70,6 +70,8 @@ targets:
   - ../../src/stores/safe-push.ts
   - ../../crates/repository-model/src/push_guard.rs
   - ../../crates/operations/src/push.rs
+  - ../../crates/operations/src/land.rs
+  - ../../src-tauri/src/commands/operations.rs
   - ../../crates/repository-model/src/start_guard.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/lib/branch-rules.ts
@@ -568,10 +570,14 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 - One decision then says what the start does, Rust's (`domain_policy::land::decide`, the rule `bd safe-push` decides
   by) over the facts the session holds: the table and the robots, the merge profiles, the remote statuses, the holds,
   the pull requests, the review as Patronus answered it for the branch as it is (a stale answer is not acted on), the
-  rules of the repository, the landing needs. The view carries the decisions of the default starts of every branch and
-  whole stack (`RepositoryView.lands`: a Safe Push with the default profile, a Dry Run); a start with a chosen profile
-  or without review, and its popover, ask the session (`decide_land`, a read: no lock, no effect). The page presents it
-  (`presentLand`) and decides nothing: the next step's reason first, then what Rust refuses, waits for or confirms.
+  rules of the repository, the landing needs. A start and its popover ask the session for the plan of their intent
+  (`prepare` of a `Land`, `operations::land`: the decision with the profiles it offers and the fingerprint of what it
+  was decided on; a read: no lock, no effect), the popover again with each patch of the view; `bd safe-push` plans its
+  start with the same function over what it read. The view carries the decisions of the default starts of every branch
+  and whole stack (`RepositoryView.lands`: a Safe Push with the default profile, a Dry Run), which the actions and the
+  first check of a click read.
+  The page presents the plan (`presentLand`) and decides nothing: the next step's reason first, then what Rust
+  refuses, waits for or confirms.
   Each fact without an answer is a wait that names it ("Asking Patronus for the merge profiles…", "Checking auth…",
   "Checking the code-owner review…", "Checking whether the push keeps the approvals of #7…", "Checking what auth needs
   to land…"); what Patronus would refuse or fail is a refusal with the reason ("Patronus does not push into master",
@@ -592,7 +598,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/presenters/land.test.ts (`starts at once when Rust decided there is nothing to say, and waits for its decision before it`, `opens the popover for a key and for each confirmation of the decision: a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the facts Rust waits for, each saying what it waits for, and refuses with why a read failed`, `refuses with the words of the first blocker, offering the push or the object it names: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `lets a start without review wait for its profile, and confirm the one that skips the review`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_with_nothing_in_its_way_pushes_what_it_lands_root_first_then_starts`, `every_fact_without_an_answer_waits_or_confirms_and_never_refuses`, `the_table_refuses_first_then_the_target_then_a_push_that_drops_remote_commits_unless_allowed`, `the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`, `a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`, `missing_approvals_refuse_unless_skipped_and_approvals_judged_at_the_start_confirm`, `the_pull_request_decides_the_route_a_draft_refuses_and_another_base_refuses_only_counted_approvals`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_profile_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
-- A click waits for the facts its decision needs, its button busy with "Checking…": the session answers each of them,
+  [@test] ../../crates/operations/src/land_test.rs (`a_start_is_planned_over_what_the_session_holds_and_reads_the_review_its_first_decision_waits_for`, `the_fingerprint_of_a_plan_changes_with_its_intent_and_the_tips_it_was_decided_on`, `the_plan_of_a_session_waits_for_its_patronus_view`)
+- A click waits for the facts its plan needs, its button busy with "Checking…": the session answers each of them,
   a failure too (the review it asks at once, `unavailable` while Patronus can't be asked), so the wait ends; then it
   starts at once, says the refusal in an `info` toast ("Push" its action where the push alone is the step), or opens
   the popover. The second click of
@@ -626,8 +633,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   minutes (an error for 1), a fact of the session for the target of its baseline (`facts.profiles`), which the popover
   when it opens and a click before it decides ask (`refresh_facts { profiles }`): read when unknown, after a failure, a
   minute after the last read, or for another baseline. The default of the last robot is Rust's
-  (`domain_policy::land::default_profile`, the profiles a start offers `offered_profiles`, which `decide_land` answers
-  with the decision): the profile an answer named on the robot (a poll, a start, the New API's list), else the one its
+  (`domain_policy::land::default_profile`, the profiles a start offers `offered_profiles`, which `prepare` answers
+  with the plan, its `alternatives`): the profile an answer named on the robot (a poll, a start, the New API's list), else the one its
   details name, read once for it. A target branch Patronus does not protect can't be started. A profile carries `skipsReview`: true for an emergency profile and
   for the profile of the last robot whose options say `patronus.review.approval.check.skip=true` (false when they say
   otherwise), null for the rest, which Patronus doesn't describe; a robot's profile carries it from its options
@@ -1289,7 +1296,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push popover without review from the pull request dialog`)
 - The popover is "Safe Push of auth" with the start "Safe Push Without Review". Its review line names the missing
   approvals: "Starts without the approvals of IJPL Code Platform: the profile you choose has to skip the code-owner
-  review.". The profile Select (the profiles `decide_land` answers, `LandProfiles`) has the groups "Skip the code-owner review" (`skipsReview` true),
+  review.". The profile Select (the profiles the plan offers, `Plan.alternatives`) has the groups "Skip the code-owner review" (`skipsReview` true),
   "Other profiles" ("Profiles" without the first group; `skipsReview` null) and "Emergency"; a profile known to check
   the review is left out, and there are no default checks. None is chosen unless the last robot's profile skips the
   review: the footer says "Choose the profile that skips the code-owner review" and the start waits. Below the Select,

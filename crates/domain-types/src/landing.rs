@@ -349,10 +349,7 @@ impl LandDecision {
   /// request instead
   #[must_use]
   pub fn start_route(&self) -> Option<&StartRoute> {
-    self.effects.iter().find_map(|effect| match effect {
-      PlannedEffect::StartRobot { route } => Some(route),
-      _ => None,
-    })
+    PlannedEffect::start_route_in(&self.effects)
   }
 }
 
@@ -379,24 +376,6 @@ pub struct LandProfiles {
   /// target; of a start without approvals only one known to skip the review. `None`: the default checks (or the user
   /// chooses)
   pub default: Option<String>,
-}
-
-/// What the read of a start answers (`decide_land`): its decision and the profiles it offers
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct LandAnswer {
-  pub decision: LandDecision,
-  pub profiles: LandProfiles,
-}
-
-/// What the app asks of a start before it is made (`decide_land`): the start of `land` in the session of the repository
-#[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct DecideLandParams {
-  pub repository_path: String,
-  pub land: Land,
 }
 
 /// What the user accepts before a start (the contract's `Confirmation`)
@@ -475,6 +454,17 @@ pub enum PlannedEffect {
   StartRobot { route: StartRoute },
   /// The pull request of the subject is opened, where the code owners approve (none is open)
   CreatePullRequest,
+}
+
+impl PlannedEffect {
+  /// The route of the start among `effects`; none when they start no robot
+  #[must_use]
+  pub fn start_route_in(effects: &[Self]) -> Option<&StartRoute> {
+    effects.iter().find_map(|effect| match effect {
+      Self::StartRobot { route } => Some(route),
+      _ => None,
+    })
+  }
 }
 
 /// How a robot starts

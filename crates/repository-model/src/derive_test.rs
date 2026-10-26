@@ -1,5 +1,5 @@
 use crate::branch_table::{RemoteFact, RemoteFacts};
-use crate::derive::{LandSources, blocking_parent, decide_lands, land_answer, open_pull_requests_view, repository};
+use crate::derive::{LandSources, blocking_parent, decide_lands, land_decision, open_pull_requests_view, repository};
 use crate::facts::FactStore;
 use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
@@ -404,6 +404,8 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     rules: None,
     landing_needs: &failed,
     baseline: &LandedSection::default(),
+    gate: None,
+    target_conflict: None,
   };
   let lands = decide_lands(&sources);
   assert_eq!(lands.keys().collect::<Vec<_>>(), ["auth", "login", "oauth"]);
@@ -469,10 +471,10 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     create_pull_request: false,
     allow: LandingAllowances::default(),
   };
-  let answer = land_answer(&sources, &land).unwrap();
-  assert_eq!(answer.decision.start_route(), Some(&StartRoute::Api { profile: None }));
+  let (decision, profiles) = land_decision(&sources, &land).unwrap();
+  assert_eq!(decision.start_route(), Some(&StartRoute::Api { profile: None }));
   assert_eq!(
-    answer.profiles,
+    profiles,
     LandProfiles {
       offered: vec![fast],
       emergency: Vec::new(),
@@ -484,7 +486,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     subject: Subject::branch("gone"),
     ..land
   };
-  assert_eq!(land_answer(&sources, &gone), None);
+  assert_eq!(land_decision(&sources, &gone), None);
 }
 
 /// What the session's view answers of a start of login on auth on base, auth landed, base with a new commit, and someone

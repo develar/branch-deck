@@ -12,7 +12,7 @@ export type SafePushMode = Extract<PatronusPushMode, "rebaseAutosquash" | "dryRu
  */
 export type SafePushPlacement = "row" | "stack-header"
 
-/** The popover of a start that has something to say before it starts (`presentLand` of its decision, `confirm`) */
+/** The popover of a start that has something to say before it starts (`presentLand` of its plan, `confirm`) */
 export interface SafePushAsk {
   readonly branchName: string
   readonly mode: SafePushMode

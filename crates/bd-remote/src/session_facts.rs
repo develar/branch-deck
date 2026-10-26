@@ -3,15 +3,18 @@
 //! filled through the one reader of the facts (`ServiceFactSources` over `BdServices`) with what its intent needs
 //! (`operations::needs`, `operations::facts::fill`). `bd push`, `bd safe-push`, `bd robot` and `bd status` read the
 //! robots, what they land, landed and hold, the pull requests, the profiles, the rules and the review from it; the words
-//! stay theirs.
+//! stay theirs. `bd safe-push` plans its start over it as the app's session plans one (`prepare`).
 
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::services::session_key;
 use domain_types::error::ErrorCode;
+use domain_types::landing::Land;
+use domain_types::operation::Plan;
 use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotsResult};
 use git_executor::git_command_executor::GitCommandExecutor;
 use operations::facts::fill;
+use operations::land::{LandHost, prepare_one_shot};
 use operations::needs::FactNeed;
 use remote_facts::fact_sources::FactSources;
 use repository_model::branch_table::BranchTable;
@@ -42,6 +45,12 @@ impl SessionFacts {
   pub fn read(&mut self, context: &RepoContext, needs: &[FactNeed]) -> Result<(), CliError> {
     context.runtime()?.block_on(fill(&mut self.session, &self.sources, &self.git, needs));
     Ok(())
+  }
+
+  /// The plan of the start `land` over the facts the session holds (those of `needs(Land)`, read first) and the ones its
+  /// first decision waits for, read now (`operations::land::prepare_one_shot`); `None` for a subject the table lacks
+  pub fn prepare(&mut self, context: &RepoContext, land: &Land, host: &LandHost<'_>) -> Result<Option<Plan>, CliError> {
+    Ok(context.runtime()?.block_on(prepare_one_shot(&mut self.session, &self.sources, &self.git, land, host)))
   }
 
   /// The reads of the facts of the command, for a read that is no fact of the session (the robot a comment started)

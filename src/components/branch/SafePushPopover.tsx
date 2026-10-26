@@ -75,9 +75,10 @@ function syncedCommits(commits: readonly StackCommit[]): Commit[] {
 }
 
 /**
- * The popover of a start that has something to say before it starts (`presentLand` of Rust's decision: S, a stack, a profile other
- * than the default checks, a running Safe Push it cancels, approvals Patronus judges only at the start, a push that
- * dismisses approvals, a start without review, a branch its build needs), at the slot it was asked from (`anchor`). Its title is what lands: "Lands
+ * The popover of a start that has something to say before it starts (`presentLand` of the plan Rust answers, `prepare`:
+ * S, and each of `Plan.confirmations`: a stack, a profile other than the default checks, a running Safe Push it cancels,
+ * approvals Patronus judges only at the start, a push that dismisses approvals, a start without review, a branch its
+ * build needs), at the slot it was asked from (`anchor`). Its title is what lands: "Lands
  * oauth with auth and login, which it is built on: 3 branches · 12 commits into master."; below it only what applies,
  * in sentences: why its build fails (the landing needs, with the fix; its start is Start Anyway), the pull request it comments on, the branches that stay, the profile (the branch's own named as the last
  * Safe Push's), the review as Patronus answered it, the running Safe Push it cancels, the second way to land a stacked
@@ -149,7 +150,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   const modeName = formatPushMode(mode)
   // the build of what it lands needs a branch outside it (the landing gate's blockers): the reason, the fix, and the start
   // anyway
-  const landingRefusals = read?.decision == null ? [] : landingRefusalsOf(read.decision).map(reason => reason.refusal)
+  const landingRefusals = read?.plan == null ? [] : landingRefusalsOf(read.plan).map(reason => reason.refusal)
   const landingCheck = landingRefusals.length === 0 ? null : describeLandingCheck({ refusals: landingRefusals }, subject, {})
   const landingRefused = landingCheck?.kind === "refuse" ? landingCheck : null
   const close = () => closeSafePushPopover(branchName)
@@ -308,11 +309,11 @@ function Lines({
   pullRequest: PullRequest | undefined
   onProfile: (id: string | null) => void
 }) {
-  const { fromPullRequest, profiles, decision } = read
+  const { fromPullRequest, profiles, plan } = read
   const branchProfile = profiles?.offered.find(profile => profile.id === profiles.default) ?? null
-  const confirmations = decision?.confirmations ?? []
+  const confirmations = plan?.confirmations ?? []
   // the push dismisses approvals of the pull request: the ones Patronus counts refuse the start, others it confirms
-  const dismisses = confirmations.find(confirmation => confirmation.kind === "dismissesApprovals") ?? decision?.blockers.find(reason => reason.code === "dismissesApprovals")
+  const dismisses = confirmations.find(confirmation => confirmation.kind === "dismissesApprovals") ?? plan?.blockers.find(reason => reason.code === "dismissesApprovals")
   const rulesUnknown = confirmations.find(confirmation => confirmation.kind === "rulesUnknown")
   const rules = rulesUnknown === undefined ? null : peekBranchRules(read.target)
   return (

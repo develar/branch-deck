@@ -3860,15 +3860,20 @@ Patronus view's, the landing needs the host's.
   part equal to the one sent last is not sent again (`diff_keyed`, `PartialEq`), so a patch carries only the subjects
   whose answer changed; all of them for the 141 branches of `branch_table_large` take about 2 ms in a release build
   (`derive_budget_test.rs`, [Rendering Performance](rendering-performance.md#the-main-thread-of-a-sync)).
-- **Another intent** than a default one (a chosen profile, a start without approvals): `decide_land {
-  repositoryPath, land }` answers `LandAnswer { decision, profiles }` over the facts the session holds now
-  (`Sessions::decide_land`, `derive::land_answer_of`, the same `land::decide`): a read, no lock, no effect, no git
-  process; the E2E server's route asks its session the same. The page runs the `effects` of a decision in their order
+- **The plan of a start** (a click, its popover, any profile, a start without approvals): `prepare { repositoryPath,
+  intent }` answers the `Plan` of a `Land` over the facts the session holds now, on its actor (`Sessions::read`,
+  `operations::land::prepare`: `derive::land_decision`, the same `land::decide`, with the profiles it offers as
+  `alternatives` and the `fingerprint` of the plan and its witness: the tips of the branches it lands and pushes and of
+  their remote branches, their pull requests, their robots and the one it cancels); a read, no lock, no effect, no git
+  process; the E2E server's route asks its session the same (`operations::engine::prepare`). The page runs the
+  `effects` of a plan in their order
   (`src/lib/safe-push-start.ts`): the retarget of a pull request into a virtual branch first, then the push of the
   branches the effect names with the cancel of the robot the start replaces (or that cancel alone), then the start.
 - **`bd`** derives with the same functions over what it read, the facts it doesn't read unknown: `bd status` and `bd
-  safe-push --check` the next step (`StepSources` of `derive::grouped_rows`), `bd safe-push` the decision of its start
-  (`LandingFacts::branch_subject`, `stack_subject`, `land::decide`; its flags are the allowances of the intent),
+  safe-push --check` the next step (`StepSources` of `derive::grouped_rows`), `bd safe-push` the plan of its start
+  (`operations::land::prepare_one_shot` over its one-shot session: the first decision over what `needs(Land)` read,
+  then the review and the rules it waits for, read once, then the decision again, with the landing gate and the target
+  check it ran; its flags are the allowances of the intent),
   `bd status` and `bd robot` what landed. The guards of the app's commands (`push_guard`, `start_guard`) decide by the
   same rules on the table of the last sync. The scenario table runs each case through both sides
   (`crates/bd-remote/src/scenario_test.rs`: the derivation of a session over the table state of a sync and a

@@ -1,12 +1,12 @@
-// The page's side of the decision of a start Rust makes (`LandDecision` of `domain_policy::land::decide`: the view's
-// `lands` for the default starts, the answer of `decide_land` for another one): what a click does and what the popover
-// of a start says, in the page's words. It decides nothing: the next step's reason still comes first (the step is the
-// page's until the next step moves to Rust), a key always opens the popover, and the only blocker the popover lifts is
-// the one an allowance of the start names, a refusal of the landing gate (Start Anyway).
-import type { Confirmation, FactWait, LandDecision, Reason, StartRoute } from "@/lib/bindings"
+// The page's side of the plan of a start Rust makes (`Plan`, the answer of `prepare`: the decision of
+// `domain_policy::land::decide` over the facts of the session): what a click does and what the popover of a start says,
+// in the page's words. It decides nothing: the next step's reason still comes first, a key always opens the popover,
+// and the only blocker the popover lifts is the one an allowance of the start names, a refusal of the landing gate
+// (Start Anyway).
+import type { Confirmation, FactWait, Plan, Reason, StartRoute } from "@/lib/bindings"
 import { formatReason } from "@/presenters/reasons"
 
-/** A line the popover of a start shows before it starts, one per confirmation of the decision, and S itself */
+/** A line the popover of a start shows before it starts, one per confirmation of the plan, and S itself */
 export type PromptLine =
   /** S, never a start by itself */
   | "key"
@@ -61,13 +61,13 @@ export interface LandAsk {
 }
 
 /** The refusals of the landing gate among the blockers: Start Anyway lifts them (`LandingAllowances`) */
-export function landingRefusalsOf(decision: LandDecision): Extract<Reason, { code: "landingRefused" }>[] {
-  return decision.blockers.filter((reason): reason is Extract<Reason, { code: "landingRefused" }> => reason.code === "landingRefused")
+export function landingRefusalsOf(plan: Plan): Extract<Reason, { code: "landingRefused" }>[] {
+  return plan.blockers.filter((reason): reason is Extract<Reason, { code: "landingRefused" }> => reason.code === "landingRefused")
 }
 
 /** How the robot starts: through the API with a profile, or from a pull request; null when nothing starts it */
-export function startRouteOf(decision: LandDecision): StartRoute | null {
-  for (const effect of decision.effects) {
+export function startRouteOf(plan: Plan): StartRoute | null {
+  for (const effect of plan.effects) {
     if (effect.kind === "startRobot") {
       return effect.route
     }
@@ -136,43 +136,43 @@ function opensOf(reason: Reason): "pullRequest" | "robot" | "review" | undefined
 }
 
 /**
- * What a start of `ask` does by `decision` (null: Rust has none yet, before the Patronus view): the next step's reason
- * first; a fact whose read failed refuses with why; then the first blocker of the decision, but a refusal of the landing
- * gate, which the popover offers to start anyway; then a fact without an answer, a wait; a start without review still
- * without its profile, the choice; then the lines the popover says first, else the start
+ * What a start of `ask` does by its `plan` (null: Rust has none yet, while it is asked and before the Patronus view):
+ * the next step's reason first; a fact whose read failed refuses with why; then the first blocker of the plan, but a
+ * refusal of the landing gate, which the popover offers to start anyway; then a fact without an answer, a wait; a start
+ * without review still without its profile, the choice; then the lines the popover says first, else the start
  */
-export function presentLand(decision: LandDecision | null, ask: LandAsk): LandPrompt {
+export function presentLand(plan: Plan | null, ask: LandAsk): LandPrompt {
   if (ask.stepBlocker !== null) {
     return { kind: "refuse", reason: ask.stepBlocker, offersPush: false }
   }
-  if (decision === null) {
+  if (plan === null) {
     return { kind: "wait", what: `Reading ${ask.subject}…` }
   }
-  const failed = decision.waits.find(wait => wait.failed !== null)
+  const failed = plan.waits.find(wait => wait.failed !== null)
   if (failed?.failed != null) {
     return { kind: "refuse", reason: failed.failed.message, offersPush: false }
   }
-  const blocker = decision.blockers.find(reason => reason.code !== "landingRefused")
+  const blocker = plan.blockers.find(reason => reason.code !== "landingRefused")
   if (blocker !== undefined) {
     const opens = opensOf(blocker)
     return { kind: "refuse", reason: formatReason(blocker), offersPush: blocker.code === "dismissesApprovals", ...(opens !== undefined && { opens }) }
   }
-  const wait = WAIT_ORDER.flatMap(kind => decision.waits.filter(it => it.fact.kind === kind))[0]
+  const wait = WAIT_ORDER.flatMap(kind => plan.waits.filter(it => it.fact.kind === kind))[0]
   if (wait !== undefined) {
     return { kind: "wait", what: waitWords(wait, ask.subject) }
   }
-  const route = startRouteOf(decision)
+  const route = startRouteOf(plan)
   if (ask.withoutReview && route?.kind === "api" && route.profile === null) {
     return { kind: "choose", reason: "Choose the profile that skips the code-owner review" }
   }
   const reasons: PromptLine[] = ask.via === "key" ? ["key"] : []
-  const lines = decision.confirmations.map(lineOf)
+  const lines = plan.confirmations.map(lineOf)
   for (const line of ask.withoutReview && !lines.includes("bypass") ? [...lines, "bypass" as const] : lines) {
     if (!reasons.includes(line)) {
       reasons.push(line)
     }
   }
-  if (landingRefusalsOf(decision).length > 0) {
+  if (landingRefusalsOf(plan).length > 0) {
     reasons.push("landing")
   }
   return reasons.length === 0 ? { kind: "start" } : { kind: "confirm", reasons }

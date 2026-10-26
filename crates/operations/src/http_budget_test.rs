@@ -19,7 +19,7 @@ use domain_types::{BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBran
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use remote_facts::fact_sources::{FactSources, Read};
-use repository_model::branch_table::BranchTable;
+use repository_model::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::one_shot::OneShot;
 use repository_model::session::SessionKey;
@@ -30,10 +30,10 @@ use std::time::Duration;
 use tokio::sync::Barrier;
 
 /// The tip of `auth`, the one branch of the table
-const TIP: &str = "1111111111111111111111111111111111111111";
+pub(crate) const TIP: &str = "1111111111111111111111111111111111111111";
 
 /// The reads of the facts, each answered at once and counted by its name
-struct Counted {
+pub(crate) struct Counted {
   calls: Mutex<BTreeMap<&'static str, u32>>,
   /// The subjects of each readiness read
   readiness_subjects: Mutex<Vec<usize>>,
@@ -49,7 +49,7 @@ impl Counted {
     *self.calls.lock().unwrap().entry(read).or_default() += 1;
   }
 
-  fn calls(&self) -> BTreeMap<&'static str, u32> {
+  pub(crate) fn calls(&self) -> BTreeMap<&'static str, u32> {
     self.calls.lock().unwrap().clone()
   }
 
@@ -189,9 +189,9 @@ fn commit(id: &str) -> Commit {
   }
 }
 
-/// The session of a sync of one branch, `auth` at `TIP`, under the prefix `user`
-fn session() -> OneShot {
-  let branch = GroupedBranchInfo {
+/// The one branch of the table, `auth` of one commit
+fn branch() -> GroupedBranchInfo {
+  GroupedBranchInfo {
     name: "auth".to_owned(),
     commits: vec![commit("a1")],
     latest_commit_time: 1_704_067_200,
@@ -202,11 +202,15 @@ fn session() -> OneShot {
     origin: BranchOrigin::Prefix,
     issue_key: None,
     stack: None,
-  };
+  }
+}
+
+/// The session of a sync of one branch, `auth` at `TIP`, under the prefix `user`, over `table()`
+pub(crate) fn session() -> OneShot {
   let mut state = TableState::new();
   state.begin_sync();
   state.apply(SyncEvent::BranchesGrouped {
-    branches: vec![branch.clone()],
+    branches: vec![branch()],
     baseline_branch: "origin/master".to_owned(),
     stacks: false,
     issue_groups: BTreeMap::new(),
@@ -227,29 +231,41 @@ fn session() -> OneShot {
     error: None,
   });
   state.finish_sync(Ok(()));
-  let table = BranchTable {
-    prefix: "user".to_owned(),
-    baseline: "origin/master".to_owned(),
-    branches: vec![branch],
-    tips: HashMap::from([("user/virtual/auth".to_owned(), TIP.to_owned())]),
-    ..BranchTable::default()
-  };
   let key = SessionKey {
     worktree: "/repository".to_owned(),
     prefix: "user".to_owned(),
   };
-  OneShot::new(key, state, table)
+  OneShot::new(key, state, table())
+}
+
+/// The table of the sync of `session()`: `auth` at `TIP`, not on the remote yet
+pub(crate) fn table() -> BranchTable {
+  let unpushed = RemoteFact {
+    known: true,
+    ..RemoteFact::default()
+  };
+  BranchTable {
+    prefix: "user".to_owned(),
+    baseline: "origin/master".to_owned(),
+    branches: vec![branch()],
+    tips: HashMap::from([("user/virtual/auth".to_owned(), TIP.to_owned())]),
+    remote: RemoteFacts {
+      branches: BTreeMap::from([("auth".to_owned(), unpushed)]),
+      stacks: BTreeMap::new(),
+    },
+    ..BranchTable::default()
+  }
 }
 
 /// The failed Safe Push of `auth` at its tip, its merge profile unnamed by the list
-fn failed_robot() -> PatronusRobot {
+pub(crate) fn failed_robot() -> PatronusRobot {
   PatronusRobot {
     source_revision: Some(TIP.to_owned()),
     ..robot("r1", Some("auth"), PatronusRobotStatus::Failure, 1)
   }
 }
 
-fn counted(robot: PatronusRobot) -> (Arc<Counted>, Arc<dyn FactSources>) {
+pub(crate) fn counted(robot: PatronusRobot) -> (Arc<Counted>, Arc<dyn FactSources>) {
   let counted = Arc::new(Counted {
     calls: Mutex::new(BTreeMap::new()),
     readiness_subjects: Mutex::new(Vec::new()),
@@ -292,7 +308,7 @@ async fn a_check_reads_each_fact_once_side_by_side() {
     ],
     ..LandDecision::default()
   };
-  let then = waits(&decision, &subject, "master");
+  let then = waits(&decision.waits, &subject, "master");
   assert_eq!(then, [FactNeed::Readiness(subject.clone()), FactNeed::Rules { branch: "master".to_owned() }]);
   fill(&mut session, &sources, &GitCommandExecutor::new(), &then).await;
   let read = BTreeMap::from([

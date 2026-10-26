@@ -242,7 +242,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_repository_config", post(tauri_command_bridge::get_repository_config))
     .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
     .route("/invoke/get_snapshot", post(session_routes::get_snapshot))
-    .route("/invoke/decide_land", post(session_routes::decide_land))
+    .route("/invoke/prepare", post(session_routes::prepare))
     .route("/invoke/subscribe_view", post(session_routes::subscribe_view))
     .route("/invoke/unsubscribe_view", post(session_routes::unsubscribe_view))
     .route("/invoke/set_window_focus", post(session_routes::set_window_focus))

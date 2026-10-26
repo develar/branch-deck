@@ -25,7 +25,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use domain_types::ProgressReporter;
 use domain_types::error::ApiError;
-use domain_types::landing::{DecideLandParams, LandAnswer};
+use domain_types::operation::{Plan, PrepareParams};
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
@@ -387,10 +387,10 @@ pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Jso
   Ok(Json(state.sessions.get_snapshot(&key).await))
 }
 
-/// The decision of a start over the facts of the session, as the app's `decide_land`: the same function of the session
-pub async fn decide_land(State(state): State<Arc<AppState>>, Json(params): Json<DecideLandParams>) -> CommandResult<Option<LandAnswer>> {
+/// The plan of an intent over the facts of the session, as the app's `prepare`: the same function of the engine
+pub async fn prepare(State(state): State<Arc<AppState>>, Json(params): Json<PrepareParams>) -> CommandResult<Option<Plan>> {
   let key = session_key(&state, &params.repository_path).await?;
-  Ok(Json(state.sessions.decide_land(&key, params.land).await))
+  Ok(Json(operations::engine::prepare(&state.sessions, &key, params.intent).await?))
 }
 
 /// The stream of a window's subscription: its answer, then the patches. A call without a channel (a test of this crate

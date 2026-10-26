@@ -461,8 +461,10 @@ test.describe("Patronus actions", () => {
     await restackFailed.getByRole("button", { name: "Close toast" }).click()
     await expect(restackFailed).toHaveCount(0)
 
-    // Start Anyway starts the same start with the override of what refused it, which the start command gets too
+    // Start Anyway starts the same start with the override of what refused it, which the start command gets too; the
+    // refusal of the first start is still open, so the gate of this one answers before its toast is pressed
     await safePushFromMenu(page, "JIRA-456")
+    await expect.poll(() => checks.length).toBe(2)
     refused = toastWith(page, "Cannot start the Safe Push")
     await runAndWaitForAnswer(page, "start_patronus_robot", () => refused.getByRole("button", { name: "Start Anyway" }).click())
     await expect(toastWith(page, "Safe Push started")).toBeVisible()

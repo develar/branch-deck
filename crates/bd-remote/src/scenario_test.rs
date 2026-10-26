@@ -1,9 +1,10 @@
 //! The scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` as a repository of the
 //! bd-cli fixtures with the fake Patronus and the fake GitHub, and the one expectation (`expect`) both sides answer of
 //! it. The app's side: the table its sync folds (`TableState`) and the facts its session holds of the same fakes
-//! (`FactStore`, fed as the session's host feeds it), through `repository_model::derive` (`next_steps_of`,
-//! `land_answer_of`). The side of `bd`: `safe_push()` with `--check` (the production path: its preamble, `plan()`, the
-//! output of a check, with the decision and the step its words tell), then the start without `--check`
+//! (`FactStore`, fed as the session's host feeds it), through `repository_model::derive` (`next_steps_of`) and the plan
+//! of its start (`operations::land::plan_of`, as the app's `prepare` answers it). The side of `bd`: `safe_push()` with
+//! `--check` (the production path: its preamble, `plan()`, the output of a check, with the plan and the step its words
+//! tell), then the start without `--check`
 
 use crate::push_command::github_repository;
 use crate::safe_push_command::{SafePushArgs, SafePushOutput, safe_push as safe_push_command};
@@ -22,8 +23,9 @@ use domain_policy::stack::{WholeStack, whole_stack_of};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::commit::Commit;
 use domain_types::error::ApiError;
-use domain_types::landing::{Land, LandDecision, PlannedEffect, ProfileChoice, StartRoute, Subject};
+use domain_types::landing::{Land, PlannedEffect, ProfileChoice, StartRoute, Subject};
 use domain_types::next_step::NextStep;
+use domain_types::operation::Plan;
 use domain_types::patronus::{LandingAllowances, PatronusAvailability, PatronusPushMode, PatronusRobotsResult};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use domain_types::session::{Demand, stack_readiness_key};
@@ -33,10 +35,11 @@ use github::fake_github::{FakeAnswer, FakeGitHub};
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::stack::place_branches;
 use history_rewrite::store_lines::StoreLines;
+use operations::land::plan_of;
 use remote_facts::branch_rules::read_branch_rules;
 use remote_facts::pull_requests::list_pull_requests as list_open_pull_requests;
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
-use repository_model::derive::{land_answer_of, landed_states_of, next_steps_of, repository, session_open_pull_requests, wanted_readiness};
+use repository_model::derive::{landed_states_of, next_steps_of, repository, session_open_pull_requests, wanted_readiness, with_land_sources};
 use repository_model::facts::{AskedRobots, FactResult, FactStore, Observation, RobotsRead, Seq, derive_patronus, robots_digest};
 use repository_model::table::TableState;
 use serde::Deserialize;
@@ -1097,8 +1100,9 @@ impl AppSession<'_> {
     let open = session_open_pull_requests(&self.state, &self.facts, prefix);
     let landed = landed_states_of(&self.state, &self.facts);
     let steps = next_steps_of(&self.state, &self.facts, &open, &landed);
-    let land = land_answer_of(&self.state, &self.facts, prefix, &given.land(subject)).map(|answer| answer.decision);
-    (step_answer(steps.get(&key).map(|view| &view.step)), land_answer(land.as_ref()))
+    let land = given.land(subject);
+    let plan = with_land_sources(&self.state, &self.facts, prefix, |sources| plan_of(sources, &land)).flatten();
+    (step_answer(steps.get(&key).map(|view| &view.step)), land_answer(plan.as_ref()))
   }
 }
 
@@ -1180,7 +1184,7 @@ fn step_answer(step: Option<&NextStep>) -> Value {
 /// confirmations and of the facts it waits for, in order; how it starts (`api`, `api:<profile>`, `comment:<number>`,
 /// `createPullRequest`), the branches its push pushes and whether by force, the pull requests it retargets, the robot
 /// it cancels, what lands; `null` without a decision
-fn land_answer(decision: Option<&LandDecision>) -> Value {
+fn land_answer(decision: Option<&Plan>) -> Value {
   let Some(decision) = decision else {
     return Value::Null;
   };
@@ -1274,7 +1278,7 @@ fn differences(side: &str, column: &str, expected: &Value, actual: &Value) -> Ve
 /// The start of `bd` without `--check` does what its decision says: it starts (through the API or from a pull request,
 /// canceling the robot the decision cancels) when nothing refuses it and the flags accept every confirmation
 /// (`domain_policy::land::unaccepted`), else it refuses
-fn start_differences(situation: &Situation, given: &Given, decision: &LandDecision) -> Vec<String> {
+fn start_differences(situation: &Situation, given: &Given, decision: &Plan) -> Vec<String> {
   let starts = decision.blockers.is_empty() && decision.waits.is_empty() && unaccepted(&decision.confirmations, &given.allowances()).is_empty();
   let expected = if starts {
     let via = match decision.start_route() {
@@ -1322,8 +1326,8 @@ fn answer(case: &Case) -> Vec<String> {
   match (situation.check(given), bd.and_then(|bd| bd.error.as_deref())) {
     (Ok(output), None) => {
       failures.extend(differences("bd", "step", bd_step, &step_answer(output.step.as_ref())));
-      failures.extend(differences("bd", "land", bd_land, &land_answer(output.decision.as_ref())));
-      if let Some(decision) = &output.decision {
+      failures.extend(differences("bd", "land", bd_land, &land_answer(output.plan.as_ref())));
+      if let Some(decision) = &output.plan {
         failures.extend(start_differences(&situation, given, decision));
       }
     }

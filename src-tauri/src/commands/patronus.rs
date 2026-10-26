@@ -1,7 +1,7 @@
-use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
+use crate::commands::branch_prefix::PrefixInputs;
 use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
-use crate::commands::session::{SessionsState, session_key};
+use crate::commands::session::SessionsState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::{api_error, patronus_error};
@@ -9,7 +9,7 @@ use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
-use domain_types::landing::{DecideLandParams, LandAnswer, LandingCheck, LandingGateParams};
+use domain_types::landing::{LandingCheck, LandingGateParams};
 use domain_types::patronus::{
   GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobot, PatronusRobotParams,
   PatronusRobotStatus, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
@@ -458,27 +458,4 @@ fn unknown_github_repository() -> ApiError {
 pub async fn get_patronus_target_branch(git_executor: State<'_, GitCommandExecutor>, params: GetPatronusTargetBranchParams) -> Result<Option<String>, ApiError> {
   let git = (*git_executor).clone();
   run_blocking(move || find_target_branch(&git, &params.repository_path, &params.baseline_branch)).await
-}
-
-/// What a start of a Safe Push or a Dry Run does now and what stands in its way, over the facts the session of the
-/// repository holds (`repository_model::derive::land_answer_of`, the rule `bd safe-push` decides by), with the profiles it
-/// offers: the popover of a start and a start with a chosen profile or without approvals read it; the view carries the
-/// decisions of the default intents (`RepositoryView.lands`). A read: no lock, no effect. Null while the session is not
-/// open, before its Patronus view, or for a subject its table lacks
-#[tauri::command]
-#[instrument(skip_all, fields(repository_path = %params.repository_path, subject = %params.land.subject.name()))]
-#[specta::specta]
-pub async fn decide_land(
-  git_executor: State<'_, GitCommandExecutor>,
-  settings: Settings<'_>,
-  prefixes: Prefixes<'_>,
-  state: State<'_, SessionsState>,
-  params: DecideLandParams,
-) -> Result<Option<LandAnswer>, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let key = session_key(inputs, &params.repository_path).await?;
-    Ok(state.sessions().decide_land(&key, params.land).await)
-  })
-  .await
 }

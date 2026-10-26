@@ -104,8 +104,8 @@ export interface StepContext {
   /** The operation on the row, its own running start left out for a start (`forStart`); null while none runs */
   readonly busy: NextStepBusy | null
   /**
-   * The step as a start reads it (`readSafePush`): the start waits for the readiness itself (`decide_land`), so a
-   * readiness without an answer, or a stale one, holds nothing back
+   * The step as a start reads it (`readSafePush`): the start waits for the readiness itself (its plan, `prepare`), so
+   * a readiness without an answer, or a stale one, holds nothing back
    */
   readonly forStart: boolean
   readonly actions: NextStepActions

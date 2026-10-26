@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useStore } from "zustand"
 import { getBranchNextStep } from "@/hooks/useBranchNextStep"
 import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
-import type { Land, LandAnswer, LandDecision, LandProfiles, PatronusProfile, PatronusRobot, ReviewReadiness } from "@/lib/bindings"
+import type { Land, LandProfiles, PatronusProfile, PatronusRobot, Plan, ReviewReadiness } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
@@ -75,7 +75,7 @@ export type ReviewShown =
   | { readonly kind: "space"; readonly required: boolean }
   | { readonly kind: "loaded"; readonly readiness: ReviewReadiness }
 
-/** A start as the stores have it now: what Rust decided of it, what the click and the popover do, and what they show */
+/** A start as the stores have it now: what Rust planned of it, what the click and the popover do, and what they show */
 export interface SafePushRead {
   /** The branch, or the key of the whole stack of a root (`stackReadinessKey`) */
   readonly branchName: string
@@ -84,11 +84,11 @@ export interface SafePushRead {
   readonly mode: SafePushMode
   /** The target branch ("master") */
   readonly target: string
-  /** What Rust decided of the start (`LandDecision`); null before the Patronus view */
-  readonly decision: LandDecision | null
+  /** What Rust planned of the start (`prepare`: its `Plan`); null while it is asked, and before the Patronus view */
+  readonly plan: Plan | null
   /** What the click and the popover do with it (`presentLand`) */
   readonly prompt: LandPrompt
-  /** The profiles the start offers (`decide_land`); null while asked, and for a click of the default start */
+  /** The profiles the start offers (`Plan.alternatives`); null while the plan is asked */
   readonly profiles: LandProfiles | null
   /** The profile it runs with; null: the default checks, or a comment on a pull request */
   readonly profile: PatronusProfile | null
@@ -99,7 +99,7 @@ export interface SafePushRead {
   /** The running Safe Push of an older commit it cancels */
   readonly replaces: PatronusRobot | null
   readonly start: SafePushStart
-  /** The branches it is built on that it lands with it, root first (`LandDecision.lands`) */
+  /** The branches it is built on that it lands with it, root first (`Plan.lands`) */
   readonly ancestors: readonly string[]
   /** The branches built on it: they stay */
   readonly children: readonly string[]
@@ -187,18 +187,18 @@ export function landOf(branchName: string, request: Omit<SafePushRequest, "place
   }
 }
 
-/** The start of the default intent (the default profile, with review): the view carries its decision */
+/** The start of the default intent (the default profile, with review): the view carries its decision (`RepositoryView.lands`) */
 function isDefaultAsk(request: Omit<SafePushRequest, "placement">): boolean {
   return request.profileId === undefined && request.bypassReview !== true
 }
 
-/** What the session answers of the start `request` of `branchName` (`decide_land`); null without an answer */
-export async function askLand(branchName: string, request: Omit<SafePushRequest, "placement">): Promise<LandAnswer | null> {
+/** The plan the session answers of the start `request` of `branchName` (`prepare`); null without an answer */
+export async function prepareStart(branchName: string, request: Omit<SafePushRequest, "placement">): Promise<Plan | null> {
   const repositoryPath = getSelectedRepositoryPath()
   if (repositoryPath === null) {
     return null
   }
-  const result = await commands.decideLand({ repositoryPath, land: landOf(branchName, request) })
+  const result = await commands.prepare({ repositoryPath, intent: { kind: "land", ...landOf(branchName, request) } })
   if (result.status === "error") {
     throw commandFailure(result.error)
   }
@@ -212,13 +212,13 @@ function shownReadiness(key: string): ReadinessEntry | null {
 }
 
 /** The start waits for the review: the pull request it starts from, or the answer of Patronus */
-function waitsForReview(decision: LandDecision): boolean {
-  return decision.waits.some(wait => wait.fact.kind === "readiness" || wait.fact.kind === "pullRequests")
+function waitsForReview(plan: Plan): boolean {
+  return plan.waits.some(wait => wait.fact.kind === "readiness" || wait.fact.kind === "pullRequests")
 }
 
 /** The review as the popover says it: nothing for a dry run, nor while the start waits for the review */
-function reviewShownOf(mode: SafePushMode, readiness: ReadinessEntry | null, decision: LandDecision | null): ReviewShown {
-  if (mode === "dryRun" || decision === null || waitsForReview(decision)) {
+function reviewShownOf(mode: SafePushMode, readiness: ReadinessEntry | null, plan: Plan | null): ReviewShown {
+  if (mode === "dryRun" || plan === null || waitsForReview(plan)) {
     return { kind: "none" }
   }
   if (getPatronusGitHubRepository() === null) {
@@ -245,16 +245,16 @@ function readWholeStack(root: string, stackBranch: string): WholeStackRead {
 }
 
 /**
- * A start of the branch, or of the whole stack of a key (`stackReadinessKey`), as the stores have it now: the decision
- * of `answer` (`decide_land`), else, for the default start, the one the view carries (`RepositoryView.lands`); null
- * without the branch, or for a whole stack that doesn't fork (a straight chain starts from its last branch). The one
- * reader of a start: the click decides on it, the popover renders it.
+ * A start of the branch, or of the whole stack of a key (`stackReadinessKey`), as the stores have it now, presenting the
+ * plan Rust answered of it (`prepare`; null while it is asked); null without the branch, or for a whole stack that
+ * doesn't fork (a straight chain starts from its last branch). The one reader of a start: the click decides on it, the
+ * popover renders it.
  */
-export function readSafePush(branchName: string, request: Omit<SafePushRequest, "placement">, answer: LandAnswer | null): SafePushRead | null {
+export function readSafePush(branchName: string, request: Omit<SafePushRequest, "placement">, plan: Plan | null): SafePushRead | null {
   const root = stackRootOfReadinessKey(branchName)
   const state = branchSyncStore.getState()
   const { mode } = request
-  // a subject the view has no step of yet holds nothing back here: the decision of the start waits or refuses
+  // a subject the view has no step of yet holds nothing back here: the plan of the start waits or refuses
   let step: BranchNextStep
   let wholeStack: WholeStackRead | null = null
   if (root === null) {
@@ -270,20 +270,18 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
     step = getStackNextStep(root, { forStart: true })?.step ?? NO_NEXT_STEP
     wholeStack = readWholeStack(root, stack.branchName)
   }
-  const lands = getLands(branchName)
-  const decision = answer?.decision ?? (isDefaultAsk(request) && lands !== undefined ? (mode === "dryRun" ? lands.dryRun : lands.safePush) : null)
   const subject = root === null ? branchName : formatWholeStack(root)
-  // a start that skips the approvals (`LandDecision.approvalsSkippedBy`) is held back by the reasons of the subject
+  // a start that skips the approvals (`Plan.approvalsSkippedBy`) is held back by the reasons of the subject
   // (`subjectBlocker`: a sync, a failure, the robots, …), never by the approvals it goes without, as the click decides it
-  const stepBlocker = startStepBlocker(step, mode, decision?.approvalsSkippedBy != null)
-  const route = decision === null ? null : startRouteOf(decision)
+  const stepBlocker = startStepBlocker(step, mode, plan?.approvalsSkippedBy != null)
+  const route = plan === null ? null : startRouteOf(plan)
   const profile = route?.kind === "api" ? route.profile : null
-  const cancel = decision?.effects.find(effect => effect.kind === "cancelRobot")
+  const cancel = plan?.effects.find(effect => effect.kind === "cancelRobot")
   const readiness = mode === "rebaseAutosquash" ? shownReadiness(branchName) : null
-  const ancestors = root === null ? (decision?.lands.slice(0, -1) ?? []) : []
-  const stackPullRequest = decision?.confirmations.find(confirmation => confirmation.kind === "stackPullRequestApprovalsDontCount")
+  const ancestors = root === null ? (plan?.lands.slice(0, -1) ?? []) : []
+  const stackPullRequest = plan?.confirmations.find(confirmation => confirmation.kind === "stackPullRequestApprovalsDontCount")
   const stackOf = stackPullRequest === undefined ? undefined : getStackBranchOf(branchName)
-  const review = reviewShownOf(mode, readiness, decision)
+  const review = reviewShownOf(mode, readiness, plan)
   // asked without review through the API (a comment takes no profile), while the approvals are missing or not known
   const withoutReview =
     request.bypassReview === true && mode === "rebaseAutosquash" && route?.kind !== "comment" && !(review.kind === "loaded" && review.readiness.kind !== "missing")
@@ -292,9 +290,9 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
     subject,
     mode,
     target: getReadinessTarget(),
-    decision,
-    prompt: presentLand(decision, { subject, via: request.via, stepBlocker, withoutReview }),
-    profiles: answer?.profiles ?? null,
+    plan,
+    prompt: presentLand(plan, { subject, via: request.via, stepBlocker, withoutReview }),
+    profiles: plan?.alternatives ?? null,
     profile,
     fromPullRequest: route?.kind === "comment" ? { number: route.number, command: mode === "dryRun" ? "/patronus dry-run" : "/patronus merge" } : null,
     withoutReview,
@@ -302,7 +300,7 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
     start: {
       branchName,
       mode,
-      effects: decision?.effects ?? [],
+      effects: plan?.effects ?? [],
       profile: profile === null ? null : { id: profile.id, name: profile.name },
       mergeRequest: readiness?.requirement?.mergeRequest ?? null,
       wholeStack: root,
@@ -333,15 +331,14 @@ function nextChange(): Promise<void> {
 }
 
 /**
- * The start of a click, read again on every change until its decision waits for nothing: the session answers every
- * fact it waits for (the review it is asked at once, the rules, the profiles), a failure too, so the wait ends. The
- * default start reads the decision the view carries, another one asks the session (`decide_land`)
+ * The start of a click, planned again on every change until its plan waits for nothing (`prepare`): the session answers
+ * every fact it waits for (the review it is asked at once, the rules, the profiles), a failure too, so the wait ends
  */
 async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "placement">): Promise<SafePushRead | null> {
   // the profiles as the session has them now, the rules GitHub didn't give read again: the start decides on new answers
   await Promise.all([askStartOptions(branchName), askBranchRulesAgain()])
   for (;;) {
-    const read = readSafePush(branchName, ask, isDefaultAsk(ask) ? null : await askLand(branchName, ask))
+    const read = readSafePush(branchName, ask, await prepareStart(branchName, ask))
     if (read === null || read.prompt.kind !== "wait") {
       return read
     }
@@ -450,7 +447,7 @@ function currentStepOf(branchName: string): BranchNextStep | undefined {
  * A start of a Safe Push or a Dry Run, asked from any surface: the slot of the row or of the island header, the branch
  * menu, S, the preview, the review window, a toast. What every surface knows refuses it first, as the step says it (an
  * `info` toast). S opens the popover at once, which reads the facts as they load. A click waits for the facts, its
- * button busy ("Checking…"), and then starts at once when there is nothing to say (`presentLand` of Rust's decision), else opens
+ * button busy ("Checking…"), and then starts at once when there is nothing to say (`presentLand` of Rust's plan), else opens
  * the popover at the slot of the branch (a hidden row revealed first), or says why it can't start.
  */
 export async function requestSafePush(branchName: string, request: SafePushRequest): Promise<void> {
@@ -535,7 +532,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   if (read === null) {
     return
   }
-  // the decision read the stores of the selected repository: those of another one decide nothing here
+  // the plan was read in the session of the selected repository: another one decides nothing here
   const switched = getRepositorySwitchReason(repositoryPath)
   if (switched !== null) {
     notifyError(`Cannot start the ${formatPushMode(mode)}`, switched)
@@ -570,10 +567,10 @@ export async function requestSafePush(branchName: string, request: SafePushReque
 let shownRead: { inputs: readonly unknown[]; read: SafePushRead | null } | null = null
 
 /**
- * `readSafePush` of the popover, once per change of what it reads (the stores, the answer of the session): the
- * subscriptions of the popover share the answer, and a selector returns the same object for the same state
+ * `readSafePush` of the popover, once per change of what it reads (the stores, the plan of the session): the
+ * subscriptions of the popover share the plan, and a selector returns the same object for the same state
  */
-function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placement">, answer: LandAnswer | null): SafePushRead | null {
+function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placement">, plan: Plan | null): SafePushRead | null {
   const inputs = [
     branchSyncStore.getState(),
     reviewReadinessStore.getState(),
@@ -585,41 +582,41 @@ function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placeme
     ask.via,
     ask.profileId,
     ask.bypassReview,
-    answer,
+    plan,
   ]
   if (shownRead !== null && shownRead.inputs.every((input, index) => input === inputs[index])) {
     return shownRead.read
   }
-  const read = readSafePush(branchName, ask, answer)
+  const read = readSafePush(branchName, ask, plan)
   shownRead = { inputs, read }
   return read
 }
 
 /**
- * What the session answers of the start of the popover (`decide_land`), asked again with every patch of the view (its
- * facts are the session's) and every other profile; the last answer while the next is asked, null before the first
+ * The plan the session answers of the start of the popover (`prepare`), asked again with every patch of the view (its
+ * facts are the session's) and every other profile; the last plan while the next is asked, null before the first
  */
-function useLandAnswer(branchName: string, request: Omit<SafePushRequest, "placement">): LandAnswer | null {
-  const [answer, setAnswer] = useState<{ readonly key: string; readonly answer: LandAnswer | null } | null>(null)
+function useStartPlan(branchName: string, request: Omit<SafePushRequest, "placement">): Plan | null {
+  const [answer, setAnswer] = useState<{ readonly key: string; readonly plan: Plan | null } | null>(null)
   const version = useStore(branchSyncStore, state => (state.viewVersion === null ? null : `${state.viewVersion.epoch}:${state.viewVersion.seq}`))
   const key = JSON.stringify([branchName, request.mode, request.profileId ?? "default", request.bypassReview === true])
   const { mode, via, profileId, bypassReview } = request
   useEffect(() => {
     let current = true
-    askLand(branchName, { mode, via, ...(profileId !== undefined && { profileId }), ...(bypassReview === true && { bypassReview }) }).then(
-      answered => current && setAnswer({ key, answer: answered }),
+    prepareStart(branchName, { mode, via, ...(profileId !== undefined && { profileId }), ...(bypassReview === true && { bypassReview }) }).then(
+      plan => current && setAnswer({ key, plan }),
       (error: unknown) => current && notifyError(`Cannot read the ${formatPushMode(mode)} of ${formatReadinessSubject(branchName)}`, error),
     )
     return () => {
       current = false
     }
   }, [branchName, key, mode, via, profileId, bypassReview, version])
-  // an answer of another profile is not this start's
-  return answer?.key === key ? answer.answer : null
+  // a plan of another profile is not this start's
+  return answer?.key === key ? answer.plan : null
 }
 
 /**
- * `readSafePush` of the popover's ask, read again on every change of the stores it reads and of the answer of the
+ * `readSafePush` of the popover's ask, read again on every change of the stores it reads and of the plan of the
  * session; the profiles and the review demanded meanwhile
  */
 export function useSafePushRead(ask: SafePushAsk, profileId: string | null | undefined): SafePushRead | null {
@@ -628,9 +625,9 @@ export function useSafePushRead(ask: SafePushAsk, profileId: string | null | und
   }, [ask.branchName])
   useDemandReviewReadiness(ask.branchName, ask.mode === "rebaseAutosquash")
   const request: Omit<SafePushRequest, "placement"> = { mode: ask.mode, via: "key", bypassReview: ask.bypassReview, ...(profileId !== undefined && { profileId }) }
-  const answer = useLandAnswer(ask.branchName, request)
+  const plan = useStartPlan(ask.branchName, request)
   // the read flows out of the subscriptions: a value read beside them would be memoized by the compiler
-  const select = () => readSafePushNow(ask.branchName, request, answer)
+  const select = () => readSafePushNow(ask.branchName, request, plan)
   useStore(branchSyncStore, select)
   useStore(reviewReadinessStore, select)
   useStore(pullRequestsStore, select)

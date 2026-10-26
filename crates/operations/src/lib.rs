@@ -16,6 +16,9 @@
 //!   (`fill`, a `OneShot` of `bd` today)
 //! - `events`: where the caller of an operation hears its steps, the progress of its push and its outcome
 //!   (`EventSink`)
+//! - `land`: the plan of a Safe Push or a Dry Run (`prepare`): the decision of `domain_policy::land` over the facts of
+//!   the session of the app, or of the one-shot session of `bd` with the reads its first decision waits for, with the
+//!   profiles it offers and its fingerprint
 //! - `push`: the push of the virtual branches, one core for the app and `bd`: the lock only while the push is decided and
 //!   its commits and leases are fixed, the network push after it (`send`, once more over a remote that moved without
 //!   commits a branch lacks), the robots it restarts; the app's push as an operation of its session (`PushHost`)
@@ -27,6 +30,7 @@
 pub mod engine;
 pub mod events;
 pub mod facts;
+pub mod land;
 pub mod needs;
 pub mod pull_request;
 pub mod push;

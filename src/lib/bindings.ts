@@ -174,13 +174,12 @@ export const commands = {
 	 */
 	checkLandingGate: (params: LandingGateParams) => typedError<LandingCheck, ApiError>(__TAURI_INVOKE("check_landing_gate", { params })),
 	/**
-	 *  What a start of a Safe Push or a Dry Run does now and what stands in its way, over the facts the session of the
-	 *  repository holds (`repository_model::derive::land_answer_of`, the rule `bd safe-push` decides by), with the profiles it
-	 *  offers: the popover of a start and a start with a chosen profile or without approvals read it; the view carries the
-	 *  decisions of the default intents (`RepositoryView.lands`). A read: no lock, no effect. Null while the session is not
-	 *  open, before its Patronus view, or for a subject its table lacks
+	 *  The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
+	 *  does now (`operations::land::prepare`, the rule `bd safe-push` decides by), what the user accepts first, what refuses
+	 *  it, the facts it waits for and the profiles it offers. A read: no lock, no effect. Null while the session is not open,
+	 *  before its Patronus view, or for a subject its table lacks
 	 */
-	decideLand: (params: DecideLandParams) => typedError<LandAnswer | null, ApiError>(__TAURI_INVOKE("decide_land", { params })),
+	prepare: (params: PrepareParams) => typedError<Plan | null, ApiError>(__TAURI_INVOKE("prepare", { params })),
 	/**
 	 *  Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
 	 *  of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
@@ -1477,12 +1476,6 @@ export type CreatedPullRequest = {
 	warnings: string[],
 };
 
-/**  What the app asks of a start before it is made (`decide_land`): the start of `land` in the session of the repository */
-export type DecideLandParams = {
-	repositoryPath: string,
-	land: Land,
-};
-
 /**  Where the name is: a side of a file of the review, a line from 0 and a UTF-16 column */
 export type DeclarationSite = {
 	/**  The path of the side: the old path for the old side of a rename */
@@ -2333,6 +2326,13 @@ export type FindDeclarationParams = {
 };
 
 /**
+ *  The hash of a plan with what it was prepared on (`operations::witness`): the intent and what it decided, the tips of
+ *  the refs it moves and the remote branches it leases, the pull requests and robots it reads. Equal only within one
+ *  process
+ */
+export type Fingerprint = string;
+
+/**
  *  The first local commit whose replay onto the upstream conflicts: the merge of its change onto the upstream with the
  *  local commits before it
  */
@@ -2753,12 +2753,6 @@ export type Land = {
 	 */
 	createPullRequest?: boolean,
 	allow?: LandingAllowances,
-};
-
-/**  What the read of a start answers (`decide_land`): its decision and the profiles it offers */
-export type LandAnswer = {
-	decision: LandDecision,
-	profiles: LandProfiles,
 };
 
 /**  What a start does and what stands in its way, as `domain_policy::land::decide` answers it over the facts it has */
@@ -3910,6 +3904,31 @@ export type PickedRemoteCommit = {
 	newId: string,
 	/**  The subject of the copy, with the prefix of the branch */
 	subject: string,
+ *  What an intent does now, prepared over the facts of its session (the contract's `Plan`): it runs only while the facts
+ *  still have its `fingerprint`
+ */
+export type Plan = {
+	intent: Intent,
+	fingerprint: Fingerprint,
+	/**  What a robot it starts lands, root first; empty when it starts none */
+	lands: string[],
+	/**  What it does once nothing refuses it, in order */
+	effects: PlannedEffect[],
+	/**  What the user accepts before it runs */
+	confirmations: Confirmation[],
+	/**  What refuses it, in order; no confirmation lifts one */
+	blockers: Reason[],
+	/**  The facts it waits for, which nobody answered yet (or whose read failed) */
+	waits: FactWait[],
+	/**  The merge profiles a start offers besides the one it plans */
+	alternatives: LandProfiles | null,
+	/**  The open pull request a start comments on (`/patronus merge`), or the one `create_pull_request` takes */
+	pullRequest: number | null,
+	/**
+	 *  Why the approvals don't hold a start back (`domain_policy::review::skips_approvals`): its profile skips the
+	 *  review, or the user said to start without them
+	 */
+	approvalsSkippedBy: ApprovalsSkip | null,
 };
 
 /**  What a start does, in the order of its effects (the contract's `PlannedEffect`) */
@@ -3977,6 +3996,12 @@ export type PrefixSource =
 "global_config" | 
 /**  Nothing sets a prefix */
 "none";
+
+/**  What a window asks of an intent before it runs it (`prepare`): its plan in the session of the repository */
+export type PrepareParams = {
+	repositoryPath: string,
+	intent: Intent,
+};
 
 /**  The merge profile a start asks for */
 export type ProfileChoice = 

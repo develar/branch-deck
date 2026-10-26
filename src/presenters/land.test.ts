@@ -1,13 +1,16 @@
 // @spec spec/branch/patronus.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
-import type { LandDecision, LandingRefusal, Reason } from "@/lib/bindings"
+import type { LandingRefusal, Plan, Reason } from "@/lib/bindings"
 import type { LandAsk } from "@/presenters/land"
 import { presentLand } from "@/presenters/land"
 
-/** A Safe Push of auth through the API with the default checks: nothing in its way */
-function decision(patch: Partial<LandDecision> = {}): LandDecision {
+/** The plan of a Safe Push of auth through the API with the default checks: nothing in its way */
+function decision(patch: Partial<Plan> = {}): Plan {
   return {
+    intent: { kind: "land", subject: { kind: "branch", name: "auth" }, mode: "rebaseAutosquash", profile: { kind: "default" }, withoutApprovals: false },
+    fingerprint: "f1",
+    alternatives: null,
     blockers: [],
     confirmations: [],
     waits: [],
@@ -69,7 +72,7 @@ describe("presentLand", () => {
   })
 
   it("waits for the facts Rust waits for, each saying what it waits for, and refuses with why a read failed", () => {
-    const waiting = (fact: LandDecision["waits"][number]["fact"]) => presentLand(decision({ waits: [{ fact, failed: null }] }), CLICK)
+    const waiting = (fact: Plan["waits"][number]["fact"]) => presentLand(decision({ waits: [{ fact, failed: null }] }), CLICK)
     expect(waiting({ kind: "remote" })).toEqual({ kind: "wait", what: "Checking auth…" })
     expect(waiting({ kind: "profiles" })).toEqual({ kind: "wait", what: "Asking Patronus for the merge profiles…" })
     expect(waiting({ kind: "pullRequests" })).toEqual({ kind: "wait", what: "Checking the code-owner review…" })
@@ -131,7 +134,7 @@ describe("presentLand", () => {
 
   it("lets a start without review wait for its profile, and confirm the one that skips the review", () => {
     const without = { ...CLICK, withoutReview: true }
-    const route = (profile: Extract<LandDecision["effects"][number], { kind: "startRobot" }>["route"]) =>
+    const route = (profile: Extract<Plan["effects"][number], { kind: "startRobot" }>["route"]) =>
       decision({ confirmations: [{ kind: "withoutApprovals" }], effects: [{ kind: "startRobot", route: profile }], approvalsSkippedBy: "withoutApprovals" })
     expect(presentLand(route({ kind: "api", profile: null }), without)).toEqual({ kind: "choose", reason: "Choose the profile that skips the code-owner review" })
     const chosen = route({ kind: "api", profile: { id: "lsc", name: "LSC", description: null, allowedPushModes: [], skipsReview: true } })

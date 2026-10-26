@@ -21,7 +21,7 @@ import type { SafePushMode, SafePushStarting } from "@/stores/safe-push"
 import { getSafePushStarting, setSafePushStarting } from "@/stores/safe-push"
 import { runUpdateProjectOf } from "@/stores/update-project"
 
-/** What a start runs, as Rust planned it (`LandDecision.effects`) and the user confirmed */
+/** What a start runs, as Rust planned it (`Plan.effects` of `prepare`) and the user confirmed */
 export interface SafePushStart {
   readonly branchName: string
   readonly mode: SafePushMode

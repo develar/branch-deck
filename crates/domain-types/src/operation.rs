@@ -5,7 +5,7 @@
 //! resources it holds (`Resource`), which `domain_policy::admission` admits a new one by (`Admission`).
 
 use crate::error::{ApiError, HolderTool};
-use crate::landing::{Confirmation, FactWait, Land, LandProfiles, PlannedEffect, Subject};
+use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, PlannedEffect, StartRoute, Subject};
 use crate::patronus::PatronusPushMode;
 use crate::pull_request::PullRequestReviewEvent;
 use crate::reason::Reason;
@@ -256,10 +256,34 @@ pub struct Plan {
   pub waits: Vec<FactWait>,
   /// The merge profiles a start offers besides the one it plans
   pub alternatives: Option<LandProfiles>,
+  /// The open pull request a start comments on (`/patronus merge`), or the one `create_pull_request` takes
+  pub pull_request: Option<u32>,
+  /// Why the approvals don't hold a start back (`domain_policy::review::skips_approvals`): its profile skips the
+  /// review, or the user said to start without them
+  pub approvals_skipped_by: Option<ApprovalsSkip>,
 }
 
-/// The hash of what a plan was prepared on (`operations::witness`): the intent, the tips of the refs it moves and the
-/// remote branches it leases, the pull requests and robots it reads. Equal only within one process
+impl Plan {
+  /// How the robot of a start starts: through the API with the profile, or from a pull request; none when it starts
+  /// no robot (a start that opens the pull request instead, another intent)
+  #[must_use]
+  pub fn start_route(&self) -> Option<&StartRoute> {
+    PlannedEffect::start_route_in(&self.effects)
+  }
+}
+
+/// What a window asks of an intent before it runs it (`prepare`): its plan in the session of the repository
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareParams {
+  pub repository_path: String,
+  pub intent: Intent,
+}
+
+/// The hash of a plan with what it was prepared on (`operations::witness`): the intent and what it decided, the tips of
+/// the refs it moves and the remote branches it leases, the pull requests and robots it reads. Equal only within one
+/// process
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(transparent)]

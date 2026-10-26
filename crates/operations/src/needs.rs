@@ -2,7 +2,7 @@
 //! "Конкурентность"): the facts of each family (`needs`), and of a start the ones its first decision waits for
 //! (`waits`: the readiness of its subject, the rules of its target). `facts::fill` reads them, each once, in its order.
 
-use domain_types::landing::{LandDecision, LandFact, Subject};
+use domain_types::landing::{FactWait, LandFact, Subject};
 use domain_types::operation::{Intent, PushScope};
 
 /// A fact of the remote a plan reads
@@ -50,13 +50,13 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
   }
 }
 
-/// What the first decision of a start of `subject` into `target` waits for that the plan reads now: the review of the
+/// What the first plan of a start of `subject` into `target` waits for (`waits`) that it reads now: the review of the
 /// subject, the rules of the target for a push into an approved pull request; the other facts it waits for are read
 /// first or are the host's (the landing gate, the remote of a sync)
 #[must_use]
-pub fn waits(decision: &LandDecision, subject: &Subject, target: &str) -> Vec<FactNeed> {
+pub fn waits(waits: &[FactWait], subject: &Subject, target: &str) -> Vec<FactNeed> {
   let mut needs = Vec::new();
-  for wait in &decision.waits {
+  for wait in waits {
     let need = match wait.fact {
       LandFact::Readiness => FactNeed::Readiness(subject.clone()),
       LandFact::Rules { .. } => FactNeed::Rules { branch: target.to_owned() },

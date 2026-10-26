@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::operation::{Fingerprint, Intent};
+use domain_types::operation::Fingerprint;
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -59,13 +59,13 @@ impl Witness {
     }
   }
 
-  /// The fingerprint of a plan of `intent` prepared on this witness: equal only for the same intent on the same facts,
-  /// within one process
+  /// The fingerprint of `planned` (an intent, or the plan of one) prepared on this witness: equal only for the same
+  /// plan of the same intent on the same facts, within one process
   #[must_use]
-  pub fn fingerprint(&self, intent: &Intent) -> Fingerprint {
+  pub fn fingerprint(&self, planned: &impl Serialize) -> Fingerprint {
     let mut hasher = DefaultHasher::new();
     // both serialize: their types have no map with a key that is not a string, and no float
-    serde_json::to_string(intent).unwrap_or_default().hash(&mut hasher);
+    serde_json::to_string(planned).unwrap_or_default().hash(&mut hasher);
     serde_json::to_string(self).unwrap_or_default().hash(&mut hasher);
     Fingerprint(format!("{:016x}", hasher.finish()))
   }

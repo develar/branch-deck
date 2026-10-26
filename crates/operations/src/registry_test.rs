@@ -16,7 +16,7 @@ use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::TestClock;
 
 /// A host whose sessions never sync: no window asks one here
-struct IdleHost;
+pub(crate) struct IdleHost;
 
 impl SessionHost for IdleHost {
   fn inputs(&self, _key: &SessionKey) -> Option<SyncInputs> {
@@ -62,9 +62,14 @@ struct Fixture {
   key: SessionKey,
 }
 
-fn fixture() -> Fixture {
+/// The sessions of an `IdleHost` on a test clock
+pub(crate) fn sessions() -> Arc<Sessions> {
   let clock = OneClock(Arc::new(TestClock::new()));
-  let sessions = Arc::new(Sessions::new(tokio::runtime::Handle::current(), Arc::new(IdleHost), Arc::new(clock)));
+  Arc::new(Sessions::new(tokio::runtime::Handle::current(), Arc::new(IdleHost), Arc::new(clock)))
+}
+
+fn fixture() -> Fixture {
+  let sessions = sessions();
   Fixture {
     registry: Arc::new(Registry::new(Arc::clone(&sessions))),
     sessions,

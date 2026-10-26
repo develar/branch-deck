@@ -22,8 +22,9 @@
 //! `lands_of` is what a Safe Push and a Dry Run of each subject do now and what stands in their way, the decisions of
 //! their default intents (`domain_policy::land::decide` over `LandSources`: the table, the Patronus view, the robots,
 //! the profiles, the pull requests, the readiness, the rules and the landing needs as the session holds them), which the
-//! view derives with each patch but while a sync runs; `land_answer_of` the decision of another intent (a chosen
-//! profile, a start without approvals) with the profiles it offers, which the app reads by `decide_land`.
+//! view derives with each patch but while a sync runs; `land_decision` the decision of any intent (a chosen profile, a
+//! start without approvals) with the profiles it offers, over the sources of a session (`with_land_sources`) or of a
+//! command, which `operations::land` answers as the plan of the start (`prepare`).
 //!
 //! `next_steps` is the next step and the node of every row and of every whole stack that forks
 //! (`domain_policy::next_step`, `domain_policy::landing_node` over `StepSources`: the table of the last sync, its rows as
@@ -38,8 +39,8 @@ use crate::table::{TableParts, TableState};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, is_pushing, push_blocker, restart_action, stack_branch_hold};
 use domain_policy::land::{
-  BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, decide, offered_profiles, on_last_commit, restart_refusal, standing,
-  start_refusal,
+  BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, decide, offered_profiles, on_last_commit, restart_refusal,
+  standing, start_refusal,
 };
 use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
 use domain_policy::landing_node::{NodeFacts, landing_node};
@@ -53,7 +54,7 @@ use domain_policy::review::candidates;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::baseline_on_remote;
-use domain_types::landing::{Land, LandAnswer, LandDecision, LandDecisions, Landed, ProfileChoice, Subject};
+use domain_types::landing::{Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
 use domain_types::next_step::{NextStepView, StackPullRequest};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestView};
@@ -627,7 +628,7 @@ pub fn landed_states(table: &BranchTable, remote: &RemoteFacts, landed: &LandedF
     .collect()
 }
 
-/// What the starts of a table are decided on (`lands_of`, `land_answer`): the table of the last sync with the remote
+/// What the starts of a table are decided on (`lands_of`, `land_decision`): the table of the last sync with the remote
 /// branches as the deciding side knows them, its Patronus view and the user's robots, and the facts of the remote
 /// services as the session holds them (the scenario facts of `bd` hold their reads so)
 pub struct LandSources<'a> {
@@ -651,6 +652,12 @@ pub struct LandSources<'a> {
   pub landing_needs: &'a FactState,
   /// The landing report of the table: a subject the fetched baseline has whole has nothing left to land
   pub baseline: &'a LandedSection,
+  /// What the landing gate the deciding side ran of this start refuses (`bd`'s, of a whole stack too), in place of the
+  /// landing needs of the view; `None`: the view's (a session runs the gate at the start)
+  pub gate: Option<&'a [LandingRefusal]>,
+  /// A conflict the check of the deciding side against the newest target found; `None` without one, or when nothing
+  /// checked (a session checks at the start)
+  pub target_conflict: Option<TargetConflictFact<'a>>,
 }
 
 /// The decisions of the default intents of every subject of `state` (`LandDecisions`: a Safe Push with the default
@@ -660,15 +667,9 @@ pub fn lands_of(state: &TableState, facts: &FactStore, prefix: &str) -> BTreeMap
   with_land_sources(state, facts, prefix, decide_lands).unwrap_or_default()
 }
 
-/// The answer of the start `land` of the session (`decide_land` of the app): its decision and the profiles it offers;
-/// `None` before the Patronus view, or for a subject the table lacks
-#[must_use]
-pub fn land_answer_of(state: &TableState, facts: &FactStore, prefix: &str, land: &Land) -> Option<LandAnswer> {
-  with_land_sources(state, facts, prefix, |sources| land_answer(sources, land)).flatten()
-}
-
-/// `decide` over the sources of the session: its table, its Patronus view while it stands, its facts
-fn with_land_sources<T>(state: &TableState, facts: &FactStore, prefix: &str, decide: impl FnOnce(&LandSources<'_>) -> T) -> Option<T> {
+/// `decide` over the sources of the session: its table, its Patronus view while it stands, its facts; `None` before
+/// its Patronus view
+pub fn with_land_sources<T>(state: &TableState, facts: &FactStore, prefix: &str, decide: impl FnOnce(&LandSources<'_>) -> T) -> Option<T> {
   let part = facts.patronus.part();
   if !matches!(part.state, FactState::Fresh | FactState::Stale { .. }) {
     return None;
@@ -691,6 +692,8 @@ fn with_land_sources<T>(state: &TableState, facts: &FactStore, prefix: &str, dec
     rules: facts.rules.get(target).map(FactRecord::fact),
     landing_needs: &part.landing_needs,
     baseline: &state.parts.sections.landed,
+    gate: None,
+    target_conflict: None,
   };
   Some(decide(&sources))
 }
@@ -719,13 +722,14 @@ pub fn decide_lands(sources: &LandSources<'_>) -> BTreeMap<String, LandDecisions
     .collect()
 }
 
-/// The decision of `land` with the profiles it offers; `None` for a subject the table lacks
+/// The decision of `land` with the profiles it offers; `None` for a subject the table lacks, or a whole stack that
+/// doesn't fork
 #[must_use]
-pub fn land_answer(sources: &LandSources<'_>, land: &Land) -> Option<LandAnswer> {
+pub fn land_decision(sources: &LandSources<'_>, land: &Land) -> Option<(LandDecision, LandProfiles)> {
   let landing = LandingFacts::new(sources.table, sources.remote, sources.view, sources.robots, None);
   let (decision, last) = decide_with(sources, &landing, land)?;
   let profiles = standing(sources.profiles).map_or_default(|options| offered_profiles(options, last, land.mode, land.without_approvals));
-  Some(LandAnswer { decision, profiles })
+  Some((decision, profiles))
 }
 
 /// A start of `subject` in `mode` with the default profile, nothing allowed
@@ -753,7 +757,7 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
       (
         SubjectFacts::Branch(landing.branch_subject(name, Some(sources.pull_requests), sources.baseline)?),
         landing.robot_of(name),
-        needs,
+        sources.gate.or(needs),
       )
     }
     Subject::WholeStack { root } => {
@@ -762,7 +766,7 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
       (
         SubjectFacts::WholeStack(landing.stack_subject(stack, Some(sources.pull_requests), sources.baseline)),
         landing.stack_robot(stack),
-        Some(&[][..]),
+        Some(sources.gate.unwrap_or_default()),
       )
     }
   };
@@ -779,7 +783,7 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
     readiness: (sources.readiness)(&land.subject.key()),
     rules: sources.rules,
     landing: needs,
-    target_conflict: None,
+    target_conflict: sources.target_conflict,
   };
   Some((decide(&facts, land), last))
 }

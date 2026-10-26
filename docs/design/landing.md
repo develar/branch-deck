@@ -96,9 +96,8 @@ The specs are the contract of each part:
 - **The start, not a form.** A start of a piece has nothing to ask in the usual case: the piece is the branch the
   user pressed and what it is built on. So "Safe Push" is an action (`requestSafePush`, `src/hooks/useSafePush.ts`),
   named by what it lands ("Safe Push · 3"), and one decision (`domain_policy::land::decide`, the one of `bd
-  safe-push`, which the view carries as `RepositoryView.lands` and `decide_land` answers) says whether it starts at
-  once, refuses with the reason every surface says, or
-  confirms first in a popover at the button: a stacked branch always confirms, since it lands more than its row; so do
+  safe-push`, which the view carries as `RepositoryView.lands` and `prepare` answers as the plan of the start) says
+  whether it starts at once, refuses with the reason every surface says, or confirms first in a popover at the button: a stacked branch always confirms, since it lands more than its row; so do
   a profile other than the default checks, a running Safe Push it cancels, approvals Patronus judges only at the
   start. The popover's title is what the one robot lands, worded by `describeStackLanding`
   (`src/lib/patronus-stack.ts`): "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into

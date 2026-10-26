@@ -34,7 +34,7 @@
 //!   once more for the same requests, its branches that were not built `Syncing` until then.
 
 use crate::branch_table::BranchTable;
-use crate::derive::{land_answer_of, wanted_readiness};
+use crate::derive::wanted_readiness;
 use crate::facts::{AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, Seq, TableFacts, derive_patronus, robots_digest};
 use crate::moved_remote::{FetchedRemote, MovedFetches};
 use crate::patronus_view::{ContentMemo, lock_memo};
@@ -45,7 +45,6 @@ use crate::state::{View, new_epoch};
 use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{Land, LandAnswer};
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncReason, SyncState, SyncStep, Version};
@@ -69,6 +68,9 @@ use tracing::{Instrument, info_span, warn};
 /// The least time between two patches of a running sync
 pub const PATCH_INTERVAL: Duration = Duration::from_millis(16);
 
+/// A read that runs on the actor of a session over its table state and its facts, and answers its caller itself
+pub(crate) type SessionRead = Box<dyn FnOnce(&TableState, &FactStore) + Send>;
+
 /// A message to the actor of a session
 pub(crate) enum Message {
   Subscribe {
@@ -82,11 +84,8 @@ pub(crate) enum Message {
   Snapshot(oneshot::Sender<RepositoryView>),
   /// The table of the last successful sync with the memo and the remote branches as the session knows them
   Table(oneshot::Sender<Option<TableFacts>>),
-  /// The decision of a start over the facts of the session and the profiles it offers (`derive::land_answer_of`)
-  DecideLand {
-    land: Box<Land>,
-    reply: oneshot::Sender<Option<LandAnswer>>,
-  },
+  /// A read of the table state and the facts of the session (`Sessions::read`): the plan of an intent
+  Read(SessionRead),
   /// The demand of the window of a subscription; the session that does not hold it drops it
   Demand {
     id: SubscriptionId,
@@ -296,9 +295,7 @@ impl Actor {
       Message::Table(reply) => {
         let _ = reply.send(self.facts.table_facts(&self.state));
       }
-      Message::DecideLand { land, reply } => {
-        let _ = reply.send(land_answer_of(&self.state, &self.facts, &self.key.prefix, &land));
-      }
+      Message::Read(read) => read(&self.state, &self.facts),
       Message::Close => {
         // the registry told the scheduler that the session closed
         for _ in self.subscribers.drain(..) {

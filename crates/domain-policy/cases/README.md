@@ -15,13 +15,14 @@ fake Patronus and the fake GitHub, and asks both sides of it:
   problems of the failed ones, the Patronus view with the landing needs, the details of the robot of the subject (its
   profile), the pull requests, the rules of the bases of the approved ones, the merge profiles of the target, and the
   review readiness `ReadinessFact::update` asks for the shown rows whose step waits for it and for the subject the
-  click needs. Then `repository_model::derive`: `next_steps_of` for the step, `land_answer_of` for the decision of the
-  start the case asks.
-- **`bd`**: `safe_push()` itself with `--check` (the function the command runs: its preamble, `plan()` with the
-  decision of `domain_policy::land::decide`, the output of a check), whose output carries the decision and the step
-  its words tell (`SafePushOutput.decision`, `.step`); then `bd safe-push` without `--check`, which must start (through
-  the API or from a pull request, canceling the robot the decision cancels) when nothing refuses it and the flags of
-  the case accept every confirmation (`domain_policy::land::unaccepted`), and refuse otherwise.
+  click needs. Then `repository_model::derive`: `next_steps_of` for the step, and the plan of the start the case asks
+  as the app's `prepare` answers it (`operations::land::plan_of` over the sources of the session).
+- **`bd`**: `safe_push()` itself with `--check` (the function the command runs: its preamble, `plan()` with the plan
+  of `operations::land::prepare_one_shot`, the decision of `domain_policy::land::decide`, the output of a check), whose
+  output carries the plan and the step its words tell (`SafePushOutput.plan`, `.step`); then `bd safe-push` without
+  `--check`, which must start (through the API or from a pull request, canceling the robot the plan cancels) when
+  nothing refuses it and the flags of the case accept every confirmation (`domain_policy::land::unaccepted`), and
+  refuse otherwise.
 
 The flags of a case are the intent of both sides: the popover's Start Anyway and its line of the robot a start
 replaces accept what `--allow-missing`, `--allow-dangling`, `--allow-unknown-rules` and `--cancel-running` accept.

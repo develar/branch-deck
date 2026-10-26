@@ -38,7 +38,7 @@
     "discrepancy": "D2",
     "closed": "s1-holes",
     "today": {
-      "app": ["src/hooks/useSafePush.ts#const stepBlocker = startStepBlocker(step, mode, decision?.approvalsSkippedBy != null)"],
+      "app": ["src/hooks/useSafePush.ts#const stepBlocker = startStepBlocker(step, mode, plan?.approvalsSkippedBy != null)"],
       "bd": ["crates/domain-policy/src/review.rs#} else if !from_pull_request && profile.is_some_and(|profile| profile.skips_review == Some(true)) {"]
     }
   },
@@ -243,7 +243,7 @@
     "today": {
       "app": [
         "crates/repository-model/src/derive.rs#pub fn lands_of",
-        "src/presenters/land.ts#const blocker = decision.blockers.find(reason => reason.code !== \"landingRefused\")"
+        "src/presenters/land.ts#const blocker = plan.blockers.find(reason => reason.code !== \"landingRefused\")"
       ],
       "bd": [
         "crates/domain-policy/src/land.rs#decision.blockers.push(Reason::DropsRemote {",

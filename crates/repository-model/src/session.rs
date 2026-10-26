@@ -15,7 +15,7 @@
 //! reads number themselves with `begin` and apply with `apply_facts`. Without a consumer nothing is sent.
 
 use crate::branch_table::BranchTable;
-use crate::facts::{AppliedFacts, FactResult, FactTicket, Needs, PatronusOf, RobotsDigest, TableFacts};
+use crate::facts::{AppliedFacts, FactResult, FactStore, FactTicket, Needs, PatronusOf, RobotsDigest, TableFacts};
 use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestWrite, PushedHead};
@@ -25,7 +25,6 @@ use crate::sync_scheduler::Settled;
 use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::ApiError;
-use domain_types::landing::{Land, LandAnswer};
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewPatch};
@@ -412,11 +411,18 @@ impl Sessions {
     self.ask(key, Message::Table).await.flatten()
   }
 
-  /// What the start `land` of an open session does now and what stands in its way, over the facts the session holds,
-  /// with the profiles it offers (`derive::land_answer_of`): a read, no lock and no effect; `None` for a session that is
-  /// not open, before its Patronus view, or for a subject its table lacks
-  pub async fn decide_land(&self, key: &SessionKey, land: Land) -> Option<LandAnswer> {
-    self.ask(key, |reply| Message::DecideLand { land: Box::new(land), reply }).await.flatten()
+  /// Runs `read` over the table state and the facts of an open session on its actor, after the events the session got
+  /// before, and answers what it answered: a read, no change, no lock (`operations::land::prepare` decides a start over
+  /// them); `None` for a session that is not open
+  pub async fn read<T: Send + 'static>(&self, key: &SessionKey, read: impl FnOnce(&TableState, &FactStore) -> T + Send + 'static) -> Option<T> {
+    self
+      .ask(key, |reply| {
+        Message::Read(Box::new(move |state: &TableState, facts: &FactStore| {
+          // a caller that stopped waiting has nothing to hear
+          let _ = reply.send(read(state, facts));
+        }))
+      })
+      .await
   }
 
   /// Subscribes a window to the session of `key`, opening it: the snapshot at the subscription, then every patch after

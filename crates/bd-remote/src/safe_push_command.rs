@@ -43,7 +43,7 @@ use bd_core::stack_summary::{WholeStackSummary, stack_branch_of, whole_stack, wh
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, landed_commits, lock, sync_locked};
 use domain_policy::facts::{Repository, Robots};
 use domain_policy::holds::is_active;
-use domain_policy::land::{LandFacts, SubjectFacts, TargetConflictFact, allows_mode, decide, table_blocker, unaccepted};
+use domain_policy::land::{SubjectFacts, TargetConflictFact, allows_mode, table_blocker, unaccepted};
 use domain_policy::landed::LandedFacts;
 use domain_policy::next_step::PatronusStanding;
 use domain_policy::parked::whole_stack_parked;
@@ -53,8 +53,8 @@ use domain_policy::review::{CountsIn, ReviewState, review_state};
 use domain_policy::stack::WholeStack;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
-use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandDecision, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject};
-use domain_types::operation::Intent;
+use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject};
+use domain_types::operation::{Intent, Plan};
 use domain_types::patronus::{
   LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, PatronusStartOptions, Person, ReviewReadiness, ReviewerApprovalState, UnavailableReadinessReason,
@@ -67,7 +67,8 @@ use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::GitHubError;
 use github::service::{GitHubFailure, GitHubService};
 use history_rewrite::repository_lock::RepositoryLock;
-use operations::needs::{FactNeed, needs, waits};
+use operations::land::{LandHost, one_shot_plan};
+use operations::needs::{FactNeed, needs};
 use operations::push::OverMoved;
 use patronus::review_readiness::evaluates_pull_request;
 use patronus::service::PatronusService;
@@ -255,11 +256,11 @@ pub struct SafePushOutput {
   /// A retarget of a pull request of a branch taken along that GitHub refused, with the `gh pr edit` that does it
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub retarget_warnings: Vec<String>,
-  /// The decision `refusals` and the start tell (`domain_policy::land::decide`), not printed: the scenario table
-  /// compares it with the app's (`crates/bd-remote/src/scenario_test.rs`)
+  /// The plan `refusals` and the start tell (`operations::land`, the decision of `domain_policy::land::decide`), not
+  /// printed: the scenario table compares it with the app's (`crates/bd-remote/src/scenario_test.rs`)
   #[serde(skip)]
   #[schemars(skip)]
-  pub decision: Option<LandDecision>,
+  pub plan: Option<Plan>,
   /// With `--check`: the next step `next_step` tells, not printed (the scenario table)
   #[serde(skip)]
   #[schemars(skip)]
@@ -433,8 +434,8 @@ pub(crate) struct Review {
   pub(crate) readiness: ReviewReadiness,
 }
 
-/// The facts a start is decided on, read under the repository lock
-struct Plan {
+/// A start as `prepare` planned it, with the facts `bd` tells it with, read under the repository lock
+struct Prepared {
   /// The branch the robot runs on (for a straight chain with `--whole-stack`, its last branch), or the root of the
   /// whole stack
   name: String,
@@ -475,8 +476,8 @@ struct Plan {
   refusals: Vec<Refusal>,
   /// With `--check`: the next step of the subject over what the check read, as the app's row shows it, with its words
   next_step: Option<(domain_types::next_step::NextStep, NextStepSummary)>,
-  /// What `refusals`, the effects and the route above are of
-  decision: LandDecision,
+  /// What `refusals`, the effects and the route above are of: the plan of the start (`operations::land`)
+  decision: Plan,
   /// With `--check`, for a stacked branch: its trial build alone
   alone: Option<AloneBuild>,
   warnings: Vec<CheckWarning>,
@@ -745,7 +746,7 @@ fn start_of<'a>(args: &SafePushArgs, synced: &'a SyncOutput, whole_stack: Option
 }
 
 /// The output of a start as `plan` decides it, before anything is pushed or started
-fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMode, whole_stack: Option<(&WholeStack, &[StackBranchUpdate])>, plan: &Plan) -> SafePushOutput {
+fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMode, whole_stack: Option<(&WholeStack, &[StackBranchUpdate])>, plan: &Prepared) -> SafePushOutput {
   SafePushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -785,13 +786,13 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
     }),
     retargeted: Vec::new(),
     retarget_warnings: Vec::new(),
-    decision: Some(plan.decision.clone()),
+    plan: Some(plan.decision.clone()),
     step: None,
   }
 }
 
 /// The output of `--check`: `output` with what refuses a start, the trial build alone and the retargets a start would do
-fn check_output(mut output: SafePushOutput, plan: Plan) -> SafePushOutput {
+fn check_output(mut output: SafePushOutput, plan: Prepared) -> SafePushOutput {
   output.refusals = plan.refusals;
   (output.step, output.next_step) = plan.next_step.unzip();
   output.alone = plan.alone;
@@ -1029,9 +1030,10 @@ fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]
 }
 
 /// Everything the start is decided on, before anything is pushed: what the table alone refuses, then the repository on
-/// Space, the robots of the user, what lands and its trial, the profiles and the pull requests, then the review and the
-/// rules of the target as the decision waits for them; the decision is `domain_policy::land::decide`'s, the app's too,
-/// told in the words of `bd`
+/// Space, the robots of the user, what lands and its trial, the profiles and the pull requests; then the plan of the
+/// start (`operations::land::prepare_one_shot`), which reads the review and the rules of the target as its first
+/// decision waits for them and decides by `domain_policy::land::decide`, as the app's `prepare` does, told in the words
+/// of `bd`
 #[expect(clippy::too_many_arguments, reason = "the services and the sync of the command")]
 #[expect(clippy::too_many_lines, reason = "the reads of the start in their order, each a few lines")]
 fn plan(
@@ -1043,7 +1045,7 @@ fn plan(
   mode: PatronusPushMode,
   start: &Start<'_>,
   target_fetch: Option<TargetFetch>,
-) -> Result<Plan, CliError> {
+) -> Result<Prepared, CliError> {
   let subject = start.subject();
   if let Start::Branch(name) = start
     && !synced.branches.iter().any(|branch| branch.name == *name)
@@ -1154,76 +1156,52 @@ fn plan(
     }),
     _ => None,
   });
-  let start_facts = StartFacts {
+  let host = LandHost {
+    table: &table,
+    baseline: &synced.landed_section,
     target: &target,
     github: github.is_some(),
-    landing: &gate_refusals,
-    conflict,
+    gate: &gate_refusals,
+    target_conflict: conflict,
   };
 
-  // the first decision, over what was read: what it waits for is read next (the review of the subject with the pull
-  // request the robot starts from, the whole stack as its stack branch; the rules of the target for a push into an
-  // approved pull request: one GET, only then)
-  let (profiles, start_pull_request, then) = {
-    let session = &facts.session;
-    let options = profiles_of(session)?;
-    let profiles: Vec<PatronusProfile> = options.profiles.iter().filter(|profile| allows_mode(profile, mode)).cloned().collect();
-    let choice = profile_choice(args, &profiles, &target, mode);
-    let rules_of = session.landing(&table);
-    let subject_facts = subject_facts(context, synced, &rules_of, start, Some(session.facts().pull_requests.view()))?;
-    let decide_first = |land: &Land| decide(&land_facts(session, &rules_of, subject_facts.clone(), &subject, start_facts), land);
-    // a comment can't choose a profile: the default checks of the target
-    if let Some(StartRoute::Comment { number }) = decide_first(&land).start_route()
-      && args.profile.as_deref().is_some_and(|profile| !profile.eq_ignore_ascii_case("none"))
-    {
-      return Err(CliError::new(
-        ErrorCode::InvalidArguments,
-        format!(
-          "{} starts from pull request #{number}: a /patronus comment starts the default checks of {target} and can't choose a merge profile; drop --profile",
-          landing.what
-        ),
-      ));
-    }
-    land.profile = choice?;
-    let first = decide_first(&land);
-    if let Some(Reason::Unprotected { target }) = first.blockers.iter().find(|reason| matches!(reason, Reason::Unprotected { .. })) {
-      return Err(CliError::new(
-        ErrorCode::PatronusRefused,
-        format!("Patronus does not protect {target}: a robot can't be started into it"),
-      ));
-    }
-    let start_pull_request = first
-      .pull_request
-      .and_then(|number| pull_request_of(session.facts().pull_requests.view(), start, number))
-      .cloned();
-    let then: Vec<FactNeed> = waits(&first, &subject, &target)
-      .into_iter()
-      .filter(|need| github.is_some() || !matches!(need, FactNeed::Rules { .. }))
-      .collect();
-    (profiles, start_pull_request, then)
-  };
+  // the profile `--profile` names among those of the target that allow the mode; a comment can't choose one, it starts
+  // the default checks of the target
+  let profiles: Vec<PatronusProfile> = profiles_of(&facts.session)?.profiles.iter().filter(|profile| allows_mode(profile, mode)).cloned().collect();
+  if args.profile.as_deref().is_some_and(|profile| !profile.eq_ignore_ascii_case("none"))
+    && let Some(StartRoute::Comment { number }) = one_shot_plan(&facts.session, &land, &host).as_ref().and_then(Plan::start_route)
+  {
+    return Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      format!(
+        "{} starts from pull request #{number}: a /patronus comment starts the default checks of {target} and can't choose a merge profile; drop --profile",
+        landing.what
+      ),
+    ));
+  }
+  land.profile = profile_choice(args, &profiles, &target, mode)?;
   if args.create_pull_request && github.is_none() {
     return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
   }
-  facts.read(context, &then)?;
+  // the plan of the start over what was read, as the app's session plans it (`operations::land`): what its first decision
+  // waits for is read next (the review of the subject with the pull request the robot starts from, of the whole stack
+  // its stack branch; the rules of the target for a push into an approved pull request: one GET, only then), and it is
+  // decided again
+  let decision = facts
+    .prepare(context, &land, &host)?
+    .ok_or_else(|| unknown_or_unapplied(context, &landing.name, UNAPPLIED_SAFE_PUSH))?;
+  if let Some(Reason::Unprotected { target }) = decision.blockers.iter().find(|reason| matches!(reason, Reason::Unprotected { .. })) {
+    return Err(CliError::new(
+      ErrorCode::PatronusRefused,
+      format!("Patronus does not protect {target}: a robot can't be started into it"),
+    ));
+  }
   let session = &facts.session;
-  let readiness = if then.contains(&FactNeed::Readiness(subject.clone())) {
-    subject_readiness(session, &subject)?
-  } else {
-    None
-  };
-  let rules = then
-    .iter()
-    .any(|need| matches!(need, FactNeed::Rules { .. }))
-    .then(|| session.facts().rules.get(&target).map(FactRecord::fact))
-    .flatten();
-  let rules_of = session.landing(&table);
+  // the review and the rules as the plan read them: none it didn't wait for
+  let readiness = subject_readiness(session, &subject)?;
+  let rules = session.facts().rules.get(&target).map(FactRecord::fact);
   let pull_requests = session.facts().pull_requests.view();
-  let subject_facts = subject_facts(context, synced, &rules_of, start, Some(pull_requests))?;
-  let mut facts_of = land_facts(session, &rules_of, subject_facts, &subject, start_facts);
-  facts_of.readiness = readiness;
-  facts_of.rules = rules;
-  let decision = decide(&facts_of, &land);
+  let start_pull_request = decision.pull_request.and_then(|number| pull_request_of(pull_requests, start, number)).cloned();
   // the next step of the subject over what the start read, the problems of its failed robot with them (whether it
   // failed for the approvals), as the session reads them of its failed robots
   let next_step = args.check.then(|| {
@@ -1287,7 +1265,6 @@ fn plan(
     Some(StartRoute::Api { profile }) => profile.clone(),
     _ => None,
   };
-  let pull_request = decision.pull_request.and_then(|number| pull_request_of(pull_requests, start, number)).cloned();
   let Landing {
     name,
     full_name,
@@ -1299,7 +1276,7 @@ fn plan(
   if stack.is_none() {
     remotes.retain(|remote| push.contains(&remote.name));
   }
-  Ok(Plan {
+  Ok(Prepared {
     name,
     full_name,
     mode,
@@ -1312,7 +1289,7 @@ fn plan(
     review: readiness.and_then(|fact| fact.value.clone()),
     rules,
     approvals_skipped_by: decision.approvals_skipped_by,
-    pull_request,
+    pull_request: start_pull_request,
     retargets,
     push_needed: force.is_some(),
     push,
@@ -1329,36 +1306,6 @@ fn plan(
     stack,
     target_check,
   })
-}
-
-/// What a decision of the start reads besides the facts of its session: the target, whether the branches have a GitHub
-/// repository, what the landing gate refuses, the conflict the check against the newest target found
-#[derive(Clone, Copy)]
-struct StartFacts<'a> {
-  target: &'a str,
-  github: bool,
-  landing: &'a [LandingRefusal],
-  conflict: Option<TargetConflictFact<'a>>,
-}
-
-/// What `decide` reads of a start of `subject` over the facts of the session, as the app's session decides it
-/// (`derive::land_answer`): the robots, the profiles with the profile of the last robot of the subject (the default),
-/// the pull requests; no review and no rules until the decision waits for them
-fn land_facts<'a>(session: &'a OneShot, rules_of: &'a LandingFacts<'a>, facts: SubjectFacts<'a>, subject: &Subject, start: StartFacts<'a>) -> LandFacts<'a> {
-  LandFacts {
-    target: start.target,
-    prefix: &session.key().prefix,
-    github: start.github,
-    robots: &rules_of.robots,
-    subject: facts,
-    profiles: session.facts().profiles.fact(),
-    last_profile: session.subject_robot(subject).and_then(|robot| robot.profile.as_ref()),
-    pull_requests: session.facts().pull_requests.view(),
-    readiness: None,
-    rules: None,
-    landing: Some(start.landing),
-    target_conflict: start.conflict,
-  }
 }
 
 /// The merge profiles of the target as the session read them, or why Patronus gave none
@@ -1515,9 +1462,9 @@ struct Told<'a> {
 }
 
 impl Told<'_> {
-  /// The refusals of `decision`: each blocker in its order, the refusals of the landing gate one per kind, then each
-  /// confirmation `allow` doesn't accept (`domain_policy::land::unaccepted`), naming the flag that accepts it
-  fn refusals(&self, decision: &LandDecision, allow: LandingAllowances) -> Vec<Refusal> {
+  /// The refusals of the plan `decision`: each blocker in its order, the refusals of the landing gate one per kind, then
+  /// each confirmation `allow` doesn't accept (`domain_policy::land::unaccepted`), naming the flag that accepts it
+  fn refusals(&self, decision: &Plan, allow: LandingAllowances) -> Vec<Refusal> {
     let missing: Vec<LandingRefusal> = decision
       .blockers
       .iter()
@@ -2087,7 +2034,7 @@ fn create_pull_request(
   args: &SafePushArgs,
   github: &GitHubService,
   runtime: &Runtime,
-  plan: &Plan,
+  plan: &Prepared,
   draft: &PullRequestDraft,
 ) -> Result<PullRequestStart, CliError> {
   let Some(repository) = &plan.github else {
@@ -2161,7 +2108,7 @@ fn start_from_pull_request(
   context: &RepoContext,
   github: &GitHubService,
   runtime: &Runtime,
-  plan: &Plan,
+  plan: &Prepared,
   pull_request: &PullRequest,
 ) -> Result<(PullRequestStart, Option<PatronusRobot>), CliError> {
   let Some(repository) = &plan.github else {
