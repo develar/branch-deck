@@ -10,6 +10,7 @@ use github::sign_in_session::GitHubSignInSession;
 use github::token::{TokenChain, TokenSources};
 use github::token_store::token_file;
 use std::path::Path;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tracing::instrument;
 
@@ -19,17 +20,17 @@ pub const GITHUB_AUTH_CHANGED_EVENT: &str = "github-auth-changed";
 /// The GitHub client of the app: one HTTP client (kept-alive connection) and the token chain with what GitHub accepted
 /// and rejected, shared by the windows; and the app's own sign-in (`github::sign_in_session`)
 pub struct GitHubState {
-  pub service: GitHubService,
+  pub service: Arc<GitHubService>,
   sign_in: GitHubSignInSession,
 }
 
 impl GitHubState {
   pub fn new(app_version: &str, git: GitCommandExecutor, app_data_dir: Option<&Path>) -> Self {
     Self {
-      service: GitHubService::new(
+      service: Arc::new(GitHubService::new(
         GitHubClient::new(&app_user_agent(app_version)),
         TokenChain::new(TokenSources::from_process(app_data_dir), git),
-      ),
+      )),
       sign_in: GitHubSignInSession::new(app_data_dir.map(token_file)),
     }
   }

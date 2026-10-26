@@ -1,15 +1,18 @@
 use crate::review_fixtures::fixture_review_answer;
+use crate::session_routes::TestFactSources;
 use crate::session_routes_test::{subscribe, subscription};
 use crate::state::AppState;
-use crate::tauri_command_bridge::{branch_prefix_of, readiness_of};
+use crate::tauri_command_bridge::branch_prefix_of;
 use crate::test_support::{Named, create_repository, post, post_as, start_test_server, start_test_server_with_state, sync, view_when};
 use domain_types::patronus::PatronusReviewRequirement;
 use domain_types::patronus::ReviewReadinessBranch;
 use patronus::client::PreMergeCheckResponse;
 use patronus::review::to_requirement;
 use pretty_assertions::assert_eq;
+use remote_facts::fact_sources::FactSources;
 use repository_model::session::SessionKey;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use test_utils::git_test_utils::git_command;
 
 /// The answer of a Patronus that evaluated the pull request: the code owner is asked and hasn't approved
@@ -23,7 +26,7 @@ fn awaiting_code_owner() -> Value {
 }
 
 /// The server with its state, a repository of the `simple` template: its id, its path and the tip of `HEAD`
-async fn setup() -> (std::net::SocketAddr, std::sync::Arc<AppState>, reqwest::Client, String, String, String) {
+async fn setup() -> (std::net::SocketAddr, Arc<AppState>, reqwest::Client, String, String, String) {
   let (addr, state) = start_test_server_with_state().await;
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
@@ -58,14 +61,15 @@ fn a_fixture_answer_reads_back_through_the_real_parser() {
 }
 
 /// The readiness as the session of the repository at `path` reads it (`TestFactSources`), against `origin/master`
-async fn readiness(state: &AppState, path: &str, asks: Value, recheck: bool) -> Value {
+async fn readiness(state: &Arc<AppState>, path: &str, asks: Value, recheck: bool) -> Value {
   let prefix = branch_prefix_of(state, path).await.ok().unwrap();
   let key = SessionKey {
     worktree: path.to_owned(),
     prefix,
   };
   let asks: Vec<ReviewReadinessBranch> = serde_json::from_value(asks).unwrap();
-  serde_json::to_value(readiness_of(state, &key, "origin/master".to_owned(), asks, recheck).await.unwrap()).unwrap()
+  let sources = TestFactSources::new(state);
+  serde_json::to_value(sources.readiness(&key, "origin/master".to_owned(), asks, recheck).await.unwrap()).unwrap()
 }
 
 /// The readiness comes through the real core from the fake Patronus: without an answer for the branch the owners of its

@@ -1665,7 +1665,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   running robot `started-<n>` on the commit its branch is at, a restart `restarted-<n>`, a cancel makes the robot
   canceling. `GET …/patronus` (`getPatronusLog`) returns how often the app listed, polled and
   read details, and the start requests, the restarts, the cancels and the status reads the fake got, in order.
-  The readiness reads of the sessions run the real core against the fake's pre-check (`readiness_of`, logged with
+  The readiness reads of the sessions run the real core against the fake's pre-check (`TestFactSources::readiness`, logged with
   their subjects and `recheck`), which answers per branch what `POST /repositories/{id}/review-answers` sets (with
   `mergeRequest` the Space merge request found open for every branch and the answers asked with its review), else by the code owners of the branch's paths
   (none without `OWNERSHIP` files). The `/patronus` comment goes to the fake GitHub, whose bot replies as `…/patronus-replies` says

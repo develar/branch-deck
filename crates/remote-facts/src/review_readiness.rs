@@ -28,7 +28,7 @@ use patronus::review_readiness::{evaluates_pull_request, review_readiness};
 use patronus::service::PatronusService;
 use sha2::{Digest, Sha256};
 use sync_core::github_repository::GitHubRepository;
-use sync_core::patronus::{SpaceRepository, required_target_branch};
+use sync_core::patronus::SpaceRepository;
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, instrument};
@@ -52,8 +52,7 @@ pub struct ReadinessRepository<'a> {
   pub branch_prefix: &'a str,
 }
 
-/// What `branch_review_readiness` is asked with, owned: as the readiness reads of the app and of the E2E test server
-/// compose it (`prepare_review_readiness`)
+/// What `branch_review_readiness` is asked with, owned: as the reads of every host compose it (`readiness_inputs`)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadinessInputs {
   pub space: SpaceRepository,
@@ -76,24 +75,21 @@ impl ReadinessInputs {
   }
 }
 
-/// The inputs of `branch_review_readiness` for `branches` of the worktree `repository_path` against `baseline` (as the
-/// sync detected it, `origin/master`), with the Space and GitHub repositories the caller resolved: every tip is a
-/// commit id (the session asks what its view holds), and the target is the branch of origin the baseline tracks (one
-/// git process; a local baseline is refused, Patronus pushes into a branch of origin); the branches are named under
-/// `branch_prefix`, which the host resolved
-pub fn prepare_review_readiness(
-  git: &GitCommandExecutor,
+/// The inputs of `branch_review_readiness` for `branches` of a worktree against `baseline` (as the sync detected it,
+/// `origin/master`), with the Space and GitHub repositories and the target (the branch of origin the baseline tracks)
+/// the caller resolved (`ServiceFactSources::readiness_inputs`): every tip is a commit id (the session asks what its
+/// view holds); the branches are named under `branch_prefix`, which the host resolved
+pub fn readiness_inputs(
   space: SpaceRepository,
   github: Option<GitHubRepository>,
   branch_prefix: &str,
-  repository_path: &str,
   baseline: &str,
+  target: String,
   branches: &[ReviewReadinessBranch],
 ) -> anyhow::Result<ReadinessInputs> {
   if let Some(branch) = branches.iter().find(|branch| !is_object_id(&branch.tip)) {
     anyhow::bail!("Not a commit id: {}", branch.tip);
   }
-  let target = required_target_branch(git, repository_path, baseline)?;
   Ok(ReadinessInputs {
     space,
     github,

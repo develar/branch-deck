@@ -3634,9 +3634,11 @@ the rules of each family), started by each host beside its `Sessions`: one task 
 table with its baseline, a push of the app that pushed with the tips it left, a write of a pull request, what the poll
 of the robots and the readiness ask about now, a refresh a window asks), deciding by the pure rules of
 `domain_policy::refresh` (the constants of the page's stores before, by their names), reading through the host's
-`FactSources` (the app's `AppFactSources` over `PatronusState`, `GitHubState` and the `RepositoryStateCache` that names
-the GitHub repository, so a read runs no git; the E2E server's `TestFactSources` over the fakes of each test repository,
-which count the reads, [E2E Testing](e2e-testing.md#remote-services)) and applying each answer through `FactsPort`
+`FactSources` (`remote_facts::service_sources::ServiceFactSources`, the one implementation, over the services and
+repositories each host resolves, `ServiceHost`: the app's `AppServices` over `PatronusState`, `GitHubState` and the
+`RepositoryStateCache` that names the GitHub repository, so a read runs no git; the E2E server's `TestFactSources`
+around it over the fakes of each test repository, which count and hold the reads,
+[E2E Testing](e2e-testing.md#remote-services)) and applying each answer through `FactsPort`
 (`begin`, then `apply_facts`). A list is in flight once per family and session (the readiness asks up to four subjects
 side by side, the problems and the details one read per robot); a reason the rules let follow up asks once more after
 it. It starts no git process, asks nothing of a session no window watches and keeps no timer of one, and

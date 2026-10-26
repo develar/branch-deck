@@ -176,7 +176,7 @@ pub async fn set_review_answers(Path(id): Path<String>, State(state): State<Arc<
   Ok(StatusCode::OK)
 }
 
-/// The readiness reads of the sessions (`calls`: the subjects and the recheck of each, `readiness_of`), and the pre-checks
+/// The readiness reads of the sessions (`calls`: the subjects and the recheck of each, `TestFactSources::readiness`), and the pre-checks
 /// that reached the fake Patronus (`checks`: the tip and the pull request of each), in order
 pub async fn get_review_answers(Path(id): Path<String>, State(state): State<Arc<crate::state::AppState>>) -> Result<Json<Value>, (StatusCode, String)> {
   let calls = {

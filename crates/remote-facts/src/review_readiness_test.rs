@@ -1,4 +1,4 @@
-use crate::review_readiness::{ReadinessInputs, ReadinessRepository, branch_review_readiness, is_fresh, kept_review_readiness, prepare_review_readiness};
+use crate::review_readiness::{ReadinessRepository, branch_review_readiness, is_fresh, kept_review_readiness};
 use domain_types::patronus::{
   BranchReviewReadiness, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState,
 };
@@ -61,14 +61,14 @@ async fn setup() -> Setup {
   }
 }
 
-fn space() -> SpaceRepository {
+pub(crate) fn space() -> SpaceRepository {
   SpaceRepository {
     project_key: "ij".to_string(),
     name: "ultimate".to_string(),
   }
 }
 
-fn github() -> GitHubRepository {
+pub(crate) fn github() -> GitHubRepository {
   GitHubRepository {
     owner: "acme".to_string(),
     name: "monorepo".to_string(),
@@ -317,47 +317,6 @@ async fn the_whole_stack_is_asked_as_its_stack_branch_under_the_key_of_the_calle
       message: "me/virtual/IJPL-1 is not a stack branch of me".to_string(),
     }
   );
-}
-
-/// The one composition of the inputs the app and the test server read the readiness with: the tips are checked, the
-/// target is the branch of origin the baseline tracks, a local baseline is refused
-#[test(tokio::test)]
-async fn the_inputs_of_the_readiness_are_composed_once_for_the_app_and_the_test_server() {
-  let setup = setup().await;
-  let path = setup.repo.path().to_str().unwrap();
-  let git = setup.repo.git_executor();
-  git.execute_command(&["remote", "add", "origin", "."], path).unwrap();
-  git.execute_command(&["update-ref", "refs/remotes/origin/master", "HEAD"], path).unwrap();
-  let space = SpaceRepository {
-    project_key: "ij".to_string(),
-    name: "ultimate".to_string(),
-  };
-  let github = GitHubRepository {
-    owner: "acme".to_string(),
-    name: "monorepo".to_string(),
-  };
-  let branches = |tip: &str| vec![branch(tip, ReviewStart::Rest, Vec::new())];
-
-  let inputs = prepare_review_readiness(git, space.clone(), Some(github.clone()), "me", path, "origin/master", &branches(&setup.tip)).unwrap();
-  assert_eq!(
-    inputs,
-    ReadinessInputs {
-      space: space.clone(),
-      github: Some(github),
-      target: "master".to_string(),
-      baseline: "origin/master".to_string(),
-      branch_prefix: "me".to_string(),
-    }
-  );
-  assert_eq!(
-    (inputs.repository().target, inputs.repository().github.map(|it| it.owner.as_str())),
-    ("master", Some("acme"))
-  );
-
-  let refused = prepare_review_readiness(git, space.clone(), None, "me", path, "origin/master", &branches("HEAD")).unwrap_err();
-  assert_eq!(refused.to_string(), "Not a commit id: HEAD");
-  let local = prepare_review_readiness(git, space, None, "me", path, "baseline", &branches(&setup.tip)).unwrap_err();
-  assert!(local.to_string().contains("not a branch of origin"), "{local}");
 }
 
 /// The kept answers come from the cache alone, the pre-check never asked: none before an answer was kept, the answer of

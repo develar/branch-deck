@@ -4,8 +4,8 @@
 //! key with the prefix Rust resolves (`PrefixInputs`); a repository without a prefix is refused (`no_branch_prefix`).
 //!
 //! The facts of the remote services are read for the sessions by the scheduler of the facts
-//! (`remote_facts::scheduler`), which the app starts beside them on the same clock and reads through `AppFactSources`;
-//! a window asks a fact again with `refresh_facts`.
+//! (`remote_facts::scheduler`), which the app starts beside them on the same clock and reads through the
+//! `ServiceFactSources` of its services (`AppServices`); a window asks a fact again with `refresh_facts`.
 //!
 //! A subscription ends with `unsubscribe_view`, with its window (`forget_window` on `Destroyed`) and with a page load
 //! of its window (a reload): a Tauri channel of a page that went away never fails its send, so the session would keep it.
@@ -16,25 +16,22 @@ use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::commands::github::GitHubState;
 use crate::commands::patronus::PatronusState;
 use crate::commands::pull_requests::github_repository;
-use crate::operation::operation;
+use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::landing::{LandingCheck, LandingGateParams};
-use domain_types::patronus::{
-  BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
-};
-use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
-use domain_types::review_request::ReviewRequestsResult;
+use domain_types::patronus::PatronusRobot;
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
-use remote_facts::branch_rules::read_branch_rules;
-use remote_facts::fact_sources::{FactSources, Read};
-use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
-use remote_facts::review_requests::list_review_requests;
+use github::service::GitHubService;
+use object_cache::cache::ObjectCache;
+use patronus::service::PatronusService;
+use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
+use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
 use repository_model::facts::Needs;
 use repository_model::landing::LandingGate;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
@@ -45,6 +42,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
+use sync_core::github_repository::GitHubRepository;
+use sync_core::patronus::SpaceRepository;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_utils::clock::SystemClock;
 use tauri::ipc::Channel;
@@ -124,7 +123,7 @@ impl SessionsState {
     if let Some(events) = sessions.events() {
       let scheduler = Scheduler {
         port: Arc::clone(&sessions) as Arc<dyn remote_facts::scheduler::FactsPort>,
-        sources: Arc::new(AppFactSources { app: app.clone() }),
+        sources: Arc::new(ServiceFactSources::new(AppServices { app: app.clone() })),
         clocks,
       };
       scheduler.start(&runtime, events);
@@ -231,99 +230,50 @@ impl LandingGate for AppLandingGate {
   }
 }
 
-/// What the scheduler of the facts reads the remote services of the app's sessions with: the Patronus service of the app
-/// and the repository's Space repository and GitHub mirror (`PatronusState::robots`), the GitHub service with the GitHub
-/// repository of the worktree (`github_repository`), the settings when a read starts
-struct AppFactSources {
+/// What the reads of the facts of the app's sessions are made with (`ServiceFactSources`): the Patronus service of the
+/// app with the Space repository it keeps by worktree (`PatronusState`), the GitHub service, the GitHub repository and
+/// the object cache the app keeps by worktree (`RepositoryStateCache`), the settings when a read starts
+struct AppServices {
   app: AppHandle,
 }
 
-impl FactSources for AppFactSources {
-  fn robots<'a>(&'a self, key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult> {
-    Box::pin(async move {
-      let new_api = self.app.state::<SettingsService>().app().patronus_new_api;
-      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
-      let repository = (key.worktree.as_str(), key.prefix.as_str());
-      self
-        .app
-        .state::<PatronusState>()
-        .robots(&git, &repository_state, repository, since, background, new_api)
-        .await
-    })
+impl ServiceHost for AppServices {
+  fn git(&self) -> GitCommandExecutor {
+    self.app.state::<GitCommandExecutor>().inner().clone()
   }
 
-  fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult> {
-    Box::pin(async move { self.app.state::<PatronusState>().poll(&key.prefix, &known).await })
+  fn patronus(&self, _key: &SessionKey) -> Result<Arc<PatronusService>, ApiError> {
+    Ok(Arc::clone(&self.app.state::<PatronusState>().service))
   }
 
-  fn failing<'a>(&'a self, _key: &'a SessionKey, ids: Vec<String>) -> Read<'a, Result<Vec<String>, ApiError>> {
-    Box::pin(async move { self.app.state::<PatronusState>().failing(&ids).await })
+  fn github(&self, _key: &SessionKey) -> Result<Arc<GitHubService>, ApiError> {
+    Ok(Arc::clone(&self.app.state::<GitHubState>().service))
   }
 
-  fn problems<'a>(&'a self, _key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
-    Box::pin(async move { self.app.state::<PatronusState>().problems(&id).await })
-  }
-
-  fn robot_details<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<PatronusRobotDetails, ApiError>> {
-    Box::pin(async move {
-      let new_api = self.app.state::<SettingsService>().app().patronus_new_api;
-      self.app.state::<PatronusState>().details(&key.prefix, &id, new_api).await
-    })
-  }
-
-  fn review_requests<'a>(&'a self, key: &'a SessionKey, known: Option<String>) -> Read<'a, ReviewRequestsResult> {
-    Box::pin(async move {
-      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
-      match github_repository(&git, &repository_state, &key.worktree, known.as_deref()).await {
-        Ok(Some(repository)) => list_review_requests(&self.app.state::<GitHubState>().service, &key.worktree, &repository).await,
-        Ok(None) => ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
-        Err(error) => ReviewRequestsResult::unavailable(PullRequestAvailability::Error { message: error.message }),
-      }
-    })
-  }
-
-  fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
-    Box::pin(async move {
-      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
-      match github_repository(&git, &repository_state, &key.worktree, None).await {
-        Ok(Some(repository)) => list_pull_requests(&self.app.state::<GitHubState>().service, &key.worktree, &repository, &key.prefix).await,
-        Ok(None) => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
-        Err(error) => PullRequestsResult::unavailable(PullRequestAvailability::Error { message: error.message }),
-      }
-    })
-  }
-
-  fn branch_rules<'a>(&'a self, key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
-    Box::pin(async move {
-      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
-      let repository = github_repository(&git, &repository_state, &key.worktree, None)
-        .await?
-        .ok_or_else(|| ApiError::internal(NOT_ON_GITHUB_MESSAGE))?;
-      read_branch_rules(&self.app.state::<GitHubState>().service, &key.worktree, &repository, &branch)
-        .await
-        .map_err(|failure| ApiError::internal(failure_message(&failure)))
-    })
-  }
-
-  fn profiles<'a>(&'a self, key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
+  fn space_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {
     Box::pin(async move {
       let git = self.app.state::<GitCommandExecutor>();
-      self.app.state::<PatronusState>().profiles(&git, &key.worktree, &baseline).await
+      self.app.state::<PatronusState>().space_repository(&git, &key.worktree).await
     })
   }
 
-  fn readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>> {
+  fn github_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<GitHubRepository>, ApiError>> {
     Box::pin(async move {
       let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
-      let patronus = self.app.state::<PatronusState>();
-      patronus.readiness(&git, &repository_state, key, &baseline, asks, recheck).await
+      github_repository(&git, &repository_state, &key.worktree, None).await
     })
   }
 
-  fn cached_readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>) -> Read<'a, Vec<Option<BranchReviewReadiness>>> {
+  fn new_api(&self, _key: &SessionKey) -> bool {
+    self.app.state::<SettingsService>().app().patronus_new_api
+  }
+
+  fn object_cache<'a>(&'a self, key: &'a SessionKey) -> Read<'a, ObjectCache> {
+    let (git, repository_state, path) = (self.git(), self.app.state::<RepositoryStateCache>().inner().clone(), key.worktree.clone());
     Box::pin(async move {
-      let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
-      self.app.state::<PatronusState>().kept_readiness(&git, &repository_state, key, &baseline, asks).await
+      run_blocking(move || anyhow::Ok(repository_state.object_cache(&git, &path)))
+        .await
+        .unwrap_or_else(|_| ObjectCache::disabled())
     })
   }
 
@@ -332,6 +282,10 @@ impl FactSources for AppFactSources {
       let git = self.app.state::<GitCommandExecutor>();
       fetch_in_session(self.app.state::<SessionsState>().sessions(), &git, key, asks).await;
     })
+  }
+
+  fn api_error(&self, error: anyhow::Error) -> ApiError {
+    api_error(error)
   }
 }
 

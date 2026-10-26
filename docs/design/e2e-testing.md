@@ -299,8 +299,8 @@ Mock implementation:
   an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
   answers a range of source `local`; `fetchError` fails it instead. `get_range_files` and
   `prune_review_refs` run the real functions, `cancel_review_fetch` does nothing (`review_requests_test.rs`)
-- **Code-owner review**: the readiness reads of the sessions (`TestFactSources::readiness`, `readiness_of` of the bridge)
-  run the app's core (`remote_facts::review_readiness`, without the object cache, so every call asks the fake Patronus
+- **Code-owner review**: the readiness reads of the sessions (`TestFactSources::readiness`) run
+  the app's reads (`ServiceFactSources`) and core (`remote_facts::review_readiness`, without the object cache, so every call asks the fake Patronus
   and no kept answer is read first; Space and the target branch as the app needs them); a test holds or fails the
   pre-check of the fake (`holdRemoteAnswers({ hold: ["readiness"] })`), never the page's call, see
   [Remote services](#remote-services). `POST /repositories/{id}/review-answers` (`setReviewAnswers`, the `reviewAnswers`
@@ -454,9 +454,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   statuses of their branches (`sync-overrides`) and their pull requests show heads that no fetch may bring in, so
   `TestFactSources::fetch_moved_remotes` ends their asks unfetched (`skip_in_session`). The id `commitOnRemote` answers
   is the head the test's pull request then shows.
-- **Bridge**: the reads of the session's robots (`TestFactSources`: `list_robots`, `poll_robots`, `failing_robots`,
-  `robot_problems` and `robot_details_of` of the bridge, the merge profiles, `profiles_of`, and the review readiness,
-  `readiness_of`), `get_robot_failure`, `get_patronus_target_branch`, `start_patronus_robot`,
+- **Bridge**: the reads of the session's robots (`TestFactSources`: the app's reads, `ServiceFactSources`, over the
+  services of each test repository, `TestServices`, the lists, polls and details counted; the merge profiles and the
+  review readiness held as the tests hold them), `get_robot_failure`, `get_patronus_target_branch`, `start_patronus_robot`,
   `restart_patronus_robot`, `cancel_patronus_robot` and `get_patronus_robot_status` call the service as
   `src-tauri/src/commands/patronus.rs` does (a start, a restart and a cancel give their robot to the session, as the
   app's commands do): the list answers `notPatronus` while the repository is not on Space and names the GitHub
@@ -523,7 +523,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   is on GitHub when the test repository has it, not only when a push gave it to the remote of the repository: a pull
   request of a branch whose push a spec still answers in the page finds its head. The service is replaced on each fixture.
 - **GitHub bridge**: the reads of the session's pull requests, of the rules of their bases and of the review requests
-  of others (`TestFactSources`: `list_pull_requests_of`, counted, `branch_rules_of` of the bridge, each holding the
+  of others (`TestFactSources`: the pull requests, counted, and the rules of a base, each holding the
   repository as a command does, and `review_requests_of`, counted, which answers the fixture of the review requests),
   `create_pull_request`, `retarget_pull_request`, `close_pull_request` and `request_pull_request_reviewers` (which
   give what they wrote to the session of the repository and answer the version of its patch, as the app's commands
@@ -576,8 +576,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   the answers the server gives itself, which wait in their read: `reviewRequests` (the session's list, from their
   fixture, `review_requests_of`), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
-  session's read of the rules of a base, `branch_rules_of`), `profiles` (its read of the merge profiles,
-  `profiles_of`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
+  session's read of the rules of a base, `TestFactSources::branch_rules`), `profiles` (its read of the merge profiles,
+  `TestFactSources::profiles`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
   (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
   shows before the answer, and a release lets it through with what the fixture holds then. `fail` makes a route of
   the fake Patronus answer 500 (`FakePatronus::set_failing`) or the bridge reject the command ("the fixture fails this

@@ -8,26 +8,22 @@ use app_api::api_error::{api_error, patronus_error};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::calendar::Calendar;
-use domain_types::error::{ApiError, ErrorCode};
+use domain_types::error::ApiError;
 use domain_types::landing::{DecideLandParams, LandAnswer, LandingCheck, LandingGateParams};
 use domain_types::patronus::{
-  BranchReviewReadiness, GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject,
-  PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams,
-  ReadPatronusCommandReplyParams, ReviewReadinessBranch, StartPatronusRobotParams,
+  GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobot, PatronusRobotParams,
+  PatronusRobotStatus, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
 use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
-use object_cache::cache::ObjectCache;
 use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
-use remote_facts::review_readiness::{ReadinessInputs, branch_review_readiness, kept_review_readiness, prepare_review_readiness};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
-use repository_model::actions::{NOT_ON_SPACE, RemoteActions};
-use repository_model::session::SessionKey;
+use repository_model::actions::RemoteActions;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
@@ -41,7 +37,7 @@ use tracing::{instrument, warn};
 /// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
 /// Space repository of each repository, so a poll starts no git process
 pub struct PatronusState {
-  service: PatronusService,
+  pub(crate) service: Arc<PatronusService>,
   /// The Space repository (None = not on Space) by repository path. Re-read now and then: the remote can change.
   repositories: Cache<String, Option<SpaceRepository>>,
   /// The `teamcity` CLI with an authenticated server, once found; looked for again on each full failure until then (the
@@ -57,7 +53,7 @@ impl PatronusState {
     // the variable of the Safe Push CLI, for the staging and dev instances
     let base_url = std::env::var("SAFEPUSH_PATRONUS_URL").map_or_else(|_| PATRONUS_URL.to_string(), |url| url.trim_end_matches('/').to_string());
     Self {
-      service: PatronusService::new(PatronusClient::new(base_url, &user_agent), find_user_token),
+      service: Arc::new(PatronusService::new(PatronusClient::new(base_url, &user_agent), find_user_token)),
       repositories: Cache::builder().max_capacity(100).time_to_live(Duration::from_secs(600)).build(),
       teamcity: tokio::sync::Mutex::new(None),
       stats_reads: Cache::new(100),
@@ -77,9 +73,9 @@ impl PatronusState {
     *self.teamcity.lock().await = None;
   }
 
-  /// The Space repository `origin` pushes to: one `remote get-url --push` (`find_space_repository`) on a miss. The GitHub
-  /// repository of its branches (a mirror of the Space one) is the app's, kept while the config stays as it is
-  /// (`RepositoryStateCache::github_repository`)
+  /// The Space repository `origin` pushes to: one `remote get-url --push` (`find_space_repository`) on a miss, for the
+  /// actions and the reads of the facts (`AppServices`). The GitHub repository of its branches (a mirror of the Space
+  /// one) is the app's, kept while the config stays as it is (`RepositoryStateCache::github_repository`)
   pub(crate) async fn space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<SpaceRepository>, ApiError> {
     if let Some(space) = self.repositories.get(repository_path) {
       return Ok(space);
@@ -90,136 +86,6 @@ impl PatronusState {
     self.repositories.insert(repository_path.to_string(), space.clone());
     Ok(space)
   }
-
-  /// The user's robots of the repository at `repository_path`, its branches named under `branch_prefix`, in the Space
-  /// repository `origin` pushes to: the last 7 days, or the ones started since `since`, with the GitHub
-  /// repository the branches are mirrored to (`AppFactSources`, the reads of the session's scheduler). Off Space, or when
-  /// git can't tell the remote, the availability says so. With the new API of Settings → Patronus (`new_api`) the list
-  /// names the merge profile of each robot (`mergeProfile`, behind the `robot.list.merge.profile.enabled` flag of
-  /// Patronus); off, it leaves the profile unknown
-  pub(crate) async fn robots(
-    &self,
-    git_executor: &GitCommandExecutor,
-    repository_state: &RepositoryStateCache,
-    (repository_path, branch_prefix): (&str, &str),
-    since: Option<u32>,
-    background: bool,
-    new_api: bool,
-  ) -> PatronusRobotsResult {
-    let repository = match self.space_repository(git_executor, repository_path).await {
-      Ok(Some(repository)) => repository,
-      Ok(None) => return PatronusRobotsResult::from(PatronusAvailability::NotPatronus),
-      Err(error) => return PatronusRobotsResult::from(PatronusAvailability::Error { message: error.message }),
-    };
-    let mut result = self.service.robots(&repository.name, branch_prefix, since, background, new_api).await;
-    match github_repository(git_executor, repository_state, repository_path, None).await {
-      Ok(github) => result.github_repository = github.map(|github| github.full_name()),
-      Err(error) => warn!(error = ?error, "the robots name no GitHub repository: it can't be read"),
-    }
-    result
-  }
-
-  /// The robots of `known` whose status changed since the session saw it, the others not in the answer
-  pub(crate) async fn poll(&self, branch_prefix: &str, known: &[KnownRobotStatus]) -> PatronusRobotsResult {
-    self.service.poll(branch_prefix, known).await
-  }
-
-  /// Of the running robots `ids`, the ones a failed required check dooms (Patronus' warning), asked after each answer
-  /// until known
-  pub(crate) async fn failing(&self, ids: &[String]) -> Result<Vec<String>, ApiError> {
-    self.service.failing_robots(ids).await.map_err(patronus_error)
-  }
-
-  /// The error problems of a finished robot (the service keeps them: a finished robot doesn't change)
-  pub(crate) async fn problems(&self, id: &str) -> Result<Vec<PatronusProblem>, ApiError> {
-    self.service.robot_problems(id).await.map_err(patronus_error)
-  }
-
-  /// The robot with its merge profile, CI checks, error problems and whether it will fail, for a window that shows them
-  /// (the robot popover, a row of the landing overview). With the new API of Settings → Patronus the progress of a
-  /// running robot comes in one request (`GET /robots/progress`, behind the `robot.progress.enabled` flag of Patronus)
-  /// instead of one per running check; the builds are asked as before while Patronus answers 404
-  pub(crate) async fn details(&self, branch_prefix: &str, id: &str, new_api: bool) -> Result<PatronusRobotDetails, ApiError> {
-    self.service.robot_details(branch_prefix, id, new_api).await.map_err(patronus_error)
-  }
-
-  /// The Space repository, for an action: not on Space is an error
-  async fn required_space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<SpaceRepository, ApiError> {
-    self.space_repository(git_executor, repository_path).await?.ok_or_else(not_on_space)
-  }
-
-  /// The merge profiles of the target `baseline` pushes to, for the session of the repository (`AppFactSources`): the
-  /// default of the last robot is the page's
-  pub(crate) async fn profiles(&self, git_executor: &GitCommandExecutor, repository_path: &str, baseline: &str) -> Result<PatronusStartOptions, ApiError> {
-    let repository = self.required_space_repository(git_executor, repository_path).await?;
-    let target = target_branch(git_executor, repository_path, baseline).await?;
-    self
-      .service
-      .start_options(&repository.project_key, &repository.name, &target, None, None)
-      .await
-      .map_err(patronus_error)
-  }
-
-  /// The code-owner review of `asks` against `baseline`, for the session of `key` (`AppFactSources`): one `git log`
-  /// for the commits of all, their paths from the object cache, then one pre-check per ask whose kept answer doesn't
-  /// hold (`remote_facts::review_readiness`); `recheck` asks Patronus again, in the foreground. The answers in the
-  /// order of `asks`
-  pub(crate) async fn readiness(
-    &self,
-    git: &GitCommandExecutor,
-    repository_state: &RepositoryStateCache,
-    key: &SessionKey,
-    baseline: &str,
-    asks: Vec<ReviewReadinessBranch>,
-    recheck: bool,
-  ) -> Result<Vec<BranchReviewReadiness>, ApiError> {
-    let (inputs, cache, asks) = self.readiness_inputs(git, repository_state, key, baseline, asks).await?;
-    branch_review_readiness(git, &key.worktree, &cache, &self.service, &inputs.repository(), &asks, recheck)
-      .await
-      .map_err(api_error)
-  }
-
-  /// Of `asks`, the answers the object cache keeps that still hold, without Patronus (`kept_review_readiness`); none when
-  /// the repository is not on Space or its inputs can't be read (the pre-check says why)
-  pub(crate) async fn kept_readiness(
-    &self,
-    git: &GitCommandExecutor,
-    repository_state: &RepositoryStateCache,
-    key: &SessionKey,
-    baseline: &str,
-    asks: Vec<ReviewReadinessBranch>,
-  ) -> Vec<Option<BranchReviewReadiness>> {
-    let count = asks.len();
-    match self.readiness_inputs(git, repository_state, key, baseline, asks).await {
-      Ok((inputs, cache, asks)) => kept_review_readiness(git, &key.worktree, &cache, &self.service, &inputs.repository(), &asks).await,
-      Err(_) => vec![None; count],
-    }
-  }
-
-  /// What the readiness of `asks` is read with: the Space and GitHub repositories, the target of the baseline, the
-  /// object cache of the repository
-  async fn readiness_inputs(
-    &self,
-    git: &GitCommandExecutor,
-    repository_state: &RepositoryStateCache,
-    key: &SessionKey,
-    baseline: &str,
-    asks: Vec<ReviewReadinessBranch>,
-  ) -> Result<(ReadinessInputs, ObjectCache, Vec<ReviewReadinessBranch>), ApiError> {
-    let space = self.required_space_repository(git, &key.worktree).await?;
-    let github = github_repository(git, repository_state, &key.worktree, None).await?;
-    let (git, repository_state, key, baseline) = (git.clone(), repository_state.clone(), key.clone(), baseline.to_owned());
-    run_blocking(move || {
-      let inputs = prepare_review_readiness(&git, space, github, &key.prefix, &key.worktree, &baseline, &asks)?;
-      let cache = repository_state.object_cache(&git, &key.worktree);
-      anyhow::Ok((inputs, cache, asks))
-    })
-    .await
-  }
-}
-
-fn not_on_space() -> ApiError {
-  ApiError::new(ErrorCode::NotOnSpace, NOT_ON_SPACE)
 }
 
 /// The branch a robot pushes to, from the baseline: the branch of `origin` it tracks
@@ -382,7 +248,7 @@ pub(crate) fn remote_actions<'a>(
   branch_prefix: &'a str,
 ) -> RemoteActions<'a> {
   RemoteActions::new(
-    space.map(|space| (&patronus.service, space)),
+    space.map(|space| (&*patronus.service, space)),
     git_executor,
     sessions.sessions(),
     sessions.landing_gate(),

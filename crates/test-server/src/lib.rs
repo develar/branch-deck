@@ -160,7 +160,7 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
   if let Some(events) = state.sessions.events() {
     let scheduler = remote_facts::scheduler::Scheduler {
       port: Arc::clone(&state.sessions) as Arc<dyn remote_facts::scheduler::FactsPort>,
-      sources: Arc::new(session_routes::TestFactSources { state: Arc::downgrade(&state) }),
+      sources: Arc::new(session_routes::TestFactSources::new(&state)),
       clocks: Arc::clone(&state.session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
     };
     scheduler.start(&tokio::runtime::Handle::current(), events);

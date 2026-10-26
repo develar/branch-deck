@@ -11,15 +11,12 @@ use axum::{
 };
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
-use domain_types::error::{ApiError, ErrorCode};
+use domain_types::error::ApiError;
 use domain_types::patronus::{
-  GetPatronusTargetBranchParams, KnownRobotStatus, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusProblem, PatronusRobot,
-  PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus, PatronusRobotsResult, PatronusStartOptions, PostPatronusCommandParams, ReadPatronusCommandReplyParams,
-  StartPatronusRobotParams,
+  GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobot, PatronusRobotParams,
+  PatronusRobotStatus, PatronusRobotsResult, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
-use domain_types::pull_request::{
-  BranchRules, CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers,
-};
+use domain_types::pull_request::{CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, RequestedReviewers};
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
@@ -37,7 +34,6 @@ use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::reword::{RewordRequest, reword_request_core};
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
-use remote_facts::branch_rules::read_branch_rules;
 use remote_facts::patronus_command::{
   UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
 };
@@ -49,10 +45,9 @@ use remote_facts::pull_request_writes::{
   ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, close_pull_request as core_close_pull_request, read_pull_request_head,
   retarget_pull_request as core_retarget_pull_request,
 };
-use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
-use remote_facts::review_readiness::{branch_review_readiness, prepare_review_readiness};
+use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
-use repository_model::actions::{NOT_ON_SPACE, RemoteActions};
+use repository_model::actions::RemoteActions;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::SessionKey;
 use repository_model::table::TableState;
@@ -271,7 +266,7 @@ pub(crate) fn branch_prefix_now(state: &AppState, repository_path: &str) -> anyh
 
 /// Settings → Patronus, the new API, of the settings of the test repository at `repository_path`, as the app's commands
 /// read it from the writer (a test sets it with `initialStoreValues` or through the page's `set_setting`)
-fn patronus_new_api_of(state: &AppState, repository_path: &str) -> Result<bool, Rejection> {
+pub(crate) fn patronus_new_api_of(state: &AppState, repository_path: &str) -> Result<bool, Rejection> {
   Ok(repository_by_path(state, repository_path)?.store.app().patronus_new_api)
 }
 
@@ -879,7 +874,7 @@ fn git_common_dir(git_executor: &git_executor::git_command_executor::GitCommandE
 
 /// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known
 /// `owner/name`, else `branchdeck.githubRepository` (a fixture writes it), else none; with the fake services
-async fn github_of(state: &AppState, path: &str, known: Option<&str>) -> Result<(Arc<RemoteHost>, Option<GitHubRepository>), Rejection> {
+pub(crate) async fn github_of(state: &AppState, path: &str, known: Option<&str>) -> Result<(Arc<RemoteHost>, Option<GitHubRepository>), Rejection> {
   let host = remote_of(state, path)?;
   if let Some(repository) = parse_known_github_repository(known) {
     return Ok((host, Some(repository)));
@@ -897,40 +892,10 @@ async fn required_github_of(state: &AppState, path: &str, known: Option<&str>, o
   }
 }
 
-/// The pull requests of the virtual branches as the session of a test repository lists them (`TestFactSources`), counted:
-/// the real service asks the fake GitHub of the repository, which holds the fixture of `POST /repositories/{id}/pull-requests`.
-/// The listing holds the repository as a command does: its deletion waits for it (the fake reads the heads from its files)
-pub(crate) async fn list_pull_requests_of(state: &AppState, key: &SessionKey) -> PullRequestsResult {
-  let failure = |message: String| PullRequestsResult::unavailable(PullRequestAvailability::Error { message });
-  let in_flight = match repository_by_path(state, &key.worktree) {
-    Ok(repository) => {
-      repository.pull_request_calls.fetch_add(1, Ordering::SeqCst);
-      Arc::clone(&repository.in_flight)
-    }
-    Err(rejection) => return failure(rejected(rejection).message),
-  };
-  let _command = in_flight.read_owned().await;
-  match github_of(state, &key.worktree, None).await {
-    Ok((host, Some(github))) => list_pull_requests(&host.github_service(), &key.worktree, &github, &key.prefix).await,
-    Ok((_, None)) => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
-    Err(rejection) => failure(rejected(rejection).message),
-  }
-}
-
 /// The repository of a session, held as a command holds it while a read of its facts runs: its deletion waits
-async fn holding(state: &AppState, key: &SessionKey) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, ApiError> {
+pub(crate) async fn holding(state: &AppState, key: &SessionKey) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, ApiError> {
   let in_flight = Arc::clone(&repository_by_path(state, &key.worktree).map_err(rejected)?.in_flight);
   Ok(in_flight.read_owned().await)
-}
-
-/// What the rules of a base do to the pull requests into it, as the session of a test repository reads them
-pub(crate) async fn branch_rules_of(state: &AppState, key: &SessionKey, branch: &str) -> Result<BranchRules, ApiError> {
-  let operation = "read the rules of the branch";
-  let _command = holding(state, key).await?;
-  let (host, repository) = required_github_of(state, &key.worktree, None, operation).await.map_err(rejected)?;
-  held_or_failed(&host, HeldAnswer::BranchRules, operation).await.map_err(rejected)?;
-  let rules = read_branch_rules(&host.github_service(), &key.worktree, &repository, branch).await;
-  rules.map_err(|failure| ApiError::internal(failure_message(&failure)))
 }
 
 /// The sign-in of the requesting page's repository, as the app reads it, with the OAuth app of a fixture (none by
@@ -1301,44 +1266,18 @@ pub async fn get_file_owners(State(state): State<Arc<AppState>>, Json(params): J
 }
 
 /// The fake services of the repository at `path` (`remote_host.rs`), started now if not yet; the repository is not held
-fn remote_of(state: &AppState, path: &str) -> Result<Arc<RemoteHost>, Rejection> {
+pub(crate) fn remote_of(state: &AppState, path: &str) -> Result<Arc<RemoteHost>, Rejection> {
   Ok(repository_by_path(state, path)?.remote(&state.git_executor))
 }
 
 /// The Space repository of the repository at `path`, None while no Patronus fixture put it on Space
-fn space_of(state: &AppState, path: &str) -> Result<Option<(Arc<RemoteHost>, SpaceRepository)>, Rejection> {
+pub(crate) fn space_of(state: &AppState, path: &str) -> Result<Option<(Arc<RemoteHost>, SpaceRepository)>, Rejection> {
   let host = repository_by_path(state, path)?.existing_remote();
   Ok(host.and_then(|host| host.space_repository().map(|space| (host, space))))
 }
 
-/// The user's robots as the session of a test repository lists them (`TestFactSources`, as `PatronusState::robots` of the
-/// app): the real service asks the fake Patronus of the repository, which answers the fixture of
-/// `POST /repositories/{id}/patronus`; counted, and the robots answered kept for the tests (`patronus_answered`)
-pub(crate) async fn list_robots(state: &AppState, key: &SessionKey, since: Option<u32>, background: bool) -> Result<PatronusRobotsResult, Rejection> {
-  repository_by_path(state, &key.worktree)?.patronus_list_calls.fetch_add(1, Ordering::SeqCst);
-  let Some((host, space)) = space_of(state, &key.worktree)? else {
-    return Ok(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
-  };
-  let new_api = patronus_new_api_of(state, &key.worktree)?;
-  let mut result = host.patronus_service().robots(&space.name, &key.prefix, since, background, new_api).await;
-  let (git, path) = (config_git(state, &key.worktree)?, key.worktree.clone());
-  let Json(github) = run_command("resolve the GitHub repository", move || resolve_github_repository(&git, &path)).await?;
-  result.github_repository = github.map(|github| github.full_name());
-  keep_answered(state, &key.worktree, &result);
-  Ok(result)
-}
-
-/// The robots whose status changed since the session saw it, as the session of a test repository polls them; counted
-pub(crate) async fn poll_robots(state: &AppState, key: &SessionKey, known: &[KnownRobotStatus]) -> Result<PatronusRobotsResult, Rejection> {
-  repository_by_path(state, &key.worktree)?.patronus_poll_calls.fetch_add(1, Ordering::SeqCst);
-  let host = remote_of(state, &key.worktree)?;
-  let result = host.patronus_service().poll(&key.prefix, known).await;
-  keep_answered(state, &key.worktree, &result);
-  Ok(result)
-}
-
 /// Keeps the robots of an answer by id, for the tests that pin a revision the fake resolved
-fn keep_answered(state: &AppState, path: &str, result: &PatronusRobotsResult) {
+pub(crate) fn keep_answered(state: &AppState, path: &str, result: &PatronusRobotsResult) {
   if let Ok(repository) = repository_by_path(state, path) {
     let mut answered = repository.patronus_answered.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     answered.extend(result.robots.iter().map(|robot| (robot.id.clone(), robot.clone())));
@@ -1376,17 +1315,6 @@ pub async fn get_robot_stats(State(state): State<Arc<AppState>>, Json(params): J
   ))
 }
 
-/// The robot `id` with its profile, checks, problems and progress, as the session of a test repository reads them
-/// (`TestFactSources`), under the prefix of its key, with the new API of the repository's settings; counted
-pub(crate) async fn robot_details_of(state: &AppState, key: &SessionKey, id: &str) -> Result<PatronusRobotDetails, ApiError> {
-  let repository = repository_by_path(state, &key.worktree).map_err(rejected)?;
-  repository.patronus_detail_calls.fetch_add(1, Ordering::SeqCst);
-  let new_api = repository.store.app().patronus_new_api;
-  let host = repository.remote(&state.git_executor);
-  drop(repository);
-  host.patronus_service().robot_details(&key.prefix, id, new_api).await.map_err(patronus_error)
-}
-
 /// Why the robot failed, with the commit map of its branch, as the app reads it; there is no `teamcity` CLI
 pub async fn get_robot_failure(State(state): State<Arc<AppState>>, Json(params): Json<GetRobotFailureParams>) -> CommandResult<RobotFailureReport> {
   let service = remote_of(&state, &params.repository_path)?.patronus_service();
@@ -1404,71 +1332,12 @@ pub async fn get_robot_failure(State(state): State<Arc<AppState>>, Json(params):
   .await
 }
 
-/// Of the running robots `ids`, the ones a failed required check dooms, as the session of a test repository asks them
-/// (`TestFactSources`)
-pub(crate) async fn failing_robots(state: &AppState, key: &SessionKey, ids: &[String]) -> Result<Vec<String>, ApiError> {
-  let host = remote_of(state, &key.worktree).map_err(rejected)?;
-  host.patronus_service().failing_robots(ids).await.map_err(patronus_error)
-}
-
-/// The error problems of a finished robot, as the session of a test repository reads them (`TestFactSources`)
-pub(crate) async fn robot_problems(state: &AppState, key: &SessionKey, id: &str) -> Result<Vec<PatronusProblem>, ApiError> {
-  let host = remote_of(state, &key.worktree).map_err(rejected)?;
-  host.patronus_service().robot_problems(id).await.map_err(patronus_error)
-}
-
 /// The error of a rejection, a read of the session's facts answers it
-fn rejected(rejection: Rejection) -> ApiError {
+pub(crate) fn rejected(rejection: Rejection) -> ApiError {
   match rejection {
     Rejection::Error(error) => error,
     Rejection::Panicked => ApiError::internal("The test server failed"),
   }
-}
-
-/// The readiness of `asks` as the session of a test repository reads it (`TestFactSources`), as the app reads it
-/// (`remote_facts::review_readiness`) but without the object cache, so every call asks: the fake Patronus answers the
-/// pre-check of a branch whose tip is the tip of a branch of `POST /repositories/{id}/review-answers`, else by the
-/// owners of its paths (`remote_fixtures::review_check_answer`). Each call is logged with its subjects and its
-/// `recheck` (`GET /repositories/{id}/review-answers`)
-pub(crate) async fn readiness_of(
-  state: &AppState,
-  key: &SessionKey,
-  baseline: String,
-  asks: Vec<domain_types::patronus::ReviewReadinessBranch>,
-  recheck: bool,
-) -> Result<Vec<domain_types::patronus::BranchReviewReadiness>, ApiError> {
-  let operation = "read the code-owner review";
-  let _command = holding(state, key).await?;
-  {
-    let repo = repository_by_path(state, &key.worktree).map_err(rejected)?;
-    let branches: Vec<&str> = asks.iter().map(|ask| ask.branch_name.as_str()).collect();
-    repo
-      .review_readiness_calls
-      .lock()
-      .expect("review readiness calls lock")
-      .push(serde_json::json!({"branches": branches, "recheck": recheck}));
-  }
-  let (host, space) = required_space_of(state, &key.worktree, operation).map_err(rejected)?;
-  let (_, github) = github_of(state, &key.worktree, None).await.map_err(rejected)?;
-  let Json((inputs, asks)) = {
-    let (git_executor, key) = (state.git_executor.clone(), key.clone());
-    run_command(operation, move || {
-      prepare_review_readiness(&git_executor, space, github, &key.prefix, &key.worktree, &baseline, &asks).map(|inputs| (inputs, asks))
-    })
-    .await
-    .map_err(rejected)?
-  };
-  let readiness = branch_review_readiness(
-    &state.git_executor,
-    &key.worktree,
-    &ObjectCache::disabled(),
-    &host.patronus_service(),
-    &inputs.repository(),
-    &asks,
-    recheck,
-  )
-  .await;
-  readiness.map_err(|error| ApiError::new(ErrorCode::PatronusError, format!("{error:#}")))
 }
 
 /// Starts a Safe Push or a Dry Run from the pull request's comment, as the app does: the checks of a start of the
@@ -1509,29 +1378,6 @@ async fn commented_github_of(state: &AppState, path: &str, known: Option<&str>, 
     (host, Some(repository)) => Ok((host, repository)),
     (_, None) => Err(failed(operation, UNKNOWN_GITHUB_REPOSITORY_MESSAGE)),
   }
-}
-
-/// The Space repository of the repository at `path` for an action: not on Space is the app's error
-fn required_space_of(state: &AppState, path: &str, operation: &str) -> Result<(Arc<RemoteHost>, SpaceRepository), Rejection> {
-  space_of(state, path)?.ok_or_else(|| failed(operation, ApiError::new(ErrorCode::NotOnSpace, NOT_ON_SPACE)))
-}
-
-/// The merge profiles of the target `baseline` pushes to, as the session of a test repository reads them: the default
-/// of the last robot is the page's
-pub(crate) async fn profiles_of(state: &AppState, key: &SessionKey, baseline: String) -> Result<PatronusStartOptions, ApiError> {
-  let operation = "read the Safe Push options";
-  let _command = holding(state, key).await?;
-  let (host, space) = required_space_of(state, &key.worktree, operation).map_err(rejected)?;
-  held_or_failed(&host, HeldAnswer::Profiles, operation).await.map_err(rejected)?;
-  let (git_executor, path) = (state.git_executor.clone(), key.worktree.clone());
-  let Json(target) = run_command(operation, move || required_target_branch(&git_executor, &path, &baseline))
-    .await
-    .map_err(rejected)?;
-  host
-    .patronus_service()
-    .start_options(&space.project_key, &space.name, &target, None, None)
-    .await
-    .map_err(patronus_error)
 }
 
 /// The branch of origin a robot pushes into, as the app reads it

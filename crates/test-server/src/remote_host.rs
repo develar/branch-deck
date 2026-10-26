@@ -120,15 +120,15 @@ pub enum HeldAnswer {
   ReviewRequests,
   /// The list of the robots (the session's list, `GET /app/rest/v1/robots`)
   Robots,
-  /// The pre-check of the code-owner review (the readiness reads of the sessions, `readiness_of`)
+  /// The pre-check of the code-owner review (the readiness reads of the sessions, `TestFactSources::readiness`)
   Readiness,
   /// The computation of the landing needs of a session (`TestSessionEnvironment::landing_needs`): held there
   LandingNeeds,
   /// Why a robot failed (`GET /app/rest/v1/robots/{id}/problems`, of every robot)
   RobotProblems,
-  /// The rules of a base (the session's read, `branch_rules_of` of the bridge): whether a push dismisses the approvals
+  /// The rules of a base (the session's read, `TestFactSources::branch_rules`): whether a push dismisses the approvals
   BranchRules,
-  /// The merge profiles of the target (the session's read, `profiles_of` of the bridge): held there
+  /// The merge profiles of the target (the session's read, `TestFactSources::profiles`): held there
   Profiles,
   /// The view of the robots a session derives (`TestSessionEnvironment::before_patronus_view`): what they hold and
   /// land; failed there

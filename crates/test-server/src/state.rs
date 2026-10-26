@@ -97,7 +97,7 @@ pub struct TestRepository {
   pub patronus_answered: std::sync::Mutex<std::collections::BTreeMap<String, domain_types::patronus::PatronusRobot>>,
   /// How often the session read the details of a robot a window shows: the build progress of its checks comes only with them
   pub patronus_detail_calls: AtomicU32,
-  /// The readiness reads of the sessions (`readiness_of`), in order: the subjects asked and whether it was a recheck
+  /// The readiness reads of the sessions (`TestFactSources::readiness`), in order: the subjects asked and whether it was a recheck
   pub review_readiness_calls: std::sync::Mutex<Vec<serde_json::Value>>,
   /// What `suggest_branch_names` answers (E2E never runs claude)
   pub branch_name_suggestions: RwLock<BranchNameSuggestionFixture>,

@@ -1,9 +1,11 @@
 use crate::remote_fixtures::fixture_pulls;
+use crate::session_routes::TestFactSources;
 use crate::session_routes_test::{subscribe, subscription};
-use crate::tauri_command_bridge::{list_pull_requests_of, review_requests_of};
+use crate::tauri_command_bridge::review_requests_of;
 use crate::test_support::{Messages, Named, command, create_repository, delete_repository, head, post, post_as, start_test_server, start_test_server_with_state};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
+use remote_facts::fact_sources::FactSources;
 use repository_model::session::SessionKey;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -410,7 +412,7 @@ async fn a_deleted_repository_releases_the_answers_its_test_held() {
   };
   let listing = tokio::spawn({
     let (state, key) = (std::sync::Arc::clone(&state), key.clone());
-    async move { list_pull_requests_of(&state, &key).await }
+    async move { TestFactSources::new(&state).pull_requests(&key).await }
   });
   until_arrived(&client, addr, &id, "pullRequests").await;
   let requests = tokio::spawn(async move { review_requests_of(&state, &key).await });

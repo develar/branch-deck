@@ -1,8 +1,8 @@
 //! What the scheduler of the facts (`scheduler`) reads the remote services with: one method per read, each for the
-//! session it names (its worktree, and the branch prefix the robots are matched under). The hosts implement it over
-//! their services: the app over the Patronus service and the GitHub mirror of each repository it keeps (src-tauri,
-//! `AppFactSources`), the E2E server over the fakes of each test repository, counting the reads as its tests check them
-//! (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus, of
+//! session it names (its worktree, and the branch prefix the robots are matched under). One implementation reads them
+//! for every host (`service_sources::ServiceFactSources`): the app over its Patronus service and the GitHub mirror of each
+//! repository it keeps, `bd` over the services of its command, the E2E server over the fakes of each test repository,
+//! counting and holding the reads as its tests check them around it (`TestFactSources`). A list and a poll never fail: what went wrong is the answer's (the availability of Patronus, of
 //! GitHub for the pull requests and the review requests); the reads of what the session asks about its robots (their details too), the rules of
 //! a base, the merge profiles and the review readiness answer their failure, which the facts keep.
 

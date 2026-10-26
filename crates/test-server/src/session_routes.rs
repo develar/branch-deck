@@ -12,12 +12,13 @@
 use crate::channel_commands::{Progress, answer_with_progress, progress_channel};
 use crate::remote_host::HeldAnswer;
 use crate::state::AppState;
+use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
-  CommandResult, Rejection, branch_prefix_now, branch_prefix_of, branch_rules_of, failed, failing_robots, list_pull_requests_of, list_robots, poll_robots, profiles_of,
-  readiness_of, repository_by_path, review_requests_of, robot_details_of, robot_problems,
+  CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, github_of, held_or_failed, holding, keep_answered, patronus_new_api_of, rejected, remote_of,
+  repository_by_path, review_requests_of, space_of,
 };
-use app_api::api_error::{api_error, no_branch_prefix};
+use app_api::api_error::{api_error, no_branch_prefix, patronus_error};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -29,9 +30,13 @@ use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
+use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
+use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
+use patronus::service::PatronusService;
 use remote_facts::fact_sources::{FactSources, Read};
+use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session, skip_in_session};
 use repository_model::pull_request_facts::PullRequestWrite;
@@ -39,8 +44,11 @@ use repository_model::runtime::{RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use serde::Deserialize;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
+use sync_core::github_repository::GitHubRepository;
+use sync_core::patronus::SpaceRepository;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use trial_check::landing_gate::landing_needs_of;
 
@@ -121,56 +129,88 @@ impl SessionEnvironment for TestSessionEnvironment {
   }
 }
 
-/// What the scheduler of the facts reads the fakes of a test repository with, as the app reads its services
-/// (`list_robots`, `poll_robots`: counted, so the tests check the request policy); a read the server can't make (the
-/// repository went away) is a failure of Patronus
+/// What the scheduler of the facts reads the fakes of a test repository with: the reads of the app
+/// (`ServiceFactSources`) over the services of the repository (`TestServices`), each counted, held or failed as its
+/// tests check it, and the robots answered kept for them (`keep_answered`); the review requests come from their fixture.
+/// A read the server can't make (the repository went away) is a failure of the service
 pub struct TestFactSources {
-  pub state: Weak<AppState>,
+  state: Weak<AppState>,
+  services: ServiceFactSources<TestServices>,
 }
 
 impl TestFactSources {
-  async fn answer(&self, read: impl AsyncFnOnce(&AppState) -> Result<PatronusRobotsResult, Rejection>) -> PatronusRobotsResult {
-    let failure = |message: &str| PatronusRobotsResult::from(PatronusAvailability::Error { message: message.to_owned() });
-    let Some(state) = self.state.upgrade() else {
-      return failure("The test server stopped");
+  pub fn new(state: &Arc<AppState>) -> Self {
+    let services = TestServices {
+      state: Arc::downgrade(state),
+      git: state.git_executor.clone(),
     };
-    read(&state).await.unwrap_or_else(|_| failure("The test server cannot read the robots"))
+    Self {
+      state: Arc::downgrade(state),
+      services: ServiceFactSources::new(services),
+    }
+  }
+
+  fn state(&self) -> Result<Arc<AppState>, ApiError> {
+    self.state.upgrade().ok_or_else(stopped)
+  }
+
+  /// Counts a read of the repository of `key` by `calls`: the tests check the request policy
+  fn count(&self, key: &SessionKey, calls: impl FnOnce(&TestRepository) -> &AtomicU32) -> Result<Arc<AppState>, ApiError> {
+    let state = self.state()?;
+    calls(&*repository_by_path(&state, &key.worktree).map_err(rejected)?).fetch_add(1, Ordering::SeqCst);
+    Ok(state)
+  }
+
+  /// A list or a poll of the robots, counted by `calls`, its robots kept for the tests that pin a revision the fake
+  /// resolved
+  async fn robots_read(&self, key: &SessionKey, calls: impl FnOnce(&TestRepository) -> &AtomicU32, read: Read<'_, PatronusRobotsResult>) -> PatronusRobotsResult {
+    let state = match self.count(key, calls) {
+      Ok(state) => state,
+      Err(error) => return PatronusRobotsResult::from(PatronusAvailability::Error { message: error.message }),
+    };
+    let result = read.await;
+    keep_answered(&state, &key.worktree, &result);
+    result
+  }
+
+  /// The fake of the repository of `key` passes a held `answer` (`/remote-gates`), or fails it as its fixture says;
+  /// nothing holds a repository without fakes
+  async fn gate(&self, key: &SessionKey, answer: HeldAnswer, operation: &str) -> Result<(), ApiError> {
+    let host = repository_by_path(&*self.state()?, &key.worktree).map_err(rejected)?.existing_remote();
+    match host {
+      Some(host) => held_or_failed(&host, answer, operation).await.map_err(rejected),
+      None => Ok(()),
+    }
   }
 }
 
 impl FactSources for TestFactSources {
   fn robots<'a>(&'a self, key: &'a SessionKey, since: Option<u32>, background: bool) -> Read<'a, PatronusRobotsResult> {
-    Box::pin(self.answer(async move |state| list_robots(state, key, since, background).await))
+    Box::pin(self.robots_read(key, |repository| &repository.patronus_list_calls, self.services.robots(key, since, background)))
   }
 
   fn poll<'a>(&'a self, key: &'a SessionKey, known: Vec<KnownRobotStatus>) -> Read<'a, PatronusRobotsResult> {
-    Box::pin(self.answer(async move |state| poll_robots(state, key, &known).await))
+    Box::pin(self.robots_read(key, |repository| &repository.patronus_poll_calls, self.services.poll(key, known)))
   }
 
   fn failing<'a>(&'a self, key: &'a SessionKey, ids: Vec<String>) -> Read<'a, Result<Vec<String>, ApiError>> {
-    Box::pin(async move {
-      let state = self.state.upgrade().ok_or_else(stopped)?;
-      failing_robots(&state, key, &ids).await
-    })
+    self.services.failing(key, ids)
   }
 
   fn problems<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<Vec<PatronusProblem>, ApiError>> {
-    Box::pin(async move {
-      let state = self.state.upgrade().ok_or_else(stopped)?;
-      robot_problems(&state, key, &id).await
-    })
+    self.services.problems(key, id)
   }
 
   fn robot_details<'a>(&'a self, key: &'a SessionKey, id: String) -> Read<'a, Result<PatronusRobotDetails, ApiError>> {
     Box::pin(async move {
-      let state = self.state.upgrade().ok_or_else(stopped)?;
-      robot_details_of(&state, key, &id).await
+      self.count(key, |repository| &repository.patronus_detail_calls)?;
+      self.services.robot_details(key, id).await
     })
   }
 
-  fn review_requests<'a>(&'a self, key: &'a SessionKey, _github_repository: Option<String>) -> Read<'a, domain_types::review_request::ReviewRequestsResult> {
+  fn review_requests<'a>(&'a self, key: &'a SessionKey, _github_repository: Option<String>) -> Read<'a, ReviewRequestsResult> {
     Box::pin(async move {
-      let failure = |message: String| domain_types::review_request::ReviewRequestsResult::unavailable(PullRequestAvailability::Error { message });
+      let failure = |message: String| ReviewRequestsResult::unavailable(PullRequestAvailability::Error { message });
       let Some(state) = self.state.upgrade() else {
         return failure(stopped().message);
       };
@@ -178,39 +218,113 @@ impl FactSources for TestFactSources {
     })
   }
 
+  /// Counted; the listing holds the repository as a command does: its deletion waits for it (the fake reads the heads
+  /// from its files)
   fn pull_requests<'a>(&'a self, key: &'a SessionKey) -> Read<'a, PullRequestsResult> {
     Box::pin(async move {
-      let Some(state) = self.state.upgrade() else {
-        return PullRequestsResult::unavailable(PullRequestAvailability::Error { message: stopped().message });
+      let held = match self.count(key, |repository| &repository.pull_request_calls) {
+        Ok(state) => holding(&state, key).await,
+        Err(error) => Err(error),
       };
-      list_pull_requests_of(&state, key).await
+      match held {
+        Ok(_command) => self.services.pull_requests(key).await,
+        Err(error) => PullRequestsResult::unavailable(PullRequestAvailability::Error { message: error.message }),
+      }
     })
   }
 
   fn branch_rules<'a>(&'a self, key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
     Box::pin(async move {
-      let state = self.state.upgrade().ok_or_else(stopped)?;
-      branch_rules_of(&state, key, &branch).await
+      let _command = holding(&*self.state()?, key).await?;
+      self.gate(key, HeldAnswer::BranchRules, "read the rules of the branch").await?;
+      self.services.branch_rules(key, branch).await
     })
   }
 
   fn profiles<'a>(&'a self, key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
     Box::pin(async move {
-      let state = self.state.upgrade().ok_or_else(stopped)?;
-      profiles_of(&state, key, baseline).await
+      let _command = holding(&*self.state()?, key).await?;
+      self.gate(key, HeldAnswer::Profiles, "read the Safe Push options").await?;
+      self.services.profiles(key, baseline).await
     })
   }
 
+  /// Without the object cache, so every call asks: the fake Patronus answers the pre-check of a branch whose tip is the
+  /// tip of a branch of `POST /repositories/{id}/review-answers`, else by the owners of its paths
+  /// (`remote_fixtures::review_check_answer`). Each call is logged with its subjects and its `recheck`
+  /// (`GET /repositories/{id}/review-answers`)
   fn readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>> {
     Box::pin(async move {
-      let state = self.state.upgrade().ok_or_else(stopped)?;
-      readiness_of(&state, key, baseline, asks, recheck).await
+      let state = self.state()?;
+      let _command = holding(&state, key).await?;
+      {
+        let repo = repository_by_path(&state, &key.worktree).map_err(rejected)?;
+        let branches: Vec<&str> = asks.iter().map(|ask| ask.branch_name.as_str()).collect();
+        let mut calls = repo.review_readiness_calls.lock().expect("review readiness calls lock");
+        calls.push(serde_json::json!({"branches": branches, "recheck": recheck}));
+      }
+      self.services.readiness(key, baseline, asks, recheck).await
     })
   }
 
   /// The test server keeps no answer (no object cache): every readiness is asked
   fn cached_readiness<'a>(&'a self, _key: &'a SessionKey, _baseline: String, asks: Vec<ReviewReadinessBranch>) -> Read<'a, Vec<Option<BranchReviewReadiness>>> {
     Box::pin(async move { vec![None; asks.len()] })
+  }
+
+  fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
+    self.services.fetch_moved_remotes(key, asks)
+  }
+}
+
+/// The services of each test repository (`ServiceHost`): its fake Patronus and fake GitHub (`RemoteHost`), the Space
+/// repository its Patronus fixture names, the GitHub repository resolved with the repository's own global config, the
+/// new API of its settings, no object cache; a failed review is Patronus' error
+struct TestServices {
+  state: Weak<AppState>,
+  git: GitCommandExecutor,
+}
+
+impl TestServices {
+  fn state(&self) -> Result<Arc<AppState>, ApiError> {
+    self.state.upgrade().ok_or_else(stopped)
+  }
+}
+
+impl ServiceHost for TestServices {
+  fn git(&self) -> GitCommandExecutor {
+    self.git.clone()
+  }
+
+  fn patronus(&self, key: &SessionKey) -> Result<Arc<PatronusService>, ApiError> {
+    Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.patronus_service())
+  }
+
+  fn github(&self, key: &SessionKey) -> Result<Arc<github::service::GitHubService>, ApiError> {
+    Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.github_service())
+  }
+
+  fn space_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {
+    Box::pin(async move { Ok(space_of(&*self.state()?, &key.worktree).map_err(rejected)?.map(|(_, space)| space)) })
+  }
+
+  fn github_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<GitHubRepository>, ApiError>> {
+    Box::pin(async move {
+      let state = self.state()?;
+      github_of(&state, &key.worktree, None).await.map(|(_, repository)| repository).map_err(rejected)
+    })
+  }
+
+  fn new_api(&self, key: &SessionKey) -> bool {
+    self.state().is_ok_and(|state| patronus_new_api_of(&state, &key.worktree).unwrap_or(false))
+  }
+
+  fn object_cache<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, ObjectCache> {
+    Box::pin(async { ObjectCache::disabled() })
+  }
+
+  fn api_error(&self, error: anyhow::Error) -> ApiError {
+    patronus_error(format!("{error:#}"))
   }
 
   /// Only a repository whose remote a test moved behind the app's back (`commitOnRemote`): the others set the remote
