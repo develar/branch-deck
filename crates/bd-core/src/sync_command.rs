@@ -21,6 +21,7 @@ use domain_types::stack::BranchStack;
 use domain_types::update_project::{UpdateKind, UpdateState};
 use domain_types::{BranchError, ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
 use history_rewrite::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository_in};
+use repository_model::branch_table::BranchTable;
 use repository_model::table::TableState;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -73,6 +74,12 @@ pub struct SyncOutput {
 }
 
 impl SyncOutput {
+  /// The table of the sync with the remote statuses and the landing report it emitted, as the session of the app
+  /// commits the table of a run
+  pub fn branch_table(&self, prefix: &str) -> BranchTable {
+    BranchTable::from_report(prefix, &self.report, &self.remote_statuses, &self.landed_section.landing)
+  }
+
   /// A branch the sync could not build (`SyncState::is_built`): the exit code 1 of `bd sync` and of a rewrite with --sync
   pub fn has_unbuilt(&self) -> bool {
     self.branches.iter().any(|branch| !branch.state.is_built())

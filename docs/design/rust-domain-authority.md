@@ -571,8 +571,9 @@ Activity) подписывается на ту же сессию по пути �
 
 ### Разделение между `bd` и приложением без daemon
 
-- Один код: `bd` строит `Session::one_shot(key)` — без планировщика и подписчиков, факты добираются по
-  `needs(intent)`; те же `prepare`/`execute`, тот же pre-sync, та же JSON-схема и exit codes (`domain-types/src/error.rs`).
+- Один код: `bd` строит одноразовую сессию своего sync (`repository_model::one_shot::OneShot`: `TableState` и
+  `FactStore`, без актора, планировщика и подписчиков), факты добираются по `needs(intent)` (`operations::facts::fill`
+  через `ServiceFactSources` над `bd_core::services::BdServices`, тот же читатель, что у приложения); те же `prepare`/`execute`, тот же pre-sync, та же JSON-схема и exit codes (`domain-types/src/error.rs`).
   `bd status` сохраняет сегодняшние чтения: локальная таблица плюс список роботов Patronus с курсором `since` в
   object cache (`robot_list.rs:135-147`) ради `landed_by` (`status.rs:393-424`); остальные внешние факты — `Unknown`;
   бюджет процессов не меняется (14 на неизменённом sync монорепозитория).
@@ -2163,7 +2164,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   после unlock) извлекается **до** `Land`, потому что `Land` пушит внутри плана; тела `push_branch(es)` и `bd push`
   зовут его сразу, а сами IPC push уходят последними, как в (4). `Land` приземляется двумя коммитами: движок
   (`execute(Land)`, его тесты, `bd safe-push` и test-server как вызывающие), затем переключение приложения с удалением
-  пяти IPC и TS-оркестрации в одном коммите. `bd` читает факты через `Session::one_shot` и `needs(intent)`
+  пяти IPC и TS-оркестрации в одном коммите. `bd` читает факты через одноразовую сессию (`OneShot`) и `needs(intent)`
   (`remote_facts::service_sources::ServiceFactSources`, одна реализация `FactSources` для приложения и `bd`) до движка.
   `bd safe-push`, `push`, `robot`, `request-review` — адаптеры с прежними флагами плюс `--push` у request-review.
   **Конкурентность** ([раздел](#конкурентность-повторы-и-скорость)): lock каждого remote-intent'а — sync, проверки,

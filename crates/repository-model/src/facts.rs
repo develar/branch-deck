@@ -1100,7 +1100,7 @@ pub type Needs = BTreeMap<String, Vec<LandingRefusal>>;
 
 /// The robot of each branch and whole stack of the table `of`, what the robots land and landed of it, and what the rules
 /// decide over that (`patronus_view` over `match_robots`, `derive::decide_landing`): the one derivation of the session
-/// and of `bd` (`PatronusFacts::read`); runs git for the robots the hashes and `memo` don't answer: blocking
+/// and of `bd` (`one_shot::OneShot::derive_patronus`); runs git for the robots the hashes and `memo` don't answer: blocking
 #[instrument(skip_all, fields(robots = of.robots.len(), branches = of.table.branches.len()))]
 pub fn derive_patronus(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> PatronusView {
   let matched = match_robots(of.table, of.remote, of.robots);

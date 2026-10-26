@@ -4,17 +4,14 @@
 //! land (the robot merges the commit it took), and a push into the robot's own branch makes it fail at the end ("branch
 //! was modified"). Before any of them, a merged Safe Push that landed all of the branch (`landed`): its commits are in
 //! the target, a push sends nothing that lands. A stack branch is held by a parked member, by merged Safe Pushes that
-//! landed every member, by its own robot and by a build the sync did not make (`stack_hold`). Best effort: a repository
-//! not on Space, no Space token or no answer of Patronus holds nothing by a robot.
+//! landed every member, by its own robot and by a build the sync did not make (`stack_hold`). The robots are read as the
+//! app's session reads them (`session_facts`, by `bd push`). Best effort: a repository not on Space, no Space token or
+//! no answer of Patronus holds nothing by a robot.
 
 use crate::landed::{LandedBranch, landed_branches};
-use crate::patronus_facts::{PatronusFacts, table_of};
-use crate::robot_list::list_robots;
-use crate::safe_push_command::patronus_service;
 use bd_core::bd_command::shell_word;
-use bd_core::context::{Environment, RepoContext};
+use bd_core::context::RepoContext;
 use bd_core::error::CliError;
-use bd_core::sync_command::SyncOutput;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
@@ -24,9 +21,11 @@ use domain_types::repository_view::{Carried, HoldKind};
 use domain_types::stack::StackBranchUpdate;
 use patronus::service::PatronusService;
 use repository_model::branch_table::BranchTable;
+use repository_model::one_shot::OneShot;
 use repository_model::push_guard::{every_branch_landed, own_hold_words, span_hold_words, stack_hold_words};
 use repository_model::start_guard::start_refusal_text;
 use std::collections::HashMap;
+use std::sync::Arc;
 use sync_core::patronus_start::push_mode_name;
 
 /// The robot that holds the push of a branch
@@ -87,14 +86,15 @@ pub(crate) fn refusing_subject(refusal: &Reason, own: &Subject) -> Subject {
   }
 }
 
-/// The holds of the branches, the table and the Patronus facts the holds of the stack branches are decided over, and
-/// the Patronus service that cancels and restarts their robots; none of a push that checked them already
+/// The holds of the branches, the table and the session whose Patronus view the holds of the stack branches are
+/// decided over, and the Patronus service that cancels and restarts their robots; none of a push that checked them
+/// already
 #[derive(Default)]
 pub struct PushHolds {
   holds: HashMap<String, PushHold>,
   table: BranchTable,
-  facts: PatronusFacts,
-  service: Option<PatronusService>,
+  facts: OneShot,
+  service: Option<Arc<PatronusService>>,
 }
 
 impl PushHolds {
@@ -122,7 +122,7 @@ impl PushHolds {
         Some(robot) => stack_hold_words(root, robot),
         None => format!("a {} of {what} is running on it", push_mode_name(*mode)),
       },
-      other => start_refusal_text(other, &what, &self.facts.robots),
+      other => start_refusal_text(other, &what, self.facts.robots()),
     }
   }
 
@@ -144,39 +144,17 @@ impl PushHolds {
   }
 
   fn service(&self) -> Result<&PatronusService, CliError> {
-    self.service.as_ref().ok_or_else(|| CliError::new(ErrorCode::PatronusError, "Patronus is not available"))
+    self.service.as_deref().ok_or_else(|| CliError::new(ErrorCode::PatronusError, "Patronus is not available"))
   }
 }
 
-/// The holds of every synced branch: a merged Safe Push that landed all of it (`landed_branches`), else its own robot started
-/// on it, else the robot of the first branch built on it whose commit has commits of it, else the robot of its whole
-/// stack whose commit has. One robots request; nothing without Space, a token or an answer of Patronus.
-pub fn read_push_holds(context: &RepoContext, environment: &Environment, synced: &SyncOutput) -> PushHolds {
-  let table = table_of(context, synced);
-  match find_holds(context, environment, &table) {
-    Ok(Some((facts, service))) => push_holds(context, table, facts, Some(service)),
-    Ok(None) => push_holds(context, table, PatronusFacts::default(), None),
-    Err(error) => {
-      tracing::debug!(error = %error.message, "no push holds of robots: Patronus is not available");
-      push_holds(context, table, PatronusFacts::default(), None)
-    }
-  }
-}
-
-fn find_holds(context: &RepoContext, environment: &Environment, table: &BranchTable) -> Result<Option<(PatronusFacts, PatronusService)>, CliError> {
-  let Some(space) = context.space_repository()? else {
-    return Ok(None);
-  };
-  let service = patronus_service(environment)?;
-  let robots = list_robots(context, &service, &space)?;
-  Ok(Some((PatronusFacts::read(context, table, robots), service)))
-}
-
-/// The holds of the view's branches, over `table` and `facts`
-pub(crate) fn push_holds(context: &RepoContext, table: BranchTable, facts: PatronusFacts, service: Option<PatronusService>) -> PushHolds {
+/// The holds of every branch of the view of `facts` over `table`: a merged Safe Push that landed all of it
+/// (`landed_branches`), else its own robot started on it, else the robot of the first branch built on it whose commit
+/// has commits of it, else the robot of its whole stack whose commit has
+pub(crate) fn push_holds(context: &RepoContext, table: BranchTable, facts: OneShot, service: Option<Arc<PatronusService>>) -> PushHolds {
   let mut landed = landed_branches(&facts);
   let holds = facts
-    .view
+    .view()
     .branches
     .iter()
     .filter_map(|(name, branch)| {

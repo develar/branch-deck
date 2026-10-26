@@ -49,7 +49,7 @@ pub const IDLE_LIMIT: Duration = Duration::from_mins(2);
 /// One worktree under one branch prefix: the table never mixes two. The prefix is the one the caller resolved
 /// (`BranchPrefixes` of the app's settings and the git config); two worktrees of one repository are two sessions, and
 /// the caller names a worktree by one spelling of its top level
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct SessionKey {
   pub worktree: String,
   pub prefix: String,

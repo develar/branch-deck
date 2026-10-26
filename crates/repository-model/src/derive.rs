@@ -714,7 +714,7 @@ pub fn decide_lands(sources: &LandSources<'_>) -> BTreeMap<String, LandDecisions
         safe_push: decide(PatronusPushMode::RebaseAutosquash)?,
         dry_run: decide(PatronusPushMode::DryRun)?,
       };
-      Some((subject_key(&subject), decisions))
+      Some((subject.key(), decisions))
     })
     .collect()
 }
@@ -737,14 +737,6 @@ fn default_land(subject: Subject, mode: PatronusPushMode) -> Land {
     without_approvals: false,
     create_pull_request: false,
     allow: LandingAllowances::default(),
-  }
-}
-
-/// The key of a subject in the view: the branch, `stack:<root>` the whole stack
-fn subject_key(subject: &Subject) -> String {
-  match subject {
-    Subject::Branch { name } => name.clone(),
-    Subject::WholeStack { root } => stack_readiness_key(root),
   }
 }
 
@@ -784,7 +776,7 @@ fn decide_with<'s>(sources: &LandSources<'s>, landing: &LandingFacts<'s>, land: 
     profiles: sources.profiles,
     last_profile: last,
     pull_requests: sources.pull_requests,
-    readiness: (sources.readiness)(&subject_key(&land.subject)),
+    readiness: (sources.readiness)(&land.subject.key()),
     rules: sources.rules,
     landing: needs,
     target_conflict: None,

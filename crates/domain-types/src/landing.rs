@@ -45,6 +45,14 @@ impl Subject {
     }
   }
 
+  /// The key of the subject in the view: the branch, `stack:<root>` the whole stack (`session::stack_readiness_key`)
+  pub fn key(&self) -> String {
+    match self {
+      Self::Branch { name } => name.clone(),
+      Self::WholeStack { root } => crate::session::stack_readiness_key(root),
+    }
+  }
+
   /// The whole stack of a root, not one branch
   pub const fn is_whole_stack(&self) -> bool {
     matches!(self, Self::WholeStack { .. })

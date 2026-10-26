@@ -539,6 +539,7 @@ dependencies = [
  "object-cache",
  "patronus",
  "pretty_assertions",
+ "remote-facts",
  "repository-model",
  "schemars 1.2.3",
  "serde",
@@ -587,11 +588,13 @@ dependencies = [
  "commit-clustering",
  "domain-policy",
  "domain-types",
+ "git-executor",
  "git-ops",
  "github",
  "history-rewrite",
  "jiff",
  "object-cache",
+ "operations",
  "patronus",
  "pretty_assertions",
  "remote-facts",
@@ -4101,6 +4104,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "pretty_assertions",
+ "remote-facts",
  "repository-model",
  "serde",
  "serde_json",
@@ -4108,6 +4112,7 @@ dependencies = [
  "sync-utils",
  "test-utils",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

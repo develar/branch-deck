@@ -10,6 +10,10 @@
 //!   with the admission again of the ones that waited, in the order they came, and the requests that join it
 //! - `engine`: the frame of every family: admitted, the body of the family runs and ends the operation with its answer;
 //!   joined, the answer of the operation it joined
+//! - `needs`: what the plan of an intent reads of the remote before it decides (`needs`), and what the first decision
+//!   of a start waits for (`waits`)
+//! - `facts`: the reads of the needs, side by side, one per fact, into the facts of the session of the operation
+//!   (`fill`, a `OneShot` of `bd` today)
 //! - `events`: where the caller of an operation hears its steps, the progress of its push and its outcome
 //!   (`EventSink`)
 //! - `witness`: what a plan was prepared on (`Witness`, its `Fingerprint`): the tips of the refs it moves and leases
@@ -18,8 +22,12 @@
 
 pub mod engine;
 pub mod events;
+pub mod facts;
+pub mod needs;
 pub mod registry;
 pub mod witness;
 
+#[cfg(test)]
+mod http_budget_test;
 #[cfg(test)]
 mod process_budget_test;

@@ -2721,8 +2721,9 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    built it and the remote lacks it, and only to `origin`, which its remote status compares with ("Stack branch"). A
    stack branch the remote lacks costs one GitHub search under the lock (`list_pull_requests`), whose listing the
    retargets after the push reuse: the search moves, none is added.
-   On Space it then reads the user's robots once (best effort: off Space, without a token or
-   an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it, or one of a
+   On Space it then reads the user's robots once, as the app's session reads them (one list through
+   `ServiceFactSources` into a one-shot session of the sync's table, the Patronus view derived over it; best effort:
+   off Space, without a token or an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it, or one of a
    branch built on it or of the stack branch of its stack whose commit has commits of it ("Robot span": no process for
    a robot at the tip the sync left), naming the branch the push moves or the commits the robot lands; an ancestor such
    a robot lands stays out of the push, and so does the stack branch of `--with-children` while the Safe Push of the
@@ -2780,7 +2781,18 @@ sync, before anything is asked of Patronus.
 1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, the one read the push and the
    GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
    `target_branch_of`: no process), the stack and the tips from the sync's report, as for `bd push`.
-2. For the code-owner pre-check of a Safe Push, one `git log -z ^<baseline> <tip>` for the commits, their paths from
+2. The facts of the remote are read as the app's session reads them, through its one reader
+   (`remote_facts::service_sources::ServiceFactSources` over `bd_core::services::BdServices`, which answers the Space
+   and GitHub repositories and the target from step 1, so a read runs no git of its own) into a one-shot session of
+   the sync's table (`repository_model::one_shot::OneShot`): what a start needs (`operations::needs`) side by side, one
+   request per fact (`operations::facts::fill`): the robots of the user (one list, kept for `bd status`), the pull
+   requests (one search), the merge profiles of the target (one `start-supported`), then the details of the last robot
+   of the subject when the list names no profile (its profile is the default), with `--check` the problems of its
+   failed robot; then what the first decision waits for (`operations::needs::waits`): the review readiness of the
+   subject and the rules of the target. The Patronus view of the table over the robots derives on bd's thread, as the
+   session's host derives it; the landing needs of a branch are its landing gate's (below). The reads still run under
+   the lock with the sync, as before them.
+   For the code-owner pre-check of a Safe Push, one `git log -z ^<baseline> <tip>` for the commits, their paths from
    the object cache (one `diff-tree --stdin` for the misses), and, for the groups Patronus names without paths, one
    `cat-file --batch` of the `OWNERSHIP` files of the baseline (`remote_facts::review_readiness`, shared with the app's
    start of a Safe Push).
@@ -3459,8 +3471,8 @@ from a grouping, with the remote tips only). The session of each worktree and br
 successful sync (the session host answers it after a run, from its report and the statuses and the landing report a
 `RemoteStatusCollector` kept while it forwarded every event to the session; a failed sync keeps the one before) and
 derives the Patronus view of it (below) on the remote branches as it knows them: a push moves a remote branch without
-a sync, and the session's table state has its outcome (`session_remote`); `bd` reads the table's
-(`PatronusFacts::read`). The E2E server's sessions do the same.
+a sync, and the session's table state has its outcome (`session_remote`); `bd` derives the same view in a one-shot
+session of its own table (`repository_model::one_shot::OneShot`, below). The E2E server's sessions do the same.
 
 The table state of a session (`table.rs`, `state.rs`, `patch.rs`; the types in `domain_types::session`) is the table as
 the events of its syncs leave it, cut into parts that change for different reasons: of each branch its head and its
@@ -3761,7 +3773,7 @@ part `patronus` of the view (`PatronusPart`) is `Loading` until Patronus answere
 an earlier view (`Stale` with the reason over one), and an answer of Patronus derives a failed view again. Its patch
 carries the branches and stacks whose facts changed (`PatronusChange`), so the page keeps every other one as the same
 object, and the page matches and asks nothing (`applySessionFacts` in `src/stores/patronus.ts`). `bd` derives the same
-view of its own table (`PatronusFacts::read`).
+view of its own table, in its one-shot session (`OneShot::derive_patronus`, on its thread).
 
 The landing needs of each branch (`BranchPatronus.landingNeeds`, `{state: unknown} | {state: known, refusals}`) are a
 fact of the session with its inputs (`landing_inputs`: the baseline, the tips of the table and the commits merged

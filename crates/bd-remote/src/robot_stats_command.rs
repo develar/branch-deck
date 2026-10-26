@@ -3,10 +3,11 @@
 //! of a period against everyone else's, where the time went, why they failed and the hours they ran fastest.
 //! Read only: no lock, no sync; what Patronus answered is kept in the object cache (none with --no-cache).
 
-use crate::safe_push_command::{patronus_error, patronus_service};
+use crate::safe_push_command::patronus_error;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
+use bd_core::services::patronus_service;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use domain_types::calendar::Calendar;
 use domain_types::error::ErrorCode;

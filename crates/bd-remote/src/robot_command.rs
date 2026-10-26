@@ -4,15 +4,16 @@
 //! as the app's Copy Prompt for Agent. Read only: no repository lock and no sync; the commit map compares the virtual
 //! branch as the last sync built it.
 
-use crate::patronus_facts::PatronusFacts;
 use crate::push_command::github_repository_of;
-use crate::robot_list::{list_robots, read_robots};
-use crate::safe_push_command::{RobotSummary, github_service, open_pull_requests, patronus_error, patronus_service, robot_summary};
+use crate::robot_list::{keep_listed, read_robots};
+use crate::safe_push_command::{RobotSummary, patronus_error, robot_summary};
+use crate::session_facts::{SessionFacts, listed_robots};
 use crate::status::grouping_table;
 use bd_core::branch_view::read_grouping;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::{SchemaVersion, ShortIds};
+use bd_core::services::{BdServices, github_service, patronus_service};
 use bd_core::stack_summary::whole_stack;
 use domain_policy::facts::Repository;
 use domain_policy::holds::is_active;
@@ -25,15 +26,18 @@ use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotDetails, PatronusRobotStatus};
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::robot_failure::{FailedBuild, FailedCheck, OmittedFailures, RobotCommit, RobotCommitState, RobotFailure, RobotFailureKind, RobotFailureProblem};
-use domain_types::session::PullRequestsView;
-use domain_types::stack::StackBranchUpdate;
+use operations::needs::FactNeed;
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
+use repository_model::branch_table::BranchTable;
 use repository_model::derive::landed_subject;
+use repository_model::table::TableState;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_core::grouping::BranchGrouping;
+use std::sync::Arc;
+use sync_core::github_repository::GitHubRepository;
+use sync_core::patronus::SpaceRepository;
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::stack_branch::read_stack_branches;
 use tokio::runtime::Runtime;
@@ -316,7 +320,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   let name = args.branch.as_str();
   // the name must be one a virtual branch can have
   to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  let service = patronus_service(environment)?;
+  let service = Arc::new(patronus_service(environment)?);
   let space = context
     .space_repository()?
     .ok_or_else(|| CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus has no robots of it"))?;
@@ -355,11 +359,17 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   };
   // the stack that forks the branch is a branch of: the robot of the whole stack builds it too
   let stack = stacks.iter().find(|stack| stack.members.iter().any(|member| member == name));
+  // the robots of the user as the app's session reads them (one list, kept for `bd status`)
+  let mut listed = None;
   let robot_id = if let Some(id) = &args.robot {
     id.clone()
   } else {
-    let robots = list_robots(context, &service, &space)?;
-    let index = RobotIndex::new(&robots);
+    let services = bd_services(context, environment, &service, &space, None);
+    let mut facts = SessionFacts::new(context, TableState::default(), BranchTable::default(), services.sources());
+    facts.read(context, &[FactNeed::Robots])?;
+    let robots = listed.insert(listed_robots(&facts.session)?.to_vec());
+    keep_listed(context, &service, &space, robots);
+    let index = RobotIndex::new(robots);
     let local_tips: HashMap<&str, &str> = grouping.listed.iter().map(|branch| (branch.name.as_str(), branch.tip.as_str())).collect();
     let robot_of = |branch: &str| {
       let full = to_final_branch_name(&context.prefix, branch).ok()?;
@@ -401,7 +411,8 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   output.stack_root.clone_from(&details.robot.stack_root);
   output.robot = Some(robot_state(context, &details));
   if details.robot.status == PatronusRobotStatus::Success && details.robot.push_mode != PatronusPushMode::DryRun {
-    output.closes = closes(context, environment, &grouping, &stacks, &details.robot);
+    let table = grouping_table(context, &grouping, &stacks);
+    output.closes = closes(context, environment, (&service, &space), table, listed, &details.robot);
   }
 
   let Some(mut failure) = failure(runtime, &service, context, &details, args.full, environment)? else {
@@ -427,31 +438,48 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   Ok(output)
 }
 
+/// The services of `bd robot` with the Space repository and, for the pull requests, the GitHub repository it resolved
+fn bd_services(context: &RepoContext, environment: &Environment, service: &Arc<PatronusService>, space: &SpaceRepository, github: Option<GitHubRepository>) -> BdServices {
+  BdServices {
+    patronus: Some(Arc::clone(service)),
+    space: Some(space.clone()),
+    github_repository: github,
+    ..BdServices::new(context, Arc::new(github_service(context, environment)))
+  }
+}
+
 /// The open pull requests the merge of `robot` closes, as the app decides them: what it landed by the Patronus view of
-/// the user's robots over the table of the grouping, the pull requests GitHub lists; `None` off GitHub and while GitHub
+/// the user's robots (`listed` by this command, else the robots `bd status` keeps) over `table`, the table of the
+/// grouping, the pull requests GitHub lists, read as the app's session reads them; `None` off GitHub and while GitHub
 /// lists none
-fn closes(context: &RepoContext, environment: &Environment, grouping: &BranchGrouping, stacks: &[StackBranchUpdate], robot: &PatronusRobot) -> Option<Vec<ClosedPullRequest>> {
+fn closes(
+  context: &RepoContext,
+  environment: &Environment,
+  (service, space): (&Arc<PatronusService>, &SpaceRepository),
+  table: BranchTable,
+  listed: Option<Vec<PatronusRobot>>,
+  robot: &PatronusRobot,
+) -> Option<Vec<ClosedPullRequest>> {
   let repository = github_repository_of(context, &context.config().ok()?).ok()??;
-  let listed = open_pull_requests(context, &github_service(context, environment), context.runtime().ok()?, &repository);
-  if !matches!(listed.availability, PullRequestAvailability::Available { .. }) {
+  let services = bd_services(context, environment, service, space, Some(repository));
+  let mut facts = SessionFacts::new(context, TableState::default(), table, services.sources());
+  facts.read(context, &[FactNeed::PullRequests]).ok()?;
+  let pull_requests = facts.session.facts().pull_requests.view();
+  if !matches!(pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) {
     return None;
   }
-  let pull_requests = PullRequestsView {
-    pull_requests: listed.pull_requests,
-    stack_pull_requests: listed.stack_pull_requests,
-    ..PullRequestsView::default()
-  };
-  let table = grouping_table(context, grouping, stacks);
-  let mut robots = read_robots(context, environment).robots;
+  let pull_requests = pull_requests.clone();
+  let mut robots = listed.unwrap_or_else(|| read_robots(context, environment).robots);
   if !robots.iter().any(|known| known.id == robot.id) {
     robots.push(robot.clone());
   }
-  let facts = PatronusFacts::read(context, &table, robots);
-  let landed = facts.view.landed_by_robot.get(&robot.id).map_or(&[][..], Vec::as_slice);
+  facts.know_robots(robots);
+  let table = facts.session.facts().table.value()?;
+  let landed = facts.session.view().landed_by_robot.get(&robot.id).map_or(&[][..], Vec::as_slice);
   let closes = pull_requests_to_close(robot, landed, |branch| {
     table
       .branch(branch)
-      .map(|found| landed_subject(&table, &table.remote, Of::Branch(&found.name), Some(&pull_requests)))
+      .map(|found| landed_subject(table, &table.remote, Of::Branch(&found.name), Some(&pull_requests)))
   });
   Some(
     closes

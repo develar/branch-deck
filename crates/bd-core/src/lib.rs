@@ -10,6 +10,8 @@
 //! - `branch_view`: the grouping of the commits ahead of the baseline, the placement and the stack problems
 //! - `check_summary`: the summaries of a check that `bd check` and `bd safe-push` print, the dangling references and
 //!   the refusal of a start they fail
+//! - `services`: the remote services of a command (`patronus_service`, `github_service`) and the host of the reads of
+//!   the facts over them (`BdServices`, for `remote_facts::service_sources::ServiceFactSources`)
 //! - `review_summary`: the code-owner review of a branch as the outputs print it
 //! - `next_step_summary`: the next step of a branch or a whole stack as the outputs print it
 //! - `suggest_plan`: the plan of `bd suggest`, read by `bd check --plan` and `bd pick`
@@ -22,6 +24,7 @@ pub mod error;
 pub mod next_step_summary;
 pub mod output;
 pub mod review_summary;
+pub mod services;
 pub mod stack_summary;
 pub mod suggest_plan;
 pub mod sync_command;

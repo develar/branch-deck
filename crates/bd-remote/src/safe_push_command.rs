@@ -23,14 +23,14 @@
 //! the answer to a pull request comment, after it.
 
 use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
-use crate::patronus_facts::{PatronusFacts, table_of};
 use crate::pull_request_retarget::{RetargetedPullRequest, refusal_warning, retarget_one};
 use crate::push_command::{
   LANDED_NEXT, PullRequestDraft, PushArgs, PushedBranch, REMOTE_REFUSED_NEXT, WOULD_REJECT_NEXT, github_repository, not_synced_reason, over_moved, push_locked, push_size_limit,
   pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
 };
 use crate::push_hold::{PushHolds, refusing_subject, robot_command};
-use crate::robot_list::list_robots;
+use crate::robot_list::keep_listed;
+use crate::session_facts::{SessionFacts, listed_robots, robots_since};
 use bd_core::bd_command::shell_word;
 use bd_core::check_summary::{CheckConflict, CheckWarning, DanglingReferenceSummary, dangling_reference_message, dangling_references_in, session_of_sync};
 use bd_core::context::{Environment, RepoContext};
@@ -38,6 +38,7 @@ use bd_core::error::{CliError, ErrorBranch, NextStep, regroup_error};
 use bd_core::next_step_summary::NextStepSummary;
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
+use bd_core::services::{BdServices, cli_user_agent, github_service, patronus_service};
 use bd_core::stack_summary::{WholeStackSummary, stack_branch_of, whole_stack, whole_stack_summary};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, landed_commits, lock, sync_locked};
 use domain_policy::facts::{Repository, Robots};
@@ -52,50 +53,47 @@ use domain_policy::review::{CountsIn, ReviewState, review_state};
 use domain_policy::stack::WholeStack;
 use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
-use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{
-  ApprovalsSkip, Confirmation, Land, LandDecision, LandFact, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject,
-};
+use domain_types::error::ErrorCode;
+use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandDecision, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject};
+use domain_types::operation::Intent;
 use domain_types::patronus::{
-  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProblem,
-  PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, Person, ReviewReadiness, ReviewReadinessBranch,
-  ReviewerApprovalState, UnavailableReadinessReason, UnknownReadinessReason,
+  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
+  PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, PatronusStartOptions, Person, ReviewReadiness, ReviewerApprovalState, UnavailableReadinessReason,
+  UnknownReadinessReason,
 };
-use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestsResult, ReviewerState};
+use domain_types::pull_request::{BranchRules, PullRequest, ReviewerState};
 use domain_types::reason::Reason;
-use domain_types::repository_view::LandingNeeds;
-use domain_types::session::{Fact, FactState, LandedSection, ParkedMember, PullRequestsView, SubjectReadiness, stack_readiness_key};
+use domain_types::session::{Fact, FactState, LandedSection, ParkedMember, PullRequestsView, SubjectReadiness};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
-use github::client::{GITHUB_URL, GitHubClient, GitHubError};
+use github::client::GitHubError;
 use github::service::{GitHubFailure, GitHubService};
-use github::token::TokenChain;
 use history_rewrite::repository_lock::RepositoryLock;
-use patronus::client::PatronusClient;
+use operations::needs::{FactNeed, needs, waits};
 use patronus::review_readiness::evaluates_pull_request;
 use patronus::service::PatronusService;
-use patronus::token::{TokenLookup, find_token};
-use remote_facts::branch_rules::read_branch_rules;
+use remote_facts::fact_sources::FactSources;
 use remote_facts::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
-use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
-use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
+use remote_facts::pull_requests::{GitHubWriteError, failure_message};
 use repository_model::branch_table::{BranchTable, RemoteFact};
 use repository_model::derive::{LandingFacts, StepSources, grouped_rows, landed_states, next_steps, open_pull_requests_view};
-use repository_model::facts::{Observation, RobotsFact, RobotsRead, Seq};
-use repository_model::pull_request_facts::PullRequestsFact;
+use repository_model::facts::{FactRecord, Needs};
+use repository_model::one_shot::OneShot;
 use repository_model::push_guard::parked_words;
 use repository_model::start_guard::{stack_conflict_words, stack_not_built_words, start_refusal_text};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_start::{join_names, push_mode_name};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
+use sync_utils::timestamp::unix_now;
 use tokio::runtime::Runtime;
 use trial_check::check::{CheckSession, StackIndependence};
 use trial_check::landing_gate::check_landing_gate;
@@ -446,6 +444,8 @@ struct Plan {
   space: SpaceRepository,
   target: String,
   github: Option<GitHubRepository>,
+  /// The reads of the facts the plan read with: the robot a `/patronus` comment started is listed through them
+  sources: Arc<dyn FactSources>,
   profiles: Vec<PatronusProfile>,
   profile: Option<PatronusProfile>,
   /// The code-owner review Patronus answered, with what it was asked for; `None` when not asked (a dry run)
@@ -571,8 +571,8 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   };
   // an unapplied branch is refused as one also without a token, which a Safe Push of it never needs; a branch of HEAD
   // costs no process for it
-  let service = patronus_service(environment).map_err(|error| refuse_an_unapplied_name(context, &args.branch, UNAPPLIED_SAFE_PUSH).err().unwrap_or(error))?;
-  let github = github_service(context, environment);
+  let service = Arc::new(patronus_service(environment).map_err(|error| refuse_an_unapplied_name(context, &args.branch, UNAPPLIED_SAFE_PUSH).err().unwrap_or(error))?);
+  let github = Arc::new(github_service(context, environment));
   let youtrack = youtrack_service(environment);
   let runtime = context.runtime()?;
 
@@ -585,7 +585,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let mut lock = (!args.check).then_some(lock);
   let whole_stack = whole_stack_arg(context, args, &synced)?;
   let start = start_of(args, &synced, whole_stack.as_ref());
-  let plan = plan(context, args, &service, &github, runtime, &synced, mode, &start, target_fetch)?;
+  let plan = plan(context, args, &service, &github, &synced, mode, &start, target_fetch)?;
   let mut output = start_output(
     context,
     args,
@@ -690,7 +690,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   }
 
   if let Some(pull_request) = &plan.pull_request {
-    let (start, robot) = start_from_pull_request(context, &github, &service, runtime, &plan, pull_request)?;
+    let (start, robot) = start_from_pull_request(context, &github, runtime, &plan, pull_request)?;
     output.pull_request = Some(start);
     output.robot = robot.map(|robot| robot_summary(context, &robot));
     output.started_via = Some("pull_request".to_string());
@@ -882,7 +882,7 @@ fn landing_of(context: &RepoContext, synced: &SyncOutput, table: &BranchTable, s
 /// branch without a remote status is one the remote lacks, which the push creates (`domain_policy::land::decide` waits
 /// for a remote nobody compared yet)
 fn compared_table(context: &RepoContext, synced: &SyncOutput) -> BranchTable {
-  let mut table = table_of(context, synced);
+  let mut table = synced.branch_table(&context.prefix);
   for fact in table.remote.branches.values_mut().filter(|fact| !fact.known) {
     fact.known = true;
     fact.up_to_date = false;
@@ -1034,9 +1034,8 @@ fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]
 fn plan(
   context: &RepoContext,
   args: &SafePushArgs,
-  service: &PatronusService,
-  github_service: &GitHubService,
-  runtime: &Runtime,
+  service: &Arc<PatronusService>,
+  github_service: &Arc<GitHubService>,
   synced: &SyncOutput,
   mode: PatronusPushMode,
   start: &Start<'_>,
@@ -1051,7 +1050,7 @@ fn plan(
   let table = compared_table(context, synced);
   // what the table alone refuses, before Patronus or GitHub is asked: the sync did not build it, it stays local
   {
-    let unasked = PatronusFacts::default();
+    let unasked = OneShot::default();
     let landing = unasked.landing(&table);
     if let Some(reason) = table_blocker(&subject_facts(context, synced, &landing, start, None)?) {
       return Err(table_error(context, synced, start, &reason));
@@ -1069,23 +1068,60 @@ fn plan(
     )
   })?;
   let github = github_repository(context, &synced.report)?;
+  let mut land = Land {
+    subject: subject.clone(),
+    mode,
+    profile: ProfileChoice::Default,
+    without_approvals: args.without_approvals,
+    create_pull_request: args.create_pull_request,
+    allow: LandingAllowances {
+      allow_dangling: args.allow_dangling,
+      allow_missing: args.allow_missing,
+      allow_force: args.force,
+      allow_unknown_rules: args.allow_unknown_rules,
+      allow_unknown_review: args.allow_unknown_review,
+      cancel_running: args.cancel_running,
+    },
+  };
 
-  // the robots of the user, each matched to its branch (or the whole stack) as the app does; what the merged ones landed
-  // of it, by content. One that had finished before a comment is never the one it starts
-  let user_robots = list_robots(context, service, &space)?;
-  let mut known_robots: HashSet<String> = user_robots.iter().filter(|robot| !is_active(robot)).map(|robot| robot.id.clone()).collect();
-  let facts = PatronusFacts::read(context, &table, user_robots);
-  let landed = landed_branches(&facts);
+  // what the start reads of the remote, as the session of the app reads it (`operations::needs`): the robots of the
+  // user, each matched to its branch (or the whole stack) and what the merged ones landed of it by content, the pull
+  // requests, the merge profiles of the target, the profile of the last robot of the subject when the list names none;
+  // with --check the problems of its failed robot. One that had finished before a comment is never the one it starts
+  let services = BdServices {
+    patronus: Some(Arc::clone(service)),
+    space: Some(space.clone()),
+    github_repository: github.clone(),
+    target: Some(target.clone()),
+    ..BdServices::new(context, Arc::clone(github_service))
+  };
+  let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), services.sources());
+  let mut first_needs = needs(&Intent::Land(land.clone()));
+  if args.check {
+    first_needs.push(FactNeed::FailedRobot(subject.clone()));
+  }
+  facts.read(context, &first_needs)?;
+  keep_listed(context, service, &space, listed_robots(&facts.session)?);
+  let mut known_robots: HashSet<String> = facts.session.robots().iter().filter(|robot| !is_active(robot)).map(|robot| robot.id.clone()).collect();
+  let landed = landed_branches(&facts.session);
   let name = landing.name.as_str();
 
   // what lands, in one trial: a removed declaration that another branch's commit still changes the use of, a name that a
-  // branch outside it adds; git merges either, the build fails
-  let session = session_of_sync(context, &synced.report)?;
+  // branch outside it adds; git merges either, the build fails. The landing needs of a branch are its gate's
+  let trial = session_of_sync(context, &synced.report)?;
   let built: Vec<&str> = landing.built.iter().map(String::as_str).collect();
   let landed_commits: HashSet<String> = landed.values().flat_map(|landed| landed.landed.iter().cloned()).collect();
-  let gate = check_landing_gate(&session, &subject, &landed_commits).map_err(regroup_error)?;
-  let (dangling, warnings) = dangling_references_in(context, &session, &gate.report, &built)?;
-  let gate_refusals = gate.refusals(&session);
+  let gate = check_landing_gate(&trial, &subject, &landed_commits).map_err(regroup_error)?;
+  let (dangling, warnings) = dangling_references_in(context, &trial, &gate.report, &built)?;
+  let gate_refusals = gate.refusals(&trial);
+  if let Start::Branch(name) = start {
+    let needs = if gate_refusals.is_empty() {
+      Needs::new()
+    } else {
+      Needs::from([((*name).clone(), gate_refusals.clone())])
+    };
+    facts.session.landing_needs(|_| Ok(needs));
+  }
   // Patronus rebases what it lands onto the newest target before any check, and fails the robot on a conflict
   let rerun = format!("bd safe-push {name}{}", if landing.stack.is_some() { " --whole-stack" } else { "" });
   let target_check = target_fetch.map(|fetch| {
@@ -1105,72 +1141,9 @@ fn plan(
   });
   // the second way, for the user to choose: the branch alone, in the same trial session; a start never asks
   let alone = match (&landing.stack, landing.built.len().checked_sub(2).and_then(|parent| landing.built.get(parent))) {
-    (None, Some(parent)) if args.check => Some(alone_build(context, &session, name, parent)),
+    (None, Some(parent)) if args.check => Some(alone_build(context, &trial, name, parent)),
     _ => None,
   };
-
-  // with the new API the list names the profile of the last robot: nothing more to read for the default
-  let robot = match start {
-    Start::Branch(_) => facts.branch_robot(name),
-    Start::WholeStack(_) => facts.stack_robot(name),
-  };
-  let last_profile = robot.filter(|_| context.patronus_new_api).and_then(|robot| robot.profile.clone());
-  let options = runtime
-    .block_on(service.start_options(&space.project_key, &space.name, &target, robot.map(|robot| robot.id.as_str()), last_profile))
-    .map_err(patronus_error)?;
-  let profiles: Vec<PatronusProfile> = options.profiles.iter().filter(|profile| allows_mode(profile, mode)).cloned().collect();
-  let profiles_fact = Fact {
-    value: Some(options),
-    state: FactState::Fresh,
-    ..Fact::default()
-  };
-  // the open pull requests of the branches, as the session holds a listing of them
-  let mut listing = PullRequestsFact::default();
-  listing.answer(
-    Observation {
-      seq: Seq(1),
-      inputs: 0,
-      at: Duration::ZERO,
-      observed_at: unix_now(),
-    },
-    match &github {
-      Some(repository) => open_pull_requests(context, github_service, runtime, repository),
-      None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
-    },
-  );
-  let pull_requests = listing.view();
-  let choice = match args.profile.as_deref() {
-    None => Ok(ProfileChoice::Default),
-    Some(profile) if profile.eq_ignore_ascii_case("none") => Ok(ProfileChoice::None),
-    Some(wanted) => profiles
-      .iter()
-      .find(|profile| profile.id == wanted || profile.name.eq_ignore_ascii_case(wanted))
-      .map(|profile| ProfileChoice::Id { id: profile.id.clone() })
-      .ok_or_else(|| {
-        let names = profiles.iter().map(|profile| format!("{} ({})", profile.id, profile.name)).collect::<Vec<_>>().join(", ");
-        CliError::new(
-          ErrorCode::InvalidArguments,
-          format!("No merge profile {wanted:?} of {target} allows a {}: {names}, or none", push_mode_name(mode)),
-        )
-      }),
-  };
-  let mut land = Land {
-    subject,
-    mode,
-    profile: ProfileChoice::Default,
-    without_approvals: args.without_approvals,
-    create_pull_request: args.create_pull_request,
-    allow: LandingAllowances {
-      allow_dangling: args.allow_dangling,
-      allow_missing: args.allow_missing,
-      allow_force: args.force,
-      allow_unknown_rules: args.allow_unknown_rules,
-      allow_unknown_review: args.allow_unknown_review,
-      cancel_running: args.cancel_running,
-    },
-  };
-  let rules_of = facts.landing(&table);
-  let subject_facts = subject_facts(context, synced, &rules_of, start, Some(pull_requests))?;
   let conflict = target_check.as_ref().and_then(|(check, _)| match &check.outcome {
     TargetOutcome::Conflict(conflict) => Some(TargetConflictFact {
       commit: &conflict.commit.id,
@@ -1178,97 +1151,84 @@ fn plan(
     }),
     _ => None,
   });
-  let decide_over = |land: &Land, readiness: Option<&Fact<SubjectReadiness>>, rules: Option<&Fact<BranchRules>>| {
-    let facts = LandFacts {
-      target: &target,
-      prefix: &context.prefix,
-      github: github.is_some(),
-      robots: &rules_of.robots,
-      subject: subject_facts.clone(),
-      profiles: &profiles_fact,
-      last_profile: None,
-      pull_requests,
-      readiness,
-      rules,
-      landing: Some(&gate_refusals),
-      target_conflict: conflict,
-    };
-    decide(&facts, land)
+  let start_facts = StartFacts {
+    target: &target,
+    github: github.is_some(),
+    landing: &gate_refusals,
+    conflict,
   };
-  // a comment can't choose a profile: the default checks of the target
-  if let Some(StartRoute::Comment { number }) = decide_over(&land, None, None).start_route()
-    && args.profile.as_deref().is_some_and(|profile| !profile.eq_ignore_ascii_case("none"))
-  {
-    return Err(CliError::new(
-      ErrorCode::InvalidArguments,
-      format!(
-        "{} starts from pull request #{number}: a /patronus comment starts the default checks of {target} and can't choose a merge profile; drop --profile",
-        landing.what
-      ),
-    ));
-  }
-  land.profile = choice?;
-  let first = decide_over(&land, None, None);
-  if let Some(Reason::Unprotected { target }) = first.blockers.iter().find(|reason| matches!(reason, Reason::Unprotected { .. })) {
-    return Err(CliError::new(
-      ErrorCode::PatronusRefused,
-      format!("Patronus does not protect {target}: a robot can't be started into it"),
-    ));
-  }
-  let start_pull_request = first.pull_request.and_then(|number| pull_request_of(pull_requests, start, number)).cloned();
-  // the review the decision waits for, asked again with the pull request the robot starts from (the whole stack as its
-  // stack branch), and the rules of the target for a push into an approved pull request: one GET, only here
-  let readiness = if first.waits.iter().any(|wait| wait.fact == LandFact::Readiness) {
-    let repository = ReadinessRepository {
-      space: &space,
-      github: github.as_ref(),
-      target: &target,
-      baseline: &synced.baseline,
-      branch_prefix: &context.prefix,
-    };
-    let branch = ReviewReadinessBranch::starting_from(
-      name.to_string(),
-      landing.stack.as_ref().map(|stack| stack.full_name.clone()),
-      landing.local_tip.clone().unwrap_or_else(|| format!("refs/heads/{}", landing.full_name)),
-      start_pull_request.as_ref(),
-    );
-    Some(readiness_answer(context, service, runtime, &repository, branch)?)
-  } else {
-    None
+
+  // the first decision, over what was read: what it waits for is read next (the review of the subject with the pull
+  // request the robot starts from, the whole stack as its stack branch; the rules of the target for a push into an
+  // approved pull request: one GET, only then)
+  let (profiles, start_pull_request, then) = {
+    let session = &facts.session;
+    let options = profiles_of(session)?;
+    let profiles: Vec<PatronusProfile> = options.profiles.iter().filter(|profile| allows_mode(profile, mode)).cloned().collect();
+    let choice = profile_choice(args, &profiles, &target, mode);
+    let rules_of = session.landing(&table);
+    let subject_facts = subject_facts(context, synced, &rules_of, start, Some(session.facts().pull_requests.view()))?;
+    let decide_first = |land: &Land| decide(&land_facts(session, &rules_of, subject_facts.clone(), &subject, start_facts), land);
+    // a comment can't choose a profile: the default checks of the target
+    if let Some(StartRoute::Comment { number }) = decide_first(&land).start_route()
+      && args.profile.as_deref().is_some_and(|profile| !profile.eq_ignore_ascii_case("none"))
+    {
+      return Err(CliError::new(
+        ErrorCode::InvalidArguments,
+        format!(
+          "{} starts from pull request #{number}: a /patronus comment starts the default checks of {target} and can't choose a merge profile; drop --profile",
+          landing.what
+        ),
+      ));
+    }
+    land.profile = choice?;
+    let first = decide_first(&land);
+    if let Some(Reason::Unprotected { target }) = first.blockers.iter().find(|reason| matches!(reason, Reason::Unprotected { .. })) {
+      return Err(CliError::new(
+        ErrorCode::PatronusRefused,
+        format!("Patronus does not protect {target}: a robot can't be started into it"),
+      ));
+    }
+    let start_pull_request = first
+      .pull_request
+      .and_then(|number| pull_request_of(session.facts().pull_requests.view(), start, number))
+      .cloned();
+    let then: Vec<FactNeed> = waits(&first, &subject, &target)
+      .into_iter()
+      .filter(|need| github.is_some() || !matches!(need, FactNeed::Rules { .. }))
+      .collect();
+    (profiles, start_pull_request, then)
   };
   if args.create_pull_request && github.is_none() {
     return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
   }
-  let rules = match (
-    first.waits.iter().find_map(|wait| match wait.fact {
-      LandFact::Rules { number } => Some(number),
-      _ => None,
-    }),
-    &github,
-  ) {
-    (Some(_), Some(repository)) => Some(rules_fact(context, github_service, runtime, repository, &target)),
-    _ => None,
+  facts.read(context, &then)?;
+  let session = &facts.session;
+  let readiness = if then.contains(&FactNeed::Readiness(subject.clone())) {
+    subject_readiness(session, &subject)?
+  } else {
+    None
   };
-  let decision = decide_over(&land, readiness.as_ref(), rules.as_ref());
+  let rules = then
+    .iter()
+    .any(|need| matches!(need, FactNeed::Rules { .. }))
+    .then(|| session.facts().rules.get(&target).map(FactRecord::fact))
+    .flatten();
+  let rules_of = session.landing(&table);
+  let pull_requests = session.facts().pull_requests.view();
+  let subject_facts = subject_facts(context, synced, &rules_of, start, Some(pull_requests))?;
+  let mut facts_of = land_facts(session, &rules_of, subject_facts, &subject, start_facts);
+  facts_of.readiness = readiness;
+  facts_of.rules = rules;
+  let decision = decide(&facts_of, &land);
+  // the next step of the subject over what the start read, the problems of its failed robot with them (whether it
+  // failed for the approvals), as the session reads them of its failed robots
   let next_step = args.check.then(|| {
-    // the problems of the failed robot of the subject, which say whether it failed for the approvals, as the session
-    // reads them of its failed robots
-    let robot = match start {
-      Start::Branch(name) => facts.branch_robot(name),
-      Start::WholeStack(update) => facts.stack_robot(&update.root),
-    };
-    let problems = robot
-      .filter(|robot| robot.status == PatronusRobotStatus::Failure)
-      .map(|robot| (robot.id.clone(), runtime.block_on(service.robot_problems(&robot.id)).map_err(ApiError::internal)));
     let read = CheckRead {
       table: &table,
-      facts: &facts,
+      session,
       landed: &synced.landed_section,
-      pull_requests,
-      readiness: readiness.as_ref(),
-      needs: &gate_refusals,
-      problems,
-      github: github.as_ref(),
+      readiness,
       target: &target,
     };
     check_next_step(context, &read, start, &landing.what)
@@ -1278,7 +1238,7 @@ fn plan(
       context,
       args,
       synced,
-      facts: &facts,
+      session,
       landed: &landed,
       start,
       landing: &landing,
@@ -1287,8 +1247,8 @@ fn plan(
       target: &target,
       github: github.as_ref(),
       target_check: target_check.as_ref().map(|(_, summary)| summary),
-      readiness: readiness.as_ref().and_then(|fact| fact.value.as_ref()),
-      rules: rules.as_ref(),
+      readiness: readiness.and_then(|fact| fact.value.as_ref()),
+      rules,
       start_pull_request: start_pull_request.as_ref(),
       pushes: decision.effects.iter().any(|effect| matches!(effect, PlannedEffect::Push { .. })),
     };
@@ -1296,7 +1256,7 @@ fn plan(
   };
   // what the start does once nothing refuses it: the retargets, the robot it replaces, the push, the route
   let cancel = decision.effects.iter().find_map(|effect| match effect {
-    PlannedEffect::CancelRobot { robot_id } => facts.robot(robot_id).cloned(),
+    PlannedEffect::CancelRobot { robot_id } => session.robot(robot_id).cloned(),
     _ => None,
   });
   known_robots.extend(cancel.iter().map(|robot| robot.id.clone()));
@@ -1343,9 +1303,10 @@ fn plan(
     space,
     target,
     github,
+    sources: facts.sources(),
     profiles,
     profile,
-    review: readiness.and_then(|fact| fact.value),
+    review: readiness.and_then(|fact| fact.value.clone()),
     rules,
     approvals_skipped_by: decision.approvals_skipped_by,
     pull_request,
@@ -1367,20 +1328,106 @@ fn plan(
   })
 }
 
+/// What a decision of the start reads besides the facts of its session: the target, whether the branches have a GitHub
+/// repository, what the landing gate refuses, the conflict the check against the newest target found
+#[derive(Clone, Copy)]
+struct StartFacts<'a> {
+  target: &'a str,
+  github: bool,
+  landing: &'a [LandingRefusal],
+  conflict: Option<TargetConflictFact<'a>>,
+}
+
+/// What `decide` reads of a start of `subject` over the facts of the session, as the app's session decides it
+/// (`derive::land_answer`): the robots, the profiles with the profile of the last robot of the subject (the default),
+/// the pull requests; no review and no rules until the decision waits for them
+fn land_facts<'a>(session: &'a OneShot, rules_of: &'a LandingFacts<'a>, facts: SubjectFacts<'a>, subject: &Subject, start: StartFacts<'a>) -> LandFacts<'a> {
+  LandFacts {
+    target: start.target,
+    prefix: &session.key().prefix,
+    github: start.github,
+    robots: &rules_of.robots,
+    subject: facts,
+    profiles: session.facts().profiles.fact(),
+    last_profile: session.subject_robot(subject).and_then(|robot| robot.profile.as_ref()),
+    pull_requests: session.facts().pull_requests.view(),
+    readiness: None,
+    rules: None,
+    landing: Some(start.landing),
+    target_conflict: start.conflict,
+  }
+}
+
+/// The merge profiles of the target as the session read them, or why Patronus gave none
+fn profiles_of(session: &OneShot) -> Result<&PatronusStartOptions, CliError> {
+  let fact = session.facts().profiles.fact();
+  match (&fact.value, &fact.state) {
+    (Some(options), _) => Ok(options),
+    (None, FactState::Unavailable { reason }) => Err(patronus_error(reason.message.clone())),
+    (None, _) => Err(CliError::new(ErrorCode::PatronusError, "Patronus gave no merge profiles of the target")),
+  }
+}
+
+/// The profile `--profile` chooses among `profiles`, the ones of `target` that allow the mode: the default without it,
+/// none for `none`
+fn profile_choice(args: &SafePushArgs, profiles: &[PatronusProfile], target: &str, mode: PatronusPushMode) -> Result<ProfileChoice, CliError> {
+  match args.profile.as_deref() {
+    None => Ok(ProfileChoice::Default),
+    Some(profile) if profile.eq_ignore_ascii_case("none") => Ok(ProfileChoice::None),
+    Some(wanted) => profiles
+      .iter()
+      .find(|profile| profile.id == wanted || profile.name.eq_ignore_ascii_case(wanted))
+      .map(|profile| ProfileChoice::Id { id: profile.id.clone() })
+      .ok_or_else(|| {
+        let names = profiles.iter().map(|profile| format!("{} ({})", profile.id, profile.name)).collect::<Vec<_>>().join(", ");
+        CliError::new(
+          ErrorCode::InvalidArguments,
+          format!("No merge profile {wanted:?} of {target} allows a {}: {names}, or none", push_mode_name(mode)),
+        )
+      }),
+  }
+}
+
+/// The review of the subject as the session read it, asked again with the pull request the robot starts from (never a
+/// kept answer, which it writes for the app), the paths from the object cache, then the `OWNERSHIP` files for the
+/// groups Patronus names without their files. A pre-check that failed is an answer (`Unavailable`), which the decision
+/// asks the user to accept (`review_unknown`, D14); a Patronus that doesn't let the user in is `not_logged_in`; `None`
+/// when nothing was asked (no tip)
+pub(crate) fn subject_readiness<'s>(session: &'s OneShot, subject: &Subject) -> Result<Option<&'s Fact<SubjectReadiness>>, CliError> {
+  let Some(fact) = session.facts().readiness.fact(&subject.key()) else {
+    return Ok(None);
+  };
+  match (&fact.value, &fact.state) {
+    (None, FactState::Unavailable { reason }) => Err(CliError::new(reason.code, reason.message.clone())),
+    (None, _) => Ok(None),
+    (
+      Some(SubjectReadiness {
+        requirement: None,
+        readiness: ReviewReadiness::Unavailable {
+          reason: UnavailableReadinessReason::NotLoggedIn,
+          message,
+        },
+        ..
+      }),
+      _,
+    ) => Err(CliError::new(ErrorCode::NotLoggedIn, message.clone())),
+    (Some(SubjectReadiness { requirement: None, readiness, .. }), _) if !matches!(readiness, ReviewReadiness::Unavailable { .. }) => {
+      Err(CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review"))
+    }
+    (Some(_), _) => Ok(Some(fact)),
+  }
+}
+
 /// What `bd safe-push --check` read, for the next step of its subject
 struct CheckRead<'a> {
   table: &'a BranchTable,
-  facts: &'a PatronusFacts,
+  /// The robots with the problems of the failed robot of the subject, the Patronus view with the landing needs of a
+  /// branch (its gate's), the pull requests
+  session: &'a OneShot,
   /// The landing report of the sync
   landed: &'a LandedSection,
-  pull_requests: &'a PullRequestsView,
   /// The readiness of the subject, read only when the start waits for it
   readiness: Option<&'a Fact<SubjectReadiness>>,
-  /// What the landing gate refuses of the start of the subject
-  needs: &'a [LandingRefusal],
-  /// The problems of the failed robot of the subject, by its id
-  problems: Option<(String, Result<Vec<PatronusProblem>, ApiError>)>,
-  github: Option<&'a GitHubRepository>,
   target: &'a str,
 }
 
@@ -1390,58 +1437,37 @@ struct CheckRead<'a> {
 fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_>, what: &str) -> Option<(domain_types::next_step::NextStep, NextStepSummary)> {
   let table = read.table;
   let rows = grouped_rows(table);
-  let key = match start {
-    Start::Branch(name) => (*name).clone(),
-    Start::WholeStack(update) => stack_readiness_key(&update.root),
-  };
-  let mut view = read.facts.view.clone();
-  if let Start::Branch(name) = start {
-    view.branches.entry((*name).clone()).or_default().landing_needs = LandingNeeds::Known { refusals: read.needs.to_vec() };
-  }
-  let mut fact = RobotsFact::default();
-  let listed = PatronusRobotsResult {
-    availability: PatronusAvailability::Available,
-    robots: read.facts.robots.clone(),
-    github_repository: read.github.map(GitHubRepository::full_name),
-  };
-  let observation = Observation {
-    seq: Seq(1),
-    inputs: 0,
-    at: Duration::ZERO,
-    observed_at: 1,
-  };
-  fact.answer(observation, RobotsRead::List { full: true }, listed, &mut Vec::new());
-  if let Some((id, result)) = &read.problems {
-    fact.problems_answer(id, result.clone());
-  }
-  let robots = fact.view();
+  let key = start.subject().key();
+  let view = read.session.view();
+  let robots = read.session.facts().robots.view();
   let patronus = PatronusStanding::of(&robots.head, &FactState::Fresh);
+  let pull_requests = read.session.facts().pull_requests.view();
   let subject_readiness = |subject: &str| read.readiness.and_then(|fact| fact.value.as_ref()).filter(|_| subject == key).map(|value| &value.readiness);
   let open = open_pull_requests_view(
     read.target,
     |name| table.branch(name).is_some(),
     |root| table.stack(root).is_some(),
-    read.pull_requests,
+    pull_requests,
     subject_readiness,
     &context.prefix,
   );
-  let robots_of = Robots::new(&read.facts.robots);
+  let robots_of = Robots::new(read.session.robots());
   let landed = LandedFacts {
     baseline: read.landed,
-    view: Some(&read.facts.view),
+    view: Some(view),
     robots: &robots_of,
   };
-  let landed = landed_states(table, &table.remote, &landed, read.pull_requests);
+  let landed = landed_states(table, &table.remote, &landed, pull_requests);
   let readiness = |subject: &str| read.readiness.filter(|_| subject == key);
   let sources = StepSources {
     table,
     remote: &table.remote,
     rows: &rows,
-    view: &view,
+    view,
     robots,
     patronus: &patronus,
     landing_needs: &FactState::Fresh,
-    pull_requests: read.pull_requests,
+    pull_requests,
     open_pull_requests: &open,
     landed: &landed,
     readiness: &readiness,
@@ -1450,7 +1476,7 @@ fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_
   };
   let mut steps = next_steps(&sources);
   steps.remove(&key).map(|view| {
-    let summary = NextStepSummary::new(&view.step, what, &read.facts.robots);
+    let summary = NextStepSummary::new(&view.step, what, read.session.robots());
     (view.step, summary)
   })
 }
@@ -1469,7 +1495,7 @@ struct Told<'a> {
   context: &'a RepoContext,
   args: &'a SafePushArgs,
   synced: &'a SyncOutput,
-  facts: &'a PatronusFacts,
+  session: &'a OneShot,
   landed: &'a HashMap<String, LandedBranch>,
   start: &'a Start<'a>,
   landing: &'a Landing,
@@ -1544,7 +1570,7 @@ impl Told<'_> {
             .collect::<Option<Vec<&LandedBranch>>>()
             .map(|landed| every_branch_landed(what, &landed)),
         }
-        .unwrap_or_else(|| start_refusal_text(reason, what, &self.facts.robots));
+        .unwrap_or_else(|| start_refusal_text(reason, what, self.session.robots()));
         Refusal::new(
           ErrorCode::Landed,
           format!("Nothing was pushed or started: {words}: nothing of it is left to land; {LANDED_NEXT}"),
@@ -1556,7 +1582,7 @@ impl Told<'_> {
         ErrorCode::Landed,
         format!(
           "Nothing was pushed or started: {}: nothing of it is left to land; {LANDED_NEXT}",
-          start_refusal_text(reason, what, &self.facts.robots)
+          start_refusal_text(reason, what, self.session.robots())
         ),
       )
       .with_next_step(format!("{} update", context.bd), true),
@@ -1567,12 +1593,12 @@ impl Told<'_> {
           false,
         ),
         (Some(update), _) => Refusal::new(ErrorCode::StackNotBuilt, stack_not_built_message(update)).with_next_step(format!("{} sync", context.bd), false),
-        (None, _) => Refusal::new(ErrorCode::StackNotBuilt, start_refusal_text(reason, what, &self.facts.robots)),
+        (None, _) => Refusal::new(ErrorCode::StackNotBuilt, start_refusal_text(reason, what, self.session.robots())),
       },
       Reason::DropsRemote { branch, behind } => self.drops_refusal(branch, *behind),
       Reason::TargetConflict { .. } => Refusal::new(ErrorCode::TargetConflict, self.target_check.and_then(|summary| summary.message.clone()).unwrap_or_default())
         .with_next_step(format!("{} update", context.bd), true),
-      Reason::Draft { .. } | Reason::Unprotected { .. } => Refusal::new(ErrorCode::PatronusRefused, start_refusal_text(reason, what, &self.facts.robots)),
+      Reason::Draft { .. } | Reason::Unprotected { .. } => Refusal::new(ErrorCode::PatronusRefused, start_refusal_text(reason, what, self.session.robots())),
       Reason::OtherBase { number, base, target } => {
         let message = format!(
           "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"
@@ -1592,13 +1618,13 @@ impl Told<'_> {
           .iter()
           .fold(Refusal::new(ErrorCode::PushDismissesApprovals, message), |refusal, step| refusal.with_next_step(step, true))
       }
-      Reason::CantPush { .. } => Refusal::new(ErrorCode::PushRefused, start_refusal_text(reason, what, &self.facts.robots)),
-      Reason::Parked { .. } | Reason::StackParked { .. } => Refusal::new(ErrorCode::Parked, start_refusal_text(reason, what, &self.facts.robots)),
+      Reason::CantPush { .. } => Refusal::new(ErrorCode::PushRefused, start_refusal_text(reason, what, self.session.robots())),
+      Reason::Parked { .. } | Reason::StackParked { .. } => Refusal::new(ErrorCode::Parked, start_refusal_text(reason, what, self.session.robots())),
       Reason::LandingRefused { refusal } => Refusal::new(ErrorCode::MissingDeclaration, refusal.reason()),
-      Reason::NoStackBranch { .. } => Refusal::new(ErrorCode::StackNotBuilt, start_refusal_text(reason, what, &self.facts.robots)),
+      Reason::NoStackBranch { .. } => Refusal::new(ErrorCode::StackNotBuilt, start_refusal_text(reason, what, self.session.robots())),
       Reason::Blocked { .. } | Reason::LastCommit { .. } | Reason::Descendant { .. } | Reason::Ancestor { .. } | Reason::Held { .. } | Reason::StackHeld { .. } => {
         let robot = robot_command(context, &refusing_subject(reason, &self.subject()));
-        Refusal::new(ErrorCode::RobotRunning, start_refusal_text(reason, what, &self.facts.robots)).with_next_step(robot, false)
+        Refusal::new(ErrorCode::RobotRunning, start_refusal_text(reason, what, self.session.robots())).with_next_step(robot, false)
       }
     }
   }
@@ -1667,11 +1693,11 @@ impl Told<'_> {
   fn approvals_refusal(&self, reason: &Reason) -> Refusal {
     let what = self.landing.what.as_str();
     let Some(readiness) = self.readiness else {
-      return Refusal::new(ErrorCode::ApprovalsMissing, start_refusal_text(reason, what, &self.facts.robots));
+      return Refusal::new(ErrorCode::ApprovalsMissing, start_refusal_text(reason, what, self.session.robots()));
     };
     let state = review_state(Some(&readiness.readiness), readiness.requirement.as_ref(), self.github.is_some(), self.start_pull_request);
     let ReviewState::Missing { groups, counts_in } = state else {
-      return Refusal::new(ErrorCode::ApprovalsMissing, start_refusal_text(reason, what, &self.facts.robots));
+      return Refusal::new(ErrorCode::ApprovalsMissing, start_refusal_text(reason, what, self.session.robots()));
     };
     let refusal = Refusal::new(
       ErrorCode::ApprovalsMissing,
@@ -1718,7 +1744,7 @@ impl Told<'_> {
     let (name, what, target) = (self.landing.name.as_str(), self.landing.what.as_str(), self.target);
     match confirmation {
       Confirmation::CancelsRobot { robot_id } => {
-        let robot = self.facts.robot(robot_id);
+        let robot = self.session.robot(robot_id);
         let why = if self.pushes { "the push fails it at the end" } else { "the start would run beside it" };
         let message = format!(
           "A {} of an older commit of {what} is running: {why}. Once the user approved, --cancel-running cancels it first ({})",
@@ -1954,70 +1980,12 @@ fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, sta
 
 /// The service of `bd`: the token of the Safe Push CLI (`./safePush.cmd`), else `SPACE_TOKEN`; `not_logged_in` without
 /// either, before anything else runs
-pub(crate) fn patronus_service(environment: &Environment) -> Result<PatronusService, CliError> {
-  let home = environment.home.clone();
-  let space_token = environment.space_token.clone();
-  if !matches!(find_token(home.as_deref(), space_token.clone(), unix_now()), TokenLookup::Found(_)) {
-    return Err(CliError::new(
-      ErrorCode::NotLoggedIn,
-      "No Space token for Patronus, or it expired: run ./safePush.cmd once to log in, or set SPACE_TOKEN",
-    ));
-  }
-  let user_agent = cli_user_agent();
-  let mut client = PatronusClient::new(environment.patronus_url.clone(), &user_agent);
-  if let Some(delay) = environment.remote_retry_delay {
-    client = client.with_retry_delay(delay);
-  }
-  Ok(PatronusService::new(client, move |now| find_token(home.as_deref(), space_token.clone(), now)))
-}
-
-fn unix_now() -> u32 {
-  SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map_or(0, |elapsed| u32::try_from(elapsed.as_secs()).unwrap_or(u32::MAX))
-}
-
-/// The user's robots of the last 7 days in the repository
-pub(crate) fn robots(runtime: &Runtime, service: &PatronusService, space: &SpaceRepository, prefix: &str, new_api: bool) -> Result<Vec<PatronusRobot>, CliError> {
-  robots_since(runtime, service, space, prefix, new_api, None)
-}
-
-fn robots_since(runtime: &Runtime, service: &PatronusService, space: &SpaceRepository, prefix: &str, new_api: bool, since: Option<u32>) -> Result<Vec<PatronusRobot>, CliError> {
-  let result = runtime.block_on(service.robots(&space.name, prefix, since, false, new_api));
-  match result.availability {
-    PatronusAvailability::Available => Ok(result.robots),
-    PatronusAvailability::NotLoggedIn => Err(CliError::new(
-      ErrorCode::NotLoggedIn,
-      "Patronus rejected the Space token: run ./safePush.cmd once to log in again",
-    )),
-    PatronusAvailability::Error { message } => Err(CliError::new(ErrorCode::PatronusError, message)),
-    PatronusAvailability::NotPatronus => Err(CliError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus can't push it")),
-  }
-}
-
 /// A failed Patronus request: its answer
 pub(crate) fn patronus_error(message: String) -> CliError {
   if message.contains("safePush.cmd") {
     return CliError::new(ErrorCode::NotLoggedIn, message);
   }
   CliError::new(ErrorCode::PatronusError, message)
-}
-
-/// The pull requests of the branches, by virtual branch name, and of the stack branches, by root (one search). A Safe
-/// Push starts from the open one of the branch (or of the stack branch) into the target (the approvals of a pull request count only for a robot its comment started), or into a
-/// virtual branch once it is retargeted; one into another base starts through the API, as Patronus would merge it
-/// there. Without a GitHub token or an answer of GitHub, through the API too.
-pub(crate) fn open_pull_requests(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository) -> PullRequestsResult {
-  let result = runtime.block_on(list_pull_requests(github, &context.repository, repository, &context.prefix));
-  if result.pull_requests.is_empty() && result.stack_pull_requests.is_empty() {
-    tracing::debug!(availability = ?result.availability, "no pull requests of the branches");
-  }
-  result
-}
-
-/// How `bd` names itself to Patronus, GitHub and YouTrack
-pub(crate) fn cli_user_agent() -> String {
-  format!("Branch Deck CLI/{} ({}; {})", bd_core::version::VERSION, std::env::consts::OS, std::env::consts::ARCH)
 }
 
 /// The YouTrack of `bd`: `YOUTRACK_BASE_URL` and `YOUTRACK_TOKEN`, else the app's sign-in, only read: a renewal is the
@@ -2028,34 +1996,6 @@ pub(crate) fn youtrack_service(environment: &Environment) -> YouTrackService {
     environment.youtrack_environment.clone(),
     environment.youtrack_token_file.clone(),
   )
-}
-
-/// The GitHub service of `bd`: the token of `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token` or the git credentials
-/// The rules of `target` as GitHub answers them, held as the session holds a fact: an answer, or why the read failed
-pub(crate) fn rules_fact(context: &RepoContext, github_service: &GitHubService, runtime: &Runtime, repository: &GitHubRepository, target: &str) -> Fact<BranchRules> {
-  match runtime.block_on(read_branch_rules(github_service, &context.repository, repository, target)) {
-    Ok(rules) => Fact {
-      value: Some(rules),
-      state: FactState::Fresh,
-      ..Fact::default()
-    },
-    Err(failure) => Fact {
-      value: None,
-      state: FactState::Unavailable {
-        reason: ApiError::new(ErrorCode::NetworkError, failure_message(&failure)),
-      },
-      ..Fact::default()
-    },
-  }
-}
-
-pub(crate) fn github_service(context: &RepoContext, environment: &Environment) -> GitHubService {
-  let user_agent = cli_user_agent();
-  let mut client = GitHubClient::with_urls(environment.github_api_url.clone(), GITHUB_URL, &user_agent);
-  if let Some(delay) = environment.remote_retry_delay {
-    client = client.with_retry_delay(delay);
-  }
-  GitHubService::new(client, TokenChain::new(environment.github_tokens.clone(), context.git.clone()))
 }
 
 /// A failed GitHub write of `sync_core`
@@ -2076,74 +2016,6 @@ pub(crate) fn github_error(failure: &GitHubFailure) -> CliError {
     GitHubFailure::Failed { .. } => ErrorCode::NetworkError,
   };
   CliError::new(code, failure_message(failure))
-}
-
-/// The review of the commits of the virtual branch at its local tip, as the decision of a start reads it: one `git log`,
-/// the paths from the object cache, the pre-check with the pull request it starts from (asked again, never a kept
-/// answer, which it writes for the app), then the `OWNERSHIP` files for the groups Patronus names without their files.
-/// A pre-check that failed is an answer (`Unavailable`), which the decision asks the user to accept (`review_unknown`,
-/// D14); a Patronus that doesn't let the user in is `not_logged_in`
-pub(crate) fn readiness_answer(
-  context: &RepoContext,
-  service: &PatronusService,
-  runtime: &Runtime,
-  repository: &ReadinessRepository<'_>,
-  branch: ReviewReadinessBranch,
-) -> Result<Fact<SubjectReadiness>, CliError> {
-  let cache = context.cache();
-  let answer = runtime
-    .block_on(branch_review_readiness(
-      &context.git,
-      &context.repository,
-      &cache,
-      service,
-      repository,
-      std::slice::from_ref(&branch),
-      true,
-    ))?
-    .pop()
-    .ok_or_else(|| CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review"))?;
-  match (answer.requirement, answer.readiness) {
-    (
-      None,
-      ReviewReadiness::Unavailable {
-        reason: UnavailableReadinessReason::NotLoggedIn,
-        message,
-      },
-    ) => Err(CliError::new(ErrorCode::NotLoggedIn, message)),
-    (requirement @ Some(_), readiness) | (requirement @ None, readiness @ ReviewReadiness::Unavailable { .. }) => Ok(Fact {
-      value: Some(SubjectReadiness {
-        ask: branch,
-        requirement,
-        readiness,
-      }),
-      state: FactState::Fresh,
-      ..Fact::default()
-    }),
-    (None, _) => Err(CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review")),
-  }
-}
-
-/// The review of `bd request-review`: `readiness_answer`, a pre-check that failed an error
-pub(crate) fn review_readiness(
-  context: &RepoContext,
-  service: &PatronusService,
-  runtime: &Runtime,
-  repository: &ReadinessRepository<'_>,
-  branch: &ReviewReadinessBranch,
-) -> Result<Review, CliError> {
-  match readiness_answer(context, service, runtime, repository, branch.clone())?.value {
-    Some(SubjectReadiness {
-      requirement: Some(requirement),
-      readiness,
-      ..
-    }) => Ok(Review { requirement, readiness }),
-    Some(SubjectReadiness {
-      readiness: ReviewReadiness::Unavailable { message, .. },
-      ..
-    }) => Err(CliError::new(ErrorCode::PatronusError, message)),
-    _ => Err(CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review")),
-  }
 }
 
 /// The GitHub repository of the branches is not known: a pull request can't be opened, its approvals can't count
@@ -2295,7 +2167,6 @@ fn person_name(person: &Person) -> String {
 fn start_from_pull_request(
   context: &RepoContext,
   github: &GitHubService,
-  service: &PatronusService,
   runtime: &Runtime,
   plan: &Plan,
   pull_request: &PullRequest,
@@ -2346,14 +2217,7 @@ fn start_from_pull_request(
     }
   }
   start.reply = Some("accepted".to_string());
-  let robots = robots_since(
-    runtime,
-    service,
-    &plan.space,
-    &context.prefix,
-    context.patronus_new_api,
-    Some(posted_at.saturating_sub(COMMENT_CLOCK_SLACK)),
-  )?;
+  let robots = robots_since(context, &*plan.sources, posted_at.saturating_sub(COMMENT_CLOCK_SLACK))?;
   Ok((start, comment_robot(robots, pull_request.number, plan.mode, &plan.known_robots)))
 }
 

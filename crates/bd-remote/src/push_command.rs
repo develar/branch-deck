@@ -14,12 +14,14 @@
 
 use crate::landed::{LandedBranch, LandedBySummary};
 use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retarget_pull_requests_of};
-use crate::push_hold::{PushHolds, read_push_holds, robot_command};
-use crate::safe_push_command::{github_service, youtrack_service};
+use crate::push_hold::{PushHolds, push_holds, robot_command};
+use crate::safe_push_command::youtrack_service;
+use crate::session_facts::{SessionFacts, listed_robots};
 use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep};
 use bd_core::output::{SchemaVersion, ShortIds};
+use bd_core::services::{BdServices, github_service, patronus_service};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use domain_policy::facts::Repository;
 use domain_policy::parked::parked_state;
@@ -34,19 +36,24 @@ use domain_types::session::StackBranchAlong;
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
+use github::service::GitHubService;
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::RepositoryLock;
+use operations::needs::FactNeed;
 use remote_facts::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
 use remote_facts::pull_requests::list_pull_requests;
 use remote_facts::stack_pull_request::{StackMemberText, stack_pull_request_text};
+use repository_model::one_shot::OneShot;
 use repository_model::push_guard::parked_words;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use sync_core::issue_navigation::load_issue_navigation_config;
+use sync_core::patronus::target_branch_of;
 use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, prepare_push_branches, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
@@ -233,8 +240,8 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
 
   let mut repository_lock = Some(lock(context)?);
   let synced = sync_locked(context)?;
-  let holds = read_push_holds(context, environment, &synced);
-  let github = github_service(context, environment);
+  let github = Arc::new(github_service(context, environment));
+  let holds = read_holds(context, environment, &synced, &github)?;
   // the stack branch of a whole stack goes along once it is on the remote or its pull request is open: GitHub is asked
   // (one search, under the lock) only for one the remote lacks, and the listing serves the retargets below too
   let listed = match github_repository(context, &synced.report)? {
@@ -263,6 +270,35 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     output.retarget_warnings = retargets.warnings;
   }
   Ok(output)
+}
+
+/// What holds the push of the synced branches: the user's robots that run on them, read as the app's session reads
+/// them (one list, the needs of a push: `operations::needs`), and what they land by content. Best effort: nothing holds
+/// a repository not on Space, without a Space token or without an answer of Patronus, and nothing cancels or restarts
+/// its robots then
+fn read_holds(context: &RepoContext, environment: &Environment, synced: &SyncOutput, github: &Arc<GitHubService>) -> Result<PushHolds, CliError> {
+  let table = synced.branch_table(&context.prefix);
+  let space = context.space_repository().ok().flatten();
+  let service = space.as_ref().and_then(|_| patronus_service(environment).ok()).map(Arc::new);
+  let services = BdServices {
+    patronus: service.clone(),
+    space,
+    github_repository: github_repository(context, &synced.report)?,
+    target: target_branch_of(synced.report.upstream.as_ref()),
+    ..BdServices::new(context, Arc::clone(github))
+  };
+  let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), services.sources());
+  if service.is_some() {
+    facts.read(context, &[FactNeed::Robots])?;
+    facts.derive();
+  }
+  Ok(match listed_robots(&facts.session) {
+    Ok(_) => push_holds(context, table, facts.session, service),
+    Err(error) => {
+      tracing::debug!(error = %error.message, "no push holds of robots: Patronus is not available");
+      push_holds(context, table, OneShot::default(), None)
+    }
+  })
 }
 
 /// A named root of a stack that forks whose stack branch the remote lacks (`--with-children` takes it along only once it

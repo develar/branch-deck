@@ -8,9 +8,11 @@ publish = false
 
 [dependencies]
 repository-model = { path = "../repository-model" }
+operations = { path = "../operations" }
 commit-clustering = { path = "../commit-clustering" }
 bd-core = { path = "../bd-core" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
+git-executor = { path = "../git-executor" }
 github = { path = "../github" }
 history-rewrite = { path = "../history-rewrite" }
 object-cache = { path = "../object-cache" }

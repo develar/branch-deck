@@ -5,9 +5,8 @@
 //! `land_answer_of`). The side of `bd`: `safe_push()` with `--check` (the production path: its preamble, `plan()`, the
 //! output of a check, with the decision and the step its words tell), then the start without `--check`
 
-use crate::patronus_facts::table_of;
 use crate::push_command::github_repository;
-use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, safe_push as safe_push_command};
+use crate::safe_push_command::{SafePushArgs, SafePushOutput, safe_push as safe_push_command};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
   LANDED_SUBJECTS, MASTER_RULES, Space, dismissing_rules, evaluated_review, fake_github, land_auth_by_content, list_pull_requests, minutes_ago, pull_request_json,
@@ -15,6 +14,7 @@ use bd_cli::remote_fixture_test::{
 };
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
+use bd_core::services::{github_service, patronus_service};
 use bd_core::stack_summary::whole_stack;
 use bd_core::sync_command::{lock, sync_locked};
 use domain_policy::land::unaccepted;
@@ -34,10 +34,10 @@ use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::stack::place_branches;
 use history_rewrite::store_lines::StoreLines;
 use remote_facts::branch_rules::read_branch_rules;
+use remote_facts::pull_requests::list_pull_requests as list_open_pull_requests;
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
 use repository_model::derive::{land_answer_of, landed_states_of, next_steps_of, repository, session_open_pull_requests, wanted_readiness};
 use repository_model::facts::{AskedRobots, FactResult, FactStore, Observation, RobotsRead, Seq, derive_patronus, robots_digest};
-use repository_model::readiness_facts::ReadinessAnswer;
 use repository_model::table::TableState;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -899,7 +899,7 @@ impl<'c> AppSession<'c> {
       let _lock = lock(context).unwrap();
       sync_locked(context).unwrap()
     };
-    let table = table_of(context, &synced);
+    let table = synced.branch_table(&context.prefix);
     let baseline = table.baseline.clone();
     let mut session = Self {
       context,
@@ -967,7 +967,7 @@ impl<'c> AppSession<'c> {
     let baseline = self.state.header().baseline_branch.clone();
     let github = self.github.clone();
     let listed = match &github {
-      Some(repository) => open_pull_requests(context, &github_service, runtime, repository),
+      Some(repository) => runtime.block_on(list_open_pull_requests(&github_service, &context.repository, repository, &context.prefix)),
       None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
     };
     self.apply(FactResult::PullRequests(listed));
@@ -1059,22 +1059,7 @@ impl AppSession<'_> {
       &asks,
       true,
     ));
-    let answers = match read {
-      Ok(answers) => digest
-        .subjects
-        .into_iter()
-        .zip(answers)
-        .map(|(subject, answer)| ReadinessAnswer { subject, result: Ok(answer) })
-        .collect(),
-      Err(error) => digest
-        .subjects
-        .into_iter()
-        .map(|subject| ReadinessAnswer {
-          subject,
-          result: Err(ApiError::internal(error.to_string())),
-        })
-        .collect(),
-    };
+    let answers = digest.answers(read.map_err(|error| ApiError::internal(error.to_string())));
     self.apply(FactResult::Readiness(answers));
   }
 

@@ -4,12 +4,12 @@
 //! push` leaves out one that landed whole (`skipped`, refused as `landed` when nothing else is left) and `bd
 //! safe-push` refuses it (`landed`): a push or a robot would land nothing.
 
-use crate::patronus_facts::PatronusFacts;
 use crate::safe_push_command::{RobotSummary, robot_summary};
 use bd_core::context::RepoContext;
 use bd_core::output::ShortIds;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
+use repository_model::one_shot::OneShot;
 use repository_model::push_guard::{self, landed_words};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -80,9 +80,9 @@ impl LandedBySummary {
 
 /// The branches merged Safe Pushes landed, by name, as the repository view decided it: of several robots that landed a
 /// branch the one that left the fewest commits after it, of equals the first merge
-pub fn landed_branches(facts: &PatronusFacts) -> HashMap<String, LandedBranch> {
+pub fn landed_branches(facts: &OneShot) -> HashMap<String, LandedBranch> {
   facts
-    .view
+    .view()
     .branches
     .iter()
     .filter_map(|(name, branch)| {

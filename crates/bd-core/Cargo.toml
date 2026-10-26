@@ -20,6 +20,7 @@ trial-check = { path = "../trial-check" }
 sync-utils = { path = "../sync-utils" }
 history-rewrite = { path = "../history-rewrite" }
 repository-model = { path = "../repository-model" }
+remote-facts = { path = "../remote-facts" }
 domain-policy = { path = "../domain-policy" }
 domain-types = { path = "../domain-types", features = ["schemars"] }
 youtrack = { path = "../youtrack" }

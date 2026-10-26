@@ -1,12 +1,13 @@
 use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::landed::{LandedBySummary, landed_branches};
-use crate::patronus_facts::PatronusFacts;
 use crate::robot_list::read_robots;
+use crate::session_facts::know_robots;
 use bd_core::branch_view::{ParentSourceName, StackBlockSummary, StackIssue, read_grouping, stack_issues};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::next_step_summary::NextStepSummary;
 use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
+use bd_core::services::session_key;
 use bd_core::stack_summary::StackSummary;
 use domain_policy::facts::{Repository, Robots};
 use domain_policy::landed::LandedFacts;
@@ -24,7 +25,9 @@ use git_ops::commit_utils::get_commits_info;
 use history_rewrite::store_lines::StoreLineProblem;
 use repository_model::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use repository_model::derive::{StepSources, grouped_rows, landed_states, next_steps};
-use repository_model::patronus_view::{landed_commits, with_landing_needs};
+use repository_model::one_shot::OneShot;
+use repository_model::patronus_view::landed_commits;
+use repository_model::table::TableState;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -512,19 +515,20 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   } else {
     let table = grouping_table(context, &grouping, &all_stacks);
     let read = read_robots(context, environment);
-    let mut facts = PatronusFacts::read(context, &table, read.robots);
+    let mut facts = OneShot::new(session_key(context), TableState::default(), table.clone());
+    know_robots(&mut facts, &context.git, read.robots);
     // what the Safe Push of each branch needs, where a Safe Push lands it: one trial session of every branch
     let needs = if args.brief || context.space_repository()?.is_none() {
       None
     } else {
-      landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed_commits(&facts.view))
+      landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed_commits(facts.view()))
         .inspect_err(|error| debug!(error = %format!("{error:#}"), "no landing needs"))
         .ok()
     };
     let landing_needs = needs.map(|needs| {
-      with_landing_needs(&mut facts.view, &table, &needs);
+      facts.landing_needs(|_| Ok(needs));
       facts
-        .view
+        .view()
         .branches
         .iter()
         .filter_map(|(name, branch)| match &branch.landing_needs {
@@ -687,11 +691,11 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
 /// The next step of every branch and whole stack of `table`, as the app's rows show it, over what `bd status` read:
 /// the robots and how Patronus answered (`head`), the Patronus view and its landing needs (`needs_known`: the check ran);
 /// no pull request, readiness or why a robot failed, which the steps that need them wait for
-fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &PatronusFacts, head: Fact<RobotsHead>, needs_known: bool) -> HashMap<String, NextStepSummary> {
+fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &OneShot, head: Fact<RobotsHead>, needs_known: bool) -> HashMap<String, NextStepSummary> {
   let rows = grouped_rows(table);
   let robots = RobotsView {
     head,
-    robots: facts.robots.iter().map(|robot| (robot.id.clone(), robot.clone())).collect(),
+    robots: facts.robots().iter().map(|robot| (robot.id.clone(), robot.clone())).collect(),
     ..RobotsView::default()
   };
   let view_state = FactState::Fresh;
@@ -704,11 +708,11 @@ fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &
     },
     ..PullRequestsView::default()
   };
-  let robots_of = Robots::new(&facts.robots);
+  let robots_of = Robots::new(facts.robots());
   let baseline = LandedSection::default();
   let landed = LandedFacts {
     baseline: &baseline,
-    view: Some(&facts.view),
+    view: Some(facts.view()),
     robots: &robots_of,
   };
   let landed = landed_states(table, &table.remote, &landed, &pull_requests);
@@ -717,7 +721,7 @@ fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &
     table,
     remote: &table.remote,
     rows: &rows,
-    view: &facts.view,
+    view: facts.view(),
     robots: &robots,
     patronus: &patronus,
     landing_needs: &landing_needs,
@@ -734,7 +738,7 @@ fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &
     .filter(|(_, view)| view.step.kind != StepKind::Hidden)
     .map(|(key, view)| {
       let what = stack_root_of_readiness_key(&key).map_or_else(|| key.clone(), |root| Subject::whole_stack(root).words());
-      (key, NextStepSummary::new(&view.step, &what, &facts.robots))
+      (key, NextStepSummary::new(&view.step, &what, facts.robots()))
     })
     .collect()
 }

@@ -69,6 +69,29 @@ pub struct ReadinessAnswer {
   pub result: Result<BranchReviewReadiness, ApiError>,
 }
 
+impl ReadinessDigest {
+  /// The answers of one read of all its subjects: each its answer in their order, or the failure of the read
+  #[must_use]
+  pub fn answers(self, result: Result<Vec<BranchReviewReadiness>, ApiError>) -> Vec<ReadinessAnswer> {
+    match result {
+      Ok(answers) => self
+        .subjects
+        .into_iter()
+        .zip(answers)
+        .map(|(subject, answer)| ReadinessAnswer { subject, result: Ok(answer) })
+        .collect(),
+      Err(error) => self
+        .subjects
+        .into_iter()
+        .map(|subject| ReadinessAnswer {
+          subject,
+          result: Err(error.clone()),
+        })
+        .collect(),
+    }
+  }
+}
+
 #[derive(Debug)]
 struct SubjectRecord {
   fact: FactRecord<SubjectReadiness>,

@@ -32,6 +32,8 @@
 //!   trial check
 //! - `moved_remote`: the remote branches someone else pushed to: which ones a listing of the pull requests asks to fetch
 //!   (`MovedFetches`, one fetch per head they show) and the host's fetch of them (`fetch_asked`)
+//! - `one_shot`: the session of one command (`OneShot`, `bd`'s): the table of its own sync and the facts it reads for
+//!   one intent, in a `FactStore` as a session holds them, the Patronus view derived on the caller's thread
 //! - `patch`: the patches of a view by part, and the contract of applying one (`apply_patch`): only to the view at its
 //!   base, in the same epoch
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
@@ -77,6 +79,7 @@ pub mod derive;
 pub mod facts;
 pub mod landing;
 pub mod moved_remote;
+pub mod one_shot;
 pub mod patch;
 pub mod patronus_view;
 pub mod pull_request_facts;

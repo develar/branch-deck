@@ -468,7 +468,10 @@ The checklist:
   takes `&RewriteOptions` and the lock before it reads anything, then checks the expected HEAD.
 - **operations**: an action on the remote is an intent of its family in `crates/operations/` (s9 moves them one by
   one): it runs in `engine::run`, admitted by `registry` over the resources it names (`domain_policy::admission`), its
-  steps the `operations` part of the view, and checks its `witness` before the first effect (`plan_changed`).
+  steps the `operations` part of the view, and checks its `witness` before the first effect (`plan_changed`). What
+  its plan reads of the remote is `needs::needs(intent)`, read by `facts::fill` through the one reader of every host
+  (`remote_facts::service_sources::ServiceFactSources`) into its session; `bd`'s is a one-shot session of its sync
+  (`repository_model::one_shot::OneShot`, its services `bd_core::services::BdServices`), never a reader of its own.
 - **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
   JSON object with `schema`, errors as `CliError` with an `ErrorCode`; a Tauri command is `run_blocking` of the core,
   and the E2E server routes it to the same core.
@@ -635,7 +638,7 @@ session](docs/design/git-operations.md#the-landing-of-a-session)), which the pag
 | Rule | File | Its answer in the view; in `bd` |
 |---|---|---|
 | The table as the rules read it, borrowed from the view or a grouping | `facts.rs` (`Repository`) | `derive::repository`; `bd`: `derive::grouped_rows` |
-| The robot of a branch and of a whole stack | `robot_match.rs` | `robotId` (`facts::derive_patronus`); `bd`: `PatronusFacts::read` |
+| The robot of a branch and of a whole stack | `robot_match.rs` | `robotId` (`facts::derive_patronus`); `bd`: the same of its one-shot session (`one_shot::OneShot`) |
 | What a push does (create, push, force with the drops), needs push, one push again over a moved remote, what keeps a branch out of a push, the push orders (Push Stack, the button, Push with Children and its stack branch) and what a start pushes (`start_push`) | `push.rs` | `RemoteStatusUpdate::action`, `RepositoryView.pushes` (`derive::push_view`), the `Push` effect of `land::decide`; `push_guard`, `bd push`, `bd safe-push` |
 | The declared parent (`(parent/child)`, the stack parents), children, descendants, ancestors by effective base, main line, the whole stack and what is left of it | `stack.rs` | `BranchView.structure` (`derive::place`), `StackLanding.rest`; `bd status`, `bd safe-push --whole-stack`, `bd push --with-children` |
 | Parked: the branch and what is built on it stay local | `parked.rs` | `BranchStructure.parked`; `bd push`, `bd safe-push` |
@@ -732,8 +735,8 @@ crates/
 ├── update-core/     # Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`, and their undo
 ├── lease-pool/      # The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)
 ├── remote-facts/    # What GitHub and Patronus know of the branches, over HTTP: pull requests, review requests, branch rules, review readiness, the Patronus command, the Safe Push statistics; the scheduler of the session facts (`scheduler`, read through the hosts' `FactSources`)
-├── repository-model/ # The model of a repository for the page and bd: the sessions (the table state, its syncs and patches, their facts), the table of the last sync, the Patronus view the session derives (one rule, the robot of each row) with the landing needs the host computes, what the rules decide of them for the view (`derive`, `action_view`), the guards of the app's push and robot actions; no trial check
-├── operations/      # The engine of the operations of the remote: the in-process registry (the `operations` part of the view, admitted by `domain_policy::admission`), the frame every family runs in, the witness of a plan; the families move in through s9
+├── repository-model/ # The model of a repository for the page and bd: the sessions (the table state, its syncs and patches, their facts) and the one-shot session of a `bd` command (`one_shot`), the table of the last sync, the Patronus view the session derives (one rule, the robot of each row) with the landing needs the host computes, what the rules decide of them for the view (`derive`, `action_view`), the guards of the app's push and robot actions; no trial check
+├── operations/      # The engine of the operations of the remote: the in-process registry (the `operations` part of the view, admitted by `domain_policy::admission`), the frame every family runs in, the witness of a plan, the facts a plan needs and their reads (`needs`, `facts::fill`); the families move in through s9
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
 ├── domain-policy/   # The pure rules of the domain, one file per rule ([Rule Index](#rule-index): `facts`, `robot_match`, `push`, `stack`, `parked`, `holds`, `land`, `landed`, `pull_request`, `review`, `readiness`, `landing_needs`, `next_step`, `landing_node`, `actions`, `admission`, `news`, `refresh`, `reasons`), only domain-types: no git, no IO, no runtime; `cases/` holds the scenario table both sides answer, `reasons.json` and `actions.json` the catalogs the presenters word
 ├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
@@ -742,7 +745,7 @@ crates/
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI: the `Cli`, the dispatch, `bd schema`, the help texts, the process budgets (docs/guidelines/agent-cli.md)
-├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries, the summaries of a check that `bd check` and `bd safe-push` print
+├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries, the summaries of a check that `bd check` and `bd safe-push` print, the remote services of a command and the host of its reads of the facts (`services`)
 ├── bd-lease/        # `bd lease`: the worktrees of the lease pool; its tests run bd through the fixtures of bd-cli
 ├── bd-remote/       # The bd commands of the remote: status, push, safe-push, request-review, robot, the landed branches
 ├── bd-rewrite/      # The bd commands that read and rewrite the commits by their messages: group, reword, fold, check, suggest
