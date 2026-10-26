@@ -598,10 +598,11 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stacked-branches/stack-problems.spec.ts (`should name conflicting parents, keep the commits and stack on a parent from the alert`, `should offer the fixes in the menu and block the other rewrites with the problem`, `should unstack a branch with conflicting parents from the menu`, `should cut a branch out of a parent cycle from its alert`, `should open the rename of a branch whose name differs from another only in case`, `should show the problem with its fixes in the preview, a fix closing the preview`)
   [@test] ../../src/lib/branch-drop.test.ts (`blocks the rewrites of a branch with a stack problem by its reason, and runs the fixes Rust offers for it`)
 - A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,
-  a disabled push button (in the row and the preview), no share in the outgoing counts, and,
-  expanded, a `warning` alert with a link that reveals the parent.
+  a disabled push button (in the row and the preview), no share in a push of the stack (`domain_policy::push::push_plan`
+  leaves a branch the last sync did not build out, `Kept::NotBuilt`), and, expanded, a `warning` alert with a link that
+  reveals the parent.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
-  [@test] ../../src/lib/stack.test.ts (`leaves out a blocked branch: it offers no push`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
 - Where the stack graph isn't visible, a stacked branch must say what it is built on ("on auth", "on master" while its
   parent has no commits): the branch preview; the landing overview shows the stack as one row, its root's. The branch row says it only for a branch built
   elsewhere ("on master"); the graph shows the parent.

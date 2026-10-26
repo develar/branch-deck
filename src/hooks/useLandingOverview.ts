@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { getLandingNodeNow, getStackLandingNodeNow, nodeSources, useNodeStores } from "@/hooks/useLandingNode"
+import { getLandingNodeNow, getNodeKindNow, getStackLandingNodeNow, getStackNodeKindNow, nodeSources, useNodeStores } from "@/hooks/useLandingNode"
 import { useRobotOverview } from "@/hooks/useRobotOverview"
 import type { LandingOverview, LandingUnit } from "@/lib/landing-overview"
 import { collectLandingOverview } from "@/lib/landing-overview"
@@ -15,19 +15,14 @@ function computeLandingUnits(): LandingUnit[] {
     }
     // the parked ones are in the Parked card: no unit, no move
     const members = [row.name, ...getUnparkedStackDescendants(row.name)]
-    const stackNode = members.length > 1 ? getStackLandingNodeNow(row.name) : null
+    const stackKind = members.length > 1 ? getStackNodeKindNow(row.name) : null
     // a whole stack that holds a parked branch lands in pieces: its root's own node counts
-    const node = stackNode === null || stackNode.kind === "parked" ? getLandingNodeNow(row.name) : stackNode
+    const node = stackKind === null || stackKind === "parked" ? getLandingNodeNow(row.name) : getStackLandingNodeNow(row.name)
     if (node === null) {
       continue
     }
-    const fixes =
-      members.length > 1
-        ? members.flatMap(name => {
-            const own = getLandingNodeNow(name)
-            return own?.kind === "needsFix" ? [{ name, node: own }] : []
-          })
-        : []
+    // the words only of the branches that need a fix
+    const fixes = members.length > 1 ? members.flatMap(name => (getNodeKindNow(name) === "needsFix" ? [{ name, node: getLandingNodeNow(name)! }] : [])) : []
     const commitCount = members.reduce((sum, name) => sum + (getBranch(name)?.commitCount ?? 0), 0)
     units.push({ name: row.name, branchCount: members.length, commitCount, node, fixes })
   }

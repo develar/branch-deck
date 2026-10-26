@@ -9,6 +9,9 @@ targets:
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/lib/activity-window.ts
   - ../../src/hooks/useLandingOverview.ts
+  - ../../src/hooks/useLandingNode.ts
+  - ../../crates/domain-policy/src/landing_node.rs
+  - ../../crates/domain-policy/src/next_step.rs
   - ../../src/hooks/useRobotOverview.ts
   - ../../src/lib/landing-overview.ts
   - ../../src/presenters/landing-node.ts
@@ -58,11 +61,14 @@ indicator, whose states were the same story told twice.
 
 - A unit is what lands in one move: a lone branch, or a stack (its root's row), whose node and next step are those of
   the whole stack, as the header of its island shows them (`getStackLandingNodeNow`, `useStackNextStep`: of its stack
-  branch while the stack forks, else of the last branch of its straight chain). The branches of a stack whose own node
-  needs a fix are listed below it, each a move of its own. Units come in the order of the table. A parked branch, and
+  branch while the stack forks, `nextSteps` of the view under `stack:<root>`, else of the last branch of its straight
+  chain). Rust decides every node and step (`domain_policy::landing_node`, `domain_policy::next_step`); the overview
+  counts their kinds as the rows show them (`getNodeKindNow`) and words only the nodes it lists. The branches of a stack
+  whose own node needs a fix are listed below it, each a move of its own. Units come in the order of the table. A parked branch, and
   one parked with its parent, is in no unit ([Parked Branches](../branch/parked-branches.spec.md)); a whole stack that
   holds one lands in pieces, so its unit takes the node of its root.
   [@test] ../../src/lib/landing-overview.test.ts (`counts the user's moves by unit, a ready stack of 22 branches one move, the most urgent first`, `lists a stack whose branch needs a fix with the moves, the fix counted as a move of its own`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_those_that_changed`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should run the next step of a move from the overview at its row: a Safe Push, a pull request`)
 
 ### Indicator
@@ -82,7 +88,8 @@ indicator, whose states were the same story told twice.
   whose move runs (a start or restart of its Safe Push, the creation of its pull request, a review request) counts no
   move either, so the number drops at the click, not when Patronus or GitHub answer.
   [@test] ../../src/lib/landing-overview.test.ts (`counts no move of a unit before the first answer of Patronus, so the number doesn't change on hover`, `counts a failed robot of no row and a running Safe Push that will fail as moves, listed with them; a Dry Run lands nothing`)
-  [@test] ../../src/presenters/landing-node.test.ts (`is the state after a running move of the row from its start on: Landing for a robot that comes, else Waiting`)
+  [@test] ../../src/presenters/landing-node.test.ts (`is the state after a running move of the row from its start on: Landing for a robot that comes, else Waiting`, `counts the kind a row shows without its words: the move that runs and the push from its click laid over the node`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`waits_for_the_first_answers_as_the_step_does_and_says_a_read_that_failed`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
 - The bar has a segment per kind of the units on their way, in the order of the way: landing, waiting, ready, the
   user's step, a fix; its width the commits of its units; light for a hollow node. A single kind fills it, nothing on
@@ -182,6 +189,8 @@ indicator, whose states were the same story told twice.
 ## Testing / Local Run
 
 - `pnpm test:unit`: `src/lib/landing-overview.test.ts`, `src/presenters/landing-node.test.ts`, `src/lib/robot-overview.test.ts`.
+- `cargo nextest run -p domain-policy -p repository-model`: the nodes and the steps of the units
+  (`landing_node_test.rs`, `next_step_test.rs`, `derive_test.rs`).
 - `pnpm e2e`: `tests/e2e/landing/landing-overview.spec.ts`; the footer in `tests/e2e/update-project`,
   `tests/e2e/github-sign-in` and `tests/e2e/pull-requests`. Test ids: `landing-indicator` (`data-urgent`),
   `landing-moves`, `landing-bar`, `landing-popover`, its scrolling `landing-sections`, the sections

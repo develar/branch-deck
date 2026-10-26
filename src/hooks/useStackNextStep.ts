@@ -193,19 +193,6 @@ export function useStackNextStep(root: string): StackNextStep | null {
 }
 
 /**
- * The next step of a start, re-rendering when it changes: of the branch, or of the whole stack of `root` while it forks
- * (the step of the last branch of a straight chain is that branch's own: its button is the branch's)
- */
-export function useStartStep(branchName: string, root: string | undefined): BranchNextStep | null {
-  const branchStep = useBranchNextStep(root === undefined ? branchName : "")
-  const stackStep = useStackNextStep(root ?? "")
-  if (root === undefined) {
-    return branchStep
-  }
-  return stackStep?.leaf === null ? stackStep.step : null
-}
-
-/**
  * Tells that approvals arrived (the news of the session): of a branch (`tellApprovalNews`), or in the pull request of the
  * whole stack, "Ilya Korennoy approved the whole air stack" / "#12 · IJPL Code Platform", with "Safe Push Whole Stack"
  * first (the start of the whole stack, decided again at the click) and "Open Pull Request"

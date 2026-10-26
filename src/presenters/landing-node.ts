@@ -163,13 +163,29 @@ function stepWords(step: Extract<NodeLabel, { kind: "step" }>["step"], context: 
   }
 }
 
+/** A push of the row runs where its node asks for the push: the node of the pushed branch from the click on */
+function showsPushed(node: NodeView, pushing: boolean): boolean {
+  // a node that asks for the push leaves the user's moves at the click of the push, not when the remote has it
+  return pushing && node.label.kind === "pushIt"
+}
+
+/**
+ * The kind of the node `node` as its row shows it, without its words: a running move of the row in place of a node that
+ * says so, the pushed branch from the click of its push (the counts of the filter chips, of a stack, the moves of F2)
+ */
+export function presentNodeKind(node: NodeView, move: FoundMove | null, pushing: boolean): LandingNodeKind {
+  if (move !== null && node.moveShows) {
+    return moveNode(move).kind
+  }
+  return showsPushed(node, pushing) ? "waiting" : node.kind
+}
+
 /** The node `node` of a row in the page's words, a running move of the row in place of a node that says so */
 export function presentLandingNode(node: NodeView, context: NodeContext): LandingNode {
   if (context.move !== null && node.moveShows) {
     return moveNode(context.move)
   }
-  // a node that asks for the push leaves the user's moves at the click of the push, not when the remote has it
-  if (context.pushing && node.label.kind === "pushIt") {
+  if (showsPushed(node, context.pushing)) {
     return { kind: "waiting", label: labelWords({ kind: "pushed" }, context) }
   }
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import { describePush, describeStackPush, formatPushCount, getPushColor, getPushHue, summarizePushState } from "@/lib/push-summary"
+import { describePush, describeStackPush, formatPushCount, getPushColor, getPushHue } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { CREATE, forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
 
@@ -94,163 +94,39 @@ describe("describeStackPush", () => {
   })
 })
 
-interface BranchOptions {
-  remote?: Partial<RemoteStatus> | null
-  hasError?: boolean
-  commitCount?: number
-}
-
-function branch(name: string, { remote = {}, hasError = false, commitCount = 3 }: BranchOptions = {}) {
-  const remoteStatus: RemoteStatus | null = remote === null ? null : testRemoteStatus(remote)
-  return { name, remoteStatus, hasError, commitCount }
+/** A branch with the remote status `remote`, not loaded for null */
+function branch(remote: Partial<RemoteStatus> | null = {}) {
+  return { remoteStatus: remote === null ? null : testRemoteStatus(remote) }
 }
 
 describe("getPushColor", () => {
   it("takes the hue from the risk: warning only for a push that drops remote commits", () => {
-    expect(getPushColor(branch("a", { remote: null }))).toBeNull()
-    expect(getPushColor(branch("a"))).toBe("neutral")
-    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, myCommitsAhead: 1, action: PUSH } }))).toBe("primary")
-    expect(getPushColor(branch("a", { remote: { exists: false, commitsAhead: 2, action: CREATE } }))).toBe("primary")
-    expect(getPushColor(branch("a", { remote: { commitsBehind: 1, fastForward: false, action: DROPS } }))).toBe("warning")
-    expect(getPushColor(branch("a", { remote: { commitsAhead: 1, commitsBehind: 1, fastForward: false, action: DROPS } }))).toBe("warning")
+    expect(getPushColor(branch(null))).toBeNull()
+    expect(getPushColor(branch())).toBe("neutral")
+    expect(getPushColor(branch({ commitsAhead: 2, myCommitsAhead: 1, action: PUSH }))).toBe("primary")
+    expect(getPushColor(branch({ exists: false, commitsAhead: 2, action: CREATE }))).toBe("primary")
+    expect(getPushColor(branch({ commitsBehind: 1, fastForward: false, action: DROPS }))).toBe("warning")
+    expect(getPushColor(branch({ commitsAhead: 1, commitsBehind: 1, fastForward: false, action: DROPS }))).toBe("warning")
     // a force push of a rebased branch only replaces the remote commits with their copies
-    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, myCommitsAhead: 1, fastForward: false, action: REBASED } }))).toBe("primary")
+    expect(getPushColor(branch({ commitsAhead: 2, myCommitsAhead: 1, fastForward: false, action: REBASED }))).toBe("primary")
     // one of an amended or restacked branch their older versions
-    expect(getPushColor(branch("a", { remote: { commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false, action: REPLACES } }))).toBe("primary")
+    expect(getPushColor(branch({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, fastForward: false, action: REPLACES }))).toBe("primary")
     expect(
-      getPushColor(
-        branch("a", {
-          remote: { commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, commitsBehind: 1, fastForward: false, action: forcePush({ drops: true, replaces: true }) },
-        }),
-      ),
+      getPushColor(branch({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, commitsBehind: 1, fastForward: false, action: forcePush({ drops: true, replaces: true }) })),
     ).toBe("warning")
   })
 
   it("keeps the push hue for a restacked branch with no commit of the user to push", () => {
-    expect(getPushColor(branch("a", { remote: { commitsRestacked: 1, fastForward: false, action: REPLACES } }))).toBe("primary")
-    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, commitsRestacked: 1, fastForward: false, action: REPLACES } }))).toBe("primary")
-    expect(summarizePushState([branch("a", { remote: { commitsRestacked: 1, fastForward: false, action: REPLACES } })]).byHue).toEqual({ primary: 1, warning: 0 })
+    expect(getPushColor(branch({ commitsRestacked: 1, fastForward: false, action: REPLACES }))).toBe("primary")
+    expect(getPushColor(branch({ commitsAhead: 2, commitsRestacked: 1, fastForward: false, action: REPLACES }))).toBe("primary")
   })
 
   it("is neutral for a safe push of no commit of the user", () => {
-    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, action: PUSH } }))).toBe("neutral")
-    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, fastForward: false, action: REBASED } }))).toBe("neutral")
+    expect(getPushColor(branch({ commitsAhead: 2, action: PUSH }))).toBe("neutral")
+    expect(getPushColor(branch({ commitsAhead: 2, fastForward: false, action: REBASED }))).toBe("neutral")
     // a first push keeps its hue whoever authored the commits, a push that drops remote commits too
-    expect(getPushColor(branch("a", { remote: { exists: false, commitsAhead: 2, action: CREATE } }))).toBe("primary")
-    expect(getPushColor(branch("a", { remote: { commitsAhead: 2, commitsBehind: 1, fastForward: false, action: DROPS } }))).toBe("warning")
-  })
-})
-
-describe("summarizePushState", () => {
-  it("sums the outgoing branches in order and counts them by state", () => {
-    const summary = summarizePushState([
-      branch("pushed"),
-      branch("new", { remote: { exists: false, commitsAhead: 3, myCommitsAhead: 3, action: CREATE } }),
-      branch("ahead", { remote: { commitsAhead: 5, myCommitsAhead: 2, action: PUSH } }),
-      branch("diverged", { remote: { commitsAhead: 1, commitsBehind: 2, myCommitsAhead: 1, fastForward: false, action: DROPS } }),
-    ])
-    expect(summary.total).toBe(9)
-    expect(summary.mine).toBe(6)
-    expect(summary.branches).toEqual([
-      { name: "new", count: 3, mine: 3, state: "create", behind: 0, amended: 0, restacked: 0 },
-      { name: "ahead", count: 5, mine: 2, state: "push", behind: 0, amended: 0, restacked: 0 },
-      { name: "diverged", count: 1, mine: 1, state: "force", behind: 2, amended: 0, restacked: 0 },
-    ])
-    expect(summary.byState).toEqual({ push: 1, create: 1, force: 1 })
-    expect(summary.byHue).toEqual({ primary: 2, warning: 1 })
-    expect(summary.notLoaded).toBe(0)
-    expect([summary.total, summary.branches.length]).toEqual([9, 3])
-  })
-
-  it("counts the commits whose content the remote lacks", () => {
-    // a branch not on the remote sends all its commits, by any author
-    const created = branch("new", { remote: { exists: false, commitsAhead: 3, myCommitsAhead: 1, action: CREATE }, commitCount: 3 })
-    // the sync reports neither the baseline commits nor the rebased copies of pushed commits as ahead
-    const rebased = branch("rebased", { remote: { commitsAhead: 1, myCommitsAhead: 1, fastForward: false, action: REBASED }, commitCount: 4 })
-    const summary = summarizePushState([created, rebased])
-    expect(summary.branches).toEqual([
-      { name: "new", count: 3, mine: 1, state: "create", behind: 0, amended: 0, restacked: 0 },
-      { name: "rebased", count: 1, mine: 1, state: "force", behind: 0, amended: 0, restacked: 0 },
-    ])
-    expect(summary.total).toBe(4)
-    expect(summary.byHue).toEqual({ primary: 2, warning: 0 })
-  })
-
-  it("skips the branches whose row offers no push and counts the ones not loaded", () => {
-    const summary = summarizePushState([
-      branch("conflict", { remote: { commitsAhead: 2, action: PUSH }, hasError: true }),
-      branch("empty", { remote: { exists: false, action: CREATE }, commitCount: 0 }),
-      branch("loading", { remote: null }),
-      branch("ahead", { remote: { commitsAhead: 1, action: PUSH } }),
-    ])
-    expect(summary.branches.map(it => it.name)).toEqual(["ahead"])
-    expect(summary.notLoaded).toBe(1)
-    expect([summary.total, summary.branches.length]).toEqual([1, 1])
-  })
-
-  /** Two branches not on the remote yet: one commit and two */
-  function twoNew() {
-    return [
-      branch("feature-auth", { remote: { exists: false, commitsAhead: 1, myCommitsAhead: 1, action: CREATE } }),
-      branch("search", { remote: { exists: false, commitsAhead: 2, myCommitsAhead: 2, action: CREATE } }),
-    ]
-  }
-
-  it("skips a branch the fetched baseline has all of: the update archives it", () => {
-    const branches = twoNew()
-    const summary = summarizePushState(branches, name => name === "feature-auth")
-    expect(summary.branches.map(it => it.name)).toEqual(["search"])
-    expect([summary.total, summary.branches.length]).toEqual([2, 1])
-    expect(summarizePushState(branches).branches).toHaveLength(2)
-  })
-
-  it("skips a branch a running Safe Push holds: its row offers no push", () => {
-    expect(
-      summarizePushState(
-        twoNew(),
-        () => false,
-        name => name === "search",
-      ).branches.map(it => it.name),
-    ).toEqual(["feature-auth"])
-  })
-
-  it("says why each branch with commits is not outgoing, and counts the work for the remote it leaves out", () => {
-    const summary = summarizePushState(
-      [
-        branch("conflict", { remote: { commitsAhead: 2, action: PUSH }, hasError: true }),
-        { ...branch("blocked", { remote: { commitsAhead: 1, action: PUSH } }), status: "Blocked" as const },
-        { ...branch("blockedPushed"), status: "Blocked" as const },
-        branch("held", { remote: { commitsAhead: 1, action: PUSH } }),
-        branch("landed", { remote: { commitsAhead: 1, action: PUSH } }),
-        branch("loading", { remote: null }),
-        branch("pushed"),
-        branch("empty", { commitCount: 0 }),
-        branch("ahead", { remote: { commitsAhead: 1, myCommitsAhead: 1, action: PUSH } }),
-      ],
-      name => name === "landed",
-      name => name === "held",
-    )
-    expect(summary.branches.map(it => it.name)).toEqual(["ahead"])
-    expect(summary.skipped).toEqual(
-      new Map([
-        ["conflict", "failed"],
-        ["blocked", "blocked"],
-        ["blockedPushed", "blocked"],
-        ["held", "held"],
-        ["landed", "landed"],
-        ["loading", "notLoaded"],
-        ["pushed", "upToDate"],
-      ]),
-    )
-    // a blocked branch the remote has as it is withholds nothing; a landed one has nothing of the user's left to push
-    expect(summary.withheld).toEqual({ failed: 1, blocked: 1, held: 1 })
-  })
-
-  it("is empty when everything is pushed", () => {
-    const summary = summarizePushState([branch("a"), branch("b", { remote: null, hasError: true })])
-    expect(summary.branches).toEqual([])
-    expect(summary.total).toBe(0)
-    expect(summary.notLoaded).toBe(0)
+    expect(getPushColor(branch({ exists: false, commitsAhead: 2, action: CREATE }))).toBe("primary")
+    expect(getPushColor(branch({ commitsAhead: 2, commitsBehind: 1, fastForward: false, action: DROPS }))).toBe("warning")
   })
 })
 

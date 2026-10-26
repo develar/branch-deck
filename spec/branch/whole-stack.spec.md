@@ -66,6 +66,10 @@ targets:
   - ../../src/components/repository/RobotRows.tsx
   - ../../src/lib/branch-review-window.ts
   - ../../src/hooks/useStackNextStep.ts
+  - ../../crates/domain-policy/src/next_step.rs
+  - ../../crates/domain-policy/src/landing_node.rs
+  - ../../src/presenters/next-step.ts
+  - ../../src/hooks/useLandingNode.ts
   - ../../crates/sync-core/src/robot_landing.rs
   - ../../src/hooks/useBranchNextStep.ts
   - ../../src/hooks/useSafePush.ts
@@ -399,7 +403,9 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   disabled with "Landed in master with oauth and the whole auth stack" ([Next Step](next-step.spec.md#the-whole-stack)).
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`the_whole_stack_takes_the_rows_of_its_stack_branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should land only what is left of the whole stack after a piece landed its main line, and offer nothing once every branch of it landed`)
-- Its next step must be the table of [Next Step](next-step.spec.md#the-whole-stack) on its facts: disabled with the
+- Its next step must be the table of [Next Step](next-step.spec.md#the-whole-stack) on its facts, as Rust decides it
+  for its stack branch (`nextSteps` of the view under `stack:<root>`, its node beside it; the page words both,
+  `useStackNextStep`, `useStackLandingNode`): disabled with the
   reason while the sync didn't build its stack branch ("The stack branch conflicts at 0caf9066 in config.js: the
   stack lands in pieces", a Dry Run too), while a robot of a branch of it runs, while its approvals are missing in its
   own pull request. Its readiness is asked while the header of its island or its root's row shows

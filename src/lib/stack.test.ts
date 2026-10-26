@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Reason } from "@/lib/bindings"
-import { summarizePushState } from "@/lib/push-summary"
 import type { StackBranchInfo } from "@/lib/stack"
 import {
   baselineOnRemote,
@@ -16,7 +15,7 @@ import {
 } from "@/lib/stack"
 import { formatStackHold } from "@/presenters/reasons"
 import type { ChildrenPushOrder } from "@/stores/branch-sync"
-import { CREATE, testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { testBranch } from "@/stores/test-branch"
 
 const table: Record<string, StackBranchInfo> = {
   auth: { declaredParent: null, commitCount: 2 },
@@ -92,17 +91,6 @@ describe("a parent without commits", () => {
     expect(passedParentOf(testBranch("IJAI-1184", "air-misc", { stack }))).toEqual({ parent: "air-misc", state: "Integrated" })
     expect(passedParentOf(testBranch("login", "auth"))).toBeNull()
     expect(passedParentOf(testBranch("auth", null))).toBeNull()
-  })
-})
-
-describe("push summary with stacked branches", () => {
-  it("leaves out a blocked branch: it offers no push", () => {
-    const remoteStatus = testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1, action: CREATE })
-    const summary = summarizePushState([
-      { name: "auth", remoteStatus, hasError: false, commitCount: 1, status: "Created" },
-      { name: "login", remoteStatus, hasError: false, commitCount: 1, status: "Blocked" },
-    ])
-    expect(summary.branches.map(branch => branch.name)).toEqual(["auth"])
   })
 })
 

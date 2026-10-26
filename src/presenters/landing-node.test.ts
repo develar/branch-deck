@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingNode as NodeView, NodeLabel } from "@/lib/bindings"
 import type { FoundMove } from "@/lib/running-move"
-import { presentLandingNode } from "@/presenters/landing-node"
+import { presentLandingNode, presentNodeKind } from "@/presenters/landing-node"
 import { missingGroup, testContext, testStep } from "@/test-support/next-step"
 
 function nodeView(kind: NodeView["kind"], label: NodeLabel, extra: Partial<NodeView> = {}): NodeView {
@@ -124,5 +124,25 @@ describe("the words of the node of a row", () => {
     // where the push is no move of it, the node stays
     expect(presentLandingNode(nodeView("yourStep", { kind: "noPullRequest" }), pushing)).toEqual({ kind: "yourStep", label: "Not in a pull request" })
     expect(presentLandingNode(nodeView("ready", { kind: "ready", lands: 1 }), pushing)).toEqual({ kind: "ready", label: "Ready to land: Safe Push" })
+  })
+
+  it("counts the kind a row shows without its words: the move that runs and the push from its click laid over the node", () => {
+    const ready = nodeView("ready", { kind: "ready", lands: 1 })
+    const review = { move: { key: "auth", lands: false, label: "Requesting a review on #1078" }, with: null }
+    const conflict = nodeView("parked", { kind: "parked", parked: { note: "", with: null }, conflict: true }, { moveShows: false })
+    const pushIt = nodeView("yourStep", { kind: "pushIt" })
+    const cases: [NodeView, FoundMove | null, boolean][] = [
+      [ready, null, false],
+      [ready, START, false],
+      [ready, review, false],
+      [conflict, START, false],
+      [pushIt, null, true],
+      [pushIt, null, false],
+    ]
+    expect(cases.map(([view, move, pushing]) => presentNodeKind(view, move, pushing))).toEqual(["ready", "landing", "waiting", "parked", "waiting", "yourStep"])
+    // the kind the words of the node have
+    for (const [view, move, pushing] of cases) {
+      expect(presentNodeKind(view, move, pushing)).toBe(presentLandingNode(view, { step: testContext(), statusText: "", move, pushing }).kind)
+    }
   })
 })

@@ -2,7 +2,6 @@ import { useMemo } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { isFilterActive } from "@/lib/branch-filter"
-import { summarizePushState } from "@/lib/push-summary"
 import { layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackMembers, stackRootOf } from "@/lib/stack-collapse"
 import type { BranchTablesLayout, TableCollapse } from "@/lib/stack-collapse"
 import { getBranchFilter, getShownBranches } from "@/stores/branch-filter"
@@ -140,11 +139,16 @@ export function forgetCollapsedStack(root: string): void {
 /** The side stacks the user collapsed (true) or expanded (false) in this session, by root; the others follow `isQuiet` */
 const sideStackStore = createStore<{ readonly overrides: ReadonlyMap<string, boolean> }>(() => ({ overrides: new Map() }))
 
-/** A side stack whose branches have nothing for the remote and nothing wrong: collapsed until the user expands it */
+/**
+ * A side stack whose branches have nothing wrong and nothing for the remote: collapsed until the user expands it. Each
+ * synced without an error, is not blocked, and has no commits or a remote that has them as they are (the push action
+ * Rust decides of its remote status, `domain_policy::push::action`); one whose remote status is not in yet is not quiet
+ */
 function isQuiet(state: BranchSyncState, root: string): boolean {
-  const branches = [root, ...structureIn(state, root).descendants].flatMap(name => state.branches[name] ?? [])
-  const push = summarizePushState(branches)
-  return branches.every(branch => !branch.hasError && branch.status !== "Blocked") && push.branches.length === 0 && push.notLoaded === 0
+  return [root, ...structureIn(state, root).descendants].every(name => {
+    const branch = state.branches[name]
+    return branch === undefined || (!branch.hasError && branch.status !== "Blocked" && (branch.commitCount === 0 || branch.remoteStatus?.action.kind === "upToDate"))
+  })
 }
 
 /** The collapsed side stacks of all rows, one per line, so a store change notifies only when they change */

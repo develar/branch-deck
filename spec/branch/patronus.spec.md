@@ -1469,11 +1469,12 @@ explicit choice of the user, offered only where the approvals count in a pull re
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or
   restart it on the current branch", "A Safe Push of oauth is running: it lands 1 commit of auth with it". The description of the
   preview's push offers what it names, from the robot's actions (`getGatedRobotActions`): "Restart Safe Push" of its own
-  robot and "Open in Patronus" of the robot that holds it (`push-hold-actions`). The "to push" counts leave it out (the
-  header, the stack chip, the island, the filter chip).
+  robot and "Open in Patronus" of the robot that holds it (`push-hold-actions`). A push of several branches leaves it
+  out (`domain_policy::push::push_plan`, `Kept::Held`): Push Stack sends only the branches above it, Push with Children
+  of the island's header and of the root's menu skips it.
   [@test] ../../src/hooks/usePushButton.test.ts (`offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open and restart the robot from the description of the preview's push, which says why it can't push`)
-  [@test] ../../src/lib/push-summary.test.ts (`skips a branch a running Safe Push holds: its row offers no push`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`, `push_with_children_leaves_out_what_asks_first_is_held_or_landed`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer no push: it won't land, and the menu says why`)
 - A push that raced with a start (the IDE, `bd`, another window) reads the status of the robot first (`GET
   /robots/{id}/status`, one row): still running, it pushes nothing and says why ("Cannot push auth", with "Open in

@@ -114,7 +114,11 @@ flowchart LR
    (the running operations, `useOperations`, [Running Operations](operations.md)): a `getState()` inside the builder
    would be memoized on its other arguments, and a menu reopened while it still fades out showed its first state (a
    Safe Push the pull request no longer allowed). The "⋯" of an island opened before the pull requests loaded showed
-   "Create Pull Request of the Stack…" and never the items of #12.
+   "Create Pull Request of the Stack…" and never the items of #12. The node of a row is its part of the view, one kept
+   reference (`useRowPart(name, "landing")`), worded in the render (`useLandingNode`, `presentLandingNode`); only the
+   move that runs on the row, the page's until s10, is a selector of its text. What reads the nodes of many rows (the
+   filter chips, the states of a stack, the landing overview) counts their kinds without the words (`getNodeKindNow`)
+   and words only the nodes it lists.
 
 4. **Decision**: the batch of about 16 ms is the session's, in Rust (`PATCH_INTERVAL` of `runtime.rs`, wall time), not
    a timer of the page; the page applies each patch as its channel delivers it.

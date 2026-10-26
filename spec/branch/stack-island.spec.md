@@ -34,6 +34,11 @@ targets:
   - ../../src/stores/safe-push.ts
   - ../../crates/test-utils/src/repo_template.rs
   - ../../src/hooks/useLandingNode.ts
+  - ../../src/presenters/landing-node.ts
+  - ../../src/presenters/next-step.ts
+  - ../../crates/domain-policy/src/landing_node.rs
+  - ../../crates/domain-policy/src/next_step.rs
+  - ../../crates/repository-model/src/derive.rs
 ---
 
 # Stack Island
@@ -82,15 +87,20 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
 - The header must name the root and size the stack ("air", "Stack · 7 branches · 14 commits"); the root row has no
   stack chip, the header is it. Before the name, the node of the whole stack says where it is on its way into master,
   as the node of a row says it of a branch ([Branch Row](branch-row.spec.md#tree)): of its stack branch while the stack
-  forks, of its last branch for a straight chain; its hover says it ("Ready to land: Safe Push lands 7 branches"), so
-  a collapsed island still answers it. The hover is that of the node of a row ([Branch Row](branch-row.spec.md#tree),
-  `LandingNodeHover`): a failed or running robot shows below the text with its actions, the robot of the whole stack
-  while the stack forks, else that of its last branch.
+  forks (the node Rust decides of it, `nextSteps` of the view under `stack:<root>`, `domain_policy::landing_node`), of
+  its last branch for a straight chain (that row's node); the page only words it (`useStackLandingNode`,
+  `presentLandingNode`); its hover says it ("Ready to land: Safe Push lands 7 branches"), so a collapsed island still
+  answers it. The hover is that of the node of a row ([Branch Row](branch-row.spec.md#tree), `LandingNodeHover`): a
+  failed or running robot shows below the text with its actions, the robot of the whole stack while the stack forks,
+  else that of its last branch.
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_those_that_changed`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`is_ready_to_land_once_patronus_judged_the_approvals_else_the_start_is_the_users_step`)
   [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should say in the island header where the whole stack is on its way into master`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the failed robot of the whole stack in the hover of the island's node, with its actions`)
-- After it, where the branches of the stack are on their way into master, by the nodes of their rows, as the stack
-  chip counts them (`summarizeStackState` over the whole stack, `getStackStateChips`), the strongest first in the
-  colours of the nodes: "1 to fix", "4 landing" with the ring of the robot, "2 waiting"; a click on a count shows the
+- After it, where the branches of the stack are on their way into master, by the nodes of their rows as they show
+  them (the kind Rust decides with the move that runs on the row laid over it, `getNodeKindNow`, `presentNodeKind`), as
+  the stack chip counts them (`summarizeStackState` over the whole stack, `getStackStateChips`), the strongest first in
+  the colours of the nodes: "1 to fix", "4 landing" with the ring of the robot, "2 waiting"; a click on a count shows the
   first branch in that state (`requestReveal`: it expands the island and the row), also from a collapsed island. The
   robot of the whole stack runs on its stack branch, no branch's: while it runs every branch it lands is landing
   ("7 landing"); a failure of it on the stack branch as the sync built it is one more fix, the root's ("1 to fix"),
@@ -98,6 +108,7 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the robot of the whole stack in the header of its island, a click on it showing the root`)
   [@test] ../../src/lib/stack-state.test.ts (`counts a fix of the whole stack, whose stack branch has no row, as the root's`)
+  [@test] ../../src/presenters/landing-node.test.ts (`counts the kind a row shows without its words: the move that runs and the push from its click laid over the node`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should count the failed robot of the whole stack only while the sync built its stack branch`)
 - Below the name, muted, " · " between its items as between the parts of each: the open pull requests of the stack
   ("2 pull requests open · 1 approved · 1 changes requested") and what each running robot lands, with its time left ("Safe Push of runtime lands 4 branches · ~23m
@@ -157,7 +168,8 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it, the stack landing from the click`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it, the stack waiting from the click`)
 - The Safe Push slot is the Safe Push of the whole stack: one robot lands every branch of it, side branches included
   ([Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app)). Of a stack that forks it is the
-  next step of its stack branch (`WholeStackSlot`, [Next Step](next-step.spec.md#the-whole-stack)): "Safe Push · 7",
+  next step of its stack branch as Rust decides it (`nextSteps` under `stack:<root>`, `WholeStackSlot`,
+  [Next Step](next-step.spec.md#the-whole-stack)): "Safe Push · 7",
   its hover what it lands, "Lands 7 branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and
   side-test" (the main line first, then the side branches, which only it lands); else the restart of its robot,
   "Create Pull Request…" (of the Stack, as its menus say it), Request Review… or the wait in its pull request. Of a straight chain, which has
@@ -177,6 +189,7 @@ Rust places: at each fork the child with the longest chain), whose one robot lan
   and "Land it in pieces" of the popover open that Safe Push at the header's slot. The rows keep their own popovers at
   their slots, one popover at a time (`SafePushAsk`). The header shows no key hints: it is no row.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`the_whole_stack_takes_the_rows_of_its_stack_branch`)
   [@test] ../../crates/domain-policy/src/stack_test.rs (`the_main_line_takes_the_longest_chain_at_each_fork_and_the_last_of_equal_ones`)
 - While a Safe Push runs in the stack (each one lands the root: [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs))
   the header's push is disabled with the reason of the hold and it offers no Safe Push: the landing line and "4
@@ -225,7 +238,9 @@ Rust places: at each fork the child with the longest chain), whose one robot lan
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/lib/stack-state.test.ts`.
+- `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/lib/stack-state.test.ts`,
+  `src/presenters/landing-node.test.ts`; `cargo nextest run -p domain-policy -p repository-model`: the step and the node
+  of the whole stack (`next_step_test.rs`, `landing_node_test.rs`, `derive_test.rs`).
 - `pnpm e2e`: `tests/e2e/stack-island` (templates `stack_island`, `stack_side_conflict`: the stack branch conflicts).
 
 ## References

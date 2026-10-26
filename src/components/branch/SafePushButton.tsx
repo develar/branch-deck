@@ -7,9 +7,10 @@ import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
+import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useClosePreview } from "@/hooks/useClosePreview"
 import { requestSafePush } from "@/hooks/useSafePush"
-import { useStartStep } from "@/hooks/useStackNextStep"
+import { useStackNextStep } from "@/hooks/useStackNextStep"
 import { formatStackPushing } from "@/lib/stack"
 import { stopWaitingPushItem, transferLabel } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
@@ -72,7 +73,10 @@ export function SafePushButton({
   className,
 }: SafePushButtonProps) {
   const closePreview = useClosePreview()
-  const step = useStartStep(branch.name, wholeStack)
+  const branchStep = useBranchNextStep(wholeStack === undefined ? branch.name : "")
+  // of a whole stack that forks, the step of its stack branch; a straight chain's is its last branch's, whose button that is
+  const stackStep = useStackNextStep(wholeStack ?? "")
+  const step = wholeStack === undefined ? branchStep : stackStep?.leaf === null ? stackStep.step : null
   // the start of the whole stack runs under its key, and pushes its stack branch alone
   const key = wholeStack === undefined ? branch.name : stackReadinessKey(wholeStack)
   const starting = useSafePushStarting(key)

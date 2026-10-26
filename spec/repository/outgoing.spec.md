@@ -11,6 +11,7 @@ targets:
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/useLandedIn.ts
   - ../../src/lib/push-summary.ts
+  - ../../src/stores/stack-collapse.ts
   - ../../crates/domain-policy/src/push.rs
   - ../../crates/repository-model/src/push_guard.rs
   - ../../src/lib/ui-types.ts
@@ -66,27 +67,28 @@ The sync rebuilds a virtual branch on the latest baseline, so its hashes change 
 is outgoing compares content, not hashes: the question is whether the remote has the user's work as it is now.
 
 - A branch is outgoing when its row offers a push that is not disabled as up to date: the branch synced without an
-  error, has commits, and its remote status is loaded and not up to date.
+  error, has commits, and its remote status is loaded and not up to date (its action, which Rust decides of the remote
+  status, `domain_policy::push::action`). A side stack of branches none of which is outgoing, failed or blocked is
+  quiet: it starts collapsed ([Stacked Branches](../branch/stacked-branches.spec.md#ui)).
 - The commits of a push must be the commits whose content the remote lacks. The baseline commits must not count (the
   remote has them), nor the rebased copies of pushed commits (patch-equivalent). A branch not on the remote counts all
   its commits, the baseline excluded; mine counts only the user's commits, also for a first push.
-  [@test] ../../src/lib/push-summary.test.ts (`counts the commits whose content the remote lacks`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_new_branch_counts_commits_by_author`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_new_commit_after_baseline_merge`)
 - A branch only rebased onto a newer baseline must be up to date: the remote has all its commits by content. Its row
   says so, and it is not outgoing.
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_shows_zero_unpushed`)
-- A branch with a conflict, a sync error or no commits must not count; a branch whose remote status is not loaded yet
-  must not count either; the summary counts how many there are.
-  [@test] ../../src/lib/push-summary.test.ts (`skips the branches whose row offers no push and counts the ones not loaded`)
-- The summary must say why each branch with commits is not outgoing (`PushSkip`: failed to sync, blocked by its
-  parent, held by a running Safe Push, landed, not loaded yet, up to date), and count the ones whose work for the
-  remote it leaves out: a failed sync, a blocked or a held branch whose remote lacks some of its commits.
-  [@test] ../../src/lib/push-summary.test.ts (`says why each branch with commits is not outgoing, and counts the work for the remote it leaves out`)
+- A branch with a conflict, a sync error or no commits must not be outgoing, nor one whose remote status is not loaded
+  yet: a side stack that holds one is not quiet. A push of several branches leaves out each branch the last sync did not
+  build, one a running Safe Push holds and one nothing of which is left to land (`domain_policy::push::push_plan`); its
+  row says why.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`collapses a side stack into its root, and keeps a quiet one collapsed until the user expands it`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`, `push_with_children_leaves_out_what_asks_first_is_held_or_landed`)
 - A branch the fetched baseline has all of ("landed", [Landed Commits](landed-commits.spec.md#before-the-update)) must
-  not count: the update archives it, nothing of the user's is left to push. Its push button stays, quiet.
-  [@test] ../../src/lib/push-summary.test.ts (`skips a branch the fetched baseline has all of: the update archives it`)
+  not be pushed with others: the update archives it, nothing of the user's is left to push. Its push button stays,
+  quiet.
+  [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The state of a branch must follow the label of its push button, which reads the action Rust decides of its remote
   status for the app and `bd` alike (`domain_policy::push::action`, `RemoteStatusUpdate.action`):
@@ -152,9 +154,6 @@ is outgoing compares content, not hashes: the question is whether the remote has
   process each time, takes it from the object cache and reads only the push times.
   [@test] ../../crates/sync-core/src/sync_test.rs (`the_remote_status_of_unchanged_commits_runs_no_git`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_pushed_branches_in_a_new_process`)
-- The total and the mine counts must sum the outgoing branches; "mine" uses the remote status count of the user's
-  commits.
-  [@test] ../../src/lib/push-summary.test.ts (`sums the outgoing branches in order and counts them by state`)
 - The count of a push must read `3↑` when its commits are all the user's, and `mine (total)↑` only when some are
   others' (`1 (3)↑`; `0 (3)↑` when none is theirs), then `· 1 amended` for the older versions of commits amended
   here, `· 1 reworded` for the commits reworded here, `· 7 landed` for older versions of commits the baseline has,
@@ -352,7 +351,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
 
 ## Testing / Local Run
 
-- `pnpm test:unit` covers the summary (`src/lib/push-summary.test.ts`).
+- `pnpm test:unit` covers the words and the colours of a push (`src/lib/push-summary.test.ts`).
 - `pnpm e2e` covers the push (`tests/e2e/outgoing`). The E2E server has no remote:
   the tests answer `push_branch` in the page (`routePush`) to turn branches into a plain push, a force push, up to
   date or a remote that moved, and read the `expectedRemote` the pushes sent. A result can send progress to the push's

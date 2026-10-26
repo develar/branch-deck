@@ -4,18 +4,12 @@ import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
-/**
- * What a push of a branch does: a plain push, the first push that creates the remote branch, a force push. Rust decides
- * it of each remote status (`RemoteStatus.action`, `domain_policy::push::action`); the page only words and colours it.
- */
-export type OutgoingState = Exclude<PushAction["kind"], "upToDate">
-
 type RemoteStatusInput = Pick<Branch, "remoteStatus">
 
 /** The older versions a push replaces */
 type OlderVersions = Pick<RemoteStatus, "commitsAmended" | "commitsRestacked" | "commitsLanded" | "commitsReworded" | "ancestorCommitsAhead">
 
-/** Hue of a push: the push buttons, the status texts and the outgoing bars take it from here. */
+/** Hue of a push: the push buttons and the status texts take it from here. */
 export type PushHue = Extract<UIColor, "primary" | "warning">
 
 /**
@@ -160,133 +154,6 @@ export function getPushColor(branch: RemoteStatusInput): UIColor | null {
     return "neutral"
   }
   return getPushHue(action)
-}
-
-/** A branch with something to push. */
-export interface OutgoingBranch {
-  name: string
-  /** Commits whose content the remote lacks: the baseline and the rebased copies of pushed commits don't count */
-  count: number
-  /** Of them, the commits authored by the user */
-  mine: number
-  state: OutgoingState
-  /** Commits on the remote that a force push drops */
-  behind: number
-  /** Older versions of commits amended here on the remote, which the push replaces */
-  amended: number
-  /** Older versions of the commits of the branches it is built on on the remote, which the push replaces */
-  restacked: number
-}
-
-/**
- * Why a branch with commits is not outgoing: its sync failed, its stack parent blocks it, a running Safe Push holds it,
- * the fetched baseline has all of it (landed), its remote status is not loaded yet, or the remote has it (up to date)
- */
-export type PushSkip = "failed" | "blocked" | "held" | "landed" | "notLoaded" | "upToDate"
-
-/** The skips that keep work for the remote from the overview: the branch has commits the remote lacks, or may have */
-export type WithheldSkip = Extract<PushSkip, "failed" | "blocked" | "held">
-
-export interface PushSummary {
-  /** Commits to push over all branches */
-  total: number
-  mine: number
-  /** In the order of the given branches */
-  branches: OutgoingBranch[]
-  /** Branch count per state */
-  byState: Record<OutgoingState, number>
-  /** Branch count per hue */
-  byHue: Record<PushHue, number>
-  /** Branches that offer a push but whose remote status is not loaded yet */
-  notLoaded: number
-  /** Why each branch with commits that is not outgoing is not: the overview names it in the row of its pull request */
-  skipped: ReadonlyMap<string, PushSkip>
-  /**
-   * Of them, the branches whose work for the remote the overview leaves out, per reason: a failed sync (unknown), a
-   * blocked or a held branch whose remote lacks some of its commits
-   */
-  withheld: Record<WithheldSkip, number>
-}
-
-type SummaryInput = Pick<Branch, "name" | "remoteStatus" | "hasError" | "commitCount"> & { status?: Branch["status"] }
-
-/**
- * What is waiting to be pushed: only the branches whose row offers a push (synced without an error, with commits, not
- * blocked by their stack parent, not held by a running Safe Push, `isHeld`), and not the ones the fetched baseline has
- * all of (`isLanded`): the update archives them.
- */
-export function summarizePushState(
-  branches: readonly SummaryInput[],
-  isLanded: (name: string) => boolean = () => false,
-  isHeld: (name: string) => boolean = () => false,
-): PushSummary {
-  const skipped = new Map<string, PushSkip>()
-  const summary: PushSummary = {
-    total: 0,
-    mine: 0,
-    branches: [],
-    byState: { push: 0, create: 0, force: 0 },
-    byHue: { primary: 0, warning: 0 },
-    notLoaded: 0,
-    skipped,
-    withheld: { failed: 0, blocked: 0, held: 0 },
-  }
-  for (const branch of branches) {
-    if (branch.commitCount === 0) {
-      continue
-    }
-    const action = branch.hasError ? null : (branch.remoteStatus?.action ?? null)
-    const skip = skipOf(branch, action, isLanded, isHeld)
-    if (skip !== null) {
-      skipped.set(branch.name, skip)
-      if (skip === "notLoaded") {
-        summary.notLoaded++
-      } else if (skip === "failed" || ((skip === "blocked" || skip === "held") && action?.kind !== "upToDate")) {
-        summary.withheld[skip]++
-      }
-      continue
-    }
-    if (action === null || action.kind === "upToDate") {
-      continue
-    }
-    const { commitsAhead: count, commitsBehind, commitsAmended, commitsRestacked, ancestorCommitsAhead, myCommitsAhead } = branch.remoteStatus!
-    const mine = Math.min(myCommitsAhead, count)
-    // rebuilt on a parent with new commits: restacked as well
-    summary.branches.push({
-      name: branch.name,
-      count,
-      mine,
-      state: action.kind,
-      behind: commitsBehind,
-      amended: commitsAmended,
-      restacked: commitsRestacked + ancestorCommitsAhead,
-    })
-    summary.total += count
-    summary.mine += mine
-    summary.byState[action.kind]++
-    summary.byHue[getPushHue(action)]++
-  }
-  return summary
-}
-
-/** Why the branch is not outgoing, null when it is: the reasons of a row that offers no push first, as it shows them */
-function skipOf(branch: SummaryInput, action: PushAction | null, isLanded: (name: string) => boolean, isHeld: (name: string) => boolean): PushSkip | null {
-  if (branch.hasError) {
-    return "failed"
-  }
-  if (branch.status === "Blocked") {
-    return "blocked"
-  }
-  if (isHeld(branch.name)) {
-    return "held"
-  }
-  if (isLanded(branch.name)) {
-    return "landed"
-  }
-  if (action === null) {
-    return "notLoaded"
-  }
-  return action.kind === "upToDate" ? "upToDate" : null
 }
 
 /** What a push sends and what it replaces on the remote, `formatPushCount` writes it */

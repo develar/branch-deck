@@ -27,7 +27,7 @@ targets:
   - ../../src/hooks/useLandedIn.ts
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/usePushButton.ts
-  - ../../src/lib/push-summary.ts
+  - ../../crates/domain-policy/src/push.rs
   - ../../src/components/shared/CopyButton.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchCreator.tsx
@@ -170,13 +170,13 @@ by the next sync the same way.
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - A branch the fetched baseline has all of has nothing left to push: the update archives it. Its status reads
   "landed" after an `info` dot, its push button keeps its label (`Push (1)`) but is neutral, and both
-  descriptions say "Already in origin/master. Update to archive the branch."; it is not outgoing, so the indicator of
-  [Outgoing Commits](outgoing.spec.md#what-is-outgoing) leaves it out ("3 commits to push in 2 branches"). A part that
-  landed changes nothing of this: the branch still has commits to push.
+  descriptions say "Already in origin/master. Update to archive the branch."; it is not outgoing, so a push of the
+  stack leaves it out ([Outgoing Commits](outgoing.spec.md#what-is-outgoing), `domain_policy::push::push_plan`). A part
+  that landed changes nothing of this: the branch still has commits to push.
   [@test] ../../src/lib/landed.test.ts (`has nothing to push for a branch the fetched baseline has all of, before the update`)
   [@test] ../../src/hooks/useStatusBadge.test.ts (`says landed, in the merged hue, for a branch the baseline has all of: its push state no longer matters`)
   [@test] ../../src/hooks/usePushButton.test.ts (`is quiet for a branch the baseline has all of: the update archives it`)
-  [@test] ../../src/lib/push-summary.test.ts (`skips a branch the fetched baseline has all of: the update archives it`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - Such a branch landed, the first answer of what landed it (`domain_policy::landed::landed_state`, the view's
   `landedStates`, [Next Step](../branch/next-step.spec.md#the-table), row 1): its Safe Push and Dry Run are disabled

@@ -1,25 +1,19 @@
 import { useEffect, useMemo } from "react"
-import { getLandingNodeNow, useNodeStores } from "@/hooks/useLandingNode"
-import type { LandingNodeKind } from "@/lib/bindings"
+import { getNodeKindNow, useNodeStores } from "@/hooks/useLandingNode"
 import type { BranchChipMatches, BranchFilterChip } from "@/lib/branch-filter"
 import { chipCount, CHIPS, collectChipMatches, FILTER_BAR_MIN_BRANCHES, filterBranches, isFilterActive, keepShown, movesByUrgency } from "@/lib/branch-filter"
 import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
 import { branchSyncStore, getMainBranchOrder, useBranchSync } from "@/stores/branch-sync"
 import { useCommitMove } from "@/stores/commit-move"
 
-/** The kind of the node of the row of `name` now, as the row shows it */
-function nodeKindNow(name: string): LandingNodeKind | null {
-  return getLandingNodeNow(name)?.kind ?? null
-}
-
 /** Every branch of the table is in a row of it (`branchTableRowsIn`): the backend order without the parked ones */
 function chipMatchesNow(): BranchChipMatches {
-  return collectChipMatches(getMainBranchOrder(), nodeKindNow)
+  return collectChipMatches(getMainBranchOrder(), getNodeKindNow)
 }
 
 /** The rows F2 steps through now, a fix first (`movesByUrgency`) */
 export function getMoveRowsNow(names: readonly string[]): string[] {
-  return movesByUrgency(names, nodeKindNow)
+  return movesByUrgency(names, getNodeKindNow)
 }
 
 /**
