@@ -1,7 +1,7 @@
 # UI Theme: Islands Layering, Palette and the Radius Scale
 
 **Status:** Implemented  
-**Updated:** 2026-10-19  
+**Updated:** 2026-10-26  
 **Tags:** [ui, theme, shadcn, tailwind, radius, palette]
 
 ## Problem
@@ -219,7 +219,13 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - `primary` (blue): the user's actions and selection: Sync, the icon of a routine push, a selected or drop-target row.
     An action that repeats on every row colours only its icon, so a fully coloured label means "look here"; the folder
     icons are neutral;
-  - neutral (a `secondary` badge, muted text): a count or a routine state, such as the `SectionCardHeader` count.
+  - neutral (a `secondary` badge, muted text): a count or a routine state, such as the `SectionCardHeader` count;
+  - one fact gets one colour in a row: the node of a branch has the colour of its next step, so its pull request chip
+    colours only its icon and its number is neutral.
+- **The normal state is quiet**: a state that needs no action shows nothing in a list (a branch up to date with its
+  remote has no status text and no push), so the states that need the user stand out; a surface of details (the
+  branch preview) still says it. A count under a column head is a number, right-aligned in tabular figures (Commits),
+  not "2 commits" on every row; a sentence keeps the words (a tooltip, a toast).
 - **A note inside a form, a popover or a panel is a `Callout`** (`src/components/shared/Callout.tsx`), never a
   hand-rolled tinted box:
   - `tone` is `info`, `success`, `warning` or `destructive`; the box is `rounded-lg border-<tone>/20 bg-<tone>/10 p-3`;

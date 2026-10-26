@@ -304,7 +304,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 ### Commits cell
 
-- The commits cell must show "1 commit" or "N commits", muted.
+- The Commits cell must show the count of the commits as a number, muted, right-aligned in tabular figures under the
+  head "Commits": "1 commit" and "2 commits" on every row were words that said the head again. A sentence about a
+  count keeps its words ("ABC-123 · 2 commits" of a drag, a tooltip, a toast).
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
 
 ### Status cell
@@ -329,9 +331,15 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   branch, or one the last sync left with an error, a conflict or a block), an error or a conflict
   ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), a branch the fetched
   baseline has all of ("landed", [Landed Commits](../repository/landed-commits.spec.md#before-the-update)), the remote
-  status ("not pushed", "up to date", "3 (5)↑ · 2↓", "1↑ · 1 amended", "4↑ · restacked", "restacked",
+  status ("not pushed", "3 (5)↑ · 2↓", "1↑ · 1 amended", "4↑ · restacked", "restacked",
   [What is outgoing](../repository/outgoing.spec.md#what-is-outgoing)), then the result of the sync ("created",
   "updated", "unchanged").
+- A branch up to date with its remote (pushed, the remote as the branch) must show nothing in the first column: it needs
+  no action, and on most rows "up to date" drowned the states that do. Its node, its chips and the rest of the row
+  stay; the branch preview says "up to date" with the last push (`StatusTexts.quiet`).
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show nothing in the Status cell of a branch up to date with its remote, which needs no action`)
+  [@test] ../../src/hooks/useStatusBadge.test.ts (`is quiet for a branch up to date with its remote, which needs no action: the row shows nothing, the preview the text`)
+  [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should push the branch with P`)
 - A branch a sync groups as it was, with the same commits, which the last sync built without a problem, must keep what
   its row shows while the sync rebuilds it (a quiet resync, `TableState` of the session): its status, its node, its synced hashes,
   until the sync reports it, so a sync of 35 branches doesn't turn every row to "syncing…" for a moment. Its push stays
@@ -369,7 +377,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../crates/sync-core/src/sync_test.rs (`the_report_says_what_the_sync_read_and_the_tips_it_left`)
   [@test] ../../src/lib/git/push.test.ts (`refuses the action of a branch the last sync did not build, or built on one, instead of going on with its remote`)
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
-  status is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
+  status but up to date is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
   ([Push colours](../repository/outgoing.spec.md#push-colours)), in every table: the node of the row says where it is on
   its way into master ([Tree](#tree)), not its push.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
@@ -432,7 +440,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   the hover as it is ([hover descriptions](../../docs/design/ui-theme.md)): open while the pointer stays, also
   after a click well after it opened. Its colour is the push colour
   of the branch as the text of a ghost button (the arrow for `primary`), neutral when landed. A branch up to date with
-  its remote has no button: the status text says it, and a disabled arrow in every pushed row would only repeat it; so has a branch a running Safe Push holds, whose Status cell shows the robot or
+  its remote has no button: nothing is to push, and a disabled arrow in every pushed row would say it on every row; so has a branch a running Safe Push holds, whose Status cell shows the robot or
   "lands with oauth", and its Safe Push slot is empty too ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs));
   and so has a branch the remote lacks whose landing pushes it (`isFirstPushInLanding`): where Patronus answers or
   GitHub lists the pull requests and the branch has no live pull request, its Safe Push and Create Pull Request push
@@ -779,7 +787,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   `outline-current` 2px off it. The commit dots are 5px in `--bd-lane-dot`
   (`bd-lane-rail`), the content of the rows below a branch row starts at `--bd-row-inset`. The running robot that tests
   the branch draws its line and its dots over them ([Patronus](patronus.spec.md#commits-a-running-robot-covers)).
-- The commit count is `text-sm text-muted-foreground`.
+- The commit count is `text-sm text-muted-foreground tabular-nums`, at the end of its track (`justify-end`), under the
+  head "Commits" that labels the track.
 
 ### Status
 
@@ -791,7 +800,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   subtle badge of its colour. The robot in its place is its chip at `text-sm`, `h-6` without padding, a `size-3.5` icon
   (the ring while it runs) where the dot is; the progress line under its time is `h-0.5`, in the padding of the cell.
 - A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and
-  badges (its focus ring), without a border or an outline, and underlined on hover. A dot is `size-1.5 rounded-full
+  badges (its focus ring), without a border or an outline, and underlined on hover. The pull request chip colours its
+  icon alone; its number is muted ([Pull Requests](pull-requests.spec.md#chip)). A dot is `size-1.5 rounded-full
   shrink-0`. The details popover is `w-80` with `p-3`.
 - The colours: `info` merged and landed; `warning` attention (blocked, a pull request or a robot behind the branch,
   "Needs review"); `destructive` a failure or a conflict; `success` approved or passed; the push colour (`primary`, or

@@ -41,7 +41,7 @@ test.describe("Update Project", () => {
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     await expect(button).toHaveAttribute("data-status", "upToDate")
     await expectTooltip(page, /Up to date with origin\/master.*Fetched just now/)
-    await verifyCommitCount(findBranchRow(page, "feature-auth"), "1 commit")
+    await verifyCommitCount(findBranchRow(page, "feature-auth"), 1)
   })
 
   test("should rebase an update whose conflict of git resolves by words, and say so", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -305,7 +305,7 @@ test.describe("Update Project", () => {
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
     // nothing changed
-    await verifyCommitCount(findBranchRow(page, "feature-auth"), "2 commits")
+    await verifyCommitCount(findBranchRow(page, "feature-auth"), 2)
     await expect(button).toHaveAttribute("data-status", "conflict")
   })
 

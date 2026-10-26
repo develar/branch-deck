@@ -129,12 +129,10 @@ export async function expectNothingToPush(branchRow: Locator): Promise<void> {
   await expect(getPushButton(branchRow)).toHaveCount(0)
 }
 
-/**
- * Verify branch has expected number of commits
- */
-export async function verifyCommitCount(branchRow: Locator, expectedText: string): Promise<void> {
+/** The Commits cell of a branch row shows `expected`, the count alone under its head */
+export async function verifyCommitCount(branchRow: Locator, expected: number): Promise<void> {
   const { commits } = getBranchCells(branchRow)
-  await expect(commits).toContainText(expectedText)
+  await expect(commits).toHaveText(String(expected))
 }
 
 /**

@@ -76,7 +76,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_new_branch_counts_commits_by_author`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_new_commit_after_baseline_merge`)
 - A branch only rebased onto a newer baseline must be up to date: the remote has all its commits by content. Its row
-  says so, and it is not outgoing.
+  shows no status and no push, as for any branch up to date, its preview says "up to date", and it is not outgoing.
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_shows_zero_unpushed`)
 - A branch with a conflict, a sync error or no commits must not be outgoing, nor one whose remote status is not loaded

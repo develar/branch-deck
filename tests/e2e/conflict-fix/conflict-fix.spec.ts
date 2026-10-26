@@ -44,12 +44,12 @@ test.describe("Conflict fix", () => {
     await runAndWaitForSync(page, () => fix.getByTestId("apply-conflict-fix").click())
     await expect(page.getByText("Fixed the conflict of ui")).toBeVisible()
     await expect(findBranchRow(page, "ui").getByTestId("branch-status")).not.toHaveText("merge conflict")
-    await verifyCommitCount(findBranchRow(page, "api"), "2 commits")
+    await verifyCommitCount(findBranchRow(page, "api"), 2)
     // the fix shows where the commit went
     await expect(getBranchCommitRow(page, "api", "Show the timeout in seconds")).toHaveAttribute("data-selected", "true")
 
     await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
-    await verifyCommitCount(findBranchRow(page, "api"), "1 commit")
+    await verifyCommitCount(findBranchRow(page, "api"), 1)
     await expect(findBranchRow(page, "ui").getByTestId("branch-status")).toHaveText("merge conflict")
   })
 

@@ -120,7 +120,7 @@ test.describe("Stacked branches", () => {
   test("should show the branches of a stack under their parents", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches", { patronus: availableRobots() })
     await syncAndWaitForBranches()
-    await verifyCommitCount(findBranchRow(page, "login"), "1 commit")
+    await verifyCommitCount(findBranchRow(page, "login"), 1)
 
     expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
     // a graph, not a staircase: the chain auth → login → oauth stays on lane 0, session forks off it on lane 1
@@ -585,9 +585,9 @@ test.describe("Stacked branches", () => {
     await page.getByRole("menuitem", { name: "Push Stack (3 branches) P" }).click()
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
     expect(pushes.map(push => push.parentBranch ?? null)).toEqual([null, "auth", "login"])
-    // the stack is on the remote: the dots of their status are neutral
+    // the stack is on the remote: up to date needs no action, so the rows that said "not pushed" say nothing
     for (const name of ["auth", "login", "oauth"]) {
-      await expect(findBranchRow(page, name).getByTestId("branch-status-dot")).toHaveAttribute("data-color", "neutral")
+      await expect(findBranchRow(page, name).getByTestId("branch-status")).toHaveCount(0)
     }
     // one toast for the stack, as Activity has an entry per branch; it creates the pull request of oauth
     const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth, login and oauth" })
@@ -1730,7 +1730,7 @@ test.describe("Stacked branches", () => {
       await expect(groups).toHaveText([/^Icons Team/, /^UI Team/])
 
       await alone.getByRole("button", { name: "Move 1 Commit Here" }).click()
-      await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")
+      await verifyCommitCount(findBranchRow(page, "perf-part-2"), 2)
       // the toast of the move offers the unstack too, never does it
       const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to perf-part-2" })
       await expect(moved.getByRole("button", { name: "Unstack from IJPL-257337" })).toBeVisible()
@@ -1748,7 +1748,7 @@ test.describe("Stacked branches", () => {
       await repo.holdRemoteAnswers({ release: ["readiness"] })
       // two roots now, in the order of their latest commits
       expect((await tree(page)).toSorted()).toEqual(["IJPL-257337@0", "perf-part-2@0"])
-      await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")
+      await verifyCommitCount(findBranchRow(page, "perf-part-2"), 2)
       await expect(review).toContainText("Needs review by the code owners: a Safe Push fails without these approvals.")
       await expect(groups).toHaveText([/^UI Team/])
       await expect(popoverStart(page)).toBeDisabled()

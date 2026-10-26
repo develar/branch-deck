@@ -387,7 +387,7 @@ test.describe("Patronus actions", () => {
     await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(await startedBranches(repo)).toEqual(expect.arrayContaining(["JIRA-456", "ABC-123"]))
     await expect(page.getByText("Moved 1 commit to feature-ui")).toBeVisible()
-    await verifyCommitCount(findBranchRow(page, "feature-ui"), "2 commits")
+    await verifyCommitCount(findBranchRow(page, "feature-ui"), 2)
     await expect(page.getByText(/^Cannot /)).toHaveCount(0)
   })
 

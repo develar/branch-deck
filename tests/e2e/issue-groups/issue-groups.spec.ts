@@ -8,7 +8,7 @@ test.describe("Issue groups", () => {
   test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_groups")
     await syncAndWaitForBranches()
-    await verifyCommitCount(findBranchRow(page, "parser"), "2 commits")
+    await verifyCommitCount(findBranchRow(page, "parser"), 2)
   })
 
   test("should rename an issue group without a rewrite and undo the rename", async ({ page }) => {
@@ -19,11 +19,11 @@ test.describe("Issue groups", () => {
     await expect(renameInput).toHaveValue("parser")
     await expect(page.getByTestId("inline-rename-input")).toContainText("Renames the issue group: the commit messages stay as they are")
     await submitInlineForm(renameInput, "grammar")
-    await verifyCommitCount(findBranchRow(page, "grammar"), "2 commits")
+    await verifyCommitCount(findBranchRow(page, "grammar"), 2)
     await expect(findBranchRow(page, "parser")).toHaveCount(0)
 
     await page.getByRole("button", { name: "Undo" }).click()
-    await verifyCommitCount(findBranchRow(page, "parser"), "2 commits")
+    await verifyCommitCount(findBranchRow(page, "parser"), 2)
     await expect(findBranchRow(page, "grammar")).toHaveCount(0)
   })
 })

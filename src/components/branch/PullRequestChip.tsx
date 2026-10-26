@@ -38,9 +38,10 @@ const checksIcons: Readonly<Record<ChecksState, { icon: ComponentType<{ classNam
 }
 
 /**
- * `#760` with the pull request icon, in the hue of the review decision; a `destructive` dot for failing checks and a
- * `warning` dot when the branch changed since the pull request's head (a branch only rebuilt on a newer baseline did
- * not). Hover shows the details, a click opens it on GitHub. Nothing without a pull request.
+ * `#760` with the pull request icon: the icon in the hue of the review decision, the number neutral, so the row says
+ * its state in one colour beside its node; a `destructive` dot for failing checks and a `warning` dot when the branch
+ * changed since the pull request's head (a branch only rebuilt on a newer baseline did not). Hover shows the details,
+ * a click opens it on GitHub. Nothing without a pull request.
  */
 export function PullRequestChip({ branchName }: { branchName: string }) {
   const pullRequest = usePullRequest(branchName)
@@ -55,7 +56,7 @@ export function PullRequestChip({ branchName }: { branchName: string }) {
   return (
     <StatusChip
       label={`Pull request #${pullRequest.number}: ${chip.label}`}
-      color={chip.color}
+      color="neutral"
       data={{
         "data-testid": "pull-request-chip",
         "data-kind": chip.icon,
@@ -67,7 +68,7 @@ export function PullRequestChip({ branchName }: { branchName: string }) {
       detailsTestId="pull-request-popover"
       onActivate={() => openPullRequest(pullRequest)}
     >
-      <Icon className="size-3.5" />
+      <Icon className={cn("size-3.5", statusChipTextColors[chip.color])} />
       {`#${pullRequest.number}`}
       {chip.checksFailing && <StatusChipDot color="error" testId="pull-request-checks-dot" />}
       {chip.outdated && <StatusChipDot color="warning" testId="pull-request-outdated-dot" />}

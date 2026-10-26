@@ -23,7 +23,7 @@ test.describe("Squash commits", () => {
     await setupRepo("issue_split")
     await syncAndWaitForBranches()
     const issueRow = findBranchRow(page, ISSUE)
-    await verifyCommitCount(issueRow, "3 commits")
+    await verifyCommitCount(issueRow, 3)
     await expandBranch(page, issueRow)
 
     // not adjacent: "Add lexer" stays in between; the dialog lists the commits oldest first, as the message reads
@@ -42,13 +42,13 @@ test.describe("Squash commits", () => {
     await page.keyboard.press("ControlOrMeta+Enter")
     await expect(dialog).toBeHidden()
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
-    await verifyCommitCount(issueRow, "2 commits")
+    await verifyCommitCount(issueRow, 2)
     await expect(getBranchCommitRow(page, ISSUE, "Add tokens")).toHaveCount(0)
     await expect(getBranchCommitRow(page, ISSUE, "Add lexer")).toBeVisible()
     await expect(getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions")).toHaveCount(0)
 
     await page.getByRole("button", { name: "Undo" }).click()
-    await verifyCommitCount(issueRow, "3 commits")
+    await verifyCommitCount(issueRow, 3)
     await expect(getBranchCommitRow(page, ISSUE, "Add tokens")).toBeVisible()
   })
 
@@ -63,7 +63,7 @@ test.describe("Squash commits", () => {
     await page.keyboard.press("ControlOrMeta+Enter")
     const squashed = page.locator("[data-slot=toast]").filter({ hasText: "Squashed 2 commits" })
     await expect(squashed).toBeVisible()
-    await verifyCommitCount(issueRow, "2 commits")
+    await verifyCommitCount(issueRow, 2)
 
     // a commit in a terminal: the branch moved on since the squash, so its undo is stale for good
     await repo.commit(`${ISSUE}: Add the grammar`, { "grammar.js": "export const grammar = {}\n" }, 1704300000)
@@ -74,7 +74,7 @@ test.describe("Squash commits", () => {
 
     // nothing was undone: the next sync shows the squash and the new commit
     await syncFromMenu(page)
-    await verifyCommitCount(issueRow, "3 commits")
+    await verifyCommitCount(issueRow, 3)
     await expect(getBranchCommitRow(page, ISSUE, "Add the grammar")).toBeVisible()
     await expect(getBranchCommitRow(page, ISSUE, "Add tokens")).toHaveCount(0)
   })
@@ -104,7 +104,7 @@ test.describe("Squash commits", () => {
 
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
-    await verifyCommitCount(issueRow, "3 commits")
+    await verifyCommitCount(issueRow, 3)
   })
 })
 

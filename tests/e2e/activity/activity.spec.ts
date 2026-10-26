@@ -118,7 +118,7 @@ testWithIssueLinks.describe("Activity", () => {
     // a rewrite shows its result with the sync it starts
     await runAndWaitForSync(page, () => page.keyboard.press("ControlOrMeta+Enter"))
     await expect(dialog).toBeHidden()
-    await verifyCommitCount(row, "3 commits")
+    await verifyCommitCount(row, 3)
 
     // the Undo of the window is run by the main window, the panel's there itself; both are the toast's: it undoes once
     // and closes the toast
@@ -134,7 +134,7 @@ testWithIssueLinks.describe("Activity", () => {
     await runAndWaitForSync(page, () => entry.getByTestId("activity-undo").click())
     await expect(entry.getByTestId("activity-undone")).toHaveText("undone")
     await expect(entry.getByTestId("activity-undo")).toHaveCount(0)
-    await verifyCommitCount(row, "4 commits")
+    await verifyCommitCount(row, 4)
     await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0)
   }
 

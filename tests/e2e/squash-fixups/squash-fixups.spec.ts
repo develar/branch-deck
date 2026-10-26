@@ -28,7 +28,7 @@ test.describe("Squash fixups", () => {
     await expect(authRow.getByTestId("branch-fixup-count")).toHaveText("1 fixup")
     await expect(findBranchRow(page, "docs").getByTestId("branch-fixup-count")).toHaveText("1 fixup")
     await expect(page.getByTestId("unassigned-commits-section").getByTestId("squash-fixups-button")).toHaveText("Squash 1 Fixup…")
-    await verifyCommitCount(authRow, "3 commits")
+    await verifyCommitCount(authRow, 3)
 
     await expandBranch(page, authRow)
     const fixup = fixupRow(getBranchCommitRow(page, "auth", "Add login form"), page)
@@ -48,11 +48,11 @@ test.describe("Squash fixups", () => {
 
     await expect(confirm).toBeHidden()
     await expect(page.getByText("Squashed 1 fixup")).toBeVisible()
-    await verifyCommitCount(authRow, "2 commits")
+    await verifyCommitCount(authRow, 2)
     await expect(authRow.getByTestId("branch-fixup-count")).toHaveCount(0)
 
     await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
-    await verifyCommitCount(authRow, "3 commits")
+    await verifyCommitCount(authRow, 3)
     await expect(authRow.getByTestId("branch-fixup-count")).toHaveText("1 fixup")
   })
 
@@ -91,7 +91,7 @@ test.describe("Squash fixups", () => {
     await setupRepo("fixups")
     await syncAndWaitForBranches()
     const authRow = findBranchRow(page, "auth")
-    await verifyCommitCount(authRow, "3 commits")
+    await verifyCommitCount(authRow, 3)
     await expandBranch(page, authRow)
     const rows = getBranchCommitRow(page, "auth", "Add login form")
     const target = rows.filter({ hasNot: page.getByTestId("fixup-marker") })
@@ -110,6 +110,6 @@ test.describe("Squash fixups", () => {
     await page.keyboard.press("Escape")
     await page.keyboard.press("Escape")
     await expect(target).toHaveCount(1)
-    await verifyCommitCount(authRow, "3 commits")
+    await verifyCommitCount(authRow, 3)
   })
 })

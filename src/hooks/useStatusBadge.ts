@@ -41,9 +41,10 @@ export function getStatusBadge(branch: Branch, landedIn: string | null = null): 
     return { text: "landed", tooltip: landedBranchDescription(landedIn), color: "info" }
   }
 
-  // remote status is the most actionable; it has the colour of the push button
+  // remote status is the most actionable; it has the colour of the push button. Up to date needs no action: quiet
   if (branch.remoteStatus != null) {
-    return { ...buildRemoteStatusTexts(branch.remoteStatus, branch.stack?.effectiveBase ?? null), color: getPushColor(branch) ?? "neutral" }
+    const texts = { ...buildRemoteStatusTexts(branch.remoteStatus, branch.stack?.effectiveBase ?? null), color: getPushColor(branch) ?? "neutral" }
+    return branch.remoteStatus.action.kind === "upToDate" ? { ...texts, quiet: true } : texts
   }
 
   switch (branch.status) {

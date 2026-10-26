@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
-import { CREATE, forcePush, testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { CREATE, PUSH, forcePush, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 describe("getStatusBadge", () => {
   it("says landed, in the merged hue, for a branch the baseline has all of: its push state no longer matters", () => {
@@ -9,6 +9,15 @@ describe("getStatusBadge", () => {
     expect(getStatusBadge(branch, "origin/master")).toEqual({ text: "landed", tooltip: "Already in origin/master. Update to archive the branch.", color: "info" })
     // a sync or an error still comes first
     expect(getStatusBadge({ ...branch, status: "Error", statusText: "failed" }, "origin/master")).toMatchObject({ text: "failed", color: "error" })
+  })
+
+  it("is quiet for a branch up to date with its remote, which needs no action: the row shows nothing, the preview the text", () => {
+    const pushed = testBranch("docs", null, { remoteStatus: testRemoteStatus() })
+    expect(getStatusBadge(pushed)).toMatchObject({ text: "up to date", quiet: true })
+    // a state that asks for something is never quiet
+    expect(getStatusBadge({ ...pushed, remoteStatus: testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, action: PUSH }) }).quiet).toBeUndefined()
+    expect(getStatusBadge(pushed, "origin/master").quiet).toBeUndefined()
+    expect(getStatusBadge({ ...pushed, status: "Blocked", statusText: "Blocked" }).quiet).toBeUndefined()
   })
 
   it("is in the push colour for an amended or restacked branch: its push replaces older versions", () => {

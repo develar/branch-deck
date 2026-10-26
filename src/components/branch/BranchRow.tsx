@@ -256,7 +256,8 @@ export const BranchRow = memo(function BranchRow({
         />
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
           <ColumnTrack track="commits">
-            <span className="text-sm text-muted-foreground">{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>
+            {/* a number under the head "Commits", right-aligned: the words would repeat on every row */}
+            <span className="text-sm text-muted-foreground tabular-nums">{branch.commitCount}</span>
           </ColumnTrack>
         </td>
         {/*

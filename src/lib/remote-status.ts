@@ -16,10 +16,15 @@ export interface StatusTexts {
   color: UIColor
   /** An exceptional state (error, conflict) shown as a badge; a routine one is muted text with a colour dot */
   badge?: boolean
+  /**
+   * The state needs no action (pushed, the remote as the branch, "up to date"): the row shows nothing, so the states
+   * that do stand out; the branch preview says it
+   */
+  quiet?: boolean
 }
 
 /** The texts of a remote status; its colour is the push colour of the branch (`getPushColor`). */
-export type RemoteStatusTexts = Omit<StatusTexts, "color" | "badge">
+export type RemoteStatusTexts = Omit<StatusTexts, "color" | "badge" | "quiet">
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`

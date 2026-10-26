@@ -10,7 +10,7 @@ test.describe("Combine branches", () => {
   test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_combine")
     await syncAndWaitForBranches()
-    await verifyCommitCount(findBranchRow(page, "IJPL-1"), "2 commits")
+    await verifyCommitCount(findBranchRow(page, "IJPL-1"), 2)
   })
 
   test("should drag an issue branch onto a branch: the issue joins it without a rewrite, and Undo moves it back", async ({ page }) => {
@@ -21,7 +21,7 @@ test.describe("Combine branches", () => {
     await expect(findBranchRow(page, "IJPL-2")).not.toHaveAttribute("data-drop-target")
     await dropOn(page, docs)
 
-    await verifyCommitCount(docs, "2 commits")
+    await verifyCommitCount(docs, 2)
     await expect(findBranchRow(page, "IJPL-2")).toHaveCount(0)
     const toast = page.locator("[data-slot=toast-description]").filter({ hasText: "IJPL-2 goes to docs by the issue key from now on, without a rewrite" })
     await expect(toast).toBeVisible()
@@ -30,8 +30,8 @@ test.describe("Combine branches", () => {
     await expect(getBranchCommitRow(page, "docs", "IJPL-2: Print maps")).not.toContainText("(docs)")
 
     await page.getByRole("button", { name: "Undo" }).click()
-    await verifyCommitCount(findBranchRow(page, "IJPL-2"), "1 commit")
-    await verifyCommitCount(docs, "1 commit")
+    await verifyCommitCount(findBranchRow(page, "IJPL-2"), 1)
+    await verifyCommitCount(docs, 1)
   })
 
   test("should drag a branch while a sync runs, say why the targets wait for it, and take the drop once it ended", async ({ page }) => {
@@ -54,7 +54,7 @@ test.describe("Combine branches", () => {
     await expect(docs).toHaveAttribute("data-drop-target", "over")
     await expect(page.getByTestId("drag-target-status")).toHaveCount(0)
     await runAndWaitForSync(page, () => dropOn(page, docs))
-    await verifyCommitCount(docs, "2 commits")
+    await verifyCommitCount(docs, 2)
     await expect(findBranchRow(page, "IJPL-2")).toHaveCount(0)
   })
 
@@ -81,7 +81,7 @@ test.describe("Combine branches", () => {
     )
     await submitInlineForm(input, "maps")
 
-    await verifyCommitCount(findBranchRow(page, "maps"), "4 commits")
+    await verifyCommitCount(findBranchRow(page, "maps"), 4)
     for (const name of ["IJPL-1", "IJPL-2", "IJPL-3"]) {
       await expect(findBranchRow(page, name)).toHaveCount(0)
     }
@@ -106,7 +106,7 @@ test.describe("Combine branches", () => {
     await expect(inlineBranchCreator.getPortal(page)).toContainText("IJPL-2 goes to maps by the issue key from now on, without a rewrite")
     await submitInlineForm(input, "maps")
 
-    await verifyCommitCount(findBranchRow(page, "maps"), "1 commit")
+    await verifyCommitCount(findBranchRow(page, "maps"), 1)
     await expect(findBranchRow(page, "IJPL-2")).toHaveCount(0)
   })
 
@@ -127,8 +127,8 @@ test.describe("Combine branches", () => {
     await dropOn(page, getBranchDetailsRow(page, "docs"))
 
     // a part of an issue gets the prefix
-    await verifyCommitCount(findBranchRow(page, "docs"), "2 commits")
-    await verifyCommitCount(findBranchRow(page, "IJPL-1"), "1 commit")
+    await verifyCommitCount(findBranchRow(page, "docs"), 2)
+    await verifyCommitCount(findBranchRow(page, "IJPL-1"), 1)
     await expect(getBranchCommitRow(page, "IJPL-1", "Parse lists")).toBeVisible()
   })
 })
@@ -145,6 +145,6 @@ testWithUnassigned.describe("Move commits without branches", () => {
 
     await inlineBranchCreator.waitForVisible(page)
     await submitInlineForm(inlineBranchCreator.getInput(page), "auth")
-    await verifyCommitCount(findBranchRow(page, "auth"), "1 commit")
+    await verifyCommitCount(findBranchRow(page, "auth"), 1)
   })
 })

@@ -19,7 +19,8 @@ const GUTTER = "0.5rem"
 
 /** A track's item: its width and its gutter, literal for Tailwind */
 export const TRACK_ITEM_CLASS: Readonly<Record<BranchTrack, string>> = {
-  commits: "min-w-(--bd-track-commits)",
+  // the counts right-aligned under their head, the digits in a column
+  commits: "min-w-(--bd-track-commits) justify-end",
   state: "min-w-(--bd-track-state)",
   pr: "ms-(--bd-gap-pr) min-w-(--bd-track-pr)",
   landed: "ms-(--bd-gap-landed) min-w-(--bd-track-landed)",

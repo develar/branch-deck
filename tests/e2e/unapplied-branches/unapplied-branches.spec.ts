@@ -1,7 +1,7 @@
 // @spec spec/branch/unapply.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getMoreButton } from "../helpers/branch-helpers"
+import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-form-helpers"
 import { routePushBranches } from "../helpers/push-helpers"
 import { finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
@@ -84,7 +84,7 @@ test.describe("Unapplied branches", () => {
     await expect(findBranchRow(page, "docs")).toHaveCount(1)
     await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
     await expect(page.getByTestId("uncommitted-changes-card")).toHaveCount(0)
-    await expect(findBranchRow(page, "docs")).toContainText("1 commit")
+    await verifyCommitCount(findBranchRow(page, "docs"), 1)
   })
 
   test("should keep the branch and say why when the unapply fails, and close the confirmation with Escape", async ({ page }) => {

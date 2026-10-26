@@ -15,7 +15,7 @@ const WAITING = /^Waiting for `[^`]+` \(pid \d+, for \d+ s\)/
 async function setup(page: Page, setupRepo: (template: string) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>): Promise<TestRepositoryBuilder> {
   const repo = await setupRepo("issue_split")
   await syncAndWaitForBranches()
-  await verifyCommitCount(findBranchRow(page, ISSUE), "3 commits")
+  await verifyCommitCount(findBranchRow(page, ISSUE), 3)
   await expandBranch(page, findBranchRow(page, ISSUE))
   return repo
 }
@@ -51,13 +51,13 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await expect(notice).toContainText(WAITING)
     await expect(notice.getByRole("button", { name: "Stop Waiting" })).toBeVisible()
     expect(squashes).toHaveLength(1)
-    await verifyCommitCount(findBranchRow(page, ISSUE), "3 commits")
+    await verifyCommitCount(findBranchRow(page, ISSUE), 3)
     await expect(page.getByText("Cannot squash the commits")).toHaveCount(0)
 
     await repo.holdRepositoryLock(false)
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
     await expect(dialog).toBeHidden()
-    await verifyCommitCount(findBranchRow(page, ISSUE), "2 commits")
+    await verifyCommitCount(findBranchRow(page, ISSUE), 2)
   })
 
   test("should stop the wait of a squash with Stop Waiting in its dialog, squash nothing, and squash on the next press", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -72,11 +72,11 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await expect(notice).toHaveCount(0)
     await expect(page.getByText("Cannot squash the commits")).toHaveCount(0)
     // nothing changed, and the dialog stays with its message: the next press squashes, once the holder is done
-    await verifyCommitCount(findBranchRow(page, ISSUE), "3 commits")
+    await verifyCommitCount(findBranchRow(page, ISSUE), 3)
     await repo.holdRepositoryLock(false)
     await dialog.getByRole("button", { name: /Squash/ }).click()
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
-    await verifyCommitCount(findBranchRow(page, ISSUE), "2 commits")
+    await verifyCommitCount(findBranchRow(page, ISSUE), 2)
   })
 
   test("should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -95,14 +95,14 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await page.getByRole("menuitem", { name: "Stop Waiting" }).click()
     await expect(page.getByText("Canceled moving 1 commit to docs before it started")).toBeVisible()
     await expect(more).not.toHaveAttribute("aria-busy", "true")
-    await verifyCommitCount(findBranchRow(page, "docs"), "1 commit")
-    await verifyCommitCount(findBranchRow(page, ISSUE), "3 commits")
+    await verifyCommitCount(findBranchRow(page, "docs"), 1)
+    await verifyCommitCount(findBranchRow(page, ISSUE), 3)
 
     // the same move once the holder is done: it runs at once
     await repo.holdRepositoryLock(false)
     await moveParserToDocsFromMenu(page)
-    await verifyCommitCount(findBranchRow(page, "docs"), "2 commits")
-    await verifyCommitCount(findBranchRow(page, ISSUE), "2 commits")
+    await verifyCommitCount(findBranchRow(page, "docs"), 2)
+    await verifyCommitCount(findBranchRow(page, ISSUE), 2)
     expect(moves).toHaveLength(2)
   })
 

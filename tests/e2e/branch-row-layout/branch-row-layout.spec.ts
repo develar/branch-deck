@@ -1,12 +1,22 @@
 // @spec spec/branch/branch-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpers/aria-snapshot-helpers"
-import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
+import {
+  findBranchRow,
+  getBranchCells,
+  expandBranch,
+  collapseBranch,
+  verifyBranchState,
+  verifyBranchStatus,
+  getMoreButton,
+  verifyCommitCount,
+  expectNothingToPush,
+} from "../helpers/branch-helpers"
 import { pressCopyKey, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { pushedRemote, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
 test.describe("Branch Row Layout and Copy Functionality", () => {
@@ -29,7 +39,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     const { branchName, status, actions } = getBranchCells(branchRow)
 
     await expect(branchName).toContainText("test-branch")
-    await verifyCommitCount(branchRow, "commit")
+    await verifyCommitCount(branchRow, 1)
     await expect(status).toBeVisible()
     await verifyBranchStatus(branchRow, "not pushed")
     await expect(actions).toBeVisible()
@@ -231,5 +241,22 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
 
     // Close context menu
     await page.keyboard.press("Escape")
+  })
+})
+
+test.describe("Status of a pushed branch", () => {
+  test("should show nothing in the Status cell of a branch up to date with its remote, which needs no action", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("simple", { syncOverrides: pushedRemote("test-branch") })
+    await syncAndWaitForBranches()
+    const row = findBranchRow(page, "test-branch")
+    await verifyCommitCount(row, 1)
+    // pushed, the remote as the branch: its preview says it, the cell is empty and the row offers no push
+    const preview = await openBranchPreview(page, "test-branch")
+    await expect(preview.getByTestId("branch-preview-status")).toHaveText("up to date")
+    await page.keyboard.press("Space")
+    await expect(preview).toHaveCount(0)
+    await expect(getBranchCells(row).status.getByTestId("branch-status")).toHaveCount(0)
+    await expect(row.getByTestId("branch-status-dot")).toHaveCount(0)
+    await expectNothingToPush(row)
   })
 })

@@ -284,7 +284,8 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 - The hue of an open pull request follows the review decision: approved `success`, changes requested `destructive`,
   review required and no decision muted. A draft is muted with the draft icon; a merged one `info`
   with the merge icon; a closed one muted with the closed icon. A draft, merged or closed pull request shows its state,
-  not the decision.
+  not the decision. The hue colours the icon only; the number is muted. The node of the row has the colour of the next
+  step, so a fact gets one colour: a red node, a red icon and a red "#409" said one fact three times.
   [@test] ../../src/lib/pull-request.test.ts (`colours an open pull request by its review decision`)
   [@test] ../../src/lib/pull-request.test.ts (`shows the state of a draft, a merged and a closed pull request instead of the decision`)
 - An open pull request with failing checks gets a small `destructive` dot. An open one gets a `warning` dot when the
@@ -608,8 +609,8 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 
 ## User Experience
 
-- The chip is text-sized (`text-xs`, `size-3.5` icon, tabular figures), a plain button that underlines on hover, with
-  the `rounded-2xl` focus ring of buttons and badges. No chip has an outline: a draft shows by its icon and its muted
+- The chip is text-sized (`text-xs`, `size-3.5` icon in the hue, the number `text-muted-foreground` in tabular
+  figures), a plain button that underlines on hover, with the `rounded-2xl` focus ring of buttons and badges. No chip has an outline: a draft shows by its icon and its muted
   hue. The dots are `size-1.5 rounded-full shrink-0`, as the status dot of the row.
 - The notice of a changed branch is `text-xs text-warning` after the warning triangle; the line of a rebuilt one is
   `text-xs text-muted-foreground`, without an icon (`ReviewCommitNotice`, shared with the Patronus details).
