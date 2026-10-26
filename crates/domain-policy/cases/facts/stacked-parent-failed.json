@@ -29,6 +29,54 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "needsFix",
+        "label": {"kind": "syncFailed", "problem": null, "status": "MergeConflict"},
+        "moveShows": false,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {"code": "syncFailed", "problem": null},
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {"code": "syncFailed", "problem": null},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "login": {
+      "node": {
+        "kind": "waiting",
+        "label": {"by": null, "kind": "blocked"},
+        "moveShows": false,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {"code": "rule", "reason": {"branch": "login", "by": "auth", "code": "blocked"}},
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {"code": "rule", "reason": {"branch": "login", "by": "auth", "code": "blocked"}},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},

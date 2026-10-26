@@ -40,6 +40,144 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "landing",
+        "label": {"by": {"branch": "login", "robotId": "robot-1", "wholeStack": false}, "kind": "landsWith"},
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {
+          "code": "rule",
+          "reason": {
+            "branch": "auth",
+            "code": "held",
+            "hold": {
+              "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+              "carried": {"amended": [], "commits": ["auth-c0"]},
+              "kind": "span"
+            },
+            "mode": "rebaseAutosquash",
+            "target": "master"
+          }
+        },
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {
+          "code": "rule",
+          "reason": {
+            "branch": "auth",
+            "by": {"branch": "login", "robotId": "robot-1", "wholeStack": false},
+            "carried": {"amended": [], "commits": ["auth-c0"]},
+            "code": "descendant",
+            "mode": "rebaseAutosquash"
+          }
+        },
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "login": {
+      "node": {
+        "kind": "landing",
+        "label": {"dryRun": false, "failing": false, "kind": "robotRunning"},
+        "moveShows": false,
+        "pending": false,
+        "robot": true,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {"code": "rule", "reason": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-1"}},
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {"code": "rule", "reason": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-1"}},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "oauth": {
+      "node": {
+        "kind": "landing",
+        "label": {"by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true}, "kind": "landsWith"},
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {
+          "code": "rule",
+          "reason": {
+            "branch": "oauth",
+            "code": "held",
+            "hold": {
+              "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+              "carried": {"amended": [], "commits": ["oauth-c0"]},
+              "kind": "span"
+            },
+            "mode": "rebaseAutosquash",
+            "target": "master"
+          }
+        },
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {
+          "code": "rule",
+          "reason": {
+            "branch": "oauth",
+            "by": {"branch": "auth", "robotId": "robot-0", "wholeStack": true},
+            "carried": {"amended": [], "commits": ["oauth-c0"]},
+            "code": "descendant",
+            "mode": "rebaseAutosquash"
+          }
+        },
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "stack:auth": {
+      "node": {
+        "kind": "landing",
+        "label": {"dryRun": false, "failing": false, "kind": "robotRunning"},
+        "moveShows": false,
+        "pending": false,
+        "robot": true,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {"code": "rule", "reason": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"}},
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 3,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {"code": "rule", "reason": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"}},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

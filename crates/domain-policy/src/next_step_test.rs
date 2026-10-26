@@ -45,6 +45,8 @@ pub(crate) struct Fixture {
   pub readiness: Option<Fact<SubjectReadiness>>,
   pub stack_pull_request: Option<StackPullRequest>,
   pub repository: bool,
+  /// The branches its Safe Push lands
+  pub lands: u32,
 }
 
 pub(crate) fn fresh<T>(value: T) -> Fact<T> {
@@ -112,6 +114,7 @@ impl Fixture {
       readiness: Some(answered(ReviewReadiness::NotRequired)),
       stack_pull_request: None,
       repository: true,
+      lands: 2,
     }
   }
 
@@ -159,6 +162,7 @@ impl Fixture {
       readiness: self.readiness.as_ref(),
       stack_pull_request: self.stack_pull_request.as_ref(),
       repository: self.repository,
+      lands: self.lands,
     }
   }
 

@@ -63,7 +63,7 @@ use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RobotsView, RowsView,
   SubjectReadiness, WholeStackView, stack_readiness_key,
 };
-use domain_types::stack::StackBranchUpdate;
+use domain_types::stack::{BranchStack, StackBranchUpdate};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The input of the rules over the table of `table`, as its view has it
@@ -797,7 +797,7 @@ pub struct RowFacts {
   /// The reason of its stack problem, where the sync says it
   pub problem: Option<String>,
   pub commit_count: usize,
-  /// The parent of a blocked branch
+  /// The parent of a blocked branch (`blocking_parent`)
   pub blocked_by: Option<String>,
   pub parked: Option<Parked>,
   /// Of a root: the parked member its stack branch holds, with the branch it is parked with
@@ -814,10 +814,25 @@ pub fn row_of_view(branch: &BranchView) -> RowFacts {
     sync_failed: branch.sync.has_error,
     problem: stack.and_then(|stack| stack.problems.first()).map(|problem| problem.reason.clone()),
     commit_count: branch.commits.len(),
-    blocked_by: stack.and_then(|stack| stack.blocked_by.as_ref()).map(|block| block.parent.clone()),
+    blocked_by: blocking_parent(branch.sync.status, stack),
     parked: branch.structure.parked.clone(),
     stack_parked: branch.structure.stack_parked.as_ref().map(member_parked),
   }
+}
+
+/// The parent a blocked branch waits for: the one its block names, else the branch it is built on, else its declared
+/// parent; none for a branch that is not blocked
+pub(crate) fn blocking_parent(status: BranchStatus, stack: Option<&BranchStack>) -> Option<String> {
+  if status != BranchStatus::Blocked {
+    return None;
+  }
+  let stack = stack?;
+  stack
+    .blocked_by
+    .as_ref()
+    .map(|block| block.parent.clone())
+    .or_else(|| stack.effective_base.clone())
+    .or_else(|| stack.declared_parent.clone())
 }
 
 /// The rows of `table` as a grouping read without a sync has them (`bd status`, `bd safe-push --check` over the table of
@@ -880,6 +895,9 @@ pub struct StepSources<'a> {
   pub readiness: &'a dyn Fn(&str) -> Option<&'a Fact<SubjectReadiness>>,
   /// The branch of origin the robots push into ("master")
   pub target: &'a str,
+  /// The stack branches as the view of a session has them, by root, whose tips its rows show (`TableState::stack`);
+  /// `None`: those of `table`
+  pub view_stacks: Option<&'a BTreeMap<String, StackBranchUpdate>>,
 }
 
 impl StepSources<'_> {
@@ -947,6 +965,11 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let subject = Subject::branch(name);
     let stack_pull_request = sources.stack_pull_request_of(name);
     let remote = sources.remote.branches.get(name.as_str()).and_then(RemoteFact::branch);
+    let landed_whole = |ancestor: &&str| {
+      let landed = sources.view.branches.get(*ancestor).and_then(|facts| facts.landed_by.as_ref());
+      landed.is_some_and(|landed| landed.after.is_empty() && sources.robot(Some(&landed.by.robot_id)).is_some_and(|robot| robot.status == PatronusRobotStatus::Success))
+    };
+    let ancestors = build_ancestors(&repo, name);
     let step = StepFacts {
       subject: &subject,
       patronus,
@@ -977,12 +1000,8 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       readiness: (sources.readiness)(name),
       stack_pull_request: stack_pull_request.as_ref(),
       repository,
+      lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
     };
-    let landed_whole = |ancestor: &&str| {
-      let landed = sources.view.branches.get(*ancestor).and_then(|facts| facts.landed_by.as_ref());
-      landed.is_some_and(|landed| landed.after.is_empty() && sources.robot(Some(&landed.by.robot_id)).is_some_and(|robot| robot.status == PatronusRobotStatus::Success))
-    };
-    let ancestors = build_ancestors(&repo, name);
     let node = NodeFacts {
       step,
       status: row.status,
@@ -992,7 +1011,6 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
         .filter(|span| sources.robot(Some(&span.by.robot_id)).is_some_and(is_pushing))
         .map(|span| &span.by),
       push_pending: remote.is_some_and(|remote| !remote.up_to_date),
-      lands: u32::try_from(ancestors.iter().filter(|ancestor| !landed_whole(ancestor)).count() + 1).unwrap_or(u32::MAX),
     };
     let view = NextStepView {
       step: next_step(&step),
@@ -1011,6 +1029,10 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let subject = Subject::whole_stack(&stack.root);
     let root_row = rows.get(stack.root.as_str());
     let held = matches!(landing.and_then(|landing| landing.hold.as_ref()), Some(Reason::StackHeld { robot_id, .. }) if sources.robot(Some(robot_id)).is_some_and(holds_pushes));
+    // before the view names what is left of it, every branch of its stack branch
+    let lands = rest
+      .filter(|rest| !rest.members.is_empty() || !rest.landed.is_empty())
+      .map_or(stack.members.len(), |rest| rest.members.len());
     let step = StepFacts {
       subject: &subject,
       patronus,
@@ -1027,7 +1049,11 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       held,
       parked: root_row.and_then(|row| row.stack_parked.as_ref()),
       landed: sources.landed.get(&key),
-      tip: stack.tip.as_deref(),
+      // the tip of its stack branch as the view shows it, as the remote status is the view's (`session_remote`)
+      tip: sources
+        .view_stacks
+        .and_then(|stacks| stacks.get(&stack.root))
+        .map_or(stack.tip.as_deref(), |view| view.tip.as_deref()),
       remote: sources.remote.stacks.get(&stack.root).and_then(RemoteFact::branch),
       robot,
       own_robot_landed: rest.is_some_and(|rest| rest.by_own_robot && rest.members.is_empty()),
@@ -1042,18 +1068,14 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       readiness: (sources.readiness)(&key),
       stack_pull_request: None,
       repository,
+      lands: u32::try_from(lands).unwrap_or(u32::MAX),
     };
-    // before the view names what is left of it, every branch of its stack branch
-    let lands = rest
-      .filter(|rest| !rest.members.is_empty() || !rest.landed.is_empty())
-      .map_or(stack.members.len(), |rest| rest.members.len());
     let node = NodeFacts {
       step,
       status: BranchStatus::Unchanged,
       blocked_by: None,
       lands_with: None,
       push_pending: false,
-      lands: u32::try_from(lands).unwrap_or(u32::MAX),
     };
     let view = NextStepView {
       step: next_step(&step),
@@ -1107,6 +1129,7 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
     landed,
     readiness: &readiness,
     target: baseline_on_remote(&parts.header.baseline_branch),
+    view_stacks: Some(&parts.stacks),
   };
   next_steps(&sources)
 }

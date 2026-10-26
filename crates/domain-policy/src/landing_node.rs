@@ -28,8 +28,6 @@ pub struct NodeFacts<'a> {
   pub lands_with: Option<&'a RobotOf>,
   /// The remote lacks work of it: the step a repository without Patronus and GitHub shows
   pub push_pending: bool,
-  /// The branches a Safe Push of it lands now (1 for a lone one)
-  pub lands: u32,
 }
 
 const fn node(kind: LandingNodeKind, label: NodeLabel) -> LandingNode {
@@ -187,7 +185,7 @@ fn of_step(facts: &NodeFacts<'_>) -> LandingNode {
 /// A start can land it now, unless a robot that lands an ancestor runs (it lands with it later). Ready only when
 /// Patronus judged the approvals; otherwise the start is still the user's step, and Patronus checks them then
 fn ready(facts: &NodeFacts<'_>) -> LandingNode {
-  let lands = facts.lands;
+  let lands = facts.step.lands;
   if let Some(reason) = facts.step.start {
     // the hover offers to show the branch whose robot lands a part of it
     let shows = match reason {

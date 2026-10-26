@@ -1,7 +1,7 @@
 import type { News, Person } from "@/lib/bindings"
-import { formatPerson } from "@/lib/branch-next-step"
 import { joinNames } from "@/lib/text"
 import { formatReadinessSubject } from "@/lib/whole-stack"
+import { formatPerson } from "@/presenters/next-step"
 
 /** The approvals that made a waiting branch ready: "Ilya Korennoy approved wsm-skip-wa-2" */
 export interface ApprovalNews {

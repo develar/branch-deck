@@ -29,6 +29,46 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"fact": "readiness", "kind": "pending"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "0",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},

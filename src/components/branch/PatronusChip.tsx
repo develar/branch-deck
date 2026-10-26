@@ -2,6 +2,7 @@ import { useState } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { CircleXIcon } from "lucide-react"
+import { useStore } from "zustand"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -10,11 +11,10 @@ import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import { PendingSection } from "@/components/shared/PendingSection"
-import { getGatedRobotActions, robotProblemsReason, useNextStepStores } from "@/hooks/useBranchNextStep"
+import { getGatedRobotActions, robotProblemsReason } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
-import { formatPendingFact } from "@/lib/branch-next-step"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
@@ -26,9 +26,10 @@ import { openPullRequestUrl } from "@/lib/pull-request"
 import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
+import { formatPendingFact } from "@/presenters/next-step"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
 import { useOperations } from "@/stores/operations"
-import { useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotRestart } from "@/stores/patronus"
+import { patronusStore, useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotRestart } from "@/stores/patronus"
 
 /**
  * The Patronus robot of the branch: the shield and the state ("Failed", "Merged", "Dry run passed"), in its hue, the
@@ -134,7 +135,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const branch = useBranch(branchName)
   const patronusAvailable = usePatronusAvailable()
   // a store read beside the stores the details select: it changes with `needsReview` and the failure of the problems
-  const problemsUnknown = useNextStepStores(() => robotProblemsReason(robot, branch ?? null))
+  const problemsUnknown = useStore(patronusStore, () => robotProblemsReason(robot, branch ?? null))
   // the details name it; a poll or the start may have named it before
   const profileName = details?.profileName ?? robot.profile?.name ?? null
   return (

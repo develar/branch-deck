@@ -43,7 +43,7 @@ targets:
   - ../../src/components/branch/BranchRowStatus.tsx
   - ../../src/hooks/useRowRobot.ts
   - ../../src/hooks/useLandingNode.ts
-  - ../../src/lib/landing-node.ts
+  - ../../src/presenters/landing-node.ts
   - ../../src/components/branch/BranchGraphHelpPopover.tsx
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/shared/RowActions.tsx
@@ -219,7 +219,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   that fails gives the node back. Its action declares the move (`OperationSpec.move`; the start of a Safe Push from
   `safePushStore.starting`), so every surface that starts it moves the node alike. Without Patronus a running push is
   the push made. A retarget is no such move: the Safe Push after it is the user's again.
-  [@test] ../../src/lib/landing-node.test.ts (`is ready to land once Patronus answered that a Safe Push can land it, with the branches it lands`, `is never ready while Patronus can't judge the approvals: a bot's approval is no judge, GitHub's wait is told`, `waits before the first answer of Patronus, never a green that turns blue`, `is the user's step before it lands: a pull request, a review request, a retarget, a draft`, `needs a fix: a sync error, a conflict, a robot that failed on the branch as it is, changes requested`, `is landing while its own Safe Push runs or one of a branch built on it lands it; a dry run lands nothing`, `waits for others: the reviewers, its parent, a robot that lands an ancestor, a base that may be meant`, `waits for the running Safe Push of a branch it is built on instead of the failure of its earlier piece`, `is in master once the baseline has it or a merge says so, also over a robot that failed before`, `keeps its state while a sync or an operation on the row runs`, `lands by its pull request in a repository that is not on Space`, `is the state after a running move of the row from its start on: Landing for a robot that comes, else Waiting`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`the_node_of_the_subject_itself_parked_failing_landed_blocked_or_its_robot_running_stays_through_a_move`, `is_ready_to_land_once_patronus_judged_the_approvals_else_the_start_is_the_users_step`, `waits_for_others_the_reviewers_a_base_that_may_be_meant_and_is_the_users_step_otherwise`, `waits_for_the_first_answers_as_the_step_does_and_says_a_read_that_failed`)
+  [@test] ../../src/presenters/landing-node.test.ts (`words where a start lands it: ready with the branches it lands, the user's step while Patronus checks the approvals at the start`, `words the step of the node as its slot says it: a pull request, a review request, a wait, In #12, Checking…`, `waits for the first answers and says a read that failed`)
   [@test] ../../src/lib/running-move.test.ts (`finds the own move of the row, else a move of a row whose Safe Push lands it beside`, `finds none for a move that lands nothing beside, or of a row that doesn't land it`, `is a move from the target check on, Landing for a Safe Push, Waiting for a Dry Run; none at its checks`)
   [@test] ../../src/stores/operations.test.ts (`tells the moves of the running operations of the repository until they end`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart a robot once while its restart runs, running in the slot and in its details, landing from the click`)
@@ -244,9 +245,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   failed on ABC-123 as it is: fix it, or Restart Safe Push". A blocked branch offers "Show auth", the parent it waits
   for (`LandingNode.shows`). A click in the hover never toggles the row. The node is no
   tab stop: the row has its keys, and the same actions are in its slot, its menu and its robot chip.
-  [@test] ../../src/lib/landing-node.test.ts (`needs a fix: a sync error, a conflict, a robot that failed on the branch as it is, changes requested`, `is landing while its own Safe Push runs or one of a branch built on it lands it; a dry run lands nothing`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`the_node_of_the_subject_itself_parked_failing_landed_blocked_or_its_robot_running_stays_through_a_move`)
+  [@test] ../../src/presenters/landing-node.test.ts (`words the state of the subject itself: parked, a failure, landed, blocked, its robot running, which a move doesn't replace`)
   [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should open the issue and the failed Safe Push from the hover of the node, and restart it or copy the prompt there`)
-  [@test] ../../src/lib/landing-node.test.ts (`waits for others: the reviewers, its parent, a robot that lands an ancestor, a base that may be meant`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`waits_for_others_the_reviewers_a_base_that_may_be_meant_and_is_the_users_step_otherwise`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
 - The "Branch Name" head must end with the legend of the nodes, "About Branch Graph" (`BranchGraphHelpPopover`): one
   line on what a node says and what filled means, each kind as its node with its legend, and a line on the lines of
@@ -608,7 +610,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/amend-changes/amend-changes.spec.ts (`should amend in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile`, `should add the issue reference in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile`, `should reword a commit as the issue reference before it in the queue left it: another id, another subject`)
   [@test] ../../src/stores/branch-sync.test.ts (`finds a commit whose subject a message rewrite changed by the committer it kept, and one an amend replayed by its subject`, `finds no commit by a key two commits share`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`rewords the commit as the rewrite before it in the queue left it, its preview and its Undo on that commit`)
-  [@test] ../../src/lib/branch-next-step.test.ts (`disables the action of the slot while an operation on the row runs, never the quiet steps nor a write of another field of its pull request; its own runs`)
+  [@test] ../../src/presenters/next-step.test.ts (`lays what runs on the row over the step: its own action runs, the others wait, never a quiet step nor another field of the pull request`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - An action started from the menu, a key or a toast must show its spinner on the "⋯" of its row (`aria-busy`, its
   hover the busy state); one started from a button that stays (the notice's "Unstack from login", a form, a dialog,
@@ -818,7 +820,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 - `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/lib/stack-lanes.test.ts`,
   `src/lib/branch-row-keys.test.ts`, `src/stores/branch-sync.test.ts`, `src/hooks/useStatusBadge.test.ts`,
-  `src/lib/landing-node.test.ts`,
+  `src/presenters/landing-node.test.ts`,
   `src/lib/push-summary.test.ts`, `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
 - `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/branch-graph`, `tests/e2e/branch-filter` (the keys),
   `tests/e2e/archived-branches`, the chip specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a

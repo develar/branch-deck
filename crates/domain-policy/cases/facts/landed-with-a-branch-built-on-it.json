@@ -59,6 +59,128 @@
       }
     }
   },
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "inMaster",
+        "label": {
+          "kind": "landed",
+          "landed": {
+            "after": [],
+            "by": {
+              "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+              "kind": "robots",
+              "own": false,
+              "target": "master"
+            }
+          }
+        },
+        "moveShows": false,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {
+          "code": "rule",
+          "reason": {
+            "branch": "auth",
+            "by": {"branch": "login", "robotId": "robot-0", "wholeStack": false},
+            "code": "landed",
+            "own": false,
+            "target": "master"
+          }
+        },
+        "kind": {"kind": "settled"},
+        "landed": {
+          "after": [],
+          "by": {
+            "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+            "kind": "robots",
+            "own": false,
+            "target": "master"
+          }
+        },
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {
+          "code": "rule",
+          "reason": {
+            "branch": "auth",
+            "by": {"branch": "login", "robotId": "robot-0", "wholeStack": false},
+            "code": "landed",
+            "own": false,
+            "target": "master"
+          }
+        },
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "login": {
+      "node": {
+        "kind": "inMaster",
+        "label": {
+          "kind": "landed",
+          "landed": {
+            "after": [],
+            "by": {
+              "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+              "kind": "robots",
+              "own": true,
+              "target": "master"
+            }
+          }
+        },
+        "moveShows": false,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {
+          "code": "rule",
+          "reason": {
+            "branch": "login",
+            "by": {"branch": "login", "robotId": "robot-0", "wholeStack": false},
+            "code": "landed",
+            "own": true,
+            "target": "master"
+          }
+        },
+        "kind": {"kind": "settled"},
+        "landed": {
+          "after": [],
+          "by": {
+            "by": [{"branch": "login", "robotId": "robot-0", "wholeStack": false}],
+            "kind": "robots",
+            "own": true,
+            "target": "master"
+          }
+        },
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {
+          "code": "rule",
+          "reason": {
+            "branch": "login",
+            "by": {"branch": "login", "robotId": "robot-0", "wholeStack": false},
+            "code": "landed",
+            "own": true,
+            "target": "master"
+          }
+        },
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

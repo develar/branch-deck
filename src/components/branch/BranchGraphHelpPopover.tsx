@@ -1,7 +1,7 @@
 import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { HelpPopover } from "@/components/shared/HelpPopover"
-import type { LandingNodeKind } from "@/lib/landing-node"
-import { landingNodeLooks } from "@/lib/landing-node"
+import type { LandingNodeKind } from "@/lib/bindings"
+import { landingNodeLooks } from "@/presenters/landing-node"
 
 const kinds = Object.keys(landingNodeLooks) as LandingNodeKind[]
 

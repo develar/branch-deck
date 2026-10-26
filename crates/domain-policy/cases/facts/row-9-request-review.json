@@ -29,6 +29,74 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "yourStep",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "groups": [
+                {
+                  "approvedBy": [],
+                  "changesRequestedBy": [],
+                  "name": "IJPL Code Platform",
+                  "needed": 1,
+                  "requested": [],
+                  "suggested": [{"fullName": "Ilya Korennoy", "login": "ikorennoy"}]
+                }
+              ],
+              "kind": "requestReview",
+              "noEligible": false,
+              "number": 7
+            },
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "9",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "groups": [
+            {
+              "approvedBy": [],
+              "changesRequestedBy": [],
+              "name": "IJPL Code Platform",
+              "needed": 1,
+              "requested": [],
+              "suggested": [{"fullName": "Ilya Korennoy", "login": "ikorennoy"}]
+            }
+          ],
+          "kind": "requestReview",
+          "noEligible": false,
+          "number": 7
+        },
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "9",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {
     "auth": {
       "base": {"kind": "target"},

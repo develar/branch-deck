@@ -724,6 +724,7 @@ fn next_steps_of_status(grouping: &BranchGrouping, table: &BranchTable, facts: &
     landed: &landed,
     readiness: &readiness,
     target: baseline_on_remote(&grouping.baseline_branch),
+    view_stacks: None,
   };
   next_steps(&sources)
     .into_iter()

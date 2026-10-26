@@ -1,11 +1,12 @@
 // @spec spec/repository/landing-overview.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { LandingNode, LandingNodeKind } from "@/lib/landing-node"
+import type { LandingNodeKind } from "@/lib/bindings"
 import type { LandingUnit } from "@/lib/landing-overview"
 import { collectLandingOverview, formatFinishedSummary, formatLandingSectionTitle, formatLandingTitle, getLandingBarSegments, isLandingOverviewEmpty } from "@/lib/landing-overview"
 import type { RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
 import { EMPTY_ROBOT_OVERVIEW } from "@/lib/robot-overview"
 import { testRobot } from "@/lib/test-robot"
+import type { LandingNode } from "@/presenters/landing-node"
 
 function node(kind: LandingNodeKind, pending = false): LandingNode {
   return pending ? { kind, label: kind, pending: true } : { kind, label: kind }

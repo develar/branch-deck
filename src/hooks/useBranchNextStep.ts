@@ -1,92 +1,41 @@
-import { ClipboardCopyIcon, RefreshCwIcon } from "lucide-react"
+import { GitPullRequestCreateIcon } from "lucide-react"
 import { useStore } from "zustand"
-import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
-import type { LandingFix, PatronusRobot, PullRequest } from "@/lib/bindings"
-import type { BranchNextStep, NextStepBusy, NextStepFacts, NextStepPullRequest, StackPullRequestFact, UnavailableFact } from "@/lib/branch-next-step"
-import { formatPendingFact, getBranchNextStep, landedReasonOf } from "@/lib/branch-next-step"
+import type { LandingFix, NextStep, PatronusRobot, PullRequest, PullRequestView, RobotRestart } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
-import type { MenuItem } from "@/lib/menu"
+import { CREATE_PULL_REQUEST_LABEL } from "@/lib/git/new-pull-request"
 import { announce } from "@/lib/os-notification"
-import { formatPatronusAvailabilityHint, formatPushMode, formatSafePushLoginCommand, getSafePushSlot, isLandedByOwnRobot } from "@/lib/patronus"
+import { formatPushMode, formatSafePushLoginCommand } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
-import { getRobotActions } from "@/lib/patronus-actions"
+import { getRobotActions, restartItemOf } from "@/lib/patronus-actions"
 import { isWindows } from "@/lib/platform"
-import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
+import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
-import { stackProblemOf } from "@/lib/stack"
+import { baselineOnRemote } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
-import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
-import { formatReasonOrNull } from "@/presenters/reasons"
+import { getRowPart, useRowPart } from "@/model/store"
+import type { BranchNextStep, NextStepActions, NextStepBusy, NextStepKind, StepContext } from "@/presenters/next-step"
+import { formatPendingFact, formatProblemsFailure, presentNextStep } from "@/presenters/next-step"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getLandedState, getOpenPullRequest, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
-import type { Operations } from "@/stores/operations"
-import { getObjectBusy, operationLabel, operationsStore, runOperation } from "@/stores/operations"
-import {
-  getBranchLanding,
-  getBranchRobot,
-  getLandedBy,
-  getLandingAncestor,
-  getLandingBranchCount,
-  getLandingNeeds,
-  getPatronusAvailability,
-  getPatronusViewFailure,
-  getPushHold,
-  getRobotProblemsFailure,
-  hasPatronusListed,
-  isLandingNeedsPending,
-  isPatronusAvailable,
-  isPatronusPending,
-  isRobotFailing,
-  isRobotNeedingReview,
-  isRobotProblemsPending,
-  isTableRobot,
-  patronusStore,
-  refreshPatronus,
-} from "@/stores/patronus"
-import {
-  getPullRequest,
-  getPullRequestAvailability,
-  getPullRequestListing,
-  getStackPullRequest,
-  isPullRequestsLoading,
-  pullRequestsStore,
-  retargetPullRequest,
-} from "@/stores/pull-requests"
-import { getSelectedProject, isSelectedRepository, repositoryStore } from "@/stores/repository"
+import { branchSyncStore, getBranch, useBranchSync } from "@/stores/branch-sync"
+import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
+import type { Operation, Operations } from "@/stores/operations"
+import { getObjectBusy, getOperations, operationLabel, runOperation, useObjectOperation, useOperationsWhile } from "@/stores/operations"
+import { getRobot, getRobotProblemsFailure, getRobotRestart, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
+import { getPullRequest, getStackPullRequest, retargetPullRequest } from "@/stores/pull-requests"
+import { getSelectedProject, isSelectedRepository, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
-import { getSafePushStarting, safePushStore } from "@/stores/safe-push"
-import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
-
-/** The pull request of the branch as the next step needs it */
-function pullRequestFactOf(branch: Branch): NextStepPullRequest | null {
-  const pullRequest = getPullRequest(branch.name)
-  if (pullRequest === undefined) {
-    return null
-  }
-  const base = getOpenPullRequest(branch.name)?.base
-  return {
-    number: pullRequest.number,
-    state: pullRequest.state,
-    isDraft: pullRequest.isDraft,
-    base: pullRequest.baseRefName ?? "",
-    // where an open one goes, as Rust reads it (`pull_request::base_of`)
-    intoTarget: base === undefined || base.kind === "target",
-    baseIsVirtualBranch: base?.kind === "virtual",
-    waitingFor: waitingReviewers(pullRequest),
-    changesRequestedBy: changesRequestedBy(pullRequest),
-    checksFailing: pullRequest.checks?.state === "failing",
-    changesRequested: pullRequest.reviewDecision === "changesRequested",
-  }
-}
+import { getReadinessTarget } from "@/stores/review-readiness"
+import type { SafePushStarting } from "@/stores/safe-push"
+import { getSafePushStarting, useSafePushStarting } from "@/stores/safe-push"
 
 /**
  * Retargets the open pull request of the branch to the target of Patronus, as a pull request names it ("master"), as
@@ -125,95 +74,160 @@ export async function retargetToTarget(branchName: string): Promise<void> {
   )
 }
 
-/**
- * How a start reads the next step (`readSafePush`): the review only as Patronus answered it for the branch as it is
- * (a stale answer is not asked yet: the start waits for the new one), and its own running start is no reason against it
- */
-export interface StartStepOptions {
-  readonly forStart: true
-}
-
-/** The open pull request of the whole stack that holds the branch (`getStackBranchOf`); null without one */
-function stackPullRequestFactOf(name: string): StackPullRequestFact | null {
-  const stack = getStackBranchOf(name)
-  const pullRequest = stack === undefined ? undefined : getStackPullRequest(stack.root)
-  if (stack === undefined || pullRequest?.state !== "open") {
-    return null
+/** Runs the fix of what a Safe Push needs (`LandingFix`): the restack of the root of what it lands onto the branch it needs */
+export function fixLanding(fix: LandingFix): void {
+  if (fix.kind === "restack") {
+    void restackBranch(fix.branch, fix.onto)
   }
-  return { number: pullRequest.number, subject: formatWholeStack(stack.root), open: () => openPullRequest(getStackPullRequest(stack.root) ?? pullRequest) }
 }
 
 /**
- * The operation on the row for the next step (`NextStepFacts.busy`): an operation of the registry, or the running start
- * of a Safe Push of the row, which is no reason against the start it runs itself (`options`)
+ * What the words and the items of the step of a subject read of the stores beside the step itself (`nextSteps` of the
+ * view): each a kept reference or a primitive, so a surface renders again only when one of them changes. The parts
+ * still the page's: what runs on the row (an operation, a start: s10), the restart of its robot and the Request
+ * Review… of its pull request (their items, until the actions are Rust's)
  */
-export function busyFact(key: string, options: StartStepOptions | null): NextStepBusy | null {
-  const operation = getObjectBusy(key)
+export interface StepInputs {
+  /** The branch Patronus pushes into ("master") */
+  readonly target: string
+  /** The operation that works on the row */
+  readonly operation: Operation | undefined
+  /** The start of a Safe Push of the row that runs */
+  readonly starting: SafePushStarting | null
+  /** The robot the step restarts, with how Rust decides its restart; undefined while the step restarts none */
+  readonly robot: PatronusRobot | undefined
+  readonly restart: RobotRestart | null
+  /** The operations that run, while the step restarts a robot (its item says a running restart and what it waits for) */
+  readonly running: Operations | null
+  /** The open pull request of the subject, while the step asks for a review of it */
+  readonly pullRequest: PullRequestView | undefined
+  readonly repositoryPath: string | null
+}
+
+/** The robot the step of a subject restarts (rows 2 and 3, or a restart disabled while Patronus didn't tell why it failed) */
+function restartedRobotOf(step: NextStep | undefined): string | null {
+  const kind = step?.kind
+  return kind?.kind === "restart" || kind?.kind === "unavailable" ? kind.robotId : null
+}
+
+/** The step of a subject asks for a review of its open pull request (row 9) */
+function asksReview(step: NextStep | undefined): boolean {
+  return step?.kind.kind === "requestReview"
+}
+
+/** `StepInputs` of the subject `key` (a branch, `stack:<root>`), re-rendering when one changes */
+export function useStepInputs(key: string, step: NextStep | undefined): StepInputs {
+  const robotId = restartedRobotOf(step)
+  const review = asksReview(step)
+  return {
+    target: useBranchSync(state => baselineOnRemote(state.baselineBranch ?? "")),
+    operation: useObjectOperation(key),
+    starting: useSafePushStarting(key),
+    robot: useStore(patronusStore, () => (robotId === null ? undefined : getRobot(robotId))),
+    restart: useStore(patronusStore, () => (robotId === null ? null : getRobotRestart(robotId))),
+    running: useOperationsWhile(robotId !== null),
+    pullRequest: useBranchSync(state => (review ? state.openPullRequests[key] : undefined)),
+    repositoryPath: useSelectedProjectPath() ?? null,
+  }
+}
+
+/** `StepInputs` of the subject `key` now, for a menu built on open, a key, a toast, a start */
+export function getStepInputs(key: string, step: NextStep | undefined): StepInputs {
+  const robotId = restartedRobotOf(step)
+  return {
+    target: getReadinessTarget(),
+    operation: getObjectBusy(key),
+    starting: getSafePushStarting(key),
+    robot: robotId === null ? undefined : getRobot(robotId),
+    restart: robotId === null ? null : getRobotRestart(robotId),
+    running: robotId === null ? null : getOperations(),
+    pullRequest: asksReview(step) ? branchSyncStore.getState().openPullRequests[key] : undefined,
+    repositoryPath: getSelectedProject()?.path ?? null,
+  }
+}
+
+/**
+ * What runs on the row as the step says it: an operation of the registry, or the running start of a Safe Push of the
+ * row, which is no reason against the start it runs itself (`forStart`)
+ */
+export function busyOf(inputs: StepInputs, forStart: boolean): NextStepBusy | null {
+  const { operation } = inputs
   if (operation !== undefined) {
     return { id: operation.id, label: operationLabel(operation), ...(operation.resources === undefined ? null : { resources: operation.resources }) }
   }
-  const starting = options === null ? getSafePushStarting(key) : null
-  return starting == null ? null : { id: "", label: `Starting the ${formatPushMode(starting.mode)}` }
+  const starting = forStart ? null : inputs.starting
+  return starting === null ? null : { id: "", label: `Starting the ${formatPushMode(starting.mode)}` }
 }
 
 /**
- * The first fact of the remote the step of a branch (of a whole stack: `robot` of its stack branch, no `branchName`:
- * the gate of its start checks what it needs) waits for (`NextStepFacts.pending`): Patronus, the pull requests, what its
- * Safe Push needs, why its robot failed; null while each is known
+ * The actions the items of a step run (`NextStepActions`), of the subject `key` (a branch, `stack:<root>`: the one
+ * `openSafePush`, `openPullRequest` and the rest act on): the orchestrators of the page, each reading the stores at the
+ * click, and the items still built here of `inputs`
  */
-export function pendingFactOf(robot: PatronusRobot | undefined, branchName: string | null): NextStepFacts["pending"] {
-  if (isPatronusPending()) {
-    return "patronus"
+export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextStepActions, "openPullRequest" | "retarget" | "createPullRequest">): NextStepActions {
+  const { robot, running, repositoryPath } = inputs
+  return {
+    ...items,
+    openSafePush: () => void requestSafePush(key, { mode: "rebaseAutosquash", via: "click" }),
+    openStackPullRequest: root => {
+      const pullRequest = getStackPullRequest(root)
+      if (pullRequest !== undefined) {
+        openPullRequest(pullRequest)
+      }
+    },
+    fixLanding,
+    copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
+    refreshPatronus: () => void refreshPatronus(),
+    restart: robot === undefined || running === null ? null : restartItemOf(robot, inputs.restart, robot.branchName, running),
+    requestReview: getRequestReviewItem(inputs.pullRequest, () => openRequestReview(key)),
   }
-  if (isPullRequestsLoading()) {
-    return "pullRequests"
+}
+
+/** The context of the step of the branch `name` over `inputs` (`StepContext`); `forStart` for a start */
+function branchContextOf(name: string, inputs: StepInputs, forStart: boolean): StepContext {
+  return {
+    subject: name,
+    target: inputs.target,
+    startDescription: null,
+    busy: busyOf(inputs, forStart),
+    forStart,
+    actions: stepActionsOf(name, inputs, {
+      openPullRequest: () => {
+        const pullRequest = getPullRequest(name)
+        if (pullRequest !== undefined) {
+          openPullRequest(pullRequest)
+        }
+      },
+      retarget: () => void retargetToTarget(name),
+      // the pull request that collects the approvals; nothing of a branch that landed is left to review (row 1)
+      createPullRequest: { id: "create-pull-request", label: CREATE_PULL_REQUEST_LABEL, icon: GitPullRequestCreateIcon, onSelect: () => openCreatePullRequestDialog(name) },
+    }),
   }
-  if (branchName !== null && isLandingNeedsPending(branchName)) {
-    return "landingNeeds"
-  }
-  return robot !== undefined && isRobotProblemsPending(robot) ? "robotProblems" : null
 }
 
 /**
- * The first fact the step decides on whose read failed (`NextStepFacts.unavailable`): Patronus answered with a failure
- * (the Safe Push CLI not logged in: Copy Command of its login; an error: Refresh), or didn't give why the robot failed
+ * The next step of the branch `name` now, as Rust decides it (`nextSteps` of the view) in the page's words
+ * (`presentNextStep`), for a menu built on open, a key, a toast; `forStart` as a start reads it (`readSafePush`); null
+ * before the view has it
  */
-export function unavailableFactOf(robot: PatronusRobot | undefined): UnavailableFact | null {
-  const availability = getPatronusAvailability()
-  // an error after a list keeps the robots it listed, as a failed refresh of GitHub keeps the last listing; a token
-  // Patronus refuses is gone
-  if (availability?.status === "notLoggedIn" || (availability?.status === "error" && !hasPatronusListed())) {
-    const reason = formatPatronusAvailabilityHint(availability) ?? "Patronus doesn't answer"
-    const repositoryPath = getSelectedProject()?.path
-    const action: MenuItem =
-      availability.status === "notLoggedIn" && repositoryPath !== undefined
-        ? {
-            id: "copy-safe-push-login",
-            label: "Copy Login Command",
-            icon: ClipboardCopyIcon,
-            description: `${reason}: the command goes to the clipboard, for a terminal`,
-            onSelect: () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
-          }
-        : refreshPatronusItem(reason)
-    return { fact: "patronus", reason, action }
-  }
-  // no view stands for what the robots hold, land and need: no start on "none"
-  const viewFailure = getPatronusViewFailure()
-  if (viewFailure !== null) {
-    const reason = formatViewFailure(viewFailure)
-    return { fact: "patronus", reason, action: refreshPatronusItem(reason) }
-  }
-  const failure = robot === undefined ? null : getRobotProblemsFailure(robot)
-  return failure === null ? null : { fact: "robotProblems", reason: formatProblemsFailure(failure), action: null }
+export function getBranchNextStep(name: string, options?: { readonly forStart: true }): BranchNextStep | null {
+  const view = getRowPart(name, "landing")
+  return view === undefined ? null : presentNextStep(view.step, branchContextOf(name, getStepInputs(name, view.step), options !== undefined))
 }
 
-function refreshPatronusItem(reason: string): MenuItem {
-  return { id: "refresh-patronus", label: "Refresh Patronus", icon: RefreshCwIcon, description: reason, onSelect: () => void refreshPatronus() }
-}
-
-/** Why no start is decided while Patronus didn't give the view of its robots, and no earlier one stands for it */
-export function formatViewFailure(failure: string): string {
-  return `Patronus didn't tell what its robots hold and land (${failure})`
+/**
+ * The next step of the branch, re-rendering when it changes: the step of the view (one kept reference), and what its
+ * words read beside it (`useStepInputs`). The component shows the step: the session asks for the readiness of the
+ * branch while it does (`useShowReviewReadiness`), never for a row a collapse hides; of the root of a stack that forks,
+ * the readiness of its whole stack too (`stackReadinessKey`), whose Safe Push its menu and its popover offer
+ */
+export function useBranchNextStep(name: string): BranchNextStep | null {
+  useShowReviewReadiness(name)
+  const headsWholeStack = useBranchSync(state => (state.stackBranches[name]?.members.length ?? 0) > 0)
+  useShowReviewReadiness(headsWholeStack ? stackReadinessKey(name) : "")
+  const view = useRowPart(name, "landing")
+  const inputs = useStepInputs(name, view?.step)
+  return view === undefined ? null : presentNextStep(view.step, branchContextOf(name, inputs, false))
 }
 
 /**
@@ -229,190 +243,6 @@ export function robotProblemsReason(robot: PatronusRobot, branch: Branch | null)
   }
   const failure = getRobotProblemsFailure(robot)
   return failure === null ? null : formatProblemsFailure(failure)
-}
-
-/** Why a restart of a failed robot is not offered while Patronus didn't give why it failed */
-function formatProblemsFailure(failure: string): string {
-  return `Patronus didn't tell why the Safe Push failed (${failure}): Check Approvals Again asks again`
-}
-
-/** What decides the next step of the branch now, from the stores; the node of its row reads them too (`useLandingNode`) */
-export function getNextStepFacts(branch: Branch, options: StartStepOptions | null = null): NextStepFacts {
-  const name = branch.name
-  const available = isPatronusAvailable()
-  const robot = getBranchRobot(name)
-  const needsReview = robot !== undefined && isRobotNeedingReview(robot.id)
-  const failing = robot !== undefined && isRobotFailing(robot.id)
-  const localTip = branch.commits[0]?.hash
-  const landedBy = getLandedBy(name)
-  const slot = getSafePushSlot({
-    robot,
-    localTip,
-    remote: branch.remoteStatus,
-    needsReview,
-    failing,
-    canOffer: available && !branch.hasError && branch.commitCount > 0,
-    landed: isLandedByOwnRobot(landedBy, robot),
-  })
-  const landingAncestor = getLandingAncestor(name)
-  // why its starts can't, as Rust decides it of the view (`domain_policy::land::start_refusal`)
-  const landing = getBranchLanding(name)
-  const target = getReadinessTarget()
-  const pullRequest = getPullRequest(name)
-  const restart =
-    robot === undefined ? null : (getRobotActions(robot, branch, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
-  const readiness = options === null ? getReviewReadiness(name) : (freshReadiness(getReviewReadiness(name), name) ?? undefined)
-  // what landed it, as Rust decides it of the landing report, the robots and the pull requests (`landedStates`)
-  const landed = getLandedState(name) ?? null
-  return {
-    branchName: name,
-    subject: name,
-    patronusAvailable: available,
-    syncing: branch.status === "Syncing",
-    hasError: branch.hasError,
-    errorReason: stackProblemOf(branch)?.reason ?? null,
-    commitCount: branch.commitCount,
-    busy: busyFact(name, options),
-    blocked: branch.status === "Blocked",
-    startBlocker: formatReasonOrNull(landing.start),
-    dryRunStartBlocker: formatReasonOrNull(landing.dryRun),
-    landingPart: landingAncestor,
-    held: getPushHold(name) !== null,
-    parked: getParkedState(name),
-    landed,
-    robot: slot,
-    robotPullRequest: robot?.pullRequest?.number ?? null,
-    restart,
-    // a refresh that failed for a while keeps the last listing: its pull requests are known as of then
-    pullRequestsAvailable: getPullRequestListing() === "listed",
-    pullRequestsUnlisted: getPullRequestListing() === "unlisted" ? formatAvailabilityHint(getPullRequestAvailability()) : null,
-    pullRequest: pullRequestFactOf(branch),
-    target,
-    // the ancestors a merged Safe Push landed are in the target: the robot lands the others
-    landsBranches: getLandingBranchCount(name),
-    startDescription: null,
-    landingNeeds: getLandingNeeds(name),
-    readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
-    pending: pendingFactOf(robot, name),
-    unavailable: unavailableFactOf(robot),
-    forStart: options !== null,
-    stackPullRequest: stackPullRequestFactOf(name),
-    actions: {
-      openSafePush: () => void requestSafePush(name, { mode: "rebaseAutosquash", via: "click" }),
-      openPullRequest: () => {
-        const current = getPullRequest(name) ?? pullRequest
-        if (current !== undefined) {
-          openPullRequest(current)
-        }
-      },
-      retarget: () => void retargetToTarget(name),
-      // nothing of a branch that landed is left to review: the step decides it, so the item reads its facts here
-      createPullRequest: getCreatePullRequestItem(branch, landedReasonOf({ landed, robot: slot })),
-      requestReview: getRequestReviewItem(getOpenPullRequest(name), () => openRequestReview(name)),
-      fixLanding,
-    },
-  }
-}
-
-/** Runs the fix of what a Safe Push needs (`LandingFix`): the restack of the root of what it lands onto the branch it needs */
-export function fixLanding(fix: LandingFix): void {
-  if (fix.kind === "restack") {
-    void restackBranch(fix.branch, fix.onto)
-  }
-}
-
-/**
- * The next step of the branch now (`getBranchNextStep`), for menus built on open, keys, toasts and the rows; null without
- * the branch. Computed once per change of the stores it reads (`nextStepSources`): six subscriptions of a row, the readiness
- * scan and the focus ask it, they share the answer.
- */
-export function getBranchNextStepNow(name: string): BranchNextStep | null {
-  const sources = nextStepSources()
-  const shown = shownSteps.get(name)
-  if (shown !== undefined && shown.sources.every((source, index) => source === sources[index])) {
-    return shown.step
-  }
-  const branch = getBranch(name)
-  const step = branch === undefined ? null : getBranchNextStepOf(branch)
-  const key = stepKey(step, name)
-  // the same object while the step stays: a row renders again only when it changes
-  const kept = shown?.key === key ? shown.step : step
-  shownSteps.set(name, { sources, key, step: kept })
-  return kept
-}
-
-/** The states of every store the next step reads: a change of any is a new step (of a branch, of a whole stack) */
-export function nextStepSources(): readonly unknown[] {
-  return [
-    branchSyncStore.getState(),
-    patronusStore.getState(),
-    pullRequestsStore.getState(),
-    reviewReadinessStore.getState(),
-    operationsStore.getState(),
-    safePushStore.getState(),
-    repositorySettingsStore.getState(),
-  ]
-}
-
-/** The next step of `branch` as it is given (a menu of the branch it shows), the rest from the stores; `options` for a start */
-export function getBranchNextStepOf(branch: Branch, options: StartStepOptions | null = null): BranchNextStep {
-  return getBranchNextStep(getNextStepFacts(branch, options))
-}
-
-/** What a surface renders of a step: one object while it stays, so a row renders again only when its step changes */
-function stepKey(step: BranchNextStep | null, name: string): string {
-  if (step === null) {
-    return ""
-  }
-  const item = step.item
-  const pullRequest = getPullRequest(name)
-  return JSON.stringify([
-    step.kind,
-    step.tone,
-    step.safePushBlocker,
-    step.dryRunBlocker,
-    step.needsReadiness,
-    step.landed,
-    item?.id,
-    item?.label,
-    item?.disabled,
-    item?.description,
-    getBranchRobot(name)?.id,
-    pullRequest?.number,
-    pullRequest?.url,
-  ])
-}
-
-/** By branch: the step shown, its key, and the store states it was computed for */
-const shownSteps = new Map<string, { sources: readonly unknown[]; key: string; step: BranchNextStep | null }>()
-
-/**
- * The next step of the branch, re-rendering when it changes: it depends on the branches, the robots, the pull
- * requests (what landed it is of the branch store), the readiness and the operations on the row, so each of their stores is watched.
- * The component shows the step: the readiness store asks for the readiness of the branch while it does
- * (`useShowReviewReadiness`), never for a row a collapse hides; of the root of a stack that forks, the readiness of its
- * whole stack too (`stackReadinessKey`), whose Safe Push its menu and its popover offer, with or without an island.
- */
-export function useBranchNextStep(name: string): BranchNextStep | null {
-  useShowReviewReadiness(name)
-  const headsWholeStack = useBranchSync(state => (state.stackBranches[name]?.members.length ?? 0) > 0)
-  useShowReviewReadiness(headsWholeStack ? stackReadinessKey(name) : "")
-  return useNextStepStores(() => getBranchNextStepNow(name))
-}
-
-/** Renders again with `select` when a store the next step reads changes (of a branch, of a whole stack, of a node) */
-export function useNextStepStores<T>(select: () => T): T {
-  useStore(branchSyncStore, select)
-  useStore(patronusStore, select)
-  useStore(pullRequestsStore, select)
-  useStore(reviewReadinessStore, select)
-  useStore(safePushStore, select)
-  return useStore(operationsStore, select)
-}
-
-/** Whether a row waits for an approval (Awaiting): a focus asks GitHub for the pull requests at once then */
-export function isAwaitingApproval(name: string): boolean {
-  return getBranchNextStepNow(name)?.kind === "awaiting"
 }
 
 /**
@@ -471,7 +301,7 @@ export function announceApproval(news: ApprovalNews, pullRequest: PullRequest | 
 const UNKNOWN_FAILURE_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-restart-robot", "copy-robot-prompt", "copy-robot-full-prompt"])
 
 /** The next steps that wait for approvals: a restart of a robot that failed for them would fail again */
-const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting"])
+const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting"])
 
 /**
  * The actions of a robot (`getRobotActions`) for every surface that shows them (the branch menu, the robot details, the
@@ -490,8 +320,8 @@ export function getGatedRobotActions(robot: PatronusRobot, branch: Branch | null
   if (branch === null) {
     return actions
   }
-  const step = getBranchNextStepOf(branch)
-  const reason = APPROVAL_STEPS.has(step.kind) ? step.safePushBlocker : null
+  const step = getBranchNextStep(branch.name)
+  const reason = step !== null && APPROVAL_STEPS.has(step.kind) ? step.safePushBlocker : null
   return reason === null
     ? actions
     : actions.map(item => (item.id === "restart-robot" || item.id === "push-and-restart-robot" ? { ...item, disabled: true, description: reason } : item))

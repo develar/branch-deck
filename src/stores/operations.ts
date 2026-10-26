@@ -378,6 +378,16 @@ export function isObjectBusy(name: string): boolean {
   return busyOf(operationsStore.getState().running, name) !== undefined
 }
 
+/** `getObjectBusy`, re-rendering when it changes: the same object while the operation runs */
+export function useObjectOperation(name: string): Operation | undefined {
+  return useStore(operationsStore, state => busyOf(state.running, name))
+}
+
+/** The operations that run while `wanted`, else null: a surface that shows them for one item only re-renders for them */
+export function useOperationsWhile(wanted: boolean): Operations | null {
+  return useStore(operationsStore, state => (wanted ? state.running : null))
+}
+
 /** The busy state of the operation that works on `name` ("Unstacking tool-events"), null while none does */
 export function useObjectBusy(name: string): string | null {
   return useStore(operationsStore, state => {

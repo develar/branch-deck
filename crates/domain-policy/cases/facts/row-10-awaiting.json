@@ -29,6 +29,72 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "groups": [
+                {
+                  "approvedBy": [],
+                  "changesRequestedBy": [],
+                  "name": "IJPL Code Platform",
+                  "needed": 1,
+                  "requested": [{"fullName": "Ilya Korennoy", "login": "ikorennoy"}],
+                  "suggested": [{"fullName": "Ilya Korennoy", "login": "ikorennoy"}]
+                }
+              ],
+              "kind": "awaiting",
+              "number": 7
+            },
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "10",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "groups": [
+            {
+              "approvedBy": [],
+              "changesRequestedBy": [],
+              "name": "IJPL Code Platform",
+              "needed": 1,
+              "requested": [{"fullName": "Ilya Korennoy", "login": "ikorennoy"}],
+              "suggested": [{"fullName": "Ilya Korennoy", "login": "ikorennoy"}]
+            }
+          ],
+          "kind": "awaiting",
+          "number": 7
+        },
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "10",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {"auth": {"base": {"kind": "target"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {

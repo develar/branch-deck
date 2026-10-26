@@ -44,6 +44,114 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "yourStep",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "kind": "needsBranch",
+              "refusals": [
+                {
+                  "branch": "auth",
+                  "declaredBy": {"branch": "codec", "id": "codec-c0", "subject": "Add controlUrl"},
+                  "file": "src/b/Use.kt",
+                  "fix": {"branch": "auth", "kind": "restack", "onto": "codec"},
+                  "identifier": "controlUrl",
+                  "kind": "missingDeclaration",
+                  "landingIn": null,
+                  "line": 3,
+                  "usedBy": {"branch": "auth", "id": "auth-c1", "subject": "Start with controlUrl"}
+                }
+              ]
+            },
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": false,
+            "retarget": null,
+            "row": "1′",
+            "safePush": null,
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "kind": "needsBranch",
+          "refusals": [
+            {
+              "branch": "auth",
+              "declaredBy": {"branch": "codec", "id": "codec-c0", "subject": "Add controlUrl"},
+              "file": "src/b/Use.kt",
+              "fix": {"branch": "auth", "kind": "restack", "onto": "codec"},
+              "identifier": "controlUrl",
+              "kind": "missingDeclaration",
+              "landingIn": null,
+              "line": 3,
+              "usedBy": {"branch": "auth", "id": "auth-c1", "subject": "Start with controlUrl"}
+            }
+          ]
+        },
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1′",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "codec": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"fact": "readiness", "kind": "pending"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "0",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

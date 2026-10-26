@@ -48,6 +48,122 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "journey": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"fact": "readiness", "kind": "pending"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "0",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "suspend": {
+      "node": {
+        "kind": "yourStep",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "kind": "needsBranch",
+              "refusals": [
+                {
+                  "branch": "suspend",
+                  "file": "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt",
+                  "fix": {
+                    "commit": {"branch": "journey", "id": "journey-c0", "subject": "IJAI-4182 The journey support goes with its tests"},
+                    "into": "suspend",
+                    "kind": "moveCommit"
+                  },
+                  "fixedBy": {"branch": "journey", "id": "journey-c0", "subject": "IJAI-4182 The journey support goes with its tests"},
+                  "identifier": "cleanup",
+                  "kind": "danglingReference",
+                  "line": 8,
+                  "reference": "changed",
+                  "removedBy": {"branch": "suspend", "id": "suspend-c0", "subject": "IJAI-4185 The cleanups may suspend"}
+                }
+              ]
+            },
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": false,
+            "retarget": null,
+            "row": "1′",
+            "safePush": null,
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "kind": "needsBranch",
+          "refusals": [
+            {
+              "branch": "suspend",
+              "file": "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt",
+              "fix": {
+                "commit": {"branch": "journey", "id": "journey-c0", "subject": "IJAI-4182 The journey support goes with its tests"},
+                "into": "suspend",
+                "kind": "moveCommit"
+              },
+              "fixedBy": {"branch": "journey", "id": "journey-c0", "subject": "IJAI-4182 The journey support goes with its tests"},
+              "identifier": "cleanup",
+              "kind": "danglingReference",
+              "line": 8,
+              "reference": "changed",
+              "removedBy": {"branch": "suspend", "id": "suspend-c0", "subject": "IJAI-4185 The cleanups may suspend"}
+            }
+          ]
+        },
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1′",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "suspend": {

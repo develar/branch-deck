@@ -48,6 +48,190 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "fake-agent": {
+      "node": {
+        "kind": "yourStep",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "kind": "needsBranch",
+              "refusals": [
+                {
+                  "branch": "fake-agent",
+                  "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+                  "fix": {
+                    "commit": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"},
+                    "into": "fake-agent",
+                    "kind": "moveCommit"
+                  },
+                  "fixedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"},
+                  "identifier": "CONTROL_URL_ENV",
+                  "kind": "danglingReference",
+                  "line": 7,
+                  "reference": "removed",
+                  "removedBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"}
+                }
+              ]
+            },
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": false,
+            "retarget": null,
+            "row": "1′",
+            "safePush": null,
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "kind": "needsBranch",
+          "refusals": [
+            {
+              "branch": "fake-agent",
+              "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+              "fix": {
+                "commit": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"},
+                "into": "fake-agent",
+                "kind": "moveCommit"
+              },
+              "fixedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"},
+              "identifier": "CONTROL_URL_ENV",
+              "kind": "danglingReference",
+              "line": 7,
+              "reference": "removed",
+              "removedBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"}
+            }
+          ]
+        },
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1′",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "lane-document": {
+      "node": {
+        "kind": "yourStep",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "kind": "needsBranch",
+              "refusals": [
+                {
+                  "branch": "lane-document",
+                  "declaredBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+                  "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+                  "fix": {
+                    "commit": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+                    "into": "lane-document",
+                    "kind": "moveCommit"
+                  },
+                  "identifier": "AcpControlProtocol",
+                  "kind": "missingDeclaration",
+                  "landingIn": null,
+                  "line": 3,
+                  "usedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"}
+                },
+                {
+                  "branch": "lane-document",
+                  "declaredBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+                  "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+                  "fix": {
+                    "commit": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+                    "into": "lane-document",
+                    "kind": "moveCommit"
+                  },
+                  "identifier": "CONTROL_URL_ENV",
+                  "kind": "missingDeclaration",
+                  "landingIn": null,
+                  "line": 7,
+                  "usedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"}
+                }
+              ]
+            },
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": false,
+            "retarget": null,
+            "row": "1′",
+            "safePush": null,
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "kind": "needsBranch",
+          "refusals": [
+            {
+              "branch": "lane-document",
+              "declaredBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+              "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+              "fix": {
+                "commit": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+                "into": "lane-document",
+                "kind": "moveCommit"
+              },
+              "identifier": "AcpControlProtocol",
+              "kind": "missingDeclaration",
+              "landingIn": null,
+              "line": 3,
+              "usedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"}
+            },
+            {
+              "branch": "lane-document",
+              "declaredBy": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+              "file": "plugins/air/tests/flow/AirFlowLaneHost.kt",
+              "fix": {
+                "commit": {"branch": "fake-agent", "id": "fake-agent-c0", "subject": "IJAI-3880 Move the control constants"},
+                "into": "lane-document",
+                "kind": "moveCommit"
+              },
+              "identifier": "CONTROL_URL_ENV",
+              "kind": "missingDeclaration",
+              "landingIn": null,
+              "line": 7,
+              "usedBy": {"branch": "lane-document", "id": "lane-document-c0", "subject": "IJAI-3878 Use the control protocol"}
+            }
+          ]
+        },
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1′",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "fake-agent": {

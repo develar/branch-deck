@@ -9,7 +9,7 @@ import { animationsEnded } from "./wait-helpers"
 /** The merge profiles of master without any: a start runs the default checks */
 export const DEFAULT_CHECKS_ONLY: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
 
-/** The facts a step waits for (`PendingFact` of `src/lib/branch-next-step.ts`), in the order they come */
+/** The facts a step waits for (`PendingFact` of `src/presenters/next-step.ts`, `StepFact` of Rust), in the order they come */
 const STEP_FACTS = ["patronus", "pullRequests", "robotProblems", "landingNeeds", "readiness"] as const
 
 /**

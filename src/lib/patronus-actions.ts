@@ -1,5 +1,5 @@
 import { ClipboardCopyIcon, ClipboardListIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon } from "lucide-react"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, RobotRestart } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { pushBranch } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
@@ -97,6 +97,54 @@ export function hasRobotFailurePrompt(robot: PatronusRobot, needsReview: boolean
 }
 
 /**
+ * "Restart Safe Push" of `robot` as the view decides it (`restart`, `RobotRestart` of the robot: the action and why it
+ * can't start now), over the operations that run (`running`): the push first while the remote lacks work of the branch
+ * (`branchName`; of the whole stack its stack branch), the cancel of a running robot first; null when it has no restart
+ */
+export function restartItemOf(robot: PatronusRobot, restartOf: RobotRestart | null, branchName: string | null, running: Operations): RobotAction | null {
+  const action = restartOf?.action ?? null
+  const root = robot.branchName === null ? (robot.stackRoot ?? null) : null
+  const start = restartOf === null ? null : startCheck(restartOf.refusal)
+  if (action === "restart") {
+    return operationItem(
+      running,
+      {
+        id: "restart-robot",
+        label: formatRobotRestartLabel(robot),
+        icon: RotateCcwIcon,
+        ...(start?.ok === false && { disabled: true, description: start.reason }),
+        onSelect: () => void runRobotAction("restart-robot", robot),
+      },
+      robotOperation("restart-robot", robot),
+    ) as RobotAction
+  }
+  if (action !== "pushAndRestart" || (branchName === null && root === null)) {
+    return null
+  }
+  // a running robot tests a commit the branch moved past: the push cancels it first, the one push into its branch; the
+  // push is part of the restart, its name is the restart's
+  const runs = robot.status === "running" && robot.sourceRevision !== null
+  const pushed = root === null ? branchName! : formatRobotSubject(robot)
+  return operationItem(
+    running,
+    {
+      id: "push-and-restart-robot",
+      label: formatRobotRestartLabel(robot),
+      icon: RotateCcwIcon,
+      ...(start?.ok === false
+        ? { disabled: true, description: start.reason }
+        : {
+            description: runs
+              ? `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${pushed} and starts it again on the pushed commit`
+              : `Pushes ${pushed} and starts it again on the pushed commit`,
+          }),
+      onSelect: () => void runPushAndRestart(robot, root === null ? branchName : null, root),
+    },
+    robotOperation("push-and-restart-robot", robot),
+  ) as RobotAction
+}
+
+/**
  * The actions of a robot, one list for every surface that shows it (the branch menu, the robot details, the robots
  * indicator), in this order: "Restart Safe Push" (it pushes first while the branch has work the remote lacks, also
  * for a running robot, which it cancels first; disabled with the reason while a start is not possible: a blocked
@@ -120,50 +168,9 @@ export function getRobotActions(
 ): RobotAction[] {
   const mode = formatPushMode(robot.pushMode)
   const items: RobotAction[] = []
-  // what its restart does and why it can't start now, as Rust decides it of the view (`restart_action`,
-  // `restart_refusal`: a restart is a start, it waits for a robot that lands an ancestor or the branch itself)
-  const restartOf = getRobotRestart(robot.id)
-  const restart = restartOf?.action ?? null
-  const root = robot.branchName === null ? (robot.stackRoot ?? null) : null
-  const start = restartOf === null ? null : startCheck(restartOf.refusal)
-  if (restart === "restart") {
-    items.push(
-      operationItem(
-        operations,
-        {
-          id: "restart-robot",
-          label: formatRobotRestartLabel(robot),
-          icon: RotateCcwIcon,
-          ...(start?.ok === false && { disabled: true, description: start.reason }),
-          onSelect: () => void runRobotAction("restart-robot", robot),
-        },
-        robotOperation("restart-robot", robot),
-      ) as RobotAction,
-    )
-  } else if (restart === "pushAndRestart" && (branch !== null || root !== null)) {
-    // a running robot tests a commit the branch moved past: the push cancels it first, the one push into its branch; the
-    // push is part of the restart, its name is the restart's
-    const running = robot.status === "running" && robot.sourceRevision !== null
-    const pushed = root === null ? branch!.name : formatRobotSubject(robot)
-    items.push(
-      operationItem(
-        operations,
-        {
-          id: "push-and-restart-robot",
-          label: formatRobotRestartLabel(robot),
-          icon: RotateCcwIcon,
-          ...(start?.ok === false
-            ? { disabled: true, description: start.reason }
-            : {
-                description: running
-                  ? `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${pushed} and starts it again on the pushed commit`
-                  : `Pushes ${pushed} and starts it again on the pushed commit`,
-              }),
-          onSelect: () => void runPushAndRestart(robot, root === null ? branch!.name : null, root),
-        },
-        robotOperation("push-and-restart-robot", robot),
-      ) as RobotAction,
-    )
+  const restart = restartItemOf(robot, getRobotRestart(robot.id), branch?.name ?? null, operations)
+  if (restart !== null) {
+    items.push(restart)
   }
   if (canCancelRobot(robot)) {
     items.push(

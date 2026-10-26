@@ -19,7 +19,7 @@ import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
-import { nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
+import { menuSources, useMenuStores } from "@/hooks/useBranchContextActions"
 import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
 import { useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
@@ -557,7 +557,7 @@ function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSum
 /** The "⋯" of the header: an open menu follows every store it reads, the pull requests that load after the sync too */
 function StackIslandMenu({ root, collapsed }: { root: string; collapsed: boolean }) {
   useStore(landedStacksStore, () => getStackIslandMenuNow(root, collapsed))
-  return <DropdownMenuItems groups={useNextStepStores(() => getStackIslandMenuNow(root, collapsed))} />
+  return <DropdownMenuItems groups={useMenuStores(() => getStackIslandMenuNow(root, collapsed))} />
 }
 
 /** By root: the menu of the header built last, and the store states it was built from (`getStackIslandMenuNow`) */
@@ -568,7 +568,7 @@ const shownIslandMenus = new Map<string, { sources: readonly unknown[]; groups: 
  * selector of `StackIslandMenu`, as `getBranchMenuNow` is of the branch menu
  */
 function getStackIslandMenuNow(root: string, collapsed: boolean): MenuItemGroups {
-  const sources = [...nextStepSources(), landedStacksStore.getState(), collapsed]
+  const sources = [...menuSources(), landedStacksStore.getState(), collapsed]
   const shown = shownIslandMenus.get(root)
   if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
     return shown.groups

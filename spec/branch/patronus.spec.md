@@ -332,11 +332,11 @@ reports in it and closes it once merged.
   status text then.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
   [@test] ../../src/lib/patronus.test.ts (`shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`, `names the change and the restart that tests the branch as it is`)
-  [@test] ../../src/hooks/useStackNextStep.test.ts (`waits for the robot of a branch of a straight chain, not the failure of the earlier piece; a new parent commit starts anew`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`, `the_whole_stack_takes_the_rows_of_its_stack_branch`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
 - The Actions cell has the Safe Push slot after the push button ([Branch Row](branch-row.spec.md#actions-cell)), in a
   column of its own, so the push buttons, the steps and "⋯" line up down the table and its islands. It shows the next step of the branch, the
-  first row of the table of [Next Step](next-step.spec.md) that matches (`getBranchNextStep`), from the robot, the pull
+  first row of the table of [Next Step](next-step.spec.md) that matches (`domain_policy::next_step`), from the robot, the pull
   request and the readiness Patronus answers ([below](#code-owner-review)), and every other "Safe Push" is disabled
   with the same reason:
   - "Safe Push" without a robot, for one of an earlier state of the branch and after a dry run
@@ -354,7 +354,8 @@ reports in it and closes it once merged.
   that is not on Space has no slot; a branch that can't be pushed (an error, no commits) has an empty one.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
   [@test] ../../src/lib/patronus.test.ts (`offers "Safe Push…" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed`, `shows a finished robot of the branch as it is, and whether a next step can be offered`)
-  [@test] ../../src/lib/branch-next-step.test.ts (`row 2: restarts a failed or canceled robot, or offers Safe Push… where Patronus can't restart it`, `row 3: restarts a robot that failed for approvals only from the pull request they now count in`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`)
+  [@test] ../../src/presenters/next-step.test.ts (`rows 2 and 3: restarts the robot, or the pull request that collects the approvals, or a Safe Push where it can't restart`)
 - Running and canceling are muted, failing `destructive`, failed `destructive`, failed for missing approvals "Needs
   review" `warning`, a successful Safe Push "Merged" `info`, a successful dry run
   "Dry run passed" `success`, canceled muted. The ring of a running robot is `primary`, as the spinner of a running push;
@@ -518,7 +519,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   Push", "Safe Push · 3" for a stacked branch that lands with the two branches it is built on (`formatStartLabel`), no
   "…": it asks nothing unless it has something to say; its hover "Lands auth into master once the checks pass", "Lands
   oauth with the 2 branches it is built on into master in one Safe Push" (`describeStart`).
-  [@test] ../../src/lib/branch-next-step.test.ts (`names the Safe Push of a stacked branch by the branches it lands, and says what it lands on hover`)
+  [@test] ../../src/presenters/next-step.test.ts (`row 11: Safe Push by the branches it lands, and what Patronus checks while GitHub lists no pull request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button without toggling the row`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should close the branch preview for the Safe Push of its Patronus section`)
@@ -1270,7 +1271,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   robot), never the approvals (`getSafePushWithoutReviewItem`, `BranchNextStep.withoutReview`). It closes the dialog,
   reveals the row and opens the popover of its Safe Push without review, also when the popover of the row is open
   (it opens again in the other mode). The dialog of any other step has no such button.
-  [@test] ../../src/lib/branch-next-step.test.ts (`row 7: missing approvals without an open pull request: Create Pull Request…, the code owners named`, `row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`)
+  [@test] ../../src/presenters/next-step.test.ts (`row 7: Create Pull Request… naming the code owners, or In #12 of the whole stack, quietly`, `rows 8 to 10: changes requested, Request Review…, the wait naming the people asked`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`, `should not offer it in the dialog of a branch whose Safe Push needs no pull request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push popover without review from the pull request dialog`)
 - The popover is "Safe Push of auth" with the start "Safe Push Without Review". Its review line names the missing
@@ -1391,7 +1393,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
 - The stack branch of a whole stack ([Whole Stack](whole-stack.spec.md)) is held as a branch is, by one rule of Rust
   for the app and `bd push --with-children` (`domain_policy::holds::stack_branch_hold`, the view's `landing.hold` of
-  the stack): a parked member keeps it local ("It holds parked login: land the stack in pieces"); then merged Safe
+  the stack): a parked member keeps it local ("Holds parked login: land the stack in pieces"); then merged Safe
   Pushes, of pieces or of the whole stack, that landed every branch of the stack whole, which says who landed them,
   each robot once, in the order they merged ("Landed in master with deploy and side-test: nothing of it is left to
   push", "Merged by Patronus: …" of its own robot alone); then its own running robot ("A Safe Push of the whole air

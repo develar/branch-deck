@@ -7,9 +7,9 @@
  * and whether the machine is online come with them.
  *
  * The review readiness: a surface that needs it now holds its subject (`demandReviewReadiness`, a branch or the
- * `stack:<root>` of a whole stack) in `needed`; a surface that shows the step of a subject holds it as shown
- * (`showReviewReadiness`, not sent), and the main window tells which shown subjects wait for their readiness
- * (`setReadinessShown`, the page's rule of a step until the next step is Rust's), sent as visible branches and stacks.
+ * `stack:<root>` of a whole stack) in `needed`; a surface that shows the step of a subject holds it as a visible branch
+ * or stack (`showReviewReadiness`), and the session asks those of them whose step waits for it
+ * (`domain_policy::readiness::wanted`).
  *
  * A change goes out at most four times a second (`DEMAND_SEND_INTERVAL_MS`), without waiting for an answer, and only
  * when it differs from what was sent; a new subscription (another repository, a session opened again) gets it again.
@@ -19,6 +19,7 @@
 import { useEffect } from "react"
 import type { Demand } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 
 /** The least time between two sends of the demand */
 export const DEMAND_SEND_INTERVAL_MS = 250
@@ -29,11 +30,6 @@ const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "r
 
 /** By part, each name with the number of surfaces that hold it */
 const held = new Map<Part, Map<string, number>>(PARTS.map(part => [part, new Map()]))
-/** The subjects whose next step a surface shows, with a count each (`showReviewReadiness`) */
-const shownReadiness = new Map<string, number>()
-const shownListeners = new Set<() => void>()
-/** Of the shown subjects, those whose step waits for the readiness (`setReadinessShown`) */
-let readinessShown: { branches: readonly string[]; stacks: readonly string[] } = { branches: [], stacks: [] }
 let focused = false
 /** The subscription of the window to its session; null without one: nothing is sent */
 let subscription: number | null = null
@@ -106,47 +102,17 @@ export function useDemandReviewReadiness(subject: string, enabled: boolean): voi
 
 /**
  * A surface shows the next step of the subject until the returned function is called (a row, an island header, the
- * preview, the review window): the session is asked for its readiness while its step depends on it
+ * preview, the review window): a branch, or the `stack:<root>` of a whole stack, held as a visible branch or stack; the
+ * session asks for its readiness while its step depends on it
  */
 export function showReviewReadiness(subject: string): () => void {
-  shownReadiness.set(subject, (shownReadiness.get(subject) ?? 0) + 1)
-  shownListeners.forEach(listener => listener())
-  let released = false
-  return () => {
-    if (released) {
-      return
-    }
-    released = true
-    const left = (shownReadiness.get(subject) ?? 1) - 1
-    if (left === 0) {
-      shownReadiness.delete(subject)
-    } else {
-      shownReadiness.set(subject, left)
-    }
-    shownListeners.forEach(listener => listener())
-  }
+  const root = stackRootOfReadinessKey(subject)
+  return root === null ? hold("visibleBranches", subject) : hold("visibleStacks", root)
 }
 
 /** `showReviewReadiness` while the component shows the step of `subject`; nothing for an empty one */
 export function useShowReviewReadiness(subject: string): void {
   useEffect(() => (subject === "" ? undefined : showReviewReadiness(subject)), [subject])
-}
-
-/** The subjects a surface shows the step of now */
-export function shownReadinessKeys(): ReadonlySet<string> {
-  return new Set(shownReadiness.keys())
-}
-
-/** Calls `listener` when a surface shows another subject or stops; returns the unsubscribe */
-export function onShownReadinessChange(listener: () => void): () => void {
-  shownListeners.add(listener)
-  return () => shownListeners.delete(listener)
-}
-
-/** Of the shown subjects, the branches and the roots of the whole stacks whose step waits for the readiness */
-export function setReadinessShown(branches: readonly string[], stacks: readonly string[]): void {
-  readinessShown = { branches, stacks }
-  schedule()
 }
 
 /** The window gained (`true`) or lost the focus */
@@ -174,8 +140,8 @@ export function currentDemand(): Demand {
   return {
     focused,
     online: typeof navigator === "undefined" || navigator.onLine,
-    visibleBranches: names("visibleBranches", readinessShown.branches),
-    visibleStacks: names("visibleStacks", readinessShown.stacks),
+    visibleBranches: names("visibleBranches"),
+    visibleStacks: names("visibleStacks"),
     needed: names("needed"),
     robotDetails: names("robotDetails"),
     watchedRobots: names("watchedRobots"),
@@ -221,9 +187,6 @@ export function resetDemand(): void {
   for (const counts of held.values()) {
     counts.clear()
   }
-  shownReadiness.clear()
-  shownListeners.clear()
-  readinessShown = { branches: [], stacks: [] }
   focused = false
   subscription = null
   lastSent = null

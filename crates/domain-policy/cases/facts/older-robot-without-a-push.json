@@ -29,6 +29,31 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "landing",
+        "label": {"dryRun": false, "failing": false, "kind": "robotRunning"},
+        "moveShows": false,
+        "pending": false,
+        "robot": true,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

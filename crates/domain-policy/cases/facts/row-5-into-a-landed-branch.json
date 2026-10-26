@@ -30,6 +30,46 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "yourStep",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"base": "test-user/virtual/gone", "kind": "retarget", "number": 7},
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": false,
+            "retarget": {"base": "test-user/virtual/gone", "number": 7, "target": "master"},
+            "row": "5",
+            "safePush": null,
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"base": "test-user/virtual/gone", "kind": "retarget", "number": 7},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": {"base": "test-user/virtual/gone", "number": 7, "target": "master"},
+        "row": "5",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {
     "auth": {
       "base": {"from": "gone", "kind": "virtual", "retarget": "master"},

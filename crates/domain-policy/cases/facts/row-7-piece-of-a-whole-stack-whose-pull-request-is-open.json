@@ -34,6 +34,216 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"fact": "readiness", "kind": "pending"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "0",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "login": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "groups": [
+                {
+                  "approvedBy": [],
+                  "changesRequestedBy": [],
+                  "name": "Air Plugin Release Team",
+                  "needed": null,
+                  "requested": [],
+                  "suggested": [{"fullName": "Alice", "login": "alice-gh"}]
+                }
+              ],
+              "kind": "createPullRequest",
+              "repository": true,
+              "stack": {"number": 12, "root": "auth"}
+            },
+            "landed": null,
+            "lands": 2,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "7",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": {"blocker": null}
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "groups": [
+            {
+              "approvedBy": [],
+              "changesRequestedBy": [],
+              "name": "Air Plugin Release Team",
+              "needed": null,
+              "requested": [],
+              "suggested": [{"fullName": "Alice", "login": "alice-gh"}]
+            }
+          ],
+          "kind": "createPullRequest",
+          "repository": true,
+          "stack": {"number": 12, "root": "auth"}
+        },
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "7",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": {"blocker": null}
+      }
+    },
+    "session": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 2,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"fact": "readiness", "kind": "pending"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "0",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "stack:auth": {
+      "node": {
+        "kind": "yourStep",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "groups": [
+                {
+                  "approvedBy": [],
+                  "changesRequestedBy": [],
+                  "name": "Air Plugin Release Team",
+                  "needed": null,
+                  "requested": [],
+                  "suggested": [{"fullName": "Alice", "login": "alice-gh"}]
+                }
+              ],
+              "kind": "requestReview",
+              "noEligible": false,
+              "number": 12
+            },
+            "landed": null,
+            "lands": 3,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "9",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "groups": [
+            {
+              "approvedBy": [],
+              "changesRequestedBy": [],
+              "name": "Air Plugin Release Team",
+              "needed": null,
+              "requested": [],
+              "suggested": [{"fullName": "Alice", "login": "alice-gh"}]
+            }
+          ],
+          "kind": "requestReview",
+          "noEligible": false,
+          "number": 12
+        },
+        "landed": null,
+        "lands": 3,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "9",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {
     "stack:auth": {
       "base": {"kind": "target"},

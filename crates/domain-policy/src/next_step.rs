@@ -206,6 +206,9 @@ pub struct StepFacts<'a> {
   pub stack_pull_request: Option<&'a StackPullRequest>,
   /// The GitHub repository of the branches is known: a pull request can be created
   pub repository: bool,
+  /// The branches a Safe Push of it lands now (1 for a lone branch): it and those it is built on that are not landed
+  /// whole; of a whole stack what is left of it
+  pub lands: u32,
 }
 
 /// The robot of the row, as its slot shows it (`getSafePushSlot` of the page before)
@@ -279,6 +282,11 @@ pub fn next_step(facts: &StepFacts<'_>) -> NextStep {
   let dry_run = start_reason(facts, facts.dry_run_start, landed.as_ref());
   let mut step = decide(facts, slot, general, dry_run, landed.as_ref());
   step.landed = landed;
+  step.lands = facts.lands;
+  step.unlisted = match facts.listing {
+    Listing::Unlisted { why } => why.cloned(),
+    Listing::Loading | Listing::Listed => None,
+  };
   step
 }
 
@@ -370,6 +378,8 @@ const fn step(row: StepRow, kind: StepKind, safe_push: Option<StepBlocker>, dry_
     landed: None,
     retarget: None,
     without_review: None,
+    lands: 1,
+    unlisted: None,
   }
 }
 

@@ -1,40 +1,27 @@
 import { GitPullRequestCreateIcon } from "lucide-react"
-import type { StartStepOptions } from "@/hooks/useBranchNextStep"
-import {
-  announceApproval,
-  busyFact,
-  fixLanding,
-  getBranchNextStepNow,
-  nextStepSources,
-  pendingFactOf,
-  tellApprovalNews,
-  unavailableFactOf,
-  useBranchNextStep,
-  useNextStepStores,
-} from "@/hooks/useBranchNextStep"
+import type { StepInputs } from "@/hooks/useBranchNextStep"
+import { announceApproval, busyOf, getBranchNextStep, getStepInputs, stepActionsOf, tellApprovalNews, useBranchNextStep, useStepInputs } from "@/hooks/useBranchNextStep"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
+import type { Landed, Reason, StackLanding } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
-import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
-import { getBranchNextStep } from "@/lib/branch-next-step"
 import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
-import { stackParkedState } from "@/lib/parked"
-import { formatLandingSubject, getSafePushSlot } from "@/lib/patronus"
-import { getRobotActions } from "@/lib/patronus-actions"
-import { changesRequestedBy, formatAvailabilityHint, openPullRequest, waitingReviewers } from "@/lib/pull-request"
-import { getRequestReviewItem } from "@/lib/request-review"
+import { formatLandingSubject } from "@/lib/patronus"
+import { openPullRequest } from "@/lib/pull-request"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
+import { getRowPart, useRowPart } from "@/model/store"
+import type { BranchNextStep, StepContext } from "@/presenters/next-step"
+import { presentNextStep } from "@/presenters/next-step"
 import { formatLandedWhole, formatReasonOrNull } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getLandedState, getOpenPullRequest, getStackBranch, getStackNotBuilt, getWholeStack, isForkingRoot, useBranchSync } from "@/stores/branch-sync"
+import { getLandedState, getStackBranch, getStackNotBuilt, getWholeStack, useForkingStackNotBuilt, useStackBranch, useWholeStack } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
-import { getStackLanding, getStackLandingMember, getStackPushHold, getStackRobot, isPatronusAvailable, isRobotFailing, isRobotNeedingReview } from "@/stores/patronus"
-import { getPullRequestAvailability, getPullRequestListing, getStackPullRequest } from "@/stores/pull-requests"
-import { openRequestReview } from "@/stores/request-review-popover"
-import { freshReadiness, getReadinessTarget, getReviewReadiness } from "@/stores/review-readiness"
+import { getStackLanding, useStackLanding } from "@/stores/patronus"
+import { getStackPullRequest } from "@/stores/pull-requests"
+import { getReadinessTarget } from "@/stores/review-readiness"
 
 /**
  * The next step of the whole stack of a root ([Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)): of its
@@ -60,15 +47,13 @@ export interface WholeStackRest {
 }
 
 /**
- * What is left of the whole stack of `root` after merged Safe Pushes of pieces of it or of the whole stack landed
- * branches of it (`StackLanding.rest`): its stack branch still carries their commits (Patronus finds them in the target
- * and lands the rest), so the start names, counts and says only the rest; nothing left is the step of a landed branch
- * (row 1). Before the view of the robots has it, every branch of its stack branch
+ * What is left of the whole stack after merged Safe Pushes of pieces of it or of the whole stack landed branches of it
+ * (`rest` of its `StackLanding`): its stack branch still carries their commits (Patronus finds them in the target and
+ * lands the rest), so the start names, counts and says only the rest. Before the view of the robots has it, every
+ * branch of its stack branch (`stack`)
  */
-export function wholeStackRestOf(root: string): WholeStackRest {
-  const rest = getStackLanding(root).rest
+function wholeStackRestIn(rest: StackLanding["rest"], stack: StackBranch | undefined): WholeStackRest {
   if (rest.members.length === 0 && rest.landed.length === 0) {
-    const stack = getStackBranch(root)
     return { members: stack?.members ?? [], commitCount: stack?.commitCount ?? 0, landed: null, byOwnRobot: false }
   }
   return {
@@ -79,218 +64,132 @@ export function wholeStackRestOf(root: string): WholeStackRest {
   }
 }
 
+/** `wholeStackRestIn` of the whole stack of `root` now */
+export function wholeStackRestOf(root: string): WholeStackRest {
+  return wholeStackRestIn(getStackLanding(root).rest, getStackBranch(root))
+}
+
+/** What "Create Pull Request of the Stack…" of a whole stack that forks reads */
+interface StackPullRequestFacts {
+  readonly stack: StackBranch | undefined
+  /** Why the sync didn't build its stack branch; null when it did */
+  readonly notBuilt: Reason | null
+  /** What landed all of it */
+  readonly landed: Landed | null | undefined
+  readonly target: string
+}
+
 /**
- * "Create Pull Request of the Stack…": the pull request of the stack branch of a stack that forks into the baseline,
- * disabled with the reason while the sync didn't build it, and once all of it landed (the view's `landedStates`: nothing
- * of it is left to review or land); null for a stack that doesn't fork or without the
- * GitHub repository of the branches
+ * "Create Pull Request of the Stack…": the pull request of the stack branch into the baseline, disabled with the reason
+ * while the sync didn't build it, and once all of it landed (nothing of it is left to review or land)
  */
-export function getCreateStackPullRequestItem(root: string): MenuItem | null {
-  const stack = getStackBranch(root)
-  if (stack === undefined || !isForkingRoot(branchSyncStore.getState(), root) || getBranchesGitHubRepository() === null) {
+function stackPullRequestItemOf(root: string, facts: StackPullRequestFacts): MenuItem | null {
+  const { stack, target } = facts
+  if (stack === undefined) {
     return null
   }
-  const blocker = formatReasonOrNull(getStackNotBuilt(root)) ?? formatLandedWhole(getLandedState(stackReadinessKey(root)))
+  const blocker = formatReasonOrNull(facts.notBuilt) ?? formatLandedWhole(facts.landed)
   return {
     id: "create-stack-pull-request",
     label: "Create Pull Request of the Stack…",
     icon: GitPullRequestCreateIcon,
     disabled: blocker !== null,
-    description:
-      blocker ?? `The pull request of ${formatWholeStack(root)} into ${getReadinessTarget()}: the commits of ${formatBranchCount(stack.members.length)}, which one Safe Push lands`,
+    description: blocker ?? `The pull request of ${formatWholeStack(root)} into ${target}: the commits of ${formatBranchCount(stack.members.length)}, which one Safe Push lands`,
     onSelect: () => openStackPullRequestDialog(root),
   }
 }
 
-/** The pull request of the whole stack as the next step needs it: never retargeted, so never "a virtual branch" */
-function stackPullRequestFactOf(stack: StackBranch): NextStepPullRequest | null {
-  const pullRequest = getStackPullRequest(stack.root)
-  if (pullRequest === undefined) {
+/**
+ * "Create Pull Request of the Stack…" of `root` now (`stackPullRequestItemOf`), for the menus; null for a stack that
+ * doesn't fork or without the GitHub repository of the branches
+ */
+export function getCreateStackPullRequestItem(root: string): MenuItem | null {
+  if (getWholeStack(root)?.kind !== "forking" || getBranchesGitHubRepository() === null) {
     return null
   }
-  const base = getOpenPullRequest(stackReadinessKey(stack.root))?.base
-  return {
-    number: pullRequest.number,
-    state: pullRequest.state,
-    isDraft: pullRequest.isDraft,
-    base: pullRequest.baseRefName ?? "",
-    // where an open one goes, as Rust reads it (`pull_request::base_of`); one into a virtual branch is no retarget of
-    // the whole stack, another base
-    intoTarget: base === undefined || base.kind === "target",
-    baseIsVirtualBranch: false,
-    waitingFor: waitingReviewers(pullRequest),
-    changesRequestedBy: changesRequestedBy(pullRequest),
-    checksFailing: pullRequest.checks?.state === "failing",
-    changesRequested: pullRequest.reviewDecision === "changesRequested",
-  }
+  return stackPullRequestItemOf(root, {
+    stack: getStackBranch(root),
+    notBuilt: getStackNotBuilt(root),
+    landed: getLandedState(stackReadinessKey(root)),
+    target: getReadinessTarget(),
+  })
 }
 
-/**
- * What decides the next step of the whole stack of a stack that forks, from the stores: its stack branch (its commits,
- * its state: only a built one lands, else the reason, `StackLanding.start`), the robot of the whole stack, the robot
- * of a branch of it that lands a part of the stack (its start waits for it), its pull request, and the readiness of the
- * whole stack (`stackReadinessKey`). A branch of it that syncs is the sync of the whole stack.
- */
-export function stackFactsOf(stack: StackBranch, options: StartStepOptions | null = null): NextStepFacts {
-  const { root } = stack
+/** What the words of the step of a whole stack read beside those of a branch (`StepInputs`): what its start lands, its pull request */
+interface StackInputs extends StepInputs {
+  readonly rest: StackLanding["rest"]
+  readonly stack: StackBranch | undefined
+  readonly notBuilt: Reason | null
+}
+
+/** The context of the step of the whole stack of `root` over `inputs`; `landed` what landed all of it */
+function stackContextOf(root: string, inputs: StackInputs, landed: Landed | null, forStart: boolean): StepContext {
   const key = stackReadinessKey(root)
-  const available = isPatronusAvailable()
-  const robot = getStackRobot(root)
-  const needsReview = robot !== undefined && isRobotNeedingReview(robot.id)
-  const failing = robot !== undefined && isRobotFailing(robot.id)
-  const tip = stack.tip ?? undefined
-  const rest = wholeStackRestOf(root)
-  const slot = getSafePushSlot({
-    robot,
-    localTip: tip,
-    remote: stack.remoteStatus,
-    needsReview,
-    failing,
-    canOffer: available && stack.commitCount > 0,
-    // a rebuild of the stack branch after its robot landed all of it: new hashes, not new work
-    landed: rest.byOwnRobot && rest.members.length === 0,
-  })
-  const landingMember = getStackLandingMember(root)
-  // why its starts can't, as Rust decides it of the view: its stack branch not built, a robot on its commit, one of a
-  // branch of it (`domain_policy::land::start_refusal`)
-  const landing = getStackLanding(root)
-  const target = getReadinessTarget()
-  const pullRequest = getStackPullRequest(root)
-  const restart =
-    robot === undefined ? null : (getRobotActions(robot, null, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
-  const readiness = options === null ? getReviewReadiness(key) : (freshReadiness(getReviewReadiness(key), key) ?? undefined)
+  const rest = wholeStackRestIn(inputs.rest, inputs.stack)
+  const create = stackPullRequestItemOf(root, { stack: inputs.stack, notBuilt: inputs.notBuilt, landed, target: inputs.target })
   return {
-    branchName: key,
     subject: formatWholeStack(root),
-    patronusAvailable: available,
-    syncing: stack.members.some(name => getBranch(name)?.status === "Syncing"),
-    hasError: false,
-    errorReason: null,
-    commitCount: stack.commitCount,
-    // its own running start is no reason against the start it runs
-    busy: busyFact(key, options),
-    blocked: false,
-    startBlocker: formatReasonOrNull(landing.start),
-    dryRunStartBlocker: formatReasonOrNull(landing.dryRun),
-    landingPart: landingMember,
-    held: getStackPushHold(root) !== null,
-    parked: stackParkedState(getBranch(stack.root)?.structure.stackParked ?? null),
-    // what landed every branch of it, as Rust decides it (`landedStates`): the fetched baseline, merged Safe Pushes of
-    // pieces of it or its own, its pull request merged with the commits of its stack branch
-    landed: getLandedState(key) ?? null,
-    robot: slot,
-    robotPullRequest: robot?.pullRequest?.number ?? null,
-    restart,
-    // a refresh that failed for a while keeps the last listing: its pull requests are known as of then
-    pullRequestsAvailable: getPullRequestListing() === "listed",
-    pullRequestsUnlisted: getPullRequestListing() === "unlisted" ? formatAvailabilityHint(getPullRequestAvailability()) : null,
-    pullRequest: stackPullRequestFactOf(stack),
-    target,
-    // what merged Safe Pushes landed of it is in the target: the robot lands the rest
-    landsBranches: rest.members.length,
-    startDescription: describeWholeStackLanding(rest.members, rest.commitCount, target, "rebaseAutosquash", rest.landed),
-    // the repository view computes them of the branches, not of the whole stack: its start's gate checks it
-    landingNeeds: null,
-    readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
-    pending: pendingFactOf(robot, null),
-    unavailable: unavailableFactOf(robot),
-    forStart: options !== null,
-    stackPullRequest: null,
-    actions: {
-      openSafePush: () => void requestSafePush(key, { mode: "rebaseAutosquash", via: "click" }),
+    target: inputs.target,
+    startDescription: describeWholeStackLanding(rest.members, rest.commitCount, inputs.target, "rebaseAutosquash", rest.landed),
+    busy: busyOf(inputs, forStart),
+    forStart,
+    actions: stepActionsOf(key, inputs, {
       openPullRequest: () => {
-        const current = getStackPullRequest(root) ?? pullRequest
-        if (current !== undefined) {
-          openPullRequest(current)
+        const pullRequest = getStackPullRequest(root)
+        if (pullRequest !== undefined) {
+          openPullRequest(pullRequest)
         }
       },
       // the pull request of the whole stack goes into the target by construction: nothing to retarget
       retarget: () => {},
-      // in the column of steps of the island header, which is the whole stack's
-      createPullRequest: stackStepItem(getCreateStackPullRequestItem(root)),
-      requestReview: getRequestReviewItem(getOpenPullRequest(key), () => openRequestReview(key)),
-      fixLanding,
-    },
+      // in the column of steps of the island header, which is the whole stack's: no "of the Stack" there
+      createPullRequest: create === null ? null : { ...create, compactLabel: "Create Pull Request…" },
+    }),
   }
-}
-
-/** "Create Pull Request…" in a column of steps, at the header of the whole stack, which needs no "of the Stack" */
-function stackStepItem(item: MenuItem | null): MenuItem | null {
-  return item === null ? null : { ...item, compactLabel: "Create Pull Request…" }
-}
-
-/** By root: the step shown, its key, and the store states it was computed for */
-const shownSteps = new Map<string, { sources: readonly unknown[]; key: string; step: StackNextStep | null }>()
-
-/**
- * What a surface renders of the step of the stack branch: one object while it stays. The step of the last branch of a
- * straight chain is that branch's own, one object while it stays (`getBranchNextStepNow`), so it is compared as it is
- */
-function stackStepKey(next: StackNextStep | null, root: string): string {
-  if (next === null || next.leaf !== null) {
-    return ""
-  }
-  const { step } = next
-  const item = step.item
-  const pullRequest = getStackPullRequest(root)
-  return JSON.stringify([
-    step.kind,
-    step.tone,
-    step.safePushBlocker,
-    step.dryRunBlocker,
-    step.needsReadiness,
-    item?.id,
-    item?.label,
-    item?.disabled,
-    item?.description,
-    getStackRobot(root)?.id,
-    pullRequest?.number,
-    pullRequest?.url,
-    pullRequest?.state,
-  ])
 }
 
 /**
- * The next step of the whole stack of `root` now (`StackNextStep`), for menus built on open, keys and toasts; null for a
- * branch that heads no stack. Computed once per change of the stores it reads, the same object while it stays.
+ * The step of the whole stack of `root` now (`StackNextStep`), for menus built on open, keys, toasts and a start
+ * (`forStart`); null for a branch that heads no stack
  */
-export function getStackNextStepNow(root: string): StackNextStep | null {
-  const sources = nextStepSources()
-  const shown = shownSteps.get(root)
-  if (shown !== undefined && shown.sources.every((source, index) => source === sources[index])) {
-    return shown.step
-  }
-  const next = computeStackNextStep(root)
-  const key = stackStepKey(next, root)
-  const same = next?.leaf == null ? shown?.key === key && shown.step?.leaf == null : shown?.step?.leaf === next.leaf && shown.step.step === next.step
-  const kept = shown !== undefined && same ? shown.step : next
-  shownSteps.set(root, { sources, key, step: kept })
-  return kept
-}
-
-function computeStackNextStep(root: string): StackNextStep | null {
-  const stack = getStackBranch(root)
+export function getStackNextStep(root: string, options?: { readonly forStart: true }): StackNextStep | null {
   const whole = getWholeStack(root)
-  if (whole?.kind === "forking" && stack !== undefined) {
-    return { leaf: null, step: getBranchNextStep(stackFactsOf(stack)) }
+  if (whole?.kind === "chain") {
+    const step = getBranchNextStep(whole.leaf, options)
+    return step === null ? null : { leaf: whole.leaf, step }
   }
-  // a straight chain: its last branch that is not parked lands the whole stack (`WholeStackView.chain`); the parked
-  // branches at its end stay local, the island has them in the Parked card
-  if (whole?.kind !== "chain") {
+  const key = stackReadinessKey(root)
+  const view = whole?.kind === "forking" ? getRowPart(key, "landing") : undefined
+  if (view === undefined) {
     return null
   }
-  const step = getBranchNextStepNow(whole.leaf)
-  return step === null ? null : { leaf: whole.leaf, step }
+  const inputs: StackInputs = { ...getStepInputs(key, view.step), rest: getStackLanding(root).rest, stack: getStackBranch(root), notBuilt: getStackNotBuilt(root) }
+  return { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, view.step.landed, options !== undefined)) }
 }
 
 /**
  * The next step of the whole stack of `root`, re-rendering when it changes (the header of its island, the root's menu
- * and preview); the readiness of the whole stack is asked while it shows
+ * and preview): of its stack branch while it forks, the readiness of the whole stack asked while it shows; of the last
+ * branch of a straight chain, that branch's own
  */
 export function useStackNextStep(root: string): StackNextStep | null {
-  const forks = useBranchSync(state => isForkingRoot(state, root))
-  useShowReviewReadiness(forks ? stackReadinessKey(root) : "")
-  return useNextStepStores(() => getStackNextStepNow(root))
+  const whole = useWholeStack(root)
+  const forks = whole?.kind === "forking"
+  const key = forks ? stackReadinessKey(root) : ""
+  useShowReviewReadiness(key)
+  const view = useRowPart(key, "landing")
+  const inputs: StackInputs = {
+    ...useStepInputs(key, view?.step),
+    rest: useStackLanding(forks ? root : "").rest,
+    stack: useStackBranch(forks ? root : ""),
+    notBuilt: useForkingStackNotBuilt(root),
+  }
+  const leaf = whole?.kind === "chain" ? whole.leaf : null
+  const leafStep = useBranchNextStep(leaf ?? "")
+  if (leaf !== null) {
+    return leafStep === null ? null : { leaf, step: leafStep }
+  }
+  return view === undefined ? null : { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, view.step.landed, false)) }
 }
 
 /**
@@ -304,29 +203,6 @@ export function useStartStep(branchName: string, root: string | undefined): Bran
     return branchStep
   }
   return stackStep?.leaf === null ? stackStep.step : null
-}
-
-/**
- * Of the shown readiness keys (`askedOrder`: branches and whole stacks, `stackReadinessKey`), those whose next step
- * depends on the readiness: the store asks Patronus for them
- */
-export function readinessKeysNeedingAnswer(order: readonly string[]): string[] {
-  return order.filter(key => {
-    const root = stackRootOfReadinessKey(key)
-    if (root === null) {
-      return getBranchNextStepNow(key)?.needsReadiness === true
-    }
-    const next = getStackNextStepNow(root)
-    return next !== null && next.leaf === null && next.step.needsReadiness
-  })
-}
-
-/** Whether the header of a whole stack waits for an approval (Awaiting): a focus asks GitHub for the pull requests at once */
-export function isStackAwaitingApproval(): boolean {
-  return Object.keys(branchSyncStore.getState().stackBranches).some(root => {
-    const next = getStackNextStepNow(root)
-    return next?.leaf === null && next.step.kind === "awaiting"
-  })
 }
 
 /**

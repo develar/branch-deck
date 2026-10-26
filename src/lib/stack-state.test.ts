@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { LandingNodeKind } from "@/lib/landing-node"
+import type { LandingNodeKind } from "@/lib/bindings"
 import { firstBranchOfEachState, getStackStateChips, summarizeStackState } from "@/lib/stack-state"
 import type { StackState } from "@/lib/stack-state"
 

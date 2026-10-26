@@ -1,6 +1,5 @@
 import { useMemo } from "react"
-import { nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
-import { getLandingNodeNow, getStackLandingNodeNow } from "@/hooks/useLandingNode"
+import { getLandingNodeNow, getStackLandingNodeNow, nodeSources, useNodeStores } from "@/hooks/useLandingNode"
 import { useRobotOverview } from "@/hooks/useRobotOverview"
 import type { LandingOverview, LandingUnit } from "@/lib/landing-overview"
 import { collectLandingOverview } from "@/lib/landing-overview"
@@ -37,9 +36,9 @@ function computeLandingUnits(): LandingUnit[] {
 
 let shown: { sources: readonly unknown[]; key: string; units: LandingUnit[] } | null = null
 
-/** The units now, computed once per change of the stores the next step reads, the same array while they stay */
+/** The units now, computed once per change of the stores the nodes read, the same array while they stay */
 export function getLandingUnitsNow(): LandingUnit[] {
-  const sources = nextStepSources()
+  const sources = nodeSources()
   if (shown !== null && shown.sources.every((source, index) => source === sources[index])) {
     return shown.units
   }
@@ -54,7 +53,7 @@ export function getLandingUnitsNow(): LandingUnit[] {
  * landing nodes, beside the robots of the branches, the whole stacks and the watched ones (`useRobotOverview`)
  */
 export function useLandingOverview(): LandingOverview {
-  const units = useNextStepStores(getLandingUnitsNow)
+  const units = useNodeStores(getLandingUnitsNow)
   const robots = useRobotOverview()
   return useMemo(() => collectLandingOverview(units, robots), [units, robots])
 }

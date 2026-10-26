@@ -200,7 +200,7 @@ indicator could cancel a robot but not restart it.
   object. "Safe Push" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
   Code Platform: Ilya Korennoy is requested on #1078", and the row shows the wait, not the doomed action
   ([Next Step](../../spec/branch/next-step.spec.md)). One model of an object decides its next step
-  (`getBranchNextStep`), every surface renders it.
+  (`domain_policy::next_step`, worded by `presentNextStep`), every surface renders it.
 - **A state as a label**: the one exception to "a button is a verb". A quiet step names the state it waits in ("Awaiting
   Ilya Korennoy", "Changes Requested", "Draft"), muted (`text-muted-foreground`, `destructive` for changes requested), in
   Title Case as a button; its hover says the whole state and the action it takes ("Open Pull Request #1078" with its

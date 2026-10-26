@@ -1,6 +1,6 @@
 # Scenario cases
 
-The table of today's behaviour of both sides: what the app decides (`getBranchNextStepOf`, `getStackNextStepNow`,
+The table of today's behaviour of both sides: what the app decides (`getBranchNextStep`, `getStackNextStep`,
 `readSafePush`) and what `bd` answers (`bd safe-push --check`, then the start itself) for the same situation. Data
 only: the rules of this crate (`src/`) don't read it yet, the two tests below do ([Rust as the source of the domain
 rules](../../../docs/design/rust-domain-authority.md), stage `s0c-scenarios`). Every expectation is today's answer, never the wished one; a case where the sides differ names
@@ -12,14 +12,18 @@ Two tests read every `*.json` file here, one test function per `group`, and name
 | Side | Test | Adapter |
 | --- | --- | --- |
 | `bd` | `crates/bd-remote/src/scenario_test.rs` | `Given` (serde, `deny_unknown_fields`) → a `Space` of the bd-cli fixtures with the fake Patronus and the fake GitHub → `safe_push()` itself with `--check` (the function the command runs: its preamble, `plan()` with the decision of `domain_policy::land::decide`, the output of a check) → the projection of the output; then `bd safe-push` without `--check` |
-| app | `src/lib/scenario-cases.test.ts` | `src/test-support/scenario-case.ts` (zod, strict) → `src/test-support/scenario-facts.ts` seeds the stores as the sync, the repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), what Rust computes of them from `facts/<id>.json` → the app's own readers: `getBranchNextStepOf` (`getStackNextStepNow` of the whole stack) for the step, `readSafePush` for the decision |
+| app | `src/lib/scenario-cases.test.ts` | `src/test-support/scenario-case.ts` (zod, strict) → `src/test-support/scenario-facts.ts` seeds the stores as the sync, the repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), what Rust computes of them from `facts/<id>.json` → the app's own readers: `getBranchNextStep` (`getStackNextStep` of the whole stack) for the step, `readSafePush` for the decision |
 
 No adapter decides for its side. The Rust side builds a repository of `given` with the fixtures, once per case. What
 the app's stores hold of the Rust core — the tips the sync left, the robots as the list answers them, in its order,
 the repository view (`patronus_view` with the landing needs, as `bd status` reads it), the review readiness of the
 branch and of its whole stack, and the open pull requests as the view of the session reads them (`openPullRequests`:
 where each goes, a draft, the code owners Request Review… offers; `open_pull_requests_view`), and what landed each
-subject (`landedStates`, `landed_states`: the landing report, the Patronus view, the pull requests in any state) — the
+subject (`landedStates`, `landed_states`: the landing report, the Patronus view, the pull requests in any state), and
+the next step and the node of each subject as the session derives them (`nextSteps`, `next_steps`: the rows of the sync,
+syncing while `sync: running`, each failed robot with why it failed as `reason` says, a row of the case's branch the
+sync of bd has none of — `commits: []`, `landed: inBaseline` — as the app holds it until its next sync), which the app's
+side words with its presenter (`presentNextStep`) — the
 group test computes of that same repository before it checks and starts, and
 writes to `facts/<id>.json`, one file per exercised case (`assert_facts_kept`; the ids named `<branch>-tip`,
 `<branch>-remote`, `stack-<root>-tip`, `<branch>-c<i>` for the i-th original commit, the robots with their start and
@@ -136,7 +140,7 @@ hyphens), a `#the-table:<row>` names a row of the table. D8 is recorded: the voc
 of its own, `the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8` (Rust: the placement, the
 sync of the fixture, `whole_stack_of`, `bd safe-push A --whole-stack --check`) and `the whole stack of a blocked branch
 with an inactive declared parent is d8` (Vitest: the same table in `branchSyncStore`, placed as the view places it,
-`mainLineOf`, `getStackNextStepNow`).
+`mainLineOf`, `getStackNextStep`).
 
 ## `given`: the closed vocabulary
 

@@ -29,6 +29,46 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"base": "release-252", "kind": "otherBase", "number": 7},
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": false,
+            "retarget": {"base": "release-252", "number": 7, "target": "master"},
+            "row": "5′",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"base": "release-252", "kind": "otherBase", "number": 7},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": {"base": "release-252", "number": 7, "target": "master"},
+        "row": "5′",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {"auth": {"base": {"base": "release-252", "kind": "other"}, "candidates": [], "draft": false, "number": 7}},
   "readiness": {
     "auth": {

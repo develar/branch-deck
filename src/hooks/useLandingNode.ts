@@ -1,40 +1,22 @@
-import { getNextStepFacts, nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
-import { stackFactsOf } from "@/hooks/useStackNextStep"
-import type { LandingNode, LandingNodeFacts } from "@/lib/landing-node"
-import { getLandingNode } from "@/lib/landing-node"
-import { formatLandingSubject } from "@/lib/patronus"
+import { useStore } from "zustand"
+import { getStepInputs, stepActionsOf } from "@/hooks/useBranchNextStep"
+import type { NextStepView } from "@/lib/bindings"
 import type { FoundMove, RunningMove } from "@/lib/running-move"
 import { findRunningMove, safePushStartMoves } from "@/lib/running-move"
-import { blockingBranchOf } from "@/lib/stack"
-import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
-import type { Branch } from "@/stores/branch-sync"
-import { getBranch, getStackAncestors, getStackBranch, getWholeStack, isBranchPushing } from "@/stores/branch-sync"
-import { getOperationMoves } from "@/stores/operations"
-import { getBranchRobot, getLandingSpan, getStackRobot, isPatronusKnown } from "@/stores/patronus"
-import { getSafePushStarts } from "@/stores/safe-push"
+import { getRowPart } from "@/model/store"
+import type { LandingNode } from "@/presenters/landing-node"
+import { presentLandingNode } from "@/presenters/landing-node"
+import { branchSyncStore, getBranch, getStackAncestors, getStackBranch, getWholeStack } from "@/stores/branch-sync"
+import { getOperationMoves, operationsStore } from "@/stores/operations"
+import { getSafePushStarts, safePushStore } from "@/stores/safe-push"
 
-/** What decides the node of a branch now, from the stores */
-function landingFactsOf(branch: Branch): LandingNodeFacts {
-  const landing = getLandingSpan(branch.name)
-  return {
-    next: getNextStepFacts(branch),
-    status: branch.status,
-    statusText: branch.statusText,
-    blockedBy: blockingBranchOf(branch),
-    // a dry run checks the branches of its span, it lands none
-    landingWith: landing === null || landing.robot.pushMode === "dryRun" ? null : formatLandingSubject(landing),
-    robotDryRun: getBranchRobot(branch.name)?.pushMode === "dryRun",
-    patronusKnown: isPatronusKnown(),
-    move: runningMoveOf(branch.name),
-    pushPending: isPushPending(branch),
-  }
-}
-
-/** The running move that decides the node of `key` (`findRunningMove`) */
-function runningMoveOf(key: string): FoundMove | null {
-  return findRunningMove(key, runningMoves(), landedBeside)
-}
+/*
+ * The node of a row as Rust decides it (`nextSteps` of the view, `domain_policy::landing_node`) in the page's words
+ * (`presentLandingNode`), with the move that runs on the row laid over it: the page's local state until the operations
+ * move into Rust (s10).
+ */
 
 /** The moves that run: of the operations that declare one, and of the starts of a Safe Push or a Dry Run */
 function runningMoves(): readonly RunningMove[] {
@@ -50,79 +32,85 @@ function landedBeside(key: string): readonly string[] {
   return getStackAncestors(key)
 }
 
-/** The remote lacks work of the branch, and no push of it runs: once pushing, the push is made */
-function isPushPending(branch: Branch): boolean {
-  const action = branch.remoteStatus?.action.kind
-  return action !== undefined && action !== "upToDate" && !isBranchPushing(branch.name)
+/** The node of the subject `key` (a branch, `stack:<root>`) of its part of the view now, with the move that runs on its row */
+function nodeOf(key: string, view: NextStepView): LandingNode {
+  const root = stackRootOfReadinessKey(key)
+  const inputs = getStepInputs(key, view.step)
+  const move: FoundMove | null = findRunningMove(key, runningMoves(), landedBeside)
+  return presentLandingNode(view.node, {
+    step: {
+      subject: root === null ? key : formatWholeStack(root),
+      target: inputs.target,
+      startDescription: null,
+      busy: null,
+      forStart: false,
+      actions: stepActionsOf(key, inputs, { openPullRequest: () => {}, retarget: () => {}, createPullRequest: null }),
+    },
+    statusText: root === null ? (getBranch(key)?.statusText ?? "") : "",
+    move,
+  })
 }
 
-/**
- * The node of the whole stack of `root` (the header of its island): of its stack branch while the stack forks, else of
- * the last branch of its straight chain, whose Safe Push lands the whole stack; null for a branch that heads no stack
- */
-function computeStackNode(root: string): LandingNode | null {
-  const stack = getStackBranch(root)
-  if (stack !== undefined && getWholeStack(root)?.kind === "forking") {
-    return getLandingNode({
-      next: stackFactsOf(stack),
-      status: "Unchanged",
-      statusText: "",
-      blockedBy: null,
-      landingWith: null,
-      robotDryRun: getStackRobot(root)?.pushMode === "dryRun",
-      patronusKnown: isPatronusKnown(),
-      move: runningMoveOf(stackReadinessKey(root)),
-      pushPending: false,
-    })
+/** The states of the stores a node reads: the view (its parts, the rows), the operations and the starts that run (the move) */
+export function nodeSources(): readonly unknown[] {
+  return [branchSyncStore.getState(), operationsStore.getState(), safePushStore.getState()]
+}
+
+/** By key (a branch, `stack:<root>`): the node shown, and the store states it was computed for */
+const shownNodes = new Map<string, { sources: readonly unknown[]; node: LandingNode | null }>()
+
+/** Computed once per change of the stores the node reads; the same object while the node stays */
+function cachedNode(key: string, compute: () => LandingNode | null): LandingNode | null {
+  const sources = nodeSources()
+  const shown = shownNodes.get(key)
+  if (shown !== undefined && shown.sources.every((source, index) => source === sources[index])) {
+    return shown.node
   }
-  const leaf = mainLineLeaf(root)
-  return leaf === null ? null : getLandingNodeNow(leaf)
+  const node = compute()
+  const same = shown?.node != null && node !== null && JSON.stringify(shown.node) === JSON.stringify(node)
+  const kept = same || (shown?.node === null && node === null) ? shown!.node : node
+  shownNodes.set(key, { sources, node: kept })
+  return kept
+}
+
+/** The node of the branch now; null before the view has it */
+export function getLandingNodeNow(name: string): LandingNode | null {
+  return cachedNode(name, () => {
+    const view = getRowPart(name, "landing")
+    return view === undefined ? null : nodeOf(name, view)
+  })
 }
 
 /**
  * The last branch of the straight chain of `root` that is not parked, whose Safe Push lands the whole stack
  * (`WholeStackView.chain`); null for a lone branch and a stack that forks
  */
-function mainLineLeaf(root: string): string | null {
+export function getStackNodeBranch(root: string): string | null {
   const whole = getWholeStack(root)
   return whole?.kind === "chain" ? whole.leaf : null
 }
 
 /**
- * The branch whose node the header of the island of `root` shows (the last of its straight chain), whose robot its hover
- * shows; null while the stack forks: the node is of its stack branch, the robot of the whole stack
+ * The node of the whole stack of `root` now (the header of its island): of its stack branch while the stack forks, else
+ * of the last branch of its straight chain, whose Safe Push lands the whole stack; null for a branch that heads no stack
  */
-export function getStackNodeBranch(root: string): string | null {
-  return mainLineLeaf(root)
-}
-
-/** By key (a branch, `stack:<root>`): the node shown, and the store states it was computed for */
-const shownNodes = new Map<string, { sources: readonly unknown[]; node: LandingNode | null }>()
-
-/** Computed once per change of the stores the next step reads; the same object while the node stays */
-function cachedNode(key: string, compute: () => LandingNode | null): LandingNode | null {
-  const sources = nextStepSources()
-  const shown = shownNodes.get(key)
-  if (shown !== undefined && shown.sources.every((source, index) => source === sources[index])) {
-    return shown.node
+export function getStackLandingNodeNow(root: string): LandingNode | null {
+  const leaf = getStackNodeBranch(root)
+  if (leaf !== null) {
+    return getLandingNodeNow(leaf)
   }
-  const node = compute()
-  const kept = shown !== undefined && shown.node?.kind === node?.kind && shown.node?.label === node?.label ? shown.node : node
-  shownNodes.set(key, { sources, node: kept })
-  return kept
-}
-
-/** The node of the branch now (`getLandingNode`); null without the branch */
-export function getLandingNodeNow(name: string): LandingNode | null {
-  return cachedNode(name, () => {
-    const branch = getBranch(name)
-    return branch === undefined ? null : getLandingNode(landingFactsOf(branch))
+  const key = stackReadinessKey(root)
+  return cachedNode(key, () => {
+    const view = getWholeStack(root)?.kind === "forking" ? getRowPart(key, "landing") : undefined
+    return view === undefined ? null : nodeOf(key, view)
   })
 }
 
-/** The node of the whole stack of `root` now; null for a branch that heads no stack */
-export function getStackLandingNodeNow(root: string): LandingNode | null {
-  return cachedNode(`stack:${root}`, () => computeStackNode(root))
+/** Renders again with `select` when a store the node reads changes */
+export function useNodeStores<T>(select: () => T): T {
+  useStore(branchSyncStore, select)
+  useStore(safePushStore, select)
+  return useStore(operationsStore, select)
 }
 
 /**
@@ -131,15 +119,15 @@ export function getStackLandingNodeNow(root: string): LandingNode | null {
  */
 export function useLandingNode(name: string): LandingNode | null {
   useShowReviewReadiness(name)
-  return useNextStepStores(() => getLandingNodeNow(name))
+  return useNodeStores(() => getLandingNodeNow(name))
 }
 
 /** The node of the whole stack of `root`, for the header of its island */
 export function useStackLandingNode(root: string): LandingNode | null {
-  return useNextStepStores(() => getStackLandingNodeNow(root))
+  return useNodeStores(() => getStackLandingNodeNow(root))
 }
 
 /** `getStackNodeBranch`, re-rendering when it changes */
 export function useStackNodeBranch(root: string): string | null {
-  return useNextStepStores(() => getStackNodeBranch(root))
+  return useStore(branchSyncStore, () => getStackNodeBranch(root))
 }

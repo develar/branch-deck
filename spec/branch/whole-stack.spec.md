@@ -397,7 +397,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   (`StackLanding.rest`, `describeWholeStackLanding`); the stack branch still carries the landed commits, which Patronus
   finds in the target. Once every branch of it landed, nothing is left: Safe Push Whole Stack and Dry Run Whole Stack
   disabled with "Landed in master with oauth and the whole auth stack" ([Next Step](next-step.spec.md#the-whole-stack)).
-  [@test] ../../src/hooks/useStackNextStep.test.ts (`lands only the rest after a piece landed its main line, and offers nothing once every branch of it landed`, `offers nothing once its own robot landed every branch of it`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`the_whole_stack_takes_the_rows_of_its_stack_branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should land only what is left of the whole stack after a piece landed its main line, and offer nothing once every branch of it landed`)
 - Its next step must be the table of [Next Step](next-step.spec.md#the-whole-stack) on its facts: disabled with the
   reason while the sync didn't build its stack branch ("The stack branch conflicts at 0caf9066 in config.js: the
@@ -409,7 +409,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   approvals" ([Facts without an answer](next-step.spec.md#facts-without-an-answer)); S on the header says it in the
   notice, whose action is "Create Pull Request of the Stack…". A stack branch not built lands the stack in pieces: the "⋯" of the island offers the Safe Push of
   the last branch of its main line, and so do the notice of S and the popover ("Land it in pieces").
-  [@test] ../../src/hooks/useStackNextStep.test.ts (`is disabled with the reason of a stack branch the sync didn't build, for a Dry Run too: the stack lands in pieces`, `waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`the_whole_stack_takes_the_rows_of_its_stack_branch`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on S why the whole stack can't start without its pull request, and create it from the notice`)
   [@test] ../../src/stores/branch-sync.test.ts (`is the stack that forks and holds the branch, else the straight chain the branch heads`)
@@ -433,7 +433,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   `crates/bd-remote/src/status_test.rs`, `safe_push_test.rs`,
   `push_test.rs`, `robot_test.rs`.
 - `pnpm test:unit`: `src/stores/branch-sync.test.ts`, `src/lib/patronus.test.ts`, `src/lib/whole-stack.test.ts`,
-  `crates/domain-policy/src/landed_test.rs`, `src/stores/patronus.test.ts`, `src/hooks/useStackNextStep.test.ts`.
+  `crates/domain-policy/src/landed_test.rs`, `src/stores/patronus.test.ts`, `crates/domain-policy/src/next_step_test.rs`.
 - `pnpm e2e tests/e2e/stack-island`: the whole stack in the app (templates `stack_island`, `stack_side_conflict`);
   `tests/e2e/stacked-branches/stacked-branches.spec.ts` for a small stack.
 - `pnpm perf:monorepo`: the full and the unchanged `bd sync` of the pinned monorepo clone, one stack that forks.

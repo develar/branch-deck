@@ -1,22 +1,34 @@
 // The app's side of a scenario case (`crates/domain-policy/cases/README.md`): the stores seeded as the sync, the
 // repository view, Patronus, GitHub and the review scan leave them (`seedScenario`), then the app's own readers answer:
-// `getBranchNextStepOf` and `getStackNextStepNow` for the step, `readSafePush` for what the click does with the decision
-// Rust makes. What the Rust core computes of the case's repository (the tips, the robots, the repository view, the
-// review readiness, the open pull requests as the view reads them, the decision of the start) comes from
+// `getBranchNextStep` and `getStackNextStep` for the step Rust decides as the page words it, `readSafePush` for what the
+// click does with the decision Rust makes. What the Rust core computes of the case's repository (the tips, the robots, the repository view, the
+// review readiness, the open pull requests as the view reads them, the next steps, the decision of the start) comes from
 // `cases/facts/<id>.json`, which the Rust scenario test writes from the same `given`; the adapter maps the rest of
 // `given` to store-shaped facts (the table of the sync, the landing report, the pull requests, the rules: the README
 // names what it still models) and decides nothing of either side. A value the README doesn't map fails with "not
 // mapped yet"
-import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
+import { getBranchNextStep } from "@/hooks/useBranchNextStep"
 import type { SafePushRead } from "@/hooks/useSafePush"
 import { readSafePush } from "@/hooks/useSafePush"
-import { getStackNextStepNow } from "@/hooks/useStackNextStep"
+import { getStackNextStep } from "@/hooks/useStackNextStep"
 import { internalError } from "@/lib/api-error"
-import type { BranchRules, Fact, LandAnswer, Landed, PatronusReviewRequirement, PatronusRobot, PatronusView, PullRequest, PullRequestView, ReviewReadiness } from "@/lib/bindings"
-import type { BranchNextStep } from "@/lib/branch-next-step"
+import type {
+  BranchRules,
+  Fact,
+  LandAnswer,
+  Landed,
+  NextStepView,
+  PatronusReviewRequirement,
+  PatronusRobot,
+  PatronusView,
+  PullRequest,
+  PullRequestView,
+  ReviewReadiness,
+} from "@/lib/bindings"
 import { robotsById } from "@/lib/test-robot"
+import type { BranchNextStep } from "@/presenters/next-step"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch } from "@/stores/branch-sync"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { landedStore } from "@/stores/landed"
 import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
@@ -75,6 +87,11 @@ export interface ScenarioFacts {
    * `lands`) over the facts it reads of the repository; null off Space and for a whole stack
    */
   readonly land: LandAnswer | null
+  /**
+   * The next step and the node of each subject as the session derives them (`repository_model::derive::next_steps`)
+   * over the facts of the case's repository, the rows syncing while the app's sync runs
+   */
+  readonly nextSteps: Readonly<Record<string, NextStepView>>
 }
 
 const FACTS_DIRECTORY = "/crates/domain-policy/cases/facts"
@@ -257,6 +274,7 @@ function seedSync(given: Given, facts: ScenarioFacts): void {
     parked: parkedLines,
     openPullRequests: facts.openPullRequests,
     landedStates: landedStatesOf(given, facts),
+    nextSteps: facts.nextSteps,
     isSyncing: given.sync === "running",
     pushingBranches: {},
     stackPushes: {},
@@ -457,15 +475,15 @@ export async function seedScenario(id: string, given: Given): Promise<void> {
 }
 
 /**
- * The step of the case as the row shows it: of its branch (`getBranchNextStepOf`), or of the whole stack of its root
- * (`getStackNextStepNow`: of the stack branch while the stack forks, else of the last branch of the straight chain)
+ * The step of the case as the row shows it: of its branch (`getBranchNextStep`), or of the whole stack of its root
+ * (`getStackNextStep`: of the stack branch while the stack forks, else of the last branch of the straight chain)
  */
 export function nextStepOf(given: Given): BranchNextStep {
   if (given.subject === "branch") {
-    return getBranchNextStepOf(getBranch(given.branch) ?? notMapped(`branch ${given.branch}: no branch of the commits`))
+    return getBranchNextStep(given.branch) ?? notMapped(`branch ${given.branch}: the facts have no step of it (the sync of bd has no such branch)`)
   }
   const root = rootOf(given, given.branch)
-  return (getStackNextStepNow(root) ?? notMapped(`subject wholeStack of ${root}: a stack of one branch has no whole stack`)).step
+  return (getStackNextStep(root) ?? notMapped(`subject wholeStack of ${root}: a stack of one branch has no whole stack`)).step
 }
 
 /**

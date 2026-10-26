@@ -251,6 +251,11 @@ pub struct NextStep {
   /// Rows 7 and 11 while GitHub doesn't list the pull requests: a Safe Push without review is offered beside, with why
   /// it can't start now (the reasons of the subject, never the approvals)
   pub without_review: Option<WithoutReview>,
+  /// The branches a Safe Push of the subject lands now, in one robot (1 for a lone branch): what its start is called
+  pub lands: u32,
+  /// Why GitHub lists no pull request of a repository on GitHub (signed out, offline, SSO): the approvals are unknown,
+  /// never "none", and the start says that Patronus checks them; `None` while GitHub lists them and off GitHub
+  pub unlisted: Option<PullRequestAvailability>,
 }
 
 /// The Safe Push without review a step offers beside it

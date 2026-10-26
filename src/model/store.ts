@@ -21,6 +21,7 @@
  * `refreshSessionFacts`.
  */
 import { Channel } from "@tauri-apps/api/core"
+import { useStore } from "zustand"
 import type {
   ApiError,
   BranchChange,
@@ -31,6 +32,7 @@ import type {
   FactFamily,
   FactRefreshReason,
   News,
+  NextStepView,
   RepositoryView,
   StackBranchUpdate,
   SyncAnswer,
@@ -56,7 +58,7 @@ import type { BranchStructure } from "@/model/structure"
 import { ROOT_STRUCTURE } from "@/model/structure"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
-import { branchSyncStore, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, NO_SUBJECT_PARTS, toRemoteStatus } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getEffectiveBranchPrefix, getSelectedRepositoryPath, refreshBranchPrefix } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
@@ -402,6 +404,9 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (changes === null || Object.keys(changes.landedStates ?? {}).length > 0 || (changes.removedLandedStates?.length ?? 0) > 0) {
     update.landedStates = next.landedStates
   }
+  if (changes === null || Object.keys(changes.nextSteps ?? {}).length > 0 || (changes.removedNextSteps?.length ?? 0) > 0) {
+    update.nextSteps = next.nextSteps
+  }
   if (changes === null || changes.unassigned != null) {
     update.unassignedCommits = next.sections.unassigned
   }
@@ -724,10 +729,7 @@ function resetTable(): void {
     stackParents: {},
     parked: {},
     stackBranches: {},
-    pushes: {},
-    openPullRequests: {},
-    lands: {},
-    landedStates: {},
+    ...NO_SUBJECT_PARTS,
   })
   resetArchivedBranches()
   resetUnappliedBranches()
@@ -1037,4 +1039,28 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
     return
   }
   branchSyncStore.setState({ autosquashPlan: result.data })
+}
+
+/** The parts of the view a row reads by the key of its subject (a branch, `stack:<root>` the whole stack), by name */
+interface RowParts {
+  /** The next step and the node of the subject (`RepositoryView.nextSteps`) */
+  readonly landing: NextStepView
+}
+
+/** The record of the store that keeps each part of the rows */
+const ROW_PARTS: { readonly [P in keyof RowParts]: (state: BranchSyncState) => Readonly<Record<string, RowParts[P]>> } = {
+  landing: state => state.nextSteps,
+}
+
+/** The part `part` of the row of `subject` as the view holds it now; undefined while the view has none of it */
+export function getRowPart<P extends keyof RowParts>(subject: string, part: P): RowParts[P] | undefined {
+  return ROW_PARTS[part](branchSyncStore.getState())[subject]
+}
+
+/**
+ * `getRowPart`, re-rendering when it changes: one kept reference, the same object while the patches leave the part of
+ * the subject untouched (`applyViewPatch`), so a row renders again only when its own part changes
+ */
+export function useRowPart<P extends keyof RowParts>(subject: string, part: P): RowParts[P] | undefined {
+  return useStore(branchSyncStore, state => ROW_PARTS[part](state)[subject])
 }

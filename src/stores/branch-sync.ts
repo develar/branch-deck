@@ -14,6 +14,7 @@ import type {
   DroppedCommit,
   LandDecisions,
   Landed,
+  NextStepView,
   PullRequestView,
   PushAction,
   Reason,
@@ -261,6 +262,21 @@ export interface BranchSyncState {
    * after it the work left), its pull request merged with its commits; a subject nothing landed is not listed
    */
   landedStates: Readonly<Record<string, Landed>>
+  /**
+   * The next step and the node of each subject (a branch, `stack:<root>` the whole stack of a root that forks), as Rust
+   * decides them (`RepositoryView.nextSteps`, `domain_policy::next_step`, `domain_policy::landing_node`); read through
+   * `useRowPart(subject, "landing")`
+   */
+  nextSteps: Readonly<Record<string, NextStepView>>
+}
+
+/** The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`, `nextSteps`) */
+export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps"> = {
+  pushes: {},
+  openPullRequests: {},
+  lands: {},
+  landedStates: {},
+  nextSteps: {},
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -289,10 +305,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   stackParents: {},
   parked: {},
   stackBranches: {},
-  pushes: {},
-  openPullRequests: {},
-  lands: {},
-  landedStates: {},
+  ...NO_SUBJECT_PARTS,
 }))
 
 /**
@@ -673,6 +686,14 @@ export function pushOrdersIn(state: BranchSyncState, name: string): PushOrders {
 /** `pushOrdersIn` of the stores now */
 export function getPushOrders(name: string): PushOrders {
   return pushOrdersIn(branchSyncStore.getState(), name)
+}
+
+/** Why the sync didn't build the stack branch of the stack of `root` that forks, re-rendering when it changes; null for one it built or another stack */
+export function useForkingStackNotBuilt(root: string): Reason | null {
+  return useStore(branchSyncStore, state => {
+    const whole = structureIn(state, root).wholeStack
+    return whole?.kind === "forking" ? (whole.notBuilt ?? null) : null
+  })
 }
 
 /** The open pull request of `subject` (a branch, `stackReadinessKey(root)`) as Rust reads it; undefined without one */

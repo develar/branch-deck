@@ -1,5 +1,5 @@
 // The app's side of the scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` seeded
-// into the stores, then the app's own readers (`getBranchNextStepOf`, `getStackNextStepNow`, `readSafePush` over the
+// into the stores, then the app's own readers (`getBranchNextStep`, `getStackNextStep`, `readSafePush` over the
 // decision Rust made of the start, written into the facts), today's answer expected; `crates/bd-remote/src/scenario_test.rs`
 // is the side of bd
 import { describe, expect, it, vi } from "vite-plus/test"

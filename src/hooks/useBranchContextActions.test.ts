@@ -12,6 +12,7 @@ import { operationsStore } from "@/stores/operations"
 import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
 import { CREATE, forcePush, PUSH, placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { pendingStep, setNextSteps, testStep } from "@/test-support/next-step"
 import { testPatronusRepository } from "@/test-support/patronus-repository"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
@@ -33,22 +34,27 @@ describe("getSafePushBlocker", () => {
     operationsStore.setState({ running: [] })
     patronusStore.setState({ repositories: {} })
     pullRequestsStore.setState({ repositories: {} })
+    branchSyncStore.setState({ nextSteps: {} })
   })
 
   it("says why a branch can't start a Safe Push, in the words of every surface that offers it", () => {
-    // what the start decides on is not known yet: Patronus, then GitHub
-    expect(getSafePushBlocker(testBranch("login", null))).toBe("Waits for the answer of Patronus")
-    patronusStore.setState({ repositories: { [KEY]: { ...testPatronusRepository(), githubRepository: null } } })
-    expect(getSafePushBlocker(testBranch("login", null))).toBe("Waits for GitHub to list the pull requests")
-    setPullRequestsListed()
-    // the readiness of a branch is asked by its row; nothing else holds the start back
-    expect(getSafePushBlocker(testBranch("login", null))).toBe("Waits for Patronus to check the approvals")
-    pullRequestsStore.setState({
-      repositories: { [KEY]: { availability: { status: "notGitHub" }, pullRequests: {}, stackPullRequests: {}, fetchedAt: 1, listed: false, isRefreshing: false } },
-    })
-    expect(getSafePushBlocker(testBranch("login", null))).toBeNull()
-    expect(getSafePushBlocker(testBranch("login", null, { hasError: true }))).toBe("The branch failed to sync")
-    expect(getSafePushBlocker(testBranch("login", null, { commitCount: 0 }))).toBe("No commits to push")
+    const login = testBranch("login", null)
+    // what the start decides on is not known yet (Rust's row 0): Patronus, then GitHub, then the readiness
+    for (const [fact, reason] of [
+      ["patronus", "Waits for the answer of Patronus"],
+      ["pullRequests", "Waits for GitHub to list the pull requests"],
+      ["readiness", "Waits for Patronus to check the approvals"],
+    ] as const) {
+      setNextSteps({ login: pendingStep(fact) })
+      expect(getSafePushBlocker(login)).toBe(reason)
+    }
+    setNextSteps({ login: testStep({ kind: "safePush" }) })
+    expect(getSafePushBlocker(login)).toBeNull()
+    setNextSteps({ login: testStep({ kind: "settled" }, { safePush: { code: "syncFailed", problem: null } }) })
+    expect(getSafePushBlocker(login)).toBe("The branch failed to sync")
+    setNextSteps({ login: testStep({ kind: "settled" }, { safePush: { code: "noCommits" } }) })
+    expect(getSafePushBlocker(login)).toBe("No commits to push")
+    setNextSteps({ login: testStep({ kind: "safePush" }) })
     operationsStore.setState({
       running: [
         {
@@ -65,7 +71,8 @@ describe("getSafePushBlocker", () => {
         },
       ],
     })
-    expect(getSafePushBlocker(testBranch("login", null))).toBe("Renaming login to auth…")
+    // what runs on the row is the page's until the operations are Rust's
+    expect(getSafePushBlocker(login)).toBe("Renaming login to auth…")
   })
 })
 
@@ -111,7 +118,7 @@ function menuOf(name: string): MenuItem[] {
 
 describe("the items of the branch menu", () => {
   afterEach(() => {
-    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false })
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, nextSteps: {} })
   })
 
   it("says why an item doesn't apply in its description, never in its name, and names every item by a stable id", () => {
@@ -133,7 +140,7 @@ describe("the items of the branch menu", () => {
 
 describe("Whole Stack › of the branch menu", () => {
   afterEach(() => {
-    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false })
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, nextSteps: {} })
   })
 
   it("is the submenu of the root's whole stack on every branch of the stack, none on a branch of no stack", () => {
@@ -382,6 +389,7 @@ describe("the order of the branch menu", () => {
 
   it("offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests", () => {
     setBranches(synced("auth", null, unpushed))
+    setNextSteps({ auth: pendingStep("patronus") })
     expect(menuOf("auth").find(item => item.id === "safe-push")).toMatchObject({ disabled: true, description: "Waits for the answer of Patronus" })
     // the review window and the preview offer it as the menu does
     expect(getBranchReviewItems(branchSyncStore.getState().branches["auth"]!).find(item => item.id === "safe-push")).toMatchObject({
@@ -389,6 +397,7 @@ describe("the order of the branch menu", () => {
       description: "Waits for the answer of Patronus",
     })
     setPatronus()
+    setNextSteps({ auth: pendingStep("pullRequests") })
     expect(menuOf("auth").find(item => item.id === "safe-push")).toMatchObject({ disabled: true, description: "Waits for GitHub to list the pull requests" })
     expect(
       groupsOf("auth")

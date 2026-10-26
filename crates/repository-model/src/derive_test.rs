@@ -1,5 +1,5 @@
 use crate::branch_table::{RemoteFact, RemoteFacts};
-use crate::derive::{LandSources, decide_lands, land_answer, open_pull_requests_view, repository};
+use crate::derive::{LandSources, blocking_parent, decide_lands, land_answer, open_pull_requests_view, repository};
 use crate::facts::FactStore;
 use crate::patronus_view::patronus_view_test::chain;
 use crate::state::View;
@@ -16,8 +16,8 @@ use domain_types::patronus::{
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ReviewCandidate};
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RowsView, StackBranchAlong, SubjectReadiness,
-  WholeStackView,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RowsView, StackBranchAlong,
+  SubjectReadiness, WholeStackView,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, SyncEvent};
@@ -512,4 +512,23 @@ fn the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_
   let second = view.diff(&state, &facts).unwrap();
   assert_eq!(second.changes.next_steps.keys().collect::<Vec<_>>(), [&branch]);
   assert_eq!(second.changes.next_steps[&branch].node.kind, LandingNodeKind::InMaster, "merged by its robot");
+}
+
+/// A blocked row names the parent it waits for (the hover of its node offers to show it): the one its block names, else
+/// the branch it is built on, else its declared parent; a row that is not blocked waits for none
+#[test]
+fn a_blocked_row_names_the_parent_it_waits_for() {
+  let built_on = BranchStack {
+    declared_parent: Some("core".to_string()),
+    effective_base: Some("auth".to_string()),
+    ..BranchStack::default()
+  };
+  assert_eq!(blocking_parent(BranchStatus::Blocked, Some(&built_on)), Some("auth".to_string()));
+  let declared = BranchStack {
+    declared_parent: Some("core".to_string()),
+    ..BranchStack::default()
+  };
+  assert_eq!(blocking_parent(BranchStatus::Blocked, Some(&declared)), Some("core".to_string()));
+  assert_eq!(blocking_parent(BranchStatus::Unchanged, Some(&built_on)), None);
+  assert_eq!(blocking_parent(BranchStatus::Blocked, None), None);
 }

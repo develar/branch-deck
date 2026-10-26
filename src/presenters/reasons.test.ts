@@ -22,7 +22,7 @@ describe("formatReason", () => {
       "The auth stack has no stack branch: only a stack that forks builds one",
       "The stack branch conflicts at 01234567 in a.kt: the stack lands in pieces",
       "Blocked by login: fix it first, then sync",
-      "It holds parked login: land the stack in pieces",
+      "Holds parked login: land the stack in pieces",
       "Landed in master with deploy and the whole auth stack",
       "A Safe Push of the whole auth stack is running: wait until it merges, or restart it on the current stack",
       "auth can't be pushed: it failed to sync",
@@ -52,7 +52,7 @@ describe("formatReason", () => {
   it("says that nothing is left to push of a stack branch merged Safe Pushes landed, and nothing for no hold", () => {
     const landed = CATALOG.find(reason => reason.code === "stackLanded")!
     expect(formatStackHold(landed)).toBe("Landed in master with deploy and the whole auth stack: nothing of it is left to push")
-    expect(formatStackHold(CATALOG.find(reason => reason.code === "stackParked"))).toBe("It holds parked login: land the stack in pieces")
+    expect(formatStackHold(CATALOG.find(reason => reason.code === "stackParked"))).toBe("Holds parked login: land the stack in pieces")
     expect(formatStackHold(null)).toBeNull()
   })
 

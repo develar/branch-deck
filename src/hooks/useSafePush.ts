@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react"
 import { useStore } from "zustand"
-import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
-import { getStackNextStepNow, stackFactsOf, wholeStackRestOf } from "@/hooks/useStackNextStep"
+import { getBranchNextStep } from "@/hooks/useBranchNextStep"
+import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import type { Land, LandAnswer, LandDecision, LandProfiles, PatronusProfile, PatronusRobot, ReviewReadiness } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import type { BranchNextStep, NextStepKind } from "@/lib/branch-next-step"
-import { getBranchNextStep } from "@/lib/branch-next-step"
 import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { pushForAction } from "@/lib/git/push"
@@ -21,6 +19,8 @@ import { formatReadinessSubject, formatWholeStack, stackRootOfReadinessKey } fro
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
 import type { LandPrompt } from "@/presenters/land"
 import { presentLand, startRouteOf } from "@/presenters/land"
+import type { BranchNextStep, NextStepKind } from "@/presenters/next-step"
+import { NO_NEXT_STEP } from "@/presenters/next-step"
 import {
   branchSyncStore,
   getBranch,
@@ -261,20 +261,20 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
   const root = stackRootOfReadinessKey(branchName)
   const state = branchSyncStore.getState()
   const { mode } = request
+  // a subject the view has no step of yet holds nothing back here: the decision of the start waits or refuses
   let step: BranchNextStep
   let wholeStack: WholeStackRead | null = null
   if (root === null) {
-    const branch = getBranch(branchName)
-    if (branch === undefined) {
+    if (getBranch(branchName) === undefined) {
       return null
     }
-    step = getBranchNextStepOf(branch, { forStart: true })
+    step = getBranchNextStep(branchName, { forStart: true }) ?? NO_NEXT_STEP
   } else {
     const stack = getStackBranch(root)
     if (stack === undefined || !isForkingRoot(state, root)) {
       return null
     }
-    step = getBranchNextStep(stackFactsOf(stack, { forStart: true }))
+    step = getStackNextStep(root, { forStart: true })?.step ?? NO_NEXT_STEP
     wholeStack = readWholeStack(root, stack.branchName)
   }
   const lands = getLands(branchName)
@@ -450,11 +450,7 @@ function tellNotice(branchName: string, step: BranchNextStep, notice: { readonly
  */
 function currentStepOf(branchName: string): BranchNextStep | undefined {
   const root = stackRootOfReadinessKey(branchName)
-  if (root !== null) {
-    return getStackNextStepNow(root)?.step
-  }
-  const branch = getBranch(branchName)
-  return branch === undefined ? undefined : getBranchNextStepOf(branch)
+  return (root === null ? getBranchNextStep(branchName) : getStackNextStep(root)?.step) ?? undefined
 }
 
 /**
@@ -469,7 +465,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   if (root !== null && !isForkingRoot(branchSyncStore.getState(), root)) {
     // a straight chain has no stack branch: the Safe Push of its last branch lands the whole stack, at the header of its
     // island as the island's own Safe Push
-    const leaf = getStackNextStepNow(root)?.leaf
+    const leaf = getStackNextStep(root)?.leaf
     if (leaf != null) {
       await requestSafePush(leaf, { ...request, placement: request.placement ?? (getStackIslandRoots().has(root) ? "stack-header" : "row") })
     }
@@ -484,8 +480,8 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   const { mode } = request
   // the whole stack of an island starts at its header, of a small stack at the root's row
   const placement = request.placement ?? (root !== null && getStackIslandRoots().has(root) ? "stack-header" : "row")
-  const step = root === null ? getBranchNextStepOf(branch) : getStackNextStepNow(root)?.step
-  if (step === undefined) {
+  const step = root === null ? getBranchNextStep(row) : getStackNextStep(root)?.step
+  if (step == null) {
     return
   }
   // a start without review is held back only by the reasons of the branch, never by the approvals it goes without

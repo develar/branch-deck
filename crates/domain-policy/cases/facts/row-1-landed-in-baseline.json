@@ -2,6 +2,31 @@
   "given": {"landed": "inBaseline"},
   "land": null,
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "inMaster",
+        "label": {"kind": "landed", "landed": {"after": [], "by": {"kind": "baseline", "upstream": "origin/master"}}},
+        "moveShows": false,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {"code": "rule", "reason": {"code": "landedIn", "upstream": "origin/master"}},
+        "kind": {"kind": "settled"},
+        "landed": {"after": [], "by": {"kind": "baseline", "upstream": "origin/master"}},
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {"code": "rule", "reason": {"code": "landedIn", "upstream": "origin/master"}},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {},
   "remoteTips": {},

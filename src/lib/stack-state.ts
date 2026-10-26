@@ -1,6 +1,6 @@
-import type { LandingNodeKind } from "@/lib/landing-node"
-import { landingNodeLooks } from "@/lib/landing-node"
+import type { LandingNodeKind } from "@/lib/bindings"
 import type { UIColor } from "@/lib/ui-types"
+import { landingNodeLooks } from "@/presenters/landing-node"
 
 /**
  * What the branches of a stack hold: how many rows have each node ([Landing](../../docs/design/landing.md)), the words

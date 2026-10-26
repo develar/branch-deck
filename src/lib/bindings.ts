@@ -3191,6 +3191,13 @@ export type NextStep = {
 	 *  it can't start now (the reasons of the subject, never the approvals)
 	 */
 	withoutReview: WithoutReview | null,
+	/**  The branches a Safe Push of the subject lands now, in one robot (1 for a lone branch): what its start is called */
+	lands: number,
+	/**
+	 *  Why GitHub lists no pull request of a repository on GitHub (signed out, offline, SSO): the approvals are unknown,
+	 *  never "none", and the start says that Patronus checks them; `None` while GitHub lists them and off GitHub
+	 */
+	unlisted: PullRequestAvailability | null,
 };
 
 /**  The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`) */

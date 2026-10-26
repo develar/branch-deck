@@ -151,7 +151,7 @@ const words = {
         return error ?? "The stack branch is not up to date: sync first"
     }
   },
-  stackParked: ({ member }) => `It holds parked ${member}: land the stack in pieces`,
+  stackParked: ({ member }) => `Holds parked ${member}: land the stack in pieces`,
   stackLanded: ({ by, own, target }) => robotsLandedWords(by, own, target),
   stackHeld: ({ root, mode }) => stackHeldWords(root, mode),
   cantPush: ({ branch }, statusText) => `${branch} can't be pushed: ${statusText(branch) === "" ? "it failed to sync" : statusText(branch)}`,

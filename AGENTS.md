@@ -192,9 +192,9 @@ Mistakes agents made here; each cost a session.
   second writes the identical object, so "the copy" is the original. A test that needs a new copy makes the target
   diverge first (one more commit) or uses `cherry-pick -x`; a test that passes on a rerun is often this.
 - **React Compiler and store reads**: a function that reads stores with `getState()`, called in the render body beside
-  `useStore`, is memoized on its arguments and shows a stale value. The value must come out of the selector:
-  `useNextStepStores(() => getBranchNextStepNow(name))` (`src/hooks/useBranchNextStep.ts`); a menu builder likewise
-  (`useBranchMenu`, `src/hooks/useBranchContextActions.ts`).
+  `useStore`, is memoized on its arguments and shows a stale value. The value must come out of a selector, or be an
+  argument the hook selected: `useStepInputs` beside `useRowPart(name, "landing")` (`src/hooks/useBranchNextStep.ts`);
+  a menu builder likewise (`useBranchMenu`, `src/hooks/useBranchContextActions.ts`).
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
   caret at 0 and the text lands at the start.
 - **zsh does not word-split `$args`**: `args="--no-default-features --features=x"; cargo build $args` passes one

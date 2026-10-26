@@ -1,9 +1,8 @@
 import { useEffect, useMemo } from "react"
-import { useNextStepStores } from "@/hooks/useBranchNextStep"
-import { getLandingNodeNow } from "@/hooks/useLandingNode"
+import { getLandingNodeNow, useNodeStores } from "@/hooks/useLandingNode"
+import type { LandingNodeKind } from "@/lib/bindings"
 import type { BranchChipMatches, BranchFilterChip } from "@/lib/branch-filter"
 import { chipCount, CHIPS, collectChipMatches, FILTER_BAR_MIN_BRANCHES, filterBranches, isFilterActive, keepShown, movesByUrgency } from "@/lib/branch-filter"
-import type { LandingNodeKind } from "@/lib/landing-node"
 import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
 import { branchSyncStore, getMainBranchOrder, useBranchSync } from "@/stores/branch-sync"
 import { useCommitMove } from "@/stores/commit-move"
@@ -38,7 +37,7 @@ export function useHasFilterBar(branchCount: number): boolean {
  */
 export function useChipCounts(): Readonly<Record<BranchFilterChip, number>> {
   // a string, so the stores notify only when a count changes
-  const key = useNextStepStores(() => {
+  const key = useNodeStores(() => {
     const matches = chipMatchesNow()
     return CHIPS.map(chip => chipCount(matches, chip)).join(",")
   })
@@ -56,7 +55,7 @@ export function useChipCounts(): Readonly<Record<BranchFilterChip, number>> {
 export function useFilteredBranches(): ReadonlySet<string> | null {
   const filter = useBranchFilter()
   // a string, so the stores notify only when the matches change
-  const key = useNextStepStores(() => (isFilterActive(filter) ? filterBranches(chipMatchesNow(), branchSyncStore.getState().branches, filter)!.join("\n") : null))
+  const key = useNodeStores(() => (isFilterActive(filter) ? filterBranches(chipMatchesNow(), branchSyncStore.getState().branches, filter)!.join("\n") : null))
   const matches = useMemo(() => (key === null ? null : key.split("\n").filter(name => name !== "")), [key])
   const shown = useShownBranches()
   useEffect(() => {

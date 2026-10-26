@@ -1395,6 +1395,7 @@ fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_
     landed: &landed,
     readiness: &readiness,
     target: read.target,
+    view_stacks: None,
   };
   let mut steps = next_steps(&sources);
   steps.remove(&key).map(|view| NextStepSummary::new(&view.step, what, &read.facts.robots))

@@ -1,6 +1,5 @@
 import { useEffect } from "react"
-import { isAwaitingApproval } from "@/hooks/useBranchNextStep"
-import { isStackAwaitingApproval, readinessKeysNeedingAnswer, tellReadinessNews } from "@/hooks/useStackNextStep"
+import { tellReadinessNews } from "@/hooks/useStackNextStep"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { approvalNewsOf } from "@/lib/approval-news"
@@ -8,17 +7,18 @@ import { isWindowFocused, setWindowFocus } from "@/lib/os-notification"
 import { tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
 import { setDemandFocused } from "@/model/demand"
 import { onSessionFacts } from "@/model/store"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
 import { applySessionFacts } from "@/stores/patronus"
 import { applyPullRequestsFacts, refreshPullRequests } from "@/stores/pull-requests"
-import { applyReadinessFacts, hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
+import { applyReadinessFacts } from "@/stores/review-readiness"
 import { applyReviewRequestsFacts, refreshReviewRequests } from "@/stores/review-requests"
 import { watchRobotCoverage } from "@/stores/robot-coverage"
 import { applyRobotDetailsFacts } from "@/stores/robot-details"
 
-/** A row or the header of a whole stack waits for an approval (Awaiting) */
+/** A row or the header of a whole stack waits for an approval (Awaiting: rows 10 and 10′ of the next step) */
 function isAwaiting(): boolean {
-  return hasAwaitingRow(isAwaitingApproval) || isStackAwaitingApproval()
+  return Object.values(branchSyncStore.getState().nextSteps).some(({ step }) => step.kind.kind === "awaiting" || step.kind.kind === "awaitingUnjudged")
 }
 
 /**
@@ -32,9 +32,9 @@ function isAwaiting(): boolean {
  * it started (`watchRobotCoverage`). The review requests of others are the session's too, with their news
  * (`applyReviewRequestsFacts`: after a sync, on a focus, every five minutes focused or not, and while a subject waits
  * for approvals each of those polls lists the pull requests too). A sign-in or a sign-out of GitHub
- * (`github-auth-changed`, from any window) asks GitHub again at once. The readiness of the branches whose next step
- * depends on it is asked as they change (`watchReviewReadiness` tells the session which shown subjects wait for it: the
- * session asks them), the whole stack of an island header too; while a row or such a header waits for an approval
+ * (`github-auth-changed`, from any window) asks GitHub again at once. The session asks the readiness of the shown subjects
+ * whose next step depends on it (the demand of the window), the whole stack of an island header too; while a row or
+ * such a header waits for an approval
  * (Awaiting), a focus asks the session for the pull requests at once (the user comes back from asking for it); the
  * approvals that arrived are news of the session (`tellReadinessNews`).
  */
@@ -56,7 +56,6 @@ export function useReviewStatusRefresh(): void {
   useEffect(() => setDemandFocused(isWindowFocused()), [])
   useEffect(() => watchFailingRobots(), [])
   useEffect(() => watchRobotCoverage(), [])
-  useEffect(() => watchReviewReadiness(readinessKeysNeedingAnswer), [])
   useTauriListen("github-auth-changed", () => {
     void refreshGitHubAuthStatus()
     void refreshPullRequests("manual")

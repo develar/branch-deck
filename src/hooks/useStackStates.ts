@@ -1,7 +1,6 @@
 import { useMemo } from "react"
-import { useNextStepStores } from "@/hooks/useBranchNextStep"
-import { getLandingNodeNow, getStackLandingNodeNow, getStackNodeBranch } from "@/hooks/useLandingNode"
-import type { LandingNodeKind } from "@/lib/landing-node"
+import { getLandingNodeNow, getStackLandingNodeNow, getStackNodeBranch, useNodeStores } from "@/hooks/useLandingNode"
+import type { LandingNodeKind } from "@/lib/bindings"
 import type { StackState } from "@/lib/stack-state"
 import { firstBranchOfEachState, summarizeStackState } from "@/lib/stack-state"
 import { branchSyncStore, structureIn } from "@/stores/branch-sync"
@@ -25,7 +24,7 @@ function nodeKindNow(name: string): LandingNodeKind | null {
  */
 export function useStackStates(root: string, { withRoot, enabled = true }: { withRoot: boolean; enabled?: boolean }): StackStates | null {
   // a string, so the stores notify only when the states change
-  const key = useNextStepStores(() => {
+  const key = useNodeStores(() => {
     if (!enabled) {
       return ""
     }

@@ -1,4 +1,4 @@
-import type { LandingNodeKind } from "@/lib/landing-node"
+import type { LandingNodeKind } from "@/lib/bindings"
 import { MOVE_KINDS } from "@/lib/landing-overview"
 import { matchesAllWords, searchWords } from "@/lib/text-search"
 import type { Branch } from "@/stores/branch-sync"

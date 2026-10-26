@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { getBranchContextMenuItems, getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
-import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
+import { getBranchNextStep } from "@/hooks/useBranchNextStep"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
 import { getCommitMenuGroups } from "@/hooks/useCommitMoveList"
 import { getCreatePullRequestContext, getStackPullRequestContext } from "@/hooks/useCreatePullRequestContext"
@@ -658,8 +658,8 @@ function unavailableReason(itemId: "safe-push" | "push" | "safe-push-without-rev
     case "safe-push-without-review": {
       // the step says why it offers no start without review: what it waits for, a reason of the branch, or approvals
       // that don't wait for a pull request
-      const step = getBranchNextStepOf(branch)
-      return step.kind === "pending"
+      const step = getBranchNextStep(branch.name)
+      return step?.kind === "pending"
         ? (step.safePushBlocker ?? `The approvals of ${branch.name} are not known yet`)
         : `The approvals of ${branch.name} don't wait for a pull request now`
     }

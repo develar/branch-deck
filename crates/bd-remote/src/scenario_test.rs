@@ -15,16 +15,18 @@ use bd_cli::remote_fixture_test::{
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::stack_summary::whole_stack;
-use bd_core::sync_command::{SyncOutput, lock, sync_locked};
+use bd_core::sync_command::{SyncOutput, SyncState, lock, sync_locked};
 use domain_policy::facts::Robots;
 use domain_policy::landed::LandedFacts;
+use domain_policy::next_step::PatronusStanding;
 use domain_policy::pull_request::start_pull_request;
 use domain_policy::stack::WholeStack;
 use domain_types::commit::Commit;
 use domain_types::landing::{self, Land, LandAnswer, ProfileChoice, Subject};
-use domain_types::patronus::{LandingAllowances, PatronusPushMode, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
+use domain_types::next_step::NextStepView;
+use domain_types::patronus::{LandingAllowances, PatronusAvailability, PatronusPushMode, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestView, PullRequestsResult};
-use domain_types::session::{Fact, FactState, PullRequestsView, SubjectReadiness};
+use domain_types::session::{BranchStatus, Fact, FactState, PullRequestsView, RobotsHead, RobotsView, SubjectReadiness};
 use domain_types::stack::{BranchStack, StackBranchState};
 use github::fake_github::{FakeAnswer, FakeGitHub};
 use github::service::GitHubService;
@@ -34,7 +36,7 @@ use history_rewrite::store_lines::StoreLines;
 use patronus::service::PatronusService;
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
 use repository_model::branch_table::BranchTable;
-use repository_model::derive::{LandSources, land_answer, landed_states, open_pull_requests_view};
+use repository_model::derive::{LandSources, RowFacts, StepSources, grouped_rows, land_answer, landed_states, next_steps, open_pull_requests_view};
 use repository_model::facts::{Observation, Seq};
 use repository_model::patronus_view::{landed_commits, with_landing_needs};
 use repository_model::pull_request_facts::PullRequestsFact;
@@ -124,6 +126,13 @@ struct Expected {
   start: Option<Map<String, Value>>,
 }
 
+/// A sync of the app that runs
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum GivenSync {
+  Running,
+}
+
 /// The closed vocabulary of a situation, the schema of the README (`src/test-support/scenario-case.ts` is its twin)
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase", default)]
@@ -138,8 +147,9 @@ struct Given {
   target: Target,
   remote: Remote,
   robot: Option<GivenRobots>,
-  /// The app's sync runs: `bd` syncs itself before it plans, so nothing of it is a state of bd
-  sync: Option<IgnoredAny>,
+  /// The app's sync runs: `bd` syncs itself before it plans, so nothing of it is a state of bd; the rows of the app's
+  /// next steps sync (`nextSteps` of the facts)
+  sync: Option<GivenSync>,
   /// The first commit of this branch changes a file that only an unassigned commit creates
   conflicts: Option<String>,
   not_on_space: Option<bool>,
@@ -255,8 +265,7 @@ struct GivenRobot {
   state: RobotState,
   /// `tip`, `older`, `stack`, `ancestor:<branch>`, `child:<branch>`
   on: String,
-  /// `approvals`: it failed for the approvals; bd decides nothing by it
-  #[expect(dead_code, reason = "the chip of the app; bd starts a new robot either way")]
+  /// `approvals`: it failed for the approvals; bd decides nothing by it, the session learns it of its problems
   reason: Option<String>,
   /// Started by the comment on the pull request #7
   #[serde(default)]
@@ -982,6 +991,7 @@ impl Situation {
     } else {
       None
     };
+    let next_steps = self.next_steps(&context, &synced, &table, &facts, given, &readiness, &open_pull_requests, &landed_states);
     let report = &synced.report;
     let tips = |of: &HashMap<String, String>| -> BTreeMap<String, String> {
       of.iter()
@@ -1004,6 +1014,7 @@ impl Situation {
       "openPullRequests": open_pull_requests,
       "landedStates": landed_states,
       "land": land,
+      "nextSteps": next_steps,
     });
     name_ids(&mut value, &names_of(&synced));
     settle_robots(&mut value["robots"]);
@@ -1062,6 +1073,120 @@ impl Situation {
     landed_states(table, &table.remote, &landed, &pull_requests)
   }
 
+  /// The next step and the node of each subject as the session derives them (`repository_model::derive::next_steps`) over
+  /// the facts of the case's repository: the rows of its sync (syncing while the app's sync runs, `sync`), the Patronus
+  /// view with the landing needs and the robots, each failed one with why it failed as its problems tell (`reason`), the
+  /// listing of the pull requests, the readiness of `readiness`, where each open pull request goes and what landed each
+  /// subject
+  #[expect(clippy::too_many_arguments, reason = "the facts the session derives the steps of, each computed once by the caller")]
+  fn next_steps(
+    &self,
+    context: &RepoContext,
+    synced: &SyncOutput,
+    table: &BranchTable,
+    facts: &PatronusFacts,
+    given: &Given,
+    readiness: &BTreeMap<String, Value>,
+    open: &BTreeMap<String, PullRequestView>,
+    landed: &BTreeMap<String, landing::Landed>,
+  ) -> BTreeMap<String, NextStepView> {
+    let failed: HashMap<&str, BranchStatus> = synced
+      .branches
+      .iter()
+      .filter_map(|branch| match branch.state {
+        SyncState::Error => Some((branch.name.as_str(), BranchStatus::Error)),
+        SyncState::Conflict => Some((branch.name.as_str(), BranchStatus::MergeConflict)),
+        SyncState::Blocked => Some((branch.name.as_str(), BranchStatus::Blocked)),
+        SyncState::Created | SyncState::Updated | SyncState::Unchanged => None,
+      })
+      .collect();
+    let syncing = given.sync == Some(GivenSync::Running);
+    let mut rows: Vec<(String, RowFacts)> = grouped_rows(table)
+      .into_iter()
+      .map(|(name, mut row)| {
+        if let Some(status) = failed.get(name.as_str()) {
+          row.sync_failed = *status != BranchStatus::Blocked;
+          row.status = *status;
+        }
+        if syncing {
+          row.syncing = true;
+          row.status = BranchStatus::Syncing;
+        }
+        (name, row)
+      })
+      .collect();
+    // the branch of the case the sync of bd has none of (no commits, `commits: []`; every commit in the fetched baseline,
+    // `landed: inBaseline`, which bd archives): its row as the app holds it until its next sync, as the adapter of the
+    // app's side models it
+    let mut landed = landed.clone();
+    if given.subject == GivenSubject::Branch && !rows.iter().any(|(name, _)| *name == given.branch) {
+      let in_baseline = given.landed == Some(Landed::InBaseline);
+      rows.push((
+        given.branch.clone(),
+        RowFacts {
+          syncing,
+          status: if syncing { BranchStatus::Syncing } else { BranchStatus::Unchanged },
+          sync_failed: false,
+          problem: None,
+          commit_count: if in_baseline { given.commits.len() } else { 0 },
+          blocked_by: None,
+          parked: None,
+          stack_parked: None,
+        },
+      ));
+      if in_baseline {
+        let by = landing::LandedBy::Baseline {
+          upstream: synced.baseline.clone(),
+        };
+        landed.insert(given.branch.clone(), landing::Landed { by, after: Vec::new() });
+      }
+    }
+    let github = github_repository(context, &synced.report).unwrap();
+    let availability = if given.not_on_space == Some(true) {
+      PatronusAvailability::NotPatronus
+    } else {
+      PatronusAvailability::Available
+    };
+    let robots = RobotsView {
+      head: fresh_fact(RobotsHead {
+        availability,
+        github_repository: github.as_ref().map(GitHubRepository::full_name),
+      }),
+      robots: facts.robots.iter().map(|robot| (robot.id.clone(), robot.clone())).collect(),
+      needs_review: given
+        .robots()
+        .iter()
+        .enumerate()
+        .map(|(index, robot)| {
+          let id = if robot.on == "older" { "older".to_string() } else { format!("robot-{index}") };
+          (id, robot.reason.as_deref() == Some("approvals"))
+        })
+        .collect(),
+      ..RobotsView::default()
+    };
+    let patronus = PatronusStanding::of(&robots.head, &FactState::Fresh);
+    let listing = listing_of(context, &github_service(context, &self.environment), context.runtime().unwrap(), github.as_ref());
+    let answers = readiness_answers(readiness);
+    let readiness_of = |key: &str| answers.get(key);
+    let target = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_default();
+    let sources = StepSources {
+      table,
+      remote: &table.remote,
+      rows: &rows,
+      view: &facts.view,
+      robots: &robots,
+      patronus: &patronus,
+      landing_needs: &FactState::Fresh,
+      pull_requests: listing.view(),
+      open_pull_requests: open,
+      landed: &landed,
+      readiness: &readiness_of,
+      target: &target,
+      view_stacks: None,
+    };
+    next_steps(&sources)
+  }
+
   /// What the facts of the app's side read the remote services with: the Space repository, the fake Patronus and GitHub,
   /// the target of the baseline and the GitHub repository of the branches
   fn reads<'c>(&self, context: &'c RepoContext, synced: &SyncOutput) -> Reads<'c> {
@@ -1102,31 +1227,8 @@ impl Situation {
       .block_on(service.start_options(&space.project_key, &space.name, &target, robot.map(|robot| robot.id.as_str()), last_profile))
       .unwrap();
     let profiles = fresh_fact(options);
-    let mut listing = PullRequestsFact::default();
-    listing.answer(
-      Observation {
-        seq: Seq(1),
-        inputs: 0,
-        at: Duration::ZERO,
-        observed_at: 1,
-      },
-      match &github {
-        Some(repository) => open_pull_requests(context, &github_service, runtime, repository),
-        None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
-      },
-    );
-    let answers: BTreeMap<&str, Fact<SubjectReadiness>> = readiness
-      .iter()
-      .map(|(key, answer)| {
-        let tip = answer["tip"].as_str().unwrap_or_default().to_string();
-        let subject = SubjectReadiness {
-          ask: ReviewReadinessBranch::starting_from(key.clone(), None, tip, None),
-          requirement: serde_json::from_value(answer["requirement"].clone()).unwrap(),
-          readiness: serde_json::from_value(answer["readiness"].clone()).unwrap(),
-        };
-        (key.as_str(), fresh_fact(subject))
-      })
-      .collect();
+    let listing = listing_of(context, &github_service, runtime, github.as_ref());
+    let answers = readiness_answers(readiness);
     let readiness_of = |key: &str| answers.get(key);
     let rules = match (&github, given.rules) {
       (_, Rules::Loading) | (None, _) => None,
@@ -1263,6 +1365,41 @@ struct Reads<'c> {
 }
 
 /// A fact the session holds the answer of
+/// The listing of the pull requests as the session holds it after GitHub's first answer for the case: the pull requests
+/// of `github`, or none off GitHub
+fn listing_of(context: &RepoContext, service: &GitHubService, runtime: &Runtime, github: Option<&GitHubRepository>) -> PullRequestsFact {
+  let mut listing = PullRequestsFact::default();
+  listing.answer(
+    Observation {
+      seq: Seq(1),
+      inputs: 0,
+      at: Duration::ZERO,
+      observed_at: 1,
+    },
+    match github {
+      Some(repository) => open_pull_requests(context, service, runtime, repository),
+      None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
+    },
+  );
+  listing
+}
+
+/// The answers of the review scan the facts hold (`readiness`), as the session holds them: fresh, by subject key
+fn readiness_answers(readiness: &BTreeMap<String, Value>) -> BTreeMap<&str, Fact<SubjectReadiness>> {
+  readiness
+    .iter()
+    .map(|(key, answer)| {
+      let tip = answer["tip"].as_str().unwrap_or_default().to_string();
+      let subject = SubjectReadiness {
+        ask: ReviewReadinessBranch::starting_from(key.clone(), None, tip, None),
+        requirement: serde_json::from_value(answer["requirement"].clone()).unwrap(),
+        readiness: serde_json::from_value(answer["readiness"].clone()).unwrap(),
+      };
+      (key.as_str(), fresh_fact(subject))
+    })
+    .collect()
+}
+
 fn fresh_fact<T>(value: T) -> Fact<T> {
   Fact {
     value: Some(value),

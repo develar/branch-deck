@@ -1,10 +1,11 @@
-import type { LandingNode, LandingNodeKind } from "@/lib/landing-node"
-import { landingNodeLooks } from "@/lib/landing-node"
+import type { LandingNodeKind } from "@/lib/bindings"
 import type { RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
 import { isFailingEntry } from "@/lib/robot-overview"
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { formatWholeStack } from "@/lib/whole-stack"
+import type { LandingNode } from "@/presenters/landing-node"
+import { landingNodeLooks } from "@/presenters/landing-node"
 
 /**
  * What lands into master in one move: a lone branch, or a stack, whose node and next step are those of the whole stack

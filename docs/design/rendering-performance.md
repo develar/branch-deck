@@ -109,8 +109,8 @@ flowchart LR
    primitive, a joined string, or an interned record. The selected project is read by field
    (`useSelectedProjectPath`, `useSelectedProjectField`); `useSelectedProject` re-renders on every change of the
    metadata. A menu a component renders comes from a selector cached by the states of the stores its builder reads
-   (`getBranchMenuNow` and `useBranchMenu`, `getStackIslandMenuNow` of the "⋯" of an island header, as
-   `getBranchNextStepNow`), or takes the state it marks as a parameter
+   (`getBranchMenuNow` and `useBranchMenu`, `getStackIslandMenuNow` of the "⋯" of an island header, `menuSources`),
+   or takes the state it marks as a parameter
    (the running operations, `useOperations`, [Running Operations](operations.md)): a `getState()` inside the builder
    would be memoized on its other arguments, and a menu reopened while it still fades out showed its first state (a
    Safe Push the pull request no longer allowed). The "⋯" of an island opened before the pull requests loaded showed

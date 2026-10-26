@@ -2,11 +2,11 @@ import { useEffect, useRef } from "react"
 import type { RefObject } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import { getBranchNextStepNow, useNextStepStores } from "@/hooks/useBranchNextStep"
 import type { ColumnKey } from "@/lib/branch-columns"
-import { useBranchSync } from "@/stores/branch-sync"
-import { isPatronusPending } from "@/stores/patronus"
-import { isPullRequestsLoading } from "@/stores/pull-requests"
+import { getRowPart } from "@/model/store"
+import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
+import { isPatronusPending, patronusStore } from "@/stores/patronus"
+import { isPullRequestsLoading, pullRequestsStore } from "@/stores/pull-requests"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { reviewRequestsStore } from "@/stores/review-requests"
 import type { RepositoryStateEntry } from "@/stores/settings/repositoryState"
@@ -27,9 +27,19 @@ export type SettledLayout = NonNullable<RepositoryStateEntry["settledLayout"]>
 /** The repositories whose facts were all in once in this window: their layout follows the content from then on */
 const settledStore = createStore<Readonly<Record<string, true>>>(() => ({}))
 
-/** The facts of the remote the rows wait for at a start or a switch are in: Patronus, GitHub, the step of each shown row */
+/**
+ * The facts of the remote the rows wait for at a start or a switch are in: Patronus, GitHub, the step of each shown row
+ * (no row 0 of the view's `nextSteps`: no fact without an answer, no read that failed)
+ */
 function isRemoteKnownNow(): boolean {
-  return !isPatronusPending() && !isPullRequestsLoading() && getShownBranchTableOrder().every(name => getBranchNextStepNow(name)?.kind !== "pending")
+  return !isPatronusPending() && !isPullRequestsLoading() && getShownBranchTableOrder().every(name => getRowPart(name, "landing")?.step.row !== "0")
+}
+
+/** Renders again with `select` when a store the shown steps are known by changes */
+function useRemoteStores<T>(select: () => T): T {
+  useStore(patronusStore, select)
+  useStore(pullRequestsStore, select)
+  return useStore(branchSyncStore, select)
 }
 
 /**
@@ -42,7 +52,7 @@ export function useLayoutSettled(): boolean {
   const latched = useStore(settledStore, state => state[path] === true)
   const synced = useBranchSync(state => path !== "" && state.syncedRepositoryPath === path)
   const reviewRequests = useStore(reviewRequestsStore, state => (state.repositories[path]?.availability ?? null) !== null)
-  const known = useNextStepStores(() => latched || (synced && reviewRequests && isRemoteKnownNow()))
+  const known = useRemoteStores(() => latched || (synced && reviewRequests && isRemoteKnownNow()))
   const settled = latched || (path !== "" && synced && reviewRequests && known)
   useEffect(() => {
     if (settled && !latched && path !== "") {

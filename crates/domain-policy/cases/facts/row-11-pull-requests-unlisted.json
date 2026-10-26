@@ -29,6 +29,31 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "yourStep",
+        "label": {"kind": "atStart", "lands": 1, "unlisted": {"message": "Server Error", "status": "error"}},
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"kind": "safePush"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "11",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": {"message": "Server Error", "status": "error"},
+        "withoutReview": {"blocker": null}
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

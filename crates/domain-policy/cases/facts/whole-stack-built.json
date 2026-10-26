@@ -5,6 +5,130 @@
   },
   "land": null,
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "ready",
+        "label": {"kind": "ready", "lands": 1},
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"kind": "safePush"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "11",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "login": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 2,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"fact": "readiness", "kind": "pending"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "0",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "session": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 2,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"fact": "readiness", "kind": "pending"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "0",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "stack:auth": {
+      "node": {
+        "kind": "ready",
+        "label": {"kind": "ready", "lands": 3},
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"kind": "safePush"},
+        "landed": null,
+        "lands": 3,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "11",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

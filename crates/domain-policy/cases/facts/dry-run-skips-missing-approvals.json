@@ -29,6 +29,74 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "yourStep",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {
+              "groups": [
+                {
+                  "approvedBy": [],
+                  "changesRequestedBy": [],
+                  "name": "Air Plugin Release Team",
+                  "needed": null,
+                  "requested": [],
+                  "suggested": [{"fullName": "Alice", "login": "alice-gh"}]
+                }
+              ],
+              "kind": "createPullRequest",
+              "repository": true,
+              "stack": null
+            },
+            "landed": null,
+            "lands": 1,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "7",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": {"blocker": null}
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {
+          "groups": [
+            {
+              "approvedBy": [],
+              "changesRequestedBy": [],
+              "name": "Air Plugin Release Team",
+              "needed": null,
+              "requested": [],
+              "suggested": [{"fullName": "Alice", "login": "alice-gh"}]
+            }
+          ],
+          "kind": "createPullRequest",
+          "repository": true,
+          "stack": null
+        },
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "7",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": {"blocker": null}
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

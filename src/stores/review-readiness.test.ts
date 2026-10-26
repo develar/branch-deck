@@ -2,10 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { ApiError, Fact, FactsChanges, FactsView, FactState, PullRequest, ReviewReadiness, ReviewReadinessBranch, SubjectReadiness } from "@/lib/bindings"
-import { stackReadinessKey } from "@/lib/whole-stack"
-import { currentDemand, resetDemand, showReviewReadiness } from "@/model/demand"
+import { resetDemand } from "@/model/demand"
 import type { StackBranch } from "@/stores/branch-sync"
-import { applyReadinessFacts, freshReadiness, getReviewReadiness, recheckReviewReadiness, resetReviewReadiness, watchReviewReadiness } from "@/stores/review-readiness"
+import { applyReadinessFacts, freshReadiness, getReviewReadiness, recheckReviewReadiness, resetReviewReadiness } from "@/stores/review-readiness"
 import { emptyView } from "@/test-support/fake-sessions"
 
 const { state } = vi.hoisted(() => ({
@@ -162,17 +161,5 @@ describe("review readiness", () => {
     expect(getReviewReadiness("auth")?.stale).toBe(true)
     await recheck
     expect(state.asked).toEqual(["robotProblems manual", "pullRequests manual", "readiness manual auth"])
-  })
-
-  it("tells the session the shown subjects whose step waits for the readiness, the whole stack by its root", async () => {
-    state.stacks = { auth: { state: "Built", tip: "s1", members: ["auth", "ui"] } }
-    const hides = [showReviewReadiness("ui"), showReviewReadiness(stackReadinessKey("auth")), showReviewReadiness("auth")]
-    const stop = watchReviewReadiness(order => order.filter(key => key !== "ui"))
-    await Promise.resolve()
-    expect(currentDemand()).toMatchObject({ visibleBranches: ["auth"], visibleStacks: ["auth"] })
-    hides.forEach(hide => hide())
-    await Promise.resolve()
-    expect(currentDemand()).toMatchObject({ visibleBranches: [], visibleStacks: [] })
-    stop()
   })
 })

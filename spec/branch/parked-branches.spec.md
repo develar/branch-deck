@@ -26,8 +26,8 @@ targets:
   - ../../src/lib/parked.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/model/structure.ts
-  - ../../src/lib/branch-next-step.ts
-  - ../../src/lib/landing-node.ts
+  - ../../src/presenters/next-step.ts
+  - ../../src/presenters/landing-node.ts
   - ../../src/lib/branch-filter.ts
   - ../../src/hooks/useLandingOverview.ts
   - ../../src/hooks/usePushButton.ts
@@ -168,7 +168,8 @@ branch built on it carries its commits, so it is parked with it.
 - The node of a parked row must be `parked`, hollow and neutral, never a move, also with a conflict; a running robot,
   a Safe Push that lands it or a landing comes first. The header, the landing overview, the chips and F2 must leave it
   out: a parked branch is in no unit, no chip but All, and no move.
-  [@test] ../../src/lib/landing-node.test.ts (`is parked, never a move, also with a conflict, until something lands it already`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`the_node_of_the_subject_itself_parked_failing_landed_blocked_or_its_robot_running_stays_through_a_move`)
+  [@test] ../../src/presenters/landing-node.test.ts (`words the state of the subject itself: parked, a failure, landed, blocked, its robot running, which a move doesn't replace`)
   [@test] ../../src/lib/branch-filter.test.ts (`puts a parked branch into All only: it has a card of its own, no chip, no move for F2`)
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`)
 - Nothing of it may start: its next step is row 1 of [Next Step](next-step.spec.md), Safe Push and Dry Run disabled
@@ -177,7 +178,8 @@ branch built on it carries its commits, so it is parked with it.
   menu, the preview and the review, and so is Push Up to Here of its commits, their push arrow and their menu
   ([Stacked Branches](stacked-branches.spec.md#push-up-to-here)). Push with Children of a branch to land leaves its parked children out, and the stack
   branch of a stack that holds one stays local. Patronus is not asked for its readiness.
-  [@test] ../../src/lib/parked.test.ts (`starts no Safe Push and no Dry Run of a parked branch: its step is none, on every surface`, `says why nothing starts, of a branch, of one built on it and of the whole stack`)
+  [@test] ../../src/lib/parked.test.ts (`starts no Safe Push and no Dry Run of a parked branch: its step is none, on every surface`, `says why nothing starts, of a branch and of one built on it`)
+  [@test] ../../src/presenters/reasons.test.ts (`words every reason of the catalog Rust writes as the page says it`)
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
   [@test] ../../src/lib/push-up-to.test.ts (`keeps a parked branch and a branch built on it local, in the words of their push button`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)

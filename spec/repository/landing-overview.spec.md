@@ -11,7 +11,7 @@ targets:
   - ../../src/hooks/useLandingOverview.ts
   - ../../src/hooks/useRobotOverview.ts
   - ../../src/lib/landing-overview.ts
-  - ../../src/lib/landing-node.ts
+  - ../../src/presenters/landing-node.ts
   - ../../src/lib/robot-overview.ts
   - ../../src/lib/patronus-actions.ts
   - ../../src/hooks/useRobotDetails.ts
@@ -82,7 +82,7 @@ indicator, whose states were the same story told twice.
   whose move runs (a start or restart of its Safe Push, the creation of its pull request, a review request) counts no
   move either, so the number drops at the click, not when Patronus or GitHub answer.
   [@test] ../../src/lib/landing-overview.test.ts (`counts no move of a unit before the first answer of Patronus, so the number doesn't change on hover`, `counts a failed robot of no row and a running Safe Push that will fail as moves, listed with them; a Dry Run lands nothing`)
-  [@test] ../../src/lib/landing-node.test.ts (`is the state after a running move of the row from its start on: Landing for a robot that comes, else Waiting`)
+  [@test] ../../src/presenters/landing-node.test.ts (`is the state after a running move of the row from its start on: Landing for a robot that comes, else Waiting`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
 - The bar has a segment per kind of the units on their way, in the order of the way: landing, waiting, ready, the
   user's step, a fix; its width the commits of its units; light for a hollow node. A single kind fills it, nothing on
@@ -124,7 +124,7 @@ indicator, whose states were the same story told twice.
   expanded), its size ("1 commit", "5 branches · 37 commits"), the first line of its node's hover (on hover the hover of
   its node itself, `LandingNodeHover` of [Branch Row](../branch/branch-row.spec.md#tree): the issue keys as links, "Show
   auth" of a parent it names, which closes the overview, the robot whose state it tells), its pull request chip and the
-  next step of its row (`StepButton`, the item of `getBranchNextStep`).
+  next step of its row (`StepButton`, the item of `presentNextStep`).
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show a robot that failed on the branch tip once, as the move it is, with the chips of the other rows`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request chips of the rows, and a pull request that waits for its author as a fix`)
@@ -181,7 +181,7 @@ indicator, whose states were the same story told twice.
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/lib/landing-overview.test.ts`, `src/lib/landing-node.test.ts`, `src/lib/robot-overview.test.ts`.
+- `pnpm test:unit`: `src/lib/landing-overview.test.ts`, `src/presenters/landing-node.test.ts`, `src/lib/robot-overview.test.ts`.
 - `pnpm e2e`: `tests/e2e/landing/landing-overview.spec.ts`; the footer in `tests/e2e/update-project`,
   `tests/e2e/github-sign-in` and `tests/e2e/pull-requests`. Test ids: `landing-indicator` (`data-urgent`),
   `landing-moves`, `landing-bar`, `landing-popover`, its scrolling `landing-sections`, the sections

@@ -39,6 +39,68 @@
     }
   },
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "landing",
+        "label": {"dryRun": false, "failing": false, "kind": "robotRunning"},
+        "moveShows": false,
+        "pending": false,
+        "robot": true,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {"code": "rule", "reason": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"}},
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {"code": "rule", "reason": {"code": "lastCommit", "mode": "rebaseAutosquash", "robotId": "robot-0"}},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "login": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "startWaits",
+          "reason": {
+            "code": "ancestor",
+            "landing": {"branch": "auth", "robotId": "robot-0", "wholeStack": false},
+            "mode": "rebaseAutosquash"
+          }
+        },
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": "auth"
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"kind": "safePush"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "11",
+        "safePush": {
+          "code": "rule",
+          "reason": {
+            "code": "ancestor",
+            "landing": {"branch": "auth", "robotId": "robot-0", "wholeStack": false},
+            "mode": "rebaseAutosquash"
+          }
+        },
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "login": {

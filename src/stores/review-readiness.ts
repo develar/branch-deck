@@ -5,17 +5,16 @@ import { createStore } from "zustand/vanilla"
  * (`facts.readiness` of its view, by subject: a branch, or `stackReadinessKey` of a whole stack). The session asks
  * Patronus by what the window shows and needs (`src/model/demand.ts`): a surface that needs an answer now at once,
  * the shown rows whose step waits for it, then the hidden ones that wait for approvals; the store only applies its
- * answers (`applyReadinessFacts`) and tells it which shown subjects wait (`watchReviewReadiness`).
+ * answers (`applyReadinessFacts`).
  */
 import type { FactsChanges, FactsView, Fact, PatronusReviewRequirement, PullRequest, ReviewReadiness, ReviewReadinessBranch, SubjectReadiness } from "@/lib/bindings"
 import { rememberReviewGroups } from "@/lib/branch-review-window"
 import { baselineOnRemote } from "@/lib/stack"
-import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
-import { setReadinessShown, shownReadinessKeys, onShownReadinessChange } from "@/model/demand"
+import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { refreshSessionFacts } from "@/model/store"
-import { branchSyncStore, getBranch, getBranchTableOrder, getOpenPullRequest, getStackBranch } from "@/stores/branch-sync"
-import { askRobotProblemsAgain, currentKey, getPatronusGitHubRepository, patronusStore, repositoryKey } from "@/stores/patronus"
-import { getPullRequest, getStackPullRequest, pullRequestsStore, refreshPullRequests } from "@/stores/pull-requests"
+import { branchSyncStore, getBranch, getOpenPullRequest, getStackBranch } from "@/stores/branch-sync"
+import { askRobotProblemsAgain, currentKey, getPatronusGitHubRepository, repositoryKey } from "@/stores/patronus"
+import { getPullRequest, getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getFullStackBranchName, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 
 /** The readiness of a branch, the answer of Patronus for one input (its tip, the start and the reviews) */
@@ -193,46 +192,6 @@ function entryOf(fact: Fact<SubjectReadiness> | undefined): ReadinessEntry | und
 // ---- asking ----
 
 /**
- * The shown subjects in table order (`shownReadinessKeys`), the whole stack of a root right before it: the session asks
- * those whose next step depends on the readiness (`watchReviewReadiness`)
- */
-function shownOrder(): string[] {
-  const shown = shownReadinessKeys()
-  return getBranchTableOrder().flatMap(name => [stackReadinessKey(name), name].filter(key => shown.has(key)))
-}
-
-/**
- * Tells the session of the main window which shown subjects (`showReviewReadiness`) wait for their readiness (`wanted`
- * of them, in table order) on every change of the branches, the pull requests, the robots and the answers, once per
- * burst of changes; the session asks those. Returns the unsubscribe.
- */
-export function watchReviewReadiness(wanted: (order: readonly string[]) => readonly string[]): () => void {
-  let queued = false
-  const tell = () => {
-    queued = false
-    const keys = wanted(shownOrder())
-    const stacks = keys.map(stackRootOfReadinessKey).filter(root => root !== null)
-    setReadinessShown(
-      keys.filter(key => stackRootOfReadinessKey(key) === null),
-      stacks,
-    )
-  }
-  const schedule = () => {
-    if (!queued) {
-      queued = true
-      queueMicrotask(tell)
-    }
-  }
-  const unsubscribes = [branchSyncStore, pullRequestsStore, patronusStore, reviewReadinessStore].map(store => store.subscribe(schedule))
-  unsubscribes.push(onShownReadinessChange(schedule))
-  schedule()
-  return () => {
-    unsubscribes.forEach(unsubscribe => unsubscribe())
-    setReadinessShown([], [])
-  }
-}
-
-/**
  * Check Approvals Again: why the failed robots failed where Patronus didn't give it (`askRobotProblemsAgain`), the pull
  * requests from GitHub first (a new review changes the input), then the session asks Patronus again instead of the kept
  * answer. The answer of the branch is stale from the press on. Resolves once the session's answer is in the store
@@ -251,11 +210,6 @@ export async function recheckReviewReadiness(branchName: string): Promise<void> 
   })
   await refreshPullRequests("manual")
   await refreshSessionFacts(repositoryPath, "readiness", "manual", branchName)
-}
-
-/** Whether a row waits for an approval (Awaiting): a focus then asks GitHub for the pull requests at once */
-export function hasAwaitingRow(isAwaiting: (name: string) => boolean): boolean {
-  return getBranchTableOrder().some(isAwaiting)
 }
 
 /** Forgets every answer (tests) */

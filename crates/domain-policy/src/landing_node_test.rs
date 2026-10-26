@@ -19,7 +19,6 @@ fn node_of(fixture: &Fixture, status: BranchStatus, lands_with: Option<&RobotOf>
     blocked_by: (status == BranchStatus::Blocked).then_some("core"),
     lands_with,
     push_pending: false,
-    lands: 2,
   })
 }
 

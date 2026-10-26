@@ -6,6 +6,160 @@
   },
   "land": null,
   "landedStates": {},
+  "nextSteps": {
+    "auth": {
+      "node": {
+        "kind": "ready",
+        "label": {"kind": "ready", "lands": 1},
+        "moveShows": true,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"kind": "safePush"},
+        "landed": null,
+        "lands": 1,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "11",
+        "safePush": null,
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "login": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": null,
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 2,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": null,
+        "kind": {"fact": "readiness", "kind": "pending"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "0",
+        "safePush": {"code": "step"},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "session": {
+      "node": {
+        "kind": "needsFix",
+        "label": {"kind": "syncFailed", "problem": null, "status": "MergeConflict"},
+        "moveShows": false,
+        "pending": false,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {"code": "syncFailed", "problem": null},
+        "kind": {"kind": "settled"},
+        "landed": null,
+        "lands": 2,
+        "needsReadiness": false,
+        "retarget": null,
+        "row": "1",
+        "safePush": {"code": "syncFailed", "problem": null},
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    },
+    "stack:auth": {
+      "node": {
+        "kind": "waiting",
+        "label": {
+          "kind": "step",
+          "step": {
+            "dryRun": {
+              "code": "rule",
+              "reason": {
+                "blockedBy": null,
+                "code": "stackNotBuilt",
+                "conflict": {"commit": "session-c0", "files": ["config.txt"]},
+                "error": null,
+                "root": "auth",
+                "state": "Conflict"
+              }
+            },
+            "kind": {"fact": "readiness", "kind": "pending"},
+            "landed": null,
+            "lands": 3,
+            "needsReadiness": true,
+            "retarget": null,
+            "row": "0",
+            "safePush": {"code": "step"},
+            "staleReadiness": false,
+            "unlisted": null,
+            "withoutReview": null
+          }
+        },
+        "moveShows": true,
+        "pending": true,
+        "robot": false,
+        "shows": null
+      },
+      "step": {
+        "dryRun": {
+          "code": "rule",
+          "reason": {
+            "blockedBy": null,
+            "code": "stackNotBuilt",
+            "conflict": {"commit": "session-c0", "files": ["config.txt"]},
+            "error": null,
+            "root": "auth",
+            "state": "Conflict"
+          }
+        },
+        "kind": {"kind": "safePush"},
+        "landed": null,
+        "lands": 3,
+        "needsReadiness": true,
+        "retarget": null,
+        "row": "11",
+        "safePush": {
+          "code": "rule",
+          "reason": {
+            "blockedBy": null,
+            "code": "stackNotBuilt",
+            "conflict": {"commit": "session-c0", "files": ["config.txt"]},
+            "error": null,
+            "root": "auth",
+            "state": "Conflict"
+          }
+        },
+        "staleReadiness": false,
+        "unlisted": null,
+        "withoutReview": null
+      }
+    }
+  },
   "openPullRequests": {},
   "readiness": {
     "auth": {

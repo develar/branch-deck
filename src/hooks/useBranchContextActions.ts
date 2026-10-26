@@ -28,7 +28,7 @@ import {
 } from "lucide-react"
 import { useStore } from "zustand"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
-import { getBranchNextStepNow, getBranchNextStepOf, getGatedRobotActions, nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
+import { getBranchNextStep, getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { unparkBranch } from "@/hooks/useParkBranch"
@@ -39,8 +39,6 @@ import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { fixBlocker, parkBlocker, rewriteBlocker } from "@/lib/branch-drop"
-import type { BranchNextStep } from "@/lib/branch-next-step"
-import { formatPendingFact } from "@/lib/branch-next-step"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
@@ -58,6 +56,8 @@ import { describePushWithChildrenBlocker, formatBlockedReason, formatPushWithChi
 import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong } from "@/lib/whole-stack"
 import { startRouteOf } from "@/presenters/land"
+import type { BranchNextStep } from "@/presenters/next-step"
+import { formatPendingFact, NO_NEXT_STEP } from "@/presenters/next-step"
 import { formatPushHoldReason } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
 import {
@@ -83,11 +83,22 @@ import { commitMoveStore, getSelectedBranches, requestReveal, selectBranches, se
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { openInline } from "@/stores/inline-row-action"
 import type { Operations } from "@/stores/operations"
-import { branchSubject, getOperations, isObjectBusy, operationItem } from "@/stores/operations"
-import { getBranchRobot, getLandedWithChildrenReason, getLandingBranchCount, getPushHold, isPatronusAvailable, isPatronusOffered, isPatronusPending } from "@/stores/patronus"
-import { getPullRequest, getStackPullRequest, isPullRequestsLoading } from "@/stores/pull-requests"
+import { branchSubject, getOperations, isObjectBusy, operationItem, operationsStore } from "@/stores/operations"
+import {
+  getBranchRobot,
+  getLandedWithChildrenReason,
+  getLandingBranchCount,
+  getPushHold,
+  isPatronusAvailable,
+  isPatronusOffered,
+  isPatronusPending,
+  patronusStore,
+} from "@/stores/patronus"
+import { getPullRequest, getStackPullRequest, isPullRequestsLoading, pullRequestsStore } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { getReadinessTarget, recheckReviewReadiness } from "@/stores/review-readiness"
+import { getReadinessTarget, recheckReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
+import { safePushStore } from "@/stores/safe-push"
+import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getYouTrackKeyOfIssue, youTrackAuthStore } from "@/stores/youtrack"
 
@@ -118,7 +129,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
 
   const robot = getBranchRobot(branch.name)
-  const nextStep = getBranchNextStepOf(branch)
+  const nextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP
   const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)
 
   // a rewrite waits for a running sync, also of a row that shows its last state meanwhile (a quiet resync), and for a
@@ -513,7 +524,7 @@ function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem
  * "Safe Push" (S; "Safe Push · 3" for a stacked branch): the start of the row (`requestSafePush`), disabled with the
  * reason of `getSafePushBlocker`
  */
-function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStepOf(branch)): MenuItem {
+function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP): MenuItem {
   const branchCount = getLandingBranchCount(branch.name)
   const blocker = nextStep.safePushBlocker
   return {
@@ -535,7 +546,7 @@ function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranc
  * be on the repository; the surfaces offer it only then.
  */
 export function getSafePushBlocker(branch: Branch): string | null {
-  return getBranchNextStepOf(branch).safePushBlocker
+  return (getBranchNextStep(branch.name) ?? NO_NEXT_STEP).safePushBlocker
 }
 
 /** An action of a branch in a review: a menu item, with the URL a window opens itself (the pull request) */
@@ -621,7 +632,7 @@ function getCreatePullRequestItems(branch: Branch): MenuItem[] {
  * "Safe Push Without Review…" of a branch whose approvals count only in a pull request it doesn't have (row 7): the
  * popover of its Safe Push with a merge profile that skips the code-owner review; null on any other step
  */
-export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStepOf(branch)): MenuItem | null {
+export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP): MenuItem | null {
   const withoutReview = nextStep.withoutReview
   if (withoutReview === null) {
     return null
@@ -645,7 +656,7 @@ export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNex
  * master with oauth"): a pull request of commits that are in the target has nothing to review; and while GitHub hasn't
  * listed the pull requests (`isPullRequestsLoading`): the branch may have one.
  */
-export function getCreatePullRequestItem(branch: Branch, landed: string | null = getBranchNextStepNow(branch.name)?.landed ?? null): MenuItem | null {
+export function getCreatePullRequestItem(branch: Branch, landed: string | null = getBranchNextStep(branch.name)?.landed ?? null): MenuItem | null {
   if (!canCreatePullRequest(branch)) {
     return null
   }
@@ -798,6 +809,38 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
   }
 }
 
+/**
+ * The states of every store a menu of a branch or a whole stack reads: its step (the view), the robots, the pull
+ * requests and the readiness its items still read, the operations and the starts that run, the settings, a move of
+ * commits, the YouTrack sign-in; a change of any is a new menu
+ */
+export function menuSources(): readonly unknown[] {
+  return [
+    branchSyncStore.getState(),
+    patronusStore.getState(),
+    pullRequestsStore.getState(),
+    reviewReadinessStore.getState(),
+    operationsStore.getState(),
+    safePushStore.getState(),
+    repositorySettingsStore.getState(),
+    commitMoveStore.getState(),
+    youTrackAuthStore.getState(),
+  ]
+}
+
+/** Renders again with `select` when a store a menu reads changes (`menuSources`) */
+export function useMenuStores<T>(select: () => T): T {
+  useStore(branchSyncStore, select)
+  useStore(patronusStore, select)
+  useStore(pullRequestsStore, select)
+  useStore(reviewReadinessStore, select)
+  useStore(safePushStore, select)
+  useStore(repositorySettingsStore, select)
+  useStore(commitMoveStore, select)
+  useStore(youTrackAuthStore, select)
+  return useStore(operationsStore, select)
+}
+
 /** By branch: the menu built last, and the store states it was built from (`getBranchMenuNow`) */
 const shownMenus = new Map<string, { sources: readonly unknown[]; groups: MenuItemGroups }>()
 
@@ -811,7 +854,7 @@ export function getBranchMenuNow(name: string, setExpanded: (name: string, expan
   if (branch === undefined) {
     return null
   }
-  const sources = [...nextStepSources(), commitMoveStore.getState(), youTrackAuthStore.getState(), setExpanded]
+  const sources = [...menuSources(), setExpanded]
   const shown = shownMenus.get(name)
   if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
     return shown.groups
@@ -823,9 +866,7 @@ export function getBranchMenuNow(name: string, setExpanded: (name: string, expan
 
 /** The menu of the branch, rendered again when a store it reads changes (the operations among them); null without the branch */
 export function useBranchMenu(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
-  useStore(commitMoveStore, () => getBranchMenuNow(name, setExpanded))
-  useStore(youTrackAuthStore, () => getBranchMenuNow(name, setExpanded))
-  return useNextStepStores(() => getBranchMenuNow(name, setExpanded))
+  return useMenuStores(() => getBranchMenuNow(name, setExpanded))
 }
 
 /**

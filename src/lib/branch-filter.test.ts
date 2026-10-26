@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
+import type { LandingNodeKind } from "@/lib/bindings"
 import type { BranchFilter } from "@/lib/branch-filter"
 import { chipCount, collectChipMatches, filterBranches, formatNoMatch, isFilterActive, keepShown, matchesBranchText, movesByUrgency, NO_FILTER } from "@/lib/branch-filter"
-import type { LandingNodeKind } from "@/lib/landing-node"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
