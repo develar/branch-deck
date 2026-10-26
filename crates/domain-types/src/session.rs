@@ -728,6 +728,36 @@ pub struct BranchPush {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub children: Option<ChildrenPush>,
+  /// Push Up to Here of the commits of the branch the remote lacks; absent while every one of them offers it, it sends
+  /// the branches of Push Stack first (`stack`) and nothing stops it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub up_to: Option<PushUpTo>,
+}
+
+/// Push Up to Here of a branch (`domain_policy::push::up_to_push`): the branches it is built on that have work for the
+/// remote go first, whole, root first, then the branch up to the commit, in one atomic push. A field absent is the
+/// common answer, so most branches send none
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PushUpTo {
+  /// The copies of the commits of the branch that offer it, oldest first: of its own commits the remote lacks, those no
+  /// merged Safe Push landed; absent while it is every one of them (`RemoteStatusUpdate::unpushed_commits`). The last
+  /// commit the remote lacks pushes the whole branch
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub commits: Option<Vec<String>>,
+  /// The branches it is built on that it pushes first, whole, root first; absent while they are those of Push Stack
+  /// (`BranchPush::stack`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub ancestors: Option<Vec<String>>,
+  /// Why it can't push now: the branch stays local, a Safe Push holds it, the sync did not build it, it was rewritten
+  /// since its push, or a branch it is built on is held, not built or asks first
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub blocker: Option<Reason>,
 }
 
 /// What Push with Children of a branch sends, in one atomic push, parents first

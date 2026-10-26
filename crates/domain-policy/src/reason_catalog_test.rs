@@ -39,10 +39,11 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::PullRequestMerged { .. } => 22,
     Reason::NeedsPush { .. } => 23,
     Reason::NoReviewer { .. } => 24,
+    Reason::RewrittenSincePush { .. } => 25,
   }
 }
 
-const CODES: usize = 25;
+const CODES: usize = 26;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -152,6 +153,7 @@ fn examples() -> Vec<Reason> {
       block: BlockReason::Conflict,
     },
     Reason::DropsRemote { branch: s("auth"), behind: 2 },
+    Reason::RewrittenSincePush { branch: s("auth") },
     Reason::Parked {
       branch: s("login"),
       with: Some(s("auth")),

@@ -695,3 +695,166 @@ async fn a_push_of_an_unapplied_branch_is_planned_and_run_by_the_engine() {
   assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
   assert_eq!(fixture.remote_branches(), "refs/heads/test/unapplied/old");
 }
+
+/// The push of `name` with `scope`
+fn scoped(name: &str, scope: PushScope) -> Push {
+  Push { scope, ..alone(name, None) }
+}
+
+/// The push effect of a plan: the branches it sends, root first, and whether it forces
+fn pushed_by(plan: &Plan) -> Option<(Vec<String>, bool)> {
+  plan.effects.iter().find_map(|effect| match effect {
+    PlannedEffect::Push { branches, force } => Some((branches.clone(), *force)),
+    _ => None,
+  })
+}
+
+fn names(names: &[&str]) -> Vec<String> {
+  names.iter().map(ToString::to_string).collect()
+}
+
+impl Fixture {
+  /// A commit of someone else on the remote branch of `branch`, fetched, and the session synced on it: the push of the
+  /// branch drops it
+  async fn someone_else_on(&self, branch: &str) {
+    let full = format!("refs/heads/test/virtual/{branch}");
+    let remote = self.remote_tip(branch);
+    let tree = self.repo.git(&["rev-parse", &format!("{full}^{{tree}}")]);
+    let theirs = self.repo.git(&["--git-dir", ".git/origin.git", "commit-tree", &tree, "-p", &remote, "-m", "Someone else"]);
+    self.repo.git(&["--git-dir", ".git/origin.git", "update-ref", &full, &theirs]);
+    self.repo.git(&["fetch", "-q", "origin"]);
+    self.registry.sessions().sync(&self.key, SyncReason::Manual).wait().await.unwrap();
+  }
+}
+
+/// Push Stack of a stacked branch, the push of its button, is one atomic push of the branches it is built on that have
+/// work, root first, then the branch: it tells the session what it left and the event of the pushes of the branch, and
+/// then has nothing left to push; Push with Children of the root has nothing left either
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_of_a_stack_is_one_push_of_the_branches_it_covers() {
+  let fixture = fixture(true).await;
+  let push = scoped("beta", PushScope::WithAncestors);
+  let plan = fixture.plan(&push).await;
+  assert_eq!((pushed_by(&plan), plan.confirmations.as_slice()), (Some((names(&["alpha", "beta"]), false)), &[][..]));
+  let outcome = fixture.execute(&push, Vec::new()).await.unwrap();
+  assert_eq!((outcome.effects.len(), &outcome.effects[0].status), (1, &EffectStatus::Done), "{outcome:?}");
+  assert_eq!(outcome.news_key, Some(NewsKey::Push { branch: "beta".to_string() }));
+  assert!(outcome.version_after.is_some(), "the session has the remote statuses it left");
+  assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/alpha\nrefs/heads/test/virtual/beta");
+  assert_eq!(fixture.plan(&push).await.effects, Vec::new(), "nothing left to push");
+  assert_eq!(fixture.plan(&scoped("alpha", PushScope::WithChildren)).await.effects, Vec::new());
+}
+
+/// An ancestor whose push drops remote commits is left to its own row by the push button, which pushes above it; Push
+/// Stack, forced (its description named every drop), pushes it too and asks nothing; the branch itself asks first
+/// (`ForcePushDrops`), as Push with Children of it does
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_of_a_stack_leaves_an_ancestor_that_asks_first_unless_forced() {
+  let fixture = fixture(true).await;
+  fixture.execute(&alone("alpha", None), Vec::new()).await.unwrap();
+  fixture.someone_else_on("alpha").await;
+
+  let button = fixture.plan(&scoped("beta", PushScope::WithAncestors)).await;
+  assert_eq!((pushed_by(&button), button.confirmations.as_slice()), (Some((names(&["beta"]), false)), &[][..]));
+  let forced = fixture
+    .plan(&Push {
+      force: true,
+      ..scoped("beta", PushScope::WithAncestors)
+    })
+    .await;
+  assert_eq!((pushed_by(&forced), forced.confirmations.as_slice()), (Some((names(&["alpha", "beta"]), true)), &[][..]));
+  // the remote head the row of alpha shows: the push replaces it only while it is there
+  let seen = fixture.repo.rev_parse("refs/remotes/origin/test/virtual/alpha").ok();
+  let with_children = Push {
+    expect_remote: seen,
+    ..scoped("alpha", PushScope::WithChildren)
+  };
+  let children = fixture.plan(&with_children).await;
+  assert_eq!(pushed_by(&children), Some((names(&["alpha", "beta"]), true)));
+  assert_eq!(
+    children.confirmations,
+    [Confirmation::ForcePushDrops {
+      branch: "alpha".to_string(),
+      commits: 1
+    }]
+  );
+  let outcome = fixture.execute(&with_children, children.confirmations.clone()).await.unwrap();
+  assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
+  assert_eq!(
+    fixture.remote_tip("alpha"),
+    fixture.repo.rev_parse("test/virtual/alpha").unwrap(),
+    "the push dropped the commit it asked about"
+  );
+}
+
+/// Push Up to Here pushes the branches the commit is built on that have work, whole, then its branch up to the commit:
+/// the commits after it stay unpushed. A commit no Push Up to Here is offered of (the remote has it, a sync rebuilt the
+/// branch) has no plan, and a run of it pushes nothing
+#[tokio::test(flavor = "multi_thread")]
+async fn push_up_to_here_pushes_the_branch_up_to_the_commit_after_what_it_is_built_on() {
+  let fixture = fixture(false).await;
+  fixture.repo.create_commit("(alpha/beta) Beta, part 2", "beta-2.txt", "beta 2\n");
+  fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
+  // the common answer, which the view sends as none: every commit the remote lacks offers it, after alpha
+  let view = fixture.registry.sessions().get_snapshot(&fixture.key).await.unwrap();
+  assert_eq!(view.pushes.get("beta").and_then(|push| push.up_to.clone()), None);
+  let unpushed = view.branches["beta"].remote.status.as_ref().unwrap().unpushed_commits.clone();
+  assert_eq!(unpushed.len(), 2);
+  let first = unpushed[0].clone();
+  let push = scoped("beta", PushScope::UpTo { commit: first.clone() });
+  assert_eq!(pushed_by(&fixture.plan(&push).await), Some((names(&["alpha", "beta"]), false)));
+  let outcome = fixture.execute(&push, Vec::new()).await.unwrap();
+  assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
+  assert_eq!(fixture.remote_tip("beta"), first, "the branch up to the commit");
+  assert_eq!(fixture.remote_tip("alpha"), fixture.repo.rev_parse("test/virtual/alpha").unwrap());
+  let view = fixture.registry.sessions().get_snapshot(&fixture.key).await.unwrap();
+  let left = &view.branches["beta"].remote.status.as_ref().unwrap().unpushed_commits;
+  assert_eq!(left, &unpushed[1..], "the commit after it stays unpushed");
+
+  assert!(prepare_push(fixture.registry.sessions(), &fixture.key, &push).await.is_none(), "the remote has it now");
+  let accepted = Accepted {
+    fingerprint: domain_types::operation::Fingerprint(String::new()),
+    confirmations: Vec::new(),
+  };
+  let refused = execute_push(&fixture.registry, &fixture.key, push, accepted, &Offline, Arc::new(NoEvents))
+    .await
+    .unwrap_err();
+  assert_eq!(refused.code, ErrorCode::PlanChanged, "{refused:?}");
+}
+
+/// The stack branch of a whole stack that forks is pushed alone (the push a refused start of the whole stack offers),
+/// and Push with Children of the root takes it along once it is on the remote; a stack that doesn't fork has none
+#[tokio::test(flavor = "multi_thread")]
+async fn the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_on_the_remote() {
+  let fixture = fixture(true).await;
+  let whole = Push {
+    subject: Subject::whole_stack("alpha"),
+    ..alone("alpha", None)
+  };
+  let straight = fixture.plan(&whole).await;
+  assert_eq!(straight.blockers, [domain_types::reason::Reason::NoStackBranch { root: "alpha".to_string() }]);
+
+  fixture.repo.create_commit("(alpha/gamma) Gamma", "gamma.txt", "gamma\n");
+  fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
+  let plan = fixture.plan(&whole).await;
+  assert_eq!((pushed_by(&plan), plan.blockers.as_slice()), (Some((names(&["stack:alpha"]), false)), &[][..]));
+  let outcome = fixture.execute(&whole, Vec::new()).await.unwrap();
+  assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
+  assert_eq!(
+    outcome.news_key,
+    Some(NewsKey::Push {
+      branch: "stack:alpha".to_string()
+    })
+  );
+  assert_eq!(fixture.remote_branches(), "refs/heads/test/stack/alpha");
+
+  // a new commit of a branch of it: Push with Children of the root sends the branches and the stack branch, last
+  fixture.repo.create_commit("(alpha/gamma) Gamma, part 2", "gamma-2.txt", "gamma 2\n");
+  fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
+  let children = scoped("alpha", PushScope::WithChildren);
+  let plan = fixture.plan(&children).await;
+  assert_eq!(pushed_by(&plan), Some((names(&["alpha", "gamma", "beta", "stack:alpha"]), false)));
+  let outcome = fixture.execute(&children, Vec::new()).await.unwrap();
+  assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
+  assert_eq!(fixture.plan(&whole).await.effects, Vec::new(), "the stack branch went along");
+}

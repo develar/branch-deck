@@ -22,6 +22,9 @@
 //!   of an action (it starts above the nearest branch that asks first), and Push with Children with the stack branch of
 //!   the whole stack of a root (`stack_branch_along`: once it is on the remote or its pull request is open, built, not
 //!   held, its remote lacking it)
+//! - `up_to_push`: Push Up to Here of a commit, the branches it is built on that have work first, whole, then the branch
+//!   up to the commit, and what stops it (`UpToStop`): the branch kept out, rewritten since its push, a branch it is
+//!   built on kept out or asking first
 
 use crate::facts::{RemoteBranch, Repository};
 use crate::reasons::stack_not_built;
@@ -368,6 +371,8 @@ pub fn branch_push(repo: &Repository<'_>, state: impl Fn(&str) -> PushState, sta
     button: own == Verdict::Goes && !action.is_empty(),
     action: (action != stack_order).then(|| owned(&action)),
     children,
+    // the view's: which commits offer it is not a rule of the push plan
+    up_to: None,
   }
 }
 
@@ -392,6 +397,67 @@ pub fn action_push<'a>(repo: &Repository<'a>, state: impl Fn(&str) -> PushState,
     ancestors: above_ask_first(before),
     own,
   })
+}
+
+/// What stops Push Up to Here of a branch (`up_to_push`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UpToStop<'a> {
+  /// The branch or a branch it is built on can't go: what it does in a push (`Verdict::Parked`, `Held`, `NotBuilt`; of a
+  /// branch it is built on also `AsksFirst`, its push drops remote commits: its own row asks first)
+  Branch { name: &'a str, verdict: Verdict },
+  /// The remote has an older version of the branch (`RemoteStatusUpdate::fast_forward` is false): a part of it would
+  /// rewind its pull request, so it pushes whole
+  Rewritten,
+}
+
+/// What Push Up to Here of a commit of a branch sends before the branch up to the commit, and what stops it
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UpToPush<'a> {
+  /// The branches it is built on that have work for the remote, whole (the branch is built on their tips), root first;
+  /// one a merged Safe Push landed whole, or the remote has as it is, is left out
+  pub ancestors: Vec<&'a str>,
+  pub stop: Option<UpToStop<'a>>,
+}
+
+/// Push Up to Here of a commit of `name`, `state` of each branch with the holds of every running robot, `rewritten` the
+/// remote branch of `name` is no older state of it: Push Stack of it (`push_plan`), whole, root first, then the branch up
+/// to the commit. The branch kept out stops it first (parked, held, not built), then a rewritten remote, then, root
+/// first, a branch it is built on that is kept out (a running Safe Push lands it: its robot takes it as it is) or whose
+/// push drops remote commits (its row asks first). Which commits offer it is the remote status' and the landing's (the
+/// commits the remote lacks that no merged Safe Push landed); a branch the table lacks offers nothing
+#[must_use]
+pub fn up_to_push<'a>(repo: &Repository<'a>, state: impl Fn(&str) -> PushState, name: &str, rewritten: bool) -> UpToPush<'a> {
+  let plan = push_plan(repo, state, name, PushScope::WithAncestors);
+  let Some((&(own_name, own), before)) = plan.steps.split_last() else {
+    return UpToPush::default();
+  };
+  let stop = |name, verdict| Some(UpToStop::Branch { name, verdict });
+  if matches!(own, Verdict::Parked | Verdict::Held | Verdict::NotBuilt) {
+    return UpToPush {
+      ancestors: Vec::new(),
+      stop: stop(own_name, own),
+    };
+  }
+  if rewritten {
+    return UpToPush {
+      ancestors: Vec::new(),
+      stop: Some(UpToStop::Rewritten),
+    };
+  }
+  let mut ancestors = Vec::new();
+  for &(ancestor, verdict) in before {
+    match verdict {
+      Verdict::Goes => ancestors.push(ancestor),
+      Verdict::UpToDate | Verdict::Landed => {}
+      Verdict::AsksFirst | Verdict::Held | Verdict::NotBuilt | Verdict::Parked => {
+        return UpToPush {
+          ancestors: Vec::new(),
+          stop: stop(ancestor, verdict),
+        };
+      }
+    }
+  }
+  UpToPush { ancestors, stop: None }
 }
 
 /// Of the ancestors of a plan, root first, those that go above the nearest one that asks first: a push started without

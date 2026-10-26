@@ -27,6 +27,7 @@ describe("formatReason", () => {
       "A Safe Push of the whole auth stack is running: wait until it merges, or restart it on the current stack",
       "auth can't be pushed: it failed to sync",
       "The remote branch of auth has 2 commits that auth lacks: push it from its row, which shows them",
+      "auth was rewritten since its push: it pushes whole",
       "Built on parked auth: Unpark auth to push",
       "Parked: Unpark it to push",
       "Patronus does not push into master",
@@ -43,7 +44,7 @@ describe("formatReason", () => {
       "Pull request #7 is merged",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(25)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(26)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

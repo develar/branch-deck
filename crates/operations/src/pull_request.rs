@@ -291,6 +291,7 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
           parent_ref: base.and_then(full),
           whole_stack: false,
           unapplied: false,
+          up_to: None,
         });
       }
       // the pull requests of what the push sends go into the target first, where every pull request of a virtual branch
@@ -355,6 +356,7 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
           parent_ref: None,
           whole_stack: true,
           unapplied: false,
+          up_to: None,
         });
         effects.push(PlannedEffect::Push {
           branches: vec![root.clone()],

@@ -46,6 +46,7 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     // "auth is not synced (a merge conflict)", as `bd push` says it
     Reason::CantPush { branch, block } => not_synced_refusal(branch, *block),
     Reason::DropsRemote { branch, behind } => format!("the remote branch of {branch} has {behind} commits {branch} lacks"),
+    Reason::RewrittenSincePush { branch } => format!("{branch} was rewritten since its push: it pushes whole"),
     Reason::Parked { branch, with, note } => parked_words(
       branch,
       &Parked {

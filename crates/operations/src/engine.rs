@@ -4,8 +4,9 @@
 //! caller hears the outcome either way (`OperationEvent::Done`). `prepare` asks the family of an intent for its plan,
 //! and `execute` runs it on the plan its caller accepted: a start (`execute_land`, `land_execute::execute`), a restart
 //! and a cancel of a robot (`robot`), a retarget of a pull request, the creation of one and a review request
-//! (`pull_request`), the closes (`close`), a review (`review`), the state of an issue (`issue`) and the push of a branch
-//! alone or of an unapplied branch (`push`; the pushes of a stack run through `push_branches` until s9-13). A start reserves what its plan lands (`Resource::Lands`), the refs
+//! (`pull_request`), the closes (`close`), a review (`review`), the state of an issue (`issue`) and a push (`push`: of a
+//! branch alone, of a stack, up to a commit, of an unapplied branch, of the stack branch of a whole stack). A start
+//! reserves what its plan lands (`Resource::Lands`), the refs
 //! it pushes and the robot it cancels: a second start of the same subject joins it, one that lands a part of it waits for
 //! it and is decided again.
 
@@ -17,9 +18,7 @@ use crate::{close, issue, land, pull_request, push, review, robot};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::ApiError;
 use domain_types::landing::{Land, PlannedEffect, Subject};
-use domain_types::operation::{
-  EffectRecord, Intent, NewsKey, OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, PushScope, Resource, RunningMove,
-};
+use domain_types::operation::{EffectRecord, Intent, NewsKey, OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, Resource, RunningMove};
 use domain_types::session::Version;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::session::{SessionKey, Sessions};
@@ -53,7 +52,7 @@ pub async fn run(registry: &Registry, key: &SessionKey, request: OperationReques
 /// pull request)
 ///
 /// # Errors
-/// `invalid_arguments` for a push of a stack, which has no plan here yet, and for an invalid review
+/// `invalid_arguments` for an invalid review
 pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> Result<Option<Plan>, ApiError> {
   match intent {
     Intent::Land(start) => Ok(land::prepare(sessions, key, start).await),
@@ -64,10 +63,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. } => Ok(close::prepare_close(sessions, key, &intent).await),
     Intent::SubmitReview { .. } => review::review_plan(&intent).map(Some),
     Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
-    Intent::Push(push) => match push.scope {
-      PushScope::Alone | PushScope::Unapplied => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
-      PushScope::WithAncestors | PushScope::WithChildren | PushScope::UpTo { .. } => Err(push::not_an_intent_yet()),
-    },
+    Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
   }
 }
 

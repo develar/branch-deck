@@ -24,7 +24,10 @@
     },
     "mode": "rebaseAutosquash",
     "carried": {
-      "commits": ["a1", "a2"],
+      "commits": [
+        "a1",
+        "a2"
+      ],
       "amended": []
     }
   },
@@ -81,7 +84,9 @@
         "wholeStack": false
       },
       "carried": {
-        "commits": ["l1"],
+        "commits": [
+          "l1"
+        ],
         "amended": []
       }
     },
@@ -114,7 +119,9 @@
     "blockedBy": null,
     "conflict": {
       "commit": "0123456789abcdef",
-      "files": ["a.kt"]
+      "files": [
+        "a.kt"
+      ]
     },
     "error": null
   },
@@ -166,6 +173,10 @@
     "behind": 2
   },
   {
+    "code": "rewrittenSincePush",
+    "branch": "auth"
+  },
+  {
     "code": "parked",
     "branch": "login",
     "with": "auth",
@@ -187,7 +198,9 @@
   },
   {
     "code": "noReviewer",
-    "groups": ["IJPL Code Platform"]
+    "groups": [
+      "IJPL Code Platform"
+    ]
   },
   {
     "code": "draft",
@@ -201,7 +214,9 @@
   },
   {
     "code": "approvalsMissing",
-    "groups": ["Air Plugin Release Team"]
+    "groups": [
+      "Air Plugin Release Team"
+    ]
   },
   {
     "code": "dismissesApprovals",
@@ -267,7 +282,9 @@
   {
     "code": "targetConflict",
     "commit": "0123456789abcdef",
-    "files": ["a.kt"]
+    "files": [
+      "a.kt"
+    ]
   },
   {
     "code": "landedIn",

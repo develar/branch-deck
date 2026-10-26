@@ -69,6 +69,9 @@ pub enum Reason {
   /// The push of `branch` drops `behind` commits of its remote branch it lacks, someone's work: its row asks first, and a
   /// start pushes them away only when the user says so (`LandingAllowances::allow_force`, D12)
   DropsRemote { branch: String, behind: u32 },
+  /// The remote has an older version of `branch` (it was rebased, amended or reworded since its push): a push of a part
+  /// of it would rewind its pull request, so it pushes whole (Push Up to Here)
+  RewrittenSincePush { branch: String },
   /// `branch` stays local: its own line parks it (`with` none), or it is built on the parked `with` and carries its
   /// commits; `note` the note of that line, empty without one
   Parked { branch: String, with: Option<String>, note: String },
@@ -117,6 +120,7 @@ impl Reason {
       | Self::PullRequestMerged { .. }
       | Self::CantPush { .. }
       | Self::DropsRemote { .. }
+      | Self::RewrittenSincePush { .. }
       | Self::Parked { .. }
       | Self::NeedsPush { .. }
       | Self::NoReviewer { .. }

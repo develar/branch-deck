@@ -52,7 +52,9 @@ use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
-use domain_policy::push::{HeadedStack, Kept, PushState, StartAncestor, StartPush, Verdict, action_push, branch_push, kept, start_push, verdict};
+use domain_policy::push::{
+  HeadedStack, Kept, PushState, StartAncestor, StartPush, UpToStop, Verdict, action_push, branch_push, kept, stack_branch_along, start_push, up_to_push, verdict,
+};
 use domain_policy::readiness::wanted;
 use domain_policy::reasons::{held, stack_not_built};
 use domain_policy::review::candidates;
@@ -65,8 +67,8 @@ use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailabili
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RobotsView,
-  SubjectReadiness, WholeStackView, stack_readiness_key,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, RobotsView,
+  StackBranchAlong, SubjectReadiness, WholeStackView, stack_readiness_key,
 };
 use domain_types::stack::{BranchStack, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, PushAction};
@@ -144,10 +146,11 @@ fn stack_parked(repo: &Repository<'_>, stack: Option<&StackBranchUpdate>) -> Opt
 }
 
 /// What the pushes of each branch of `parts` send (`domain_policy::push::branch_push`), over the holds of the robots in
-/// the Patronus view of `facts` and the pull requests of the whole stacks it lists; a branch whose pushes send it alone
-/// is not listed. A branch the fetched baseline has whole by the table of the last sync (`BranchTable::in_baseline`, as
-/// the decision of a start, the gate of the view and the guards read it, never the landing section a running sync
-/// moves) is landed: the update archives it, its push lands nothing
+/// the Patronus view of `facts` and the pull requests of the whole stacks it lists, with Push Up to Here of its commits
+/// (`up_to_of`); a branch whose pushes send it alone and whose commits offer no Push Up to Here is not listed. A branch
+/// the fetched baseline has whole by the table of the last sync (`BranchTable::in_baseline`, as the decision of a start,
+/// the gate of the view and the guards read it, never the landing section a running sync moves) is landed: the update
+/// archives it, its push lands nothing
 pub(crate) fn push_view(parts: &TableParts, facts: &FactStore) -> BTreeMap<String, BranchPush> {
   let repo = parts_repository(parts);
   let (patronus, pull_requests) = (&facts.patronus.part().view, facts.pull_requests.view());
@@ -157,6 +160,12 @@ pub(crate) fn push_view(parts: &TableParts, facts: &FactStore) -> BTreeMap<Strin
     in_baseline: facts.table.value().map(|table| &table.in_baseline),
   };
   let held = |name: &str| push_facts.state(name);
+  // the robots of a hold that stops a Push Up to Here, listed once and only then
+  let robots = std::cell::OnceCell::new();
+  let holds = || Holds {
+    view: patronus,
+    robots: robots.get_or_init(|| listed_robots(facts.robots.view())),
+  };
   repo
     .order()
     .filter_map(|name| {
@@ -169,6 +178,8 @@ pub(crate) fn push_view(parts: &TableParts, facts: &FactStore) -> BTreeMap<Strin
         hold: patronus.stacks.get(name).and_then(|facts| facts.landing.hold.as_ref()),
       });
       let push = branch_push(&repo, held, stack, name);
+      let up_to = up_to_of(&repo, parts, facts, &push_facts, &holds, name).and_then(|up_to| up_to.unless_common(parts, &repo, &push, name));
+      let push = BranchPush { up_to, ..push };
       (push != BranchPush::default()).then(|| (name.to_string(), push))
     })
     .collect()
@@ -258,7 +269,7 @@ pub fn action_push_of(state: &TableState, facts: &FactStore, name: &str) -> Acti
   }
   let landing = patronus.branches.get(name).map(|facts| &facts.landing);
   let robots = listed_robots(facts.robots.view());
-  let own = kept_reason(state, facts, Holds { view: patronus, robots: &robots }, name, push.own).or_else(|| match push.own {
+  let own = kept_reason(parts, facts, Holds { view: patronus, robots: &robots }, name, push.own).or_else(|| match push.own {
     Verdict::AsksFirst => parts.branches.get(name).and_then(|branch| branch.remote.status.as_ref()).map(|status| Reason::DropsRemote {
       branch: name.to_string(),
       behind: status.commits_behind,
@@ -289,8 +300,7 @@ impl Holds<'_> {
 
 /// Why `name` can't be pushed by its verdict `verdict`: it stays local, a running Safe Push of `holds` holds it, the
 /// last sync did not build it; `None` for a verdict that lets it go
-fn kept_reason(state: &TableState, facts: &FactStore, holds: Holds<'_>, name: &str, verdict: Verdict) -> Option<Reason> {
-  let parts = &state.parts;
+fn kept_reason(parts: &TableParts, facts: &FactStore, holds: Holds<'_>, name: &str, verdict: Verdict) -> Option<Reason> {
   match verdict {
     Verdict::Parked => parts.branches.get(name).and_then(|branch| branch.structure.parked.as_ref()).map(|parked| Reason::Parked {
       branch: name.to_string(),
@@ -342,17 +352,176 @@ pub fn alone_push_of(state: &TableState, facts: &FactStore, holds: Holds<'_>, na
   Some(AlonePushView {
     verdict,
     // a merged Safe Push landed it whole: nothing of it is left to push
-    blocker: if verdict == Verdict::Landed {
-      holds.reason(name)
-    } else {
-      kept_reason(state, facts, holds, name, verdict)
-    },
+    blocker: verdict_refusal(&state.parts, facts, holds, name, verdict),
     drops: if verdict == Verdict::AsksFirst {
       status.map_or(0, |status| status.commits_behind)
     } else {
       0
     },
   })
+}
+
+/// Why `name` can't be pushed by `verdict` over `holds`: it stays local, a running Safe Push holds it or a merged one
+/// landed it whole, the last sync did not build it; `None` for a verdict that lets it go
+fn verdict_refusal(parts: &TableParts, facts: &FactStore, holds: Holds<'_>, name: &str, verdict: Verdict) -> Option<Reason> {
+  if verdict == Verdict::Landed {
+    holds.reason(name)
+  } else {
+    kept_reason(parts, facts, holds, name, verdict)
+  }
+}
+
+/// Push Up to Here of a branch in full (`up_to_of`)
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UpToPushView {
+  /// The copies of the commits that offer it, oldest first
+  pub commits: Vec<String>,
+  /// The branches it pushes first, whole, root first
+  pub ancestors: Vec<String>,
+  /// Why it can't push
+  pub blocker: Option<Reason>,
+}
+
+impl UpToPushView {
+  /// What the view sends of it (`BranchPush::up_to`): only what differs from the common answer, every commit the remote
+  /// lacks offering it after the branches of Push Stack (`push.stack`, else every branch `name` is built on), nothing
+  /// stopping it; `None` for that answer
+  fn unless_common(self, parts: &TableParts, repo: &Repository<'_>, push: &BranchPush, name: &str) -> Option<PushUpTo> {
+    let unpushed = parts
+      .branches
+      .get(name)
+      .and_then(|branch| branch.remote.status.as_ref())
+      .map(|status| &status.unpushed_commits);
+    let stack = push.stack.clone().unwrap_or_else(|| build_ancestors(repo, name).into_iter().map(str::to_string).collect());
+    let up_to = PushUpTo {
+      commits: (unpushed != Some(&self.commits)).then_some(self.commits),
+      ancestors: (self.ancestors != stack).then_some(self.ancestors),
+      blocker: self.blocker,
+    };
+    (up_to != PushUpTo::default()).then_some(up_to)
+  }
+}
+
+/// Push Up to Here of `name` (`domain_policy::push::up_to_push`) over `push_facts`: the commits that offer it, the
+/// branches it pushes first and why it can't push, in reasons over the holds `holds` gives; `None` while the remote
+/// status of the branch is not known yet
+fn up_to_of<'h>(repo: &Repository<'_>, parts: &TableParts, facts: &FactStore, push_facts: &PushFacts<'_>, holds: &dyn Fn() -> Holds<'h>, name: &str) -> Option<UpToPushView> {
+  let branch = parts.branches.get(name)?;
+  let status = branch.remote.status.as_ref()?;
+  let landed = push_facts.patronus.branches.get(name).and_then(|facts| facts.landed_by.as_ref());
+  // the commits of a merged Safe Push are in the target as commits the remote has: only those added after them offer it
+  let commits: Vec<String> = status
+    .unpushed_commits
+    .iter()
+    .filter(|copy| {
+      landed.is_none_or(|landed| {
+        let original = branch
+          .copies
+          .iter()
+          .position(|it| it.hash.as_deref() == Some(copy.as_str()))
+          .and_then(|at| branch.commits.get(at));
+        original.is_some_and(|commit| landed.after.contains(&commit.id))
+      })
+    })
+    .cloned()
+    .collect();
+  let push = up_to_push(repo, |it| push_facts.state(it), name, status.remote_exists && !status.fast_forward);
+  let blocker = match push.stop {
+    None => None,
+    Some(UpToStop::Rewritten) => Some(Reason::RewrittenSincePush { branch: name.to_string() }),
+    Some(UpToStop::Branch {
+      name: stopped,
+      verdict: Verdict::AsksFirst,
+    }) => Some(Reason::DropsRemote {
+      branch: stopped.to_string(),
+      behind: parts.branches.get(stopped).and_then(|it| it.remote.status.as_ref()).map_or(0, |it| it.commits_behind),
+    }),
+    Some(UpToStop::Branch { name: stopped, verdict }) => verdict_refusal(parts, facts, holds(), stopped, verdict),
+  };
+  Some(UpToPushView {
+    commits,
+    ancestors: push.ancestors.iter().map(|it| (*it).to_string()).collect(),
+    blocker,
+  })
+}
+
+/// Push Up to Here of `name` over the table of `state` and the holds of `holds` (`up_to_of`), in full: the plan of a push
+/// up to a commit reads it as the view does
+#[must_use]
+pub fn up_to_push_of(state: &TableState, facts: &FactStore, holds: Holds<'_>, name: &str) -> Option<UpToPushView> {
+  let parts = &state.parts;
+  let push_facts = PushFacts {
+    parts,
+    patronus: holds.view,
+    in_baseline: facts.table.value().map(|table| &table.in_baseline),
+  };
+  up_to_of(&parts_repository(parts), parts, facts, &push_facts, &|| holds, name)
+}
+
+/// `decide` over the rules of a push of the table of `state`: its branches, the state of each for a push over the holds
+/// of `holds` (`PushState`, as the view orders the pushes) and why a verdict keeps one out (`verdict_refusal`)
+pub fn with_push_states<T>(state: &TableState, facts: &FactStore, holds: Holds<'_>, decide: impl FnOnce(&PushRules<'_>) -> T) -> T {
+  let parts = &state.parts;
+  let push_facts = PushFacts {
+    parts,
+    patronus: holds.view,
+    in_baseline: facts.table.value().map(|table| &table.in_baseline),
+  };
+  let rules = PushRules {
+    repo: parts_repository(parts),
+    parts,
+    facts,
+    push_facts,
+    holds,
+  };
+  decide(&rules)
+}
+
+/// What the plan of a push reads of a table (`with_push_states`)
+pub struct PushRules<'a> {
+  pub repo: Repository<'a>,
+  parts: &'a TableParts,
+  facts: &'a FactStore,
+  push_facts: PushFacts<'a>,
+  holds: Holds<'a>,
+}
+
+impl PushRules<'_> {
+  /// What `name` is to a push (`PushState`)
+  #[must_use]
+  pub fn state(&self, name: &str) -> PushState {
+    self.push_facts.state(name)
+  }
+
+  /// Why `verdict` keeps `name` out of a push; `None` for one that lets it go
+  #[must_use]
+  pub fn refusal(&self, name: &str, verdict: Verdict) -> Option<Reason> {
+    verdict_refusal(self.parts, self.facts, self.holds, name, verdict)
+  }
+
+  /// The commits of the remote branch of `name` a push drops (its remote status' `commits_behind`)
+  #[must_use]
+  pub fn drops(&self, name: &str) -> u32 {
+    self
+      .parts
+      .branches
+      .get(name)
+      .and_then(|branch| branch.remote.status.as_ref())
+      .map_or(0, |status| status.commits_behind)
+  }
+  /// What Push with Children of `root` does with the stack branch of its whole stack (`push::stack_branch_along`), over
+  /// the holds and the pull requests of the session; `None` for a stack that does not fork
+  #[must_use]
+  pub fn stack_branch_along(&self, root: &str) -> Option<StackBranchAlong> {
+    let stack = self.parts.stacks.get(root)?;
+    let pull_requests = self.facts.pull_requests.view();
+    let open = pull_requests
+      .stack_pull_requests
+      .get(root)
+      .is_some_and(|pull_request| pull_request.state == PullRequestState::Open);
+    let hold = self.holds.view.stacks.get(root).and_then(|facts| facts.landing.hold.as_ref());
+    stack_branch_along(stack, open, hold)
+  }
 }
 
 /// What `push_view` reads of a branch

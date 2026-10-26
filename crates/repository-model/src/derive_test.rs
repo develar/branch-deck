@@ -18,11 +18,11 @@ use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullReque
 use domain_types::reason::Reason;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, StackBranchAlong,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, PushUpTo, StackBranchAlong,
   SubjectReadiness, WholeStackView,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
-use domain_types::{GroupedBranchInfo, SyncEvent};
+use domain_types::{GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 
@@ -244,6 +244,54 @@ fn the_view_orders_the_pushes_of_each_branch() {
   assert_eq!(
     patch.changes.pushes["auth"].children.as_ref().and_then(|children| children.stack_branch.clone()),
     Some(StackBranchAlong::Along)
+  );
+}
+
+/// Push Up to Here of the commits a branch has for the remote is sent only where it differs from the common answer
+/// (every commit the remote lacks, after the branches of Push Stack, nothing stopping it): a branch whose remote has an
+/// older version of it pushes whole, and one stacked on an ancestor whose push drops remote commits stops at it
+#[test]
+fn the_view_sends_push_up_to_here_only_where_it_differs_from_the_common_answer() {
+  let mut table = TableState::new();
+  table.begin_sync();
+  table.apply(grouping(tree(), &[], &[]));
+  let rewritten = RemoteStatusUpdate {
+    remote_exists: true,
+    fast_forward: false,
+    commits_behind: 1,
+    ..remote_status("login", &["l"])
+  };
+  let rewritten = RemoteStatusUpdate {
+    action: domain_policy::push::action(&rewritten),
+    ..rewritten
+  };
+  table.apply(SyncEvent::RemoteStatusUpdate(rewritten));
+  for (branch, unpushed) in [("auth", &["a"][..]), ("oauth", &["o"]), ("session", &["s"])] {
+    table.apply(SyncEvent::RemoteStatusUpdate(remote_status(branch, unpushed)));
+  }
+  table.finish_sync(Ok(()));
+  let mut view = View::new(1, "user");
+  let pushes = view.diff(&table, &FactStore::new()).unwrap().changes.pushes;
+  let up_to = |name: &str| pushes.get(name).and_then(|push| push.up_to.clone());
+  assert_eq!(up_to("session"), None, "the common answer");
+  assert_eq!(
+    up_to("login"),
+    Some(PushUpTo {
+      blocker: Some(Reason::RewrittenSincePush { branch: "login".to_string() }),
+      ancestors: Some(Vec::new()),
+      ..PushUpTo::default()
+    })
+  );
+  assert_eq!(
+    up_to("oauth"),
+    Some(PushUpTo {
+      blocker: Some(Reason::DropsRemote {
+        branch: "login".to_string(),
+        behind: 1
+      }),
+      ancestors: Some(Vec::new()),
+      ..PushUpTo::default()
+    })
   );
 }
 

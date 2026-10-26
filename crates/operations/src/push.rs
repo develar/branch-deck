@@ -32,8 +32,9 @@ use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard
 use crate::witness::Witness;
 use anyhow::{Result, anyhow};
 use domain_policy::pull_request::base_of;
-use domain_policy::push::{PushState, Verdict, verdict};
-use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
+use domain_policy::push::{PushPlan as PolicyPlan, PushScope as PlanScope, PushState, Verdict, action_push, push_plan, verdict};
+use domain_policy::reasons::stack_not_built;
+use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
 use domain_types::operation::{
@@ -43,13 +44,14 @@ use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatu
 use domain_types::pull_request::{PullRequest, PullRequestBase, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::PatronusView;
-use domain_types::session::{SyncReason, SyncState, ViewAnswer};
+use domain_types::session::{StackBranchAlong, SyncReason, SyncState, ViewAnswer, stack_readiness_key};
+use domain_types::stack::StackBranchUpdate;
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryLocked, lock_repository_while_held};
 use patronus::service::PatronusService;
 use remote_facts::service_sources::ServiceHost;
-use repository_model::derive::{Holds, LandSources, alone_push_of, with_pull_request_sources};
+use repository_model::derive::{Holds, LandSources, PushRules, alone_push_of, up_to_push_of, with_pull_request_sources, with_push_states};
 use repository_model::facts::{FactStore, TableFacts};
 use repository_model::push_guard::{check_push, guard_facts};
 use repository_model::ref_claims::claim_refs;
@@ -465,8 +467,8 @@ fn operation_error(error: &anyhow::Error) -> ApiError {
 
 /// The plan of the push `push` in the open session of `key` over the facts it holds now (`push_planned`), the holds of
 /// its Patronus view; `None` for a session that is not open or has no table yet, a branch its table lacks, an unapplied
-/// branch it doesn't list, and for the pushes of a stack, which run through `push_branches` until they are intents of
-/// their own (s9-13)
+/// branch it doesn't list, a commit no Push Up to Here is offered of (the remote has it, a merged Safe Push landed it, a
+/// sync rebuilt the branch since), and a whole stack in another scope than alone
 pub async fn prepare_push(sessions: &Sessions, key: &SessionKey, push: &Push) -> Option<Planned> {
   let (prefix, push) = (key.prefix.clone(), push.clone());
   sessions
@@ -501,28 +503,319 @@ impl CheckedHolds {
 }
 
 /// The plan of the push `push` over the table of `state` and the facts of `facts`, with what its run needs: of a branch
-/// alone (its row, its preview, its review window, the toast of a remote that moved) or of an unapplied branch; `checked`
-/// the holds a run of it checks (the robots asked for it now), else those of the Patronus view of the session. `None` as
-/// `prepare_push`
+/// alone (its row, its preview, its review window, the toast of a remote that moved), of an unapplied branch, of a stack
+/// (`stack_planned`: Push Stack and the push button, Push with Children, Push Up to Here) or of the stack branch of a
+/// whole stack (`whole_stack_planned`); `checked` the holds a run of it checks (the robots asked for it now), else those
+/// of the Patronus view of the session. `None` as `prepare_push`
 #[must_use]
 pub fn push_planned(state: &TableState, facts: &FactStore, prefix: &str, push: &Push, checked: Option<&CheckedHolds>, expect: ExpectRemote) -> Option<Planned> {
-  let Subject::Branch { name } = &push.subject else {
-    return None;
+  if let (Subject::Branch { name }, PushScope::Unapplied) = (&push.subject, &push.scope) {
+    return unapplied_planned(state, name, push, expect);
+  }
+  with_pull_request_sources(state, facts, prefix, |sources| {
+    let holds = checked.map_or(
+      Holds {
+        view: sources.view,
+        robots: sources.robots,
+      },
+      CheckedHolds::holds,
+    );
+    match (&push.subject, &push.scope) {
+      (Subject::Branch { name }, PushScope::Alone) => alone_planned(state, facts, sources, holds, name, push, expect),
+      (Subject::Branch { name }, PushScope::WithAncestors | PushScope::WithChildren | PushScope::UpTo { .. }) => stack_planned(state, facts, sources, holds, name, push, expect),
+      (Subject::WholeStack { root }, PushScope::Alone) => whole_stack_planned(state, sources, holds, root, push, expect),
+      (_, PushScope::Unapplied) | (Subject::WholeStack { .. }, _) => None,
+    }
+  })
+  .flatten()
+}
+
+/// A branch a push of a stack sends (`covered`)
+struct CoveredStep {
+  name: String,
+  /// Its push drops remote commits it lacks (`Verdict::AsksFirst`): `drops` of them
+  asks: bool,
+  drops: u32,
+}
+
+/// What a push of a stack covers by its scope (`covered`)
+struct Covered {
+  /// The branches it sends, parents first
+  sends: Vec<CoveredStep>,
+  /// What keeps it from going
+  blockers: Vec<Reason>,
+  /// The stack branch of the whole stack of the subject goes along, after the branches (Push with Children of a root)
+  stack_branch: bool,
+  /// The copy of a commit of the subject it pushes instead of its tip (Push Up to Here of a commit before the last one
+  /// the remote lacks)
+  up_to: Option<String>,
+}
+
+/// What the push `push` of a stack from `name` covers, by `domain_policy::push` over `rules` (the holds of the push):
+///
+/// - `WithAncestors`, the push button and an action: the branches it is built on that have work, root first, above the
+///   nearest one whose push drops remote commits (that one asks first in its own row, `action_push`), then the branch;
+///   forced (Push Stack, whose description named every drop), every one of them up to the nearest held one
+///   (`push_plan`). What keeps the branch out refuses it
+/// - `WithChildren`: the branch while it has work, then the branches stacked on it that have work, each after its
+///   parent, and the stack branch of the whole stack of a root while it goes along (`stack_branch_along`); one stacked on
+///   it whose push drops remote commits only when forced. What keeps the branch out refuses it while nothing else goes
+/// - `UpTo`: the branches it is built on that have work, whole, then the branch up to the commit (`up_to_push`), which
+///   must be one the view offers it of; `None` for another
+fn covered(rules: &PushRules<'_>, state: &TableState, facts: &FactStore, holds: Holds<'_>, name: &str, push: &Push) -> Option<Covered> {
+  let step = |name: &str, verdict: Verdict| CoveredStep {
+    name: name.to_string(),
+    asks: verdict == Verdict::AsksFirst,
+    drops: rules.drops(name),
   };
-  match push.scope {
-    PushScope::Alone => with_pull_request_sources(state, facts, prefix, |sources| {
-      let holds = checked.map_or(
-        Holds {
-          view: sources.view,
-          robots: sources.robots,
-        },
-        CheckedHolds::holds,
-      );
-      alone_planned(state, facts, sources, holds, name, push, expect)
-    })
-    .flatten(),
-    PushScope::Unapplied => unapplied_planned(state, name, push, expect),
-    PushScope::WithAncestors | PushScope::WithChildren | PushScope::UpTo { .. } => None,
+  let goes = |verdict: Verdict| matches!(verdict, Verdict::Goes | Verdict::AsksFirst);
+  let state_of = |branch: &str| rules.state(branch);
+  match &push.scope {
+    PushScope::WithAncestors => {
+      let plan = push_plan(&rules.repo, state_of, name, PlanScope::WithAncestors);
+      let (&(own_name, own), before) = plan.steps.split_last()?;
+      let ancestors = if push.force {
+        PolicyPlan { steps: before.to_vec() }.order(true)
+      } else {
+        action_push(&rules.repo, state_of, name)?.ancestors
+      };
+      let mut sends: Vec<CoveredStep> = ancestors.iter().map(|ancestor| step(ancestor, plan.verdict(ancestor).unwrap_or(Verdict::Goes))).collect();
+      if goes(own) {
+        sends.push(step(own_name, own));
+      }
+      Some(Covered {
+        sends,
+        blockers: rules.refusal(own_name, own).into_iter().collect(),
+        stack_branch: false,
+        up_to: None,
+      })
+    }
+    PushScope::WithChildren => {
+      let plan = push_plan(&rules.repo, state_of, name, PlanScope::WithChildren);
+      let (&(own_name, own), children) = plan.steps.split_first()?;
+      let mut sends = Vec::new();
+      if goes(own) {
+        sends.push(step(own_name, own));
+      }
+      let sent = |verdict: Verdict| verdict == Verdict::Goes || (push.force && verdict == Verdict::AsksFirst);
+      sends.extend(children.iter().filter(|(_, verdict)| sent(*verdict)).map(|(child, verdict)| step(child, *verdict)));
+      let stack_branch = rules.stack_branch_along(own_name) == Some(StackBranchAlong::Along);
+      let blockers = if sends.is_empty() && !stack_branch {
+        rules.refusal(own_name, own).into_iter().collect()
+      } else {
+        Vec::new()
+      };
+      Some(Covered {
+        sends,
+        blockers,
+        stack_branch,
+        up_to: None,
+      })
+    }
+    PushScope::UpTo { commit } => {
+      let up_to = up_to_push_of(state, facts, holds, name)?;
+      if !up_to.commits.contains(commit) {
+        return None;
+      }
+      let last = state.branch(name)?.remote.status.as_ref()?.unpushed_commits.last()?;
+      let mut sends: Vec<CoveredStep> = up_to.ancestors.iter().map(|ancestor| step(ancestor, Verdict::Goes)).collect();
+      sends.push(step(name, Verdict::Goes));
+      Some(Covered {
+        sends,
+        blockers: up_to.blocker.into_iter().collect(),
+        stack_branch: false,
+        up_to: (last != commit).then(|| commit.clone()),
+      })
+    }
+    PushScope::Alone | PushScope::Unapplied => None,
+  }
+}
+
+/// The push `push` of a stack from the branch `name` over `sources` and the holds of `holds`, in one atomic push of what
+/// its scope covers (`covered`): first the retarget of each open pull request of a branch it sends that goes into a
+/// virtual branch (D3a), then the push; each branch it sends whose push drops remote commits asks first
+/// (`Confirmation::ForcePushDrops`) unless the intent forces it. Each ref leases on the remote head the session has, the
+/// branch on the one the user saw (`ExpectRemote::OfIntent`) until a wait brought a newer one
+fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_>, holds: Holds<'_>, name: &str, push: &Push, expect: ExpectRemote) -> Option<Planned> {
+  let full = |branch: &str| to_final_branch_name(sources.prefix, branch).ok();
+  let full_name = full(name)?;
+  sources.table.branch(name)?;
+  let covered = with_push_states(state, facts, holds, |rules| covered(rules, state, facts, holds, name, push))?;
+  let goes = covered.blockers.is_empty();
+  let sends: &[CoveredStep] = if goes { &covered.sends } else { &[] };
+  let mut effects = Vec::new();
+  let mut retargeted = Vec::new();
+  for sent in sends {
+    if let Some(pull_request) = virtual_pull_request(sources, &sent.name) {
+      effects.push(PlannedEffect::Retarget {
+        branch: sent.name.clone(),
+        number: pull_request.number,
+        from: pull_request.base_ref_name.clone(),
+        to: sources.target.to_string(),
+      });
+      retargeted.push(pull_request);
+    }
+  }
+  let mut refs = BTreeMap::new();
+  let mut pushes = Vec::new();
+  for sent in sends {
+    let sent_full = full(&sent.name)?;
+    let remote = if sent.name == name && expect == ExpectRemote::OfIntent {
+      push.expect_remote.clone()
+    } else {
+      sources.remote.branches.get(&sent.name).and_then(|remote| remote.remote_tip.clone())
+    };
+    refs.insert(format!("refs/heads/{sent_full}"), sources.table.tips.get(&sent_full).cloned());
+    refs.insert(format!("refs/remotes/{PUSH_REMOTE}/{sent_full}"), remote);
+    let base = sources.table.branch(&sent.name)?.stack.as_ref().and_then(|stack| stack.effective_base.as_deref());
+    pushes.push(PushedRef {
+      name: sent.name.clone(),
+      full_name: sent_full,
+      parent_ref: base.and_then(full),
+      whole_stack: false,
+      unapplied: false,
+      up_to: if sent.name == name { covered.up_to.clone() } else { None },
+    });
+  }
+  let mut names: Vec<String> = sends.iter().map(|sent| sent.name.clone()).collect();
+  if goes && covered.stack_branch {
+    let stack = sources.table.stack_branches.iter().find(|stack| stack.root == name)?;
+    refs.insert(format!("refs/heads/{}", stack.branch_name), stack.tip.clone());
+    let remote = sources.remote.stacks.get(name).and_then(|remote| remote.remote_tip.clone());
+    refs.insert(format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote);
+    pushes.push(stack_branch_ref(stack));
+    names.push(stack_readiness_key(name));
+  }
+  if !pushes.is_empty() {
+    effects.push(PlannedEffect::Push {
+      branches: names,
+      force: sends.iter().any(|sent| sent.asks),
+    });
+  }
+  let confirmations = if push.force {
+    Vec::new()
+  } else {
+    sends
+      .iter()
+      .filter(|sent| sent.asks)
+      .map(|sent| Confirmation::ForcePushDrops {
+        branch: sent.name.clone(),
+        commits: sent.drops,
+      })
+      .collect()
+  };
+  let witness = Witness::of(refs, retargeted, std::iter::empty());
+  Some(push_plan_of(
+    push,
+    witness,
+    effects,
+    confirmations,
+    covered.blockers,
+    pushes,
+    format!("refs/heads/{full_name}"),
+  ))
+}
+
+/// The push of the stack branch of the whole stack of `root` alone (the push a refused start of the whole stack offers):
+/// the build of the last sync while its remote lacks it, leased on the remote head of its status, asking first when it
+/// drops remote commits unless forced; while it has work, what holds its push refuses it (`StackLanding::hold`: a member
+/// parked, every branch of the stack landed, its own robot runs on it, the sync did not build it), and a stack that does
+/// not fork has none. Its remote status is the session's (a push since the sync left it)
+fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Holds<'_>, root: &str, push: &Push, expect: ExpectRemote) -> Option<Planned> {
+  sources.table.branch(root)?;
+  let key = stack_readiness_key(root);
+  let Some(stack) = sources.table.stack_branches.iter().find(|stack| stack.root == root && !stack.members.is_empty()) else {
+    let blockers = vec![Reason::NoStackBranch { root: root.to_string() }];
+    return Some(push_plan_of(push, Witness::default(), Vec::new(), Vec::new(), blockers, Vec::new(), String::new()));
+  };
+  let status = state.stack(root).and_then(|stack| stack.remote.as_ref());
+  let action = status.map_or(PushAction::Create, |status| status.action);
+  let verdict = verdict(&PushState { action: Some(action), kept: None });
+  let source_ref = format!("refs/heads/{}", stack.branch_name);
+  if !matches!(verdict, Verdict::Goes | Verdict::AsksFirst) {
+    return Some(push_plan_of(push, Witness::default(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), source_ref));
+  }
+  let hold = holds.view.stacks.get(root).and_then(|facts| facts.landing.hold.clone());
+  if let Some(reason) = hold.or_else(|| stack_not_built(stack)) {
+    return Some(push_plan_of(push, Witness::default(), Vec::new(), Vec::new(), vec![reason], Vec::new(), source_ref));
+  }
+  let asks = verdict == Verdict::AsksFirst;
+  let remote = match expect {
+    ExpectRemote::OfIntent => push.expect_remote.clone(),
+    ExpectRemote::OfSession => sources.remote.stacks.get(root).and_then(|remote| remote.remote_tip.clone()),
+  };
+  let refs = BTreeMap::from([
+    (source_ref.clone(), stack.tip.clone()),
+    (format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote),
+  ]);
+  let confirmations = if asks && !push.force {
+    vec![Confirmation::ForcePushDrops {
+      branch: key.clone(),
+      commits: status.map_or(0, |status| status.commits_behind),
+    }]
+  } else {
+    Vec::new()
+  };
+  let effects = vec![PlannedEffect::Push { branches: vec![key], force: asks }];
+  let witness = Witness::of(refs, std::iter::empty(), std::iter::empty());
+  Some(push_plan_of(push, witness, effects, confirmations, Vec::new(), vec![stack_branch_ref(stack)], source_ref))
+}
+
+/// The stack branch of a whole stack as a push sends it
+fn stack_branch_ref(stack: &StackBranchUpdate) -> PushedRef {
+  PushedRef {
+    name: stack.root.clone(),
+    full_name: stack.branch_name.clone(),
+    parent_ref: None,
+    whole_stack: true,
+    unapplied: false,
+    up_to: None,
+  }
+}
+
+/// The open pull request of `branch` that goes into a virtual branch: a push retargets it into the target first, where
+/// every pull request of a virtual branch goes (D3a)
+fn virtual_pull_request<'a>(sources: &LandSources<'a>, branch: &str) -> Option<&'a PullRequest> {
+  sources
+    .pull_requests
+    .pull_requests
+    .get(branch)
+    .filter(|pull_request| !sources.target.is_empty() && pull_request.state == PullRequestState::Open)
+    .filter(|pull_request| matches!(base_of(pull_request, sources.target, sources.prefix), PullRequestBase::Virtual { .. }))
+}
+
+/// The plan of a push of a stack with its witness, fingerprinted
+fn push_plan_of(
+  push: &Push,
+  witness: Witness,
+  effects: Vec<PlannedEffect>,
+  confirmations: Vec<Confirmation>,
+  blockers: Vec<Reason>,
+  pushes: Vec<PushedRef>,
+  source_ref: String,
+) -> Planned {
+  let mut plan = Plan {
+    intent: Intent::Push(push.clone()),
+    fingerprint: Fingerprint(String::new()),
+    lands: Vec::new(),
+    effects,
+    confirmations,
+    blockers,
+    waits: Vec::new(),
+    alternatives: None,
+    pull_request: None,
+    approvals_skipped_by: None,
+  };
+  plan.fingerprint = witness.fingerprint(&plan);
+  Planned {
+    plan,
+    witness,
+    pushes,
+    source_ref,
+    merge_request: None,
+    notes: Vec::new(),
+    subject: push.subject.clone(),
+    mode: PatronusPushMode::RebaseAutosquash,
   }
 }
 
@@ -548,12 +841,7 @@ fn alone_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
   let goes = matches!(alone.verdict, Verdict::Goes | Verdict::AsksFirst);
   let mut effects = Vec::new();
   // its pull request goes into the target first, where every pull request of a virtual branch goes (D3a)
-  let retarget = sources
-    .pull_requests
-    .pull_requests
-    .get(name)
-    .filter(|pull_request| goes && !sources.target.is_empty() && pull_request.state == PullRequestState::Open)
-    .filter(|pull_request| matches!(base_of(pull_request, sources.target, sources.prefix), PullRequestBase::Virtual { .. }));
+  let retarget = virtual_pull_request(sources, name).filter(|_| goes);
   if let Some(pull_request) = retarget {
     effects.push(PlannedEffect::Retarget {
       branch: name.to_string(),
@@ -577,6 +865,7 @@ fn alone_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       parent_ref: info.stack.as_ref().and_then(|stack| stack.effective_base.as_deref()).and_then(full),
       whole_stack: false,
       unapplied: false,
+      up_to: None,
     });
   }
   if let Some(robot) = robot {
@@ -617,6 +906,7 @@ fn unapplied_planned(state: &TableState, name: &str, push: &Push, expect: Expect
       parent_ref: None,
       whole_stack: false,
       unapplied: true,
+      up_to: None,
     })
     .into_iter()
     .collect();
@@ -714,16 +1004,23 @@ impl PushPlan<'_> {
   }
 }
 
-/// What the push `push` asks the registry for: the ref of its branch, whatever its plan pushes now (a sync it waits for
-/// may give it work), the robot it cancels and restarts and the base of the pull request it retargets (of `planned`, its
-/// plan as the session has it now)
+/// What the push `push` asks the registry for: the ref of its subject, whatever its plan pushes now (a sync it waits for
+/// may give it work: the refs of a stack), the robot it cancels and restarts and the base of each pull request it
+/// retargets (of `planned`, its plan as the session has it now)
 fn push_request(prefix: &str, push: &Push, planned: Option<&Planned>) -> OperationRequest {
   let name = push.subject.name();
-  let full_name = match push.scope {
-    PushScope::Unapplied => qualified_branch_name(prefix, BranchKind::Unapplied, name),
+  let full_name = match (&push.subject, &push.scope) {
+    (Subject::WholeStack { .. }, _) => to_stack_branch_name(prefix, name),
+    (_, PushScope::Unapplied) => qualified_branch_name(prefix, BranchKind::Unapplied, name),
     _ => to_final_branch_name(prefix, name),
   };
   let mut resources: Vec<Resource> = full_name.ok().map(|name| Resource::Ref { name }).into_iter().collect();
+  for pushed in planned.map_or(&[][..], |planned| planned.pushes.as_slice()) {
+    let resource = Resource::Ref { name: pushed.full_name.clone() };
+    if !resources.contains(&resource) {
+      resources.push(resource);
+    }
+  }
   for effect in planned.map_or(&[][..], |planned| planned.plan.effects.as_slice()) {
     match effect {
       PlannedEffect::Retarget { number, .. } => resources.push(Resource::PullRequest {
@@ -747,25 +1044,26 @@ fn push_request(prefix: &str, push: &Push, planned: Option<&Planned>) -> Operati
   }
 }
 
-/// The push has no plan in the session: "Nothing was pushed: the last sync has no auth"
+/// The push has no plan in the session: "Nothing was pushed: the last sync has no auth"; of a commit no Push Up to Here
+/// is offered of, a plan that changed (the remote has it now, or a sync rebuilt the branch and gave it another copy)
 fn no_push_plan(push: &Push) -> ApiError {
-  match push.scope {
+  match &push.scope {
     PushScope::Unapplied => ApiError::new(
       ErrorCode::UnknownBranch,
       format!("Nothing was pushed: no unapplied branch {} is listed", push.subject.name()),
     ),
-    PushScope::Alone => ApiError::new(ErrorCode::UnknownBranch, format!("Nothing was pushed: the last sync has no {}", push.subject.words())),
-    PushScope::WithAncestors | PushScope::WithChildren | PushScope::UpTo { .. } => not_an_intent_yet(),
+    PushScope::UpTo { commit } => ApiError::new(
+      ErrorCode::PlanChanged,
+      format!(
+        "Nothing was pushed: {} is no commit of {} the remote lacks; sync, then push again",
+        git_ops::revs::short_id(commit),
+        push.subject.name()
+      ),
+    ),
+    PushScope::Alone | PushScope::WithAncestors | PushScope::WithChildren => {
+      ApiError::new(ErrorCode::UnknownBranch, format!("Nothing was pushed: the last sync has no {}", push.subject.words()))
+    }
   }
-}
-
-/// The pushes of a stack run through `push_branches` until they are intents of their own (s9-13)
-#[must_use]
-pub fn not_an_intent_yet() -> ApiError {
-  ApiError::new(
-    ErrorCode::InvalidArguments,
-    "A push of a stack runs through push_branches, not through prepare and execute yet",
-  )
 }
 
 /// Runs the push `push` in the session of `key` on the plan its caller accepted: admitted over the operations of the
@@ -779,13 +1077,9 @@ pub fn not_an_intent_yet() -> ApiError {
 /// asked for this push, and a remote that brought commits the branch lacks asks first again
 ///
 /// # Errors
-/// What refuses it before its first effect, a branch the session has no plan of, a session that closed, a push of a
-/// stack
+/// What refuses it before its first effect, a branch the session has no plan of, a session that closed
 #[instrument(skip_all, fields(subject = %push.subject.name()))]
 pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
-  if !matches!(push.scope, PushScope::Alone | PushScope::Unapplied) {
-    return Err(not_an_intent_yet());
-  }
   let sessions = registry.sessions();
   let planned = prepare_push(sessions, key, &push).await;
   let request = push_request(&key.prefix, &push, planned.as_ref());

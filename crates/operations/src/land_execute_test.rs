@@ -151,6 +151,7 @@ impl Fixture {
       parent_ref: None,
       whole_stack: false,
       unapplied: false,
+      up_to: None,
     });
     Planned {
       plan: Plan {

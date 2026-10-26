@@ -297,6 +297,7 @@ fn alpha_planned(fixture: &Fixture, intent: Intent, effects: Vec<PlannedEffect>)
         parent_ref: None,
         whole_stack: false,
         unapplied: false,
+        up_to: None,
       })
       .into_iter()
       .collect(),

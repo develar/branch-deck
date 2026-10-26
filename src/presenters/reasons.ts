@@ -157,6 +157,7 @@ const words = {
   cantPush: ({ branch }, statusText) => `${branch} can't be pushed: ${statusText(branch) === "" ? "it failed to sync" : statusText(branch)}`,
   dropsRemote: ({ branch, behind }) =>
     `The remote branch of ${branch} has ${behind === 1 ? "a commit" : `${behind} commits`} that ${branch} lacks: push it from its row, which shows ${behind === 1 ? "it" : "them"}`,
+  rewrittenSincePush: ({ branch }) => `${branch} was rewritten since its push: it pushes whole`,
   parked: ({ with: parent, note }) => formatParkedBlocker({ with: parent, note }),
   landedIn: ({ upstream }) => `Landed in ${upstream}`,
   pullRequestMerged: ({ number }) => `Pull request #${number} is merged`,

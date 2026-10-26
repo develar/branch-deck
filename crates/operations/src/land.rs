@@ -164,6 +164,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
           parent_ref: None,
           whole_stack: true,
           unapplied: false,
+          up_to: None,
         })
         .into_iter()
         .collect();
@@ -182,6 +183,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
             parent_ref: base.and_then(full),
             whole_stack: false,
             unapplied: false,
+            up_to: None,
           })
         })
         .collect();

@@ -1,7 +1,7 @@
 use crate::facts::RemoteBranch;
 use crate::push::{
-  ActionPush, HeadedStack, Kept, PushScope, PushState, StartAncestor, StartPush, Verdict, action, action_push, branch_push, drops_remote_commits, kept as kept_by, needs_push,
-  over_moved_remote, push_plan, replaces_older_versions, stack_branch_along, start_push,
+  ActionPush, HeadedStack, Kept, PushScope, PushState, StartAncestor, StartPush, UpToPush, UpToStop, Verdict, action, action_push, branch_push, drops_remote_commits,
+  kept as kept_by, needs_push, over_moved_remote, push_plan, replaces_older_versions, stack_branch_along, start_push, up_to_push,
 };
 use crate::stack_test::{Spec, repository, stacks_of};
 use domain_types::fixtures::robot_of;
@@ -451,6 +451,38 @@ fn an_action_pushes_the_ancestors_above_the_nearest_that_asks_first_then_the_bra
   // a held ancestor ends the chain: its robot lands it and what it is built on
   assert_eq!(pushed(&[("auth", PUSH), ("login", kept(Kept::Held)), ("oauth", DROPS)]), goes(vec![], Verdict::AsksFirst));
   assert_eq!(action_push(&repo, states(&[]), "gone"), None);
+}
+
+/// Push Up to Here pushes the ancestors with work whole, root first, then the branch up to the commit; what stops it, the
+/// first that applies: the branch kept out, a remote with an older version of the branch (it pushes whole), then, root
+/// first, an ancestor held (the nearest held one ends the chain), not built or asking first. A landed or up-to-date
+/// ancestor is left out
+#[test]
+fn push_up_to_here_pushes_the_ancestors_whole_and_stops_at_what_cant_go() {
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let up_to = |entries: &[(&'static str, PushState)], rewritten| up_to_push(&repo, states(entries), "oauth", rewritten);
+  let goes = |ancestors: Vec<&'static str>| UpToPush { ancestors, stop: None };
+  let stops = |name, verdict| UpToPush {
+    ancestors: Vec::new(),
+    stop: Some(UpToStop::Branch { name, verdict }),
+  };
+  assert_eq!(up_to(&[("auth", PUSH), ("login", PUSH), ("oauth", PUSH)], false), goes(vec!["auth", "login"]));
+  assert_eq!(up_to(&[("auth", kept(Kept::Landed)), ("oauth", PUSH)], false), goes(vec![]));
+  assert_eq!(up_to(&[("auth", PUSH), ("login", DROPS), ("oauth", PUSH)], false), stops("login", Verdict::AsksFirst));
+  assert_eq!(up_to(&[("auth", kept(Kept::NotBuilt)), ("oauth", PUSH)], false), stops("auth", Verdict::NotBuilt));
+  // the nearest held ancestor ends the chain, and its robot takes it as it is: nothing goes up to a commit above it
+  assert_eq!(up_to(&[("auth", PUSH), ("login", kept(Kept::Held)), ("oauth", PUSH)], false), stops("login", Verdict::Held));
+  assert_eq!(
+    up_to(&[("auth", PUSH), ("oauth", PUSH)], true),
+    UpToPush {
+      ancestors: Vec::new(),
+      stop: Some(UpToStop::Rewritten)
+    }
+  );
+  assert_eq!(up_to(&[("login", DROPS), ("oauth", kept(Kept::Parked))], true), stops("oauth", Verdict::Parked));
+  assert_eq!(up_to(&[("oauth", kept(Kept::Held))], false), stops("oauth", Verdict::Held));
+  assert_eq!(up_to_push(&repo, states(&[]), "gone", false), UpToPush::default());
 }
 
 /// Push with Children sends the branch while it has work and the branches stacked on it that have work; one that asks

@@ -878,6 +878,11 @@ export type BranchPush = {
 	button?: boolean,
 	/**  Push with Children; absent for a branch nothing but parked branches is stacked on */
 	children?: ChildrenPush | null,
+	/**
+	 *  Push Up to Here of the commits of the branch the remote lacks; absent while every one of them offers it, it sends
+	 *  the branches of Push Stack first (`stack`) and nothing stops it
+	 */
+	upTo?: PushUpTo | null,
 };
 
 /**  What the remote has of a branch */
@@ -4234,6 +4239,30 @@ export type PushScope =
 /**  The unapplied branch of that name, under its own name, so the remote keeps a copy */
 { kind: "unapplied" };
 
+/**
+ *  Push Up to Here of a branch (`domain_policy::push::up_to_push`): the branches it is built on that have work for the
+ *  remote go first, whole, root first, then the branch up to the commit, in one atomic push. A field absent is the
+ *  common answer, so most branches send none
+ */
+export type PushUpTo = {
+	/**
+	 *  The copies of the commits of the branch that offer it, oldest first: of its own commits the remote lacks, those no
+	 *  merged Safe Push landed; absent while it is every one of them (`RemoteStatusUpdate::unpushed_commits`). The last
+	 *  commit the remote lacks pushes the whole branch
+	 */
+	commits?: string[] | null,
+	/**
+	 *  The branches it is built on that it pushes first, whole, root first; absent while they are those of Push Stack
+	 *  (`BranchPush::stack`)
+	 */
+	ancestors?: string[] | null,
+	/**
+	 *  Why it can't push now: the branch stays local, a Safe Push holds it, the sync did not build it, it was rewritten
+	 *  since its push, or a branch it is built on is held, not built or asks first
+	 */
+	blocker?: Reason | null,
+};
+
 /**  A commit of the unapplied branch that the reapply put on top of HEAD */
 export type ReappliedCommit = {
 	/**  The commit of the unapplied branch (or of its restored chain) */
@@ -4322,6 +4351,11 @@ export type Reason =
  *  start pushes them away only when the user says so (`LandingAllowances::allow_force`, D12)
  */
 { code: "dropsRemote"; branch: string; behind: number } | 
+/**
+ *  The remote has an older version of `branch` (it was rebased, amended or reworded since its push): a push of a part
+ *  of it would rewind its pull request, so it pushes whole (Push Up to Here)
+ */
+{ code: "rewrittenSincePush"; branch: string } | 
 /**
  *  `branch` stays local: its own line parks it (`with` none), or it is built on the parked `with` and carries its
  *  commits; `note` the note of that line, empty without one

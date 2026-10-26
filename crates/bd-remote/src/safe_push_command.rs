@@ -1590,7 +1590,8 @@ impl Told<'_> {
           .iter()
           .fold(Refusal::new(ErrorCode::PushDismissesApprovals, message), |refusal, step| refusal.with_next_step(step, true))
       }
-      Reason::CantPush { .. } => Refusal::new(ErrorCode::PushRefused, start_refusal_text(reason, what, self.session.robots())),
+      // a push up to a commit of a rewritten branch is never a start's
+      Reason::CantPush { .. } | Reason::RewrittenSincePush { .. } => Refusal::new(ErrorCode::PushRefused, start_refusal_text(reason, what, self.session.robots())),
       Reason::Parked { .. } | Reason::StackParked { .. } => Refusal::new(ErrorCode::Parked, start_refusal_text(reason, what, self.session.robots())),
       Reason::LandingRefused { refusal } => Refusal::new(ErrorCode::MissingDeclaration, refusal.reason()),
       Reason::NoStackBranch { .. } => Refusal::new(ErrorCode::StackNotBuilt, start_refusal_text(reason, what, self.session.robots())),

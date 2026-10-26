@@ -103,6 +103,9 @@ pub struct PushedRef {
   pub whole_stack: bool,
   /// An unapplied branch, `name` the branch it was (`Intent::Push` with `PushScope::Unapplied`)
   pub unapplied: bool,
+  /// Push Up to Here: the copy of a commit of the branch it pushes instead of its tip, so the remote gets the branch up
+  /// to it (`PushScope::UpTo`); the tip of the branch is witnessed all the same, so a sync that rebuilt it changes the plan
+  pub up_to: Option<String>,
 }
 
 impl PushedRef {
@@ -404,6 +407,8 @@ fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<Stri
         format!("Nothing was pushed or started: {} has no tip; sync, then start again", pushed.full_name),
       )
     })?;
+    // a commit of the branch, which the witness of its tip keeps a commit of it
+    let tip = pushed.up_to.clone().unwrap_or(tip);
     let lease = frozen.get(&format!("refs/remotes/{}/{}", services.push.remote, pushed.full_name)).cloned().flatten();
     let source = if lease.is_some() { LeaseSource::Expected } else { LeaseSource::Absent };
     branches.push(LeasedBranch {
@@ -478,7 +483,7 @@ fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRo
       ..
     } => ErrorCode::StackConflict,
     Reason::StackNotBuilt { .. } | Reason::NoStackBranch { .. } => ErrorCode::StackNotBuilt,
-    Reason::DropsRemote { .. } | Reason::CantPush { .. } => ErrorCode::PushRefused,
+    Reason::DropsRemote { .. } | Reason::CantPush { .. } | Reason::RewrittenSincePush { .. } => ErrorCode::PushRefused,
     Reason::TargetConflict { .. } => ErrorCode::TargetConflict,
     Reason::Draft { .. } | Reason::Unprotected { .. } => ErrorCode::PatronusRefused,
     Reason::NeedsPush { .. } => ErrorCode::NeedsPush,
@@ -1044,8 +1049,9 @@ impl Run<'_> {
     // the event of the robot of the subject: a pull request or a review request has no toast of a robot to replace
     let news_key = match &self.planned.plan.intent {
       Intent::CreatePullRequest(_) | Intent::RequestReview { .. } => None,
-      // the toast of the pushes of the branch: a later push of it takes its place
-      Intent::Push(_) => Some(NewsKey::Push { branch: subject }),
+      // the toast of the pushes of the branch (of the stack branch of a whole stack, `stack:<root>`): a later push of it
+      // takes its place
+      Intent::Push(push) => Some(NewsKey::Push { branch: push.subject.key() }),
       _ => Some(NewsKey::RobotSubject { subject, mode }),
     };
     let outcome = Outcome {
