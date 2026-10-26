@@ -77,6 +77,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::PatronusRefused, 4, false),
   (ErrorCode::NoPullRequest, 4, false),
   (ErrorCode::NoReviewer, 4, false),
+  (ErrorCode::NeedsPush, 4, false),
   (ErrorCode::ReviewRefused, 4, false),
   (ErrorCode::NoLease, 2, false),
   (ErrorCode::LeaseMismatch, 2, false),
