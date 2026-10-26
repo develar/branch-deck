@@ -121,11 +121,13 @@ branch built on it carries its commits, so it is parked with it.
   nothing.
   [@test] ../../crates/domain-policy/src/parked_test.rs (`a_branch_built_on_a_parked_one_is_parked_with_it`, `a_branch_is_parked_by_the_chain_it_is_built_on_not_the_declared_one`)
 - The app and `bd` must read one rule (`domain_policy::parked`): the session's view places each branch with its
-  parked state and its section (`BranchView.structure`, `RepositoryView.rows`), and the stack branch of a whole stack
-  with the first of its members that is parked (`stackParked` of its root); `bd status`, `bd push` and
-  `bd safe-push` and the app's checks in Rust ask the same rule over their grouping.
+  parked state and its section (`BranchView.structure`), and the stack branch of a whole stack with the first of its
+  members that is parked (`stackParked` of its root); the page splits the order of the table into the rows of each
+  section by it and decides nothing; `bd status`, `bd push` and `bd safe-push` and the app's checks in Rust ask the
+  same rule over their grouping.
   [@test] ../../crates/domain-policy/src/parked_test.rs (`the_first_parked_member_keeps_a_stack_branch_local`)
-  [@test] ../../crates/repository-model/src/derive_test.rs (`a_grouping_places_every_branch_and_the_rows_of_each_section`, `a_patch_carries_only_the_structures_that_changed`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`a_grouping_places_every_branch_with_its_section`, `a_patch_carries_only_the_structures_that_changed`)
+  [@test] ../../src/model/store.test.ts (`splits the order into the rows of each section by the section of each branch's structure, the view sends no second list`)
 
 ### Rename and cleanup
 

@@ -55,7 +55,7 @@ import { isMainWindow } from "@/lib/window-label"
 import { setDemandFocused, setDemandSubscription } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
 import type { BranchStructure } from "@/model/structure"
-import { ROOT_STRUCTURE } from "@/model/structure"
+import { NO_ROWS, ROOT_STRUCTURE, rowsOf } from "@/model/structure"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore, NO_SUBJECT_PARTS, toRemoteStatus } from "@/stores/branch-sync"
@@ -383,11 +383,12 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (changes === null || changes.order != null) {
     update.branchOrder = next.order
   }
-  if (changes === null || changes.rows != null) {
-    update.rows = next.rows
-  }
   if (changes === null || Object.keys(changes.branches ?? {}).length > 0 || (changes.removedBranches?.length ?? 0) > 0) {
     update.branches = branchesOf(state.branches, next, changes)
+  }
+  // the rows of each section: the order split by the section of each branch, which comes with its structure
+  if (changes === null || changes.order != null || Object.values(changes.branches ?? {}).some(change => change.structure != null)) {
+    update.rows = rowsOf(next.order, update.branches ?? state.branches, state.rows)
   }
   if (changes === null || Object.keys(changes.stacks ?? {}).length > 0 || (changes.removedStacks?.length ?? 0) > 0) {
     update.stackBranches = stackBranchesOf(state.stackBranches, next, changes)
@@ -719,7 +720,7 @@ function resetTable(): void {
     viewVersion: null,
     baselineBranch: null,
     branchOrder: [],
-    rows: { main: [], parked: [] },
+    rows: NO_ROWS,
     branches: {},
     unassignedCommits: [],
     autosquashPlan: null,

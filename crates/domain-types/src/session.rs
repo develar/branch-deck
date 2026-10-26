@@ -2,9 +2,9 @@
 //! патчи"): a snapshot of its view (`RepositoryView`) and the patches that follow it (`ViewPatch`). The table is cut
 //! into parts that change for different reasons: of each branch its head and its commits (with a grouping), its sync
 //! state (with its status and progress), the copies of its commits (with each commit the sync reports) and its remote
-//! status, its structure (its stack and whether it is parked, with a grouping); the rows of each section of the table;
-//! the stack branches by root; the sections below the table. A patch carries a part only when it differs from the one sent last, so the page
-//! keeps the identity of every part it did not get.
+//! status, its structure (its stack, whether it is parked and the section of the table it is a row of, with a
+//! grouping); the stack branches by root; the sections below the table. A patch carries a part only when it differs
+//! from the one sent last, so the page keeps the identity of every part it did not get.
 //!
 //! The names on the wire are the ones the page reads today (`branch-sync.ts`). The statuses are data: the texts, the
 //! marks of what to expand and the badges are the page's presentation of them. A fact a service or a computation
@@ -330,11 +330,11 @@ pub struct RepositoryView {
   pub version: Version,
   pub sync: SyncState,
   pub header: TableHeader,
-  /// The names of the branches in the order of the table, as the sync grouped them (newest first)
+  /// The names of the branches in the order of the table, as the sync grouped them (newest first); the rows of each
+  /// section are this order split by the section of each branch (`BranchStructure::section`), which the view sends
+  /// once, never a second list of the same names
   pub order: Vec<String>,
   pub branches: BTreeMap<String, BranchView>,
-  /// The branches of each section of the table, as the structure of the branches places them (`BranchStructure`)
-  pub rows: RowsView,
   /// The stack branches the last sync reported, by the root of their stack
   pub stacks: BTreeMap<String, StackBranchUpdate>,
   /// What the pushes of each branch send, as the rules order them over the table and the holds of the robots
@@ -627,7 +627,7 @@ pub struct BranchStructure {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub whole_stack: Option<WholeStackView>,
-  /// The table it is a row of; absent for the main one
+  /// The table it is a row of, in the order of the table (`RepositoryView::order`); absent for the main one
   #[serde(skip_serializing_if = "BranchSection::is_main")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub section: BranchSection,
@@ -685,17 +685,6 @@ impl BranchSection {
   pub const fn is_main(&self) -> bool {
     matches!(self, Self::Main)
   }
-}
-
-/// The branches of each section of the table, in the order of the table
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct RowsView {
-  /// Every branch but the parked ones and those parked with them
-  pub main: Vec<String>,
-  /// The parked branches and those built on one
-  pub parked: Vec<String>,
 }
 
 /// What the pushes of a branch send besides the branch, root first, as `domain_policy::push::push_plan` orders them over
@@ -962,9 +951,6 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub order: Option<Vec<String>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub rows: Option<RowsView>,
   /// The branches whose parts changed. A branch the view lacks comes with its head and its commits; without its sync
   /// part it is `BranchSync::SYNCING`, without its copies none of its commits is reported, without its remote part it
   /// has no remote status, without its structure it is a root of the main table with nothing stacked on it

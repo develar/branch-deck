@@ -1,8 +1,8 @@
-import type { PushAction, RowsView, WholeStackView } from "@/lib/bindings"
+import type { PushAction, WholeStackView } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
 import { layoutStack } from "@/lib/stack-lanes"
-import type { BranchStructure } from "@/model/structure"
-import { ROOT_STRUCTURE } from "@/model/structure"
+import type { BranchStructure, TableRows } from "@/model/structure"
+import { NO_ROWS, ROOT_STRUCTURE, rowsOf } from "@/model/structure"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 
 /**
@@ -85,10 +85,11 @@ export interface TestTable {
 /**
  * `table` placed as `repository_model::derive` places a table for the view, so a page test reads the structure the page
  * gets: of each branch its children, descendants and main line by its `structure.parent`, its ancestors by
- * `stack.effectiveBase`, parked by the chain it is built on, the whole stack of each root, and the rows of each section. A fixture of the page tests
- * only: the rules are Rust's (`domain_policy::stack`, `domain_policy::parked`), and their table tests pin them
+ * `stack.effectiveBase`, parked by the chain it is built on, the whole stack of each root, and the rows of each section
+ * as the page splits the order by it (`rowsOf`). A fixture of the page tests only: the rules are Rust's
+ * (`domain_policy::stack`, `domain_policy::parked`), and their table tests pin them
  */
-export function placed(table: TestTable): { branches: Record<string, Branch>; rows: RowsView } {
+export function placed(table: TestTable): { branches: Record<string, Branch>; rows: TableRows } {
   const { branches, branchOrder, parked = {}, stackBranches = {} } = table
   const names = branchOrder.filter(name => branches[name] !== undefined)
   const parentOf = (name: string) => {
@@ -187,9 +188,6 @@ export function placed(table: TestTable): { branches: Record<string, Branch>; ro
   }
   return {
     branches: placedBranches,
-    rows: {
-      main: names.filter(name => placedBranches[name]!.structure.section === "main"),
-      parked: names.filter(name => placedBranches[name]!.structure.section === "parked"),
-    },
+    rows: rowsOf(names, placedBranches, NO_ROWS),
   }
 }

@@ -999,7 +999,7 @@ export type BranchStructure = {
 	 *  declared parent); absent for a branch alone and for a branch that heads no stack
 	 */
 	wholeStack?: WholeStackView | null,
-	/**  The table it is a row of; absent for the main one */
+	/**  The table it is a row of, in the order of the table (`RepositoryView::order`); absent for the main one */
 	section?: BranchSection,
 };
 
@@ -4267,11 +4267,13 @@ export type RepositoryView = {
 	version: Version,
 	sync: SyncState,
 	header: TableHeader,
-	/**  The names of the branches in the order of the table, as the sync grouped them (newest first) */
+	/**
+	 *  The names of the branches in the order of the table, as the sync grouped them (newest first); the rows of each
+	 *  section are this order split by the section of each branch (`BranchStructure::section`), which the view sends
+	 *  once, never a second list of the same names
+	 */
 	order: string[],
 	branches: { [key in string]: BranchView },
-	/**  The branches of each section of the table, as the structure of the branches places them (`BranchStructure`) */
-	rows: RowsView,
 	/**  The stack branches the last sync reported, by the root of their stack */
 	stacks: { [key in string]: StackBranchUpdate },
 	/**
@@ -4847,14 +4849,6 @@ export type RobotsView = {
 	needsReview: { [key in string]: boolean },
 	/**  By id, the failed robots of the table whose problems Patronus didn't give, with why */
 	problemsFailed: { [key in string]: string },
-};
-
-/**  The branches of each section of the table, in the order of the table */
-export type RowsView = {
-	/**  Every branch but the parked ones and those parked with them */
-	main: string[],
-	/**  The parked branches and those built on one */
-	parked: string[],
 };
 
 /**  An action of a row of Settings → Tools */
@@ -5625,7 +5619,6 @@ export type TableChanges = {
 	sync?: SyncState | null,
 	header?: TableHeader | null,
 	order?: string[] | null,
-	rows?: RowsView | null,
 	/**
 	 *  The branches whose parts changed. A branch the view lacks comes with its head and its commits; without its sync
 	 *  part it is `BranchSync::SYNCING`, without its copies none of its commits is reported, without its remote part it

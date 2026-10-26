@@ -78,7 +78,6 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     sync,
     header,
     order,
-    rows,
     branches,
     removed_branches,
     stacks,
@@ -113,7 +112,6 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
   set_if_some(&mut view.sync, sync);
   set_if_some(&mut view.header, header);
   set_if_some(&mut view.order, order);
-  set_if_some(&mut view.rows, rows);
   for name in &removed_branches {
     view.branches.remove(name);
   }

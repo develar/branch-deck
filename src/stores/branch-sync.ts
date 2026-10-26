@@ -19,7 +19,6 @@ import type {
   PushAction,
   Reason,
   RemoteStatusUpdate,
-  RowsView,
   StackBranchAlong,
   StackBranchConflict,
   StackBranchState,
@@ -39,8 +38,8 @@ import type { SyncDeferral } from "@/lib/sync-deferred"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { nextRunNumber, requestSessionSync } from "@/model/store"
-import type { BranchStructure } from "@/model/structure"
-import { ROOT_STRUCTURE } from "@/model/structure"
+import type { BranchStructure, TableRows } from "@/model/structure"
+import { NO_ROWS, ROOT_STRUCTURE } from "@/model/structure"
 import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
 
 /** Commit augmented with its sync outcome. */
@@ -197,8 +196,11 @@ export interface BranchSyncState {
   baselineBranch: string | null
   /** Branch names in backend order */
   branchOrder: string[]
-  /** The branches of the main table and of the Parked card, in branch order, as Rust placed them (`RepositoryView.rows`) */
-  rows: RowsView
+  /**
+   * The branches of the main table and of the Parked card, in branch order: the order split by the section Rust placed
+   * each branch in (`rowsOf`, `BranchStructure.section`)
+   */
+  rows: TableRows
   branches: Record<string, Branch>
   /**
    * Branches with a push in flight, and the stack branch of the whole stack of a root under its key `stack:<root>`
@@ -292,7 +294,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   inputsCheckedAt: null,
   baselineBranch: null,
   branchOrder: [],
-  rows: { main: [], parked: [] },
+  rows: NO_ROWS,
   branches: {},
   pushingBranches: {},
   stackPushes: {},
@@ -392,7 +394,7 @@ function parentIn(branches: Record<string, Branch>, name: string): string | null
  * (a commit synced, a remote status) changes the `branches` record but not this.
  */
 interface TableLayout {
-  readonly rows: RowsView
+  readonly rows: TableRows
   readonly branches: Record<string, Branch>
   readonly key: string
 }

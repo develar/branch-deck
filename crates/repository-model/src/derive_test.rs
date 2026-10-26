@@ -16,7 +16,7 @@ use domain_types::patronus::{
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ReviewCandidate};
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RowsView, StackBranchAlong,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, ChildrenPush, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, StackBranchAlong,
   SubjectReadiness, WholeStackView,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
@@ -78,9 +78,10 @@ fn tree() -> Vec<GroupedBranchInfo> {
 }
 
 /// The view decides where each branch is: its parent, children, ancestors, descendants and main line, whether it is
-/// parked and its section, and the rows of each section, so the page lays them out without a rule of its own
+/// parked and its section, so the page splits the order into the rows of each section and lays them out without a rule
+/// of its own; the patch sends the order once, never a second list of the same names
 #[test]
-fn a_grouping_places_every_branch_and_the_rows_of_each_section() {
+fn a_grouping_places_every_branch_with_its_section() {
   let mut table = TableState::new();
   table.begin_sync();
   table.apply(grouping(tree(), &[("login", "waits for IJPL-1")], &[]));
@@ -112,20 +113,24 @@ fn a_grouping_places_every_branch_and_the_rows_of_each_section() {
       BranchSection::Parked
     )
   );
-  let rows = RowsView {
-    main: names(&["docs", "session", "auth"]),
-    parked: names(&["oauth", "login"]),
-  };
+  let section = |name: &str| structure(name).section;
+  let (parked, main): (Vec<&str>, Vec<&str>) = table.order().iter().map(String::as_str).partition(|name| section(name) == BranchSection::Parked);
+  assert_eq!((main, parked), (vec!["docs", "session", "auth"], vec!["oauth", "login"]));
   let mut view = View::new(1, "user");
   let patch = view.diff(&table, &FactStore::new()).unwrap();
-  assert_eq!(patch.changes.rows.as_ref(), Some(&rows));
+  assert_eq!(patch.changes.order.as_deref(), Some(table.order()));
   assert_eq!(patch.changes.branches["auth"].structure, Some(structure("auth")));
+  assert_eq!(
+    patch.changes.branches["oauth"].structure.as_ref().map(|structure| structure.section),
+    Some(BranchSection::Parked)
+  );
   // `bd` reads the same rule over the same input
   assert_eq!(parked_state(&repository(&table), "oauth"), structure("oauth").parked);
 }
 
 /// A grouping that changes nothing of the structure sends none; one that parks a branch sends the structures that
-/// changed and the rows; the stack branch of a root reports its parked member into the root's structure
+/// changed, the section of the parked one with it; the stack branch of a root reports its parked member into the root's
+/// structure
 #[test]
 fn a_patch_carries_only_the_structures_that_changed() {
   let mut table = TableState::new();
@@ -134,7 +139,8 @@ fn a_patch_carries_only_the_structures_that_changed() {
   let mut view = View::new(1, "user");
   let _ = view.diff(&table, &FactStore::new());
   table.apply(grouping(tree(), &[], &["auth"]));
-  assert_eq!(view.diff(&table, &FactStore::new()).map(|patch| patch.changes.rows), None);
+  let again = view.diff(&table, &FactStore::new());
+  assert!(again.is_none_or(|patch| patch.changes.branches.values().all(|change| change.structure.is_none())));
 
   table.apply(grouping(tree(), &[("session", "")], &["auth"]));
   let patch = view.diff(&table, &FactStore::new()).unwrap();
@@ -146,7 +152,10 @@ fn a_patch_carries_only_the_structures_that_changed() {
     .map(|(name, _)| name)
     .collect();
   assert_eq!(changed, ["session"]);
-  assert_eq!(patch.changes.rows.map(|rows| rows.parked), Some(names(&["session"])));
+  assert_eq!(
+    patch.changes.branches["session"].structure.as_ref().map(|structure| structure.section),
+    Some(BranchSection::Parked)
+  );
 
   table.apply(stack_branch("auth", &["auth", "login", "session", "oauth"]));
   let patch = view.diff(&table, &FactStore::new()).unwrap();

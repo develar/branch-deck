@@ -60,7 +60,7 @@ use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailabili
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
-  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RobotsView, RowsView,
+  BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RobotsView,
   SubjectReadiness, WholeStackView, stack_readiness_key,
 };
 use domain_types::stack::{BranchStack, StackBranchUpdate};
@@ -76,28 +76,18 @@ fn parts_repository(parts: &TableParts) -> Repository<'_> {
   Repository::of_view(&parts.order, &parts.branches, &parts.header.parked)
 }
 
-/// The structure of every branch of `parts` and the rows of each section, written into them
+/// The structure of every branch of `parts`, its section included, written into it: the rows of each section are the
+/// order split by it, which the view does not send twice
 pub(crate) fn place(parts: &mut TableParts) {
-  let (structures, rows) = {
+  let structures: BTreeMap<String, BranchStructure> = {
     let repo = parts_repository(parts);
-    let structures: BTreeMap<String, BranchStructure> = repo.order().map(|name| (name.to_string(), structure_of(&repo, &parts.stacks, name))).collect();
-    let (parked, main): (Vec<&String>, Vec<&String>) = parts
-      .order
-      .iter()
-      .filter(|name| structures.contains_key(*name))
-      .partition(|name| structures[*name].section == BranchSection::Parked);
-    let rows = RowsView {
-      main: main.into_iter().cloned().collect(),
-      parked: parked.into_iter().cloned().collect(),
-    };
-    (structures, rows)
+    repo.order().map(|name| (name.to_string(), structure_of(&repo, &parts.stacks, name))).collect()
   };
   for (name, structure) in structures {
     if let Some(branch) = parts.branches.get_mut(&name) {
       branch.structure = structure;
     }
   }
-  parts.rows = rows;
 }
 
 /// The parked member of the stack branch of `root` and its whole stack written into the structure of `root`, once its

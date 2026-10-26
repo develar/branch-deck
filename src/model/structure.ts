@@ -48,3 +48,40 @@ export const ROOT_STRUCTURE: BranchStructure = {
   wholeStack: null,
   section: "main",
 }
+
+/** The branches of each section of the table, in branch order */
+export interface TableRows {
+  /** Every branch but the parked ones and those parked with them */
+  readonly main: readonly string[]
+  /** The parked branches and those built on one */
+  readonly parked: readonly string[]
+}
+
+/** The rows of a table without branches */
+export const NO_ROWS: TableRows = { main: noBranches, parked: noBranches }
+
+function sameNames(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((name, index) => name === b[index])
+}
+
+/**
+ * `order` split by the section Rust placed each branch in (`BranchStructure.section`): the view sends the order once
+ * and the section with the structure, never a second list of the same names. `main` is `order` itself while nothing is
+ * parked, and `last` stays while neither section changed
+ */
+export function rowsOf(order: readonly string[], branches: Readonly<Record<string, { readonly structure: BranchStructure }>>, last: TableRows): TableRows {
+  const main: string[] = []
+  const parked: string[] = []
+  for (const name of order) {
+    const section = branches[name]?.structure.section
+    if (section === "parked") {
+      parked.push(name)
+    } else if (section === "main") {
+      main.push(name)
+    }
+  }
+  if (sameNames(last.main, main) && sameNames(last.parked, parked)) {
+    return last
+  }
+  return { main: parked.length === 0 && main.length === order.length ? order : main, parked }
+}

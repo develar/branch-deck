@@ -48,9 +48,12 @@ flowchart LR
   `runtime.rs`) folds the events of its sync into `TableState` (`table.rs`) and sends its subscribers a `ViewPatch`
   of what changed (`state.rs`): at most one every 16 ms, at once on the start of a run, on its step from building to
   detection and on its end. A patch names the parts of a branch that changed (`head`, `commits`, `sync`, `copies`,
-  `remote`, `structure`: its stack and whether it is parked, placed once per grouping by `repository_model::derive`,
-  the fields it lacks left out) and the rows of each section (`rows`), so the first sync of `branch_table_large` sends fewer bytes in its patches than its events had, and a
-  sync that changes nothing sends the state of its run only (`patch_bytes_test.rs` measures them). Late events of a
+  `remote`, `structure`: its stack, whether it is parked and its section, placed once per grouping by
+  `repository_model::derive`, the fields it lacks left out); the page splits the order into the rows of each section by
+  it (`rowsOf`, `src/model/structure.ts`), never a second list of the same names on the wire. So the first sync of
+  `branch_table_large` sends fewer bytes in its patches than its events had, and a sync that changes nothing sends the
+  state of its run only (`the_patches_of_a_large_table_cost_less_than_its_events` in `state_test.rs` checks both,
+  `patch_bytes_test.rs` measures them through the channel). Late events of a
   run that ended are dropped by its run id; a session opened again starts another epoch.
 - **Applying in the page.** `src/model/store.ts` subscribes the main window to the session of the selected repository
   (`subscribe_view`, by path, the prefix Rust's) and applies each patch whose base is the version it holds

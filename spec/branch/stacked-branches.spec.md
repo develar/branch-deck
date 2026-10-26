@@ -503,7 +503,7 @@ menu stacks, unstacks and renames branches.
   the child with the longest chain, the last of children with equal ones. The page lays the rows, their depth and
   their lanes out of it and decides none of it; a patch carries the structure of a branch only when it changed.
   [@test] ../../crates/domain-policy/src/stack_test.rs (`children_and_descendants_follow_the_declared_parents_in_the_order_of_the_table`, `a_declared_parent_the_table_lacks_makes_a_root`, `the_ancestors_are_the_chain_of_the_effective_bases_in_the_table`, `the_main_line_takes_the_longest_chain_at_each_fork_and_the_last_of_equal_ones`, `a_cycle_of_declared_parents_ends_the_descendants_and_the_main_line`)
-  [@test] ../../crates/repository-model/src/derive_test.rs (`a_grouping_places_every_branch_and_the_rows_of_each_section`, `a_patch_carries_only_the_structures_that_changed`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`a_grouping_places_every_branch_with_its_section`, `a_patch_carries_only_the_structures_that_changed`)
   [@test] ../../src/stores/branch-table-rows.test.ts (`lists the children and the descendants of a branch`)
 - Each row must carry its place in the stack graph (`lanes`, `src/lib/stack-lanes.ts`): its lane, the lane a side
   child forks from, the line up into its node and down from it, and the lanes passing it. A straight chain stays on

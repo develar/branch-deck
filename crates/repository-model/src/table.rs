@@ -26,8 +26,8 @@ use crate::facts::{Seq, Sequence};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{
-  ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchStructure, BranchSync, BranchView, CommitSync, LandedSection, RowsView, SyncState, SyncStep,
-  TableHeader, TableSections,
+  ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchStructure, BranchSync, BranchView, CommitSync, LandedSection, SyncState, SyncStep, TableHeader,
+  TableSections,
 };
 use domain_types::stack::StackBranchUpdate;
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
@@ -40,8 +40,6 @@ pub(crate) struct TableParts {
   pub(crate) header: TableHeader,
   pub(crate) order: Vec<String>,
   pub(crate) branches: BTreeMap<String, BranchView>,
-  /// The branches of each section, as `derive::place` placed them with the structure of each branch
-  pub(crate) rows: RowsView,
   pub(crate) stacks: BTreeMap<String, StackBranchUpdate>,
   pub(crate) sections: TableSections,
   /// Not a part of the view, which keys the stack branches by root: the roots in the order the grouping announced

@@ -25,7 +25,7 @@
 //!   stack branches, the parked branches, the remote facts of the sync (`RemoteFacts`, `remote_facts`), the input of
 //!   the rules over them (`repository`)
 //! - `derive`: what the view derives of the table by the rules of `domain-policy`: the input of the rules
-//!   (`repository`), the structure of each branch and the rows of each section (`place`)
+//!   (`repository`), the structure of each branch with its section (`place`)
 //! - `landing`: the landing gate a start and its popover check through (`LandingGate`), which the hosts answer with the
 //!   trial check
 //! - `patch`: the patches of a view by part, and the contract of applying one (`apply_patch`): only to the view at its

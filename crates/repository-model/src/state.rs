@@ -96,7 +96,6 @@ impl View {
       sync: changed(&last.sync, &state.sync),
       header: changed(&last.header, &parts.header),
       order: changed(&last.order, &parts.order),
-      rows: changed(&last.rows, &parts.rows),
       branches,
       removed_branches,
       stacks,

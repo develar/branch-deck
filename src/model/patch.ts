@@ -66,7 +66,6 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     sync: changes.sync ?? view.sync,
     header: changes.header ?? view.header,
     order: changes.order ?? view.order,
-    rows: changes.rows ?? view.rows,
     branches,
     stacks,
     pushes,

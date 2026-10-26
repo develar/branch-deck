@@ -590,6 +590,22 @@ describe("the table of the view", () => {
     expect(getStackBranch("a")).toBeUndefined()
   })
 
+  it("splits the order into the rows of each section by the section of each branch's structure, the view sends no second list", async () => {
+    await open()
+    await send(grouping("a", "b", "c"))
+    const { rows, branchOrder } = branchSyncStore.getState()
+    // nothing parked: the main rows are the order itself
+    expect(rows).toEqual({ main: ["a", "b", "c"], parked: [] })
+    expect(rows.main).toBe(branchOrder)
+    // a patch of no structure keeps the rows, the same object
+    await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
+    expect(branchSyncStore.getState().rows).toBe(rows)
+    await send({ branches: { b: { structure: { parked: { note: "", with: null }, section: "parked" } } } })
+    expect(branchSyncStore.getState().rows).toEqual({ main: ["a", "c"], parked: ["b"] })
+    await send({ branches: { b: { structure: {} } } })
+    expect(branchSyncStore.getState().rows).toEqual({ main: ["a", "b", "c"], parked: [] })
+  })
+
   it("counts a change of what the table of the backend is made of, not of the state of a run, of a build or of a copy", async () => {
     await open()
     await send({ ...grouping("a"), branches: { a: { ...grouping("a").branches!.a!, copies: [{ hash: "a1-new", status: "Created" }] } } })
