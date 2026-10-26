@@ -71,7 +71,7 @@ async function statisticsLists(repo: TestRepositoryBuilder): Promise<Record<stri
 
 async function expectStatisticsShown(page: Page): Promise<void> {
   await expect(landingView(page)).toBeVisible()
-  await expect(page.getByTestId("main-view-landing")).toHaveAttribute("aria-selected", "true")
+  await expect(page.getByTestId("main-view-landing")).toHaveAttribute("aria-pressed", "true")
   await expect(landingView(page).getByTestId("landing-merged")).toContainText("2")
 }
 
@@ -169,7 +169,7 @@ test.describe("Landing view", () => {
     await emitTauriEvent(page, "show_branches")
     await expect(row).toBeFocused()
     await expect(row).toHaveAttribute("data-state", expanded ?? "")
-    await expect(page.getByTestId("main-view-branches")).toHaveAttribute("aria-selected", "true")
+    await expect(page.getByTestId("main-view-branches")).toHaveAttribute("aria-pressed", "true")
 
     // Show Statistics of the landing overview
     const popover = await openLandingOverview(page)
@@ -177,10 +177,13 @@ test.describe("Landing view", () => {
     await expect(popover).toBeHidden()
     await expectStatisticsShown(page)
 
-    // the switcher by its arrow keys
+    // the switcher by its keys: an arrow moves the focus, Enter shows the focused view
     await page.getByTestId("main-view-landing").focus()
     await page.keyboard.press("ArrowLeft")
     await expect(page.getByTestId("main-view-branches")).toBeFocused()
+    await expect(row).toBeHidden()
+    await page.keyboard.press("Enter")
+    await expect(page.getByTestId("main-view-branches")).toHaveAttribute("aria-pressed", "true")
     await expect(row).toBeVisible()
   })
 

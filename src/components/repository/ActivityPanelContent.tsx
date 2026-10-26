@@ -5,11 +5,14 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ActivityLog } from "@/components/repository/ActivityLog"
 import type { ActivityLogActions } from "@/components/repository/ActivityLog"
-import { ChoiceChip } from "@/components/shared/ChoiceChip"
+import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
 import { SearchField } from "@/components/shared/SearchField"
 import { ACTIVITY_FILTER_LABELS, ACTIVITY_FILTERS, countActivityFilters, filterActivity } from "@/lib/activity-window"
 import type { ActivityFilter } from "@/lib/activity-window"
 import type { ActivityEntry } from "@/stores/activity"
+
+/** The value of the All chip: every kind */
+const ALL = "all"
 
 export interface ActivityPanelContentProps {
   /** The log of the repository, newest first */
@@ -80,19 +83,17 @@ export function ActivityPanelContent({ entries, initialFilter, openedAt, actions
           slashFocus={slashFocus}
           className={layout === "window" ? "w-60" : "w-full"}
         />
-        <div role="group" aria-label="Kind" className="flex flex-wrap items-center gap-1">
-          <ChoiceChip chosen={filter === null} data-chip="all" onClick={() => setFilter(null)}>
+        {/* the chosen one again goes back to All */}
+        <FilterChips label="Kind" value={filter ?? ALL} fallback={ALL} onValueChange={chip => setFilter(chip === ALL ? null : (chip as ActivityFilter))}>
+          <FilterChip value={ALL} count={counts.all} data-chip="all">
             All
-            <span className="tabular-nums opacity-70">{counts.all}</span>
-          </ChoiceChip>
+          </FilterChip>
           {ACTIVITY_FILTERS.filter(chip => counts[chip] > 0 || filter === chip).map(chip => (
-            // the chosen one again goes back to All
-            <ChoiceChip key={chip} chosen={filter === chip} data-chip={chip} onClick={() => setFilter(filter === chip ? null : chip)}>
+            <FilterChip key={chip} value={chip} count={counts[chip]} data-chip={chip}>
               {ACTIVITY_FILTER_LABELS[chip]}
-              <span className="tabular-nums opacity-70">{counts[chip]}</span>
-            </ChoiceChip>
+            </FilterChip>
           ))}
-        </div>
+        </FilterChips>
       </div>
       {layout === "window" ? (
         <Card ref={list} tabIndex={-1} className={cn(listClassName, "gap-0 py-0")} data-testid="activity-list">

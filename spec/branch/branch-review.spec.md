@@ -10,6 +10,7 @@ targets:
   - ../../src/stores/branch-preview.ts
   - ../../src/components/review/BranchReviewStackBar.tsx
   - ../../src/components/ui/toggle-group.tsx
+  - ../../src/components/shared/FilterChips.tsx
   - ../../src/components/shared/ActionButton.tsx
   - ../../src/components/shared/WindowPage.tsx
   - ../../src/lib/branch-review.ts
@@ -371,8 +372,8 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   48rem only the icon, the label in the hover. A disabled action is dimmed (`opacity-50`) and stays focusable for its
   tooltip.
 - A segment is an outline `xs` button, the selected ones `border-primary/50 bg-primary/10 text-primary`. A chip is a
-  `ChoiceChip` (`xs`), as the state chips of the branch filter: the chosen one soft primary (`aria-pressed`), the
-  others `secondary`, the count after the name in tabular numbers at 70% opacity. Above the chips, from 8 files on,
+  `FilterChip` of `FilterChips`, as the state chips of the branch filter: the stock `ToggleGroup`, the chosen one in
+  its pressed state (`aria-pressed`), the count after the name in tabular numbers at 70% opacity. Above the chips, from 8 files on,
   is the search of the files ([Commit Review](../commit/commit-review.spec.md#the-search-of-the-files)); it keeps the
   files of the chosen chip whose path has its words. "From Root" and "Whole Stack" are a `ToggleGroup` (`outline`, `sm`, `spacing={0}`), the shown scope
   pressed (`aria-pressed`). A Whole Stack that can't open is announced as unavailable (`aria-disabled`), dimmed

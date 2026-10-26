@@ -2,7 +2,7 @@ import { cn } from "cn"
 import { AlignLeftIcon, ChevronDownIcon, Columns2Icon, PilcrowIcon, StrikethroughIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { FieldGroup } from "@/components/layout/FieldGroup"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import type { WhitespacePolicy } from "@/lib/diff/file-diff-model"
 import { setDiffViewMode, setDiffWhitespacePolicy, useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
@@ -32,25 +32,33 @@ export function DiffViewToggle() {
   )
 }
 
-/** Split · Unified · Inline, the pressed one the layout of every diff view; also in Settings → Diffs & Merge */
+/**
+ * Split · Unified · Inline, one option set (the stock `ToggleGroup`), the pressed one the layout of every diff view; also
+ * in Settings → Diffs & Merge. A press of the pressed one keeps it
+ */
 export function DiffLayoutButtons() {
   const current = useDiffViewMode()
   return (
-    <FieldGroup>
+    <ToggleGroup
+      aria-label="Diff layout"
+      variant="outline"
+      size="sm"
+      spacing={0}
+      value={[current]}
+      onValueChange={next => {
+        const chosen = next.find(it => it !== current)
+        if (chosen !== undefined) {
+          setDiffViewMode(chosen as DiffViewMode)
+        }
+      }}
+    >
       {modes.map(({ mode, label, icon: Icon }) => (
-        <Button
-          key={mode}
-          size="xs"
-          variant="outline"
-          aria-pressed={current === mode}
-          className={cn(current === mode && "border-primary/50 text-primary hover:text-primary")}
-          onClick={() => setDiffViewMode(mode)}
-        >
+        <ToggleGroupItem key={mode} value={mode}>
           <Icon data-icon="inline-start" />
           {label}
-        </Button>
+        </ToggleGroupItem>
       ))}
-    </FieldGroup>
+    </ToggleGroup>
   )
 }
 

@@ -6,6 +6,7 @@ targets:
   - ../../src/stores/activity.ts
   - ../../src/components/repository/ActivityButton.tsx
   - ../../src/components/repository/ActivityLog.tsx
+  - ../../src/components/shared/FilterChips.tsx
   - ../../src/pages/ActivityPage.tsx
   - ../../src/components/repository/ActivityPanel.tsx
   - ../../src/components/repository/ActivityPanelContent.tsx
@@ -241,8 +242,8 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   at most half the area. Its 40px header has "Activity", Open in Window (`AppWindowIcon`, `xs`) and Close; under it the
   search (`w-full`, without `/`, which stays the branch table's) and the chips, then the log, which scrolls.
 - The window opens at 560 × 720, at least 440 × 400 (wider above a zoom of 110%: `sub_window_min_size`); "Activity" in
-  its title bar. On the canvas the search (`SearchField`, `w-60`, `/` focuses it) and the chips (`ChoiceChip`, as the
-  filter bar of the branch table), below them the log in one `Card` island, the entries newest first grouped by day
+  its title bar. On the canvas the search (`SearchField`, `w-60`, `/` focuses it) and the chips (`FilterChips`, the
+  stock `ToggleGroup`, as the filter bar of the branch table), below them the log in one `Card` island, the entries newest first grouped by day
   ("Today", "Yesterday", the date) with the day headings sticky on `bg-card`, then on the canvas the footer with Clear
   Log and "Esc Close".
   [@test] ../../src/stores/activity.test.ts (`groups by local day: today, yesterday, then the date`)

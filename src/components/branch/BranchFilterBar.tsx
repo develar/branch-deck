@@ -1,9 +1,10 @@
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { ChoiceChip } from "@/components/shared/ChoiceChip"
+import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
 import { SearchField } from "@/components/shared/SearchField"
 import { useChipCounts, useHasFilterBar } from "@/hooks/useBranchFilter"
+import type { BranchFilterChip } from "@/lib/branch-filter"
 import { CHIP_LABELS, CHIPS, formatNoMatch } from "@/lib/branch-filter"
 import { clearBranchFilter, setFilterText, toggleFilterChip, useBranchFilter } from "@/stores/branch-filter"
 
@@ -32,13 +33,12 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
   return (
     <div data-testid="branch-filter" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2">
       <SearchField value={filter.text} onValueChange={setFilterText} label="Filter branches" onLeave={onLeave} onArrowDown={onFocusRows} className="w-60" />
-      <div role="group" aria-label="Branch state" className="flex items-center gap-1">
+      <FilterChips label="Branch state" value={filter.chip} fallback="all" onValueChange={chip => toggleFilterChip(chip as BranchFilterChip)}>
         {CHIPS.filter(chip => chip === "all" || counts[chip] > 0 || filter.chip === chip).map(chip => {
           const choice = (
-            <ChoiceChip key={chip} chosen={filter.chip === chip} data-chip={chip} onClick={() => toggleFilterChip(chip)}>
+            <FilterChip key={chip} value={chip} count={counts[chip]} data-chip={chip}>
               {CHIP_LABELS[chip]}
-              <span className="tabular-nums opacity-70">{counts[chip]}</span>
-            </ChoiceChip>
+            </FilterChip>
           )
           // F2 steps through these rows from anywhere in the window: the chip is where the key is told
           return chip === "yourMove" && counts.yourMove > 0 ? (
@@ -54,7 +54,7 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
             choice
           )
         })}
-      </div>
+      </FilterChips>
     </div>
   )
 }

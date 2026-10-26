@@ -192,6 +192,12 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   Split/Unified/Inline toggle is in the header of the block whose diffs it switches: the title bar of a window that
   is its diffs (the branch and the commit review), the end of the tabs of the pull request review, where it shows
   only with the changes and leaves the row to the decisions.
+- **An option set is the stock `ToggleGroup`** (`src/components/ui/toggle-group.tsx`), as the shadcn rule for 2 to 7
+  choices asks: the views of the main window, the layouts of a diff (Split · Unified · Inline) and the scopes of the
+  stack bar of a review (`outline`, `sm`, `spacing={0}`), the chips of a filter of a list (`FilterChips`: the state chips of the branch table, the kinds of
+  Activity, the owners of the files of a review; `spacing={1}`, wrapping). The chosen one has the stock pressed state,
+  no colour of its own: a local soft primary (blue on a blue tint) read at about 4:1. `ChoiceChip` stays for a chip that
+  puts a name into an input (Move to…, the AI suggestions).
 - **Window buttons** are the platform's, never a generic set: Windows' caption buttons (46×40, Segoe Fluent), GNOME's
   and KDE's as IntelliJ draws them (a 47×40 cell, its icons; the `window-button-*` tokens of `src/index.css` are their
   colours, the one exception to the semantic palette), in the order and on the sides of the desktop's layout; they dim
@@ -413,8 +419,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   320 px); without the room, what would open it opens its window instead, never a squeezed table.
 
 - **The views of the main window** ([Main Views](../../spec/repository/main-views.spec.md)): the switcher after the
-  repository in the toolbar, two `xs` ghost buttons, the shown one soft primary (a tint, no surface on the canvas);
-  each view its own scroller of islands under the toolbar, both kept mounted.
+  repository in the toolbar, the stock `ToggleGroup`, the shown view pressed; each view its own scroller of islands
+  under the toolbar, both kept mounted.
 - **Charts** (Landing, [Main Views](../../spec/repository/main-views.spec.md#user-experience)): shadcn Charts on
   Recharts (`src/components/ui/chart.tsx`, lazy), the series in the chart palette `--chart-1…4` (dataviz reference
   slots and a neutral for an end without an outcome, validated for colour-blind separation on both cards; never the

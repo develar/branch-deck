@@ -9,7 +9,7 @@ import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { Callout } from "@/components/shared/Callout"
-import { ChoiceChip } from "@/components/shared/ChoiceChip"
+import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
@@ -192,22 +192,33 @@ export function BranchReviewActions<T extends BranchReviewAction>({ actions, bra
 }
 
 function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly ReviewFilterChip[]; filter: ReviewFilter; onFilterChange: (filter: ReviewFilter) => void }) {
+  // a chip by its label, the one shown by the filter of the review
+  const chosen = chips.find(chip => sameFilter(chip.filter, filter))?.label ?? ""
   return (
-    <div className="flex flex-wrap items-center gap-1.5" data-testid="branch-review-owners" role="group" aria-label="Files of">
+    <FilterChips
+      label="Files of"
+      value={chosen}
+      onValueChange={label => {
+        const chip = chips.find(it => it.label === label)
+        if (chip !== undefined) {
+          onFilterChange(chip.filter)
+        }
+      }}
+      data-testid="branch-review-owners"
+    >
       {chips.map(chip => (
-        <FilterChip key={chip.label} chip={chip} pressed={sameFilter(chip.filter, filter)} onPress={() => onFilterChange(chip.filter)} />
+        <OwnerChip key={chip.label} chip={chip} />
       ))}
-    </div>
+    </FilterChips>
   )
 }
 
-function FilterChip({ chip, pressed, onPress }: { chip: ReviewFilterChip; pressed: boolean; onPress: () => void }) {
+function OwnerChip({ chip }: { chip: ReviewFilterChip }) {
   const button = (
-    <ChoiceChip chosen={pressed} disabled={chip.count === null} data-testid="branch-review-owner" data-owner={chip.label} onClick={onPress}>
+    <FilterChip value={chip.label} count={chip.count} disabled={chip.count === null} data-testid="branch-review-owner" data-owner={chip.label}>
       {chip.needsApproval && <ShieldAlertIcon data-icon="inline-start" className="text-warning" />}
       {chip.label}
-      {chip.count !== null && <span className="tabular-nums opacity-70">{chip.count}</span>}
-    </ChoiceChip>
+    </FilterChip>
   )
   if (!chip.needsApproval) {
     return button

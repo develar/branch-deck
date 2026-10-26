@@ -4,6 +4,8 @@ description: Requirements for the filter bar of the branch table, the search ove
 style: plain-1
 targets:
   - ../../src/components/branch/BranchFilterBar.tsx
+  - ../../src/components/shared/FilterChips.tsx
+  - ../../src/components/ui/toggle-group.tsx
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchContextMenuRow.tsx
@@ -146,8 +148,8 @@ that stops matching while the user looks at it (its move made, its robot done) s
 - The search is the `SearchField` of every list with a search (the files of a review too): an `InputGroup` `h-7`,
   here `w-60`, with the `SearchIcon`, the placeholder "Filter branches" (also its accessible name), the `Kbd` `/` at
   its end while empty and an `icon-xs` X button ("Clear the filter text") once typed.
-- The chips are `ChoiceChip`s (`xs`) in a group named "Branch state": the chosen one soft primary (`aria-pressed`), the
-  others `secondary`; the label in Title Case as a tab (All, Your Move, Landing, Waiting, In Master), the count after it in tabular
+- The chips are `FilterChips` in a group named "Branch state": the stock `ToggleGroup` (`outline`, `sm`, `spacing={1}`,
+  wrapping), the chosen one in its pressed state (`aria-pressed`), no colour of its own; the label in Title Case as a tab (All, Your Move, Landing, Waiting, In Master), the count after it in tabular
   figures at 70% opacity. E2E finds them by `data-chip`.
 - A dimmed row is `opacity-55`, its node and lines too, and full opacity on hover or focus (`data-dimmed`).
 - The empty line is `text-sm text-muted-foreground` in a `px-6 py-4` cell; Clear Filter is a `link` `xs` button.

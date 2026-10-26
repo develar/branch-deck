@@ -6,6 +6,7 @@ targets:
   - ../../src/stores/main-view.ts
   - ../../src/pages/IndexPage.tsx
   - ../../src/components/repository/MainViewSwitcher.tsx
+  - ../../src/components/ui/toggle-group.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/repository/LandingPopover.tsx
   - ../../src/components/landing/LandingView.tsx
@@ -61,9 +62,10 @@ nothing from the work: the view changes only when the user changes it, and the b
 
 ### Switching
 
-- The switcher after the repository in the title bar (Branches · Landing, a tab list) shows the view; a click, ⌘1 and
-  ⌘2 of the native View menu, ☰ View → Branches / Landing with Ctrl+1 and Ctrl+2 of a custom title bar, and the
-  palette's Views switch it; the arrow keys move between the tabs. "Show Statistics" of the landing overview closes
+- The switcher after the repository in the title bar (Branches · Landing, one option set: the stock `ToggleGroup`)
+  shows the view, the shown one pressed; a click, ⌘1 and ⌘2 of the native View menu, ☰ View → Branches / Landing with
+  Ctrl+1 and Ctrl+2 of a custom title bar, and the palette's Views switch it; the arrow keys move the focus between the
+  views, and Enter or Space shows the focused one. "Show Statistics" of the landing overview closes
   it and shows Landing.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from the native View menu and Show Statistics, and give the branches back as they were`)
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from Ctrl+2 and from View → Landing of ☰, and come back by Ctrl+1`)
@@ -120,8 +122,9 @@ nothing from the work: the view changes only when the user changes it, and the b
 
 ## User Experience
 
-- The switcher is two `xs` ghost buttons on the canvas, the shown view soft primary (no surface on the canvas); the
-  names give way to the icons below `@4xl`.
+- The switcher is the stock `ToggleGroup` (`outline`, `sm`, `spacing={0}`) on the canvas, the shown view in its
+  pressed state, no colour of its own; the names give way to the icons below `@4xl`, the name then the accessible name
+  and the tooltip with ⌘1 and ⌘2.
 - The charts are shadcn Charts (Recharts, `src/components/ui/chart.tsx`), in a chunk of their own that loads the first
   time Landing shows. Their series take the chart palette `--chart-1…4` of `src/index.css` (blue, orange, a neutral,
   yellow: slots 1, 2 and 4 of the dataviz reference palette and a neutral for Canceled, which ended without an
