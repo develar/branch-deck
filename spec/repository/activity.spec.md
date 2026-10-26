@@ -34,8 +34,8 @@ targets:
   - ../../crates/domain-types/src/error.rs
   - ../../crates/app-api/src/api_error.rs
   - ../../src/lib/landed.ts
-  - ../../src/lib/git/push.ts
-  - ../../src/lib/git/new-pull-request.ts
+  - ../../src/lib/push-run.ts
+  - ../../src/presenters/pull-request-url.ts
   - ../../src/lib/robot-run.ts
   - ../../src/presenters/actions.ts
   - ../../src/lib/push-summary.ts
@@ -120,7 +120,8 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   before a push, "Retargeted #802 to master" / "login · it went into auth"; by the next step, the words of its toast
   ("Retargeted #7 to master" / "auth · its approvals count for a Safe Push now"); kind `review`, with "Open Pull
   Request".
-  [@test] ../../src/lib/git/push.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`)
+  [@test] ../../src/lib/push-run.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`)
+  [@test] ../../crates/test-server/src/github_host_test.rs (`a_push_retargets_the_pull_request_of_its_branch_out_of_a_virtual_branch_first`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
 - A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack, reword), and every
   error toast (`notifyError`, with its reason).

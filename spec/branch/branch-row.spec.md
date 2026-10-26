@@ -57,14 +57,14 @@ targets:
   - ../../src/lib/branch-columns.ts
   - ../../src/hooks/useBranchCopyActions.ts
   - ../../src/lib/clipboard.ts
-  - ../../src/components/shared/MoreActionsMenu.tsx
   - ../../src/components/shared/MenuItems.tsx
   - ../../src/components/shared/ContextMenuItems.tsx
   - ../../src/components/shared/DropdownMenuItems.tsx
   - ../../src/components/ui/dropdown-menu.tsx
   - ../../src/components/shared/TableHeader.tsx
   - ../../src/hooks/useStatusBadge.ts
-  - ../../src/hooks/usePushButton.ts
+  - ../../src/presenters/push-button.ts
+  - ../../src/hooks/useBranchPushes.ts
   - ../../src/hooks/useRowExpansion.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/lib/branch-row-keys.ts
@@ -84,7 +84,6 @@ targets:
   - ../../src/components/branch/ArchivedBranchesHelpPopover.tsx
   - ../../src/components/shared/SectionCardHeader.tsx
   - ../../src/components/branch/ArchivedBranchStatusBadge.tsx
-  - ../../src/components/branch/ArchivedDateCell.tsx
   - ../../src/components/branch/ArchivedBranchExpanded.tsx
   - ../../src/lib/integration-commit.ts
   - ../../src/stores/archived-branches.ts
@@ -345,16 +344,14 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - A branch a sync groups as it was, with the same commits, which the last sync built without a problem, must keep what
   its row shows while the sync rebuilds it (a quiet resync, `TableState` of the session): its status, its node, its synced hashes,
   until the sync reports it, so a sync of 35 branches doesn't turn every row to "syncing…" for a moment. Its push stays
-  enabled: a push pressed during the sync waits for it with the spinner of a push and pushes the branch as the sync left
-  it, over the remote status the sync brought (a fetch moved the remote branch: one push over its new tip, not a
+  enabled: a push pressed during the sync waits for it in the session (`WaitingForSync`, the operation of the view)
+  with the spinner of a push and pushes the branch as the sync left it, over the remote status the sync brought (a fetch moved the remote branch: one push over its new tip, not a
   refused one and a second); a rewrite (the menu, a drag, M) still waits for the sync to finish. A push, also the push of an action (a Safe
   Push start, a pull request, a review request), started while a rewrite of the repository runs waits for it and the
   sync it ends with the same way, and pushes the branches as the rewrite left them.
-  [@test] ../../src/lib/git/push.test.ts (`waits for the rewrite of its repository that runs and the sync it ends with, then pushes the branch as it left it`)
   [@test] ../../src/stores/operations.test.ts (`lets a push wait for the rewrites of its repository and the syncs they end with, the queued ones too`)
   [@test] ../../crates/repository-model/src/table_test.rs (`a_quiet_resync_keeps_the_shown_state_and_a_changed_branch_starts_syncing`)
   [@test] ../../src/model/store.test.ts (`keeps the records of the branches a patch leaves alone, and of the commits of a branch whose state alone changed`)
-  [@test] ../../src/lib/git/push-during-sync.test.ts (`pushes once, over the remote tip that the fetch of the sync it waited for brought`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once, over the remote tip the sync brought, the row as it was meanwhile`)
 - The remote status of a row, of a stack branch and of an unapplied branch must be the session's, which orders a push
   against the syncs: the outcome of a push (the statuses it left, or the ones it fetched when the remote moved) reaches
@@ -377,7 +374,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push pressed during a sync that could not build the branch, its virtual branch an older build`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_of_a_branch_the_last_sync_did_not_build_is_refused`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`the_report_says_what_the_sync_read_and_the_tips_it_left`)
-  [@test] ../../src/lib/git/push.test.ts (`refuses the action of a branch the last sync did not build, or built on one, instead of going on with its remote`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`refuses the action of a branch the last sync did not build, or built on one, instead of going on with its remote`)
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
   status but up to date is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
   ([Push colours](../repository/outgoing.spec.md#push-colours)), in every table: the node of the row says where it is on
@@ -457,7 +454,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   GitHub.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should take the whole stack branch along in Push with Children of the root once its pull request is open, from the push and the menu`)
   [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should keep the rows and the columns where the last start left them while Your Turn, the pull requests and the approvals come back`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`leaves the first push of a branch to its landing where Safe Push or Create Pull Request pushes it`, `keeps a push that updates the remote branch, and the first push where nothing else pushes`, `keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot`)
+  [@test] ../../src/presenters/push-button.test.ts (`leaves the first push of a branch to its landing where Safe Push or Create Pull Request pushes it`, `keeps a push that updates the remote branch, and the first push where nothing else pushes`, `keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
   A running push keeps its button until it finished, and a blocked branch keeps the
@@ -466,7 +463,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`)
   The preview footer keeps the labelled button. A branch with an error or without commits has no push button.
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
+  [@test] ../../src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
 - On Space (Patronus answered), the Safe Push slot must show the next step of the branch, the first row of the table
   of [Next Step](next-step.spec.md) that matches: "Safe Push" for a branch with a push button and nothing in its way

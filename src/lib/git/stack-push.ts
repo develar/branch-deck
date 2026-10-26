@@ -1,23 +1,27 @@
 import { Channel } from "@tauri-apps/api/core"
 import type { PatronusRobot, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
-import type { Retargeted } from "@/lib/git/new-pull-request"
-import { retargetBeforePush } from "@/lib/git/new-pull-request"
-import type { PushClearance, PushReport } from "@/lib/git/push"
-import { cancelHoldingRobot, checkPushHold, createPushRequest, isStillIn, passingCanceled, reportPushError, restartAfterPush, sentPart, showRemoteMovedToast } from "@/lib/git/push"
+import { getErrorDetails, notifyError } from "@/lib/errors"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
 import type { VcsRequest } from "@/lib/git/vcs-request"
-import { formatPushMode } from "@/lib/patronus"
+import { canceledBeforeStart, isLockWaitCanceled } from "@/lib/lock-wait"
+import { describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
+import type { PushRun } from "@/lib/push-run"
+import { pushBranch, runBranchPush, showRemoteMovedToast } from "@/lib/push-run"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { showRobotToast } from "@/lib/robot-toast"
+import { runFailure, runIntent } from "@/lib/run-intent"
 import { joinNames } from "@/lib/text"
+import type { ToastActionProps } from "@/lib/toast-message"
+import { showToast } from "@/lib/toast-message"
 import { pushProgressOf } from "@/lib/transfer-progress"
 import { formatWholeStack, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import { whenSessionViewAt } from "@/model/store"
-import { formatReason, formatStackPushHoldReason } from "@/presenters/reasons"
-import { recordPush } from "@/stores/activity"
+import type { Retargeted } from "@/presenters/pull-request-url"
+import { getPullRequestRetarget } from "@/presenters/pull-request-url"
+import { formatPushHoldReason, formatReason, formatReasonOrNull, formatStackPushHoldReason } from "@/presenters/reasons"
+import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, PushOrders, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
@@ -35,9 +39,280 @@ import {
   whenSynced,
 } from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
-import { getPushHold, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
-import { getStackPullRequest } from "@/stores/pull-requests"
-import { isSelectedRepository } from "@/stores/repository"
+import { getBranchLanding, getPushHold, getStackLandedReason, getStackPushHold, whenRepositoryViewCurrent } from "@/stores/patronus"
+import { getStackPullRequest, retargetPullRequest } from "@/stores/pull-requests"
+import type { PushConfirmTarget } from "@/stores/push-confirm"
+import { getRepositorySwitchReason, getSelectedRepositoryPath, isSelectedRepository, vcsRequestFactory } from "@/stores/repository"
+
+// The pushes of the page that are no intents of the engine yet (s9-13): Push Stack, Push with Children, Push Up to Here,
+// the push of the stack branch of a whole stack, the button that pushes the stack while an ancestor has work, and the
+// push an action needs before it runs. The push of a branch alone is the intent `Push` (`push-run.ts`).
+
+/**
+ * Says why a push failed or was refused: the title of an error toast and its reason. `canceled` hears a push whose wait
+ * for another holder of the repository lock the user stopped (Stop Waiting): nothing was pushed and nothing failed, its
+ * info toast said so, so an action whose step the push is ends without an error of its own (`pushForAction`)
+ */
+export type PushReport = ((title: string, error: unknown, action?: ToastActionProps) => void) & { readonly canceled?: () => void }
+
+/** `own`, a report that passes on to `report`, with the `canceled` of `report` */
+export function passingCanceled(own: (title: string, error: unknown, action?: ToastActionProps) => void, report: PushReport): PushReport {
+  const canceled = report.canceled
+  return canceled === undefined ? own : Object.assign(own, { canceled })
+}
+
+/** The repository and branch prefix a push starts in, or null when none is configured (`report` said why) */
+export function createPushRequest(title: string, report: PushReport): VcsRequest | null {
+  try {
+    return vcsRequestFactory.createRequest()
+  } catch (error) {
+    report(title, error)
+    return null
+  }
+}
+
+/**
+ * Whether the main window still shows the repository the push of `subject` started in: a push never goes on with the
+ * branches of another repository, whose branch of the same name is another branch (`report` says it stopped)
+ */
+export function isStillIn(repositoryPath: string, subject: string, report: PushReport): boolean {
+  const reason = getRepositorySwitchReason(repositoryPath)
+  if (reason !== null) {
+    report(`Cannot push ${subject}`, reason)
+  }
+  return reason === null
+}
+
+/** The remote status a push up to `tip` was made against, as its toast counts it: the commits up to it are ahead */
+export function sentPart(before: RemoteStatus | null, tip: string | undefined): RemoteStatus | null {
+  if (before === null || tip === undefined) {
+    return before
+  }
+  const sent = before.unpushedCommits.indexOf(tip) + 1
+  return sent === 0 ? before : { ...before, commitsAhead: sent, myCommitsAhead: Math.min(before.myCommitsAhead, sent) }
+}
+
+/**
+ * A failed push of `subject` as `report` says it ("Cannot push auth"); a push whose wait for another holder of the
+ * repository lock the user stopped (Stop Waiting) pushed nothing and failed nothing: an info toast says so
+ */
+export function reportPushError(report: PushReport, subject: string, error: unknown): void {
+  if (isLockWaitCanceled(error)) {
+    showToast(canceledBeforeStart(`the push of ${subject}`, "Nothing was pushed"))
+    report.canceled?.()
+  } else {
+    report(`Cannot push ${subject}`, error)
+  }
+}
+
+/**
+ * Restarts a robot the push canceled, on the pushed commit, in the repository of the push (`request`, also after a
+ * switch): the restart of the engine (`RestartRobot`), whose plan pushes nothing more now; Activity records it there in
+ * the words of a restart toast, the caller says it in the toast of its action. Undefined when the restart failed or its
+ * plan refused it (an error toast said so)
+ */
+export async function restartAfterPush(robot: PatronusRobot, request: VcsRequest): Promise<PatronusRobot | undefined> {
+  const mode = formatPushMode(robot.pushMode)
+  const run = await runIntent(request.repositoryPath, { kind: "restartRobot", robotId: robot.id })
+  const restarted = run.kind === "ran" && run.outcome.result.kind === "robot" ? run.outcome.result.robot : null
+  if (restarted === null) {
+    notifyError(`Cannot restart the ${mode}`, runFailure(run, `Patronus offers no restart of it now`))
+    return undefined
+  }
+  recordRobot(`${mode} restarted`, describeRobot(restarted), restarted, request.repositoryPath)
+  return restarted
+}
+
+/** The robot a push restarts or replaces: canceled right before it sends, so no hold refuses it */
+interface HoldOptions {
+  readonly restartRobot?: PatronusRobot
+  readonly replacesRobot?: PatronusRobot
+}
+
+/**
+ * Whether a push may go (`checkPushHold`): false when a hold refuses it (it said why); else the robot to cancel right
+ * before it sends, the one it restarts or replaces (null for none), and the running robot the view says holds it
+ * (`holder`, null for none), which Rust refuses the push for while it runs and its error opens
+ */
+export type PushClearance = false | { readonly cancels: PatronusRobot | null; readonly holder: PatronusRobot | null }
+
+const CLEAR: PushClearance = { cancels: null, holder: null }
+
+/**
+ * A branch whose Safe Push runs, or that a Safe Push of a branch built on it lands, is not pushed (`PushHold`): the push
+ * won't land, and a push into the robot's own branch makes it fail at the end ("branch was modified"). The rows offer no
+ * push then; a push that raced with a start (the IDE, `bd`) or came from a toast goes to Rust, which reads the user's
+ * robots now and refuses it while the robot runs (one that finished meanwhile holds nothing); its error opens the robot
+ * (`holder`). The robot the push restarts or replaces (`restartRobot`, `replacesRobot`) is canceled instead, by the
+ * push after its last check, right before it sends (`cancels`), so no refusal follows the cancel. A branch a merged Safe
+ * Push landed (`landed`) is refused here: its commits are in the target. The holds are those of the repository view of
+ * the robots and the branches as they are now (`whenRepositoryViewCurrent`): a robot of a branch built on it holds it
+ * only while its commit has commits of it.
+ */
+export async function checkPushHold(branchName: string, options: HoldOptions, report: PushReport): Promise<PushClearance> {
+  // the holds of the robots and the branches as they are now: a robot started meanwhile holds it once the view says so
+  await whenRepositoryViewCurrent()
+  const hold = getPushHold(branchName)
+  if (hold === null) {
+    return CLEAR
+  }
+  if (hold.robot.id === options.restartRobot?.id || hold.robot.id === options.replacesRobot?.id) {
+    return { cancels: hold.robot, holder: null }
+  }
+  if (hold.kind !== "landed") {
+    return { cancels: null, holder: hold.robot }
+  }
+  // the robot that landed it opens from the error
+  report(`Cannot push ${branchName}`, formatPushHoldReason(branchName, hold), { children: "Open in Patronus", onClick: () => openRobot(hold.robot) })
+  return false
+}
+
+/**
+ * Cancels the robot of a hold before the push that restarts or replaces it, or before a Safe Push start that replaces it
+ * without a push: the cancel of the engine (`CancelRobot`); a robot that finished meanwhile holds nothing, so the push or
+ * the start goes on; false when Patronus refused (it said so)
+ */
+export async function cancelHoldingRobot(robot: PatronusRobot, report: PushReport = notifyError, request: VcsRequest | null = null): Promise<boolean> {
+  const mode = formatPushMode(robot.pushMode)
+  const run = await runIntent(request?.repositoryPath ?? getSelectedRepositoryPath(), { kind: "cancelRobot", robotId: robot.id })
+  const failure = runFailure(run, `Patronus lists no robot ${robot.id} of the user`)
+  if (failure !== null) {
+    report(`Cannot cancel the ${mode}`, failure)
+    return false
+  }
+  return true
+}
+
+/**
+ * Retargets the open pull request of a branch whose base is a virtual branch to the baseline before the branch is
+ * pushed (`getPullRequestRetarget`), as the engine runs it (`retargetPullRequest`, Activity records it): the pull request
+ * then shows what the Safe Push of the branch lands, and its approvals count. Null when there was nothing to retarget,
+ * or the retarget failed (an error toast said why; the push still runs, its toast offers the command).
+ */
+export async function retargetBeforePush(branch: Branch): Promise<Retargeted | null> {
+  const retarget = getPullRequestRetarget(branch.name)
+  if (retarget === null) {
+    return null
+  }
+  const { pullRequest, base } = retarget
+  try {
+    await retargetPullRequest(branch.name)
+  } catch (error) {
+    notifyError(`Cannot retarget pull request #${pullRequest.number}`, error)
+    return null
+  }
+  return { number: pullRequest.number, base }
+}
+
+/**
+ * What a click on the push button of the branch pushes (`confirmAt` the button, which asks first when the push drops
+ * remote commits): the stack while an ancestor has work for the remote, as Rust orders it (`PushOrders.button`), else
+ * the branch alone (`pushBranch`)
+ */
+export function pushFromButton(branchName: string, confirmAt: PushConfirmTarget = "row"): void {
+  if (getPushOrders(branchName).button.length > 0) {
+    void pushStack(branchName, { stopAtConfirm: true })
+  } else {
+    void pushBranch(branchName, { confirmAt })
+  }
+}
+
+/**
+ * The push of a button or a key away from it (the branch menu, P in the preview): what a click on the push button of
+ * `confirmAt` pushes (`pushFromButton`), whose description asks first for a push that drops remote commits
+ */
+export function pushOrConfirm(branchName: string, confirmAt: PushConfirmTarget): void {
+  pushFromButton(branchName, confirmAt)
+}
+
+/** A push of an action: pushed, or not with the reason; `canceled` when the user stopped its wait for the lock */
+export type ActionPush = { readonly pushed: true } | { readonly pushed: false; readonly reason: string; readonly canceled?: true }
+
+export interface ActionPushOptions {
+  /** The running robot a Safe Push start replaces: canceled, never restarted (`PushOptions.replacesRobot`) */
+  replacesRobot?: PatronusRobot
+  /**
+   * The branches a Safe Push start pushes, root first, as Rust decided them (the `push` effect of its decision): the
+   * start pushes those and no other; by default the push of an action (`PushOrders.action`)
+   */
+  branches?: readonly string[]
+  /**
+   * The repository the action started in (`VcsRequest.repositoryPath`); by default the selected one at the call. The push
+   * refuses once the main window shows another one: it pushes the branches of the table
+   */
+  repositoryPath?: string
+}
+
+/**
+ * The push an action needs before it runs ("Push" of the toast of a start that can't run): the branch and the
+ * ancestors with work for the remote, root first, as the push button pushes them, without a toast of its own: the
+ * action says how it went. Nothing to push resolves at once. A rewrite of the repository, a sync and a push of the
+ * branch already running are awaited, so the action sees the branch as they leave it. A push the user decides is never
+ * made here: one that drops remote commits of the branch or of an ancestor between it and the root refuses with the
+ * reason, as does a hold.
+ */
+export async function pushForAction(branchName: string): Promise<ActionPush> {
+  const repositoryPath = getSelectedRepositoryPath()
+  // a rewrite of the repository that runs (a move out of the branch) and its sync first: the push sends what it leaves
+  await whenRewritesDone(repositoryPath)
+  await whenSynced()
+  await whenBranchPushed(branchName)
+  // the holds decide where the push starts: a parent a running robot's commit doesn't have is pushed too
+  await whenRepositoryViewCurrent()
+  // the branches of the table are of the selected repository: another one's branch of the same name is another branch
+  const switched = getRepositorySwitchReason(repositoryPath)
+  if (switched !== null) {
+    return { pushed: false, reason: switched }
+  }
+  const branch = getBranch(branchName)
+  if (branch === undefined) {
+    return { pushed: false, reason: `${branchName} is no longer in the branch list` }
+  }
+  // why the push can't be made for the user, as Rust decides it of the view (`domain_policy::holds::push_blocker`): an
+  // unbuilt branch of its chain, a push that drops remote commits
+  const blocker = formatReasonOrNull(getBranchLanding(branchName).push, name => getBranch(name)?.statusText ?? "")
+  if (blocker !== null) {
+    return { pushed: false, reason: blocker }
+  }
+  const order = getPushOrders(branchName).action
+  if (order.length === 1 && (branch.remoteStatus?.action.kind ?? "upToDate") === "upToDate") {
+    return { pushed: true }
+  }
+  if (order.length === 1 && order[0] === branchName) {
+    return actionPushOf(await runBranchPush(branchName, { announce: false }), branchName)
+  }
+  let reason: string | null = null
+  let canceled = false
+  const report: PushReport = Object.assign(
+    (_title: string, error: unknown) => {
+      reason ??= getErrorDetails(error)
+    },
+    { canceled: () => (canceled = true) },
+  )
+  if (await pushStack(branchName, { stopAtConfirm: true, announce: false, report })) {
+    return { pushed: true }
+  }
+  // stopped while it waited for the lock: its toast said so, the action fails nothing
+  return canceled
+    ? { pushed: false, reason: `Canceled the push of ${branchName} before it started`, canceled: true }
+    : { pushed: false, reason: reason ?? `The remote branch of ${branchName} changed: nothing was pushed` }
+}
+
+/** How the push of the branch alone went, as the action it is a step of says it */
+function actionPushOf(run: PushRun, branchName: string): ActionPush {
+  switch (run.kind) {
+    case "pushed":
+      return { pushed: true }
+    case "failed":
+      return { pushed: false, reason: getErrorDetails(run.error) }
+    case "canceled":
+      return { pushed: false, reason: `Canceled the push of ${branchName} before it started`, canceled: true }
+    case "confirm":
+      return { pushed: false, reason: `The push of ${branchName} drops remote commits it lacks: its row asks first` }
+    case "moved":
+      return { pushed: false, reason: `The remote branch of ${branchName} changed: nothing was pushed` }
+  }
+}
 
 export interface StackPushOptions {
   /** The order of the push button: it starts above an ancestor whose push drops remote commits (`PushOrders.action`) */
@@ -258,7 +533,7 @@ async function pushTogetherOf(request: VcsRequest, startedFrom: string, orderOf:
       if (moved.wholeStack) {
         report(`Cannot push ${formatWholeStackBranch(moved.name)}`, describeMovedStackBranch(moved.status))
       } else {
-        await showRemoteMovedToast(request, moved.name, moved.status, undefined)
+        await showRemoteMovedToast(request.repositoryPath, moved.name, moved.status, false)
       }
       return false
     }

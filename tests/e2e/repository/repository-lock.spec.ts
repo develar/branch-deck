@@ -109,7 +109,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
   test("should say whom a push waits for in the hover of its button, whose Stop Waiting pushes nothing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
-    const pushes = await recordCommand(page, "push_branch")
+    const pushes = await recordCommand(page, "execute")
     await repo.holdRepositoryLock(true)
     const push = getPushButton(findBranchRow(page, "feature-auth"))
     await push.click()

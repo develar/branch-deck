@@ -23,10 +23,9 @@ const { engine } = vi.hoisted(() => {
 })
 
 vi.mock("@/lib/run-intent", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/run-intent")>()), runIntent: engine.runIntent }))
-vi.mock("@/lib/git/new-pull-request", () => ({ openNewPullRequest: (url: string) => engine.said.push(`open ${url}`) }))
+vi.mock("@/presenters/pull-request-url", () => ({ openNewPullRequest: (url: string) => engine.said.push(`open ${url}`) }))
 vi.mock("@/stores/activity", () => ({ recordPullRequestCreated: (title: string) => engine.said.push(`activity ${title}`) }))
 vi.mock("@/stores/landed-stacks", () => ({ forgetLandedStackRoot: (root: string) => engine.said.push(`forget ${root}`) }))
-vi.mock("@/stores/branch-sync", () => ({ setBranchPushing: () => {}, setBranchesPushProgress: () => {} }))
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 
 const PULL_REQUEST = { number: 12, url: "https://github.com/acme/monorepo/pull/12", reviewers: [] } as unknown as PullRequest

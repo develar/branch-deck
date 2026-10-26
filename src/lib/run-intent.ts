@@ -5,13 +5,13 @@
 // the outcome. A start of a Safe Push or a Dry Run asks its confirmations first (`startPlanned` of `useSafePush.ts`);
 // the intents run here ask none.
 import { Channel } from "@tauri-apps/api/core"
-import type { ApiError, Intent, OperationEvent, Outcome, Plan, Reason } from "@/lib/bindings"
+import type { ApiError, Intent, OperationEvent, OperationId, Outcome, Plan, Reason } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { whenSessionViewAt } from "@/model/store"
 import { formatReason } from "@/presenters/reasons"
 import { recordPush, recordRetarget } from "@/stores/activity"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { getBranch, setBranchesPushProgress, setBranchPushing } from "@/stores/branch-sync"
+import { getBranch, setOperationPushProgress } from "@/stores/branch-sync"
 import { getPullRequest } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
 
@@ -26,13 +26,11 @@ export type IntentRun =
   /** It failed before its first effect, or the plan changed under it: nothing was done */
   | { readonly kind: "failed"; readonly error: ApiError }
 
-/**
- * Runs `intent` in the session of `repositoryPath`: its plan (`prepare`), refused by its first blocker, else run on its
- * fingerprint (`execute`); resolves once the view of the session has what the run changed (`versionAfter`), so what the
- * page shows next reads it, and Activity has its retargets and its push (`recordEffects`). `onEvent` hears its steps
- * and the progress of its push
- */
-export async function runIntent(repositoryPath: string, intent: Intent, onEvent: (event: OperationEvent) => void = () => {}): Promise<IntentRun> {
+/** The plan of an intent that can run (`planIntent`), or why not */
+export type PlannedIntent = { readonly kind: "planned"; readonly plan: Plan } | Exclude<IntentRun, { readonly kind: "ran" }>
+
+/** The plan of `intent` in the session of `repositoryPath` (`prepare`): refused by its first blocker, none, or failed */
+export async function planIntent(repositoryPath: string, intent: Intent): Promise<PlannedIntent> {
   const prepared = await commands.prepare({ repositoryPath, intent })
   if (prepared.status === "error") {
     return { kind: "failed", error: prepared.error }
@@ -42,13 +40,33 @@ export async function runIntent(repositoryPath: string, intent: Intent, onEvent:
     return { kind: "noPlan" }
   }
   const blocker = plan.blockers[0]
-  if (blocker !== undefined) {
-    return { kind: "refused", plan, reason: blocker }
-  }
+  return blocker === undefined ? { kind: "planned", plan } : { kind: "refused", plan, reason: blocker }
+}
+
+/**
+ * Runs `intent` in the session of `repositoryPath`: its plan (`planIntent`), refused by its first blocker, else run on
+ * its fingerprint with what it asks accepted (`executePlan`)
+ */
+export async function runIntent(repositoryPath: string, intent: Intent, onEvent: (event: OperationEvent) => void = () => {}): Promise<IntentRun> {
+  const planned = await planIntent(repositoryPath, intent)
+  return planned.kind === "planned" ? executePlan(repositoryPath, planned.plan, onEvent) : planned
+}
+
+/**
+ * Runs `plan` in the session of `repositoryPath` on its fingerprint, with what it asks accepted (`execute`); resolves
+ * once the view of the session has what the run changed (`versionAfter`), so what the page shows next reads it, and
+ * Activity has its retargets and its push (`recordEffects`). The push buttons of the branches its push sends show how
+ * far it is (`operationPushProgress`); `onEvent` hears its steps and that progress too
+ */
+export async function executePlan(repositoryPath: string, plan: Plan, onEvent: (event: OperationEvent) => void = () => {}): Promise<IntentRun> {
   const before = pushedBefore(plan)
   const events = new Channel<OperationEvent>()
-  events.onmessage = onEvent
-  const executed = await commands.execute({ repositoryPath, intent: plan.intent, fingerprint: plan.fingerprint, accepted: plan.confirmations }, events)
+  const progress = operationPushProgress()
+  events.onmessage = event => {
+    progress.onEvent(event)
+    onEvent(event)
+  }
+  const executed = await commands.execute({ repositoryPath, intent: plan.intent, fingerprint: plan.fingerprint, accepted: plan.confirmations }, events).finally(progress.done)
   if (executed.status === "error") {
     return { kind: "failed", error: executed.error }
   }
@@ -58,28 +76,37 @@ export async function runIntent(repositoryPath: string, intent: Intent, onEvent:
 }
 
 /**
- * What the push buttons show of the push an intent makes first while it sends (the step `pushing` of its run): `keys`,
- * the rows whose push it is (a branch, `stackReadinessKey(root)` of a whole stack), with the percent and the line of
- * git; `done` clears it
+ * How far the push of an operation this window runs is, as its channel tells it: the push buttons of the branches it
+ * pushes show it (`setOperationPushProgress`; the view says which, `pushOperationIn`), and while it waits for another
+ * holder of the repository lock whom for, with Stop Waiting (`cancel_operation`: nothing pushed); `done` forgets it
  */
-export function pushShown(keys: readonly string[], repositoryPath: string): { readonly onEvent: (event: OperationEvent) => void; readonly done: () => void } {
-  let pushing = false
-  const show = (now: boolean) => {
-    if (now !== pushing) {
-      pushing = now
-      for (const key of keys) {
-        setBranchPushing(key, now, repositoryPath)
-      }
-    }
-  }
+export function operationPushProgress(): { readonly onEvent: (event: OperationEvent) => void; readonly done: () => void } {
+  let op: OperationId | null = null
+  let waiting = false
   const onEvent = (event: OperationEvent) => {
     if (event.kind === "step") {
-      show(event.step.kind === "pushing")
-    } else if (event.kind === "progress" && pushing) {
-      setBranchesPushProgress(keys, { percent: event.percent, line: event.line, transferred: null, speed: null }, repositoryPath)
+      waiting = event.step.kind === "waitingForLock"
+    } else if (event.kind === "progress") {
+      op = event.op
+      const stop = event.op
+      setOperationPushProgress(event.op, {
+        percent: event.percent,
+        line: event.line,
+        transferred: null,
+        speed: null,
+        waiting,
+        ...(waiting && { stopWaiting: () => void commands.cancelOperation({ op: stop }) }),
+      })
     }
   }
-  return { onEvent, done: () => show(false) }
+  return {
+    onEvent,
+    done: () => {
+      if (op !== null) {
+        setOperationPushProgress(op, null)
+      }
+    },
+  }
 }
 
 /** The first effect of `outcome` that failed, with its error; null when none did */

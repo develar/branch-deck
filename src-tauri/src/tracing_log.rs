@@ -1,5 +1,5 @@
 //! The app's `tracing` events as records of the `log` facade, which `tauri_plugin_log` writes, each with the spans it ran
-//! in: `push_branch{params=…}:operation{operation_id=…}: message`.
+//! in: `execute{params=…}:operation{operation_id=…}: message`.
 //!
 //! Without a subscriber, `tracing` hands its events to `log` itself (its `log` feature) but drops their spans, so the log
 //! could not tell which command or operation wrote a line. Once [`install`] set this subscriber, `tracing` stops

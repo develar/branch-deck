@@ -12,7 +12,8 @@
 //!
 //! `action_push_of` is the push an action that needs a branch on the remote makes first (a pull request, a review
 //! request), in the order of the push button and with why it can't be made, over the holds of the Patronus view as they
-//! stand; `with_pull_request_sources` the sources such an action is planned on, which need no Patronus view.
+//! stand; `alone_push_of` the push of a branch alone (its push button, `operations::push`); `with_pull_request_sources`
+//! the sources such an action is planned on, which need no Patronus view.
 //!
 //! `decide_landing` is what the rules decide over the Patronus facts of a table (`patronus_view`), for the view of the
 //! session, the guards of the app and `bd` alike: the hold of each branch (`domain_policy::holds::branch_hold`) and of
@@ -51,7 +52,7 @@ use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
-use domain_policy::push::{HeadedStack, Kept, PushState, StartAncestor, StartPush, Verdict, action_push, branch_push, kept, start_push};
+use domain_policy::push::{HeadedStack, Kept, PushState, StartAncestor, StartPush, Verdict, action_push, branch_push, kept, start_push, verdict};
 use domain_policy::readiness::wanted;
 use domain_policy::reasons::{held, stack_not_built};
 use domain_policy::review::candidates;
@@ -256,31 +257,102 @@ pub fn action_push_of(state: &TableState, facts: &FactStore, name: &str) -> Acti
     return ActionPushView::default();
   }
   let landing = patronus.branches.get(name).map(|facts| &facts.landing);
-  let table = facts.table.value();
-  let own = match push.own {
+  let robots = listed_robots(facts.robots.view());
+  let own = kept_reason(state, facts, Holds { view: patronus, robots: &robots }, name, push.own).or_else(|| match push.own {
+    Verdict::AsksFirst => parts.branches.get(name).and_then(|branch| branch.remote.status.as_ref()).map(|status| Reason::DropsRemote {
+      branch: name.to_string(),
+      behind: status.commits_behind,
+    }),
+    _ => None,
+  });
+  ActionPushView {
+    branches,
+    blocker: own.or_else(|| landing.and_then(|landing| landing.push.clone())),
+  }
+}
+
+/// The holds a push is decided over: a Patronus view and the robots it was derived of (the session's, or of a list
+/// asked for the push now)
+#[derive(Clone, Copy)]
+pub struct Holds<'a> {
+  pub view: &'a PatronusView,
+  pub robots: &'a [PatronusRobot],
+}
+
+impl Holds<'_> {
+  /// The hold of `name` as a reason, with its robot (`domain_policy::reasons::held`)
+  fn reason(self, name: &str) -> Option<Reason> {
+    let hold = self.view.branches.get(name)?.landing.hold.as_ref()?;
+    self.robots.iter().find(|robot| robot.id == hold.by.robot_id).map(|robot| held(name, hold, robot))
+  }
+}
+
+/// Why `name` can't be pushed by its verdict `verdict`: it stays local, a running Safe Push of `holds` holds it, the
+/// last sync did not build it; `None` for a verdict that lets it go
+fn kept_reason(state: &TableState, facts: &FactStore, holds: Holds<'_>, name: &str, verdict: Verdict) -> Option<Reason> {
+  let parts = &state.parts;
+  match verdict {
     Verdict::Parked => parts.branches.get(name).and_then(|branch| branch.structure.parked.as_ref()).map(|parked| Reason::Parked {
       branch: name.to_string(),
       with: parked.with.clone(),
       note: parked.note.clone(),
     }),
-    Verdict::Held => landing.and_then(|landing| landing.hold.as_ref()).and_then(|hold| {
-      let robots = listed_robots(facts.robots.view());
-      robots.iter().find(|robot| robot.id == hold.by.robot_id).map(|robot| held(name, hold, robot))
-    }),
-    Verdict::NotBuilt => table.and_then(|table| table.not_built.get(name)).map(|block| Reason::CantPush {
+    Verdict::Held => holds.reason(name),
+    Verdict::NotBuilt => facts.table.value().and_then(|table| table.not_built.get(name)).map(|block| Reason::CantPush {
       branch: name.to_string(),
       block: *block,
     }),
-    Verdict::AsksFirst => parts.branches.get(name).and_then(|branch| branch.remote.status.as_ref()).map(|status| Reason::DropsRemote {
-      branch: name.to_string(),
-      behind: status.commits_behind,
-    }),
-    Verdict::Goes | Verdict::UpToDate | Verdict::Landed => None,
-  };
-  ActionPushView {
-    branches,
-    blocker: own.or_else(|| landing.and_then(|landing| landing.push.clone())),
+    Verdict::Goes | Verdict::UpToDate | Verdict::AsksFirst | Verdict::Landed => None,
   }
+}
+
+/// The push of `name` alone (Push of its row, its preview and its review window), over the table of `state` and the
+/// holds of the Patronus view of `facts` as they stand
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlonePushView {
+  /// What the branch does in it (`domain_policy::push::verdict`): goes, asks first (it drops remote commits the branch
+  /// lacks), is up to date, or is kept out
+  pub verdict: Verdict,
+  /// Why it can't be made: the branch stays local, a running Safe Push holds it (a merged one landed it whole), the last
+  /// sync did not build it
+  pub blocker: Option<Reason>,
+  /// The commits of the remote branch the push drops (its remote status' `commits_behind`) while it asks first
+  pub drops: u32,
+}
+
+/// The push of `name` alone (`AlonePushView`) over the table of `state`, the facts of `facts` and the holds of `holds`;
+/// the hold of the robot `replaces` (the Safe Push the push cancels first and restarts) keeps nothing out. A branch the
+/// fetched baseline has whole still goes: only the update archives it. `None` for a branch the table lacks
+#[must_use]
+pub fn alone_push_of(state: &TableState, facts: &FactStore, holds: Holds<'_>, name: &str, replaces: Option<&str>) -> Option<AlonePushView> {
+  let branch = state.parts.branches.get(name)?;
+  let hold = holds.view.branches.get(name).and_then(|facts| facts.landing.hold.as_ref());
+  let status = branch.remote.status.as_ref();
+  let push_state = PushState {
+    action: status.map(|status| status.action),
+    kept: kept(
+      branch.structure.parked.is_some(),
+      false,
+      hold,
+      replaces,
+      branch.sync.status == BranchStatus::Blocked || branch.sync.has_error,
+    ),
+  };
+  let verdict = verdict(&push_state);
+  Some(AlonePushView {
+    verdict,
+    // a merged Safe Push landed it whole: nothing of it is left to push
+    blocker: if verdict == Verdict::Landed {
+      holds.reason(name)
+    } else {
+      kept_reason(state, facts, holds, name, verdict)
+    },
+    drops: if verdict == Verdict::AsksFirst {
+      status.map_or(0, |status| status.commits_behind)
+    } else {
+      0
+    },
+  })
 }
 
 /// What `push_view` reads of a branch

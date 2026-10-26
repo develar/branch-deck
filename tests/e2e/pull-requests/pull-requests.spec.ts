@@ -258,10 +258,10 @@ test.describe("Pull request chip", () => {
 
   test("should create the pull request with the reviewers it searched and the user as its assignee", async ({ page, repo }) => {
     const searches = await recordCommand(page, "search_github_users")
-    // the intents the page runs (`execute`): the creation is one of them
+    const dialog = await openDialogAfterPush(page)
+    // the intents the page runs after the push (`execute`): the creation
     const runs = await recordCommand(page, "execute")
 
-    const dialog = await openDialogAfterPush(page)
     const title = dialog.getByTestId("create-pull-request-title")
     await expect(title).toHaveValue(AUTH_TITLE)
     await title.fill("Add auth & login")

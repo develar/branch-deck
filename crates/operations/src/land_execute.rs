@@ -35,13 +35,14 @@ use domain_policy::holds::is_active;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use domain_types::landing::{Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
 use domain_types::operation::{
-  EffectRecord, EffectStatus, Fingerprint, Intent, LandResult, NewsKey, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, RobotResult, StartComment,
-  StartNote,
+  EffectRecord, EffectStatus, Fingerprint, Intent, LandResult, NewsKey, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, PushResult, RobotResult,
+  StartComment, StartNote,
 };
 use domain_types::patronus::{PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot};
 use domain_types::pull_request::{CreatedPullRequest, RequestedReviewers};
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
+use domain_types::repository_view::HoldKind;
 use domain_types::session::Version;
 use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -100,12 +101,16 @@ pub struct PushedRef {
   pub parent_ref: Option<String>,
   /// The stack branch of a whole stack
   pub whole_stack: bool,
+  /// An unapplied branch, `name` the branch it was (`Intent::Push` with `PushScope::Unapplied`)
+  pub unapplied: bool,
 }
 
 impl PushedRef {
   fn subject(&self) -> RemoteSubject {
     if self.whole_stack {
       RemoteSubject::WholeStack(self.name.clone())
+    } else if self.unapplied {
+      RemoteSubject::Unapplied(self.name.clone())
     } else {
       RemoteSubject::Branch(self.name.clone())
     }
@@ -420,7 +425,12 @@ fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<Stri
     size_limit: services.push.size_limit,
   };
   let whole_stack = pushes.iter().map(|pushed| pushed.whole_stack).collect();
-  Ok(Some(PreparedPush::leased(&target, branches, whole_stack, PushOptions { atomic: true, dry_run: false })))
+  // one ref needs no `--atomic`, which a remote may not support
+  let options = PushOptions {
+    atomic: pushes.len() > 1,
+    dry_run: false,
+  };
+  Ok(Some(PreparedPush::leased(&target, branches, whole_stack, options)))
 }
 
 /// A blocking step of a start on the blocking pool
@@ -461,6 +471,8 @@ fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRo
   let blockers = plan.blockers.as_slice();
   let code = match reason {
     Reason::Landed { .. } | Reason::StackLanded { .. } | Reason::LandedIn { .. } | Reason::PullRequestMerged { .. } => ErrorCode::Landed,
+    // a merged Safe Push landed the branch whole: nothing of it is left to push
+    Reason::Held { hold, .. } if hold.kind == HoldKind::Landed => ErrorCode::Landed,
     Reason::StackNotBuilt {
       state: StackBranchState::Conflict,
       ..
@@ -496,6 +508,7 @@ fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRo
     _ => start_refusal_text(reason, &subject.words(), robots),
   };
   let nothing = match &plan.intent {
+    Intent::Push(_) => "Nothing was pushed",
     Intent::RestartRobot { .. } => "Nothing was restarted",
     Intent::CreatePullRequest(_) => "Nothing was pushed or created",
     Intent::RequestReview { .. } => "Nothing was pushed or requested",
@@ -617,7 +630,8 @@ impl<'a> Run<'a> {
   }
 
   /// The pull request `number` of `branch` goes into `to`: GitHub refusing the one the robot starts from (or of the
-  /// subject) stops the start; one of a branch its push takes along is told, and the start goes on
+  /// subject) stops the start; one of a branch its push takes along, and the one of a push (`Intent::Push`), is told, and
+  /// the run goes on
   async fn retarget(&mut self, branch: &str, number: u32, to: &str) -> EffectStatus {
     self.steps.step(OperationStep::Retargeting);
     let Some((github, repository)) = &self.services.github else {
@@ -628,7 +642,8 @@ impl<'a> Run<'a> {
     match answer {
       Ok(()) => EffectStatus::Done,
       Err(error) => {
-        let own = self.planned.plan.pull_request == Some(number) || branch == self.planned.plan_subject_name();
+        // a push goes on without the retarget: the outcome says it (D3a)
+        let own = !matches!(self.planned.plan.intent, Intent::Push(_)) && (self.planned.plan.pull_request == Some(number) || branch == self.planned.plan_subject_name());
         let error = ApiError::new(
           ErrorCode::NetworkError,
           format!(
@@ -819,6 +834,7 @@ fn changed_before_start(what: &str, intent: &Intent) -> ApiError {
     Intent::CreatePullRequest(create) if create.on_github => "GitHub's form was not opened",
     Intent::CreatePullRequest(_) => "no pull request was opened",
     Intent::RequestReview { .. } => "nobody was asked to review",
+    Intent::Push(_) => "the Safe Push was not restarted",
     _ => "no robot started",
   };
   ApiError::new(ErrorCode::PlanChanged, format!("{what}: {undone}"))
@@ -1003,6 +1019,10 @@ impl Run<'_> {
     let subject = self.planned.plan_subject_name().to_string();
     let mode = self.planned.mode;
     let result = match &self.planned.plan.intent {
+      Intent::Push(_) => OperationResult::Push(Box::new(PushResult {
+        pushed_over: self.pushed.as_ref().and_then(|sent| sent.over.as_ref()).map_or_default(|over| over.statuses.clone()),
+        restarted: self.robot.clone(),
+      })),
       Intent::RestartRobot { .. } => OperationResult::Robot(Box::new(RobotResult {
         robot: self.robot.clone(),
         canceled: self.canceled.clone(),
@@ -1024,6 +1044,8 @@ impl Run<'_> {
     // the event of the robot of the subject: a pull request or a review request has no toast of a robot to replace
     let news_key = match &self.planned.plan.intent {
       Intent::CreatePullRequest(_) | Intent::RequestReview { .. } => None,
+      // the toast of the pushes of the branch: a later push of it takes its place
+      Intent::Push(_) => Some(NewsKey::Push { branch: subject }),
       _ => Some(NewsKey::RobotSubject { subject, mode }),
     };
     let outcome = Outcome {

@@ -232,7 +232,10 @@ One run keeps its own record, one place for every surface of it:
   them meanwhile waits instead of sending it twice. A push inside an operation (the
   creation of a pull request, a review request, a Safe Push start, a restart) is a step of it, not an operation of its
   own; the push of a restart, a creation and a review request shows on the push button of its branch (or of its whole
-  stack) from the steps and the progress its run tells its caller (`pushShown` of `run-intent.ts`). In Rust the push the page asks (`push_branch`, `push_branches`) is already an operation of the
+  stack) from the operation of the view in its push step and the progress its run tells its caller
+  (`operationPushProgress` of `run-intent.ts`). The push of a branch alone and of an unapplied branch is the intent
+  `Push` of the engine (`operations::push::execute_push`, s9-12): no entry of this registry, its spinner the operation
+  of the view (`pushOperationIn`). In Rust the push of a stack the page asks (`push_branches`) is already an operation of the
   session (`operations::push`, [Push and land](git-operations.md#push-and-land)): admitted per ref it writes in the
   registry of the operations, so a push of a ref another push of the app writes waits for it there and the pushes of
   other refs run side by side, its steps in the view's `operations` (`Checking`, `WaitingForSync`, `WaitingForLock`,

@@ -150,6 +150,7 @@ impl Fixture {
       full_name: "test/virtual/alpha".to_string(),
       parent_ref: None,
       whole_stack: false,
+      unapplied: false,
     });
     Planned {
       plan: Plan {

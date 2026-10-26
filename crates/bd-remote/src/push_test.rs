@@ -5,7 +5,7 @@ use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use sync_core::push::{PushBranchParams, PushOutcome, push_branches};
+use sync_core::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use tempfile::TempDir;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, pre_receive_hook, refuse_every_push};
 
@@ -586,18 +586,22 @@ fn app_push(repo: &TestRepo, branch: &str) {
       repo.path().to_str().unwrap(),
     )
     .unwrap();
-  let params = PushBranchParams {
+  let params = PushBranchesParams {
     repository_path: repo.path().to_str().unwrap().to_string(),
-    branch_name: branch.to_string(),
     my_email: None,
     baseline_branch: "origin/master".to_string(),
-    parent_branch: None,
-    expected_remote: (exit_code == 0).then_some(remote_tip),
-    tip: None,
+    branches: vec![StackPushBranch {
+      branch_name: branch.to_string(),
+      parent_branch: None,
+      expected_remote: (exit_code == 0).then_some(remote_tip),
+      tip: None,
+      whole_stack: false,
+      unapplied: false,
+    }],
   };
   assert!(matches!(
-    PushOutcome::of_stack(push_branches(repo.git_executor(), PREFIX, &params.as_stack(), &HashMap::new(), &mut |_| {}).unwrap()).unwrap(),
-    PushOutcome::Pushed { .. }
+    push_branches(repo.git_executor(), PREFIX, &params, &HashMap::new(), &mut |_| {}).unwrap(),
+    PushBranchesOutcome::Pushed { .. }
   ));
 }
 

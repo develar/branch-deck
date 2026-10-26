@@ -34,6 +34,12 @@ pub trait ServiceHost: Send + Sync + 'static {
   /// The git of the reads: the target of a baseline, the commits of a review
   fn git(&self) -> GitCommandExecutor;
 
+  /// The git that reads the config of the repository of `key` as the host's commands read it (the push size limit
+  /// of a push): `git` but in the E2E server, whose repositories have a global config of their own
+  fn config_git(&self, _key: &SessionKey) -> GitCommandExecutor {
+    self.git()
+  }
+
   /// The Patronus service of the session of `key`
   ///
   /// # Errors

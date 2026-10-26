@@ -1,7 +1,8 @@
-use crate::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, prepare_push_branches, push_branches};
+use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, prepare_push_branches, push_branches};
 use crate::push_size::PushTooLarge;
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
+use anyhow::Context;
 use domain_types::RemoteStatusUpdate;
 use domain_types::stack::BlockReason;
 use pretty_assertions::assert_eq;
@@ -14,7 +15,64 @@ use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refus
 const PREFIX: &str = "prefix";
 const BRANCH: &str = "prefix/virtual/feature";
 
-/// The push of one branch, as the app's push of one branch pushes the stack of it alone (`PushOutcome::of_stack`)
+/// The push of one branch: the stack push of it alone (`as_stack`)
+struct PushBranchParams {
+  repository_path: String,
+  branch_name: String,
+  my_email: Option<String>,
+  baseline_branch: String,
+  parent_branch: Option<String>,
+  expected_remote: Option<String>,
+  tip: Option<String>,
+}
+
+impl PushBranchParams {
+  fn as_stack(&self) -> PushBranchesParams {
+    PushBranchesParams {
+      repository_path: self.repository_path.clone(),
+      my_email: self.my_email.clone(),
+      baseline_branch: self.baseline_branch.clone(),
+      branches: vec![StackPushBranch {
+        branch_name: self.branch_name.clone(),
+        parent_branch: self.parent_branch.clone(),
+        expected_remote: self.expected_remote.clone(),
+        tip: self.tip.clone(),
+        whole_stack: false,
+        unapplied: false,
+      }],
+    }
+  }
+}
+
+/// What the push of one branch did to it: its remote status, and the one a push again over a moved remote went over
+#[derive(Debug)]
+enum PushOutcome {
+  Pushed {
+    remote_status: RemoteStatusUpdate,
+    #[expect(dead_code, reason = "the tests read the statuses of the stack push for it")]
+    pushed_over: Option<RemoteStatusUpdate>,
+  },
+  RemoteMoved {
+    remote_status: RemoteStatusUpdate,
+  },
+}
+
+impl PushOutcome {
+  fn of_stack(outcome: PushBranchesOutcome) -> anyhow::Result<Self> {
+    let first = |statuses: Vec<RemoteStatusUpdate>| statuses.into_iter().next().context("No remote status of the pushed branch");
+    Ok(match outcome {
+      PushBranchesOutcome::Pushed { remote_statuses, pushed_over } => Self::Pushed {
+        remote_status: first(remote_statuses)?,
+        pushed_over: pushed_over.into_iter().next(),
+      },
+      PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => Self::RemoteMoved {
+        remote_status: first(remote_statuses)?,
+      },
+    })
+  }
+}
+
+/// The push of one branch: the stack push of it alone
 fn push_branch(
   git_executor: &git_executor::git_command_executor::GitCommandExecutor,
   params: &PushBranchParams,

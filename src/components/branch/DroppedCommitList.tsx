@@ -1,7 +1,7 @@
 import { CommitSubjectLine } from "@/components/commit/CommitSubject"
 import { RelativeTime } from "@/components/shared/RelativeTime"
-import type { DroppedCommits } from "@/hooks/usePushButton"
 import { formatShortHash } from "@/lib/hash"
+import type { DroppedCommits } from "@/presenters/push-button"
 
 /** The remote commits a force push drops, under the description of the push button: subject, author, id and age */
 export function DroppedCommitList({ dropped }: { dropped: DroppedCommits }) {

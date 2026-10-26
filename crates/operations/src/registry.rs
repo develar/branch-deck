@@ -128,6 +128,7 @@ impl Registry {
       channels: Arc::clone(&self.channels),
       events,
       ended: false,
+      queued: false,
       _hold: self.sessions.hold(key),
     };
     let (wake, woken) = oneshot::channel();
@@ -138,6 +139,7 @@ impl Registry {
       Decision::Run => Ok(Admitted::Run(guard)),
       Decision::Queued => {
         woken.await.map_err(|_closed| closed())?;
+        guard.queued = true;
         Ok(Admitted::Run(guard))
       }
       // nothing of it entered the session
@@ -259,6 +261,8 @@ pub struct RunningGuard {
   channels: Channels,
   events: Arc<dyn EventSink>,
   ended: bool,
+  /// It waited in the queue for the operations before it
+  queued: bool,
   /// Dropped after the end went to the session
   _hold: SessionHold,
 }
@@ -267,6 +271,13 @@ impl RunningGuard {
   #[must_use]
   pub const fn id(&self) -> &OperationId {
     &self.id
+  }
+
+  /// It waited in the queue for the operations before it that held what it needs: what they did changed the facts its
+  /// caller planned it on
+  #[must_use]
+  pub const fn queued(&self) -> bool {
+    self.queued
   }
 
   /// The operation goes on to `step`: the view shows it, the caller hears it

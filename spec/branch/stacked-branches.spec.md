@@ -45,10 +45,11 @@ targets:
   - ../../src/components/commit/PrefixChangeHint.tsx
   - ../../src/components/shared/InlineBranchTarget.tsx
   - ../../src/hooks/useBranchNameValidation.ts
-  - ../../src/hooks/usePushButton.ts
+  - ../../src/presenters/push-button.ts
+  - ../../src/hooks/useBranchPushes.ts
   - ../../src/lib/push-summary.ts
   - ../../crates/domain-policy/src/push.rs
-  - ../../src/lib/git/push.ts
+  - ../../src/lib/push-run.ts
   - ../../src/lib/git/stack-push.ts
   - ../../crates/sync-core/src/push.rs
   - ../../src/components/branch/StackBaseLabel.tsx
@@ -59,7 +60,6 @@ targets:
   - ../../src/lib/push-up-to.ts
   - ../../src/components/commit/PushUpToMark.tsx
   - ../../src/hooks/useCommitMoveList.ts
-  - ../../crates/sync-core/src/push.rs
   - ../../src/lib/stack-state.ts
   - ../../src/hooks/useStackStates.ts
   - ../../src/lib/stack-collapse.ts
@@ -73,7 +73,7 @@ targets:
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/branch/LandedChip.tsx
   - ../../src/lib/git/push-toast.tsx
-  - ../../src/lib/git/new-pull-request.ts
+  - ../../src/presenters/pull-request-url.ts
   - ../../src/lib/pull-request-dialog.ts
   - ../../src/lib/pull-request-run.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
@@ -272,7 +272,7 @@ menu stacks, unstacks and renames branches.
 - After a push, the toast is the push toast of any branch ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)):
   it says what the push did and offers "Create Pull Request…" (into the baseline) or "Open Pull Request". It names no
   base: every branch has the same.
-  [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `creates the pull request of a stacked branch into the baseline, its parent on the remote or not`)
+  [@test] ../../src/lib/push-run.test.ts (`offers to create the pull request of a branch without one, into the baseline`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
 - An open pull request whose base (`baseRefName`) is a virtual branch of the user (`{prefix}/virtual/…`,
   `PullRequestBase::Virtual` of `domain_policy::pull_request::base_of`: the branch of its parent, opened when pull requests went into the parent's branch, or of a
@@ -288,8 +288,10 @@ menu stacks, unstacks and renames branches.
   error and the push still runs; its toast then says "the pull request goes into auth: retarget it to master" with
   "Copy gh pr edit". "Copy Retarget Command" in the copy group of the branch menu copies the command before a push.
   `bd push` and `bd safe-push` retarget the same way ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
-  [@test] ../../src/lib/git/push.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`, `leaves a pull request into a release branch: that base may be meant`, `pushes and copies the command that retargets a pull request when the retarget fails`, `names each pull request into a virtual branch the pushes retargeted to the baseline`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`names each pull request into a virtual branch the pushes retargeted to the baseline`)
+  [@test] ../../src/lib/push-run.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`, `pushes and copies the command that retargets a pull request when the retarget fails`)
+  [@test] ../../crates/test-server/src/github_host_test.rs (`a_push_retargets_the_pull_request_of_its_branch_out_of_a_virtual_branch_first`)
+  [@test] ../../src/presenters/push-button.test.ts (`says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
   [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`retargets_a_pull_request_of_the_repository_of_the_branches`, `a_failure_says_what_github_said`)
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
@@ -314,16 +316,16 @@ menu stacks, unstacks and renames branches.
   branches meanwhile (its own row's button) waits for it from the moment the stack push knows its branches, before its
   checks, so no branch is sent twice. The row doesn't name the parent: the stack graph shows it, and the description of
   the button explains Push Stack.
-  [@test] ../../src/hooks/usePushButton.test.ts (`pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone`, `says what each force push of a stack push replaces, as the push of the branch alone does`, `takes the colour of an ancestor when none of the branch's commits are the user's`)
+  [@test] ../../src/presenters/push-button.test.ts (`pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone`, `says what each force push of a stack push replaces, as the push of the branch alone does`, `takes the colour of an ancestor when none of the branch's commits are the user's`)
   [@test] ../../src/lib/remote-status.test.ts (`names it in the line of a stack push in the same words, or the remote commits the push drops`)
-  [@test] ../../src/lib/git/push.test.ts (`joins a second push of the stack from a row whose stack push runs: one push, both pushed`, `joins the push of an action into the stack push of its row that runs: one push, the action pushed`, `says why the stack push an action joined failed, in the action's words`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`joins a second push of the stack from a row whose stack push runs: one push, both pushed`, `joins the push of an action into the stack push of its row that runs: one push, the action pushed`, `says why the stack push an action joined failed, in the action's words`)
   [@test] ../../src/lib/stack.test.ts (`names what a stack push sends while it runs: its one push of several branches, or the one branch`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`, `should push a stacked branch alone from the description of its button`, `should push a stacked branch alone from its menu, the second way after the push of the stack`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`offers the push of the branch alone after the push of the stack, as the description of the button does`)
 - The button pushes the branch alone, and its description offers `Push Stack (3 branches)` instead, while the branch's own push drops remote commits (it asks first, Force Push) and while the stack above
   the nearest ancestor whose push drops remote commits has only the branch: that ancestor asks first in its own row,
   and a stack pushed around it would leave a stale branch in the middle.
-  [@test] ../../src/hooks/usePushButton.test.ts (`offers Push Stack while the button pushes the branch alone: its push drops remote commits, or an ancestor's does`)
+  [@test] ../../src/presenters/push-button.test.ts (`offers Push Stack while the button pushes the branch alone: its push drops remote commits, or an ancestor's does`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`the_push_button_and_an_action_start_above_the_nearest_ancestor_that_asks_first`)
 - "Push Stack" (the button, or in that description) must push the ancestors with unpushed work, root first, then the
   branch. The branch menu pushes as the button does, never the whole stack past an ancestor whose push drops remote
@@ -340,7 +342,7 @@ menu stacks, unstacks and renames branches.
   ([Outgoing Commits](../repository/outgoing.spec.md#push)); else its toast says what that one has now ("login changed
   on the remote", "… Nothing was pushed.") and offers its push over it. A branch a running Safe Push holds refuses the
   push with the reason. A pull request into a virtual branch is retargeted before the push, as for one branch.
-  [@test] ../../src/lib/git/push.test.ts (`pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `says a stack push Rust made again over a remote that moved from what it went over, in one push of the page`, `pushes up to a commit with the branches below it whole, in one push`, `cancels the robot the start replaces at the first branch it holds, and pushes the ancestors its decision pushes with it`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `says a stack push Rust made again over a remote that moved from what it went over, in one push of the page`, `pushes up to a commit with the branches below it whole, in one push`, `cancels the robot the start replaces at the first branch it holds, and pushes the ancestors its decision pushes with it`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_stack_pushes_its_branches_in_one_push`, `a_moved_lease_refuses_every_branch_and_names_it`, `a_stack_push_up_to_a_commit_pushes_the_branches_below_whole`)
   [@test] ../../crates/operations/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_atomic_push_of_a_stack`)
@@ -354,7 +356,7 @@ menu stacks, unstacks and renames branches.
   failed, the robots the pushes restarted. The action is the pull request action of the branch the user pushed from
   ("Create Pull Request…" into the baseline, or "Open Pull Request"),
   unless a retarget comes first. Activity has an entry per branch. A push of one branch is its own push toast.
-  [@test] ../../src/lib/git/push.test.ts (`is one toast for the branches, with the pull request of the branch the stack was pushed from`, `names each pull request into a virtual branch the pushes retargeted to the baseline`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`is one toast for the branches, with the pull request of the branch the stack was pushed from`, `names each pull request into a virtual branch the pushes retargeted to the baseline`)
   [@test] ../../src/lib/push-summary.test.ts (`says what the pushes of a stack did together`)
   [@test] ../../src/lib/text.test.ts (`names up to four, so 'and 1 more' never stands where one name would, and counts the rest from five on`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
@@ -372,7 +374,7 @@ menu stacks, unstacks and renames branches.
   landed them, an open pull request of the whole stack takes its stack branch along. The settled layout holds its track
   meanwhile, and while it pushes the track keeps its width ("⟳ 45% with children").
   [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should hold the push track of a pushed root while GitHub answers, its Push with Children as wide as it was`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`offers Push with Children while branches stacked on it have work for the remote`, `offers the push of the branch alone before Push with Children for a branch in the middle of a stack`, `offers Push with Children while the branch itself is on the remote: its own push is disabled, this one isn't`)
+  [@test] ../../src/presenters/push-button.test.ts (`offers Push with Children while branches stacked on it have work for the remote`, `offers the push of the branch alone before Push with Children for a branch in the middle of a stack`, `offers Push with Children while the branch itself is on the remote: its own push is disabled, this one isn't`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`, `should offer Push with Children while a sync runs and when the root is pushed`)
 - "Push with Children" must push the branch if it has work for the remote, then its descendants that have work,
   parents first, in the one atomic push of a stack. A descendant whose push drops remote commits is left out: it asks first in its
@@ -407,13 +409,13 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes`)
   [@test] ../../src/presenters/actions.test.ts (`words every blocker of the catalog as the page says it`, `says why Push with Children leaves the stack branch of the whole stack as it is, and names the children that ask first`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
-  [@test] ../../src/lib/git/push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `goes along while its pull request is open, though the remote doesn't have it yet`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`, `is pushed alone when the branches are on the remote, with the pull request of the whole stack`, `refuses the whole push when its remote moved with commits it lacks, and says so as the stack branch`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `goes along while its pull request is open, though the remote doesn't have it yet`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`, `is pushed alone when the branches are on the remote, with the pull request of the whole stack`, `refuses the whole push when its remote moved with commits it lacks, and says so as the stack branch`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`takes the stack branch of the whole stack of a root along, counted and named, and says why it doesn't in Rust's words`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`names the stack branch of the whole stack that Push with Children of a root takes along`)
+  [@test] ../../src/presenters/push-button.test.ts (`names the stack branch of the whole stack that Push with Children of a root takes along`)
   [@test] ../../crates/sync-core/src/push_test.rs (`the_stack_branch_goes_with_the_branches_and_a_moved_one_is_named_as_the_stack_branch`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should take the whole stack branch along in Push with Children of the root once its pull request is open, from the push and the menu`, `should push a parent with its children`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it`)
+  [@test] ../../src/presenters/push-button.test.ts (`offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_with_children_covers_the_branch_and_its_descendants`, `push_with_children_leaves_out_what_asks_first_is_held_or_landed`, `push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
@@ -422,7 +424,7 @@ menu stacks, unstacks and renames branches.
   [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`is offered beside the push where Rust offers it, with its label of what it pushes, and the stack push over it`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
-  [@test] ../../src/lib/git/push.test.ts (`starts above the branches a running Safe Push holds`, `waits for the sync, then pushes the children as the sync leaves them`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`starts above the branches a running Safe Push holds`, `waits for the sync, then pushes the children as the sync leaves them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`, `should offer Push with Children while a sync runs and when the root is pushed`)
 
 - A Safe Push of a stacked branch lands it with the branches it is built on, in one robot: its button says so ("Safe

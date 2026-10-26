@@ -18,50 +18,22 @@ use repository_model::session::SessionKey;
 use std::path::PathBuf;
 use std::sync::Arc;
 use sync_core::patronus::SpaceRepository;
-use sync_core::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome};
+use sync_core::push::{PushBranchesOutcome, PushBranchesParams};
 use sync_core::transfer_progress::TransferProgress;
 use tauri::State;
 use tauri::ipc::Channel;
 use tracing::{instrument, warn};
 
-/// Pushes a branch to the remote, replacing the remote branch only as the user saw it, and answers its new remote
-/// status; a remote that moved is fetched and answered instead. An operation of the session of the repository
-/// (`operations::push`), which gets the outcome: the answer names the version of the view whose patch has it. Decided
-/// under the repository lock, pushed after it, and refused in Rust as `bd push` refuses it (`push_guard`): a branch the
-/// last sync did not build, a parked branch or one built on parked, one a merged Safe Push landed whole, one a running
-/// Safe Push holds (the robots as Rust reads them).
-/// `progress` receives how far the push is, and whom it waits for while another holder has the repository lock (as long
-/// as it lives); `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, patronus, sessions, lock_waits, settings, prefixes, progress))]
-#[specta::specta]
-#[expect(clippy::too_many_arguments, reason = "the states of the app a Tauri command takes one by one")]
-pub async fn push_branch(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  patronus: State<'_, PatronusState>,
-  sessions: State<'_, SessionsState>,
-  lock_waits: State<'_, LockWaits>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
-  params: PushBranchParams,
-  progress: Channel<TransferProgress>,
-) -> Result<ViewAnswer<PushOutcome>, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    let states = PushStates::of(&repository_state, &patronus, &sessions, &lock_waits, inputs);
-    states.push(params.as_stack(), progress, PushOutcome::of_stack).await
-  })
-  .await
-}
-
 /// Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
 /// branch only as the user saw it, and answers their new remote statuses; a remote branch that moved is named, with the
-/// statuses fetched after it. The session gets the outcome as from `push_branch`, an unapplied branch's too, so no
-/// sync follows. Decided under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
-/// stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or it is
-/// not built; an unapplied branch is checked by nothing and reads no robots. `progress` receives how far the push is, and whom it waits for
-/// while another holder has the lock, until `cancel_lock_wait` of its id.
+/// statuses fetched after it. An operation of the session of the repository (`operations::push`), which gets the
+/// outcome, so no sync follows: the answer names the version of the view whose patch has it. Decided under the
+/// repository lock and refused in Rust (`push_guard`) for a branch the last sync did not build, a parked branch or one
+/// built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (the robots as Rust reads them);
+/// the stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or
+/// it is not built. `progress` receives how far the push is, and whom it waits for while another holder has the lock,
+/// until `cancel_lock_wait` of its id. A branch alone and an unapplied branch are pushed by `execute` of the intent
+/// `Push` (`operations::push::execute_push`); the pushes of a stack move there in s9-13.
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
 #[specta::specta]
@@ -80,7 +52,7 @@ pub async fn push_branches(
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let states = PushStates::of(&repository_state, &patronus, &sessions, &lock_waits, inputs);
-    states.push(params, progress, Ok).await
+    states.push(params, progress).await
   })
   .await
 }
@@ -113,13 +85,8 @@ impl<'a> PushStates<'a> {
 
   /// The push of `params` (`operations::push::PushHost::push_branches`) under the prefix resolved for its repository, in
   /// the session of that key, its progress and its wait for another holder of the lock sent to `progress`, the wait
-  /// registered by the channel's id (`cancel_lock_wait`); `outcome` makes the answer
-  async fn push<T>(
-    self,
-    params: PushBranchesParams,
-    progress: Channel<TransferProgress>,
-    outcome: fn(PushBranchesOutcome) -> anyhow::Result<T>,
-  ) -> Result<ViewAnswer<T>, ApiError> {
+  /// registered by the channel's id (`cancel_lock_wait`)
+  async fn push(self, params: PushBranchesParams, progress: Channel<TransferProgress>) -> Result<ViewAnswer<PushBranchesOutcome>, ApiError> {
     let git_executor = self.prefix_inputs.git.clone();
     let branch_prefix = self.prefix_inputs.resolve(&params.repository_path).await?;
     let (git_common_dir, space) = push_inputs(&git_executor, self.repository_state, self.patronus, &params.repository_path).await?;
@@ -138,7 +105,7 @@ impl<'a> PushStates<'a> {
     let ticket = register(self.lock_waits, progress.id(), |_| {});
     let canceled = canceled_by(&ticket);
     let pushed = host.push_branches(params, move |push_progress| send_progress(&progress, push_progress), canceled).await;
-    canceled_code(pushed.and_then(|answer| answer.try_map(outcome)).map_err(api_error), &ticket)
+    canceled_code(pushed.map_err(api_error), &ticket)
   }
 }
 

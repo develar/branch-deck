@@ -12,8 +12,9 @@ targets:
   - ../../src/components/shared/PreviewDialogFrame.tsx
   - ../../src/hooks/usePreviewHotkeys.ts
   - ../../src/lib/preview-keys.ts
-  - ../../src/hooks/usePushButton.ts
-  - ../../src/lib/git/push.ts
+  - ../../src/presenters/push-button.ts
+  - ../../src/hooks/useBranchPushes.ts
+  - ../../src/lib/push-run.ts
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/stores/push-confirm.ts
   - ../../src/components/branch/SafePushButton.tsx

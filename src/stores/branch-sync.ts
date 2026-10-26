@@ -39,7 +39,7 @@ import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
 import type { SyncDeferral } from "@/lib/sync-deferred"
 import type { PushProgress } from "@/lib/transfer-progress"
-import { stackReadinessKey } from "@/lib/whole-stack"
+import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { nextRunNumber, requestSessionSync } from "@/model/store"
 import type { BranchStructure, TableRows } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE } from "@/model/structure"
@@ -208,12 +208,12 @@ export interface BranchSyncState {
   rows: TableRows
   branches: Record<string, Branch>
   /**
-   * Branches with a push in flight, and the stack branch of the whole stack of a root under its key `stack:<root>`
-   * (`stackReadinessKey`, a name no branch has), by `pushKey` of the repository the push started in: a push that ends
-   * after a switch of the repository marks nothing of the branch of the same name there; how far each is lives in
-   * `pushProgressStore`, so its ticks don't re-run the selectors of this store. Owned by push, never touched by sync: a
-   * sync rebuilds `branches` and must not reset a running push. Only the spinner, of a push that waits for a sync too:
-   * the remote status a push leaves comes in a patch of the session, which orders it against the syncs (Rust's
+   * The branches a stack push of the page sends (`stack-push.ts`, until the pushes of a stack are intents of the
+   * engine), and the stack branch of the whole stack of a root under its key `stack:<root>` (`stackReadinessKey`, a name
+   * no branch has), by `pushKey` of the repository the push started in. A push of a branch alone, of an unapplied branch
+   * and the push step of another operation are operations of the session (`operations`, `pushOperationIn`). How far each
+   * is lives in `pushProgressStore`, so its ticks don't re-run the selectors of this store. Owned by push, never touched
+   * by sync: the remote status a push leaves comes in a patch of the session, which orders it against the syncs (Rust's
    * `TableState::end_push`)
    */
   pushingBranches: Readonly<Record<string, true>>
@@ -977,9 +977,38 @@ export function useBranchRemoteStatus(name: string): RemoteStatus | null {
   return useStore(branchSyncStore, state => state.branches[name]?.remoteStatus ?? null)
 }
 
+/**
+ * Whether a push of `name` (a branch, `stackReadinessKey(root)` the stack branch of a whole stack, the full name of an
+ * unapplied branch) runs in the selected repository: an operation of its session that pushes it (`pushOperationIn`), or
+ * a stack push of the page
+ */
 export function useIsBranchPushing(name: string): boolean {
   const key = pushKey(useSelectedProjectPath() ?? "", name)
-  return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, key))
+  return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, key) || pushOperationIn(state.operations, name) !== undefined)
+}
+
+/** Whether the ref `ref` of an operation (`Resource.ref`, its full name) is the one a push of `name` writes */
+function isRefOf(ref: string, name: string): boolean {
+  const root = stackRootOfReadinessKey(name)
+  if (root !== null) {
+    return ref.endsWith(`/stack/${root}`)
+  }
+  return name.includes("/unapplied/") ? ref === name : ref.endsWith(`/virtual/${name}`)
+}
+
+/**
+ * The operation of the session that pushes `name` now, as the view has it (`RepositoryView.operations`): a push of it
+ * (`Push`, from its admission on, its waits for another push, a sync and the lock included), or another operation in
+ * the push step of its plan (a pull request, a review request, a restart that pushes first); a start of a Safe Push
+ * shows its push in its own slot (`useLandRun`)
+ */
+export function pushOperationIn(operations: Readonly<Record<OperationId, RunningOperation>>, name: string): RunningOperation | undefined {
+  return Object.values(operations).find(
+    operation =>
+      operation.intent.kind !== "land" &&
+      (operation.intent.kind === "push" || operation.step.kind === "pushing") &&
+      operation.resources.some(resource => resource.kind === "ref" && isRefOf(resource.name, name)),
+  )
 }
 
 /**
@@ -1010,11 +1039,30 @@ export function useStackBranchPushProgress(root: string): PushProgress | null {
  */
 export function useBranchPushProgress(name: string): PushProgress | null {
   const key = pushKey(useSelectedProjectPath() ?? "", name)
-  return useStore(pushProgressStore, state => state[key] ?? null)
+  const op = useStore(branchSyncStore, state => pushOperationIn(state.operations, name)?.id ?? null)
+  return useStore(pushProgressStore, state => (op === null ? undefined : state[op]) ?? state[key] ?? null)
 }
 
 export function getBranchPushProgress(name: string, repositoryPath: string = selectedRepositoryPath()): PushProgress | null {
-  return pushProgressStore.getState()[pushKey(repositoryPath, name)] ?? null
+  const op = repositoryPath === selectedRepositoryPath() ? pushOperationIn(branchSyncStore.getState().operations, name)?.id : undefined
+  const progress = pushProgressStore.getState()
+  return (op === undefined ? undefined : progress[op]) ?? progress[pushKey(repositoryPath, name)] ?? null
+}
+
+/**
+ * Records how far the push of the operation `op` is, as the channel of the window that runs it tells it (`OperationEvent`
+ * progress): the buttons of the branches it pushes show it; null forgets it once the operation ended
+ */
+export function setOperationPushProgress(op: OperationId, progress: PushProgress | null): void {
+  const current = pushProgressStore.getState()
+  if (progress === null) {
+    if (Object.hasOwn(current, op)) {
+      const { [op]: _, ...rest } = current
+      pushProgressStore.setState(rest, true)
+    }
+    return
+  }
+  pushProgressStore.setState({ [op]: progress })
 }
 
 export function useUnassignedCommits(): Commit[] {
@@ -1137,20 +1185,27 @@ function selectedRepositoryPath(): string {
   return getSelectedProject()?.path ?? ""
 }
 
+/** Whether a push of the branch runs in the repository (by default the selected one; its operations are of the shown one) */
+function isPushingIn(state: BranchSyncState, name: string, repositoryPath: string): boolean {
+  if (Object.hasOwn(state.pushingBranches, pushKey(repositoryPath, name))) {
+    return true
+  }
+  return repositoryPath === selectedRepositoryPath() && pushOperationIn(state.operations, name) !== undefined
+}
+
 /** Whether a push of the branch runs in the repository (by default the selected one) */
 export function isBranchPushing(name: string, repositoryPath: string = selectedRepositoryPath()): boolean {
-  return Object.hasOwn(branchSyncStore.getState().pushingBranches, pushKey(repositoryPath, name))
+  return isPushingIn(branchSyncStore.getState(), name, repositoryPath)
 }
 
 /** Resolves once no push of the branch runs in the repository (the selected one by default): at once while none does */
 export function whenBranchPushed(name: string, repositoryPath: string = selectedRepositoryPath()): Promise<void> {
-  const key = pushKey(repositoryPath, name)
-  if (!Object.hasOwn(branchSyncStore.getState().pushingBranches, key)) {
+  if (!isBranchPushing(name, repositoryPath)) {
     return Promise.resolve()
   }
   return new Promise(resolve => {
     const unsubscribe = branchSyncStore.subscribe(state => {
-      if (!Object.hasOwn(state.pushingBranches, key)) {
+      if (!isPushingIn(state, name, repositoryPath)) {
         unsubscribe()
         resolve()
       }

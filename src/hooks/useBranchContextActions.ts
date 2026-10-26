@@ -2,10 +2,10 @@ import { CopyIcon, FoldVerticalIcon, LayersIcon, LinkIcon, ShieldEllipsisIcon, U
 import { useStore } from "zustand"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getBranchNextStep } from "@/hooks/useBranchNextStep"
+import { pushRunsOf } from "@/hooks/useBranchPushes"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { unparkBranch } from "@/hooks/useParkBranch"
-import { firstPushPending, firstPushWait, getPushButtonNow, isLandingPushAvailable } from "@/hooks/usePushButton"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
@@ -13,9 +13,7 @@ import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { ActionId, ActionState, PullRequest } from "@/lib/bindings"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
-import { getRetargetCommand } from "@/lib/git/new-pull-request"
-import { pushOrConfirm } from "@/lib/git/push"
-import { pushWithChildren } from "@/lib/git/stack-push"
+import { pushOrConfirm, pushWithChildren } from "@/lib/git/stack-push"
 import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
@@ -28,6 +26,8 @@ import type { ActionItem, BlockerWords } from "@/presenters/actions"
 import { ACTION_LOOKS, findAction, getRobotActionItems, presentAction, whileSyncing } from "@/presenters/actions"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP } from "@/presenters/next-step"
+import { getRetargetCommand } from "@/presenters/pull-request-url"
+import { firstPushPending, firstPushWait, getPushButtonNow, isLandingPushAvailable } from "@/presenters/push-button"
 import { getRequestReviewItem } from "@/presenters/review"
 import type { Branch } from "@/stores/branch-sync"
 import {
@@ -287,7 +287,7 @@ function pushOverlay(item: MenuItem, push: ActionState | undefined, { isPushing,
 function getPushMenuItems(branch: Branch): MenuItem[] {
   const stackPushing = isStackPushing(branch.name)
   const isPushing = isBranchPushing(branch.name) || stackPushing
-  const button = getPushButtonNow(branch, isPushing)
+  const button = getPushButtonNow(branch, isPushing, pushRunsOf(branch.name))
   const described = branchItem(branch, "push", { label: button.text, onSelect: () => pushOrConfirm(branch.name, "row") })
   if (described === null) {
     return []

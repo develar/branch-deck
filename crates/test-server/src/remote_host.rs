@@ -66,7 +66,8 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::Push
     | HeldAnswer::CreatePullRequest
     | HeldAnswer::RequestReviewers
-    | HeldAnswer::SubmitReview => None,
+    | HeldAnswer::SubmitReview
+    | HeldAnswer::Sync => None,
   }
 }
 
@@ -164,6 +165,9 @@ pub enum HeldAnswer {
   /// A review of the user (`POST /repos/{owner}/{name}/pulls/{n}/reviews`, of every one): the `SubmitReview` of the
   /// engine waits at its review
   SubmitReview,
+  /// A sync run of the session of the repository (`TestSessionEnvironment::run_setup`, before it reads anything): the
+  /// session's sync runs until the release, so what waits for it (a push, `WaitingForSync`) is seen waiting
+  Sync,
 }
 
 /// The route of the fake GitHub that gives `answer`: held there
@@ -187,7 +191,8 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
     | HeldAnswer::GitHubAuth
     | HeldAnswer::YouTrackAuth
     | HeldAnswer::CliTools
-    | HeldAnswer::Push => None,
+    | HeldAnswer::Push
+    | HeldAnswer::Sync => None,
   }
 }
 
@@ -440,7 +445,8 @@ impl RemoteHost {
         | HeldAnswer::RepositoryView
         | HeldAnswer::GitHubAuth
         | HeldAnswer::YouTrackAuth
-        | HeldAnswer::CliTools => Arc::new(FakeGate::default()),
+        | HeldAnswer::CliTools
+        | HeldAnswer::Sync => Arc::new(FakeGate::default()),
       };
       if let Some(before) = held.insert(*answer, gate) {
         before.open();

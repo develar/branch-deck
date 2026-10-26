@@ -243,7 +243,8 @@ written, except by Update Project and the finish of its resolve session (their o
 7. **Git 2.54 or newer**, checked when the executor discovers git, on every platform, so that every command fails
    early with an install or upgrade hint.
 8. **Every push of virtual branches decides under the repository lock, in Rust, what may go, and pushes after it**:
-   `bd push` and `bd safe-push` after their sync, the app's `push_branch` and `push_branches` through
+   `bd push` and `bd safe-push` after their sync, the app's push of a branch alone through the plan of the intent
+   `Push` and its witness and freeze (`operations::push::execute_push`), and `push_branches` through
    `repository_model::push_guard`. Under the lock the commits and the leases are fixed; the network push sends exactly
    them (`<commit>:refs/heads/<name>`, `--force-with-lease=refs/heads/<name>:<lease>`) after it, so no writer waits
    for the network and a branch moved meanwhile changes nothing of what goes. A
@@ -596,7 +597,7 @@ Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWa
 `bd push` and `bd safe-push` (until the commits of their
 push are fixed, the network push after it; with `--check` only its sync),
 `bd move-hunk`, `bd pick` (after its check, the witness and the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
-(`push_branch`, `push_branches`: `operations::push`, on the `$GIT_COMMON_DIR` the app keeps, so the checks see the
+(`execute` of the intent `Push`, `push_branches`: `operations::push`, on the `$GIT_COMMON_DIR` the app keeps, so the checks see the
 branches no other writer moves meanwhile and fix the commits that go; it holds the lock only for that, and pushes
 those commits after it, so the app's pushes run side by side; "Push and land"), and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch and its check, for the witness, the local changes and the move, and `bd update --continue` and `--abort`; `bd update --status` and
@@ -2729,6 +2730,29 @@ side, one ref queued and joined, the push again over a moved remote, a push held
 branch's push, a squash under the lock and a sync finish (the commit it froze goes), no robots for an unapplied
 branch, and a push whose caller went away. "Agent push", "App stack push" and "Agent Safe Push" are the parts each caller adds.
 
+The push of a branch alone and of an unapplied branch in the app (its push button, the menu, P, the toast of a remote
+that moved) is the intent `Push` (`prepare` and `execute`, `operations::push::{prepare_push, execute_push}`), run as a
+start runs (below, `land_execute::run_planned`). Its plan (`push_planned`, over the table and the facts of the session;
+the holds `derive::alone_push_of`): the retarget of the open pull request of the branch out of a virtual branch first
+(D3a; GitHub refusing it is a failed effect, and the push goes on), the cancel of the Safe Push of the branch while it
+runs and the push restarts it (`restart_running`), the push of the branch while it has work for the remote (`force`
+when it drops remote commits), then the restart. A push that drops remote commits the branch lacks asks first
+(`Confirmation::ForcePushDrops`) unless the intent forces it; a branch that stays local, one a Safe Push holds or a
+merged one landed whole, and one the last sync did not build refuse it; an unapplied branch reads no robot and has no
+hold and no retarget (C3). Its witness is the tip of the branch and the remote head the row showed (`expect_remote`),
+so the remote-tracking ref moved since refuses it before anything (`plan_changed`); a plan that pushes nothing (a
+restart over a remote that has the branch) takes no lock. Its run: admitted per ref (`Resource::Ref` of the branch
+whatever its plan pushes now, the robot it restarts, the base it retargets), after the sync of the session that runs
+(`WaitingForSync`), then the user's robots one full list (`robots_for_checks`, the Patronus view of the table derived of
+them, `push_guard::guard_facts`, so a robot the IDE or `bd` started since the session's list holds; none for an unapplied
+branch), its refusal in their words, then the witness, the lock for the full witness and the freeze (one ref goes
+without `--atomic`), the effects. After a wait (the sync, the pushes of its ref it queued behind) it is decided again on
+what they left, leased on the remote head the session has now (`ExpectRemote::OfSession`), and goes while the user
+accepted what it asks. Its outcome (`OperationResult::Push`: the statuses it went over once more, the robot it
+restarted) names the event of the pushes of the branch (`NewsKey::Push`), whose toast the page replaces in place;
+`operations/src/push_test.rs` (`a_push_of_a_branch_alone_is_planned_and_run_by_the_engine` and the next three) and the
+test server's `remote_git_fixtures_test.rs`, `github_host_test.rs` and `remote_fixtures_test.rs` pin it.
+
 A start of a Safe Push or a Dry Run (`execute` of `Intent::Land`, `operations::land_execute`) is one run for the app
 and `bd` too, its push this core's `send`. Its plan is prepared again from the facts now (`StartHost::plan`: the
 session of the app, `land_session::SessionStart`; the one-shot session of `bd`) and runs only on the fingerprint its
@@ -2773,7 +2797,8 @@ of its own (C2).
 
 Code: `crates/operations/src/push.rs`, `crates/operations/src/pull_request.rs`, `crates/operations/src/land_execute.rs`,
 `crates/operations/src/land_session.rs`, `crates/operations/src/robot_start.rs`, `crates/sync-core/src/push.rs`,
-`src-tauri/src/commands/operations.rs`, `src/hooks/useSafePush.ts`, `src/presenters/outcome.ts`, `src/stores/safe-push.ts`.
+`src-tauri/src/commands/operations.rs`, `src/hooks/useSafePush.ts`, `src/lib/push-run.ts`, `src/presenters/outcome.ts`,
+`src/presenters/push-button.ts`, `src/stores/safe-push.ts`.
 
 #### Agent push (`bd push`)
 
@@ -3039,8 +3064,8 @@ never the page's (`operations::robot`):
 The robots each decides on are the session's, asked no list of its own; every robot it restarted or canceled goes into
 the session, so every window shows it at once. A restart and a cancel hold their robot (`Resource::Robot`): a second
 click of the same joins it, a cancel during a restart waits for it; a restart holds what its robot lands and the ref
-of its push too. The push of the app (`push_branch`) restarts a robot it canceled through the same intent until its
-family moves into the engine (s9-12).
+of its push too. The push of a branch alone that restarts its Safe Push (`Push::restart_running`, the toast of a
+remote that moved under a restart) is a plan of the same effects: the cancel, the push, the restart.
 
 Code: `crates/operations/src/robot.rs`, `crates/operations/src/land_execute.rs`, `src/lib/robot-run.ts`,
 `src/presenters/actions.ts` (`getRobotActionItems`).
@@ -3183,7 +3208,7 @@ output and the app's toast.
 
 #### Push lease
 
-The app's push (`push_branch`) and `bd push` share one lease (`crates/sync-core/src/push_lease.rs`), so a push from
+The app's push (the intent `Push`, `push_branches`) and `bd push` share one lease (`crates/sync-core/src/push_lease.rs`), so a push from
 either one leaves the next push of the other valid. A push replaces exactly the remote state the user saw:
 
 - The remote status of a branch names the commit it was computed against (`remote_tip`) and lists the commits a push
@@ -3192,7 +3217,8 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   while commits are left dropped), the remote copies of reworded commits and the commits of the branches a stacked
   branch is built on that its remote branch lacks are counted apart (`commits_amended`, `commits_restacked`,
   `commits_landed`, `commits_reworded`, `ancestor_commits_ahead`), a push replaces them without asking. The push button sends that commit back
-  (`expected_remote`, null when the row showed no remote branch), and `prepare_push_expecting` leases on it. A Force
+  (`expect_remote` of the intent `Push`, null when the row showed no remote branch): the plan is witnessed on it and
+  the freeze leases on it (`land_execute::freeze`; `prepare_push_expecting` of a stack push). A Force
   Push drops what the row listed and nothing else, also when Branch Deck's last push is older than someone else's
   fetched commit; a plain push after the user brought that commit into the branch goes through as well.
 - The sync `bd push` runs first gives it the same view, so `bd push` leases on the sync's `remote_tip` too.
@@ -3223,15 +3249,17 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   ([Remote Status](remote-status.md#moved-remote-branches)) with the same `fetch_remote_branches`, never while the app
   pushes it, and a push of the ref waits for the fetch (`repository_model::ref_claims`); the status it leaves lists
   the fetched commits as dropped, so the lease holds as after any fetch.
-- `push_branch` returns `PushOutcome::RemoteMoved` with the new remote status when the fetched head differs from the
-  expected one: the row turns into the push the remote now needs, and a toast offers it (a push that drops the fetched
+- The push effect of the intent `Push` fails as `lease_rejected` (`push_branches` answers `RemoteMoved`), its end
+  in the session with the new remote status, when the fetched head differs from the expected one: the row turns into
+  the push the remote now needs, and a toast offers it (a push that drops the fetched
   commits confirms in the row's push button first, as any such push does). When the fetched head is the
   expected one, the lease held and the remote refused for another reason (a hook, a protected branch, a pack too
   large): an error with the report of each refused ref and what the remote said why. The report names only the kind
   (`n/a (unpacker error)`); the reason is in stderr (`remote: fatal: pack exceeds maximum allowed size`, `error: remote
   unpack failed: …`), which `push_refs` keeps also when it reads the progress (`GitCommand::progress` returns the
   messages of stderr with an accepted exit code), without the progress lines (`PushRefsReport::messages`).
-  `push_branch` is the stack push of one branch (`push_branches`), so both answer alike.
+  A push the remote refused for another reason is the `push_refused` failure of its push effect (`push_branches`: an
+  error).
 
 #### Push size
 
@@ -3282,7 +3310,7 @@ lacks, and its pull request showing the parent's commits.
    page (`pushUpToPlan`, `src/lib/push-up-to.ts`). The holds are checked per branch (`checkPushHold` on the hold of the
    view; a held one refuses the whole push, the robot a Safe Push start replaces is canceled once), and an open pull
    request that needs a retarget is retargeted, as before a push of one branch.
-2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one sequence,
+2. The Tauri command `push_branches` and the E2E server's route of it go through one sequence,
    an operation of the session of the repository (`operations::push::PushHost::push_branches`, "Push and land"):
    admitted per ref it writes (a push of a ref another push of the app writes, the same branch twice or two whole
    stacks of one stack branch, waits for it in the registry without a bound, since both lease on the head the user saw
@@ -3379,7 +3407,8 @@ whose approvals count: the app and `bd` ask it with the pull request the robot w
   on: the server and the token, the Space repository, the target, the sorted paths, and with a pull request its
   number, author and reviews. A rebase onto a new baseline keeps the key, a new review changes it. A kept answer
   costs the log and no request; a pull request the app shows sends its reviews along, so no backend reads GitHub for it.
-- Starting a robot pushes nothing itself: the branch is pushed by `push_branch` first, then Patronus is asked over HTTP.
+- Starting a robot pushes nothing itself: the branch is pushed by the push effect of the start first, then Patronus
+  is asked over HTTP.
 - When Patronus names a reviewer group without its paths, the union of the paths of all branches asked is given to
   the code owners (below) in one read, and a group gets the paths of its branch whose owner has its name.
 - Who asks: `bd safe-push` for the branch it starts, and the session of a repository in the app for the subjects its

@@ -1,19 +1,20 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { PushOptions } from "@/lib/git/push"
+import type { PushBranchOptions } from "@/lib/push-run"
 
 /** The push button that shows a confirm: the one of the branch row, or the one in the footer of the branch preview */
 export type PushConfirmTarget = "row" | "preview"
 
 /**
- * A push that drops remote commits, asked for away from its button (the action of the remote-moved toast, P in the
- * preview): the push button of `target` opens its description with the dropped commits and the Force Push that pushes.
+ * A push whose plan asks first (`Confirmation::ForcePushDrops` of `prepare` of the push: it drops remote commits the
+ * branch lacks), from its button, the menu, P in the preview or the action of the remote-moved toast: the push button of
+ * `target` opens its description with the dropped commits and the Force Push that pushes them over (`force`).
  */
 export interface PushConfirmRequest {
   branchName: string
   target: PushConfirmTarget
-  /** The options of that push: the remote head the toast leases on, the Safe Push it restarts */
-  options: PushOptions
+  /** The options of that push: the remote head it leases on, the Safe Push it restarts */
+  options: PushBranchOptions
 }
 
 interface PushConfirmState {
@@ -23,7 +24,7 @@ interface PushConfirmState {
 export const pushConfirmStore = createStore<PushConfirmState>(() => ({ request: null }))
 
 /** Opens the confirm of a push in the push button of `target`; a newer request replaces an unanswered one */
-export function requestPushConfirm(branchName: string, target: PushConfirmTarget, options: PushOptions = {}): void {
+export function requestPushConfirm(branchName: string, target: PushConfirmTarget, options: PushBranchOptions = {}): void {
   pushConfirmStore.setState({ request: { branchName, target, options } })
 }
 

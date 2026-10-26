@@ -55,7 +55,8 @@ targets:
   - ../../src/lib/git/push-toast.tsx
   - ../../src/lib/stack.ts
   - ../../src/hooks/useBranchContextActions.ts
-  - ../../src/hooks/usePushButton.ts
+  - ../../src/presenters/push-button.ts
+  - ../../src/hooks/useBranchPushes.ts
   - ../../src/lib/pull-request-dialog.ts
   - ../../src/lib/pull-request-run.ts
   - ../../src/hooks/useCreatePullRequestContext.ts
@@ -93,7 +94,6 @@ targets:
   - ../../src-tauri/src/commands/pull_requests.rs
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/BranchActions.tsx
-  - ../../src/components/branch/CreatePullRequestDialog.tsx
 ---
 
 # Whole Stack
@@ -208,7 +208,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`, `push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
-  [@test] ../../src/lib/git/push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
@@ -296,7 +296,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)).
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it, the stack landing from the click`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it, the stack waiting from the click`, `should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should run the restart of the robot of the whole stack once while its push runs: one push, one restart, one toast`)
-  [@test] ../../src/lib/git/push.test.ts (`joins a push of the stack branch that runs: one push, both done, Activity records it once`, `says a failed push once: the request that joined it fails with it`, `pushes what a sync rebuilt while the push it joined ran`, `is one request for a second restart of the same robot: one push, one restart, one toast`, `restarts after the push it joined, and pushes nothing of its own: the remote has the stack branch`, `leaves the stack branch to a push of it alone that runs: Push with Children waits, then sends only the branches`, `joins Push with Children that takes the stack branch along, and pushes it alone after one that failed`, `is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`joins a push of the stack branch that runs: one push, both done, Activity records it once`, `says a failed push once: the request that joined it fails with it`, `pushes what a sync rebuilt while the push it joined ran`, `is one request for a second restart of the same robot: one push, one restart, one toast`, `restarts after the push it joined, and pushes nothing of its own: the remote has the stack branch`, `leaves the stack branch to a push of it alone that runs: Push with Children waits, then sends only the branches`, `joins Push with Children that takes the stack branch along, and pushes it alone after one that failed`, `is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)

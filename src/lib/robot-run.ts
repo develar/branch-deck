@@ -6,13 +6,12 @@
 // restarted", "Safe Push is canceling"), the remote that moved with the push that restarts it, or why not.
 import type { Outcome, PatronusRobot, RobotResult } from "@/lib/bindings"
 import { getErrorCode, notifyError } from "@/lib/errors"
-import { showRemoteMovedToast } from "@/lib/git/push"
 import { describeRobot, formatPushMode, formatRobotSubject } from "@/lib/patronus"
+import { showRemoteMovedToast } from "@/lib/push-run"
 import { showRobotToast } from "@/lib/robot-toast"
 import type { IntentRun } from "@/lib/run-intent"
-import { failedEffect, pushShown, runFailure, runIntent } from "@/lib/run-intent"
+import { failedEffect, runFailure, runIntent } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
-import { stackReadinessKey } from "@/lib/whole-stack"
 import { recordRobot } from "@/stores/activity"
 import { getBranch } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath } from "@/stores/repository"
@@ -59,10 +58,8 @@ function tellFailure(title: string, run: IntentRun, noPlan: string): void {
  */
 export async function restartRobot(robot: PatronusRobot, repositoryPath: string = getSelectedRepositoryPath()): Promise<PatronusRobot | null> {
   const mode = formatPushMode(robot.pushMode)
-  // the push it makes first shows on the push button of its branch, or of its whole stack
-  const key = robot.branchName ?? (robot.stackRoot == null ? null : stackReadinessKey(robot.stackRoot))
-  const push = pushShown(key === null ? [] : [key], repositoryPath)
-  const run = await runIntent(repositoryPath, { kind: "restartRobot", robotId: robot.id }, push.onEvent).finally(push.done)
+  // the push it makes first shows on the push button of its branch, or of its whole stack (the operation of the view)
+  const run = await runIntent(repositoryPath, { kind: "restartRobot", robotId: robot.id })
   const restarted = restartedOf(run)
   if (restarted !== null) {
     announceRobot(`${mode} restarted`, restarted, repositoryPath, run.kind === "ran" ? run.outcome.op : undefined)
@@ -71,7 +68,7 @@ export async function restartRobot(robot: PatronusRobot, repositoryPath: string 
   const failed = run.kind === "ran" ? failedEffect(run.outcome) : null
   const moved = robot.branchName === null ? undefined : getBranch(robot.branchName)?.remoteStatus
   if (failed?.effect.kind === "push" && getErrorCode(failed.error) === "lease_rejected" && robot.branchName !== null && moved != null) {
-    await showRemoteMovedToast({ repositoryPath }, robot.branchName, moved, robot)
+    await showRemoteMovedToast(repositoryPath, robot.branchName, moved, true)
     return null
   }
   tellFailure(`Cannot restart the ${mode}`, run, `Patronus offers no restart of ${formatRobotSubject(robot)} now`)

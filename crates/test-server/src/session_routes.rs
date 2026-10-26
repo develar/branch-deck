@@ -58,8 +58,13 @@ pub struct TestSessionEnvironment {
 }
 
 impl SessionEnvironment for TestSessionEnvironment {
+  /// The options of a sync of the app; a test that holds the sync runs of the repository (`HeldAnswer::Sync`) sees the
+  /// session's sync running until the release
   fn run_setup(&self, key: &SessionKey) -> anyhow::Result<RunSetup> {
     let state = self.state.upgrade().ok_or_else(|| anyhow::anyhow!("The test server stopped"))?;
+    if let Some(host) = repository_by_path(&state, &key.worktree).ok().and_then(|repository| repository.existing_remote()) {
+      tokio::runtime::Handle::current().block_on(host.pass_held(HeldAnswer::Sync));
+    }
     Ok(RunSetup {
       options: SyncOptions {
         issue_config: IssueConfigSource::Load,
@@ -293,6 +298,14 @@ impl TestServices {
 impl ServiceHost for TestServices {
   fn git(&self) -> GitCommandExecutor {
     self.git.clone()
+  }
+
+  /// The config as the config commands of the test read and write it: the global config of the repository its own file
+  fn config_git(&self, key: &SessionKey) -> GitCommandExecutor {
+    let state = self.state.upgrade();
+    state
+      .and_then(|state| crate::tauri_command_bridge::config_git(&state, &key.worktree).ok())
+      .unwrap_or_else(|| self.git.clone())
   }
 
   fn patronus(&self, key: &SessionKey) -> Result<Arc<PatronusService>, ApiError> {

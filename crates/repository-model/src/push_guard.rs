@@ -1,5 +1,5 @@
-//! The checks of the app's push (`push_branch`, `push_branches` and the E2E server's routes of them, which run them in
-//! `operations::push`) in Rust, by the rules of `bd push` over the Patronus view (`derive_patronus`): under the
+//! The checks of the app's push of a stack (`push_branches` and its route of the E2E server, which run them in
+//! `operations::push`; the push of a branch alone decides by the same holds in its plan, `derive::alone_push_of`) in Rust, by the rules of `bd push` over the Patronus view (`derive_patronus`): under the
 //! repository lock, a branch the last sync has no row of is no branch to push, a parked branch and a branch built on one
 //! stay local, a branch a merged Safe Push landed whole has nothing left to push, a branch a running Safe Push holds (its
 //! own robot, one of a branch built on it, the whole stack on its stack branch) is not pushed (the push won't land, and a

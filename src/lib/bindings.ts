@@ -7,24 +7,16 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  Pushes a branch to the remote, replacing the remote branch only as the user saw it, and answers its new remote
-	 *  status; a remote that moved is fetched and answered instead. An operation of the session of the repository
-	 *  (`operations::push`), which gets the outcome: the answer names the version of the view whose patch has it. Decided
-	 *  under the repository lock, pushed after it, and refused in Rust as `bd push` refuses it (`push_guard`): a branch the
-	 *  last sync did not build, a parked branch or one built on parked, one a merged Safe Push landed whole, one a running
-	 *  Safe Push holds (the robots as Rust reads them).
-	 *  `progress` receives how far the push is, and whom it waits for while another holder has the repository lock (as long
-	 *  as it lives); `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
-	 */
-	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<ViewAnswer<PushOutcome>, ApiError>(__TAURI_INVOKE("push_branch", { params, progress })),
-	/**
 	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
 	 *  branch only as the user saw it, and answers their new remote statuses; a remote branch that moved is named, with the
-	 *  statuses fetched after it. The session gets the outcome as from `push_branch`, an unapplied branch's too, so no
-	 *  sync follows. Decided under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
-	 *  stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or it is
-	 *  not built; an unapplied branch is checked by nothing and reads no robots. `progress` receives how far the push is, and whom it waits for
-	 *  while another holder has the lock, until `cancel_lock_wait` of its id.
+	 *  statuses fetched after it. An operation of the session of the repository (`operations::push`), which gets the
+	 *  outcome, so no sync follows: the answer names the version of the view whose patch has it. Decided under the
+	 *  repository lock and refused in Rust (`push_guard`) for a branch the last sync did not build, a parked branch or one
+	 *  built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (the robots as Rust reads them);
+	 *  the stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or
+	 *  it is not built. `progress` receives how far the push is, and whom it waits for while another holder has the lock,
+	 *  until `cancel_lock_wait` of its id. A branch alone and an unapplied branch are pushed by `execute` of the intent
+	 *  `Push` (`operations::push::execute_push`); the pushes of a stack move there in s9-13.
 	 */
 	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<ViewAnswer<PushBranchesOutcome>, ApiError>(__TAURI_INVOKE("push_branches", { params, progress })),
 	/**
@@ -3448,7 +3440,11 @@ export type OperationResult =
 /**  The state field of an issue and the value it had (`Intent::SetIssueState`): its undo sets that value again */
 {
 	kind: "issue",
-} & YouTrackStateChange;
+} & YouTrackStateChange | 
+/**  A push: the remote statuses it went over once more, the Safe Push it restarted on the pushed commit */
+{
+	kind: "push",
+} & PushResult;
 
 /**  What an operation cost */
 export type OperationStats = {
@@ -4153,9 +4149,15 @@ export type Push = {
 	 *  only while it is there; `None`: the status showed no remote branch
 	 */
 	expectRemote: string | null,
-	/**  It replaces commits of the remote the branch lacks, someone's work (`bd push --force`) */
+	/**
+	 *  It replaces commits of the remote the branch lacks, someone's work (`bd push --force`, the Force Push the user
+	 *  chose): its plan asks nothing then; without it a push that drops them asks first (`Confirmation::ForcePushDrops`)
+	 */
 	force: boolean,
-	/**  The Safe Push that holds the push is canceled first and restarted on the pushed commit (`--restart-running`) */
+	/**
+	 *  The Safe Push of the branch is restarted on the pushed commit, canceled first while it runs (`--restart-running`,
+	 *  the push of the toast of a remote that moved under a restart)
+	 */
 	restartRunning: boolean,
 };
 
@@ -4177,29 +4179,6 @@ export type PushAction =
 { kind: "force"; drops: boolean; replaces: boolean } | 
 /**  The remote has the branch as it is, by content: nothing to push */
 { kind: "upToDate" };
-
-export type PushBranchParams = {
-	repositoryPath: string,
-	branchName: string,
-	myEmail: string | null,
-	baselineBranch: string,
-	/**
-	 *  The branch a stacked branch is built on (`BranchStack::effective_base`): its commits are not counted as unpushed
-	 *  commits of this branch
-	 */
-	parentBranch?: string | null,
-	/**
-	 *  The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
-	 *  branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
-	 */
-	expectedRemote: string | null,
-	/**
-	 *  Push Up to Here: the commit of the virtual branch to push instead of its tip, so the remote gets the branch up to
-	 *  it and the commits after it stay unpushed. It must be one of the branch's own commits (not of its parent or the
-	 *  baseline), newer than `expected_remote` on the same line (`check_push_tip`)
-	 */
-	tip?: string | null,
-};
 
 /**  What a stack push did */
 export type PushBranchesOutcome = 
@@ -4227,19 +4206,20 @@ export type PushBranchesParams = {
 	branches: StackPushBranch[],
 };
 
-/**  What a push did */
-export type PushOutcome = 
-/**
- *  The remote branch is at the pushed commit. `pushed_over`: the remote branch had moved since the status the user
- *  saw, without commits the branch lacks, so the push went again, once, over this status of it (fetched after the
- *  first push was refused); `None` when the first push went
- */
-{ type: "pushed"; remoteStatus: RemoteStatusUpdate; pushedOver: RemoteStatusUpdate | null } | 
-/**
- *  The remote branch was not where the user saw it (`expected_remote`): nothing was pushed. The branch was fetched,
- *  and `remote_status` shows what the remote has now; a push with its `remote_tip` replaces that
- */
-{ type: "remoteMoved"; remoteStatus: RemoteStatusUpdate };
+/**  What a push answered (`Intent::Push`): the toast of the push and its Activity entry name it */
+export type PushResult = {
+	/**
+	 *  The remote status of each pushed branch, in the order of the push, that the push went over once more: the remote
+	 *  branch had moved since the status the user saw, without commits the branch lacks (D4); empty when the first push
+	 *  went
+	 */
+	pushedOver: RemoteStatusUpdate[],
+	/**
+	 *  The Safe Push of the branch the push restarted on the pushed commit (`Push::restart_running`), canceled first
+	 *  while it ran
+	 */
+	restarted: PatronusRobot | null,
+};
 
 /**  What a push takes along with its subject (`domain_policy::push::push_plan` orders it) */
 export type PushScope = 
@@ -5624,7 +5604,11 @@ export type StackPushBranch = {
 	 *  branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
 	 */
 	expectedRemote: string | null,
-	/**  Push Up to Here: the commit to push instead of the tip (`PushBranchParams::tip`) */
+	/**
+	 *  Push Up to Here: the commit of the virtual branch to push instead of its tip, so the remote gets the branch up to
+	 *  it and the commits after it stay unpushed. It must be one of the branch's own commits (not of its parent or the
+	 *  baseline), newer than `expected_remote` on the same line (`check_push_tip`)
+	 */
 	tip?: string | null,
 	/**
 	 *  The stack branch of the whole stack whose root `branch_name` is (`{prefix}/stack/<root>`), not its virtual branch:

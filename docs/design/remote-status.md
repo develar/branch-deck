@@ -164,6 +164,13 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
 - **Remote at the tip**: a remote tip equal to the branch's tip is up to date and a fast-forward without a walk; only
   the push time is read. It is the state of a branch after its push until the sync rebuilds it: the status the app's
   push computes after it, and the first sync after the push, whose statuses of the branch were of other commits.
+- **The outcome of a push is a patch**: the statuses a push leaves go into the table of the session
+  (`Sessions::tell_push`, `TableState::end_push`), ordered against the syncs, and every window reads them from the patch,
+  never from an answer of its own. The push of a branch alone and of an unapplied branch is the intent `Push` of the
+  engine (`operations::push::execute_push`): its push effect ends the push in the session (`StartHost::end_push`) with
+  the statuses after it (`PreparedPush::statuses`), or the fetched ones of a push the remote refused because the remote
+  moved, and the page waits for the version its outcome names (`versionAfter`) before it says how the push went; a stack
+  push of the page (`push_branches`, until s9-13) answers the version of its patch the same way.
 - **The walks** are one `rev-list` of `crates/git-ops/src/landed_pairing.rs` (`walk_commits`, shared with the robot
   commit map): `--format=%m%x00%H%x00%an%x00%ae%x00%at%x00%s`, the caller's options, then the revs between
   `--end-of-options` and `--`; the two walks of a pushed branch read the raw messages too

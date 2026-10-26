@@ -35,8 +35,8 @@ targets:
   - ../../src/components/branch/StatusChip.tsx
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/WholeStackSlot.tsx
-  - ../../src/lib/git/push.ts
-  - ../../src/lib/git/new-pull-request.ts
+  - ../../src/lib/push-run.ts
+  - ../../src/presenters/pull-request-url.ts
   - ../../src/lib/git/push-toast.tsx
   - ../../src/lib/create-pull-request.ts
   - ../../src/lib/pull-request-dialog.ts
@@ -110,7 +110,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 - The repository is `git config branchdeck.githubRepository` (`owner/name`; Settings → Repository, GitHub repository,
   which shows the detected one as its placeholder, [Settings](../repository/settings.spec.md#repository)), if set;
   else the one `origin` pushes to
-  (`git remote get-url --push origin`), as `push_branch` pushes to `origin`; else the GitHub mirror that the Space
+  (`git remote get-url --push origin`), as the virtual branches are pushed to `origin`; else the GitHub mirror that the Space
   settings committed in the repository name (`mirror.url` of `.space/repository-settings.json`, read from `HEAD` with
   one `git cat-file`, never from the working tree). SSH (`git@github.com:o/r.git`, `ssh://git@github.com/o/r.git`, `ssh.github.com:443`),
   HTTPS (with or without `.git` and credentials) and `git://` URLs name a github.com repository. No repository host or
@@ -461,7 +461,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   looked up by its head (`GET pulls?head=<owner>:<branch>&state=open`), not by the search, which lists a new pull
   request only a while later: a retry after a timeout, or the app and `bd safe-push --create-pull-request` at once,
   find the one just created.
-  [@test] ../../src/lib/git/push.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first`)
+  [@test] ../../src/presenters/pull-request-url.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
   [@test] ../../crates/operations/src/pull_request_test.rs (`a_creation_again_finds_the_pull_request_the_search_does_not_list_yet`)
@@ -489,7 +489,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   open or merged pull request and the GitHub repository is known, on the remote or not (the dialog pushes it); a branch
   with one doesn't. A closed pull request doesn't count: the branch gets a new one, and "Open Pull Request" (its hover
   "#7 is closed") still opens the closed one, beside it in the menu, the preview and the review window alike.
-  [@test] ../../src/lib/git/push.test.ts (`offers a new pull request when the branch has only a closed one`)
+  [@test] ../../src/lib/push-run.test.ts (`offers a new pull request when the branch has only a closed one`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
 - Once nothing of the branch is left to land, as its [next step](next-step.spec.md#the-table) says (`landed`, row 1:
   every commit in the fetched baseline, a merged Safe Push landed all of it, its own robot merged it), "Create Pull
@@ -508,7 +508,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   no base, every branch has the same; an open pull request into a virtual branch whose retarget failed gets "Copy gh
   pr edit" instead ([Stacked Branches](stacked-branches.spec.md#pull-requests)). A push that is a step of another action has no toast
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
-  [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
+  [@test] ../../src/lib/push-run.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
 - The review window of a branch ([Branch Review](branch-review.spec.md#the-create-pull-request-dialog)) has "Create
   Pull Request…" too: the dialog opens in the window, the main window sends what it shows and creates the pull request

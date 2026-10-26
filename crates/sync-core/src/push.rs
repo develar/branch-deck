@@ -1,5 +1,6 @@
 //! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the app's push of
-//! one branch and of a stack (`push_branches`, `operations::push`), and `bd push`, all through one leased push
+//! a stack (`push_branches`, `operations::push`; a branch alone is an intent of the engine, which freezes its own
+//! `PreparedPush::leased`), and `bd push`, all through one leased push
 //! (`push_leased`). A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched
 //! and reported, never overwritten blindly: the push goes again over what it has now, once, only when nothing of it is
 //! lost (`domain_policy::push::over_moved_remote`, `PreparedPush::over_moved`, which `operations::push::send` runs for
@@ -24,49 +25,6 @@ use tracing::{info, instrument, warn};
 /// The remote the pushes of the virtual branches go to: the remote-tracking refs `refs/remotes/origin/<full name>` they
 /// move are the ones a session replaces in its sync inputs
 pub const PUSH_REMOTE: &str = "origin";
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PushBranchParams {
-  pub repository_path: String,
-  pub branch_name: String,
-  pub my_email: Option<String>,
-  pub baseline_branch: String,
-  /// The branch a stacked branch is built on (`BranchStack::effective_base`): its commits are not counted as unpushed
-  /// commits of this branch
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub parent_branch: Option<String>,
-  /// The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
-  /// branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
-  pub expected_remote: Option<String>,
-  /// Push Up to Here: the commit of the virtual branch to push instead of its tip, so the remote gets the branch up to
-  /// it and the commits after it stay unpushed. It must be one of the branch's own commits (not of its parent or the
-  /// baseline), newer than `expected_remote` on the same line (`check_push_tip`)
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub tip: Option<String>,
-}
-
-/// What a push did
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum PushOutcome {
-  /// The remote branch is at the pushed commit. `pushed_over`: the remote branch had moved since the status the user
-  /// saw, without commits the branch lacks, so the push went again, once, over this status of it (fetched after the
-  /// first push was refused); `None` when the first push went
-  #[serde(rename_all = "camelCase")]
-  Pushed {
-    remote_status: RemoteStatusUpdate,
-    pushed_over: Option<RemoteStatusUpdate>,
-  },
-  /// The remote branch was not where the user saw it (`expected_remote`): nothing was pushed. The branch was fetched,
-  /// and `remote_status` shows what the remote has now; a push with its `remote_tip` replaces that
-  #[serde(rename_all = "camelCase")]
-  RemoteMoved { remote_status: RemoteStatusUpdate },
-}
 
 /// Why the last sync did not build a branch (`SyncReport::not_built`), in words
 pub const fn not_built_reason(reason: BlockReason) -> &'static str {
@@ -99,41 +57,6 @@ pub fn not_built_refusal(not_built: &HashMap<String, BlockReason>, branches: &[S
   (!refusals.is_empty()).then(|| format!("Nothing was pushed: {}", refusals.join(", ")))
 }
 
-impl PushBranchParams {
-  /// The stack push of this one branch (`push_branches`)
-  pub fn as_stack(&self) -> PushBranchesParams {
-    PushBranchesParams {
-      repository_path: self.repository_path.clone(),
-      my_email: self.my_email.clone(),
-      baseline_branch: self.baseline_branch.clone(),
-      branches: vec![StackPushBranch {
-        branch_name: self.branch_name.clone(),
-        parent_branch: self.parent_branch.clone(),
-        expected_remote: self.expected_remote.clone(),
-        tip: self.tip.clone(),
-        whole_stack: false,
-        unapplied: false,
-      }],
-    }
-  }
-}
-
-impl PushOutcome {
-  /// What the stack push of one branch (`PushBranchParams::as_stack`) did to it
-  pub fn of_stack(outcome: PushBranchesOutcome) -> Result<Self> {
-    let first = |statuses: Vec<RemoteStatusUpdate>| statuses.into_iter().next().context("No remote status of the pushed branch");
-    Ok(match outcome {
-      PushBranchesOutcome::Pushed { remote_statuses, pushed_over } => Self::Pushed {
-        remote_status: first(remote_statuses)?,
-        pushed_over: pushed_over.into_iter().next(),
-      },
-      PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => Self::RemoteMoved {
-        remote_status: first(remote_statuses)?,
-      },
-    })
-  }
-}
-
 /// One branch of a stack push (`PushBranchesParams`)
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -148,7 +71,9 @@ pub struct StackPushBranch {
   /// The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
   /// branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
   pub expected_remote: Option<String>,
-  /// Push Up to Here: the commit to push instead of the tip (`PushBranchParams::tip`)
+  /// Push Up to Here: the commit of the virtual branch to push instead of its tip, so the remote gets the branch up to
+  /// it and the commits after it stay unpushed. It must be one of the branch's own commits (not of its parent or the
+  /// baseline), newer than `expected_remote` on the same line (`check_push_tip`)
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub tip: Option<String>,

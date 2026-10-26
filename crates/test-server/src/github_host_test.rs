@@ -2,7 +2,9 @@ use crate::remote_fixtures::fixture_pulls;
 use crate::session_routes::TestFactSources;
 use crate::session_routes_test::{subscribe, subscription};
 use crate::tauri_command_bridge::review_requests_of;
-use crate::test_support::{Messages, Named, command, create_repository, delete_repository, head, post, post_as, start_test_server, start_test_server_with_state, sync};
+use crate::test_support::{
+  Messages, Named, command, create_repository, delete_repository, head, post, post_as, push_intent, start_test_server, start_test_server_with_state, sync,
+};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
 use remote_facts::fact_sources::FactSources;
@@ -222,15 +224,8 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   assert_eq!(pull_requests["pullRequests"]["login"]["baseRefName"], "master");
   assert_eq!(pull_requests["pullRequests"]["test-branch"]["state"], "closed");
   let log = get(&client, addr, &format!("/repositories/{id}/pull-requests")).await;
-  let writes: Vec<Value> = log["requests"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .filter(|request| request["method"] != "GET" && request["path"] != "/graphql")
-    .map(|request| json!([request["method"], request["path"], request["body"]]))
-    .collect();
   assert_eq!(
-    writes,
+    writes_of(&log),
     vec![
       json!(["POST", "/repos/acme/monorepo/pulls", {"title": "Add auth", "body": "b", "head": "user-name/virtual/test-branch", "base": "master"}]),
       json!(["POST", "/repos/acme/monorepo/issues/8/assignees", {"assignees": ["user-name"]}]),
@@ -242,6 +237,17 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   );
   // the push the creation makes first lists the pull requests again too
   assert_eq!(log["calls"], 6);
+}
+
+/// The writes GitHub got, in their order: method, path and body of every request but the reads and the searches
+fn writes_of(log: &Value) -> Vec<Value> {
+  log["requests"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .filter(|request| request["method"] != "GET" && request["path"] != "/graphql")
+    .map(|request| json!([request["method"], request["path"], request["body"]]))
+    .collect()
 }
 
 /// Signed out is no token file, which the status of the sign-in names too; a failure of the fixture is what the real
@@ -470,4 +476,28 @@ async fn a_deleted_repository_releases_the_answers_its_test_held() {
     tokio::time::timeout(std::time::Duration::from_mins(1), requests).await.is_ok(),
     "the held review requests ended"
   );
+}
+
+/// The push of a branch whose open pull request goes into a virtual branch retargets it into the target first (D3a),
+/// then pushes, as one plan of the engine: GitHub gets the PATCH of the base before the remote gets the branch
+#[tokio::test]
+async fn a_push_retargets_the_pull_request_of_its_branch_out_of_a_virtual_branch_first() {
+  let (addr, client, id, repository_path) = listing_login().await;
+  let _window = window(&client, addr, &id, &repository_path).await;
+  let into_virtual = PullRequest {
+    base_ref_name: "user-name/virtual/auth".to_string(),
+    ..pull_request("test-branch", 9)
+  };
+  let fixture = available(BTreeMap::from([("test-branch".to_string(), into_virtual)]), BTreeMap::new());
+  post(&client, addr, &format!("/repositories/{id}/pull-requests"), serde_json::to_value(fixture).unwrap()).await;
+  listed(&client, addr, &repository_path).await;
+  sync(&client, addr, &repository_path).await;
+  let effects = json!([
+    {"kind": "retarget", "branch": "test-branch", "number": 9, "from": "user-name/virtual/auth", "to": "master"},
+    {"kind": "push", "branches": ["test-branch"], "force": false},
+  ]);
+  let outcome = planned_and_done(&client, addr, &repository_path, push_intent("test-branch", None), effects).await;
+  assert_eq!(outcome["effects"][1]["status"]["kind"], "done", "{outcome}");
+  let log = get(&client, addr, &format!("/repositories/{id}/pull-requests")).await;
+  assert_eq!(writes_of(&log), vec![json!(["PATCH", "/repos/acme/monorepo/pulls/9", {"base": "master"}])]);
 }

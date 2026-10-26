@@ -7,7 +7,8 @@ targets:
   - ../../src/components/branch/DroppedCommitList.tsx
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
-  - ../../src/hooks/usePushButton.ts
+  - ../../src/presenters/push-button.ts
+  - ../../src/hooks/useBranchPushes.ts
   - ../../src/hooks/useStatusBadge.ts
   - ../../src/hooks/useLandedIn.ts
   - ../../src/lib/push-summary.ts
@@ -25,7 +26,7 @@ targets:
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push_size.rs
   - ../../crates/git-ops/src/push_contents.rs
-  - ../../src/lib/git/push.ts
+  - ../../src/lib/push-run.ts
   - ../../src/lib/toast-message.ts
   - ../../src/lib/event-toast.ts
   - ../../crates/sync-core/src/transfer_progress.rs
@@ -108,7 +109,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
     remote branch and the local one, not the result of the last sync, so it stays the same across syncs and restarts;
   - "push" otherwise (`Push (2)`).
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
+  [@test] ../../src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_rebased_branch_with_new_commit_is_not_fast_forward`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
 - A remote commit whose content the branch lacks must be told by its identity, the author email, the author time and
   the subject without the `(prefix)` (as [landed commits](landed-commits.spec.md) are): amended when an unpushed
@@ -196,9 +197,19 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
 of a part of a branch, up to one of its commits, is Push Up to Here
 ([Stacked Branches](../branch/stacked-branches.spec.md#push-up-to-here)).
 
+The push of a branch alone (its push button in the row, the preview and the review window, P, the menu, the action of
+the remote-moved toast) and of an unapplied branch is the intent `Push` that Rust plans and runs
+(`operations::push`, [Rust as the Domain Authority](../../docs/design/rust-domain-authority.md#s9-engine-remote)):
+`prepare` answers its plan (the retarget of its pull request out of a virtual branch first, the cancel of the Safe Push
+it restarts, the push, the restart), what it asks first and what refuses it; `execute` runs that plan in the session of
+the repository. The page decides nothing of it: its button reads the push action Rust offers the row (enabled or
+disabled with the reason, `domain_policy::actions`), what each push sends (`RepositoryView.pushes`) and whether a push
+of the branch runs (the `operations` of the view), and words the plan and the outcome
+(`src/presenters/push-button.ts`, `src/lib/push-run.ts`). The pushes of a stack follow in s9-13.
+
 - A push label must count the commits the push sends, whoever authored them: `Push (2)`, `Force Push (1)`; a force push that sends none is `Force Push`. The user's share is in the description: "1 commit to
   push." when all are theirs, "2 of 3 commits to push are yours.", "3 commits to push, none of them yours.".
-  [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
+  [@test] ../../src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`)
 - The description must say what the push does, one line each: a force push starts with "Force push replaces the
   remote branch.", a first push ends with "The branch isn't on the remote yet: the push creates it.", the commits the
@@ -207,7 +218,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   "Everything is pushed." (the status text too). A pushed branch ends with "Pushed Today 10:00", as the
   [branch preview](../branch/branch-preview.spec.md) says it.
   [@test] ../../src/lib/remote-status.test.ts (`says what the remote has that the branch lacks, and by whom`, `says that everything is pushed in one sentence, and when it was pushed`, `says that the push creates a branch not on the remote`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`says that everything is pushed, and when, for an up to date branch`)
+  [@test] ../../src/presenters/push-button.test.ts (`says that everything is pushed, and when, for an up to date branch`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - The older versions must read as such, never as commits the branch lacks: "The remote has an older version of 1 commit
   amended here.", "Rebuilt on the new auth: the remote has older versions of 2 of its commits." (`auth` is the branch it
@@ -217,7 +228,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   push replaces the remote branch." and asks as below. A remote that moved to older versions says "The remote has older
   versions of the branch's commits. Nothing was pushed."
   [@test] ../../src/lib/remote-status.test.ts (`says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`, `names what a force push replaces when it drops nothing`, `starts the description of a force push with it, and doesn't repeat the older versions it names`, `offers the push the button would show when the remote lacks nothing of the branch`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
+  [@test] ../../src/presenters/push-button.test.ts (`says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
 - A push that went through is a `success` toast in the words of its [Activity](activity.spec.md) entry, from the
   remote status the push was made against (`describePush`): "Pushed JIRA-456" / "3 commits · created the remote
   branch", "Pushed auth" / "1 commit", "Force pushed auth" / "2 commits · replaced the rebased copies", "1 commit ·
@@ -231,13 +242,16 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   stack with it, takes its place, and its pull request action is the one the branch has now, "Create Pull Request…"
   becoming "Open Pull Request" once it has one.
   [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
-  [@test] ../../src/lib/git/push.test.ts (`is one toast per branch: a later push of it takes its place, its pull request action as the branch has it now`)
+  [@test] ../../src/lib/push-run.test.ts (`is one toast per branch: a later push of it takes its place, its pull request action as the branch has it now`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should tell a later push of the branch in the toast of the first, in place: one toast per branch`)
-- A push must send the remote head of the row's remote status (`expectedRemote`, null when the row showed no remote
-  branch) and lease on it. A Force Push drops the commits the row listed and nothing else, also when someone else's
+- A push must send the remote head of the row's remote status (`expectRemote` of the intent, null when the row
+  showed no remote branch) and lease on it: the plan is witnessed on it, and a remote-tracking ref that moved since
+  refuses it before anything (`plan_changed`); a push that waited for a sync or another push leases on what the session
+  has after it, asking first again when that drops commits. A Force Push drops the commits the row listed and nothing else, also when someone else's
   commit was fetched after Branch Deck's last push; a plain push of a branch that took that commit in goes through.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_force_push_drops_the_remote_commit_the_user_saw`, `a_plain_push_with_the_seen_head_replaces_a_fetched_remote_commit`, `a_rebuilt_branch_replaces_the_remote_tip_it_saw`, `a_branch_not_on_the_remote_is_created_when_expected_absent`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`an_expected_lease_is_the_remote_tip_the_caller_saw`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_over_a_remote_head_the_row_no_longer_shows_is_refused_before_anything`, `a_push_queued_behind_a_push_of_its_ref_is_decided_again_on_what_that_one_left`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A remote branch that moved since the row's status (a newer commit, a branch created or deleted elsewhere) must not
   be overwritten: nothing is pushed, the branch alone is fetched, and its row shows the fetched remote status. A
@@ -246,8 +260,8 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   leased on the fetched head; a push that drops the commits the remote has now confirms first, as below, and it asks
   before a push into a running Safe Push as any push does ([Patronus](../branch/patronus.spec.md)). A remote that
   moved without commits the branch lacks (deleted, rebuilt older versions, a branch created there with the same
-  commits) loses nothing: Rust pushes over the fetched head at once, once (`domain_policy::push::over_moved_remote`,
-  the lock and the checks again), and the page says only that it pushed, what it replaced from the status it went over
+  commits) loses nothing: Rust pushes the same frozen commits over the fetched head at once, once
+  (`domain_policy::push::over_moved_remote`, `operations::push::send`), and the page says only that it pushed, what it replaced from the status it went over
   (`pushedOver`); `bd push` does the same and says so (`pushed_over` of the branch). The toast is for a remote with
   someone's commits, or one that moved again. A stack push is one atomic push: a branch that moved refuses all of it,
   nothing of the stack is pushed and every branch of it is fetched; it goes again over the fetched heads at once, once,
@@ -256,7 +270,9 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   [@test] ../../crates/domain-policy/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost`)
   [@test] ../../crates/operations/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch`)
-  [@test] ../../src/lib/git/push.test.ts (`says a push Rust made again over a remote that moved from what it went over, in one push of the page`, `tells a remote with commits the branch lacks, and pushes nothing over it`, `pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `says a stack push Rust made again over a remote that moved from what it went over, in one push of the page`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `says a stack push Rust made again over a remote that moved from what it went over, in one push of the page`)
+  [@test] ../../src/lib/push-run.test.ts (`opens the toast of the remote that moved: its push goes over what the remote has, leased on it`)
+  [@test] ../../crates/test-server/src/remote_git_fixtures_test.rs (`a_commit_on_the_remote_is_what_the_next_push_finds`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`, `a_moved_lease_refuses_every_branch_and_names_it`)
   [@test] ../../src/lib/remote-status.test.ts (`says how many commits the remote has that the branch lacks, and by whom; the action is a force push`, `offers the push the button would show when the remote lacks nothing of the branch`, `offers to push a branch deleted on the remote again`, `names the distinct authors in the order of the commits`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show what the remote has when it moved since the status, and force push over it from the toast`)
@@ -264,15 +280,16 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   short id and age, then "and N more" past the ten listed, all eleven of eleven (`DROPPED_COMMITS_LIMIT`,
   `list_cut::kept`: never "and 1 more").
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`, `test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
-  [@test] ../../src/hooks/usePushButton.test.ts (`lists the remote commits a force push drops under its description, with how many more there are`, `lists nothing for a push that drops no remote commit`)
+  [@test] ../../src/presenters/push-button.test.ts (`lists the remote commits a force push drops under its description, with how many more there are`, `lists nothing for a push that drops no remote commit`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
-- A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: the click opens its
-  description with the dropped commits and a `Force Push (1)` button below them, which pushes. Leaving the button keeps
+- A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: its plan asks it
+  (`Confirmation::ForcePushDrops` of `prepare`), so the click opens its description with the dropped commits and a
+  `Force Push (1)` button below them, which pushes with the drop accepted (`force`). Leaving the button keeps
   the question open; Escape, a click elsewhere or on the push button again dismisses it, and nothing is pushed. A safe
   push (Push, the first one too, the Force Push of a rebased, amended or restacked branch) pushes on the click. The action
   of the remote-moved toast and P in the [branch preview](../branch/branch-preview.spec.md) ask the same way: the toast
   opens the question of the row's push button (scrolled into view), P that of the preview's footer.
-  [@test] ../../src/hooks/usePushButton.test.ts (`asks first only for a push that drops remote commits`, `says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
+  [@test] ../../src/presenters/push-button.test.ts (`asks first only for a push that drops remote commits`, `says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show what the remote has when it moved since the status, and force push over it from the toast`, `should push a rebased branch at once: its force push drops nothing`)
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should ask before P force pushes over a commit the branch lacks`)
 - The description must open on hover also while the button is disabled: "Everything is pushed.", why a blocked
@@ -298,10 +315,12 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   [@test] ../../crates/sync-core/src/push_size_test.rs (`the_limit_is_a_size_or_off`, `the_limit_of_an_operation_is_the_config_or_the_default`, `files_spread_over_the_tree_name_no_directory`)
   [@test] ../../crates/git-ops/src/push_contents_test.rs (`a_push_sends_the_files_its_commits_add_that_the_remote_lacks`, `the_sizes_of_objects_are_one_batch_check`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off`)
-- A push belongs to the repository it started in. A switch of the repository while it waits (for the sync, the holds,
-  a retarget) stops it before it reads the branches again: the branch of the same name there is another branch, so
+- A push belongs to the repository it started in. A switch of the repository before the push of a branch alone is
+  asked (while it waits for a rewrite of the page) stops it: the branch of the same name there is another branch, so
   nothing of it is pushed, and "Cannot push auth" says "idea-1 is no longer the open repository" (a push of an action
-  returns that reason to its action). A push already sent ends in its repository: its spinner and its progress stay
+  returns that reason to its action). Once asked, it is an operation of the session of its repository, which runs it
+  to its end there, its sync, its holds and its retarget too; a stack push of the page stops at a switch while it waits.
+  A push already sent ends in its repository: its spinner and its progress stay
   off the rows of the other repository, whose branch of the same name pushes on its own, and the remote status it
   brings goes to the session of the repository it resolved; the progress it leaves is gone, so the next push of the
   branch, in either repository, starts at "Pushing…".
@@ -311,8 +330,9 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   Create Pull Request, no retarget clause), since the branch of the same name there has its own; the pull requests it
   lists again are of its repository: the session that ran the push lists them (its `PushEnded`), never the selected
   one's.
-  [@test] ../../src/lib/git/push.test.ts (`pushes nothing of the branch of the same name there, and says why`, `pushes no stack of the same names there`, `refuses the push of an action in place`)
-  [@test] ../../src/lib/git/push.test.ts (`retargets no pull request of the branch of the same name there after a switch during a retarget of the stack`, `offers no pull request of the branch of the same name there in the toast of a push that ends after a switch`, `offers no pull request of the branches of the same names there in the toast of a stack push that ends after a switch`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`pushes no stack of the same names there`, `refuses the push of an action in place`)
+  [@test] ../../src/lib/push-run.test.ts (`pushes nothing of the branch of the same name in another repository the main window shows now, and says why`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`retargets no pull request of the branch of the same name there after a switch during a retarget of the stack`, `offers no pull request of the branches of the same names there in the toast of a stack push that ends after a switch`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_them`)
   [@test] ../../src/stores/branch-sync.test.ts (`keeps the spinner of a push that ends after a switch of the repository off the branch of the same name there`, `drops the progress of a push that ends after a switch: the next push of the branch starts without its percent`, `keeps a stack push that runs on after a switch off the row of the same name there`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_outcome_of_a_push_in_one_session_leaves_the_branch_of_the_same_name_in_another`)
@@ -323,7 +343,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   changed on the remote" toast of a push offers its push only while its repository is shown: after a switch it says
   what the remote has without the push (it offers it again on the way back), and it closes once the branch is gone;
   a push of the branch takes its place ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)).
-  [@test] ../../src/lib/git/push.test.ts (`restarts the robot of Restart Safe Push where the push went, after a switch during the push`, `pushes and restarts the robot it canceled after a switch during the cancel: no cancel is followed by a refusal`, `pushes the branches over the robot a start replaces after a switch during the cancel`, `cancels nothing when the switch comes before the push's last check`, `pushes and restarts the whole stack's robot in the repository of the push after a switch during the cancel`, `offers no push of the branch of the same name in the toast of a remote that moved during the push`)
+  [@test] ../../src/lib/git/stack-push.test.ts (`pushes the branches over the robot a start replaces after a switch during the cancel`, `pushes and restarts the whole stack's robot in the repository of the push after a switch during the cancel`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
   a stage; the compact button of the row "45%" after the spinner, the label its accessible name), and its description on hover the last progress line of git, then what was sent so far and how fast,
   "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)), unless git's

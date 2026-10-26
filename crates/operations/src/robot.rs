@@ -124,6 +124,7 @@ pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Plan
           full_name: full(name)?,
           parent_ref: base.and_then(full),
           whole_stack: false,
+          unapplied: false,
         };
         let tip = sources.table.tips.get(&pushed.full_name).cloned();
         (pushed, tip, sources.remote.branches.get(name))
@@ -135,6 +136,7 @@ pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Plan
           full_name: stack.branch_name.clone(),
           parent_ref: None,
           whole_stack: true,
+          unapplied: false,
         };
         (pushed, stack.tip.clone(), sources.remote.stacks.get(root))
       }

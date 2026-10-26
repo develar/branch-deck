@@ -296,6 +296,7 @@ fn alpha_planned(fixture: &Fixture, intent: Intent, effects: Vec<PlannedEffect>)
         full_name: "test/virtual/alpha".to_owned(),
         parent_ref: None,
         whole_stack: false,
+        unapplied: false,
       })
       .into_iter()
       .collect(),

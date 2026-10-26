@@ -14,7 +14,7 @@ const { engine } = vi.hoisted(() => ({
     run: null as IntentRun | null,
     /** The robot toasts and the Activity of the robots, in order */
     said: [] as string[],
-    /** The toasts of the remote that moved: the branch and the robot its push restarts */
+    /** The toasts of the remote that moved: the branch and whether its push restarts the Safe Push of the branch */
     moved: [] as string[],
     /** The remote status of the branch of the robot after the run */
     remoteStatus: undefined as RemoteStatus | undefined,
@@ -37,15 +37,13 @@ vi.mock("@/stores/activity", () => ({
   recordRobot: (title: string, _description: string, robot: PatronusRobot) => engine.said.push(`activity ${title}: ${robot.id}`),
   recordActivity: () => {},
 }))
-vi.mock("@/lib/git/push", () => ({
-  showRemoteMovedToast: async (_request: unknown, branch: string, _status: RemoteStatus, robot: PatronusRobot | undefined) => {
-    engine.moved.push(`${branch}, restarts ${robot?.id}`)
+vi.mock("@/lib/push-run", () => ({
+  showRemoteMovedToast: async (_repositoryPath: string, branch: string, _status: RemoteStatus, restartRunning: boolean) => {
+    engine.moved.push(`${branch}, restarts ${restartRunning}`)
   },
 }))
 vi.mock("@/stores/branch-sync", () => ({
   getBranch: () => (engine.remoteStatus === undefined ? undefined : { remoteStatus: engine.remoteStatus }),
-  setBranchPushing: () => {},
-  setBranchesPushProgress: () => {},
 }))
 
 const FAILED: PatronusRobot = {
@@ -103,7 +101,7 @@ describe("restartRobot", () => {
     engine.run = ran([push, skipped], null)
     engine.remoteStatus = { remoteTip: "theirs" } as RemoteStatus
     expect(await restartRobot(FAILED, "/repo")).toBeNull()
-    expect(engine.moved).toEqual(["auth, restarts r1"])
+    expect(engine.moved).toEqual(["auth, restarts true"])
     expect(toasts).toEqual([])
   })
 

@@ -11,16 +11,17 @@ import { RobotActionButton } from "@/components/branch/PatronusChip"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { getRobotItems, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
-import type { PushButtonAction } from "@/hooks/usePushButton"
-import { usePushButton, useStackBranchPushAlone } from "@/hooks/usePushButton"
+import { usePushButton, useStackBranchPushAlone } from "@/hooks/useBranchPushes"
 import { pickRemoteCommits } from "@/lib/git/pick-remote"
-import { pushBranch, pushFromButton } from "@/lib/git/push"
+import { pushFromButton } from "@/lib/git/stack-push"
+import { pushBranch } from "@/lib/push-run"
 import { blockingBranchOf, formatStackPushing, stackPushSubject } from "@/lib/stack"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { stopWaitingPushItem, transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
+import type { PushButtonAction } from "@/presenters/push-button"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -36,7 +37,7 @@ export interface BranchPushButtonProps {
   colored?: boolean
   /** Before the label instead of the upload icon, e.g. the key of the preview footer */
   hint?: ReactNode
-  /** The surface whose confirm requests this button answers (`pushOrConfirm`) */
+  /** The surface whose confirm requests this button answers: its own pushes, the menu, P (`pushOrConfirm`) */
   confirmTarget?: PushConfirmTarget
   /**
    * The branch row: an up arrow and the count ("↑ 3"), the percent while the push runs ("45%"); the label ("Force Push
@@ -90,13 +91,12 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const push = usePushButton(branch, isPushing)
   // Rust offers it while the remote has commits the branch lacks (`domain_policy::actions`)
   const pick = useRowPart(branch.name, "actions")?.find(action => action.id === "pick-remote-commits")
-  const request = usePushConfirmRequest(branch.name, confirmTarget)
+  const request = usePushConfirmRequest(branch.name, confirmTarget ?? "row")
   const disabled = push.disabled || processing || starting !== null || (waits !== null && !isPushing)
 
   const [open, setOpen] = useState(false)
-  // the click on a push that drops remote commits: the description asks before the push
-  const [clicked, setClicked] = useState(false)
-  // a request (the action of the remote-moved toast, P in the preview) opens the description as that click does
+  // the plan of a push asks first (it drops remote commits): the request opens the description, which asks before the
+  // push, for a click of this button as for the menu, P in the preview and the remote-moved toast
   const [shownRequest, setShownRequest] = useState<PushConfirmRequest | null>(null)
   if (request !== shownRequest) {
     setShownRequest(request)
@@ -104,7 +104,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
       setOpen(true)
     }
   }
-  const confirming = push.confirm && !isPushing && (clicked || request !== null)
+  const confirming = !isPushing && request !== null
   const label = showsPush ? transferLabel(stackBranchPush ? STACK_BRANCH_PUSHING : formatStackPushing(branch.name, stackPush), progress) : push.text
 
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -116,19 +116,17 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
 
   const close = () => {
     setOpen(false)
-    setClicked(false)
     if (request !== null) {
       clearPushConfirm(request)
     }
   }
 
   const confirmPush = () => {
-    setClicked(false)
     if (request !== null) {
       clearPushConfirm(request)
     }
-    // the description stays open and shows the progress, as after the click on a safe push
-    void pushBranch(branch.name, request?.options)
+    // the description stays open and shows the progress, as after the click on a safe push; the user accepted the drop
+    void pushBranch(branch.name, { ...request?.options, force: true, confirmAt: confirmTarget ?? "row" })
   }
 
   return (
@@ -169,12 +167,12 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
                 // the button again: the confirm closes, nothing is pushed
                 event.preventBaseUIHandler()
                 close()
-              } else if (push.confirm) {
-                event.preventBaseUIHandler()
-                setClicked(true)
-                setOpen(true)
               } else {
-                pushFromButton(branch.name)
+                // a push that asks first opens the description once its plan says so
+                if (push.confirm) {
+                  event.preventBaseUIHandler()
+                }
+                pushFromButton(branch.name, confirmTarget ?? "row")
               }
             }}
           />
@@ -230,7 +228,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
                     disabled={disabled || pick.availability.kind === "disabled"}
                     onClick={() => {
                       close()
-                      void pickRemoteCommits(branch.name, request?.options?.expectedRemote ?? null)
+                      void pickRemoteCommits(branch.name, request?.options.expectRemote ?? null)
                     }}
                   >
                     <DownloadIcon data-icon="inline-start" />

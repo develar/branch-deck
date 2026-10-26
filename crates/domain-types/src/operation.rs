@@ -4,6 +4,7 @@
 //! the operations of a session that run or wait (`RunningOperation`, the `operations` part of the view), each with the
 //! resources it holds (`Resource`), which `domain_policy::admission` admits a new one by (`Admission`).
 
+use crate::RemoteStatusUpdate;
 use crate::error::{ApiError, HolderTool};
 use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, PlannedEffect, StartRoute, Subject};
 use crate::patronus::{PatronusPushMode, PatronusRobot};
@@ -79,9 +80,11 @@ pub struct Push {
   /// The remote tip of the subject the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote branch
   /// only while it is there; `None`: the status showed no remote branch
   pub expect_remote: Option<String>,
-  /// It replaces commits of the remote the branch lacks, someone's work (`bd push --force`)
+  /// It replaces commits of the remote the branch lacks, someone's work (`bd push --force`, the Force Push the user
+  /// chose): its plan asks nothing then; without it a push that drops them asks first (`Confirmation::ForcePushDrops`)
   pub force: bool,
-  /// The Safe Push that holds the push is canceled first and restarted on the pushed commit (`--restart-running`)
+  /// The Safe Push of the branch is restarted on the pushed commit, canceled first while it runs (`--restart-running`,
+  /// the push of the toast of a remote that moved under a restart)
   pub restart_running: bool,
 }
 
@@ -358,6 +361,22 @@ pub enum OperationResult {
   Review(Box<ReviewResult>),
   /// The state field of an issue and the value it had (`Intent::SetIssueState`): its undo sets that value again
   Issue(Box<YouTrackStateChange>),
+  /// A push: the remote statuses it went over once more, the Safe Push it restarted on the pushed commit
+  Push(Box<PushResult>),
+}
+
+/// What a push answered (`Intent::Push`): the toast of the push and its Activity entry name it
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PushResult {
+  /// The remote status of each pushed branch, in the order of the push, that the push went over once more: the remote
+  /// branch had moved since the status the user saw, without commits the branch lacks (D4); empty when the first push
+  /// went
+  pub pushed_over: Vec<RemoteStatusUpdate>,
+  /// The Safe Push of the branch the push restarted on the pushed commit (`Push::restart_running`), canceled first
+  /// while it ran
+  pub restarted: Option<PatronusRobot>,
 }
 
 /// What the Safe Push of a reviewed pull request answered (`Intent::SubmitReview` with `then_land`)

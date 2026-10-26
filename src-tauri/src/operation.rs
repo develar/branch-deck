@@ -1,6 +1,6 @@
 //! Every Tauri command that can fail is an operation with an id of its own (`sync_utils::operation_id::OperationId`): its
 //! body runs inside the span `operation{operation_id}`, a child of the command's `#[instrument]` span, so a log line of it
-//! reads `push_branch{…}:operation{operation_id=…}: …`, and an error leaves with the id (`ApiError.operation_id`),
+//! reads `execute{…}:operation{operation_id=…}: …`, and an error leaves with the id (`ApiError.operation_id`),
 //! the key from the Activity entry of the error to the command's lines in the app's log
 //! (docs/design/async-patterns.md#operation-spans).
 //!

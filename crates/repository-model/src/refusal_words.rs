@@ -3,7 +3,7 @@
 //! running"), and why the stack branch of a whole stack is no build of its commits. The page words the same codes
 //! itself (`src/presenters/reasons.ts`).
 
-use crate::push_guard::{own_hold_words, parked_words, span_hold_words};
+use crate::push_guard::{landed_words, own_hold_words, parked_words, span_hold_words};
 use domain_types::GroupedBranchInfo;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
@@ -12,6 +12,7 @@ use domain_types::repository_view::HoldKind;
 use domain_types::session::Parked;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
 use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
+use sync_core::push::not_synced_refusal;
 
 /// Why a start of `subject` ("auth", "the whole auth stack") is not possible, in the words of `bd` and of the guards
 /// of the app, for the robot part of the decision (`domain_policy::land::start_refusal`): the commits a descendant lands
@@ -29,6 +30,7 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::Ancestor { landing, mode } => format!("A {} of {} is running: wait until it merges", push_mode_name(*mode), landing.subject().words()),
     Reason::Held { hold, .. } => match robots.iter().find(|robot| robot.id == hold.by.robot_id) {
       Some(robot) if hold.kind == HoldKind::Own => own_hold_words(subject, robot, None, "restart it on the current branch"),
+      Some(robot) if hold.kind == HoldKind::Landed => format!("{}: nothing of it is left to push", landed_words(subject, &hold.by.subject(), robot)),
       Some(robot) => span_hold_words(subject, &hold.by.subject(), robot, hold.carried.as_ref()),
       None => format!("a running Safe Push of {} lands {subject}: a push won't land", hold.by.subject().words()),
     },
@@ -41,7 +43,8 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::StackNotBuilt { root, .. } => format!("the stack branch of {root} is not the build of its commits; fix it, then sync"),
     Reason::StackParked { member, .. } => format!("{subject} holds parked {member}; land the stack in pieces"),
     Reason::StackHeld { mode, .. } => format!("a {} of {subject} is running on its stack branch", push_mode_name(*mode)),
-    Reason::CantPush { branch, .. } => format!("{branch} is not synced"),
+    // "auth is not synced (a merge conflict)", as `bd push` says it
+    Reason::CantPush { branch, block } => not_synced_refusal(branch, *block),
     Reason::DropsRemote { branch, behind } => format!("the remote branch of {branch} has {behind} commits {branch} lacks"),
     Reason::Parked { branch, with, note } => parked_words(
       branch,

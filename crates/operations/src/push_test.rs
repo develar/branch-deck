@@ -1,25 +1,34 @@
 use crate::events::NoEvents;
-use crate::push::PushHost;
+use crate::land_execute::Accepted;
+use crate::push::{PushHost, execute_push, prepare_push};
 use crate::registry::Registry;
 use crate::registry::registry_test::{operations_until, view_operations};
 use domain_types::PushAction;
-use domain_types::error::ApiError;
-use domain_types::operation::{OperationStep, RunningOperation};
+use domain_types::error::{ApiError, ErrorCode};
+use domain_types::landing::{Confirmation, PlannedEffect, Subject};
+use domain_types::operation::{EffectStatus, NewsKey, OperationResult, OperationStep, Outcome, Plan, Push, PushScope, RunningOperation};
 use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
+use github::service::GitHubService;
 use history_rewrite::repository_lock::{LockWaitCanceled, RepositoryLock, RewriteOptions, lock_repository_in};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
+use object_cache::cache::ObjectCache;
 use patronus::fake_patronus::start_fake;
 use patronus::service::PatronusService;
 use patronus::token::{Token, TokenLookup, TokenStamp};
 use pretty_assertions::assert_eq;
+use remote_facts::fact_sources::Read;
+use remote_facts::service_sources::ServiceHost;
 use repository_model::facts::Needs;
+use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{OneClock, SessionKey, Sessions};
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
+use sync_core::github_repository::GitHubRepository;
+use sync_core::patronus::SpaceRepository;
 use sync_core::push::{NOT_SYNCED_YET, PushBranchesOutcome, PushBranchesParams, StackPushBranch};
 use sync_core::sync::SyncOptions;
 use sync_core::transfer_progress::TransferProgress;
@@ -139,6 +148,13 @@ impl Fixture {
   /// The operations of the view once `done` holds of them; the other tasks run meanwhile
   async fn until(&self, done: impl Fn(&[RunningOperation]) -> bool) -> Vec<RunningOperation> {
     operations_until(self.registry.sessions(), &self.key, done).await
+  }
+
+  /// The operations of the view once one of them waits in the queue
+  async fn until_queued(&self) -> Vec<RunningOperation> {
+    self
+      .until(|operations| operations.iter().any(|operation| matches!(operation.step, OperationStep::Queued { .. })))
+      .await
   }
 }
 
@@ -415,9 +431,7 @@ async fn the_pushes_of_one_ref_wait_for_each_other_and_both_push() {
     tokio::join!(fixture.push(vec![branch("alpha"), beta()]), fixture.push(vec![branch("alpha")]))
   };
   let release = async {
-    let operations = fixture
-      .until(|operations| operations.iter().any(|operation| matches!(operation.step, OperationStep::Queued { .. })))
-      .await;
+    let operations = fixture.until_queued().await;
     assert_eq!(operations.len(), 2, "the push of the stack waits, the second click joined: {operations:?}");
     go.send(()).unwrap();
   };
@@ -506,4 +520,178 @@ async fn a_push_whose_caller_goes_away_runs_to_its_end() {
   let view = fixture.registry.sessions().get_snapshot(&fixture.key).await.unwrap();
   let status = view.branches["alpha"].remote.status.as_ref().unwrap();
   assert_eq!(status.remote_tip.as_deref(), Some(frozen.as_str()), "the session has the status the push left");
+}
+
+/// A host of the engine off Space and off GitHub: what a push of the app needs of it is git
+struct Offline;
+
+// jscpd:ignore-start: the test host of the engine, as the one of `remote-facts` (`service_sources_test.rs`): a test
+// module of another crate shares no code
+impl ServiceHost for Offline {
+  fn git(&self) -> GitCommandExecutor {
+    GitCommandExecutor::new()
+  }
+
+  fn patronus(&self, _key: &SessionKey) -> Result<Arc<PatronusService>, ApiError> {
+    Err(ApiError::new(ErrorCode::NotOnSpace, "Off Space"))
+  }
+
+  fn github(&self, _key: &SessionKey) -> Result<Arc<GitHubService>, ApiError> {
+    Err(ApiError::internal("No GitHub"))
+  }
+
+  fn space_repository<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {
+    Box::pin(async { Ok(None) })
+  }
+
+  fn github_repository<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, Result<Option<GitHubRepository>, ApiError>> {
+    Box::pin(async { Ok(None) })
+  }
+
+  fn new_api(&self, _key: &SessionKey) -> bool {
+    false
+  }
+
+  fn object_cache<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, ObjectCache> {
+    Box::pin(std::future::ready(ObjectCache::disabled()))
+  }
+
+  fn api_error(&self, error: anyhow::Error) -> ApiError {
+    ApiError::internal(format!("{error:#}"))
+  }
+
+  fn fetch_moved_remotes<'a>(&'a self, _key: &'a SessionKey, _asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
+    Box::pin(async {})
+  }
+}
+// jscpd:ignore-end
+
+/// The push of `name` alone over the remote head the row showed (`expect_remote`)
+fn alone(name: &str, expect_remote: Option<String>) -> Push {
+  Push {
+    subject: Subject::branch(name),
+    scope: PushScope::Alone,
+    expect_remote,
+    force: false,
+    restart_running: false,
+  }
+}
+
+impl Fixture {
+  /// The plan of `push` in the session now
+  async fn plan(&self, push: &Push) -> Plan {
+    prepare_push(self.registry.sessions(), &self.key, push).await.unwrap().plan
+  }
+
+  /// `push` run on its plan now, `accepted` among its confirmations
+  async fn execute(&self, push: &Push, accepted: Vec<Confirmation>) -> Result<Outcome, ApiError> {
+    let fingerprint = self.plan(push).await.fingerprint;
+    let accepted = Accepted {
+      fingerprint,
+      confirmations: accepted,
+    };
+    execute_push(&self.registry, &self.key, push.clone(), accepted, &Offline, Arc::new(NoEvents)).await
+  }
+}
+
+/// The push of a branch alone is an intent of the engine: its plan pushes the branch and nothing it is built on, its run
+/// sends it, tells the session the remote status it left (the version after its patch), answers the event of the
+/// pushes of the branch and leaves the view; then its plan has nothing left to push
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_of_a_branch_alone_is_planned_and_run_by_the_engine() {
+  let fixture = fixture(true).await;
+  let push = alone("beta", None);
+  let plan = fixture.plan(&push).await;
+  assert_eq!(
+    (plan.effects.as_slice(), plan.confirmations.as_slice(), plan.blockers.as_slice()),
+    (
+      &[PlannedEffect::Push {
+        branches: vec!["beta".to_string()],
+        force: false
+      }][..],
+      &[][..],
+      &[][..]
+    )
+  );
+
+  let outcome = fixture.execute(&push, Vec::new()).await.unwrap();
+  assert_eq!(
+    outcome.effects.iter().map(|record| record.status.clone()).collect::<Vec<_>>(),
+    [EffectStatus::Done],
+    "{outcome:?}"
+  );
+  assert_eq!(outcome.news_key, Some(NewsKey::Push { branch: "beta".to_string() }));
+  assert_eq!(outcome.result, OperationResult::Push(Box::default()));
+  assert!(outcome.version_after.is_some(), "the session has the remote status it left");
+  assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/beta", "the branch alone, not the one it is built on");
+  assert_eq!(fixture.operations().await, Vec::new());
+  let tip = fixture.repo.rev_parse("test/virtual/beta").unwrap();
+  let pushed = alone("beta", Some(tip));
+  assert_eq!(fixture.plan(&pushed).await.effects, Vec::new(), "nothing left to push");
+}
+
+/// The same push twice side by side is one push (the second joins the first); another push of the same ref waits for
+/// it (`Queued` behind it, here behind the repository lock the test holds) and is decided again on what it left: the
+/// remote has the branch, so it pushes nothing, and no `plan_changed` refuses it
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_queued_behind_a_push_of_its_ref_is_decided_again_on_what_that_one_left() {
+  let fixture = fixture(true).await;
+  let held = fixture.lock();
+  let push = alone("alpha", None);
+  let forced = Push { force: true, ..push.clone() };
+  let release = async {
+    let operations = fixture.until_queued().await;
+    assert_eq!(operations.len(), 2, "the second click joined the first, the forced push waits: {operations:?}");
+    drop(held);
+  };
+  let (first, again, queued, ()) = tokio::time::timeout(Duration::from_mins(1), async {
+    tokio::join!(
+      fixture.execute(&push, Vec::new()),
+      fixture.execute(&push, Vec::new()),
+      fixture.execute(&forced, Vec::new()),
+      release
+    )
+  })
+  .await
+  .unwrap();
+  let (first, again, queued) = (first.unwrap(), again.unwrap(), queued.unwrap());
+  assert_eq!(first.op, again.op, "one push");
+  assert_eq!(first.effects.len(), 1);
+  assert_eq!(queued.effects, Vec::new(), "the remote had the branch already: {queued:?}");
+  assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/alpha");
+}
+
+/// A push planned over the remote head the row showed refuses, before anything, once the remote-tracking ref moved
+/// (`plan_changed`): the witness is the remote head the user saw
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_over_a_remote_head_the_row_no_longer_shows_is_refused_before_anything() {
+  let fixture = fixture(true).await;
+  let push = alone("alpha", Some("0000000000000000000000000000000000000001".to_string()));
+  let refused = fixture.execute(&push, Vec::new()).await.unwrap_err();
+  assert_eq!(refused.code, ErrorCode::PlanChanged, "{refused:?}");
+  assert_eq!(fixture.remote_branches(), "");
+}
+
+/// The push of an unapplied branch is an intent too: under its own name, no robot read, nothing to retarget
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_of_an_unapplied_branch_is_planned_and_run_by_the_engine() {
+  let fixture = fixture(false).await;
+  let tip = fixture.repo.rev_parse("test/virtual/alpha").unwrap();
+  fixture.repo.git(&["update-ref", "refs/heads/test/unapplied/old", &tip]);
+  fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
+  let push = Push {
+    scope: PushScope::Unapplied,
+    ..alone("old", None)
+  };
+  let plan = fixture.plan(&push).await;
+  assert_eq!(
+    plan.effects,
+    [PlannedEffect::Push {
+      branches: vec!["old".to_string()],
+      force: false
+    }]
+  );
+  let outcome = fixture.execute(&push, Vec::new()).await.unwrap();
+  assert_eq!(outcome.effects[0].status, EffectStatus::Done, "{outcome:?}");
+  assert_eq!(fixture.remote_branches(), "refs/heads/test/unapplied/old");
 }

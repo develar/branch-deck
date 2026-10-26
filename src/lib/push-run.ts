@@ -1,0 +1,318 @@
+// The push of a branch alone and of an unapplied branch, from every surface that offers it (the push button of the row,
+// of the preview and of the review window, P, the menus, the toast of a remote that moved): the intent `Push` Rust plans
+// and runs (`operations::push`; spec/repository/outgoing.spec.md, "Push"). Its plan retargets the pull request of the
+// branch out of a virtual branch first (D3a), cancels and restarts the Safe Push of the branch when the push restarts
+// it, and asks first for a push that drops remote commits the branch lacks (`ForcePushDrops`): the push button of the
+// surface opens its description with the dropped commits, whose Force Push pushes. The session admits it (the same push
+// twice is one, another push of the ref waits), waits for its sync, decides under the repository lock and pushes after
+// it; the view shows it running (`pushOperationIn`), the window that runs it how far it is. The page words the plan's
+// refusal and the outcome: the toast of the pushes of the branch, the remote that moved, why not.
+import type { ApiError, Intent, Outcome, PatronusRobot, Reason } from "@/lib/bindings"
+import { getErrorCode, notifyError } from "@/lib/errors"
+import type { EventToastAction } from "@/lib/event-toast"
+import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
+import { showPushToast } from "@/lib/git/push-toast"
+import { canceledBeforeStart } from "@/lib/lock-wait"
+import { describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
+import { describePush } from "@/lib/push-summary"
+import { buildRemoteMovedTexts } from "@/lib/remote-status"
+import { showRobotToast } from "@/lib/robot-toast"
+import { executePlan, planIntent, runFailure, skippedReason } from "@/lib/run-intent"
+import type { ToastActionProps } from "@/lib/toast-message"
+import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
+import type { Retargeted } from "@/presenters/pull-request-url"
+import { formatReason } from "@/presenters/reasons"
+import { recordPush, recordRobot } from "@/stores/activity"
+import type { RemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, toRemoteStatus } from "@/stores/branch-sync"
+import { whenRewritesDone } from "@/stores/operations"
+import { getPushHold } from "@/stores/patronus"
+import type { PushConfirmTarget } from "@/stores/push-confirm"
+import { requestPushConfirm } from "@/stores/push-confirm"
+import { getRepositorySwitchReason, getSelectedRepositoryPath, repositoryStore } from "@/stores/repository"
+import { getUnappliedBranch } from "@/stores/unapplied-branches"
+
+export interface PushBranchOptions {
+  /** The remote head the push replaces: by default the row's (`RemoteStatus.remoteTip`), else what the toast of a remote that moved showed */
+  readonly expectRemote?: string | null
+  /** The user chose the push that drops the remote commits the branch lacks: the Force Push of the push description */
+  readonly force?: boolean
+  /** The Safe Push of the branch restarts on the pushed commit, canceled first while it runs (the toast of a remote that moved under a restart) */
+  readonly restartRunning?: boolean
+  /**
+   * Whether a toast says the push went; false when the push is a step of an action that says how it went. Activity
+   * records the push either way, and a failure is an error toast either way
+   */
+  readonly announce?: boolean
+  /** The push button that asks first when the push drops remote commits: of the row (by default) or of the preview */
+  readonly confirmAt?: PushConfirmTarget
+}
+
+/** How a push of a branch went */
+export type PushRun =
+  /** It ran: its effects in `outcome` (none when the remote had it all by then); `before`, the remote status it went over */
+  | { readonly kind: "pushed"; readonly outcome: Outcome; readonly before: RemoteStatus | null }
+  /** It drops remote commits the branch lacks: the push button opened its description, whose Force Push pushes */
+  | { readonly kind: "confirm" }
+  /** The remote branch moved since the row showed it: its toast says what it has now, and pushes over it */
+  | { readonly kind: "moved" }
+  /** The user stopped its wait for another holder of the repository lock: nothing was pushed, its toast said so */
+  | { readonly kind: "canceled" }
+  /** It did not push: its plan refuses it, or the push failed; `action` opens what the reason names */
+  | { readonly kind: "failed"; readonly error: ApiError | string; readonly action?: ToastActionProps }
+
+/** "Open in Patronus" of a refusal by a Safe Push that holds the branch or landed it */
+function holdAction(branchName: string, reason: Reason): ToastActionProps | undefined {
+  const hold = reason.code === "held" ? getPushHold(branchName) : null
+  return hold === null ? undefined : { children: "Open in Patronus", onClick: () => openRobot(hold.robot) }
+}
+
+/**
+ * Pushes the branch `branchName` alone (`runBranchPush`) and says how it went: the toast of the pushes of the branch
+ * (`showPushToast`, unless `announce` is false; a restart it made in the toast of its robot then), why not in an error
+ * toast; a push that asks first opened the description of its push button, a remote that moved opened its toast.
+ * Resolves to whether it pushed (or found nothing left to push)
+ */
+export async function pushBranch(branchName: string, options: PushBranchOptions = {}): Promise<boolean> {
+  const repositoryPath = getSelectedRepositoryPath()
+  const run = await runBranchPush(branchName, options)
+  switch (run.kind) {
+    case "pushed":
+      announcePush(branchName, repositoryPath, run, options.announce !== false)
+      return true
+    case "failed":
+      notifyError(`Cannot push ${branchName}`, run.error, run.action)
+      return false
+    case "canceled":
+      showToast(canceledBeforeStart(`the push of ${branchName}`, "Nothing was pushed"))
+      return false
+    case "confirm":
+    case "moved":
+      return false
+  }
+}
+
+/**
+ * The push of `branchName` alone in the repository the main window shows (`Push` with the scope `alone`), over the
+ * remote head its row shows unless `options` names another, after the rewrites of the repository the page runs (their
+ * sync the session's: the push waits for it in Rust)
+ */
+export async function runBranchPush(branchName: string, options: PushBranchOptions = {}): Promise<PushRun> {
+  const repositoryPath = getSelectedRepositoryPath()
+  // a rewrite of the repository that runs (a move out of the branch): the push sends what it leaves
+  await whenRewritesDone(repositoryPath)
+  // the branches of the table are of the selected repository: another one's branch of the same name is another branch
+  const switched = getRepositorySwitchReason(repositoryPath)
+  if (switched !== null) {
+    return { kind: "failed", error: switched }
+  }
+  const branch = getBranch(branchName)
+  if (branch === undefined) {
+    return { kind: "failed", error: `${branchName} is no longer in the branch list` }
+  }
+  const expectRemote = options.expectRemote === undefined ? (branch.remoteStatus?.remoteTip ?? null) : options.expectRemote
+  const intent: Intent = {
+    kind: "push",
+    subject: { kind: "branch", name: branchName },
+    scope: { kind: "alone" },
+    expectRemote,
+    force: options.force === true,
+    restartRunning: options.restartRunning === true,
+  }
+  return runPush(repositoryPath, branchName, intent, { ...options, expectRemote }, branch.remoteStatus)
+}
+
+/**
+ * Runs the push `intent` of `branchName` (whose remote status was `remote`) in `repositoryPath`: its plan, refused by
+ * its first blocker; one that asks first opens the push button of `options.confirmAt` instead; else run on its
+ * fingerprint, its progress on the push buttons of what it pushes, then what its outcome says
+ */
+async function runPush(repositoryPath: string, branchName: string, intent: Intent, options: PushBranchOptions, remote: RemoteStatus | null): Promise<PushRun> {
+  const planned = await planIntent(repositoryPath, intent)
+  switch (planned.kind) {
+    case "failed":
+      return { kind: "failed", error: planned.error }
+    case "noPlan":
+      return { kind: "failed", error: `${branchName} is no longer in the branch list` }
+    case "refused":
+      return { kind: "failed", error: formatReason(planned.reason, () => getBranch(branchName)?.statusText ?? ""), action: holdAction(branchName, planned.reason) }
+    case "planned":
+      break
+  }
+  // the push drops remote commits the branch lacks (`ForcePushDrops`): the user decides in the description of its button
+  if (planned.plan.confirmations.length > 0) {
+    requestPushConfirm(branchName, options.confirmAt ?? "row", options)
+    return { kind: "confirm" }
+  }
+  const run = await executePlan(repositoryPath, planned.plan)
+  if (run.kind !== "ran") {
+    return run.kind === "failed" && getErrorCode(run.error) === "canceled"
+      ? { kind: "canceled" }
+      : { kind: "failed", error: runFailure(run, `${branchName} is no longer in the branch list`) ?? "" }
+  }
+  const outcome = run.outcome
+  for (const { effect, status } of outcome.effects) {
+    if (effect.kind === "retarget" && status.kind === "failed") {
+      // the push went on without it: its toast offers the command
+      notifyError(`Cannot retarget pull request #${effect.number}`, status.error)
+    }
+  }
+  const push = outcome.effects.find(({ effect }) => effect.kind === "push")
+  if (push?.status.kind === "failed") {
+    if (getErrorCode(push.status.error) === "lease_rejected" && intent.kind === "push" && intent.scope.kind === "alone") {
+      // the session has what the remote has now, fetched after the refusal
+      const moved = getBranch(branchName)?.remoteStatus ?? null
+      if (moved !== null) {
+        recordPush(repositoryPath, branchName, remote, moved)
+        await showRemoteMovedToast(repositoryPath, branchName, moved, intent.restartRunning)
+        return { kind: "moved" }
+      }
+    }
+    return { kind: "failed", error: push.status.error }
+  }
+  const failed = outcome.effects.find(({ effect, status }) => status.kind === "failed" && effect.kind !== "retarget")
+  if (failed?.status.kind === "failed") {
+    return { kind: "failed", error: failed.status.error }
+  }
+  const skipped = skippedReason(outcome)
+  if (skipped !== null) {
+    return { kind: "failed", error: skipped }
+  }
+  const over = outcome.result.kind === "push" ? outcome.result.pushedOver[0] : undefined
+  return { kind: "pushed", outcome, before: over === undefined ? remote : toRemoteStatus(over) }
+}
+
+/**
+ * Says how the push of `branchName` went: in the toast of the pushes of the branch (`announce`), with the pull request it
+ * retargeted first and the Safe Push it restarted; a push that is a step of an action says only the restart, in the
+ * toast of its robot. A run that pushed nothing (the remote had it all by then) says nothing
+ */
+function announcePush(branchName: string, repositoryPath: string, run: Extract<PushRun, { kind: "pushed" }>, announce: boolean): void {
+  const { outcome } = run
+  const restarted = restartedOf(outcome, repositoryPath)
+  const pushed = outcome.effects.some(({ effect, status }) => effect.kind === "push" && status.kind === "done")
+  if (!announce || !pushed) {
+    if (restarted !== undefined) {
+      showRobotToast(`${formatPushMode(restarted.pushMode)} restarted`, restarted, repositoryPath)
+    }
+    return
+  }
+  showPushToast(branchName, repositoryPath, describePush(branchName, run.before), restarted, retargetedOf(outcome))
+}
+
+/** The Safe Push the push restarted on the pushed commit, recorded in Activity of `repositoryPath`; undefined for none */
+function restartedOf(outcome: Outcome, repositoryPath: string): PatronusRobot | undefined {
+  const restarted = outcome.result.kind === "push" ? outcome.result.restarted : null
+  if (restarted == null) {
+    return undefined
+  }
+  recordRobot(`${formatPushMode(restarted.pushMode)} restarted`, describeRobot(restarted), restarted, repositoryPath, outcome.op)
+  return restarted
+}
+
+/** The pull request the push retargeted first, as its toast names it */
+function retargetedOf(outcome: Outcome): Retargeted | undefined {
+  for (const { effect, status } of outcome.effects) {
+    if (effect.kind === "retarget" && status.kind === "done") {
+      return { number: effect.number, base: effect.to }
+    }
+  }
+  return undefined
+}
+
+/**
+ * Pushes the unapplied branch `name` (its full name) to the remote under its own name, so the remote keeps a copy
+ * (`Push` with the scope `unapplied`): leased on the remote head of its status (none: the remote branch must not exist),
+ * with no robot read and no sync; its row shows the remote status the push left. It lands nothing; a pull request of
+ * its virtual branch stays as it was. "Force Push" of its menu is the user's choice to drop what the remote has
+ */
+export async function pushUnappliedBranch(name: string): Promise<void> {
+  const branch = getUnappliedBranch(name)
+  if (branch === undefined) {
+    return
+  }
+  const repositoryPath = getSelectedRepositoryPath()
+  const intent: Intent = {
+    kind: "push",
+    subject: { kind: "branch", name: branch.branch },
+    scope: { kind: "unapplied" },
+    expectRemote: branch.remoteStatus?.remoteTip ?? null,
+    force: branch.remoteStatus?.action.kind === "force",
+    restartRunning: false,
+  }
+  const run = await runPush(repositoryPath, branch.branch, intent, {}, branch.remoteStatus)
+  if (run.kind === "pushed") {
+    showToast({ title: `Pushed ${branch.branch}`, description: `The remote keeps it as ${name}` })
+  } else if (run.kind === "failed") {
+    const moved = typeof run.error !== "string" && getErrorCode(run.error) === "lease_rejected"
+    notifyError(
+      `Cannot push ${branch.branch}`,
+      moved ? `The remote branch ${name} changed since the last fetch: nothing was pushed. Its status shows it now; a push again replaces it` : run.error,
+    )
+  } else if (run.kind === "canceled") {
+    showToast(canceledBeforeStart(`the push of ${branch.branch}`, "Nothing was pushed"))
+  }
+}
+
+/**
+ * The remote branch moved since its status was shown, so nothing was pushed: the toast says what the remote has now,
+ * and its action pushes over exactly that, through the plan of the push as any push (one that drops the commits the
+ * remote has now asks in the row first). A push under a restart (`restartRunning`) restarts the Safe Push of the branch
+ * on what it pushes; with nothing left to push it restarts it at once, and the toast says so and opens it. The toast is
+ * of the repository the push went to: it offers its push only while the main window shows that one (the branch of the
+ * same name in another one is another branch), and closes once the branch is gone; a push of the branch takes its place.
+ */
+export async function showRemoteMovedToast(repositoryPath: string, branchName: string, remoteStatus: RemoteStatus, restartRunning: boolean): Promise<void> {
+  const texts = buildRemoteMovedTexts(branchName, remoteStatus)
+  // nothing left to push: the remote has the branch's commits, the robot can run on them
+  let restarted: PatronusRobot | undefined
+  if (restartRunning && texts.action === null) {
+    const run = await runBranchPush(branchName, { expectRemote: remoteStatus.remoteTip, restartRunning: true })
+    restarted = run.kind === "pushed" ? restartedOf(run.outcome, repositoryPath) : undefined
+    if (run.kind === "failed") {
+      notifyError("Cannot restart the Safe Push", run.error)
+    }
+  }
+  let note = ""
+  if (restarted !== undefined) {
+    note = ` The ${formatPushMode(restarted.pushMode)} restarted on it.`
+  } else if (restartRunning && texts.action !== null) {
+    note = " The Safe Push is canceled: the push restarts it."
+  }
+  const key = toastKeys.push(repositoryPath, branchName)
+  const description = `${texts.description}${note}`
+  let action: EventToastAction | undefined
+  if (texts.action !== null) {
+    action = {
+      label: texts.action,
+      onClick: () => {
+        closeEventToasts(key)
+        const switched = getRepositorySwitchReason(repositoryPath)
+        if (switched === null) {
+          void pushBranch(branchName, { expectRemote: remoteStatus.remoteTip, restartRunning, confirmAt: "row" })
+        } else {
+          notifyError(`Cannot push ${branchName}`, switched)
+        }
+      },
+    }
+  } else if (restarted !== undefined) {
+    const robot = restarted
+    action = { label: "Open in Patronus", onClick: () => openRobot(robot) }
+  }
+  // the toast of the pushes of the branch: a push of it since takes its place. Its push only while the main window shows
+  // the repository, whose branch it pushes (the branch of the same name in another one is another branch), and it closes
+  // once the branch is gone
+  showEventToast({
+    key,
+    watch: [branchSyncStore, repositoryStore],
+    render: () => {
+      if (getRepositorySwitchReason(repositoryPath) !== null) {
+        return { type: "warning", title: texts.title, description, ...(texts.action === null && { action }), timeout: ACTION_TOAST_TIMEOUT_MS }
+      }
+      // the user decides: the toast stays until then
+      return getBranch(branchName) === undefined
+        ? null
+        : { type: "warning", title: texts.title, description, action, timeout: texts.action === null && restarted !== undefined ? ACTION_TOAST_TIMEOUT_MS : 0 }
+    },
+  })
+}

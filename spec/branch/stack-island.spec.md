@@ -14,7 +14,8 @@ targets:
   - ../../src/components/branch/ChildrenPushButton.tsx
   - ../../src/hooks/useSettledLayout.ts
   - ../../src/components/branch/LandingNodeHover.tsx
-  - ../../src/hooks/usePushButton.ts
+  - ../../src/presenters/push-button.ts
+  - ../../src/hooks/useBranchPushes.ts
   - ../../src/hooks/useWholeStackActions.ts
   - ../../src/components/branch/OrphanedStackPullRequest.tsx
   - ../../src/components/branch/NextStepSlot.tsx

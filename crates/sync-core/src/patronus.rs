@@ -37,7 +37,7 @@ pub fn parse_space_repository(url: &str) -> Option<SpaceRepository> {
   })
 }
 
-/// The Space repository `origin` pushes to (`push_branch` pushes to origin); None when it is not on Space. One
+/// The Space repository `origin` pushes to (the virtual branches are pushed to origin); None when it is not on Space. One
 /// `remote get-url`; a caller that read the URL (`origin_push_url`) parses it (`parse_space_repository`)
 pub fn find_space_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<Option<SpaceRepository>> {
   Ok(origin_push_url(git_executor, repository_path)?.as_deref().and_then(parse_space_repository))

@@ -7,7 +7,7 @@ import { openSettingsWindow } from "../helpers/settings-helpers"
 import { syncFromMenu } from "../helpers/sync-helpers"
 import type { RemoteCommit } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
-import { holdCommand, recordCommand } from "../helpers/wait-helpers"
+import { recordCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
 
@@ -187,8 +187,9 @@ test.describe("Push button", () => {
   })
 
   test("should push a branch pressed during a sync once, over the remote tip the sync brought, the row as it was meanwhile", async ({ page, issueLinksRepo }) => {
-    const pushes = await recordCommand(page, "push_branch")
-    const releaseSync = await holdCommand(page, "sync")
+    const pushes = await recordCommand(page, "execute")
+    // the sync of the session runs until the test releases it
+    await issueLinksRepo.holdRemoteAnswers({ hold: ["sync"] })
     // another machine pushed an ancestor of JIRA-456, which the next sync finds on the remote
     const movedTip = await issueLinksRepo.pushInTerminal(virtualBranch("JIRA-456"), { revision: `${virtualBranch("JIRA-456")}~3` })
     await page.getByTestId("sync-button").click()
@@ -200,13 +201,16 @@ test.describe("Push button", () => {
     await expect(button).toBeEnabled()
     await button.click()
     await expect(button).toHaveAttribute("aria-busy", "true")
-    expect(pushes).toHaveLength(0)
+    // the push waits in the session for its sync: the remote has nothing of it yet
+    await expect.poll(() => pushes.length).toBe(1)
+    expect(await remotePushes(issueLinksRepo)).toEqual([])
 
-    releaseSync()
+    await issueLinksRepo.holdRemoteAnswers({ release: ["sync"] })
     await expectPushedToast(page, "JIRA-456")
-    // one push, leased on the tip the sync brought: never a refused push over the old one, then a second
-    expect(pushes).toEqual([expect.objectContaining({ branchName: "JIRA-456", expectedRemote: movedTip })])
+    // one push, over the tip the sync brought: the remote took the branch once
+    expect(pushes).toEqual([expect.objectContaining({ intent: expect.objectContaining({ kind: "push", subject: { kind: "branch", name: "JIRA-456" } }) })])
     expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
+    expect(await issueLinksRepo.revision(`origin/${virtualBranch("JIRA-456")}`)).not.toBe(movedTip)
     // the row has the status the push left from the session, with no sync after it
     await expectNothingToPush(row)
   })
@@ -217,10 +221,10 @@ test.describe("Push button", () => {
     await issueLinksRepo.commit("(pool) Add the pool config", { "pool.cfg": "size=10\n", "auth.cfg": "ttl=1\n" }, 1704182400)
     await issueLinksRepo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
     await issueLinksRepo.commit("(ABC-123) Raise the session ttl", { "auth.cfg": "ttl=2\n" }, 1704182520)
-    const releaseSync = await holdCommand(page, "sync")
+    await issueLinksRepo.holdRemoteAnswers({ hold: ["sync"] })
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
-    // the rows as they were: both pushes wait for the sync, the button and P
+    // the rows as they were: both pushes wait for the sync of the session, the button and P
     const button = getPushButton(findBranchRow(page, "JIRA-456"))
     await button.click()
     await expect(button).toHaveAttribute("aria-busy", "true")
@@ -229,7 +233,7 @@ test.describe("Push button", () => {
     await page.keyboard.press("p")
     await expect(getPushButton(abc)).toHaveAttribute("aria-busy", "true")
 
-    releaseSync()
+    await issueLinksRepo.holdRemoteAnswers({ release: ["sync"] })
     // the backend refuses both: what they would push is not what the rows show
     await expect(page.getByText("Nothing was pushed: JIRA-456 is not synced (a merge conflict)")).toBeVisible()
     await expect(page.getByText("Nothing was pushed: ABC-123 is not synced (a merge conflict)")).toBeVisible()

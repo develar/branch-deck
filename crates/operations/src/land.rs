@@ -163,6 +163,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
           full_name: stack.branch_name.clone(),
           parent_ref: None,
           whole_stack: true,
+          unapplied: false,
         })
         .into_iter()
         .collect();
@@ -180,6 +181,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
             full_name: full(branch)?,
             parent_ref: base.and_then(full),
             whole_stack: false,
+            unapplied: false,
           })
         })
         .collect();

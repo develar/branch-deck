@@ -390,11 +390,12 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `lock_wait`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push`,
   `bd safe-push` (only its sync, then again the witness of its refs and the freeze of its push in the engine,
   `operations::land_execute`; the reads of the remote, the trial, the retargets, the cancel, the network push and the
-  robot start without it; a ref that moved meanwhile is `plan_changed`), the app's `push_branch` and
-  `push_branches` (`operations::push`, the one push core: admitted per ref in the registry of the session, the user's
-  robots before the lock, the refusals of unknown, parked, landed, held and not built branches in Rust
-  (`push_guard::check_push`) and the commits that go fixed under it, the network push of those commits after it, side
-  by side with the app's other pushes; only a push of the same remote ref waits, in the registry),
+  robot start without it; a ref that moved meanwhile is `plan_changed`), the app's push of a branch alone and of an
+  unapplied branch (`execute` of the intent `Push`, `operations::push::execute_push`: the witness and the freeze of
+  its ref, as a start) and `push_branches` (`operations::push`, the one push core: admitted per ref in the registry of
+  the session, the user's robots before the lock, the refusals of unknown, parked, landed, held and not built branches
+  in Rust (`push_guard::check_push`) and the commits that go fixed under it, the network push of those commits after
+  it, side by side with the app's other pushes; only a push of the same remote ref waits, in the registry),
   `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`: after the fetch and the check, for the witness, the local changes and
   the move, also when it starts a resolve session; the landed report after the release), `bd pick` (after its check:

@@ -24,7 +24,8 @@ export type PatronusCommandReply = { readonly status: "pending" } | { readonly s
  * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the merge
  * profiles of the target, the view of the robots, the statuses of Settings (the GitHub and the YouTrack sign-in, the
  * tools), a push to the remote of the repository (which has its pack then, and moves no ref until the release), the
- * creation of a pull request and a review request on GitHub
+ * creation of a pull request and a review request on GitHub, a sync run of the session (it runs until the release,
+ * what waits for it is seen waiting)
  */
 export type HeldAnswer =
   | "pullRequests"
@@ -46,6 +47,7 @@ export type HeldAnswer =
   | "createPullRequest"
   | "requestReviewers"
   | "submitReview"
+  | "sync"
 
 /** A commit someone else pushed onto a branch of the remote: its author (`Name <email>`), time and files */
 export interface RemoteCommit {

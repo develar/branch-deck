@@ -8,7 +8,7 @@ import type { ApiError, Land, LandingAllowances, LandProfiles, OperationEvent, O
 import { commands } from "@/lib/bindings"
 import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
-import { pushForAction } from "@/lib/git/push"
+import { pushForAction } from "@/lib/git/stack-push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, openRobot } from "@/lib/patronus"

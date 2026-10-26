@@ -272,7 +272,7 @@ pub fn read_local_branch_prefix(git_executor: &git_executor::git_command_executo
 
 /// The git of the config commands of a test repository: its global config is the repository's own file
 /// (`AppState::global_config_of`), never the one of the developer, for a read and for a write
-fn config_git(state: &AppState, repository_path: &str) -> Result<git_executor::git_command_executor::GitCommandExecutor, Rejection> {
+pub(crate) fn config_git(state: &AppState, repository_path: &str) -> Result<git_executor::git_command_executor::GitCommandExecutor, Rejection> {
   let repository = repository_by_path(state, repository_path)?;
   let global_config = state.global_config_of(&repository.id);
   Ok(state.git_executor.with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy()))
@@ -727,28 +727,16 @@ pub async fn fetch_baseline(
   .await
 }
 
-/// The app's push of one branch, through the same push of its session (`operations::push`: the robots of the fake
-/// Patronus, then the repository lock and the refusals of parked, landed, held and not built branches, then the network
-/// push after it), to the remote of the template (`remote_git_fixtures`)
-pub async fn push_branch(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::push::PushBranchParams>) -> Response {
-  guarded_push(state, &headers, "push the branch", params.as_stack(), sync_core::push::PushOutcome::of_stack).await
-}
-
-/// The app's stack push, through the same push of its session, to the remote of the template
+/// The app's stack push, through the same push of its session (`operations::push`: the robots of the fake Patronus, then
+/// the repository lock and the refusals of parked, landed, held and not built branches, then the network push after it),
+/// to the remote of the template (`remote_git_fixtures`)
 pub async fn push_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::push::PushBranchesParams>) -> Response {
-  guarded_push(state, &headers, "push the branches", params, Ok).await
+  guarded_push(state, &headers, "push the branches", params).await
 }
 
 /// The push of `params` as the app's command runs it, an operation of the session of its key: its progress and its wait
-/// for a holder of the repository lock on the channel of the page, the wait stopped by `cancel_lock_wait`; `outcome`
-/// makes the answer
-async fn guarded_push<T: serde::Serialize + Send + 'static>(
-  state: Arc<AppState>,
-  headers: &HeaderMap,
-  operation: &'static str,
-  params: sync_core::push::PushBranchesParams,
-  outcome: fn(sync_core::push::PushBranchesOutcome) -> anyhow::Result<T>,
-) -> Response {
+/// for a holder of the repository lock on the channel of the page, the wait stopped by `cancel_lock_wait`
+async fn guarded_push(state: Arc<AppState>, headers: &HeaderMap, operation: &'static str, params: sync_core::push::PushBranchesParams) -> Response {
   let channel = progress_channel(headers);
   answer_with_progress(channel, move |progress| async move {
     let (common_dir, space) = push_inputs(&state, &params.repository_path, operation).await?;
@@ -770,10 +758,7 @@ async fn guarded_push<T: serde::Serialize + Send + 'static>(
     };
     let ticket = register_wait(&state.lock_waits, channel, |_| {});
     let canceled = canceled_by(&ticket);
-    let pushed = host
-      .push_branches(params, move |tick| progress.send(&tick), canceled)
-      .await
-      .and_then(|answer| answer.try_map(outcome));
+    let pushed = host.push_branches(params, move |tick| progress.send(&tick), canceled).await;
     canceled_code(pushed.map(Json).map_err(|e| failed(operation, e)), &ticket)
   })
   .await

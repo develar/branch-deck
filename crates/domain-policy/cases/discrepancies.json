@@ -46,11 +46,11 @@
     "id": "retarget-before-or-after-the-push",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the order of the retarget of a pull request into a virtual branch and the push: the app retargeted before the push, bd push after it, bd safe-push before. Since s9-engine-remote bd push retargets before the push too, after the lock; a retarget GitHub refuses is a warning of the push and stops the start of its own pull request",
+    "title": "the order of the retarget of a pull request into a virtual branch and the push: the app retargeted before the push, bd push after it, bd safe-push before. Since s9-engine-remote bd push retargets before the push too, after the lock, and the push of the app is a plan whose retarget comes before its push (s9-12); a retarget GitHub refuses is a warning of the push and stops the start of its own pull request",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-push"],
     "discrepancy": "D3a",
     "today": {
-      "app": ["src/lib/git/push.ts#const retargeted = (await retargetBeforePush(branch)) ?? undefined"],
+      "app": ["crates/operations/src/push.rs#its pull request goes into the target first, where every pull request of a virtual branch goes (D3a)"],
       "bd": [
         "crates/bd-remote/src/push_command.rs#the pull requests of the branches it pushes go into the baseline first (D3a)",
         "crates/bd-remote/src/safe_push_test.rs#fn push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget",

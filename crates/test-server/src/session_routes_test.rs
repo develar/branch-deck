@@ -2,7 +2,7 @@
 //! first and then carries the patches, each on the version before it, up to the version a sync answers; it ends with
 //! `unsubscribe_view`; a repository without a prefix is refused with the `ApiError` of the app, on the stream too
 
-use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, start_test_server, view_when};
+use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, push_alone, start_test_server, view_when};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -230,16 +230,15 @@ async fn listed(client: &reqwest::Client, addr: SocketAddr, path: &str) -> Value
 #[tokio::test]
 async fn a_push_answers_the_version_of_its_patch_and_runs_no_sync() {
   let (client, addr, path, mut messages, synced) = synced_window("simple", 11).await;
-  let push = json!({"repositoryPath": path, "branchName": "test-branch", "myEmail": null, "baselineBranch": "origin/master", "expectedRemote": null});
-  let pushed = post(&client, addr, "/invoke/push_branch", push).await;
-  let status = pushed["outcome"]["remoteStatus"].clone();
-  assert!(status.is_object(), "{pushed}");
-  patches_up_to(&mut messages, &synced, &pushed["version"]).await;
+  let pushed = push_alone(&client, addr, &path, "test-branch", None).await;
+  assert_eq!(pushed["effects"][0]["status"]["kind"], "done", "{pushed}");
+  patches_up_to(&mut messages, &synced, &pushed["versionAfter"]).await;
   let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
-  assert_eq!(view["branches"]["test-branch"]["remote"]["status"], status);
+  let status = &view["branches"]["test-branch"]["remote"]["status"];
+  assert_eq!((status["remoteExists"].clone(), status["unpushedCommits"].clone()), (json!(true), json!([])), "{view}");
   // what follows is the view of the robots on the remote branch the push moved, no sync
   let derived = listed(&client, addr, &path).await;
-  let after = patches_up_to(&mut messages, &pushed["version"], &derived).await;
+  let after = patches_up_to(&mut messages, &pushed["versionAfter"], &derived).await;
   assert!(after.iter().all(|patch| patch["changes"].get("sync").is_none()), "no sync ran: {after:?}");
   assert_eq!(view["sync"], json!({ "kind": "idle" }), "no sync ran: {view}");
 }

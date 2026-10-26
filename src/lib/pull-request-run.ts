@@ -9,14 +9,14 @@
 import type { Intent, PullRequest, RequestedReviewers, RunningOperation, Subject } from "@/lib/bindings"
 import { formatCreatedToast } from "@/lib/create-pull-request"
 import { commandFailure } from "@/lib/errors"
-import { openNewPullRequest } from "@/lib/git/new-pull-request"
 import type { CompareFields } from "@/lib/pull-request"
 import { getCompareUrl } from "@/lib/pull-request"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/pull-request-dialog"
 import type { IntentRun } from "@/lib/run-intent"
-import { pushShown, runFailure, runIntent } from "@/lib/run-intent"
+import { runFailure, runIntent } from "@/lib/run-intent"
 import type { ToastMessage } from "@/lib/toast-message"
 import { formatReadinessSubject, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { openNewPullRequest } from "@/presenters/pull-request-url"
 import { recordPullRequestCreated } from "@/stores/activity"
 import { forgetLandedStackRoot } from "@/stores/landed-stacks"
 
@@ -59,8 +59,7 @@ async function runCreation(context: CreatePullRequestContext, input: Omit<Create
     reviewers: [...input.reviewers],
     onGitHub,
   }
-  const push = pushShown([contextKey(context)], context.repositoryPath)
-  const run = await runIntent(context.repositoryPath, intent, push.onEvent).finally(push.done)
+  const run = await runIntent(context.repositoryPath, intent)
   const failure = failureOf(run, `The last sync has no ${context.label}`)
   if (failure !== null) {
     throw failure
@@ -114,8 +113,7 @@ export async function continueOnGitHub(context: CreatePullRequestContext, fields
  */
 export async function requestReview(key: string, logins: readonly string[], repositoryPath: string): Promise<RequestedReviewers> {
   const intent: Intent = { kind: "requestReview", subject: subjectOf(key), reviewers: [...logins], pushFirst: true }
-  const push = pushShown([key], repositoryPath)
-  const run = await runIntent(repositoryPath, intent, push.onEvent).finally(push.done)
+  const run = await runIntent(repositoryPath, intent)
   if (run.kind === "ran" && run.outcome.result.kind === "reviewers") {
     return run.outcome.result
   }

@@ -28,7 +28,7 @@ targets:
   - ../../src/stores/unapplied-branches.ts
   - ../../src/components/branch/UnappliedBranchTableCard.tsx
   - ../../src/hooks/useUnappliedBranchMenu.ts
-  - ../../src/lib/git/unapplied-push.ts
+  - ../../src/lib/push-run.ts
   - ../../crates/repository-model/src/table.rs
   - ../../src-tauri/src/commands/archived_branches.rs
   - ../../crates/sync-core/src/reapply_branch.rs
@@ -170,10 +170,13 @@ puts its commits back on top of the current branch, their files and their groupi
   disabled when it has it as it is), Safe Push disabled with "Not in master: Reapply it to land it", Copy, and Delete
   Unapplied Branch….
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why`)
-- Push must push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status; the
+- Push must push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status, the
+  intent `Push` with the scope `unapplied` (`operations::push`): no robot read, no hold, no retarget (C3), "Force Push"
+  of its menu the user's choice to drop what the remote has; the
   toast "Pushed ‹branch›" says the remote keeps it, and its Remote cell shows the status the push left from the patch of
   the session, with no sync after it. A pull request of its virtual branch stays as it was.
   [@test] ../../crates/sync-core/src/push_test.rs (`an_unapplied_branch_is_pushed_under_its_own_name`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_of_an_unapplied_branch_is_planned_and_run_by_the_engine`)
   [@test] ../../crates/repository-model/src/table_test.rs (`the_outcome_of_a_push_stays_over_the_remote_statuses_of_a_sync_that_started_before_it`)
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why`)
 - Delete Unapplied Branch… must ask for its name typed, then delete it with compare-and-swap on its tip, refused while

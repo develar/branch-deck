@@ -30,7 +30,8 @@ targets:
   - ../../src/presenters/landing-node.ts
   - ../../src/lib/branch-filter.ts
   - ../../src/hooks/useLandingOverview.ts
-  - ../../src/hooks/usePushButton.ts
+  - ../../src/presenters/push-button.ts
+  - ../../src/hooks/useBranchPushes.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useParkBranch.ts
   - ../../src/components/branch/ParkedBranchesCard.tsx

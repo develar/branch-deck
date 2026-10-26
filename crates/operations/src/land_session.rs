@@ -279,7 +279,7 @@ pub async fn session_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>,
     Some(repository) => Some((services.github(key)?, repository)),
     None => None,
   };
-  start_of(services, sessions, key, Some((patronus, space.name)), github).await
+  start_of(services, sessions, key, Some((patronus, space.name)), github, Target::Required).await
 }
 
 /// What the creation of a pull request and a review request of the app run on (`session_start` without Patronus: they
@@ -290,6 +290,27 @@ pub async fn session_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>,
 /// # Errors
 /// As `session_start`, but for Space
 pub async fn pull_request_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>, key: &SessionKey) -> Result<(SessionStart, StartServices), ApiError> {
+  let (patronus, github) = optional_services(services, key).await?;
+  start_of(services, sessions, key, patronus, github, Target::Required).await
+}
+
+/// What a push of the app runs on (`operations::push::execute_push`): `pull_request_start` without the target, which a
+/// push needs not (no robot starts, its retarget names its base); GitHub for the retarget of its pull request and
+/// Patronus for the restart of its Safe Push while there are
+///
+/// # Errors
+/// A session without a sync yet, the git of the inputs failing
+pub async fn push_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>, key: &SessionKey) -> Result<(SessionStart, StartServices), ApiError> {
+  let (patronus, github) = optional_services(services, key).await?;
+  start_of(services, sessions, key, patronus, github, Target::None).await
+}
+
+/// The Patronus service with the Space repository and the GitHub service with the repository of the branches, while
+/// the host has them
+async fn optional_services(
+  services: &dyn ServiceHost,
+  key: &SessionKey,
+) -> Result<(Option<(Arc<PatronusService>, String)>, Option<(Arc<GitHubService>, GitHubRepository)>), ApiError> {
   let github = match services.github_repository(key).await? {
     Some(repository) => Some((services.github(key)?, repository)),
     None => None,
@@ -298,17 +319,27 @@ pub async fn pull_request_start(services: &dyn ServiceHost, sessions: &Arc<Sessi
     Ok(Some(space)) => services.patronus(key).ok().map(|patronus| (patronus, space.name)),
     _ => None,
   };
-  start_of(services, sessions, key, patronus, github).await
+  Ok((patronus, github))
+}
+
+/// Whether a run needs the branch of origin its robots push into
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Target {
+  /// It starts a robot, or opens a pull request into it
+  Required,
+  /// A push: no git process asks for it
+  None,
 }
 
 /// The run in the open session of `key` over `services`, with the Patronus service and the Space repository `patronus`
-/// and the GitHub of the branches `github`
+/// and the GitHub of the branches `github`, and the target the robots push into as `target` says (empty without it)
 async fn start_of(
   services: &dyn ServiceHost,
   sessions: &Arc<Sessions>,
   key: &SessionKey,
   patronus: Option<(Arc<PatronusService>, String)>,
   github: Option<(Arc<GitHubService>, GitHubRepository)>,
+  target: Target,
 ) -> Result<(SessionStart, StartServices), ApiError> {
   let baseline = sessions
     .table(key)
@@ -316,11 +347,14 @@ async fn start_of(
     .map(|table| table.table.baseline.clone())
     .ok_or_else(|| ApiError::new(ErrorCode::NoSession, "The repository has no open session with a sync yet"))?;
   let (patronus, space) = patronus.map_or((None, String::new()), |(patronus, space)| (Some(patronus), space));
-  let target = services.target(key, &baseline).await?;
-  let (git, path) = (services.git(), key.worktree.clone());
+  let target = match target {
+    Target::Required => services.target(key, &baseline).await?,
+    Target::None => String::new(),
+  };
+  let (git, config_git, path) = (services.git(), services.config_git(key), key.worktree.clone());
   let (common_dir, size_limit) = tokio::task::spawn_blocking(in_current_span(move || {
     let common_dir = git_common_dir(&git, &path)?;
-    let size_limit = ConfigSnapshot::read(&git, &path)?.push_size_limit()?;
+    let size_limit = ConfigSnapshot::read(&config_git, &path)?.push_size_limit()?;
     anyhow::Ok((std::path::PathBuf::from(common_dir), size_limit))
   }))
   .await

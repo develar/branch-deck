@@ -579,7 +579,10 @@ log of the fake). No test answers a remote write in the page: the registry test 
   fixture, `review_requests_of`), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
   session's read of the rules of a base, `TestFactSources::branch_rules`), `profiles` (its read of the merge profiles,
-  `TestFactSources::profiles`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings). A held request reaches its fake and waits at a `FakeGate`
+  `TestFactSources::profiles`), `gitHubAuth`, `youTrackAuth` and `cliTools` (the statuses of Settings), `sync` (a sync
+  run of the session, held in `TestSessionEnvironment::run_setup` before it reads anything: the session's sync runs
+  until the release, so a push that waits for it, `WaitingForSync`, is seen waiting; a page hold of the `sync` command
+  never reaches the session). A held request reaches its fake and waits at a `FakeGate`
   (`test_utils::fake_server`, the gate `FakeGitHub::hold` and `FakePatronus::hold` take), so the page shows what it
   shows before the answer, and a release lets it through with what the fixture holds then. `fail` makes a route of
   the fake Patronus answer 500 (`FakePatronus::set_failing`) or the bridge reject the command ("the fixture fails this

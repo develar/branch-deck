@@ -158,6 +158,33 @@ pub(crate) async fn sync(client: &reqwest::Client, addr: SocketAddr, path: &str)
   response.text().await.unwrap();
 }
 
+/// The intent of the push of `branch` alone, as its push button asks it: over the remote head the row showed
+/// (`expected`, `None`: no remote branch)
+pub(crate) fn push_intent(branch: &str, expected: Option<&str>) -> Value {
+  serde_json::json!({
+    "kind": "push",
+    "subject": {"kind": "branch", "name": branch},
+    "scope": {"kind": "alone"},
+    "expectRemote": expected,
+    "force": false,
+    "restartRunning": false,
+  })
+}
+
+/// The `execute` of `intent` in the session of `path` on the plan `prepare` answers now, every confirmation of it
+/// accepted, as the push button runs it once the user confirmed
+pub(crate) async fn execute_request(client: &reqwest::Client, addr: SocketAddr, path: &str, intent: &Value) -> Value {
+  let plan = post(client, addr, "/invoke/prepare", serde_json::json!({"repositoryPath": path, "intent": intent})).await;
+  assert!(plan.is_object(), "no plan of {intent}: {plan}");
+  serde_json::json!({"repositoryPath": path, "intent": plan["intent"], "fingerprint": plan["fingerprint"], "accepted": plan["confirmations"]})
+}
+
+/// The push of `branch` alone through the engine (`push_intent`, `execute_request`): its outcome
+pub(crate) async fn push_alone(client: &reqwest::Client, addr: SocketAddr, path: &str, branch: &str, expected: Option<&str>) -> Value {
+  let execute = execute_request(client, addr, path, &push_intent(branch, expected)).await;
+  post(client, addr, "/invoke/execute", execute).await
+}
+
 /// What the server logs from now on at warning level and above, for a test that asserts it logs none: the global
 /// subscriber, which sees the threads of the server too, sound because nextest runs each test in a process of its own
 pub(crate) fn capture_warnings() -> std::sync::Arc<std::sync::Mutex<Vec<u8>>> {

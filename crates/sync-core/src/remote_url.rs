@@ -2,7 +2,7 @@
 
 use git_executor::git_command_executor::GitCommandExecutor;
 
-/// The URL `origin` pushes to (`push_branch` pushes to origin), `None` without that remote: one
+/// The URL `origin` pushes to (the virtual branches are pushed to origin), `None` without that remote: one
 /// `remote get-url --push`, which applies `pushurl` and `pushInsteadOf`. Read it once per operation: the Space
 /// repository and the GitHub repository are both found by it
 pub fn origin_push_url(git_executor: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<Option<String>> {

@@ -1,6 +1,6 @@
 use crate::remote_fixtures::{HistoryRobotFixture, fixture_history_robot, fixture_progress, fixture_robot};
 use crate::session_routes_test::{subscribe, subscription};
-use crate::test_support::{Named, create_repository, create_repository_from, post, post_as, start_test_server, sync, view_when};
+use crate::test_support::{Named, create_repository, create_repository_from, execute_request, post, post_as, push_intent, start_test_server, sync, view_when};
 use domain_types::patronus::{
   PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
@@ -504,21 +504,25 @@ async fn a_start_through_execute_asks_no_list_of_its_own() {
   assert_eq!(log["starts"].as_array().map(Vec::len), Some(1));
 }
 
-/// A push the IPC asks for a branch whose own Safe Push runs is refused in Rust, by the checks of the app's command on
-/// the robots the fake lists (the page knew of none: the robot started after its list), before git pushes anything
+/// A push of a branch whose own Safe Push runs is refused in Rust, by the run of the push intent on the robots the fake
+/// lists now (the session knew of none: the robot started after its list), before git pushes anything
 #[tokio::test]
 async fn a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes() {
   let (addr, client, id, repository_path) = synced_on_space(&[]).await;
   post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
 
-  let push = json!({"repositoryPath": repository_path, "branchName": "test-branch", "myEmail": null,
-    "baselineBranch": "origin/master", "parentBranch": null, "expectedRemote": null, "tip": null});
-  let answer = post(&client, addr, "/invoke/push_branch", push).await;
-  assert_eq!(answer["status"], "error");
+  // the row offers the push: the session lists no robot of it yet
+  let execute = execute_request(&client, addr, &repository_path, &push_intent("test-branch", None)).await;
+  let answer = post(&client, addr, "/invoke/execute", execute).await;
+  assert_eq!(
+    (answer["status"].clone(), answer["error"]["code"].clone()),
+    (json!("error"), json!("robot_running")),
+    "{answer}"
+  );
   let refusal = answer["error"]["message"].as_str().unwrap();
   assert!(
     refusal.contains(
-      "Nothing was pushed: A Safe Push of test-branch is running on user-name/virtual/test-branch: a push moves the branch it took its commit from, so it won't land and fails the Safe Push at the end. Wait until it merges, or restart it on the current branch ("
+      "Nothing was pushed: A Safe Push of test-branch is running: a push moves the branch it took its commit from, so it won't land and fails the Safe Push at the end. Wait until it merges, or restart it on the current branch ("
     ),
     "{refusal}"
   );
@@ -585,4 +589,35 @@ fn stills_codec_merged() -> serde_json::Value {
     "sourceRevision": "", "targetBranch": "master", "startTime": 1_704_139_200, "finishTime": 1_704_142_800, "cancellationReason": null,
     "url": "ignored",
   }]})
+}
+
+/// The push that restarts the Safe Push of its branch (`restartRunning`, the push of the toast of a remote that moved
+/// under a restart): the running robot is canceled first, the branch pushed, and the robot restarted on the pushed
+/// commit, in the order of its plan; the outcome names the new robot
+#[tokio::test]
+async fn a_push_that_restarts_the_safe_push_of_its_branch_cancels_pushes_and_restarts_it() {
+  let (addr, client, id, repository_path) = synced_on_space(&[]).await;
+  post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
+  let intent = json!({"kind": "push", "subject": {"kind": "branch", "name": "test-branch"}, "scope": {"kind": "alone"},
+    "expectRemote": null, "force": false, "restartRunning": true});
+  // the session lists the robot and derives what it holds: the plan cancels it before the push and restarts it after
+  let plan = plan_when(&client, addr, &repository_path, &intent, |plan| {
+    plan["effects"].as_array().is_some_and(|effects| effects.len() == 3)
+  })
+  .await;
+  assert_eq!(
+    plan["effects"],
+    json!([
+      {"kind": "cancelRobot", "robotId": "r1"},
+      {"kind": "push", "branches": ["test-branch"], "force": false},
+      {"kind": "restartRobot", "robotId": "r1"},
+    ]),
+    "{plan}"
+  );
+  let outcome = execute_plan(&client, addr, &repository_path, &intent, &plan).await;
+  let statuses: Vec<serde_json::Value> = outcome["effects"].as_array().unwrap().iter().map(|record| record["status"]["kind"].clone()).collect();
+  assert_eq!(statuses, [json!("done"), json!("done"), json!("done")], "{outcome}");
+  assert_eq!(outcome["result"]["restarted"]["id"], "restarted-1", "{outcome}");
+  let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
+  assert_eq!((log["cancels"].clone(), log["restarts"].clone()), (json!(["r1"]), json!(["r1"])));
 }

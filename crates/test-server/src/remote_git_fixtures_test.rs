@@ -2,7 +2,7 @@
 //! refused one moves nothing, and what a test does to it behind the app's back is what the next push finds
 
 use crate::remote_host::HeldAnswer;
-use crate::test_support::{create_repository, post, post_error, start_test_server_with_state, sync};
+use crate::test_support::{create_repository, post, push_alone, start_test_server_with_state, sync};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -10,9 +10,16 @@ use std::net::SocketAddr;
 /// The virtual branch of the `simple` template
 const BRANCH: &str = "user-name/virtual/test-branch";
 
-/// The app's push of the branch of the `simple` template, as the row saw its remote (`expected`)
-fn push_of(path: &str, expected: Option<&str>) -> Value {
-  json!({"repositoryPath": path, "branchName": "test-branch", "myEmail": null, "baselineBranch": "origin/master", "expectedRemote": expected})
+/// The app's push of the branch of the `simple` template alone, as the row saw its remote (`expected`): its outcome
+async fn push_of(client: &reqwest::Client, addr: SocketAddr, path: &str, expected: Option<&str>) -> Value {
+  push_alone(client, addr, path, "test-branch", expected).await
+}
+
+/// The status of the push effect of `outcome`, and the code of its error when it failed
+fn push_status(outcome: &Value) -> (Value, Value) {
+  let status = &outcome["effects"][0]["status"];
+  assert_eq!(outcome["effects"][0]["effect"]["kind"], "push", "{outcome}");
+  (status["kind"].clone(), status["error"]["code"].clone())
 }
 
 async fn remote_branches(client: &reqwest::Client, addr: SocketAddr, id: &str) -> Value {
@@ -47,13 +54,11 @@ async fn a_push_of_the_app_reaches_the_remote_of_the_template() {
   assert_eq!(remote_branches(&client, addr, &id).await, json!({ "master": baseline }));
   sync(&client, addr, &path).await;
 
-  let pushed = post(&client, addr, "/invoke/push_branch", push_of(&path, None)).await;
+  let pushed = push_of(&client, addr, &path, None).await;
   let tip = revision(&client, addr, &id, BRANCH).await;
-  assert_eq!(
-    (pushed["outcome"]["type"].clone(), pushed["outcome"]["remoteStatus"]["remoteTip"].clone()),
-    (json!("pushed"), json!(tip)),
-    "{pushed}"
-  );
+  assert_eq!(push_status(&pushed), (json!("done"), Value::Null), "{pushed}");
+  let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
+  assert_eq!(view["branches"]["test-branch"]["remote"]["status"]["remoteTip"], json!(tip), "{view}");
   assert_eq!(
     remote(&client, addr, &id).await,
     json!({ "branches": { "master": baseline, BRANCH: tip }, "pushes": [{ BRANCH: tip }] })
@@ -71,10 +76,11 @@ async fn a_refused_push_moves_nothing_and_a_held_one_waits_at_the_remote() {
   sync(&client, addr, &path).await;
   let refusal = format!("/repositories/{id}/remote/refusal");
   post(&client, addr, &refusal, json!({ "message": "Pushes are closed for the release" })).await;
-  let refused = post_error(&client, addr, "/invoke/push_branch", push_of(&path, None)).await;
-  let message = refused["message"].as_str().unwrap();
+  let refused = push_of(&client, addr, &path, None).await;
+  assert_eq!(push_status(&refused), (json!("failed"), json!("push_refused")), "{refused}");
+  let message = refused["effects"][0]["status"]["error"]["message"].as_str().unwrap();
   assert!(
-    message.contains("The remote rejected the push: ") && message.contains("remote: Pushes are closed for the release"),
+    message.contains("The remote refused the push: ") && message.contains("remote: Pushes are closed for the release"),
     "{message}"
   );
   assert_eq!(remote_branches(&client, addr, &id).await.get(BRANCH), None, "nothing was pushed");
@@ -86,7 +92,7 @@ async fn a_refused_push_moves_nothing_and_a_held_one_waits_at_the_remote() {
   post(&client, addr, &gates, json!({ "hold": ["push"] })).await;
   let push = tokio::spawn({
     let (client, path) = (client.clone(), path.clone());
-    async move { post(&client, addr, "/invoke/push_branch", push_of(&path, None)).await }
+    async move { push_of(&client, addr, &path, None).await }
   });
   let host = state.repositories.get(&id).unwrap().existing_remote().unwrap();
   host.arrival(HeldAnswer::Push).await;
@@ -94,7 +100,7 @@ async fn a_refused_push_moves_nothing_and_a_held_one_waits_at_the_remote() {
   assert_eq!(arrived["arrived"], json!(["push"]));
   assert_eq!(remote_branches(&client, addr, &id).await.get(BRANCH), None, "no ref moved while held");
   post(&client, addr, &gates, json!({ "release": ["push"] })).await;
-  assert_eq!(push.await.unwrap()["outcome"]["type"], "pushed");
+  assert_eq!(push_status(&push.await.unwrap()), (json!("done"), Value::Null));
   let tip = revision(&client, addr, &id, BRANCH).await;
   assert_eq!(remote_branches(&client, addr, &id).await[BRANCH], json!(tip));
 }
@@ -109,24 +115,30 @@ async fn a_commit_on_the_remote_is_what_the_next_push_finds() {
   let client = reqwest::Client::new();
   let (id, path) = create_repository(&client, addr).await;
   sync(&client, addr, &path).await;
-  post(&client, addr, "/invoke/push_branch", push_of(&path, None)).await;
+  push_of(&client, addr, &path, None).await;
+  let pushed_tip = revision(&client, addr, &id, BRANCH).await;
+  // a commit of the branch the remote lacks: the next push has work
+  std::fs::write(std::path::Path::new(&path).join("file3.txt"), "Content 3").unwrap();
+  for args in [&["add", "file3.txt"][..], &["commit", "-q", "-m", "(test-branch) foo 3"][..]] {
+    assert!(test_utils::git_test_utils::git_command().args(args).current_dir(&path).status().unwrap().success());
+  }
+  sync(&client, addr, &path).await;
   let tip = revision(&client, addr, &id, BRANCH).await;
 
   let commit = json!({ "branch": BRANCH, "subject": "Fix the pool", "author": "Ann <ann@example.com>", "timestamp": 1_704_178_800, "files": [["pool.txt", "pool\n"]] });
   let theirs = post(&client, addr, &format!("/repositories/{id}/remote/commit"), commit.clone()).await["commitId"].clone();
   assert_eq!(remote_branches(&client, addr, &id).await[BRANCH], theirs);
-  assert_eq!(revision(&client, addr, &id, &format!("origin/{BRANCH}")).await, tip, "no fetch yet");
+  assert_eq!(revision(&client, addr, &id, &format!("origin/{BRANCH}")).await, pushed_tip, "no fetch yet");
 
-  let moved = post(&client, addr, "/invoke/push_branch", push_of(&path, Some(&tip))).await;
-  let status = &moved["outcome"]["remoteStatus"];
+  let moved = push_of(&client, addr, &path, Some(&pushed_tip)).await;
+  assert_eq!(push_status(&moved), (json!("failed"), json!("lease_rejected")), "{moved}");
+  // the session has the remote branch as the fetch after the refusal found it
+  let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
+  let status = &view["branches"]["test-branch"]["remote"]["status"];
   assert_eq!(
-    (
-      moved["outcome"]["type"].clone(),
-      status["remoteTip"].clone(),
-      status["droppedCommits"][0]["subject"].clone()
-    ),
-    (json!("remoteMoved"), theirs.clone(), json!("Fix the pool")),
-    "{moved}"
+    (status["remoteTip"].clone(), status["droppedCommits"][0]["subject"].clone()),
+    (theirs.clone(), json!("Fix the pool")),
+    "{status}"
   );
 
   let pushed = post(&client, addr, &format!("/repositories/{id}/remote/push"), json!({ "branch": BRANCH, "revision": BRANCH })).await;
@@ -152,5 +164,5 @@ async fn a_commit_on_the_remote_is_what_the_next_push_finds() {
   let theirs = post(&client, addr, &format!("/repositories/{id}/remote/commit"), commit).await["commitId"].clone();
   post(&client, addr, &format!("/repositories/{id}/remote/fetch"), json!({})).await;
   assert_eq!(json!(revision(&client, addr, &id, &format!("origin/{BRANCH}")).await), theirs);
-  assert_eq!(remote(&client, addr, &id).await["pushes"], json!([{ BRANCH: tip }]));
+  assert_eq!(remote(&client, addr, &id).await["pushes"], json!([{ BRANCH: pushed_tip }]));
 }

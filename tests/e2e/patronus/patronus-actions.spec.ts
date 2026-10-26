@@ -1364,7 +1364,7 @@ test.describe("Patronus actions", () => {
     })
 
     test("should offer no push: it won't land, and the menu says why", async ({ page }) => {
-      const pushes = await recordCommand(page, "push_branch")
+      const pushes = await recordCommand(page, "execute")
       const row = findBranchRow(page, "JIRA-456")
       // no push, as the Safe Push slot has no step; the Status cell shows the robot
       await expectNothingToPush(row)
@@ -1460,7 +1460,7 @@ test.describe("Patronus actions", () => {
       await pushFromRowMenu(page, "JIRA-456")
       const toast = page.locator("[data-slot=toast]", { hasText: "Cannot push JIRA-456" })
       await expect(toast).toContainText(
-        "Nothing was pushed: A Safe Push of JIRA-456 is running on user-name/virtual/JIRA-456: a push moves the branch it took its commit from, so it won't land and fails the Safe Push at the end. Wait until it merges, or restart it on the current branch",
+        "Nothing was pushed: A Safe Push of JIRA-456 is running: a push moves the branch it took its commit from, so it won't land and fails the Safe Push at the end. Wait until it merges, or restart it on the current branch",
       )
       // nothing reached the remote: the branch is still not pushed; the backend asked one full list for the push, after
       // the page's one at load

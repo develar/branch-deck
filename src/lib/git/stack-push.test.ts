@@ -1,19 +1,17 @@
+// The pushes of a stack of the page (`stack-push.ts`, until they are intents of the engine, s9-13), over a mocked backend:
+// the push of a branch alone is the intent `Push` of the engine (`operations::push`, its tests there and in E2E)
 import { createElement, Fragment } from "react"
 import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest, Reason, StackBranchAlong } from "@/lib/bindings"
 import { resetEventToasts } from "@/lib/event-toast"
-import { formatNewPullRequestBlocker, getNewPullRequestUrl, getRetargetCommand } from "@/lib/git/new-pull-request"
-import { pushBranch, pushForAction } from "@/lib/git/push"
-import { pushStack, pushUpTo, pushWholeStack, pushWithChildren } from "@/lib/git/stack-push"
-import { getPushOrders } from "@/stores/branch-sync"
+import { pushForAction, pushStack, pushUpTo, pushWholeStack, pushWithChildren } from "@/lib/git/stack-push"
 import type { Branch, PushOrders, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
-import { operationsStore, runOperation } from "@/stores/operations"
-import { pullRequestsStore } from "@/stores/pull-requests"
-import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
-import { openToasts, resetToasts, toasts } from "@/test-support/toast-mock"
+import { CREATE, forcePush, PUSH, testRemoteStatus, UP_TO_DATE } from "@/stores/test-branch"
+import { unpushedBranch } from "@/test-support/push-mocks"
+import { resetToasts, toasts } from "@/test-support/toast-mock"
 
 const { calls, records, robots, stores } = vi.hoisted(() => ({
   /** What reached the backend, Patronus, the clipboard and the browser, in order */
@@ -92,23 +90,11 @@ const { calls, records, robots, stores } = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@tauri-apps/api/core", () => ({
-  Channel: class {
-    onmessage: (message: unknown) => void = () => {}
-  },
-}))
+vi.mock("@tauri-apps/api/core", () => import("@/test-support/channel-mock"))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: async (url: string) => {
-    calls.push(`open ${url}`)
-  },
-}))
-vi.mock("@/lib/clipboard", () => ({
-  copyText: async (text: string) => {
-    calls.push(`copy ${text}`)
-  },
-}))
+vi.mock("@tauri-apps/plugin-opener", async () => (await import("@/test-support/push-mocks")).openerMock(calls))
+vi.mock("@/lib/clipboard", async () => (await import("@/test-support/push-mocks")).clipboardMock(calls))
 vi.mock("@/components/ui/toast", async () => (await import("@/test-support/toast-mock")).toastModule)
 
 /**
@@ -132,35 +118,10 @@ function applyToSession(branches: readonly { branchName: string; wholeStack?: bo
   })
 }
 
-vi.mock("@/model/store", () => ({
-  whenSessionViewAt: async () => {},
-  // Rust offers Create Pull Request… of a branch without a live pull request (`domain_policy::actions`), over the pull
-  // requests the test lists
-  getRowPart: (key: string, part: string) =>
-    part === "actions" && (stores.pullRequests[key]?.state ?? "closed") === "closed" ? [{ id: "create-pull-request", availability: { kind: "enabled" } }] : undefined,
-}))
+vi.mock("@/model/store", async () => (await import("@/test-support/push-mocks")).modelStoreMock(() => stores.pullRequests))
 
 vi.mock("@/lib/bindings", () => ({
   commands: {
-    pushBranch: async (params: { branchName: string; expectedRemote: string | null }) => {
-      calls.push(`push ${params.branchName}`)
-      stores.expectedRemotes.push(params.expectedRemote)
-      // Rust reads the robots now (`robots.status`) and refuses a push into a branch a running Safe Push holds
-      const own = params.branchName === "auth" && robots.running?.status === "running" ? robots.running : undefined
-      const holder = own ?? (robots.spans[params.branchName]?.status === "running" ? robots.spans[params.branchName] : undefined)
-      if (holder !== undefined && robots.status === "running") {
-        const lands = holder.branchName === params.branchName ? "" : `: it lands ${params.branchName} with it`
-        return { status: "error", error: { code: "internal", message: `Nothing was pushed: A Safe Push of ${holder.branchName} is running${lands}`, details: null } }
-      }
-      stores.whilePushing()
-      const moved = stores.movedRemotes.shift()
-      const remoteStatus = { branchName: params.branchName, remoteExists: true, remoteTip: moved?.remoteTip ?? "tip", commitsBehind: moved?.commitsBehind ?? 0 }
-      applyToSession([params], [remoteStatus])
-      const over = stores.pushedOver.shift()
-      const pushedOver = over === undefined ? null : { branchName: params.branchName, remoteExists: true, remoteTip: over.remoteTip }
-      return { status: "ok", data: { outcome: moved === undefined ? { type: "pushed", remoteStatus, pushedOver } : { type: "remoteMoved", remoteStatus }, version: null } }
-    },
-    /** One push of the branches, "push auth login@<tip>" */
     /** One push of the branches, "push auth login@<tip> stack:auth" (the stack branch of the whole stack of auth) */
     pushBranches: async (params: { branches: { branchName: string; expectedRemote: string | null; tip?: string | null; wholeStack?: boolean }[] }) => {
       const nameOf = (branch: { branchName: string; wholeStack?: boolean }) => (branch.wholeStack === true ? `stack:${branch.branchName}` : branch.branchName)
@@ -412,11 +373,8 @@ vi.mock("@/lib/run-intent", () => ({
 }))
 
 vi.mock("@/stores/pull-requests", async () => ({
-  // the pull requests GitHub lists are `stores.pullRequests`: a set of the store tells the toasts that read them
-  pullRequestsStore: (await import("zustand/vanilla")).createStore(() => ({})),
-  getPullRequest: (name: string) => stores.pullRequests[name],
+  ...(await import("@/test-support/push-mocks")).pullRequestsMock(() => stores.pullRequests),
   getStackPullRequest: (root: string) => stores.stackPullRequests[root],
-  getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
   // the engine retargets it into the target, "master", and Activity records it as the run of its intent does
   retargetPullRequest: async (name: string) => {
     calls.push(`retarget ${name} master`)
@@ -466,19 +424,9 @@ const RUNNING: PatronusRobot = {
   url: "u",
 }
 
-const COMPARE = "https://github.com/JetBrains/ultimate/compare"
-
 /** A branch of one commit the remote lacks; `remote: false` when it isn't on the remote yet */
 function addBranch(name: string, parent: string | null, remote = true): void {
-  const remoteStatus = testRemoteStatus({
-    exists: remote,
-    unpushedCommits: ["c"],
-    commitsAhead: 1,
-    myCommitsAhead: 1,
-    remoteTip: remote ? "old-tip" : null,
-    action: remote ? PUSH : CREATE,
-  })
-  stores.branches[name] = testBranch(name, parent, { remoteStatus, commits: [{ hash: `${name}-tip` }] as unknown as Branch["commits"], myEmail: "me@example.com" })
+  stores.branches[name] = unpushedBranch(name, parent, remote, { commits: [{ hash: `${name}-tip` }] as unknown as Branch["commits"], myEmail: "me@example.com" })
 }
 
 /** The text of a toast description, which names a branch in medium weight */
@@ -524,193 +472,6 @@ beforeEach(() => {
   addBranch("auth", null, false)
 })
 
-describe("the toast of a push", () => {
-  beforeEach(() => {
-    robots.running = undefined
-  })
-
-  it("offers to create the pull request of a branch without one, into the baseline", async () => {
-    expect(await pushBranch("auth")).toBe(true)
-    expect(toasts).toHaveLength(1)
-    const toast = toasts[0]!
-    expect(toast.title).toBe("Pushed auth")
-    // a root names no base: the baseline is the base of every branch that isn't stacked
-    expect(text(toast.description)).toBe("1 commit · created the remote branch")
-    expect(toast.actionProps?.children).toBe("Create Pull Request…")
-    toast.actionProps!.onClick()
-    expect(createPullRequestDialogStore.getState().branchName).toBe("auth")
-    // "Continue on GitHub" of the dialog opens the form into the same base
-    expect(getNewPullRequestUrl(stores.branches.auth!)).toBe(`${COMPARE}/master...user/virtual/auth?expand=1`)
-  })
-
-  it("is one toast per branch: a later push of it takes its place, its pull request action as the branch has it now", async () => {
-    expect(await pushBranch("auth")).toBe(true)
-    const pushed = openToasts()[0]!
-    expect(pushed.actionProps?.children).toBe("Create Pull Request…")
-    // created meanwhile on another surface (the row, bd): the toast opens it
-    stores.pullRequests.auth = { url: "https://github.com/JetBrains/ultimate/pull/7", state: "open" } as PullRequest
-    pullRequestsStore.setState({})
-    expect(openToasts()).toEqual([pushed])
-    expect(pushed.actionProps?.children).toBe("Open Pull Request")
-
-    stores.branches.auth = {
-      ...stores.branches.auth!,
-      remoteStatus: testRemoteStatus({ exists: true, commitsAhead: 1, myCommitsAhead: 1, unpushedCommits: ["a2"], remoteTip: "a1", action: PUSH }),
-    }
-    expect(await pushBranch("auth")).toBe(true)
-    expect(openToasts()).toEqual([pushed])
-    expect(text(pushed.description)).toBe("1 commit")
-  })
-
-  it("opens the pull request the branch has", async () => {
-    stores.pullRequests.auth = { url: "https://github.com/JetBrains/ultimate/pull/7", state: "open" } as PullRequest
-    expect(await pushBranch("auth")).toBe(true)
-    const toast = toasts.at(-1)!
-    expect(toast.actionProps?.children).toBe("Open Pull Request")
-    toast.actionProps!.onClick()
-    await vi.waitFor(() => expect(calls).toEqual(["push auth", "open https://github.com/JetBrains/ultimate/pull/7"]))
-  })
-
-  it("offers a new pull request when the branch has only a closed one", async () => {
-    stores.pullRequests.auth = { url: "https://github.com/JetBrains/ultimate/pull/7", state: "closed" } as PullRequest
-    expect(await pushBranch("auth")).toBe(true)
-    expect(toasts.at(-1)!.actionProps?.children).toBe("Create Pull Request…")
-  })
-
-  it("creates the pull request of a stacked branch into the baseline, its parent on the remote or not", async () => {
-    addBranch("auth", null)
-    addBranch("login", "auth", false)
-    expect(await pushBranch("login")).toBe(true)
-    const toast = toasts.at(-1)!
-    // every pull request goes into the baseline: the toast names no base
-    expect(text(toast.description)).toBe("1 commit · created the remote branch")
-    expect(toast.actionProps?.children).toBe("Create Pull Request…")
-    toast.actionProps!.onClick()
-    expect(createPullRequestDialogStore.getState().branchName).toBe("login")
-    // "Continue on GitHub" of the dialog opens the form into the same base, with the commits of auth
-    expect(getNewPullRequestUrl(stores.branches.login!)).toBe(`${COMPARE}/master...user/virtual/login?expand=1`)
-
-    addBranch("oauth", "login", false)
-    stores.branches.login = { ...stores.branches.login!, remoteStatus: testRemoteStatus({ exists: false, action: CREATE }) }
-    expect(getNewPullRequestUrl(stores.branches.oauth!)).toBe(`${COMPARE}/master...user/virtual/oauth?expand=1`)
-  })
-
-  it("retargets a pull request into a virtual branch to the baseline before the push, and Activity records it", async () => {
-    addBranch("auth", null)
-    addBranch("login", "auth")
-    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "user/virtual/auth", url: "https://github.com/JetBrains/ultimate/pull/8" } as PullRequest
-    expect(await pushBranch("login")).toBe(true)
-    expect(calls.slice(0, 2)).toEqual(["retarget login master", "push login"])
-    const toast = toasts.at(-1)!
-    expect(text(toast.description)).toBe("1 commit · retargeted pull request #8 to master")
-    expect(toast.actionProps?.children).toBe("Open Pull Request")
-    expect(records).toEqual(["Retargeted #8 to master: login · it went into auth", "push login"])
-  })
-
-  it("leaves a pull request into a release branch: that base may be meant", async () => {
-    addBranch("login", "auth")
-    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "release-252", url: "https://github.com/JetBrains/ultimate/pull/8" } as PullRequest
-    expect(await pushBranch("login")).toBe(true)
-    expect(calls).toEqual(["push login"])
-    const toast = toasts.at(-1)!
-    expect(text(toast.description)).toBe("1 commit")
-    expect(toast.actionProps?.children).toBe("Open Pull Request")
-    expect(getRetargetCommand(stores.branches.login!)).toBeNull()
-  })
-
-  it("pushes and copies the command that retargets a pull request when the retarget fails", async () => {
-    addBranch("auth", null)
-    addBranch("login", "auth")
-    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "user/virtual/auth" } as PullRequest
-    stores.retargetError = "HTTP 403"
-    expect(await pushBranch("login")).toBe(true)
-    expect(toasts.some(toast => toast.title === "Cannot retarget pull request #8")).toBe(true)
-    const toast = toasts.at(-1)!
-    expect(text(toast.description)).toBe("1 commit · the pull request goes into auth: retarget it to master")
-    expect(toast.actionProps?.children).toBe("Copy gh pr edit")
-    toast.actionProps!.onClick()
-    await vi.waitFor(() => expect(calls).toContain("copy gh pr edit 8 --base master"))
-  })
-
-  it("says nothing for a push that is a step of another action, and Activity records it", async () => {
-    expect(await pushBranch("auth", { announce: false })).toBe(true)
-    expect(toasts).toEqual([])
-    expect(records).toEqual(["push auth"])
-  })
-})
-
-describe("pushBranch into a branch whose Safe Push runs", () => {
-  it("goes to Rust, which refuses it while the robot runs: it won't land, and the toast opens the robot", async () => {
-    expect(await pushBranch("auth")).toBe(false)
-    expect(calls).toEqual(["push auth"])
-    expect(toasts.map(toast => toast.title)).toEqual(["Cannot push auth"])
-    expect(text(toasts[0]!.description)).toContain("Nothing was pushed: A Safe Push of auth is running")
-    expect(toasts[0]!.actionProps?.children).toBe("Open in Patronus")
-  })
-
-  it("pushes when the Safe Push finished meanwhile: Rust reads the robots now", async () => {
-    robots.status = "success"
-    expect(await pushBranch("auth")).toBe(true)
-    expect(calls).toEqual(["push auth"])
-  })
-
-  it("cancels the running Safe Push for the start that replaces it, and never restarts it", async () => {
-    expect(await pushBranch("auth", { replacesRobot: robots.running, announce: false })).toBe(true)
-    // the caller's start is the one robot of the branch, and its toast the one toast
-    expect(calls).toEqual(["cancel old", "push auth"])
-    expect(toasts).toEqual([])
-  })
-
-  it("cancels, pushes and restarts the running Safe Push for its restart, in the one toast of the restart", async () => {
-    expect(await pushBranch("auth", { restartRobot: robots.running, announce: false })).toBe(true)
-    expect(calls).toEqual(["cancel old", "push auth", "restart old"])
-    expect(toasts.map(toast => toast.title)).toEqual(["Safe Push restarted"])
-    expect(records).toEqual(["push auth", "Safe Push restarted"])
-  })
-
-  it("cancels no robot for the restart of another one: Rust refuses the push while the one that holds it runs", async () => {
-    expect(await pushBranch("auth", { restartRobot: { ...RUNNING, id: "other", status: "failure" } })).toBe(false)
-    expect(calls).toEqual(["push auth"])
-  })
-
-  it("says only the restart for the restart of a finished robot that pushes first, recorded once", async () => {
-    robots.running = undefined
-    expect(await pushBranch("auth", { restartRobot: { ...RUNNING, status: "failure" }, announce: false })).toBe(true)
-    expect(toasts.map(toast => toast.title)).toEqual(["Safe Push restarted"])
-    expect(records).toEqual(["push auth", "Safe Push restarted"])
-  })
-
-  it("refuses a branch a Safe Push of a branch built on it lands", async () => {
-    robots.running = undefined
-    addBranch("login", "auth")
-    robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
-    expect(await pushBranch("auth")).toBe(false)
-    expect(text(toasts[0]!.description)).toContain("A Safe Push of login is running: it lands auth with it")
-    expect(toasts[0]!.actionProps?.children).toBe("Open in Patronus")
-  })
-
-  it("pushes a parent a restack placed below a running Safe Push once the repository view of the robots as they are now says the robot has none of it", async () => {
-    robots.running = undefined
-    addBranch("login", "auth")
-    robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
-    robots.released = ["auth"]
-    expect(await pushBranch("auth")).toBe(true)
-    expect(calls).toContain("push auth")
-    expect(toasts.filter(toast => toast.type === "error")).toEqual([])
-  })
-
-  it("refuses a branch a merged Safe Push of a branch built on it landed, before Rust", async () => {
-    robots.running = undefined
-    addBranch("login", "auth")
-    // the robot finished: a merged Safe Push landed it, which no read of the robots changes
-    robots.status = "success"
-    robots.landed.auth = { ...RUNNING, id: "login-run", branchName: "login", status: "success", finishTime: 200 }
-    expect(await pushBranch("auth")).toBe(false)
-    expect(calls).toEqual([])
-    expect(text(toasts[0]!.description)).toContain("Landed in master with login: nothing of it is left to push")
-  })
-})
-
 describe("a stack push next to a running Safe Push", () => {
   beforeEach(() => {
     robots.running = undefined
@@ -753,8 +514,6 @@ describe("the toast of a stack push", () => {
     expect(toast.actionProps?.children).toBe("Create Pull Request…")
     toast.actionProps!.onClick()
     expect(createPullRequestDialogStore.getState().branchName).toBe("oauth")
-    // "Continue on GitHub" of the dialog opens the form into the baseline, with the commits of auth and login
-    expect(getNewPullRequestUrl(stores.branches.oauth!)).toBe(`${COMPARE}/master...user/virtual/oauth?expand=1`)
   })
 
   it("names each pull request into a virtual branch the pushes retargeted to the baseline", async () => {
@@ -845,30 +604,6 @@ describe("the toast of a stack push", () => {
     ).toBe(true)
     expect(calls).toEqual(["push auth login oauth@c"])
     expect(toasts.map(toast => toast.title)).toEqual(["Pushed auth, login and oauth"])
-  })
-})
-
-describe("a push over a remote that moved", () => {
-  beforeEach(() => {
-    robots.running = undefined
-  })
-
-  it("says a push Rust made again over a remote that moved from what it went over, in one push of the page", async () => {
-    stores.pushedOver = [{ branch: "auth", remoteTip: "theirs" }]
-    expect(await pushBranch("auth")).toBe(true)
-    expect(calls).toEqual(["push auth"])
-    expect(stores.expectedRemotes).toEqual([null])
-    expect(toasts.map(toast => toast.title)).toEqual(["Pushed auth"])
-    // what the push replaced is the remote it moved to: one commit the remote lacked, a plain push
-    expect(records).toEqual(["push auth"])
-    expect(text(toasts[0]!.description)).toBe("1 commit")
-  })
-
-  it("tells a remote with commits the branch lacks, and pushes nothing over it", async () => {
-    stores.movedRemotes = [{ commitsBehind: 2, remoteTip: "theirs" }]
-    expect(await pushBranch("auth")).toBe(false)
-    expect(calls).toEqual(["push auth"])
-    expect(toasts.map(toast => toast.title)).toEqual(["auth changed on the remote"])
   })
 })
 
@@ -1120,13 +855,6 @@ describe("pushForAction", () => {
     robots.running = undefined
   })
 
-  it("pushes the branch for the action without a toast, Activity records it", async () => {
-    expect(await pushForAction("auth")).toEqual({ pushed: true })
-    expect(calls).toEqual(["push auth"])
-    expect(toasts).toEqual([])
-    expect(records).toEqual(["push auth"])
-  })
-
   it("pushes nothing for a branch the remote has", async () => {
     stores.branches.auth = { ...stores.branches.auth!, remoteStatus: testRemoteStatus({ exists: true, remoteTip: "tip" }) }
     expect(await pushForAction("auth")).toEqual({ pushed: true })
@@ -1138,26 +866,6 @@ describe("pushForAction", () => {
     expect(await pushForAction("login")).toEqual({ pushed: true })
     expect(calls).toEqual(["push auth login"])
     expect(toasts).toEqual([])
-  })
-
-  it("pushes the branches a start decided and no other: the ancestor of a branch the remote has, alone", async () => {
-    addBranch("login", "auth")
-    stores.branches.login = { ...stores.branches.login!, remoteStatus: testRemoteStatus({ exists: true, remoteTip: "tip" }) }
-    // login is up to date, yet the start pushes what its decision pushes: never "nothing to push"
-    expect(await pushForAction("login", { branches: ["auth"] })).toEqual({ pushed: true })
-    expect(calls).toEqual(["push auth"])
-    expect(toasts).toEqual([])
-  })
-
-  it("pushes the branches a start decided in one push: base and the branch past a parent that landed, not the parent", async () => {
-    addBranch("base", null)
-    addBranch("auth", "base")
-    addBranch("login", "auth")
-    // the push of the row would send auth too: the decision of the start passes it, and only the decision counts
-    expect(getPushOrders("login").action).toEqual(["base", "auth", "login"])
-    expect(await pushForAction("login", { branches: ["base", "login"] })).toEqual({ pushed: true })
-    expect(calls).toEqual(["push base login"])
-    expect(records).toEqual(["push base", "push login"])
   })
 
   it("refuses a push that drops remote commits of the branch or of an ancestor: the row asks first", async () => {
@@ -1172,15 +880,6 @@ describe("pushForAction", () => {
       reason: "The remote branch of auth has 2 commits that auth lacks: push it from its row, which shows them",
     })
     expect(calls).toEqual([])
-  })
-
-  it("returns the reason of a hold instead of a toast: Rust's refusal while the robot runs", async () => {
-    robots.running = { ...RUNNING }
-    const result = await pushForAction("auth")
-    expect(result.pushed).toBe(false)
-    expect(result.pushed ? null : result.reason).toContain("A Safe Push of auth is running")
-    expect(toasts).toEqual([])
-    expect(calls).toEqual(["push auth"])
   })
 
   it("says a branch gone from the list in place", async () => {
@@ -1205,34 +904,6 @@ describe("pushForAction", () => {
   })
 })
 
-describe("a push during a rewrite", () => {
-  beforeEach(() => {
-    robots.running = undefined
-    operationsStore.setState({ running: [], claims: {} })
-  })
-
-  it("waits for the rewrite of its repository that runs and the sync it ends with, then pushes the branch as it left it", async () => {
-    let finish!: () => void
-    const move = runOperation(
-      { id: "move-to", subject: "branch:auth", objects: ["auth"], kind: "rewrite", label: "Moving 1 commit out of auth", repositoryPath: stores.selected },
-      () => new Promise<void>(resolve => (finish = resolve)),
-    )
-    // the push button, and the push of an action (a Safe Push start) that started before the move
-    const pushed = pushBranch("auth")
-    const action = pushForAction("auth")
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(calls).toEqual([])
-
-    // the move left auth on another tip: both push that one, once
-    stores.branches.auth = { ...stores.branches.auth!, commits: [{ ...stores.branches.auth!.commits[0]!, hash: "moved-tip" }] }
-    finish()
-    await move
-    expect(await pushed).toBe(true)
-    expect(await action).toEqual({ pushed: true })
-    expect(calls).toEqual(["push auth"])
-  })
-})
-
 describe("a push that started in another repository", () => {
   beforeEach(() => {
     robots.running = undefined
@@ -1249,20 +920,6 @@ describe("a push that started in another repository", () => {
       finish()
     }
   }
-
-  /** The push of auth pushed nothing, canceled nothing, and said why */
-  async function expectStopped(pushed: Promise<boolean>): Promise<void> {
-    expect(await pushed).toBe(false)
-    expect(calls).toEqual([])
-    expect(toasts.map(toast => [toast.title, toast.description])).toEqual([["Cannot push auth", "/repo is no longer the open repository"]])
-  }
-
-  it("pushes nothing of the branch of the same name there, and says why", async () => {
-    const finish = switchDuringSync()
-    const pushed = pushBranch("auth")
-    finish()
-    await expectStopped(pushed)
-  })
 
   it("pushes no stack of the same names there", async () => {
     addBranch("login", "auth")
@@ -1287,25 +944,6 @@ describe("a push that started in another repository", () => {
     stores.selected = "/other"
   }
 
-  /** Restart Safe Push of auth: canceled, pushed and restarted in /repo, where Activity records the restart */
-  async function expectRestartedInRepo(): Promise<void> {
-    robots.running = { ...RUNNING }
-    expect(await pushBranch("auth", { restartRobot: robots.running, announce: false })).toBe(true)
-    expect(calls).toEqual(["cancel old", "push auth", "restart old"])
-    expect(robots.askedIn).toEqual(["/repo", "/repo"])
-    expect(robots.recordedIn).toEqual(["/repo"])
-  }
-
-  it("restarts the robot of Restart Safe Push where the push went, after a switch during the push", async () => {
-    stores.whilePushing = switchRepository
-    await expectRestartedInRepo()
-  })
-
-  it("pushes and restarts the robot it canceled after a switch during the cancel: no cancel is followed by a refusal", async () => {
-    robots.whileCanceling = switchRepository
-    await expectRestartedInRepo()
-  })
-
   it("pushes the branches over the robot a start replaces after a switch during the cancel", async () => {
     addBranch("login", "auth", false)
     const run = { ...RUNNING, id: "login-run", branchName: "login" }
@@ -1317,12 +955,6 @@ describe("a push that started in another repository", () => {
     expect(robots.askedIn).toEqual(["/repo"])
   })
 
-  it("cancels nothing when the switch comes before the push's last check", async () => {
-    robots.running = { ...RUNNING }
-    robots.whileViewing = switchRepository
-    await expectStopped(pushBranch("auth", { restartRobot: robots.running, announce: false }))
-  })
-
   it("pushes and restarts the whole stack's robot in the repository of the push after a switch during the cancel", async () => {
     forkingStack(testRemoteStatus(STACK_AHEAD))
     robots.stack = { ...STACK_ROBOT }
@@ -1331,16 +963,6 @@ describe("a push that started in another repository", () => {
     expect(calls).toEqual(["cancel whole", "push stack:auth", "restart whole"])
     expect(robots.askedIn).toEqual(["/repo", "/repo"])
     expect(robots.recordedIn).toEqual(["/repo"])
-  })
-
-  it("offers no push of the branch of the same name in the toast of a remote that moved during the push", async () => {
-    stores.movedRemotes = [{ commitsBehind: 2, remoteTip: "theirs" }]
-    stores.whilePushing = switchRepository
-    expect(await pushBranch("auth")).toBe(false)
-    // what the remote has is said all the same; only the push is of the repository the main window no longer shows
-    const moved = openToasts().find(toast => toast.title === "auth changed on the remote")
-    expect(moved).toMatchObject({ type: "warning", actionProps: undefined, timeout: 10_000 })
-    expect(calls).toEqual(["push auth"])
   })
 
   it("retargets no pull request of the branch of the same name there after a switch during a retarget of the stack", async () => {
@@ -1369,15 +991,6 @@ describe("a push that started in another repository", () => {
     }
   }
 
-  it("offers no pull request of the branch of the same name there in the toast of a push that ends after a switch", async () => {
-    switchToBranchWithPullRequest("auth")
-    expect(await pushBranch("auth")).toBe(true)
-    const toast = toasts.at(-1)!
-    expect(toast.title).toBe("Pushed auth")
-    expect(text(toast.description)).toBe("1 commit · created the remote branch")
-    expect(toast.actionProps).toBeUndefined()
-  })
-
   it("offers no pull request of the branches of the same names there in the toast of a stack push that ends after a switch", async () => {
     addBranch("login", "auth")
     switchToBranchWithPullRequest("login")
@@ -1386,13 +999,5 @@ describe("a push that started in another repository", () => {
     expect(toast.title).toBe("Pushed auth and login")
     expect(text(toast.description)).not.toContain("retarget")
     expect(toast.actionProps).toBeUndefined()
-  })
-})
-
-describe("formatNewPullRequestBlocker", () => {
-  it("says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first", () => {
-    expect(formatNewPullRequestBlocker("auth", null)).toBeNull()
-    expect(formatNewPullRequestBlocker("auth", { number: 8, state: "open" } as PullRequest)).toBe("auth already has pull request #8")
-    expect(formatNewPullRequestBlocker("auth", { number: 8, state: "merged" } as PullRequest)).toBe("Pull request #8 of auth is merged")
   })
 })

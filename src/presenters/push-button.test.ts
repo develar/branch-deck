@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { PushButtonContext } from "@/hooks/usePushButton"
-import { getPushButtonState, isFirstPushInLanding } from "@/hooks/usePushButton"
-import type { DroppedCommit, PatronusRobot } from "@/lib/bindings"
+import type { ActionBlocker, DroppedCommit, HoldKind } from "@/lib/bindings"
+import type { PushButtonContext } from "@/presenters/push-button"
+import { getPushButtonState, isFirstPushInLanding } from "@/presenters/push-button"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -9,8 +9,20 @@ function commits(count: number): DroppedCommit[] {
   return Array.from({ length: count }, (_, index) => ({ id: `c${index}`, subject: `Fix ${index}`, author: "Ann", authorEmail: "ann@example.com", authorTime: 0 }))
 }
 
+/**
+ * The push button of `login` with `remote`, as the view has it: Rust's blocker of the push (`up to date` for a remote
+ * that has it all, as `domain_policy::actions` says it, unless `context` names another) and Push with Children enabled
+ */
 function state(remote: Partial<RemoteStatus>, context: PushButtonContext = {}) {
-  return getPushButtonState(testBranch("login", null, { stack: null, remoteStatus: testRemoteStatus(remote) }), context)
+  const remoteStatus = testRemoteStatus(remote)
+  const blocker: ActionBlocker | null = remoteStatus.action.kind === "upToDate" ? { code: "upToDate" } : null
+  return getPushButtonState(testBranch("login", null, { stack: null, remoteStatus }), { blocker, childrenEnabled: true, ...context })
+}
+
+/** Rust's refusal of the push of `branch`: the Safe Push of `by` holds it (`kind`), or a merged one of it landed it */
+function held(kind: HoldKind, branch: string, by: string): ActionBlocker {
+  const hold = { kind, by: { branch: by, robotId: "r", wholeStack: false }, carried: null }
+  return { code: "rule", reason: { code: "held", branch, hold, mode: "rebaseAutosquash", target: "master" } }
 }
 
 const oauth = testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ exists: false, commitsAhead: 1, myCommitsAhead: 1, action: CREATE }) })
@@ -262,10 +274,10 @@ describe("getPushButtonState", () => {
   })
 
   it("offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it", () => {
-    const running = { id: "r", status: "running", pushMode: "rebaseAutosquash", branchName: "login" } as PatronusRobot
+    // Rust refuses Push with Children while a running Safe Push holds the branch
     const own = state(
       { commitsAhead: 2, action: PUSH },
-      { hold: { kind: "own", branch: "login", robot: running }, unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } },
+      { blocker: held("own", "login", "login"), childrenEnabled: false, unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } },
     )
     expect(own).toMatchObject({
       disabled: true,
@@ -274,20 +286,31 @@ describe("getPushButtonState", () => {
       action: null,
       childrenAction: null,
     })
-    const span = state({ commitsAhead: 2, action: PUSH }, { hold: { kind: "span", branch: "oauth", robot: { ...running, branchName: "oauth" } } })
+    const span = state({ commitsAhead: 2, action: PUSH }, { blocker: held("span", "login", "oauth") })
     expect(span).toMatchObject({ disabled: true, tooltip: "A Safe Push of oauth is running: it lands login with it" })
     // a merged one landed it: its commits are in the target
-    const merged = { ...running, branchName: "oauth", status: "success", targetBranch: "master" } as PatronusRobot
-    const landed = state({ commitsAhead: 2, action: PUSH }, { hold: { kind: "landed", branch: "oauth", robot: merged } })
+    const landed = state({ commitsAhead: 2, action: PUSH }, { blocker: held("landed", "login", "oauth") })
     expect(landed).toMatchObject({ disabled: true, count: 0, tooltip: "Landed in master with oauth: nothing of it is left to push", childrenAction: null })
     // the branches built on a landed one push without it: its push offers theirs, as a running Safe Push's never does
     const children = { unpushedChildren: { names: ["session"], pushOrder: ["session"] } }
-    expect(state({ commitsAhead: 2, action: PUSH }, { hold: { kind: "landed", branch: "oauth", robot: merged }, ...children }).childrenAction).toMatchObject({
+    expect(state({ commitsAhead: 2, action: PUSH }, { blocker: held("landed", "login", "oauth"), ...children }).childrenAction).toMatchObject({
       description: "session is stacked on login and has commits to push.",
       label: "Push with Children (session)",
     })
     // a push that runs keeps its progress
-    expect(state({ commitsAhead: 2, action: PUSH }, { hold: { kind: "own", branch: "login", robot: running }, isPushing: true }).tooltip).not.toContain("Safe Push")
+    expect(state({ commitsAhead: 2, action: PUSH }, { blocker: held("own", "login", "login"), isPushing: true }).tooltip).not.toContain("Safe Push")
+  })
+
+  it("says why Rust refuses the push of a branch that stays local or failed to sync, in the words of the action", () => {
+    const parked: ActionBlocker = { code: "rule", reason: { code: "parked", branch: "login", with: null, note: "" } }
+    expect(state({ commitsAhead: 2, action: PUSH }, { blocker: parked })).toMatchObject({ disabled: true, count: 0, tooltip: "Parked: Unpark it to push" })
+    expect(state({ commitsAhead: 2, action: PUSH }, { blocker: { code: "syncFailed", problem: null } })).toMatchObject({ disabled: true, tooltip: "The branch failed to sync" })
+    // a sync that rebuilds the branch: the description stays what the remote has
+    expect(state({ commitsAhead: 2, action: PUSH }, { blocker: { code: "syncing" } })).toMatchObject({
+      disabled: true,
+      text: "Push (2)",
+      tooltip: "2 commits to push, none of them yours.",
+    })
   })
 
   it("offers the push of the branch alone before Push with Children for a branch in the middle of a stack", () => {
@@ -295,6 +318,7 @@ describe("getPushButtonState", () => {
     const push = stacked({
       unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [parent, oauth] },
       unpushedChildren: { names: ["device"], pushOrder: ["oauth", "device"] },
+      childrenEnabled: true,
     })
     expect(push.action?.label).toBe("Push oauth Only")
     expect(push.childrenAction?.label).toBe("Push with Children (2 branches)")

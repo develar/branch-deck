@@ -50,7 +50,7 @@ pub enum GitHubRepositorySource {
 }
 
 /// The GitHub repository the virtual branches end up in: `branchdeck.githubRepository` (`owner/name`), else the
-/// repository `origin` pushes to (`push_branch` pushes to origin) when it is on github.com, else the GitHub mirror the
+/// repository `origin` pushes to (the virtual branches are pushed to origin) when it is on github.com, else the GitHub mirror the
 /// committed Space settings name (`.space/repository-settings.json`, read from `HEAD`). None: the pull requests of the
 /// branches are not on GitHub.
 pub fn resolve_github_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<GitHubRepository>> {
