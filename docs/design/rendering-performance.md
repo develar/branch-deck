@@ -82,6 +82,21 @@ flowchart LR
   - `branchTableRowsIn` keeps one cache for all rows and one for a filter's `visible` set, so the ten subscribers share
     one computation per layout; depth and lanes are the page's presentation of the parents.
   - `getStackChildren`, `getStackDescendants` and `mainLineOf` read the structure: no walk of the order.
+- **Landing.** What the rules decide for each subject (a branch, `stack:<root>` the whole stack) is Rust's too, a part
+  of the view by the subject's key ([Session facts](git-operations.md#the-landing-of-a-session)): the next step and
+  the node (`nextSteps`), the actions with their reasons (`actions`, `robot:<id>` a robot's), the decisions of the
+  default starts (`lands`), the push orders (`pushes`), the open pull request (`openPullRequests`) and what landed it
+  (`landedStates`). `View::diff` derives them on every patch over the table and the facts (the pushes, the lands and
+  what landed not while a sync runs) and sends only the keys whose value changed (`diff_keyed`, by `PartialEq`) and
+  those removed, so a patch that moves one branch carries the parts of that branch and of what its change decides, and
+  `applyViewPatch` replaces only those records. A row reads its part with one kept reference (`useRowPart(name,
+  "landing")`, `useRowPart(name, "actions")`) and words it in the render (`presentNextStep`, `presentLandingNode`,
+  `presentAction`): no row derives a rule, and no selector reads the seven stores the step was made of
+  (`useNextStepStores` and its `getBranchNextStepNow` per row on every change of a store are gone). Beside the part
+  a row selects only what its words need (`useStepInputs`: the target, the operation and the start that run on it,
+  the robot of a restart and its actions, the pull request a review step names) and the move that runs on it, the
+  page's until s10.
+  [@test] ../../crates/repository-model/src/derive_budget_test.rs (`a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_budget`)
 - **Push progress** has its own store (`pushProgressStore`). Its ticks, every 100 ms, reach only
   `useBranchPushProgress`, not every selector of the branch store. The one push of a stack writes the tick of all
   its branches in one update (`setBranchesPushProgress`).
@@ -180,8 +195,8 @@ and the page indexes the part (`factsOf` in `src/stores/patronus.ts`):
 [@test] ../../src/stores/patronus.test.ts (`keeps the facts of a branch as the same objects when a patch of the view changes only another branch`)
 [@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
 
-A sync that changes nothing cost little before and costs the same now. The rest of the per-row work
-(`getNextStepFacts` of each row on every change of a store) is not part of it.
+A sync that changes nothing cost little before and costs the same now. The rest of the per-row work was then the
+page's (`getNextStepFacts` of each row on every change of a store); since s8 the session derives it too (below).
 
 | 2026-10-24 | first sync, script / task | sync that changes nothing, script / task |
 |---|---|---|
@@ -192,6 +207,8 @@ A sync that changes nothing cost little before and costs the same now. The rest 
 | the `SyncEvent` channel of master `abaec1e3`, streamed, in the same turns | 482–613 / 1031–1423 ms | 77–166 / 153–292 ms |
 | 2026-10-25, the facts in the session (s7), on the Mac Studio at load 15, three turns, master first | 547–632 / 1124–1317 ms | 47–54 / 127–135 ms |
 | master `20d2b938` (the page asks the facts and the view of the robots), in the same turns | 524–648 / 1114–1433 ms | 50–57 / 123–129 ms |
+| 2026-10-26, the rules in `domain-policy` (s8), on the Mac Studio at load 4.5–7.5, three turns, master first | 473–549 / 942–1059 ms | 46–57 / 107–126 ms |
+| master `21e7e183` (the page derives the next step, the node and the actions of each row), in the same turns | 499–543 / 1042–1094 ms | 41–50 / 121–135 ms |
 
 The rows before 2026-10-24 measured less than the app spent: the mock server answered the sync command before the session
 with its `SyncEvent`s once the sync was done, so the page applied its 432 events in one or two batches and rendered the rows once,
@@ -211,6 +228,21 @@ chips, 28 KB, which a run without the wait counted in that sync when the first o
 that changes nothing cost what they cost on master: in three turns at a load of 15 on 20 cores the medians of the
 stage are 558 / 1158 ms and 51 / 133 ms against 616 / 1408 ms and 51 / 124 ms. Turns at a load of 9 to 60 (other
 sessions' tests on the Studio) spread two- to fourfold on both sides and are no comparison.
+
+Once the rules came into Rust (s8: the next step, the node, the actions, the decisions of the starts and the push
+orders are parts of the view, [Landing](#architecture) above), a row presents its part and derives nothing: in three
+turns against master on the Mac Studio, each the median of three runs, the medians of the stage are 498 / 988 ms for
+the first sync and 47 / 112 ms for a sync that changes nothing, against 522 / 1059 ms and 45 / 128 ms: 5 % less script
+and 7 % less task time for the first sync, the same script and 12 % less task time for a sync that changes nothing.
+The goal of the stage for the script of the first sync, 30 % less (B4 of [Rust as the Domain
+Authority](rust-domain-authority.md#бюджеты-производительности)), is not reached.
+
+What the page no longer derives the session derives on every patch, so its time is a budget too (B10 there, at most
+2 ms in a release build for the 141 rows): `derive_budget_test.rs` takes the least of nine runs of a flush (the
+readiness the session asks, the next step, the node and the actions of every row and whole stack) and of the whole
+first patch of the view (every part derived and compared from nothing). In a release build on the Mac Studio, three
+runs at a load of 3: 0.60–1.09 ms per flush and 1.70–2.14 ms for the whole first patch (medians 0.60 and 1.71 ms); a
+debug build asserts a flush within 20 ms.
 
 ### The IPC of the branch view
 
@@ -239,6 +271,8 @@ without the page, prints an ignored test of the mock server (`patch_bytes_test.r
 | 2026-10-24, the stage landed, Chromium | 63 / 12 | 25054 | 1 / 0 / 0 |
 | 2026-10-24, the stage landed, WebKit | 72 / 10 | 24784 | 3 / 0 / 0 |
 | 2026-10-25, the facts in the session (s7), Chromium, the app's timers left out | 60–102 / 1 | 25290–25691 | 1 / 0 / 1 |
+| 2026-10-26, the rules in `domain-policy` (s8), Chromium, three turns | 61–63 / 3 | 25290–26384 | 1 / 0 / 1 |
+| master `21e7e183`, Chromium, in the same turns | 61–63 / 1 | 26384–26388 | 1 / 0 / 1 |
 
 A sync on the `SyncEvent` channel sent every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and
 `remoteStatusUpdate` per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). A patch
@@ -247,8 +281,10 @@ a sync that changes nothing sends the state of the run and the build and copies 
 5 patches by the mock server's own count (`patch_bytes_test.rs`: the first sync 46 patches, 195 KB, the snapshot
 177 KB). The facts of the remote services come in the patches of the session too (`facts`: the robots, the pull
 requests, the readiness, the review requests, the details of a robot): no store asks them and none polls on a timer of
-its own (`poll-timer` of `pnpm lint:arch`), so the first sync invokes only `sync` (11 or 12 commands on master
-`20d2b938`, the reads of the facts and of the view of the robots), the menu of a row nothing and the popover of its
+its own (`poll-timer` of `pnpm lint:arch`), so the first sync invokes only `sync` and two `set_demand` (11 or 12
+commands on master `20d2b938`, the reads of the facts and of the view of the robots; since s8 the page tells the rows
+it shows as they are, and Rust asks the readiness of those whose step waits for it, `domain_policy::readiness::wanted`,
+where the page filtered them before), the menu of a row nothing and the popover of its
 robot one `set_demand` (the details it shows, which the session reads and sends as a patch, again every minute of a
 running robot while it is open); the hover of a row reads ahead the review of the branch (`prefetch_branch_review`) and
 no fact.
@@ -340,8 +376,10 @@ output); `Symbol.for("react.memo_cache_sentinel")` in a build with `build.minify
 
 - `vite.config.ts`: the plugin and its options
 - `crates/repository-model/src/runtime.rs`, `state.rs`, `table.rs`: the session's fold of the events and its patches
-- `crates/repository-model/src/derive.rs`: the structure of each branch and the rows of each section
-- `src/model/store.ts`, `src/model/patch.ts`: the page's applier of the patches
+- `crates/repository-model/src/derive.rs`, `action_view.rs`: the structure of each branch and the rows of each section,
+  the landing parts of each subject; `derive_budget_test.rs`: their time
+- `src/model/store.ts`, `src/model/patch.ts`: the page's applier of the patches, `useRowPart`
+- `src/presenters/`: the words of the landing parts (`presentNextStep`, `presentLandingNode`, `presentAction`, `presentLand`)
 - `src/stores/branch-sync.ts`: `layoutOf`, `branchTableRowsIn`
 - `src/stores/file-merges.ts`: `useFileMerges`, the merges of the shown conflicts
 - `src/stores/patronus.ts`: `useBranchRobot`, `useRowRobots`, the robot of a row from the view

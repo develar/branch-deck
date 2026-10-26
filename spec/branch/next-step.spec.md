@@ -1,6 +1,6 @@
 ---
 name: Next Step
-description: Requirements for the one model of what to do next with a branch (`domain_policy::next_step` in Rust for the app and bd, worded by the page's presenter `presentNextStep`), the first matching row of a table of its states (a sync, a failure, a block, a hold, landed, a robot that runs or merged, a branch outside what its Safe Push lands that its build needs (the landing needs Rust computes after a sync), landed by a merged Safe Push (its own, of a branch built on it or of the whole stack, by the hashes or by content, the commits added since the work left) until the update, a robot to restart, a pull request into another base or a draft, the approvals that count missing, waited for or approved, as Patronus judges them; a stacked branch by the rows of its own pull request), rendered by the Safe Push slot of the row, the "⋯" menu, S, the branch preview, the review window, the stack header and the start of a Safe Push with its popover (getSafePushDecision); the same table for the whole stack of a root from its stack branch (useStackNextStep), whose pull request a branch without its own points to, which lands only what merged Safe Pushes left of it; the readiness store that asks Patronus for it in the background, only for the branches a surface shows, and Check Approvals Again.
+description: Requirements for the one model of what to do next with a branch (`domain_policy::next_step` in Rust for the app and bd, worded by the page's presenter `presentNextStep`), the first matching row of a table of its states (a sync, a failure, a block, a hold, landed, a robot that runs or merged, a branch outside what its Safe Push lands that its build needs (the landing needs Rust computes after a sync), landed by a merged Safe Push (its own, of a branch built on it or of the whole stack, by the hashes or by content, the commits added since the work left) until the update, a robot to restart, a pull request into another base or a draft, the approvals that count missing, waited for or approved, as Patronus judges them; a stacked branch by the rows of its own pull request), rendered by the Safe Push slot of the row, the "⋯" menu, S, the branch preview, the review window, the stack header and the start of a Safe Push with its popover (`domain_policy::land::decide`, presented by `presentLand`); the same table for the whole stack of a root from its stack branch (useStackNextStep), whose pull request a branch without its own points to, which lands only what merged Safe Pushes left of it; the readiness store that asks Patronus for it in the background, only for the branches a surface shows, and Check Approvals Again.
 style: plain-1
 targets:
   - ../../src/presenters/next-step.ts
@@ -18,6 +18,8 @@ targets:
   - ../../crates/domain-policy/src/readiness.rs
   - ../../crates/domain-policy/src/next_step.rs
   - ../../crates/domain-policy/src/landing_node.rs
+  - ../../crates/domain-policy/src/landing_needs.rs
+  - ../../crates/domain-policy/src/land.rs
   - ../../crates/repository-model/src/derive.rs
   - ../../crates/bd-core/src/next_step_summary.rs
   - ../../crates/domain-policy/src/landed.rs
@@ -118,7 +120,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs`, `should offer no Safe Push of a branch whose pull request merged`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`, `the_cases_are_well_formed_and_name_every_row_of_the_next_step_table`)
 - Row 1 also holds a branch that a merged Safe Push (not a Dry Run) landed whole (`getLandedBy`, the `landedBy` of the repository view,
-  `NextStepFacts.landedWith`): the branch it ran on itself, an ancestor the Safe Push of a branch built on it carried,
+  `StepFacts.landed` of `domain_policy::next_step`): the branch it ran on itself, an ancestor the Safe Push of a branch built on it carried,
   and every branch of a stack whose Safe Push of the whole stack ran on the stack branch, the same conditions under
   which the merge closes their pull requests ([Patronus](patronus.spec.md#merged)). Also a robot first seen merged
   (after a restart, a landing by `bd`). What it landed is decided by the hashes while the robot ran on a commit of its
@@ -151,7 +153,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   a branch all of which landed is refused at both sides (`bd safe-push`: `landed`).
   [@test] ../../crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_pull_request_lands_the_branch_only_merged_with_the_commits_it_has`, `a_whole_stack_landed_when_every_branch_of_it_did`, `the_reason_a_start_gives_of_what_landed_all_of_the_subject`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
-- The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `landedReasonOf`: the words of the
+- The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `formatLandedWhole`: the words of the
   view's landed state, `formatLanded`; before the view of the robots, the robot of the row that merged), also while
   another reason of row 1 (a sync) disables its start: "Landed in origin/master", "Landed in master with oauth",
   "Merged by Patronus", "Pull request #7 is merged". "Create Pull Request…" of the branch reads it: disabled with that
@@ -176,7 +178,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
 - Request Review… is the item of `getRequestReviewItem` ([Pull Requests](pull-requests.spec.md#request-review)), the
   same in the slot (row 9, its hover the reason of the step, then whom it asks), the branch menu (every branch with an
   open pull request, also while the slot shows another step: it opens the popover at the slot). The popover asks the code owners; once the request is made the step is the wait: a suggested
-  member of a missing group whom the pull request asks counts as requested (`withRequestedOnPullRequest`), also while
+  member of a missing group whom the pull request asks counts as requested (`with_requested_on_pull_request` of `domain_policy::next_step`), also while
   Patronus answers again with the people requested before. Someone asked who is no suggested member of the group asks
   nobody of it.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask the code owner nobody asked yet from Request Review…, then wait for him from the click on`, `should open Request Review… from the branch menu, at the row's next step`)
@@ -318,7 +320,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   ("Waits for GitHub to list the pull requests", "Waits for the answer of Patronus", "Checking what JIRA-456 needs to
   land…", "Waits for Patronus to tell why the Safe Push failed", "Waits for Patronus to check the approvals"); "⋯" keeps Safe Push and "Patronus ›" disabled
   with the same words, and so do the footer of the preview and the title bar of the review window, also before
-  Patronus answers whether it lands the repository (hidden only once it says it doesn't, `isPatronusOffered`); "Create Pull Request…" of "⋯" is disabled with "Waits for GitHub to list the pull requests" while the
+  Patronus answers whether it lands the repository (hidden only once it says it doesn't, `PatronusAnswer::NotOnSpace` of `domain_policy::actions`); "Create Pull Request…" of "⋯" is disabled with "Waits for GitHub to list the pull requests" while the
   branch may have one; S says it in an `info` notice ("Safe Push of JIRA-456 waits for GitHub"); the node of the row
   waits too and the header counts no move of it ([Landing Overview](../repository/landing-overview.spec.md#indicator)).
   A Dry Run waits only for Patronus: approvals and pull requests never hold it back. The readiness store asks for the
@@ -329,7 +331,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push in the words of its next step, and what runs on the row over it`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests, as the review window does`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
 - A failed answer is an answer, never "no": a listing GitHub can't give (signed out, SSO, no access, or a failure
-  before any listing; `getPullRequestListing` `unlisted`, `pullRequestsUnlisted`, `formatAvailabilityHint`) leaves the
+  before any listing; `getPullRequestListing` `unlisted`, the step's `unlisted`, `formatAvailabilityHint`) leaves the
   pull requests unknown, so rows 5 to 10 don't apply and the Safe Push stays, its hover saying it ("Lands JIRA-456 into
   master once the checks pass · GitHub: offline: Patronus checks the approvals when the robot starts", the node the
   same), and its start confirms first. A refresh GitHub fails for a while after a listing (an error, offline, the rate
@@ -338,7 +340,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../src/stores/pull-requests.test.ts (`keeps the last listing through a refresh GitHub failed for a while, never once its token is gone`)
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should never offer Create Pull Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed refresh`)
-- A read of Patronus that failed decides no start (`UnavailableFact`, `unavailableFactOf`), after row 1 and the
+- A read of Patronus that failed decides no start (`UnavailableFact`, `StepKind::Unavailable` of `domain_policy::next_step`), after row 1 and the
   reasons of the branch: the Safe Push CLI not logged in (`notLoggedIn`) makes the step "Copy Login Command", the
   command of the hint for a terminal ("Run ./safePush.cmd once to log in to Patronus: the command goes to the
   clipboard, for a terminal"); Patronus failing (`error`) before it listed the robots once makes it "Refresh
@@ -362,7 +364,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../src/stores/patronus.test.ts (`keeps the last view through a failed derivation of it, and says the failure while no view stands for the robots`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_view_that_failed_is_derived_again_after_the_next_answer_of_patronus`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should offer the login instead of a Safe Push while the Safe Push CLI is not logged in, and a refresh while Patronus fails`, `should offer no start while Patronus gave no view of its robots, and stand on what it listed through a failed refresh`, `should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer`)
-- While GitHub can't list the pull requests (signed out, failing; `pullRequestsUnlisted`), row 7 may apply: no pull
+- While GitHub can't list the pull requests (signed out, failing; the step's `unlisted`), row 7 may apply: no pull
   request is known and the approvals may be missing, so the Safe Push of row 11 keeps the start without review beside
   it (`withoutReview`, "Safe Push Without Review…" of the pull request dialog), its blocker the reason of the branch.
   The review window that asks for it while the main window has none is refused with the step's reason (what it waits
@@ -456,7 +458,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   own state: the row doesn't say "awaiting" twice.
 - The start of a Safe Push renders the step too (`presentLand` of Rust's decision, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)):
   it reads the next step with the readiness of the branch as it is (never a stale one: the start waits for the new
-  answer, `StartStepOptions`), so a refusal says the reason of the step, and missing approvals refuse it unless the
+  answer, the `waits` of its decision), so a refusal says the reason of the step, and missing approvals refuse it unless the
   chosen profile is known to skip the review (`skipsReview`). Row 7 also offers a [Safe Push without
   review](patronus.spec.md#safe-push-without-review) in the "Create pull request" dialog (`BranchNextStep.withoutReview`),
   never on the Safe Push surfaces, which stay disabled. A push that the rules of the repository make dismiss the

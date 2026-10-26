@@ -274,7 +274,7 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `creates the pull request of a stacked branch into the baseline, its parent on the remote or not`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
 - An open pull request whose base (`baseRefName`) is a virtual branch of the user (`{prefix}/virtual/…`,
-  `isVirtualBranchBase`: the branch of its parent, opened when pull requests went into the parent's branch, or of a
+  `PullRequestBase::Virtual` of `domain_policy::pull_request::base_of`: the branch of its parent, opened when pull requests went into the parent's branch, or of a
   parent that landed) must be retargeted to the baseline (`PATCH pulls/<n>` with the new `base`, as
   `gh pr edit … --base …`) right before a push of its branch, each branch of a stack push too. Its approvals don't
   count until then, and Patronus would merge it into that branch. A pull request into another base (a release branch)

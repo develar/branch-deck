@@ -3143,10 +3143,15 @@ atomic push (`push_branches`, the Tauri command of `src/lib/git/stack-push.ts`),
 per branch: a push that stopped at a failure left the stack half pushed, a child on the remote on a parent the remote
 lacks, and its pull request showing the parent's commits.
 
-1. The page waits for a running sync and for a push of one of the branches from another row, then computes the order
-   on the branches as they are (`domain_policy::push::push_plan` in the view, `RepositoryView.pushes`; the steps of Push Up to Here). The holds
-   are checked per branch (`checkPushHold`; a held one refuses the whole push, the robot a Safe Push start replaces is
-   canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
+1. The page waits for a running sync and for a push of one of the branches from another row, then takes the order Rust
+   gave for the branches as they are (`RepositoryView.pushes` of the branch, `domain_policy::push::branch_push` over
+   `push_plan`, [The landing of a session](#the-landing-of-a-session)): Push Stack its `stack`, the push button and an
+   action that needs the branch on the remote its `action` (above the nearest branch whose push drops remote commits),
+   a Safe Push start its `start`, Push with Children its `children` with the stack branch of the whole stack when it
+   goes along (`stack_branch_along`); the page orders none. Push Up to Here takes its steps from the structure in the
+   page (`pushUpToPlan`, `src/lib/push-up-to.ts`). The holds are checked per branch (`checkPushHold` on the hold of the
+   view; a held one refuses the whole push, the robot a Safe Push start replaces is canceled once), and an open pull
+   request that needs a retarget is retargeted, as before a push of one branch.
 2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one sequence,
    `repository_model::actions::RemoteActions` (`push_branches`, `push_branch`, the flow in `push_guard`): first the
    user's robots (one full list of Patronus asked now, `robots_for_checks`, never the list the service keeps for the lists of the
@@ -3373,7 +3378,8 @@ robot's branch into a branch that is no ancestor of it, as the robot landing doe
 
 What the session of a repository holds for its windows, and `bd` for its command, so both read one rule: the table of
 the last sync, the facts of the remote services with their order, what the session derives of them (the Patronus view,
-the landing needs), and the checks of the app's actions on them. The crate `repository-model` holds it, the model of a
+the landing needs) and what the rules decide over all of it ([The landing of a session](#the-landing-of-a-session)),
+and the checks of the app's actions on them. The crate `repository-model` holds it, the model of a
 repository ([Rust as the Domain Authority](rust-domain-authority.md)); the scheduler that reads the facts is
 `remote-facts`', the rules it asks by and the matching of the robots are `domain-policy`'s. `repository-model` reaches
 no remote reader, no Update Project and no lease pool (`crates/bd-cli/src/architecture_test.rs`) and no trial check
@@ -3550,7 +3556,8 @@ view derives with each patch but while a sync runs, as `lands`. The next step an
 that forks (`nextSteps`, `domain_policy::next_step` and `domain_policy::landing_node` over `derive::StepSources`: the
 table of the last sync, its rows as they are, the Patronus view, the robots, the pull requests, the readiness, what
 landed) it derives with every patch, a sync included (a branch that syncs is row 1); `bd status` and `bd safe-push
---check` derive the same over what they read (`derive::grouped_rows`), the facts they don't read unknown.
+--check` derive the same over what they read (`derive::grouped_rows`), the facts they don't read unknown ([The
+landing of a session](#the-landing-of-a-session)).
 
 | Family | Part of the view | Read through `FactSources` | Asked by `domain_policy::refresh` | Written by the commands |
 |---|---|---|---|---|
@@ -3705,6 +3712,55 @@ state `Fresh`), `unknown` while they are computed (`Loading`) and after a comput
 (`Unavailable`), never an empty list; inputs that stay compute nothing again. `session_test.rs` pins the flow (the view
 once Patronus answered, then the needs once, a missing declaration naming the running Safe Push, nothing again for the
 same robots) and `facts_test.rs` the order of the computations.
+
+#### The landing of a session
+
+What the rules of `domain-policy` decide over the table and the facts is a part of the view too, which the session
+derives (`repository_model::derive`, `action_view`), so the page words one answer and `bd` prints the same one (the
+rules, one file each: [Rule Index](../../AGENTS.md#rule-index)). Every rule reads the table as
+`domain_policy::facts::Repository`, borrowed where it lives (`derive::repository` over the table state, `derive::
+grouped_rows` over the grouping of `bd`), and the facts as `Fact<T>` with their state: a fact without a fresh answer is
+a wait (`Pending`) or a confirmation, never a "no" ([Facts without an
+answer](../../spec/branch/next-step.spec.md#facts-without-an-answer)). None of it runs git: the content walks are the
+Patronus view's, the landing needs the host's.
+
+- **The structure** of each branch (`BranchView.structure`): its declared parent (the `(parent/child)` prefix or the
+  stack parent), its children, descendants, ancestors by effective base and main line, parked or not and its section;
+  of a root its whole stack (`forking` while the stack forks, then the stack branch lands it; else a `chain` to its last
+  branch not parked, `domain_policy::stack::whole_stack_of`, by the declared parent). `derive::place` sets it once per
+  grouping (`TableState::apply`), the root again when its stack branch is reported, and a patch carries it only when it
+  changed; the page splits the order into the rows of each section by it (`rowsOf`).
+- **Over the Patronus view** (`derive::decide_landing`, with each derivation of the view, [The Patronus
+  view](#the-patronus-view)): the hold of each branch and stack branch, why a start waits, the robot a start replaces,
+  the push an action can't make, the restart of each robot.
+- **With every patch** (`View::diff`), by the key of the subject (a branch, `stack:<root>`; a robot `robot:<id>` for its
+  actions): the push orders (`pushes`, `domain_policy::push::branch_push`), the open pull request with its base and the
+  code owners Request Review offers (`openPullRequests`), the decisions of the default starts (`lands`: the Safe Push
+  with the default profile and the Dry Run, `domain_policy::land::decide` over `LandSources`), what landed
+  (`landedStates`), the next step and the node (`nextSteps`) and the actions with the reason of each disabled one
+  (`actions`, over the steps just derived, the pushes, the lands, the pull requests and what landed). The pushes, the
+  lands and what landed wait while a sync runs (its remote statuses come one by one; the patch of its end carries
+  them); the steps and the actions don't (a branch that syncs is row 1), and the page lays the sync and its running
+  operations over the actions it presents (`whileSyncing`, `operationItem`) until the session has its operations. A
+  part equal to the one sent last is not sent again (`diff_keyed`, `PartialEq`), so a patch carries only the subjects
+  whose answer changed; all of them for the 141 branches of `branch_table_large` take about 2 ms in a release build
+  (`derive_budget_test.rs`, [Rendering Performance](rendering-performance.md#the-main-thread-of-a-sync)).
+- **Another intent** than a default one (a chosen profile, a start without approvals): `decide_land {
+  repositoryPath, land }` answers `LandAnswer { decision, profiles }` over the facts the session holds now
+  (`Sessions::decide_land`, `derive::land_answer_of`, the same `land::decide`): a read, no lock, no effect, no git
+  process; the E2E server's route asks its session the same. The page runs the `effects` of a decision in their order
+  (`src/lib/safe-push-start.ts`): the retarget of a pull request into a virtual branch first, then the push with the
+  cancel of the robot the start replaces (or that cancel alone), then the start.
+- **`bd`** derives with the same functions over what it read, the facts it doesn't read unknown: `bd status` and `bd
+  safe-push --check` the next step (`StepSources` of `derive::grouped_rows`), `bd safe-push` the decision of its start
+  (`LandingFacts::branch_subject`, `stack_subject`, `land::decide`; its flags are the allowances of the intent),
+  `bd status` and `bd robot` what landed. The guards of the app's commands (`push_guard`, `start_guard`) decide by the
+  same rules on the table of the last sync. The scenario table runs each case through both sides
+  (`crates/bd-remote/src/scenario_test.rs`: the derivation of a session over the table state of a sync and a
+  `FactStore` fed as a host feeds it, then `bd safe-push --check` and its start) against one expectation.
+- **The words**: a reason is a code with its facts (`domain_types::reason::Reason`, `ActionBlocker`), worded by the page
+  (`src/presenters/`) and by `bd` (`start_refusal_text`, `bd-core/src/next_step_summary.rs`); the catalogs
+  `crates/domain-policy/reasons.json` and `actions.json` name every code, and the tests of the presenters word each.
 
 ### Index policy
 

@@ -58,6 +58,8 @@ targets:
   - ../../crates/domain-policy/src/push.rs
   - ../../crates/domain-policy/src/holds.rs
   - ../../crates/domain-policy/src/land.rs
+  - ../../crates/domain-policy/src/readiness.rs
+  - ../../crates/domain-policy/src/refresh.rs
   - ../../crates/domain-policy/src/reasons.rs
   - ../../crates/domain-types/src/reason.rs
   - ../../crates/repository-model/src/derive.rs
@@ -633,7 +635,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   skips the code-owner review.". With the New Patronus API (the setting above) a list names the profile of a robot
   where Patronus put it (`mergeProfile`: id, name, `skipsReview`; behind its `robot.list.merge.profile.enabled`
   flag), so the default profile and whether it skips the review come with the list, and the last robot is not read
-  for them (`lastRobotProfile`); a null `mergeProfile` leaves the profile unknown, as a list without it, never "none".
+  for them (`domain_policy::land::default_profile` takes the profile the list named); a null `mergeProfile` leaves the profile unknown, as a list without it, never "none".
   [@test] ../../crates/patronus/src/service_test.rs (`with_the_new_api_a_list_names_the_merge_profile_patronus_put_on_a_robot`)
   [@test] ../../crates/patronus/src/actions_test.rs (`start_options_take_the_profile_the_list_named_without_reading_the_last_robot`)
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_profiles_are_asked_when_a_start_needs_them_and_a_minute_later`)

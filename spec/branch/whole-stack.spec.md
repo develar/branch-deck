@@ -23,6 +23,7 @@ targets:
   - ../../crates/bd-remote/src/push_hold.rs
   - ../../crates/domain-policy/src/holds.rs
   - ../../crates/domain-policy/src/land.rs
+  - ../../crates/domain-policy/src/actions.rs
   - ../../crates/bd-remote/src/robot_command.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/sync-core/src/patronus_start.rs

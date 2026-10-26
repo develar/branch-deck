@@ -29,6 +29,7 @@ targets:
   - ../../src/hooks/useReviewStatusRefresh.ts
   - ../../crates/repository-model/src/pull_request_facts.rs
   - ../../crates/remote-facts/src/scheduler_github.rs
+  - ../../crates/domain-policy/src/refresh.rs
   - ../../src/components/branch/StatusChip.tsx
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/WholeStackSlot.tsx
@@ -92,7 +93,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 - Updating or merging pull requests. Approvals are final and Patronus merges; the app reads, and its one comment is
   the Patronus command ([Patronus](patronus.spec.md#pull-requests)).
 - Draft pull requests, labels, milestones and team reviewers in the dialog and in Request Review…: a draft can't be merged by Patronus
-  (`blockedByDraft`), and "Continue on GitHub" opens GitHub's form for the rest.
+  (the `draft` blocker of `domain_policy::land::decide`), and "Continue on GitHub" opens GitHub's form for the rest.
 - Pull requests of forks and of branches that are not virtual branches of the user, here. The pull requests of others
   that wait for the user's review are [Review Requests](../repository/review-requests.spec.md) ("Your Turn").
 - GitHub Enterprise and other hosts: only github.com.

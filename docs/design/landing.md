@@ -70,8 +70,8 @@ The specs are the contract of each part:
 ### A piece: a branch and what it is built on
 
 - **The left edge.** The node of every branch row says where the branch is on its way into master, not its push:
-  ready to land, the user's step first, a fix, landing now, a wait, in master (`getLandingNode`, over the facts of the
-  next step, [Branch Row](../../spec/branch/branch-row.spec.md#tree)). Filled is the user's move on this row, hollow a
+  ready to land, the user's step first, a fix, landing now, a wait, in master (`domain_policy::landing_node`, over the
+  facts of the next step, a part of the view the row words, [Branch Row](../../spec/branch/branch-row.spec.md#tree)). Filled is the user's move on this row, hollow a
   wait or done; the push keeps the dot of the status text. A table without stacks keeps the column, a lane for the
   node alone.
 - **The filter.** The state chips of the table take the rows by their nodes, in the words of the overview: Your Move,
@@ -106,7 +106,9 @@ The specs are the contract of each part:
   of the start shown in the slot button ("Pushing 2 branches 45%"). The branches built on it stay; the next sync after
   the merge builds them on master. The trial build of the branch alone (`get_stack_independence`) gives the second
   way: the unstack, a warning when the branch uses a name of its stack, or the move of the commits it needs. An old
-  pull request into a virtual branch is no start: the next step retargets it to master first.
+  pull request into a virtual branch doesn't stop the start: its retarget to master is the first effect of the start
+  (`PlannedEffect::Retarget` of `domain_policy::land::decide`), then the push and the robot, as `bd safe-push` does;
+  the slot offers the retarget alone too (row 5).
 - **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) asks the branch's
   own start; its popover opens at its own row's slot. The header of a stack island asks the start of the whole stack
   (below); of a straight chain, which has no stack branch, the start of its last branch, its popover at the header's
@@ -123,9 +125,10 @@ The specs are the contract of each part:
   leaves a branch landed whole out (`skipped`), `bd safe-push` refuses it (`landed`), and both land only the rest of a
   piece or the whole stack.
 - **The readiness.** A stacked branch is asked for its readiness now, for its own pull request. To keep the load on
-  Patronus as it was, the readiness store asks only for the branches a surface shows (`showReviewReadiness`: a row on
-  the screen, an island header, the preview, the review window), and for a hidden one whose answer waits for an
-  approval, so its approval is still news.
+  Patronus as it was, the session asks only for the subjects a surface shows (`showReviewReadiness` of the demand: a
+  row on the screen, an island header, the preview, the review window) whose next step waits for it
+  (`domain_policy::readiness::wanted`), and for a hidden one whose answer waits for an approval, so its approval is
+  still news.
 
 ### Every pull request goes into master
 
@@ -138,19 +141,22 @@ alone (`Push oauth Only`, `bd push --alone`, a parent a running Safe Push holds)
 to be on the remote.
 
 Pull requests opened into a parent's branch before this model, or of a parent that landed, still exist. A base under
-`{prefix}/virtual/` (`isVirtualBranchBase`, `strip_branch_namespace` in `bd`) is never a choice, so it is retargeted
+`{prefix}/virtual/` (`PullRequestBase::Virtual` of `domain_policy::pull_request::base_of`, for the app and `bd`) is never a choice, so it is retargeted
 to the baseline (`PATCH pulls/<n>`, `retarget_pull_request`):
 
-- the app, right before the push of the branch (`retargetBeforePush`, each branch of a stack push), and from the next
-  step, row 5 "Retarget #7 to master", for any virtual base, the current parent's included
-  ([Next Step](../../spec/branch/next-step.spec.md));
+- the app, right before the push of the branch (`retargetBeforePush`, each branch of a stack push), as the first effect
+  of a Safe Push start (`PlannedEffect::Retarget` of `domain_policy::land::decide`, run by `safe-push-start.ts`
+  before the push and the robot), and from the next step, row 5 "Retarget #7 to master", for any virtual base, the
+  current parent's included (`domain_policy::pull_request::base_of`, [Next Step](../../spec/branch/next-step.spec.md));
 - `bd push`, after the push and the lock, for the pushed branches; `bd safe-push` before its push, for the branch and
   the parents its push takes along, and a refused retarget of the branch's own pull request stops the start: Patronus
   would merge it into the old base. `--create-pull-request` takes the open pull request of the branch whatever its base
   ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-push)).
 
 Any other base (a release branch) may be meant: the push leaves it, the next step only opens the pull request (row
-5′), and the menu keeps "Retarget #7 to master". The stack branch `{prefix}/stack/<root>` (below) is not under
+5′), and the menu keeps "Retarget #7 to master". A Safe Push that counts approvals refuses it: they don't count in a
+pull request into another base ("Approvals in #7 don't count: its base is release-252", `otherBase`); a start that
+counts none (without review, a profile that skips the review) starts, in the app and in `bd safe-push` alike. The stack branch `{prefix}/stack/<root>` (below) is not under
 `virtual/`, so no retarget touches a pull request of it or into it.
 
 A retarget widens the diff of the pull request to what its Safe Push lands, so it may ask more code owners, and GitHub
@@ -170,6 +176,13 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   can conflict where nothing conflicts locally. Patronus rebases the source with `REBASE_AUTOSQUASH` anyway, so the
   main line gains nothing from keeping its ids.
 - **Only for a stack that forks.** A straight chain has none: its leaf is the whole stack, and its Safe Push lands it.
+- **By the declared parent.** The stack of a branch is the one the user declared (the `(parent/child)` prefix, the
+  stored stack parent), not the base its build took: a branch built on the baseline while its declared parent is
+  blocked or has no commits is still of its parent's stack. So the whole stack of a branch is the stack of its root by
+  declared parent: the stack branch of the root while the stack forks, else the straight chain from the root, landed
+  by its last branch that is not parked (`domain_policy::stack::whole_stack_of`, the `wholeStack` of the root's
+  structure in the view; `bd safe-push --whole-stack` and `bd robot --whole-stack` read the same). Before, the page
+  took the effective base first and `bd` the parent of the block, so the two named different stacks for one branch.
 - **A parked member.** A branch the user parked ([Parked Branches](../../spec/branch/parked-branches.spec.md)) lands
   nothing until it is unparked, and neither does a branch built on it, which carries its commits. The stack branch
   holds every member, so a stack with a parked one lands in pieces: its build stays, nothing pushes it.
@@ -241,7 +254,9 @@ The whole stack is an object of its own in the app, beside its branches, named "
   piece, every branch of the whole stack) are closed, but only those that hold nothing the branch lacks: the head is the
   branch's tip, or the remote branch has no commit the branch lacks. A head compared by hash alone left a pull request
   of a branch the sync had only rebuilt on a newer baseline open, though all of it landed. Which branches it landed is
-  one rule, in Rust for the app and `bd` (`repository_model::patronus_view`, `landedByRobot` of the repository view): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
+  one rule, in Rust for the app and `bd` (`repository_model::patronus_view`, `landedByRobot` of the repository view),
+  and so is which pull requests the merge closes (`domain_policy::landed::pull_requests_to_close`: the app closes them,
+  `bd robot` lists them as `closes` and closes none): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
   same commits rebuilt, or one the branch built new commits on since: the copies below are the same objects, so the
   ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is; after a change
   below its commit, by content (below): the merge toast waits for that answer (the view the session derives after the
@@ -253,7 +268,10 @@ The whole stack is an object of its own in the app, beside its branches, named "
   no restart of a robot, no new pull request and no push: their commits are in master, a second robot or a push would
   land nothing (`getLandedBy`, the repository view's `landedBy`, row 1 of the next step, a `landed` push hold, also of the robot's own branch). It is a
   state of the robots and the branches, not of the merge event, so a robot first seen merged (after a restart, a
-  landing by `bd`) says it too. A branch built on
+  landing by `bd`) says it too. A pull request GitHub merged with the commits the branch has lands it as well, though
+  no robot of the app merged it: what landed a subject is one rule for the rows and `bd safe-push`
+  (`domain_policy::landed::landed_state`: the fetched baseline first, then the merged Safe Pushes, then the merged pull
+  request whose head is the branch's tip or a remote branch without commits it lacks; `RepositoryView.landedStates`). A branch built on
   a landed one lands without it ("Safe Push" where it said "Safe Push · 2"), and pushes without it: a landed branch is
   only left out of Push with Children and of a Push Up to Here, unlike a running robot, which holds every push of its
   stack. A landed commit offers no Push Up to Here on any surface, as a commit the remote has (`isLandedCommit` in

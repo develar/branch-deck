@@ -10,6 +10,7 @@ targets:
   - ../../src/components/branch/BranchContextMenuRow.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../crates/domain-policy/src/actions.rs
+  - ../../crates/domain-policy/src/landing_node.rs
   - ../../crates/repository-model/src/action_view.rs
   - ../../src/presenters/actions.ts
   - ../../src/lib/patronus-actions.ts
