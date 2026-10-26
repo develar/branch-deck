@@ -65,6 +65,11 @@ pub struct SyncOutput {
   #[serde(skip)]
   #[schemars(skip)]
   pub landed_section: LandedSection,
+  /// The table of the app's session the events of the sync folded into (`TableState::apply`), which the summary read:
+  /// the scenario table derives the app's side of a case over it (`crates/bd-remote/src/scenario_test.rs`)
+  #[serde(skip)]
+  #[schemars(skip)]
+  pub table: TableState,
 }
 
 impl SyncOutput {
@@ -448,12 +453,12 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
     ..SyncOptions::default()
   };
   let report = runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;
-  Ok(summarize(context, report, &reporter.finish()?))
+  Ok(summarize(context, report, reporter.finish()?))
 }
 
 /// One summary of the report and of the table the sync left: the rows in the order of the table, each with its state,
 /// its error, its blocked and resolved commits and its remote status, then the stack branches and the sections
-fn summarize(context: &RepoContext, report: SyncReport, table: &TableState) -> SyncOutput {
+fn summarize(context: &RepoContext, report: SyncReport, table: TableState) -> SyncOutput {
   // branch -> the branch it is built on
   let bases: HashMap<String, String> = report
     .branches
@@ -510,6 +515,11 @@ fn summarize(context: &RepoContext, report: SyncReport, table: &TableState) -> S
     .map(|stack| StackSummary::new(stack, rows.iter().flat_map(|row| &row.commits), &short))
     .collect();
 
+  let unassigned_count = sections.unassigned.len();
+  let archived = sections.archived.integration.values().map(archived_branch).collect();
+  let update = landed.baseline.as_ref().and_then(|baseline| update_summary(baseline, &landed.landing, &short));
+  let remote_statuses = rows.iter().filter_map(|row| row.remote.status.clone()).collect();
+  let landed_section = landed.clone();
   SyncOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -517,13 +527,14 @@ fn summarize(context: &RepoContext, report: SyncReport, table: &TableState) -> S
     baseline: report.baseline.clone(),
     branches,
     stacks,
-    unassigned_count: sections.unassigned.len(),
-    archived: sections.archived.integration.values().map(archived_branch).collect(),
-    update: landed.baseline.as_ref().and_then(|baseline| update_summary(baseline, &landed.landing, &short)),
-    landed: landed_summary(landed.landed.clone(), &short),
+    unassigned_count,
+    archived,
+    update,
+    landed: landed_summary(landed_section.landed.clone(), &short),
     report,
-    remote_statuses: rows.iter().filter_map(|row| row.remote.status.clone()).collect(),
-    landed_section: landed.clone(),
+    remote_statuses,
+    landed_section,
+    table,
   }
 }
 

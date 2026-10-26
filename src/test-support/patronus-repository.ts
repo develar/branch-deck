@@ -1,29 +1,4 @@
 import type { BranchLanding, BranchPatronus, PatronusRobot, PatronusView, RobotOf, StackLanding, StackPatronus } from "@/lib/bindings"
-import type { RepositoryPatronus } from "@/stores/patronus"
-
-/**
- * What the Patronus store has of a repository on GitHub (`acme/air`) once Patronus answered with `robots` (by id) and
- * the session derived `view` of them (none: a view of no facts): what they land, landed and hold, with the robot of
- * each row (`withRowRobots`)
- */
-export function testPatronusRepository(robots: Readonly<Record<string, PatronusRobot>> = {}, view: PatronusView | null = null): RepositoryPatronus {
-  return {
-    availability: { status: "available" },
-    robots,
-    listed: true,
-    fetchedAt: 0,
-    isRefreshing: false,
-    needsReview: {},
-    githubRepository: "acme/air",
-    watched: {},
-    failing: {},
-    // the facts of the rows are known: a test of a pending answer says so
-    view: withRowRobots(view ?? { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} }, robots),
-    viewState: { kind: "fresh" },
-    landingNeedsState: { kind: "fresh" },
-    problemsFailed: {},
-  }
-}
 
 /** Running, then canceling, then finished */
 function activity(robot: PatronusRobot): number {

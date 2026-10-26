@@ -580,6 +580,7 @@ dependencies = [
 name = "bd-remote"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bd-cli",
  "bd-core",
  "clap",

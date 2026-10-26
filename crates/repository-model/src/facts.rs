@@ -563,6 +563,25 @@ impl FactStore {
     }
   }
 
+  /// The derivation of the Patronus view that starts now, at `at` on the session clock, when what it is of changed: the
+  /// table of the last sync, the robots, the remote branches `state` knows (`PatronusFact::begin`). None before a table
+  /// and an answer of Patronus, while a derivation runs (its answer asks again), or for the inputs of the last one
+  pub fn begin_patronus(&mut self, state: &TableState, at: Duration) -> Option<PatronusDerivation> {
+    let table = self.table.value().map(Arc::clone)?;
+    self.robots.view().head.value.as_ref()?;
+    let robots = listed_robots(self.robots.view());
+    let needs_review = self.robots.view().needs_review.clone();
+    let remote = session_remote(&table, state);
+    let inputs = patronus_inputs(self.table.fact().seq, &remote, &robots, &needs_review);
+    self.patronus.begin(inputs, at).then_some(PatronusDerivation {
+      table,
+      remote,
+      robots,
+      needs_review,
+      inputs,
+    })
+  }
+
   /// The table of the last successful sync with the memo and the remote branches as `state` has them; `None` before one
   #[must_use]
   pub fn table_facts(&self, state: &TableState) -> Option<TableFacts> {
@@ -1069,6 +1088,29 @@ pub struct PatronusOf<'a> {
   pub remote: &'a RemoteFacts,
   pub robots: &'a [PatronusRobot],
   pub needs_review: &'a BTreeMap<String, bool>,
+}
+
+/// A derivation of the Patronus view of a session that started (`FactStore::begin_patronus`): what it is of, owned for
+/// the blocking pool, with its inputs, which its answer names
+#[derive(Debug)]
+pub struct PatronusDerivation {
+  pub table: Arc<BranchTable>,
+  pub remote: RemoteFacts,
+  pub robots: Vec<PatronusRobot>,
+  pub needs_review: BTreeMap<String, bool>,
+  pub inputs: u64,
+}
+
+impl PatronusDerivation {
+  #[must_use]
+  pub fn of(&self) -> PatronusOf<'_> {
+    PatronusOf {
+      table: &self.table,
+      remote: &self.remote,
+      robots: &self.robots,
+      needs_review: &self.needs_review,
+    }
+  }
 }
 
 /// The remote branches of `table` as the session knows them: the remote status of each branch and stack branch in its

@@ -34,6 +34,7 @@ tracing.workspace = true
 [dev-dependencies]
 # the tests run bd through its Cli and share the fakes of bd-cli: a dev-dependency cycle, which cargo allows
 bd-cli = { path = "../bd-cli", features = ["fixtures"] }
+anyhow.workspace = true
 github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils" }

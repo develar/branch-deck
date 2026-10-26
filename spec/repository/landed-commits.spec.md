@@ -182,7 +182,7 @@ by the next sync the same way.
   `landedStates`, [Next Step](../branch/next-step.spec.md#the-table), row 1): its Safe Push and Dry Run are disabled
   with "Landed in origin/master", and `bd safe-push` refuses it as `landed` (a whole stack: every branch of it).
   [@test] ../../crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_whole_stack_landed_when_every_branch_of_it_did`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 
 ### After the update
 

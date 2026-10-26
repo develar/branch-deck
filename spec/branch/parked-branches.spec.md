@@ -152,10 +152,7 @@ branch built on it carries its commits, so it is parked with it.
 - `bd safe-push` must refuse a parked branch, a branch built on one and a whole stack with a parked member with
   `parked`, `--check` and `--patronus-dry-run` included, before Patronus is asked.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_parked_branch_and_a_branch_built_on_it_start_nothing`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`, `the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 - `bd help agent` and the skill must tell an agent never to push or unpark a parked branch on its own.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
@@ -184,8 +181,7 @@ branch built on it carries its commits, so it is parked with it.
   [@test] ../../src/presenters/reasons.test.ts (`words every reason of the catalog Rust writes as the page says it`)
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
   [@test] ../../src/lib/push-up-to.test.ts (`keeps a parked branch and a branch built on it local, in the words of their push button`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 - The app's push must refuse it in Rust too, as `bd push` does (`repository_model::push_guard`, under the repository
   lock): a push of a parked branch, of a branch built on one, or of the stack branch of a stack that holds one pushes
   nothing ("Nothing was pushed: login is parked: IJPL-1; it stays local until the user unparks it", "… holds parked

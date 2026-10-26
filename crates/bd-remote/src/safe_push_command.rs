@@ -56,14 +56,14 @@ use domain_types::landing::{
   ApprovalsSkip, Confirmation, Land, LandDecision, LandFact, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject,
 };
 use domain_types::patronus::{
-  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile,
-  PatronusPushMode, PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewerApprovalState,
-  UnavailableReadinessReason, UnknownReadinessReason,
+  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProblem,
+  PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, Person, ReviewReadiness, ReviewReadinessBranch,
+  ReviewerApprovalState, UnavailableReadinessReason, UnknownReadinessReason,
 };
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestsResult, ReviewerState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::LandingNeeds;
-use domain_types::session::{Fact, FactState, LandedSection, ParkedMember, PullRequestsView, RobotsHead, RobotsView, SubjectReadiness, stack_readiness_key};
+use domain_types::session::{Fact, FactState, LandedSection, ParkedMember, PullRequestsView, SubjectReadiness, stack_readiness_key};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
@@ -80,7 +80,7 @@ use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_r
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
 use repository_model::branch_table::{BranchTable, RemoteFact};
 use repository_model::derive::{LandingFacts, StepSources, grouped_rows, landed_states, next_steps, open_pull_requests_view};
-use repository_model::facts::{Observation, Seq};
+use repository_model::facts::{Observation, RobotsFact, RobotsRead, Seq};
 use repository_model::pull_request_facts::PullRequestsFact;
 use repository_model::push_guard::parked_words;
 use repository_model::start_guard::{stack_conflict_words, stack_not_built_words, start_refusal_text};
@@ -256,6 +256,15 @@ pub struct SafePushOutput {
   /// A retarget of a pull request of a branch taken along that GitHub refused, with the `gh pr edit` that does it
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub retarget_warnings: Vec<String>,
+  /// The decision `refusals` and the start tell (`domain_policy::land::decide`), not printed: the scenario table
+  /// compares it with the app's (`crates/bd-remote/src/scenario_test.rs`)
+  #[serde(skip)]
+  #[schemars(skip)]
+  pub decision: Option<LandDecision>,
+  /// With `--check`: the next step `next_step` tells, not printed (the scenario table)
+  #[serde(skip)]
+  #[schemars(skip)]
+  pub step: Option<domain_types::next_step::NextStep>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -459,8 +468,10 @@ struct Plan {
   /// What the robot lands: the branches it is built on, root first, then the branch; or every branch of the stack
   lands: Vec<String>,
   refusals: Vec<Refusal>,
-  /// With `--check`: the next step of the subject over what the check read, as the app's row shows it
-  next_step: Option<NextStepSummary>,
+  /// With `--check`: the next step of the subject over what the check read, as the app's row shows it, with its words
+  next_step: Option<(domain_types::next_step::NextStep, NextStepSummary)>,
+  /// What `refusals`, the effects and the route above are of
+  decision: LandDecision,
   /// With `--check`, for a stacked branch: its trial build alone
   alone: Option<AloneBuild>,
   warnings: Vec<CheckWarning>,
@@ -765,13 +776,15 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
     }),
     retargeted: Vec::new(),
     retarget_warnings: Vec::new(),
+    decision: Some(plan.decision.clone()),
+    step: None,
   }
 }
 
 /// The output of `--check`: `output` with what refuses a start, the trial build alone and the retargets a start would do
 fn check_output(mut output: SafePushOutput, plan: Plan) -> SafePushOutput {
   output.refusals = plan.refusals;
-  output.next_step = plan.next_step;
+  (output.step, output.next_step) = plan.next_step.unzip();
   output.alone = plan.alone;
   output.retargeted = plan.retargets;
   output
@@ -1232,6 +1245,15 @@ fn plan(
   };
   let decision = decide_over(&land, readiness.as_ref(), rules.as_ref());
   let next_step = args.check.then(|| {
+    // the problems of the failed robot of the subject, which say whether it failed for the approvals, as the session
+    // reads them of its failed robots
+    let robot = match start {
+      Start::Branch(name) => facts.branch_robot(name),
+      Start::WholeStack(update) => facts.stack_robot(&update.root),
+    };
+    let problems = robot
+      .filter(|robot| robot.status == PatronusRobotStatus::Failure)
+      .map(|robot| (robot.id.clone(), runtime.block_on(service.robot_problems(&robot.id)).map_err(ApiError::internal)));
     let read = CheckRead {
       table: &table,
       facts: &facts,
@@ -1239,6 +1261,7 @@ fn plan(
       pull_requests,
       readiness: readiness.as_ref(),
       needs: &gate_refusals,
+      problems,
       github: github.as_ref(),
       target: &target,
     };
@@ -1312,9 +1335,10 @@ fn plan(
     push_needed: force.is_some(),
     force: force.unwrap_or(false),
     remotes,
-    lands: decision.lands,
+    lands: decision.lands.clone(),
     refusals,
     next_step: next_step.flatten(),
+    decision,
     alone,
     warnings,
     cancel,
@@ -1335,13 +1359,16 @@ struct CheckRead<'a> {
   readiness: Option<&'a Fact<SubjectReadiness>>,
   /// What the landing gate refuses of the start of the subject
   needs: &'a [LandingRefusal],
+  /// The problems of the failed robot of the subject, by its id
+  problems: Option<(String, Result<Vec<PatronusProblem>, ApiError>)>,
   github: Option<&'a GitHubRepository>,
   target: &'a str,
 }
 
 /// The next step of the subject of `start` over what the check read (`next_steps`, the rule of the app's rows): Patronus
-/// answered (it listed the robots), no problem of a failed robot is read, the landing needs of a branch are its gate's
-fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_>, what: &str) -> Option<NextStepSummary> {
+/// answered (it listed the robots), the problems of the failed robot of the subject as the session holds them (whether
+/// it failed for the approvals), the landing needs of a branch are its gate's
+fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_>, what: &str) -> Option<(domain_types::next_step::NextStep, NextStepSummary)> {
   let table = read.table;
   let rows = grouped_rows(table);
   let key = match start {
@@ -1352,18 +1379,23 @@ fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_
   if let Start::Branch(name) = start {
     view.branches.entry((*name).clone()).or_default().landing_needs = LandingNeeds::Known { refusals: read.needs.to_vec() };
   }
-  let robots = RobotsView {
-    head: Fact {
-      value: Some(RobotsHead {
-        availability: PatronusAvailability::Available,
-        github_repository: read.github.map(GitHubRepository::full_name),
-      }),
-      state: FactState::Fresh,
-      ..Fact::default()
-    },
-    robots: read.facts.robots.iter().map(|robot| (robot.id.clone(), robot.clone())).collect(),
-    ..RobotsView::default()
+  let mut fact = RobotsFact::default();
+  let listed = PatronusRobotsResult {
+    availability: PatronusAvailability::Available,
+    robots: read.facts.robots.clone(),
+    github_repository: read.github.map(GitHubRepository::full_name),
   };
+  let observation = Observation {
+    seq: Seq(1),
+    inputs: 0,
+    at: Duration::ZERO,
+    observed_at: 1,
+  };
+  fact.answer(observation, RobotsRead::List { full: true }, listed, &mut Vec::new());
+  if let Some((id, result)) = &read.problems {
+    fact.problems_answer(id, result.clone());
+  }
+  let robots = fact.view();
   let patronus = PatronusStanding::of(&robots.head, &FactState::Fresh);
   let subject_readiness = |subject: &str| read.readiness.and_then(|fact| fact.value.as_ref()).filter(|_| subject == key).map(|value| &value.readiness);
   let open = open_pull_requests_view(
@@ -1387,7 +1419,7 @@ fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_
     remote: &table.remote,
     rows: &rows,
     view: &view,
-    robots: &robots,
+    robots,
     patronus: &patronus,
     landing_needs: &FactState::Fresh,
     pull_requests: read.pull_requests,
@@ -1398,7 +1430,10 @@ fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start: &Start<'_
     view_stacks: None,
   };
   let mut steps = next_steps(&sources);
-  steps.remove(&key).map(|view| NextStepSummary::new(&view.step, what, &read.facts.robots))
+  steps.remove(&key).map(|view| {
+    let summary = NextStepSummary::new(&view.step, what, &read.facts.robots);
+    (view.step, summary)
+  })
 }
 
 /// The open pull request `number` of the subject of `start`: the branch's, or the whole stack's (its stack branch's)

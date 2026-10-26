@@ -8,7 +8,6 @@
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
-    "discrepancy": null,
     "given": {
       "remote": "rebuiltOnNewerBaseline",
       "robot": {
@@ -16,15 +15,17 @@
         "on": "remote"
       }
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "safePushBlocker": "A Safe Push of the last commit is running"
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["robot_running"]
+        "row": "1",
+        "kind": "settled",
+        "safePush": "lastCommit",
+        "dryRun": "lastCommit"
+      },
+      "land": {
+        "blockers": ["lastCommit"],
+        "confirmations": ["nonDefaultProfile"],
+        "start": "api:lsc"
       }
     }
   },
@@ -33,26 +34,17 @@
     "group": "landing",
     "title": "the remote branch has the commits of the branch by content, only rebuilt since on a newer baseline: the start pushes nothing",
     "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "remote": "rebuiltOnNewerBaseline"
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "safePush",
-        "safePushBlocker": null
+        "row": "11",
+        "kind": "safePush"
       },
-      "decision": {
-        "kind": "start"
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": [],
-        "push_needed": false
-      },
-      "start": {
-        "started_via": "api"
+      "land": {
+        "start": "api",
+        "pushes": null
       }
     }
   },
@@ -61,7 +53,6 @@
     "group": "landing",
     "title": "a Safe Push of session, built on login, lands login, while one of auth lands a part of it: the reason names session first",
     "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
       "branch": "login",
@@ -76,15 +67,18 @@
         }
       ]
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "safePushBlocker": "A Safe Push of session is running: it lands 1 commit of login with it"
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["robot_running"]
+        "row": "1",
+        "kind": "settled",
+        "safePush": "descendant",
+        "dryRun": "held"
+      },
+      "land": {
+        "blockers": ["descendant"],
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "lands": ["auth", "login"]
       }
     }
   },
@@ -97,11 +91,6 @@
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "byDesign",
-      "why": "the refusal of bd names --cancel-running, the confirmation the popover asks for (`replaces`): spec/cli/agent-cli.spec.md#bd-safe-push"
-    },
     "given": {
       "remote": "unpushed",
       "robot": {
@@ -109,20 +98,16 @@
         "on": "older"
       }
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "safePushBlocker": null
+        "row": "1",
+        "kind": "settled"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["replaces"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["robot_running"],
-        "push_needed": true
+      "land": {
+        "confirmations": ["cancelsRobot"],
+        "start": "api",
+        "pushes": ["auth"],
+        "cancels": "older"
       }
     }
   },
@@ -131,7 +116,6 @@
     "group": "landing",
     "title": "the same with --cancel-running: bd cancels the robot of the older commit, pushes and starts, as the popover's start replaces it",
     "spec": ["spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "remote": "unpushed",
       "robot": {
@@ -140,24 +124,16 @@
       },
       "flags": ["cancelRunning"]
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "safePushBlocker": null
+        "row": "1",
+        "kind": "settled"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["replaces"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": [],
-        "push_needed": true
-      },
-      "start": {
-        "started_via": "api",
-        "canceled": true
+      "land": {
+        "confirmations": ["cancelsRobot"],
+        "start": "api",
+        "pushes": ["auth"],
+        "cancels": "older"
       }
     }
   },
@@ -166,11 +142,6 @@
     "group": "landing",
     "title": "a Safe Push of an older commit runs and the remote branch is up to date: a start would run beside it",
     "spec": ["spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "byDesign",
-      "why": "the refusal of bd names --cancel-running, the confirmation the popover asks for (`replaces`): spec/cli/agent-cli.spec.md#bd-safe-push"
-    },
     "given": {
       "remote": "upToDate",
       "robot": {
@@ -178,20 +149,16 @@
         "on": "older"
       }
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "safePushBlocker": null
+        "row": "1",
+        "kind": "settled"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["replaces"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["robot_running"],
-        "push_needed": false
+      "land": {
+        "confirmations": ["cancelsRobot"],
+        "start": "api",
+        "pushes": null,
+        "cancels": "older"
       }
     }
   },
@@ -205,22 +172,31 @@
       "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack",
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
-    "discrepancy": null,
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
       "subject": "wholeStack",
       "parked": "session"
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "safePushBlocker": "Holds parked session: land the stack in pieces"
+        "row": "1",
+        "kind": "settled",
+        "safePush": "stackParked",
+        "dryRun": "stackParked"
+      },
+      "land": {
+        "blockers": ["stackParked"],
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "lands": ["auth", "login", "session"]
       }
     },
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
     "bd": {
-      "check": {
-        "error": "parked"
-      }
+      "error": "parked"
     }
   },
   {
@@ -228,25 +204,17 @@
     "group": "landing",
     "title": "the remote branch has a commit of someone else that the branch lacks: a push would drop it",
     "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "remote": "behind"
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "safePush",
-        "safePushBlocker": null
+        "row": "11",
+        "kind": "safePush"
       },
-      "decision": {
-        "kind": "refuse",
-        "reason": "The remote branch of auth has a commit that auth lacks: push it from its row, which shows it",
-        "offersPush": false
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["push_refused"],
-        "push_needed": true
+      "land": {
+        "blockers": ["dropsRemote"],
+        "start": "api"
       }
     }
   },
@@ -255,7 +223,6 @@
     "group": "landing",
     "title": "the Safe Push of session pushes login along, whose pull request #7 goes into the virtual branch of auth: bd retargets it to master first",
     "spec": ["spec/branch/patronus.spec.md#pull-requests", "spec/branch/stacked-branches.spec.md#pull-requests", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
       "branch": "session",
@@ -264,21 +231,17 @@
         "base": "test-user/virtual/auth"
       }
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "safePush",
-        "safePushBlocker": null
+        "row": "11",
+        "kind": "safePush"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["stack"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": [],
-        "pull_request": null,
-        "retargeted": [7]
+      "land": {
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
+        "pushes": ["auth", "login", "session"],
+        "retargets": [7],
+        "lands": ["auth", "login", "session"]
       }
     }
   },
@@ -287,24 +250,18 @@
     "group": "landing",
     "title": "the branch uses a name only codec adds, and the start is told to start anyway: --allow-missing, the popover's Start Anyway",
     "spec": ["spec/branch/next-step.spec.md#what-the-safe-push-needs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "landingNeeds": true,
       "flags": ["allowMissing"]
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "needsBranch",
-        "safePushBlocker": null
+        "row": "1′",
+        "kind": "needsBranch"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["landing"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": []
+      "land": {
+        "start": "api",
+        "pushes": ["auth"]
       }
     }
   },
@@ -313,29 +270,19 @@
     "group": "landing",
     "title": "fake-agent removes a constant that the tree it lands still uses; lane-document, outside it, changes the use",
     "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "byDesign",
-      "why": "--allow-dangling of bd is the popover's Start Anyway: spec/cli/agent-cli.spec.md#bd-safe-push"
-    },
     "given": {
       "commits": [],
       "branch": "fake-agent",
       "dangling": "removed"
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "needsBranch",
-        "safePushBlocker": null
+        "row": "1′",
+        "kind": "needsBranch"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["landing"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["dangling_reference"]
+      "land": {
+        "blockers": ["landingRefused"],
+        "start": "api"
       }
     }
   },
@@ -344,29 +291,19 @@
     "group": "landing",
     "title": "suspend makes a function suspend that a test the tree lands still calls; journey, outside it, deletes the test",
     "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
-    "asymmetry": {
-      "kind": "byDesign",
-      "why": "--allow-dangling of bd is the popover's Start Anyway: spec/cli/agent-cli.spec.md#bd-safe-push"
-    },
     "given": {
       "commits": [],
       "branch": "suspend",
       "dangling": "changed"
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "needsBranch",
-        "safePushBlocker": null
+        "row": "1′",
+        "kind": "needsBranch"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["landing"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["dangling_reference"]
+      "land": {
+        "blockers": ["landingRefused"],
+        "start": "api"
       }
     }
   },
@@ -375,26 +312,20 @@
     "group": "landing",
     "title": "the dangling reference of fake-agent, and the start is told to start anyway: --allow-dangling",
     "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "commits": [],
       "branch": "fake-agent",
       "dangling": "removed",
       "flags": ["allowDangling"]
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "needsBranch",
-        "safePushBlocker": null
+        "row": "1′",
+        "kind": "needsBranch"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["landing"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": []
+      "land": {
+        "start": "api",
+        "pushes": ["fake-agent"]
       }
     }
   },
@@ -403,7 +334,6 @@
     "group": "landing",
     "title": "a Dry Run of a branch whose Safe Push runs on an older commit, the branch not on the remote: a dry run replaces nothing, and its push would fail the running one",
     "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "mode": "dryRun",
       "robot": {
@@ -411,19 +341,14 @@
         "on": "older"
       }
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "dryRunBlocker": null
+        "row": "1",
+        "kind": "settled"
       },
-      "decision": {
-        "kind": "refuse",
-        "reason": "A Safe Push of auth is running: wait until it merges, or restart it on the current branch"
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["robot_running"]
+      "land": {
+        "blockers": ["held"],
+        "start": "api"
       }
     }
   },
@@ -432,7 +357,6 @@
     "group": "landing",
     "title": "a Dry Run of login while the Safe Push of session, built on it, runs: its push would go into what that Safe Push lands and fail it at the end, so both refuse the dry run while it pushes (D15, closed)",
     "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "mode": "dryRun",
       "branch": "login",
@@ -442,21 +366,17 @@
         "on": "child:session"
       }
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "safePushBlocker": "A Safe Push of session is running: it lands 1 commit of login with it",
-        "dryRunBlocker": "A Safe Push of session is running: it lands 1 commit of login with it"
+        "row": "1",
+        "kind": "settled",
+        "safePush": "descendant",
+        "dryRun": "held"
       },
-      "decision": {
-        "kind": "refuse",
-        "reason": "A Safe Push of session is running: it lands 1 commit of login with it"
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["robot_running"],
-        "push_needed": true,
+      "land": {
+        "blockers": ["held"],
+        "confirmations": ["landsMoreThanRow"],
+        "start": "api",
         "lands": ["auth", "login"]
       }
     }
@@ -466,7 +386,6 @@
     "group": "landing",
     "title": "a Safe Push of the remote branch merged, and the branch has a commit added since the push: the merge landed the pushed commit, the rest is still to land",
     "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "remote": "unpushed",
       "robot": {
@@ -474,24 +393,15 @@
         "on": "remote"
       }
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "safePush",
-        "safePushBlocker": null
+        "row": "11",
+        "kind": "safePush"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["profile"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": [],
-        "push_needed": true,
-        "lands": ["auth"]
-      },
-      "start": {
-        "started_via": "api"
+      "land": {
+        "confirmations": ["nonDefaultProfile"],
+        "start": "api:lsc",
+        "pushes": ["auth"]
       }
     }
   },
@@ -500,7 +410,6 @@
     "group": "landing",
     "title": "a Safe Push of the whole auth stack and one of login, built on auth, run at once: the branch robot holds auth before the whole stack's, and the reason names login",
     "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/branch/whole-stack.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
-    "discrepancy": null,
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/oauth) Add oauth"],
       "robot": [
@@ -514,19 +423,16 @@
         }
       ]
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "none",
-        "safePushBlocker": "A Safe Push of login is running: it lands 1 commit of auth with it"
+        "row": "1",
+        "kind": "settled",
+        "safePush": "descendant",
+        "dryRun": "held"
       },
-      "decision": {
-        "kind": "refuse",
-        "reason": "A Safe Push of login is running: it lands 1 commit of auth with it"
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["robot_running"]
+      "land": {
+        "blockers": ["descendant"],
+        "start": "api"
       }
     }
   }

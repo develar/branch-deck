@@ -1,12 +1,13 @@
-//! The side of bd of the scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` as a
-//! repository of the bd-cli fixtures with the fake Patronus and the fake GitHub, then `safe_push()` itself with
-//! `--check` (the production path: its preamble, `plan()`, the output of a check), and the start without `--check`;
-//! today's answer expected. `src/lib/scenario-cases.test.ts` is the side of the app
+//! The scenario table (`crates/domain-policy/cases/*.json`, its README): each case's `given` as a repository of the
+//! bd-cli fixtures with the fake Patronus and the fake GitHub, and the one expectation (`expect`) both sides answer of
+//! it. The app's side: the table its sync folds (`TableState`) and the facts its session holds of the same fakes
+//! (`FactStore`, fed as the session's host feeds it), through `repository_model::derive` (`next_steps_of`,
+//! `land_answer_of`). The side of `bd`: `safe_push()` with `--check` (the production path: its preamble, `plan()`, the
+//! output of a check, with the decision and the step its words tell), then the start without `--check`
 
-use crate::patronus_facts::{PatronusFacts, table_of};
+use crate::patronus_facts::table_of;
 use crate::push_command::github_repository;
-use crate::robot_list::list_robots;
-use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, rules_fact, safe_push as safe_push_command};
+use crate::safe_push_command::{SafePushArgs, SafePushOutput, github_service, open_pull_requests, patronus_service, safe_push as safe_push_command};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
   LANDED_SUBJECTS, MASTER_RULES, Space, dismissing_rules, evaluated_review, fake_github, land_auth_by_content, list_pull_requests, minutes_ago, pull_request_json,
@@ -15,47 +16,42 @@ use bd_cli::remote_fixture_test::{
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::stack_summary::whole_stack;
-use bd_core::sync_command::{SyncOutput, SyncState, lock, sync_locked};
-use domain_policy::actions::{Problems, RobotFacts, robot_actions};
-use domain_policy::facts::Robots;
-use domain_policy::landed::LandedFacts;
-use domain_policy::next_step::PatronusStanding;
-use domain_policy::pull_request::start_pull_request;
-use domain_policy::stack::WholeStack;
-use domain_types::actions::ActionState;
+use bd_core::sync_command::{lock, sync_locked};
+use domain_policy::land::unaccepted;
+use domain_policy::stack::{WholeStack, whole_stack_of};
+use domain_types::branch_names::baseline_on_remote;
 use domain_types::commit::Commit;
-use domain_types::landing::{self, Land, LandAnswer, ProfileChoice, Subject};
-use domain_types::next_step::NextStepView;
-use domain_types::patronus::{LandingAllowances, PatronusAvailability, PatronusPushMode, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestView, PullRequestsResult};
-use domain_types::session::{BranchStatus, Fact, FactState, PullRequestsView, RobotsHead, RobotsView, SubjectReadiness};
-use domain_types::stack::{BranchStack, StackBranchState};
+use domain_types::error::ApiError;
+use domain_types::landing::{Land, LandDecision, PlannedEffect, ProfileChoice, StartRoute, Subject};
+use domain_types::next_step::NextStep;
+use domain_types::patronus::{LandingAllowances, PatronusAvailability, PatronusPushMode, PatronusRobotsResult};
+use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
+use domain_types::session::{Demand, stack_readiness_key};
+use domain_types::stack::BranchStack;
+use domain_types::{ProgressReporter, SyncEvent};
 use github::fake_github::{FakeAnswer, FakeGitHub};
-use github::service::GitHubService;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::stack::place_branches;
 use history_rewrite::store_lines::StoreLines;
-use patronus::service::PatronusService;
+use remote_facts::branch_rules::read_branch_rules;
 use remote_facts::review_readiness::{ReadinessRepository, branch_review_readiness};
-use repository_model::branch_table::BranchTable;
-use repository_model::derive::{LandSources, RowFacts, StepSources, grouped_rows, land_answer, landed_states, next_steps, open_pull_requests_view};
-use repository_model::facts::{Observation, Seq};
-use repository_model::patronus_view::{landed_commits, with_landing_needs};
-use repository_model::pull_request_facts::PullRequestsFact;
+use repository_model::derive::{land_answer_of, landed_states_of, next_steps_of, repository, session_open_pull_requests, wanted_readiness};
+use repository_model::facts::{AskedRobots, FactResult, FactStore, Observation, RobotsRead, Seq, derive_patronus, robots_digest};
+use repository_model::readiness_facts::ReadinessAnswer;
+use repository_model::table::TableState;
 use serde::Deserialize;
-use serde::de::IgnoredAny;
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sync_core::github_repository::GitHubRepository;
-use sync_core::patronus::{SpaceRepository, target_branch_of};
-use tokio::runtime::Runtime;
+use sync_core::patronus::SpaceRepository;
+use sync_core::sync::{SyncOptions, sync_branches};
+use test_utils::git_test_utils::TestRepo;
 use trial_check::landing_gate::landing_needs_of;
 
-/// The groups of the cases and their test functions here; the Vitest has the same groups
+/// The groups of the cases and their test functions here
 const GROUPS: [&str; 7] = [
   "modes-and-routes",
   "profiles",
@@ -69,7 +65,7 @@ const GROUPS: [&str; 7] = [
 /// The ids of the registry of `docs/design/rust-domain-authority.md`: the group `discrepancies` has one entry of each
 const REGISTRY: [&str; 16] = ["D1", "D2", "D3a", "D3b", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D13", "D14", "D15"];
 
-/// A case of the table; `app` and `asymmetry` are the Vitest's
+/// A case of the table
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Case {
@@ -81,24 +77,20 @@ struct Case {
   kind: CaseKind,
   title: String,
   spec: Vec<String>,
+  /// Of an entry of the registry only: the id of the registry it is the key of
   discrepancy: Option<String>,
-  /// Of an entry of the registry: the exercised cases of other groups that record the same discrepancy
-  #[serde(default)]
-  twins: Vec<String>,
   /// Of an entry of the registry: the stage of the design doc that closed the discrepancy; the entry stays the key of
-  /// its id, `today` says where each side does it now, and no case is its twin any longer
+  /// its id, and `today` says where each side does it now
   closed: Option<String>,
   /// Where each side does it today: `path#text` or `path:line#text` (a test, a function, a line), from the repository root
   today: Option<Today>,
-  #[expect(dead_code, reason = "the Vitest compares the classes of the outcomes")]
-  asymmetry: Option<IgnoredAny>,
+  /// Why `bd` answers otherwise by design, beside its answer `bd`
+  asymmetry: Option<Asymmetry>,
   given: Option<Given>,
-  #[expect(dead_code, reason = "the expectations of the app, the Vitest's")]
-  app: Option<IgnoredAny>,
-  bd: Option<Expected>,
-  /// `given` as the file has it, which the facts of the case record, so the Vitest tells facts of another `given`
-  #[serde(skip)]
-  raw_given: Value,
+  /// What both sides answer of `given`
+  expect: Option<Expect>,
+  /// What `bd` answers instead, only beside an `asymmetry`
+  bd: Option<BdExpect>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -114,18 +106,44 @@ enum CaseKind {
 struct Today {
   app: Vec<String>,
   bd: Vec<String>,
-  /// Why the sides differ although their classes agree (D9), or what the pointers show
-  #[expect(dead_code, reason = "the Vitest asks for it where the classes of a discrepancy agree")]
+  /// What the pointers show
+  #[expect(dead_code, reason = "words for the reader of the registry")]
   why: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Expected {
-  /// A subset of the projection of the `--check` output (`projection`), or `{error}`
-  check: Map<String, Value>,
-  /// `{started_via}` or `{error}` of the start without `--check`
-  start: Option<Map<String, Value>>,
+struct Asymmetry {
+  #[expect(dead_code, reason = "its only value: a case of another kind fails to parse")]
+  kind: AsymmetryKind,
+  /// The spec or the doc that names the difference
+  #[expect(dead_code, reason = "words for the reader of the table")]
+  why: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum AsymmetryKind {
+  ByDesign,
+}
+
+/// The one expectation of a case: `step` a subset of the next step of the subject (`step_answer`), `land` of the
+/// decision of its start (`land_answer`); `null` where the side has none
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Expect {
+  step: Value,
+  land: Value,
+}
+
+/// What `bd` answers instead of `expect`, by design: its own `step` or `land`, or the error of the command, which
+/// refuses before it decides anything (the table alone refuses it, an argument)
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BdExpect {
+  step: Option<Value>,
+  land: Option<Value>,
+  error: Option<String>,
 }
 
 /// A sync of the app that runs
@@ -135,22 +153,19 @@ enum GivenSync {
   Running,
 }
 
-/// The closed vocabulary of a situation, the schema of the README (`src/test-support/scenario-case.ts` is its twin)
+/// The closed vocabulary of a situation, the schema of the README
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase", default)]
 struct Given {
   mode: Mode,
   /// The branch the case starts
   branch: String,
-  /// A command is a confirmed start: only the app tells a click from a key
-  via: Via,
   subject: GivenSubject,
   commits: Vec<String>,
   target: Target,
   remote: Remote,
   robot: Option<GivenRobots>,
-  /// The app's sync runs: `bd` syncs itself before it plans, so nothing of it is a state of bd; the rows of the app's
-  /// next steps sync (`nextSteps` of the facts)
+  /// The app's sync runs, past its grouping: `bd` syncs itself before it plans, so nothing of it is a state of bd
   sync: Option<GivenSync>,
   /// The first commit of this branch changes a file that only an unassigned commit creates
   conflicts: Option<String>,
@@ -177,7 +192,6 @@ impl Default for Given {
     Self {
       mode: Mode::SafePush,
       branch: "auth".to_string(),
-      via: Via::Click,
       subject: GivenSubject::Branch,
       commits: vec!["(auth) Add auth".to_string()],
       target: Target::Protected,
@@ -211,8 +225,6 @@ enum Rules {
   Dismiss,
   /// GitHub fails the read (500)
   Unknown,
-  /// The app has no answer yet; bd waits for its read, which answers `keep`
-  Loading,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -220,13 +232,6 @@ enum Rules {
 enum Mode {
   SafePush,
   DryRun,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
-enum Via {
-  Click,
-  Key,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -267,7 +272,7 @@ struct GivenRobot {
   state: RobotState,
   /// `tip`, `older`, `stack`, `ancestor:<branch>`, `child:<branch>`
   on: String,
-  /// `approvals`: it failed for the approvals; bd decides nothing by it, the session learns it of its problems
+  /// `approvals`: it failed for the approvals, as its problems say (the session reads them; `bd` doesn't)
   reason: Option<String>,
   /// Started by the comment on the pull request #7
   #[serde(default)]
@@ -353,7 +358,7 @@ enum Readiness {
   Unavailable,
   Unlisted,
   Space,
-  /// The app didn't ask yet; bd always asks: the pre-check needs no approval
+  /// The app's session didn't ask yet; bd always asks: the pre-check needs no approval
   NotAsked,
 }
 
@@ -396,6 +401,10 @@ impl Given {
 
   /// The values the adapter maps (the README says which); anything else fails the case
   fn check_mapped(&self) {
+    assert!(
+      !self.commits.is_empty() || self.dangling.is_some(),
+      "given.commits [] goes with given.dangling, which brings its own"
+    );
     if let Some(dangling) = self.dangling {
       let branch = match dangling {
         Dangling::Removed => "fake-agent",
@@ -502,6 +511,38 @@ impl Given {
     }
     line
   }
+
+  /// What the user accepts by the flags of the case, the same for both sides: the popover's Start Anyway and its line
+  /// of the robot it replaces are the flags of `bd`
+  fn allowances(&self) -> LandingAllowances {
+    LandingAllowances {
+      allow_dangling: self.has(Flag::AllowDangling),
+      allow_missing: self.has(Flag::AllowMissing),
+      allow_force: false,
+      allow_unknown_rules: self.has(Flag::AllowUnknownRules),
+      allow_unknown_review: false,
+      cancel_running: self.has(Flag::CancelRunning),
+    }
+  }
+
+  /// The start of `subject` the case asks, as the app's click asks it with the choices of its popover
+  fn land(&self, subject: Subject) -> Land {
+    Land {
+      subject,
+      mode: match self.mode {
+        Mode::SafePush => PatronusPushMode::RebaseAutosquash,
+        Mode::DryRun => PatronusPushMode::DryRun,
+      },
+      profile: match self.profile.as_ref().and_then(|profile| profile.chosen.as_deref()) {
+        None => ProfileChoice::Default,
+        Some("none") => ProfileChoice::None,
+        Some(id) => ProfileChoice::Id { id: id.to_string() },
+      },
+      without_approvals: self.has(Flag::WithoutApprovals),
+      create_pull_request: self.has(Flag::CreatePullRequest),
+      allow: self.allowances(),
+    }
+  }
 }
 
 /// The repository of a case, its fakes and the environment bd runs in
@@ -605,6 +646,10 @@ fn add_robots(space: &Space, environment: &mut Environment, given: &Given) {
     if robot_of.on == "older" {
       add_profile_details(space, environment, &listed, given.profile.as_ref());
     }
+    // the problems the fake answers by default say it failed for the approvals
+    if robot_of.reason.as_deref() != Some("approvals") {
+      space.fake.problems.lock().unwrap().insert(id, json!([]));
+    }
     robots.push(listed);
   }
   *space.fake.robots.lock().unwrap() = Some(robots);
@@ -655,6 +700,16 @@ fn commit_given(space: &Space, given: &Given) {
   }
 }
 
+/// A Safe Push landed every commit of the branch, and the baseline with them was fetched: origin/master has them rebuilt
+/// (`cherry-pick -x`), HEAD has them as they were until Update Project
+fn land_in_the_baseline(repo: &TestRepo) {
+  let (head, branch) = (git(repo, &["rev-parse", "HEAD"]), git(repo, &["symbolic-ref", "--short", "HEAD"]));
+  git(repo, &["checkout", "-q", "--detach", "refs/remotes/origin/master"]);
+  git(repo, &["cherry-pick", "-x", &format!("refs/remotes/origin/master..{head}")]);
+  git(repo, &["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  git(repo, &["checkout", "-q", &branch]);
+}
+
 /// `bd <args>` in the repository of the case, which succeeds
 fn bd_ok(environment: &Environment, args: &[&str]) {
   let mut all_args = vec!["--prefix", PREFIX];
@@ -680,6 +735,10 @@ impl Situation {
       let (github, url) = fake_github(&space, &pull_requests);
       (reviewed_on_github(&space, &url), Some(github))
     };
+    // GitHub retargets the pull request a start retargets
+    if let (Some(github), Some(_)) = (&github, &given.pull_request) {
+      github.answer("PATCH", "/repos/acme/monorepo/pulls/7", FakeAnswer::ok(json!({"number": 7})));
+    }
     let review_required = !matches!(given.readiness, Readiness::NotRequired | Readiness::Unlisted | Readiness::NotAsked);
     space.fake.review_required.store(review_required, Ordering::SeqCst);
     let has_pull_request = given.pull_request.is_some();
@@ -708,7 +767,7 @@ impl Situation {
       }
     }
     match (given.rules, &github) {
-      (Rules::Keep | Rules::Loading, _) | (_, None) => {}
+      (Rules::Keep, _) | (_, None) => {}
       (Rules::Dismiss, Some(github)) => github.answer("GET", MASTER_RULES, FakeAnswer::ok(dismissing_rules())),
       (Rules::Unknown, Some(github)) => github.answer("GET", MASTER_RULES, FakeAnswer::status(500, json!({"message": "Server Error"}))),
     }
@@ -716,9 +775,7 @@ impl Situation {
       *space.fake.start_options.lock().unwrap() = Some(json!({"supported": false, "emergencySupported": false, "profiles": []}));
     }
     match given.landed {
-      Some(Landed::InBaseline) => {
-        git(&space.repo, &["update-ref", "refs/remotes/origin/master", "HEAD"]);
-      }
+      Some(Landed::InBaseline) => land_in_the_baseline(&space.repo),
       Some(Landed::ByContent) => {
         bd_ok(&environment, &["push", branch]);
         land_auth_by_content(&space.repo);
@@ -817,761 +874,483 @@ impl Situation {
   }
 }
 
-// ---- the facts of the app's side ----
+// ---- the app's side ----
 
-/// The facts of the app's side of each exercised case, one file per case id: what the sync, the repository view, the
-/// robot list and the review scan leave of the case's repository, which `src/test-support/scenario-facts.ts` seeds into
-/// the stores instead of computing any of it (`assert_facts_kept`, by the group test of the case)
-const FACTS_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../domain-policy/cases/facts");
-
-/// The environment variable that lets the facts test rewrite the files
-const UPDATE_FACTS: &str = "UPDATE_SCENARIO_FACTS";
-
-/// The branch of a virtual branch's full name
-fn short_name(full_name: &str) -> Option<&str> {
-  full_name.strip_prefix(&format!("{PREFIX}/virtual/"))
+/// A session of the app over the case's repository: the table its sync folded and the facts it holds, each read of
+/// the same fakes as its host reads them (`remote_facts::fact_sources::FactSources` of the app) in the order its
+/// scheduler asks them after a sync: the robots, the problems of the failed ones, the Patronus view with the landing
+/// needs, the details of the robot of the subject (its profile, which a Safe Push reads), the pull requests, the rules
+/// of the bases of the approved ones, the merge profiles of the target, the review readiness the start of the subject
+/// needs
+struct AppSession<'c> {
+  context: &'c RepoContext,
+  environment: &'c Environment,
+  state: TableState,
+  facts: FactStore,
+  /// The GitHub repository the branches are mirrored to, as the host resolves it of the push URL
+  github: Option<GitHubRepository>,
+  seq: u32,
 }
 
-/// The ids the sync left, each under the name the TS adapter uses: `<branch>-tip` (the tip of the virtual branch),
-/// `<branch>-remote` (its remote branch, unless that is the tip), `stack-<root>-tip`, `stack-<root>-remote`,
-/// `<branch>-c<i>` (the i-th original commit of the branch, the oldest first) and `baseline`; the first name of an id wins
-fn names_of(synced: &SyncOutput) -> HashMap<String, String> {
-  let report = &synced.report;
-  let mut names: HashMap<String, String> = HashMap::new();
-  for (full_name, tip) in &report.tips {
-    if let Some(short) = short_name(full_name) {
-      names.entry(tip.clone()).or_insert_with(|| format!("{short}-tip"));
-    }
-  }
-  for stack in &report.stack_branches {
-    if let Some(tip) = &stack.tip {
-      names.entry(tip.clone()).or_insert_with(|| format!("stack-{}-tip", stack.root));
-    }
-  }
-  for (full_name, tip) in &report.remote_tips {
-    if let Some(short) = short_name(full_name) {
-      names.entry(tip.clone()).or_insert_with(|| format!("{short}-remote"));
-    }
-  }
-  for stack in &report.stack_branches {
-    if let Some(tip) = stack.remote.as_ref().and_then(|remote| remote.remote_tip.clone()) {
-      names.entry(tip).or_insert_with(|| format!("stack-{}-remote", stack.root));
-    }
-  }
-  for branch in &report.branches {
-    for (index, commit) in branch.commits.iter().rev().enumerate() {
-      names.entry(commit.id.clone()).or_insert_with(|| format!("{}-c{index}", branch.name));
-    }
-  }
-  names.entry(report.baseline_commit.clone()).or_insert_with(|| "baseline".to_string());
-  names
-}
-
-/// Every string of `value` that is an id of `names` becomes its name
-fn name_ids(value: &mut Value, names: &HashMap<String, String>) {
-  match value {
-    Value::String(text) => {
-      if let Some(name) = names.get(text.as_str()) {
-        *text = name.clone();
-      }
-    }
-    Value::Array(items) => items.iter_mut().for_each(|item| name_ids(item, names)),
-    Value::Object(fields) => fields.values_mut().for_each(|field| name_ids(field, names)),
-    _ => {}
-  }
-}
-
-/// The rank of every time of `times`: the same for times less than 30 seconds apart (the fixtures take a time of their
-/// own per robot, a second apart at most), one more for each later instant
-fn ranks_of(times: impl Iterator<Item = u64>) -> HashMap<u64, u64> {
-  let mut times: Vec<u64> = times.collect();
-  times.sort_unstable();
-  let mut ranks = HashMap::new();
-  let mut rank = 0;
-  for (index, time) in times.iter().enumerate() {
-    if index > 0 && time - times[index - 1] >= 30 {
-      rank += 1;
-    }
-    ranks.insert(*time, rank);
-  }
-  ranks
-}
-
-/// The robots in the order of the list (by start, the newest first; a tie by the order the fake keeps, which the app
-/// breaks the same way, `isPreferredRanked`), with the times the fakes give relative to now made the same on every
-/// run: the starts and the finishes each by their rank (`add_robots` starts and finishes them minutes apart), so the
-/// order of the starts and of the finishes, what the app reads of the times, stays
-fn settle_robots(robots: &mut Value) {
-  let Some(robots) = robots.as_array_mut() else {
-    return;
-  };
-  for (field, from) in [("startTime", 1_704_189_000), ("finishTime", 1_704_189_600)] {
-    let ranks = ranks_of(robots.iter().filter_map(|robot| robot[field].as_u64()));
-    for robot in robots.iter_mut() {
-      if let Some(time) = robot[field].as_u64() {
-        robot[field] = json!(from + 600 * ranks[&time]);
-      }
-    }
-  }
-}
-
-/// `value` with the keys of every object sorted
-fn sorted(value: Value) -> Value {
-  match value {
-    Value::Array(items) => Value::Array(items.into_iter().map(sorted).collect()),
-    Value::Object(fields) => {
-      let by_key: BTreeMap<String, Value> = fields.into_iter().map(|(key, field)| (key, sorted(field))).collect();
-      Value::Object(by_key.into_iter().collect::<Map<String, Value>>())
-    }
-    other => other,
-  }
-}
-
-/// `value` as the facts files hold it: an object or a list of up to 100 characters on one line, the rest one field or
-/// item per line, indented by two spaces
-fn pretty(value: &Value, indent: usize) -> String {
-  let compact = serde_json::to_string(value).unwrap();
-  let inner = " ".repeat(indent + 2);
-  let outer = " ".repeat(indent);
-  match value {
-    Value::Object(fields) if !fields.is_empty() && compact.len() > 100 => {
-      let lines: Vec<String> = fields.iter().map(|(key, field)| format!("{inner}{}: {}", json!(key), pretty(field, indent + 2))).collect();
-      format!("{{\n{}\n{outer}}}", lines.join(",\n"))
-    }
-    Value::Array(items) if !items.is_empty() && compact.len() > 100 => {
-      let lines: Vec<String> = items.iter().map(|item| format!("{inner}{}", pretty(item, indent + 2))).collect();
-      format!("[\n{}\n{outer}]", lines.join(",\n"))
-    }
-    _ => inline(value),
-  }
-}
-
-/// `value` on one line, a space after every colon and comma
-fn inline(value: &Value) -> String {
-  match value {
-    Value::Object(fields) if !fields.is_empty() => {
-      let fields: Vec<String> = fields.iter().map(|(key, field)| format!("{}: {}", json!(key), inline(field))).collect();
-      format!("{{{}}}", fields.join(", "))
-    }
-    Value::Array(items) if !items.is_empty() => {
-      let items: Vec<String> = items.iter().map(inline).collect();
-      format!("[{}]", items.join(", "))
-    }
-    other => serde_json::to_string(other).unwrap(),
-  }
-}
-
-impl Situation {
-  /// The facts of the app's side (`FACTS_DIRECTORY`): the tips of the sync (`tips`, `remoteTips`, `stackTips`, by the
-  /// short names), the robots as the list answers them (`list_robots`, by id, `settle_robots`), the repository view (`patronus_view` with the landing needs, as
-  /// `bd status` reads it) and the review readiness of the branch and of its whole stack (`readiness`, by the app's keys),
-  /// with the ids named and the times settled
-  fn facts(&self, given: &Given, raw_given: &Value) -> Value {
-    let context = self.context().unwrap();
-    let synced = {
-      let _lock = lock(&context).unwrap();
-      sync_locked(&context).unwrap()
+impl<'c> AppSession<'c> {
+  /// The session after the app's sync of the repository of `context`
+  fn synced(context: &'c RepoContext, environment: &'c Environment) -> Self {
+    let mut synced = {
+      let _lock = lock(context).unwrap();
+      sync_locked(context).unwrap()
     };
-    let table = table_of(&context, &synced);
-    // the list as the app's poll and `plan()` read it, never the one a `bd push` of the fixture kept in the cache
-    let space = context.space_repository().unwrap();
-    let robots = match &space {
-      Some(space) => list_robots(&context, &patronus_service(&self.environment).unwrap(), space).unwrap(),
-      None => Vec::new(),
-    };
-    let mut facts = PatronusFacts::read(&context, &table, robots);
-    let on_space = space.is_some();
-    if on_space {
-      let needs = landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed_commits(&facts.view)).unwrap();
-      with_landing_needs(&mut facts.view, &table, &needs);
-    }
-    let readiness = if on_space { self.readiness(&context, &synced, given) } else { BTreeMap::new() };
-    let open_pull_requests = self.open_pull_requests(&context, &synced, &readiness);
-    let landed_states = self.landed_states(&context, &synced, &table, &facts, on_space);
-    let land = if on_space {
-      self.land(&context, &synced, &table, &facts, given, &readiness)
-    } else {
-      None
-    };
-    let (next_steps, actions) = self.next_steps(&context, &synced, &table, &facts, given, &readiness, &open_pull_requests, &landed_states);
-    let report = &synced.report;
-    let tips = |of: &HashMap<String, String>| -> BTreeMap<String, String> {
-      of.iter()
-        .filter_map(|(full_name, tip)| short_name(full_name).map(|short| (short.to_string(), tip.clone())))
-        .collect()
-    };
-    let stack_tips: BTreeMap<String, String> = report
-      .stack_branches
-      .iter()
-      .filter_map(|stack| stack.tip.clone().map(|tip| (stack.root.clone(), tip)))
-      .collect();
-    let mut value = json!({
-      "given": raw_given,
-      "tips": tips(&report.tips),
-      "remoteTips": tips(&report.remote_tips),
-      "stackTips": stack_tips,
-      "robots": facts.robots,
-      "view": facts.view,
-      "readiness": readiness,
-      "openPullRequests": open_pull_requests,
-      "landedStates": landed_states,
-      "land": land,
-      "nextSteps": next_steps,
-      "actions": actions,
-    });
-    name_ids(&mut value, &names_of(&synced));
-    settle_robots(&mut value["robots"]);
-    // the fake listens on a port of its own: the robot pages under one host
-    let value: Value = serde_json::from_str(&serde_json::to_string(&value).unwrap().replace(&self.space.patronus_url, "https://patronus")).unwrap();
-    sorted(value)
-  }
-
-  /// The open pull request of each subject as the view of the session reads it (`open_pull_requests_view`): of the pull
-  /// requests GitHub lists for the case, with the candidates of the readiness of `readiness` (the facts of the app)
-  fn open_pull_requests(&self, context: &RepoContext, synced: &SyncOutput, readiness: &BTreeMap<String, Value>) -> BTreeMap<String, PullRequestView> {
-    let Some(repository) = github_repository(context, &synced.report).unwrap() else {
-      return BTreeMap::new();
-    };
-    let listed = open_pull_requests(context, &github_service(context, &self.environment), context.runtime().unwrap(), &repository);
-    let pull_requests = PullRequestsView {
-      pull_requests: listed.pull_requests,
-      stack_pull_requests: listed.stack_pull_requests,
-      ..PullRequestsView::default()
-    };
-    let answers: BTreeMap<&String, ReviewReadiness> = readiness
-      .iter()
-      .map(|(key, fact)| (key, serde_json::from_value(fact["readiness"].clone()).unwrap()))
-      .collect();
-    let report = &synced.report;
-    let target = target_branch_of(report.upstream.as_ref()).unwrap_or_default();
-    open_pull_requests_view(
-      &target,
-      |name| report.branches.iter().any(|branch| branch.name == name),
-      |root| report.stack_branches.iter().any(|stack| stack.root == root),
-      &pull_requests,
-      |key| answers.iter().find(|(known, _)| known.as_str() == key).map(|(_, readiness)| readiness),
-      &context.prefix,
-    )
-  }
-
-  /// What landed each subject as the view of the session decides it (`repository_model::derive::landed_states`): over the
-  /// landing report of the sync, the Patronus view (on Space) and the pull requests GitHub lists for the case, in any
-  /// state
-  fn landed_states(&self, context: &RepoContext, synced: &SyncOutput, table: &BranchTable, facts: &PatronusFacts, on_space: bool) -> BTreeMap<String, landing::Landed> {
-    let listed = match github_repository(context, &synced.report).unwrap() {
-      Some(repository) => open_pull_requests(context, &github_service(context, &self.environment), context.runtime().unwrap(), &repository),
-      None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
-    };
-    let pull_requests = PullRequestsView {
-      pull_requests: listed.pull_requests,
-      stack_pull_requests: listed.stack_pull_requests,
-      ..PullRequestsView::default()
-    };
-    let robots = Robots::new(&facts.robots);
-    let landed = LandedFacts {
-      baseline: &synced.landed_section,
-      view: on_space.then_some(&facts.view),
-      robots: &robots,
-    };
-    landed_states(table, &table.remote, &landed, &pull_requests)
-  }
-
-  /// The next step and the node of each subject as the session derives them (`repository_model::derive::next_steps`) over
-  /// the facts of the case's repository: the rows of its sync (syncing while the app's sync runs, `sync`), the Patronus
-  /// view with the landing needs and the robots, each failed one with why it failed as its problems tell (`reason`), the
-  /// listing of the pull requests, the readiness of `readiness`, where each open pull request goes and what landed each
-  /// subject; with the actions of each robot (`robot:<id>`, `domain_policy::actions::robot_actions`) over those facts and
-  /// the steps of the rows of their branches
-  #[expect(clippy::too_many_arguments, reason = "the facts the session derives the steps of, each computed once by the caller")]
-  fn next_steps(
-    &self,
-    context: &RepoContext,
-    synced: &SyncOutput,
-    table: &BranchTable,
-    facts: &PatronusFacts,
-    given: &Given,
-    readiness: &BTreeMap<String, Value>,
-    open: &BTreeMap<String, PullRequestView>,
-    landed: &BTreeMap<String, landing::Landed>,
-  ) -> (BTreeMap<String, NextStepView>, BTreeMap<String, Vec<ActionState>>) {
-    let failed: HashMap<&str, BranchStatus> = synced
-      .branches
-      .iter()
-      .filter_map(|branch| match branch.state {
-        SyncState::Error => Some((branch.name.as_str(), BranchStatus::Error)),
-        SyncState::Conflict => Some((branch.name.as_str(), BranchStatus::MergeConflict)),
-        SyncState::Blocked => Some((branch.name.as_str(), BranchStatus::Blocked)),
-        SyncState::Created | SyncState::Updated | SyncState::Unchanged => None,
-      })
-      .collect();
-    let syncing = given.sync == Some(GivenSync::Running);
-    let mut rows: Vec<(String, RowFacts)> = grouped_rows(table)
-      .into_iter()
-      .map(|(name, mut row)| {
-        if let Some(status) = failed.get(name.as_str()) {
-          row.sync_failed = *status != BranchStatus::Blocked;
-          row.status = *status;
-        }
-        if syncing {
-          row.syncing = true;
-          row.status = BranchStatus::Syncing;
-        }
-        (name, row)
-      })
-      .collect();
-    // the branch of the case the sync of bd has none of (no commits, `commits: []`; every commit in the fetched baseline,
-    // `landed: inBaseline`, which bd archives): its row as the app holds it until its next sync, as the adapter of the
-    // app's side models it
-    let mut landed = landed.clone();
-    if given.subject == GivenSubject::Branch && !rows.iter().any(|(name, _)| *name == given.branch) {
-      let in_baseline = given.landed == Some(Landed::InBaseline);
-      rows.push((
-        given.branch.clone(),
-        RowFacts {
-          syncing,
-          status: if syncing { BranchStatus::Syncing } else { BranchStatus::Unchanged },
-          sync_failed: false,
-          problem: None,
-          commit_count: if in_baseline { given.commits.len() } else { 0 },
-          blocked_by: None,
-          parked: None,
-          stack_parked: None,
-        },
-      ));
-      if in_baseline {
-        let by = landing::LandedBy::Baseline {
-          upstream: synced.baseline.clone(),
-        };
-        landed.insert(given.branch.clone(), landing::Landed { by, after: Vec::new() });
-      }
-    }
-    let github = github_repository(context, &synced.report).unwrap();
-    let availability = if given.not_on_space == Some(true) {
-      PatronusAvailability::NotPatronus
-    } else {
-      PatronusAvailability::Available
-    };
-    let robots = RobotsView {
-      head: fresh_fact(RobotsHead {
-        availability,
-        github_repository: github.as_ref().map(GitHubRepository::full_name),
-      }),
-      robots: facts.robots.iter().map(|robot| (robot.id.clone(), robot.clone())).collect(),
-      needs_review: given
-        .robots()
-        .iter()
-        .enumerate()
-        .map(|(index, robot)| {
-          let id = if robot.on == "older" { "older".to_string() } else { format!("robot-{index}") };
-          (id, robot.reason.as_deref() == Some("approvals"))
-        })
-        .collect(),
-      ..RobotsView::default()
-    };
-    let patronus = PatronusStanding::of(&robots.head, &FactState::Fresh);
-    let listing = listing_of(context, &github_service(context, &self.environment), context.runtime().unwrap(), github.as_ref());
-    let answers = readiness_answers(readiness);
-    let readiness_of = |key: &str| answers.get(key);
-    let target = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_default();
-    let sources = StepSources {
-      table,
-      remote: &table.remote,
-      rows: &rows,
-      view: &facts.view,
-      robots: &robots,
-      patronus: &patronus,
-      landing_needs: &FactState::Fresh,
-      pull_requests: listing.view(),
-      open_pull_requests: open,
-      landed: &landed,
-      readiness: &readiness_of,
-      target: &target,
-      view_stacks: None,
-    };
-    let steps = next_steps(&sources);
-    let actions = robots
-      .robots
-      .values()
-      .map(|robot| {
-        let row = robot.branch_name.as_deref().filter(|name| rows.iter().any(|(row, _)| row == name));
-        let facts = RobotFacts {
-          robot,
-          restart: facts.view.restarts.get(&robot.id),
-          pushes: row.is_some() || (robot.branch_name.is_none() && robot.stack_root.is_some()),
-          needs_review: robots.needs_review.get(&robot.id).copied(),
-          failing: false,
-          problems: Problems::Known,
-          step: row.and_then(|name| steps.get(name)).map(|view| &view.step),
-        };
-        (format!("robot:{}", robot.id), robot_actions(&facts))
-      })
-      .collect();
-    (steps, actions)
-  }
-
-  /// What the facts of the app's side read the remote services with: the Space repository, the fake Patronus and GitHub,
-  /// the target of the baseline and the GitHub repository of the branches
-  fn reads<'c>(&self, context: &'c RepoContext, synced: &SyncOutput) -> Reads<'c> {
-    Reads {
-      space: context.space_repository().unwrap().expect("on Space"),
-      service: patronus_service(&self.environment).unwrap(),
-      github_service: github_service(context, &self.environment),
-      runtime: context.runtime().unwrap(),
-      target: target_branch_of(synced.report.upstream.as_ref()).expect("the baseline is a branch of origin"),
+    let table = table_of(context, &synced);
+    let baseline = table.baseline.clone();
+    let mut session = Self {
+      context,
+      environment,
+      state: std::mem::take(&mut synced.table),
+      facts: FactStore::new(),
       github: github_repository(context, &synced.report).unwrap(),
+      seq: 0,
+    };
+    let observation = session.observation();
+    let _ = session.facts.table.answer(observation, Ok(Arc::new(table)));
+    session.facts.table_committed(&baseline);
+    session
+  }
+
+  fn observation(&mut self) -> Observation {
+    self.seq += 1;
+    Observation {
+      seq: Seq(self.seq),
+      inputs: 0,
+      at: Duration::ZERO,
+      observed_at: 1,
     }
   }
 
-  /// What the app's session decides of the start of the case (`repository_model::derive::land_answer`, the function of
-  /// `decide_land` and of the view's `lands`) over the facts the session reads of the case's repository: the table and
-  /// the Patronus view with the landing needs, the merge profiles of the target with the last robot's, the listing of
-  /// the pull requests, the readiness of `readiness`, the rules of the target; the start as the app asks it (a click or
-  /// S, the profile chosen, without review), never an allowance of `bd`. A start of a whole stack the app's side doesn't
-  /// map
-  fn land(&self, context: &RepoContext, synced: &SyncOutput, table: &BranchTable, facts: &PatronusFacts, given: &Given, readiness: &BTreeMap<String, Value>) -> Option<LandAnswer> {
-    if given.subject != GivenSubject::Branch {
-      return None;
-    }
-    let Reads {
-      space,
-      service,
-      github_service,
-      runtime,
-      target,
-      github,
-    } = self.reads(context, synced);
-    let name = given.branch.as_str();
-    // the profiles with the profile of the last robot as the default, as bd reads them (the session reads the profile of
-    // the robot from its details instead: the same default)
-    let robot = facts.branch_robot(name);
-    let last_profile = robot.filter(|_| context.patronus_new_api).and_then(|robot| robot.profile.clone());
-    let options = runtime
-      .block_on(service.start_options(&space.project_key, &space.name, &target, robot.map(|robot| robot.id.as_str()), last_profile))
-      .unwrap();
-    let profiles = fresh_fact(options);
-    let listing = listing_of(context, &github_service, runtime, github.as_ref());
-    let answers = readiness_answers(readiness);
-    let readiness_of = |key: &str| answers.get(key);
-    let rules = match (&github, given.rules) {
-      (_, Rules::Loading) | (None, _) => None,
-      (Some(repository), _) => Some(rules_fact(context, &github_service, runtime, repository, &target)),
-    };
-    let sources = LandSources {
-      table,
-      remote: &table.remote,
-      view: &facts.view,
-      robots: &facts.robots,
-      target: &target,
-      prefix: &context.prefix,
-      github: github.is_some(),
-      profiles: &profiles,
-      pull_requests: listing.view(),
-      readiness: &readiness_of,
-      rules: rules.as_ref(),
-      landing_needs: &FactState::Fresh,
-      baseline: &synced.landed_section,
-    };
-    let chosen = given.profile.as_ref().and_then(|profile| profile.chosen.as_deref());
-    let land = Land {
-      subject: Subject::branch(name),
-      mode: match given.mode {
-        Mode::SafePush => PatronusPushMode::RebaseAutosquash,
-        Mode::DryRun => PatronusPushMode::DryRun,
-      },
-      profile: match chosen {
-        None => ProfileChoice::Default,
-        Some("none") => ProfileChoice::None,
-        Some(id) => ProfileChoice::Id { id: id.to_string() },
-      },
-      without_approvals: given.has(Flag::WithoutApprovals),
-      create_pull_request: false,
-      allow: LandingAllowances::default(),
-    };
-    land_answer(&sources, &land)
+  fn apply(&mut self, result: FactResult) {
+    let observation = self.observation();
+    self.facts.apply(observation, result);
   }
 
-  /// The review readiness as the app's scan asks it (`readinessInputOf`): the branch from its open pull request into
-  /// the target, else through the API; the whole stack of its root as its built stack branch with the pull request of
-  /// the stack, or of a straight chain its last branch, whose step the whole stack takes (its row asks it); nothing
-  /// while the app hasn't asked (`notAsked`)
-  fn readiness(&self, context: &RepoContext, synced: &SyncOutput, given: &Given) -> BTreeMap<String, Value> {
-    if given.readiness == Readiness::NotAsked {
-      return BTreeMap::new();
+  /// Reads every fact the start of the case reads, as the session's scheduler asks them
+  fn read(&mut self, given: &Given) {
+    let context = self.context;
+    let runtime = context.runtime().unwrap();
+    let service = patronus_service(self.environment).unwrap();
+    let space = context.space_repository().unwrap();
+    // the host names the GitHub repository the branches are mirrored to, as it resolves it
+    let robots = match &space {
+      Some(space) => PatronusRobotsResult {
+        github_repository: self.github.as_ref().map(GitHubRepository::full_name),
+        ..runtime.block_on(service.robots(&space.name, &context.prefix, None, false, context.patronus_new_api))
+      },
+      None => PatronusRobotsResult::from(PatronusAvailability::NotPatronus),
+    };
+    self.apply(FactResult::Robots {
+      read: RobotsRead::List { full: true },
+      result: robots,
+    });
+    let digest = robots_digest(&self.state, self.facts.robots.view(), AskedRobots { watched: &[], details: &[] });
+    for read in digest.problems {
+      let result = runtime.block_on(service.robot_problems(&read.id)).map_err(ApiError::internal);
+      self.apply(FactResult::Problems { id: read.id, result });
     }
-    let Reads {
-      space,
-      service,
-      github_service,
-      runtime,
-      target,
-      github,
-    } = self.reads(context, synced);
+    self.derive_patronus();
+    if let Some(id) = self.subject_robot(given) {
+      self.facts.demand_details(std::slice::from_ref(&id));
+      let result = runtime
+        .block_on(service.robot_details(&context.prefix, &id, context.patronus_new_api))
+        .map(Box::new)
+        .map_err(ApiError::internal);
+      self.apply(FactResult::RobotDetails { id, result });
+      self.derive_patronus();
+    }
+    let github_service = github_service(context, self.environment);
+    let baseline = self.state.header().baseline_branch.clone();
+    let github = self.github.clone();
     let listed = match &github {
       Some(repository) => open_pull_requests(context, &github_service, runtime, repository),
       None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
     };
+    self.apply(FactResult::PullRequests(listed));
+    let committed = self.facts.table.value().map(|table| table.baseline.clone());
+    if let Some(repository) = &github {
+      for base in self.facts.pull_requests.approved_bases(committed.as_deref(), &context.prefix) {
+        let result = runtime
+          .block_on(read_branch_rules(&github_service, &context.repository, repository, &base))
+          .map_err(|failure| ApiError::internal(format!("{failure:?}")));
+        self.apply(FactResult::Rules { branch: base, result });
+      }
+    }
+    if let Some(space) = &space {
+      let result = runtime
+        .block_on(service.start_options(&space.project_key, &space.name, baseline_on_remote(&baseline), None, None))
+        .map_err(ApiError::internal);
+      self.apply(FactResult::Profiles { baseline, result });
+    }
+    if given.readiness != Readiness::NotAsked
+      && let Some(space) = &space
+      && let Some((key, _)) = self.subject(given)
+    {
+      self.read_readiness(&key, space, github.as_ref());
+    }
+  }
+}
+
+impl AppSession<'_> {
+  /// The Patronus view of the table, the robots and the remote branches the session knows, as its actor derives it
+  /// once they changed (`facts::derive_patronus`), then the landing needs of what it names landed
+  fn derive_patronus(&mut self) {
+    let Some(derivation) = self.facts.begin_patronus(&self.state, Duration::ZERO) else {
+      return;
+    };
+    let context = self.context;
+    let view = derive_patronus(&context.git, &context.repository, &derivation.of(), &mut self.facts.memo.lock().unwrap());
+    let observation = Observation {
+      inputs: derivation.inputs,
+      ..self.observation()
+    };
+    self.facts.patronus.answer(observation, Ok(view));
+    let table = derivation.table;
+    let mut compute = self.facts.patronus.publish(&table);
+    while let Some((inputs, landed)) = compute {
+      let needs = landing_needs_of(&context.git, &context.cache(), &context.repository, &context.prefix, &landed).map_err(|error| ApiError::internal(error.to_string()));
+      compute = self.facts.patronus.needs_answer(inputs, needs).or_else(|| self.facts.patronus.publish(&table));
+    }
+  }
+
+  /// The review readiness the session asks for the rows a window shows with a step that waits for it and for the
+  /// subject `key` the click of its start needs now (`ReadinessFact::update`), of Patronus as its host asks it
+  fn read_readiness(&mut self, key: &str, space: &SpaceRepository, github: Option<&GitHubRepository>) {
+    let context = self.context;
+    let demand = Demand {
+      visible_branches: self.state.order().to_vec(),
+      visible_stacks: self.state.stacks().map(|stack| stack.root.clone()).collect(),
+      needed: vec![key.to_string()],
+      ..Demand::default()
+    };
+    let wanted = wanted_readiness(&self.state, &self.facts, &context.prefix, &demand);
+    self.facts.readiness.update(
+      &self.state,
+      self.facts.pull_requests.view(),
+      self.facts.robots.view().head.value.as_ref(),
+      &demand,
+      &context.prefix,
+      &wanted,
+    );
+    let digest = self.facts.readiness.digest().clone();
+    if digest.subjects.is_empty() {
+      return;
+    }
+    let target = baseline_on_remote(&digest.baseline);
     let repository = ReadinessRepository {
-      space: &space,
-      github: github.as_ref(),
-      target: &target,
-      baseline: &synced.baseline,
+      space,
+      github,
+      target,
+      baseline: &digest.baseline,
       branch_prefix: &context.prefix,
     };
-    // the start as the session asks it (`start_pull_request`: the open pull request into the target or, of a branch,
-    // into a virtual branch its start retargets first, D11), built as every start of bd is; the facts record the pull
-    // request and the tip asked, and `seedReadiness` of the Vitest refuses an answer whose input the app computes
-    // otherwise, so this choice can't drift from the app's unnoticed
-    let named = github.as_ref().map(|repository| repository.name.as_str());
-    let ask = |key: &str, source: Option<String>, tip: &str, pull_request: Option<&PullRequest>| {
-      let start = start_pull_request(pull_request, &target, &context.prefix, named, source.is_some());
-      ReviewReadinessBranch::starting_from(key.to_string(), source, tip.to_string(), start)
+    let asks: Vec<_> = digest.subjects.iter().map(|subject| subject.ask.clone()).collect();
+    let service = patronus_service(self.environment).unwrap();
+    let read = context.runtime().unwrap().block_on(branch_review_readiness(
+      &context.git,
+      &context.repository,
+      &context.cache(),
+      &service,
+      &repository,
+      &asks,
+      true,
+    ));
+    let answers = match read {
+      Ok(answers) => digest
+        .subjects
+        .into_iter()
+        .zip(answers)
+        .map(|(subject, answer)| ReadinessAnswer { subject, result: Ok(answer) })
+        .collect(),
+      Err(error) => digest
+        .subjects
+        .into_iter()
+        .map(|subject| ReadinessAnswer {
+          subject,
+          result: Err(ApiError::internal(error.to_string())),
+        })
+        .collect(),
     };
+    self.apply(FactResult::Readiness(answers));
+  }
+
+  /// The subject the case starts as the view of the session has it, with its key: the branch; its whole stack, the
+  /// stack branch of its root while the stack forks, else the last branch of the straight chain
+  /// (`domain_policy::stack::whole_stack_of`); none for a branch the table lacks
+  fn subject(&self, given: &Given) -> Option<(String, Subject)> {
     let name = given.branch.as_str();
-    let mut asks = Vec::new();
-    if let Some(tip) = synced.report.tips.get(&virtual_branch(name)) {
-      asks.push(ask(name, None, tip, listed.pull_requests.get(name)));
+    self.state.branch(name)?;
+    if given.subject == GivenSubject::Branch {
+      return Some((name.to_string(), Subject::branch(name)));
     }
-    let root = given.root_of(name);
-    if let Some(stack) = synced
-      .report
-      .stack_branches
-      .iter()
-      .find(|stack| stack.root == root && stack.state == StackBranchState::Built && !stack.members.is_empty())
-      && let Some(tip) = &stack.tip
-    {
-      asks.push(ask(&format!("stack:{root}"), Some(stack.branch_name.clone()), tip, listed.stack_pull_requests.get(root)));
+    let repo = repository(&self.state);
+    match whole_stack_of(&repo, |root| self.state.stack(root).is_some(), name)? {
+      WholeStack::Chain { leaf, .. } => Some((leaf.to_string(), Subject::branch(leaf))),
+      WholeStack::Forking { root } | WholeStack::Unbuilt { root, .. } => Some((stack_readiness_key(root), Subject::whole_stack(root))),
     }
-    if given.subject == GivenSubject::WholeStack
-      && let Ok(WholeStack::Chain { leaf, .. }) = whole_stack(&synced.report.branches, &synced.report.grouping.parked.entries, &synced.report.stack_branches, name)
-      && leaf != name
-      && let Some(tip) = synced.report.tips.get(&virtual_branch(leaf))
-    {
-      asks.push(ask(leaf, None, tip, listed.pull_requests.get(leaf)));
+  }
+
+  /// The robot of the subject as the Patronus view matches it: its last robot, whose profile a Safe Push takes
+  fn subject_robot(&self, given: &Given) -> Option<String> {
+    let view = &self.facts.patronus.part().view;
+    match self.subject(given)?.1 {
+      Subject::Branch { name } => view.branches.get(&name)?.robot_id.clone(),
+      Subject::WholeStack { root } => view.stacks.get(&root)?.robot_id.clone(),
     }
-    let answers = runtime
-      .block_on(branch_review_readiness(
-        &context.git,
-        &context.repository,
-        &context.cache(),
-        &service,
-        &repository,
-        &asks,
-        true,
-      ))
-      .unwrap();
-    answers
-      .into_iter()
-      .zip(&asks)
-      .map(|(answer, ask)| {
-        let pull_request = match ask.start {
-          ReviewStart::PullRequest { number } => Some(number),
-          ReviewStart::Rest => None,
-        };
-        (
-          answer.branch_name,
-          json!({"readiness": answer.readiness, "requirement": answer.requirement, "tip": answer.tip, "pullRequest": pull_request}),
-        )
-      })
-      .collect()
+  }
+
+  /// What the session derives of the case: the next step of the subject and the decision of its start
+  fn answer(&self, given: &Given) -> (Value, Value) {
+    let prefix = &self.context.prefix;
+    let Some((key, subject)) = self.subject(given) else {
+      return (Value::Null, Value::Null);
+    };
+    let open = session_open_pull_requests(&self.state, &self.facts, prefix);
+    let landed = landed_states_of(&self.state, &self.facts);
+    let steps = next_steps_of(&self.state, &self.facts, &open, &landed);
+    let land = land_answer_of(&self.state, &self.facts, prefix, &given.land(subject)).map(|answer| answer.decision);
+    (step_answer(steps.get(&key).map(|view| &view.step)), land_answer(land.as_ref()))
   }
 }
 
-/// The services and the names the facts of a case are read with (`Situation::reads`)
-struct Reads<'c> {
-  space: SpaceRepository,
-  service: PatronusService,
-  github_service: GitHubService,
-  runtime: &'c Runtime,
-  target: String,
-  github: Option<GitHubRepository>,
+/// Folds the events of a sync into the table of a session up to its grouping, then nothing: the table of a sync that
+/// runs, past its grouping, before it built the branches
+#[derive(Clone)]
+struct UntilGrouped {
+  table: Arc<Mutex<TableState>>,
+  grouped: Arc<AtomicBool>,
 }
 
-/// A fact the session holds the answer of
-/// The listing of the pull requests as the session holds it after GitHub's first answer for the case: the pull requests
-/// of `github`, or none off GitHub
-fn listing_of(context: &RepoContext, service: &GitHubService, runtime: &Runtime, github: Option<&GitHubRepository>) -> PullRequestsFact {
-  let mut listing = PullRequestsFact::default();
-  listing.answer(
-    Observation {
-      seq: Seq(1),
-      inputs: 0,
-      at: Duration::ZERO,
-      observed_at: 1,
-    },
-    match github {
-      Some(repository) => open_pull_requests(context, service, runtime, repository),
-      None => PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
-    },
-  );
-  listing
+impl ProgressReporter for UntilGrouped {
+  fn send(&self, event: SyncEvent) -> anyhow::Result<()> {
+    if self.grouped.load(Ordering::SeqCst) {
+      return Ok(());
+    }
+    let grouping = matches!(event, SyncEvent::BranchesGrouped { .. });
+    self.table.lock().map_err(|e| anyhow::anyhow!("the table of the sync is poisoned: {e}"))?.apply(event);
+    self.grouped.store(grouping, Ordering::SeqCst);
+    Ok(())
+  }
 }
 
-/// The answers of the review scan the facts hold (`readiness`), as the session holds them: fresh, by subject key
-fn readiness_answers(readiness: &BTreeMap<String, Value>) -> BTreeMap<&str, Fact<SubjectReadiness>> {
-  readiness
-    .iter()
-    .map(|(key, answer)| {
-      let tip = answer["tip"].as_str().unwrap_or_default().to_string();
-      let subject = SubjectReadiness {
-        ask: ReviewReadinessBranch::starting_from(key.clone(), None, tip, None),
-        requirement: serde_json::from_value(answer["requirement"].clone()).unwrap(),
-        readiness: serde_json::from_value(answer["readiness"].clone()).unwrap(),
+impl Situation {
+  /// What the app answers of the case: its session synced the repository and read the facts of the start, then (`sync:
+  /// running`) its next sync of a new commit of the branch runs past its grouping
+  fn app(&self, given: &Given) -> (Value, Value) {
+    let context = self.context().unwrap();
+    let mut session = AppSession::synced(&context, &self.environment);
+    session.read(given);
+    if given.sync == Some(GivenSync::Running) {
+      write(&self.space.repo, "syncing.txt", "syncing\n");
+      commit_all(&self.space.repo, &format!("({}) Sync {}", given.branch, given.branch), 1_700_009_500);
+      let table = Arc::new(Mutex::new(std::mem::take(&mut session.state)));
+      table.lock().unwrap().begin_sync();
+      let reporter = UntilGrouped {
+        table: Arc::clone(&table),
+        grouped: Arc::new(AtomicBool::new(false)),
       };
-      (key.as_str(), fresh_fact(subject))
-    })
-    .collect()
-}
-
-fn fresh_fact<T>(value: T) -> Fact<T> {
-  Fact {
-    value: Some(value),
-    state: FactState::Fresh,
-    ..Fact::default()
-  }
-}
-
-/// The facts files of `FACTS_DIRECTORY` as they are, by case id
-fn filed_facts() -> BTreeMap<String, Value> {
-  std::fs::read_dir(FACTS_DIRECTORY).map_or_default(|entries| {
-    entries
-      .map(|entry| entry.unwrap().path())
-      .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
-      .map(|path| {
-        let id = path.file_stem().unwrap().to_str().unwrap().to_string();
-        (id, serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap())
-      })
-      .collect()
-  })
-}
-
-/// The facts the app's side reads of the cases of `group` are what their fixtures leave today: `facts/<id>.json` of
-/// every exercised case equals what the Rust core computed of its repository (`computed`, by case id). A change of the
-/// sync, of `patronus_view`, of the robot list or of the review scan changes the files: `UPDATE_SCENARIO_FACTS=1`
-/// rewrites them, and the diff is reviewed like code, as the Vitest answers from them
-fn assert_facts_kept(group: &str, computed: &BTreeMap<String, Value>) {
-  assert!(!computed.is_empty(), "no exercised case of {group}");
-  if std::env::var_os(UPDATE_FACTS).is_some() {
-    let directory = PathBuf::from(FACTS_DIRECTORY);
-    std::fs::create_dir_all(&directory).unwrap();
-    for (id, facts) in computed {
-      std::fs::write(directory.join(format!("{id}.json")), format!("{}\n", pretty(facts, 0))).unwrap();
+      let options = SyncOptions {
+        object_cache: context.cache(),
+        config: Some(context.config().unwrap()),
+        ..SyncOptions::default()
+      };
+      context
+        .runtime()
+        .unwrap()
+        .block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter, options))
+        .unwrap();
+      session.state = std::mem::take(&mut *table.lock().unwrap());
     }
-    return;
-  }
-  let filed = filed_facts();
-  let differing: Vec<&String> = computed.iter().filter(|(id, facts)| filed.get(*id) != Some(facts)).map(|(id, _)| id).collect();
-  if let Some(id) = differing.first() {
-    pretty_assertions::assert_eq!(
-      pretty(filed.get(*id).unwrap_or(&Value::Null), 0),
-      pretty(&computed[*id], 0),
-      "the facts of {} cases of {group} differ from their files, {id} first; {UPDATE_FACTS}=1 cargo nextest run -p bd-remote -E 'test(/scenario/)' rewrites them",
-      differing.len()
-    );
+    session.answer(given)
   }
 }
 
-/// A facts file of a case that is gone, or that no fixture builds any more (recorded, or without `given`), misleads
-/// nobody: it goes with the case (`UPDATE_SCENARIO_FACTS=1` removes it)
-#[test_log::test]
-fn no_facts_file_is_of_a_case_that_is_gone() {
-  let cases = cases();
-  let stale: Vec<String> = filed_facts()
-    .into_keys()
-    .filter(|id| !cases.iter().any(|case| case.id == *id && case.kind == CaseKind::Exercised && case.given.is_some()))
-    .collect();
-  if std::env::var_os(UPDATE_FACTS).is_some() {
-    for id in &stale {
-      std::fs::remove_file(PathBuf::from(FACTS_DIRECTORY).join(format!("{id}.json"))).unwrap();
-    }
-    return;
-  }
-  assert!(stale.is_empty(), "facts of no exercised case: {stale:?}; {UPDATE_FACTS}=1 removes them");
-}
+// ---- what a case compares ----
 
-/// What a case compares of the `--check` output: the codes of the refusals, the profile and the pull request by id
-fn projection(output: &Value) -> Value {
-  let codes = |key: &str, field: &str| -> Value {
-    output[key]
-      .as_array()
-      .map_or_else(Vec::new, |items| items.iter().map(|item| item[field].clone()).collect())
-      .into()
+/// What a case compares of a next step (`expect.step`): its row, its kind, the blocker of each start, of a rule the
+/// code of its reason; `null` without one
+fn step_answer(step: Option<&NextStep>) -> Value {
+  let Some(step) = step else {
+    return Value::Null;
+  };
+  let value = serde_json::to_value(step).unwrap();
+  let blocker = |blocker: &Value| match blocker["code"].as_str() {
+    None => Value::Null,
+    Some("rule") => blocker["reason"]["code"].clone(),
+    Some(code) => json!(code),
   };
   json!({
-    "refusals": codes("refusals", "code"),
-    "push_needed": output["push_needed"],
-    "profile": output["profile"]["id"],
-    "pull_request": output["pull_request"]["number"],
-    "readiness": output["review"]["readiness"],
-    "rules": output["rules"]["dismiss_stale_reviews_on_push"],
-    "lands": output["lands"],
-    "retargeted": codes("retargeted", "number"),
+    "row": value["row"],
+    "kind": value["kind"]["kind"],
+    "safePush": blocker(&value["safePush"]),
+    "dryRun": blocker(&value["dryRun"]),
   })
 }
 
-/// The keys of `expected` that `actual` answers otherwise, each named with the case
-fn mismatches(id: &str, column: &str, expected: &Map<String, Value>, actual: &Value) -> Vec<String> {
-  expected
+/// What a case compares of the decision of a start (`expect.land`): the codes of its blockers, the kinds of its
+/// confirmations and of the facts it waits for, in order; how it starts (`api`, `api:<profile>`, `comment:<number>`,
+/// `createPullRequest`), the branches its push pushes and whether by force, the pull requests it retargets, the robot
+/// it cancels, what lands; `null` without a decision
+fn land_answer(decision: Option<&LandDecision>) -> Value {
+  let Some(decision) = decision else {
+    return Value::Null;
+  };
+  let tags = |values: Vec<Value>, tag: &str| -> Vec<Value> { values.into_iter().map(|value| value[tag].clone()).collect() };
+  let waits: Vec<Value> = decision
+    .waits
     .iter()
-    .filter(|(key, value)| actual.get(key.as_str()).unwrap_or(&Value::Null) != *value)
-    .map(|(key, value)| {
-      format!(
-        "{id}: bd.{column}.{key}: expected {value}, bd answers {} (all: {actual})",
-        actual.get(key.as_str()).unwrap_or(&Value::Null)
-      )
+    .map(|wait| {
+      let fact = serde_json::to_value(&wait.fact).unwrap()["kind"].as_str().unwrap().to_string();
+      json!(if wait.failed.is_some() { format!("{fact}:failed") } else { fact })
     })
-    .collect()
-}
-
-/// What one case's repository answers: the failures of the `bd` column, and the facts of the app's side of an
-/// exercised case
-struct Answer {
-  failures: Vec<String>,
-  facts: Option<Value>,
-}
-
-impl Answer {
-  fn failed(failures: Vec<String>) -> Self {
-    Self { failures, facts: None }
-  }
-}
-
-/// What bd answers today for the case, against its `bd` column, and the facts of the app's side of the same
-/// repository (`Situation::facts`, before the check and the start, which push and start robots); a recorded case has
-/// none to answer
-fn answer(case: &Case) -> Answer {
-  assert!(!case.spec.is_empty(), "{}: a case names the requirements it pins", case.id);
-  let broken: Vec<String> = case
-    .spec
-    .iter()
-    .filter_map(|spec| broken_spec(spec))
-    .map(|broken| format!("{}: {broken}", case.id))
     .collect();
+  let start = if decision.effects.contains(&PlannedEffect::CreatePullRequest) {
+    Some("createPullRequest".to_string())
+  } else {
+    decision.start_route().map(|route| match route {
+      StartRoute::Api { profile: None } => "api".to_string(),
+      StartRoute::Api { profile: Some(profile) } => format!("api:{}", profile.id),
+      StartRoute::Comment { number } => format!("comment:{number}"),
+    })
+  };
+  let push = decision.effects.iter().find_map(|effect| match effect {
+    PlannedEffect::Push { branches, force } => Some((branches, *force)),
+    _ => None,
+  });
+  let effects = |of: fn(&PlannedEffect) -> Option<Value>| -> Vec<Value> { decision.effects.iter().filter_map(of).collect() };
+  json!({
+    "blockers": tags(decision.blockers.iter().map(|reason| serde_json::to_value(reason).unwrap()).collect(), "code"),
+    "confirmations": tags(decision.confirmations.iter().map(|confirmation| serde_json::to_value(confirmation).unwrap()).collect(), "kind"),
+    "waits": waits,
+    "start": start,
+    "pushes": push.map(|(branches, _)| branches),
+    "force": push.is_some_and(|(_, force)| force),
+    "retargets": effects(|effect| match effect {
+      PlannedEffect::Retarget { number, .. } => Some(json!(number)),
+      _ => None,
+    }),
+    "cancels": effects(|effect| match effect {
+      PlannedEffect::CancelRobot { robot_id } => Some(json!(robot_id)),
+      _ => None,
+    }).first(),
+    "lands": decision.lands,
+  })
+}
+
+/// The keys of a step a case names always: its row and its kind
+const STEP_NAMED: [&str; 2] = ["row", "kind"];
+
+/// The keys a case compares even where it leaves them out, with the answer it means then: no blocker of either start;
+/// of a decision no blocker and no confirmation, nor a wait of one that nothing refuses, so one that appears fails
+/// every case it appears in
+fn defaults(column: &str, expected: &Map<String, Value>) -> Vec<(&'static str, Value)> {
+  match column {
+    "step" => vec![("safePush", Value::Null), ("dryRun", Value::Null)],
+    _ if expected.get("blockers").and_then(Value::as_array).is_some_and(|blockers| !blockers.is_empty()) => {
+      vec![("confirmations", json!([]))]
+    }
+    _ => vec![("blockers", json!([])), ("confirmations", json!([])), ("waits", json!([]))],
+  }
+}
+
+/// Where `actual` answers otherwise than the subset `expected` of the column `column` (`step` or `land`), each named
+/// with the side
+fn differences(side: &str, column: &str, expected: &Value, actual: &Value) -> Vec<String> {
+  match (expected, actual) {
+    (Value::Null, Value::Null) => Vec::new(),
+    (Value::Object(expected), Value::Object(actual)) => {
+      let mut failures: Vec<String> = Vec::new();
+      if column == "step" {
+        failures.extend(STEP_NAMED.iter().filter(|key| !expected.contains_key(**key)).map(|key| format!("{column} names its {key}")));
+      }
+      let mut keys: Map<String, Value> = defaults(column, expected).into_iter().map(|(key, value)| (key.to_string(), value)).collect();
+      keys.extend(expected.clone());
+      for (key, value) in &keys {
+        match actual.get(key) {
+          None => failures.push(format!("{column}.{key} is no key of the answer")),
+          Some(answered) if answered != value => failures.push(format!("{side}: {column}.{key}: expected {value}, answers {answered}")),
+          Some(_) => {}
+        }
+      }
+      if failures.is_empty() {
+        failures
+      } else {
+        vec![format!("{} (all: {})", failures.join("; "), Value::Object(actual.clone()))]
+      }
+    }
+    _ => vec![format!("{side}: {column}: expected {expected}, answers {actual}")],
+  }
+}
+
+/// The start of `bd` without `--check` does what its decision says: it starts (through the API or from a pull request,
+/// canceling the robot the decision cancels) when nothing refuses it and the flags accept every confirmation
+/// (`domain_policy::land::unaccepted`), else it refuses
+fn start_differences(situation: &Situation, given: &Given, decision: &LandDecision) -> Vec<String> {
+  let starts = decision.blockers.is_empty() && decision.waits.is_empty() && unaccepted(&decision.confirmations, &given.allowances()).is_empty();
+  let expected = if starts {
+    let via = match decision.start_route() {
+      Some(StartRoute::Api { .. }) if !decision.effects.contains(&PlannedEffect::CreatePullRequest) => "api",
+      _ => "pull_request",
+    };
+    let cancels = decision.effects.iter().any(|effect| matches!(effect, PlannedEffect::CancelRobot { .. }));
+    json!({"started_via": via, "canceled": cancels})
+  } else {
+    json!("refused")
+  };
+  let started = situation.start(given);
+  let actual = if started.get("error").is_some() { json!("refused") } else { started };
+  if actual == expected {
+    Vec::new()
+  } else {
+    vec![format!("bd: the start without --check: expected {expected}, answers {actual}")]
+  }
+}
+
+/// What the case's repository answers against its expectation: the app's side, then `bd` with `--check` (its decision
+/// and its step), then its start without `--check`; the failures, each named with the case
+fn answer(case: &Case) -> Vec<String> {
+  let named = |failures: Vec<String>| -> Vec<String> { failures.into_iter().map(|failure| format!("{}: {failure} — {}", case.id, case.title)).collect() };
+  assert!(!case.spec.is_empty(), "{}: a case names the requirements it pins", case.id);
+  let broken: Vec<String> = case.spec.iter().filter_map(|spec| broken_spec(spec)).collect();
   if !broken.is_empty() {
-    return Answer::failed(broken);
+    return named(broken);
   }
-  let (given, expected) = match (case.kind, &case.given, &case.bd) {
-    (CaseKind::Exercised, Some(given), Some(expected)) => (given, expected),
-    (CaseKind::Recorded, None, None) => return Answer::failed(Vec::new()),
-    _ => return Answer::failed(vec![format!("{}: an exercised case has given and bd, a recorded one neither", case.id)]),
+  let (given, expect) = match (case.kind, &case.given, &case.expect) {
+    (CaseKind::Exercised, Some(given), Some(expect)) => (given, expect),
+    (CaseKind::Recorded, None, None) if case.bd.is_none() && case.asymmetry.is_none() => return Vec::new(),
+    _ => return named(vec!["an exercised case has given and expect, a recorded one neither, nor bd".to_string()]),
   };
+  if case.asymmetry.is_some() != case.bd.is_some() {
+    return named(vec!["bd answers otherwise only by design: an asymmetry, with the answer bd".to_string()]);
+  }
   let situation = Situation::of(given);
-  let facts = situation.facts(given, &case.raw_given);
-  let check = match situation.check(given) {
-    Ok(output) => projection(&serde_json::to_value(output).unwrap()),
-    Err(error) => json!({"error": error.code}),
-  };
-  let mut failures = mismatches(&case.id, "check", &expected.check, &check);
-  if let Some(start) = &expected.start {
-    failures.extend(mismatches(&case.id, "start", start, &situation.start(given)));
+  let (step, land) = situation.app(given);
+  let mut failures = differences("app", "step", &expect.step, &step);
+  failures.extend(differences("app", "land", &expect.land, &land));
+  let bd = case.bd.as_ref();
+  let bd_step = bd.and_then(|bd| bd.step.as_ref()).unwrap_or(&expect.step);
+  let bd_land = bd.and_then(|bd| bd.land.as_ref()).unwrap_or(&expect.land);
+  match (situation.check(given), bd.and_then(|bd| bd.error.as_deref())) {
+    (Ok(output), None) => {
+      failures.extend(differences("bd", "step", bd_step, &step_answer(output.step.as_ref())));
+      failures.extend(differences("bd", "land", bd_land, &land_answer(output.decision.as_ref())));
+      if let Some(decision) = &output.decision {
+        failures.extend(start_differences(&situation, given, decision));
+      }
+    }
+    (Ok(_), Some(code)) => failures.push(format!("bd: expected the error {code}, decides")),
+    (Err(error), expected) => {
+      let code = serde_json::to_value(error.code).unwrap();
+      if expected.is_none_or(|expected| code != expected) {
+        failures.push(format!("bd: expected {}, refuses with {code}: {}", expected.unwrap_or("its decision"), error.message));
+      }
+    }
   }
-  let context = match &case.discrepancy {
-    Some(id) => format!(" ({id})"),
-    None => String::new(),
-  };
-  Answer {
-    failures: failures.into_iter().map(|failure| format!("{failure} — {}{context}", case.title)).collect(),
-    facts: Some(facts),
-  }
+  named(failures)
 }
 
 fn cases() -> Vec<Case> {
@@ -1586,90 +1365,68 @@ fn cases() -> Vec<Case> {
     .iter()
     .flat_map(|file| {
       let text = std::fs::read_to_string(file).unwrap();
-      let cases = serde_json::from_str::<Vec<Case>>(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
-      let raw = serde_json::from_str::<Vec<Value>>(&text).unwrap();
-      cases.into_iter().zip(raw).map(|(mut case, raw)| {
-        case.raw_given = raw.get("given").cloned().unwrap_or(Value::Null);
-        case
-      })
+      serde_json::from_str::<Vec<Case>>(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()))
     })
     .collect()
 }
 
 /// Every case of `group`, each in its own repository on its own thread, built once for both sides: one message names
-/// every case that answers otherwise, then the facts of the app's side are compared with their files (or written,
-/// `UPDATE_SCENARIO_FACTS=1`, before the answers are judged)
+/// every case that answers otherwise
 fn assert_group(group: &str) {
   let cases = cases();
   let unknown: Vec<&str> = cases.iter().map(|case| case.group.as_str()).filter(|known| !GROUPS.contains(known)).collect();
   assert!(unknown.is_empty(), "groups without their test: {unknown:?}");
   let of_group: Vec<&Case> = cases.iter().filter(|case| case.group == group).collect();
   assert!(!of_group.is_empty(), "no case of {group}");
-  let answers: Vec<(&str, Answer)> = std::thread::scope(|scope| {
+  let failures: Vec<String> = std::thread::scope(|scope| {
     #[expect(clippy::needless_collect, reason = "every case starts before the first is joined")]
     let running: Vec<_> = of_group.iter().map(|case| (case.id.as_str(), scope.spawn(|| answer(case)))).collect();
     running
       .into_iter()
-      .map(|(id, thread)| {
-        let answer = thread.join().unwrap_or_else(|panic| {
+      .flat_map(|(id, thread)| {
+        thread.join().unwrap_or_else(|panic| {
           let message = panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(ToString::to_string));
-          Answer::failed(vec![format!("{id}: panicked: {}", message.unwrap_or_default())])
-        });
-        (id, answer)
+          vec![format!("{id}: panicked: {}", message.unwrap_or_default())]
+        })
       })
       .collect()
   });
-  let facts: BTreeMap<String, Value> = answers
-    .iter()
-    .filter_map(|(id, answer)| answer.facts.clone().map(|facts| ((*id).to_string(), facts)))
-    .collect();
-  let failing = answers.iter().filter(|(_, answer)| !answer.failures.is_empty()).count();
-  let exercised = of_group.iter().any(|case| case.kind == CaseKind::Exercised);
-  if exercised && std::env::var_os(UPDATE_FACTS).is_some() {
-    assert_facts_kept(group, &facts);
-  }
   assert!(
-    failing == 0,
-    "{failing} of {} cases of {group} answer otherwise:\n{}",
+    failures.is_empty(),
+    "{} of {} cases of {group} answer otherwise:\n{}",
+    failures.len(),
     of_group.len(),
-    answers
-      .iter()
-      .flat_map(|(_, answer)| answer.failures.iter().map(String::as_str))
-      .collect::<Vec<_>>()
-      .join("\n")
+    failures.join("\n")
   );
-  if exercised && std::env::var_os(UPDATE_FACTS).is_none() {
-    assert_facts_kept(group, &facts);
-  }
 }
 
 #[test_log::test]
-fn the_safe_push_mode_and_route_cases_answer_as_bd_answers_today() {
+fn the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd() {
   assert_group("modes-and-routes");
 }
 
 #[test_log::test]
-fn the_safe_push_profile_cases_answer_as_bd_answers_today() {
+fn the_safe_push_profile_cases_answer_alike_in_the_app_and_bd() {
   assert_group("profiles");
 }
 
 #[test_log::test]
-fn the_safe_push_review_cases_answer_as_bd_answers_today() {
+fn the_safe_push_review_cases_answer_alike_in_the_app_and_bd() {
   assert_group("review");
 }
 
 #[test_log::test]
-fn the_next_step_row_cases_answer_as_bd_answers_today() {
+fn the_next_step_row_cases_answer_alike_in_the_app_and_bd() {
   assert_group("next-step-rows");
 }
 
 #[test_log::test]
-fn the_stack_and_whole_stack_cases_answer_as_bd_answers_today() {
+fn the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd() {
   assert_group("stack-and-whole-stack");
 }
 
 #[test_log::test]
-fn the_landing_cases_answer_as_bd_answers_today() {
+fn the_landing_cases_answer_alike_in_the_app_and_bd() {
   assert_group("landing");
 }
 
@@ -1729,8 +1486,8 @@ fn broken_spec(spec: &str) -> Option<String> {
   }
 }
 
-/// The group `discrepancies` is the registry: one entry of each id, a recorded one with its pointers; a case of another
-/// group with a discrepancy is the `twin` of its entry
+/// The group `discrepancies` is the registry: one entry of each id, a recorded one with its pointers; no case of another
+/// group records a discrepancy, as its sides answer one expectation
 fn registry_failures(cases: &[Case]) -> Vec<String> {
   let registry: Vec<&Case> = cases.iter().filter(|case| case.group == "discrepancies").collect();
   let mut failures = Vec::new();
@@ -1763,23 +1520,16 @@ fn registry_failures(cases: &[Case]) -> Vec<String> {
           .map(|broken| format!("{}: {broken}", entry.id)),
       );
     }
-    if let Some(stage) = &entry.closed
-      && !entry.twins.is_empty()
-    {
-      failures.push(format!("{}: closed in {stage}, it has no twins", entry.id));
-    }
-    for twin in &entry.twins {
-      match cases.iter().find(|case| case.id == *twin) {
-        Some(case) if case.group != "discrepancies" && case.discrepancy.as_deref() == Some(id) => {}
-        _ => failures.push(format!("{}: its twin {twin} is an exercised case of another group with {id}", entry.id)),
-      }
+    if entry.kind == CaseKind::Exercised && entry.closed.is_none() {
+      failures.push(format!("{}: both sides answer an exercised entry alike: {id} is closed", entry.id));
     }
   }
   for case in cases.iter().filter(|case| case.group != "discrepancies") {
-    if let Some(id) = &case.discrepancy
-      && !registry.iter().any(|entry| entry.discrepancy.as_ref() == Some(id) && entry.twins.contains(&case.id))
-    {
-      failures.push(format!("{}: {id} outside the registry, whose entry doesn't name it as its twin", case.id));
+    if let Some(id) = &case.discrepancy {
+      failures.push(format!("{}: {id} outside the registry: a case answers one expectation", case.id));
+    }
+    if case.today.is_some() {
+      failures.push(format!("{}: only an entry of the registry says where each side does it", case.id));
     }
     if case.kind == CaseKind::Recorded {
       failures.push(format!("{}: only the registry records a case", case.id));
@@ -1874,6 +1624,48 @@ fn the_discrepancy_cases_name_every_id_as_the_register_does() {
   let failures = registry_failures(&cases());
   assert!(failures.is_empty(), "the registry:\n{}", failures.join("\n"));
   assert_group("discrepancies");
+}
+
+/// The rows of the table of `spec/branch/next-step.spec.md` (`  | <row> | ` under "The table"; a removed row is none)
+fn next_step_rows() -> Vec<String> {
+  let text = std::fs::read_to_string(format!("{ROOT}/spec/branch/next-step.spec.md")).unwrap();
+  let table = &text[text.find("\n### The table\n").expect("next-step.spec.md has The table")..];
+  table
+    .lines()
+    .filter_map(|line| line.strip_prefix("  | ")?.split_once(" | "))
+    .filter(|(row, rest)| *row != "#" && !row.starts_with('-') && !rest.starts_with("removed:"))
+    .map(|(row, _)| row.trim().to_string())
+    .collect()
+}
+
+/// The ids are unique and of kebab case, each group has its test, and every row of the table of the next step is
+/// named by a case (`spec/branch/next-step.spec.md#the-table:<row>`)
+#[test_log::test]
+fn the_cases_are_well_formed_and_name_every_row_of_the_next_step_table() {
+  let cases = cases();
+  let mut ids = BTreeSet::new();
+  let duplicates: Vec<&str> = cases.iter().map(|case| case.id.as_str()).filter(|id| !ids.insert(*id)).collect();
+  assert_eq!(duplicates, Vec::<&str>::new(), "ids of more than one case");
+  let malformed: Vec<&str> = cases
+    .iter()
+    .map(|case| case.id.as_str())
+    .filter(|id| {
+      id.split('-')
+        .any(|part| part.is_empty() || !part.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
+    })
+    .collect();
+  assert_eq!(malformed, Vec::<&str>::new(), "ids not in kebab case");
+  let unknown: Vec<&str> = cases.iter().map(|case| case.group.as_str()).filter(|group| !GROUPS.contains(group)).collect();
+  assert_eq!(unknown, Vec::<&str>::new(), "groups without their test");
+  let rows = next_step_rows();
+  assert!(rows.contains(&"1".to_string()) && !rows.contains(&"4".to_string()), "{rows:?}");
+  let named: BTreeSet<&str> = cases
+    .iter()
+    .flat_map(|case| &case.spec)
+    .filter_map(|spec| spec.strip_prefix("spec/branch/next-step.spec.md#the-table:"))
+    .collect();
+  let unnamed: Vec<&String> = rows.iter().filter(|row| !named.contains(row.as_str())).collect();
+  assert_eq!(unnamed, Vec::<&String>::new(), "rows of the next step table no case names");
 }
 
 /// A commit of the placement of D8, as the commit list reads it

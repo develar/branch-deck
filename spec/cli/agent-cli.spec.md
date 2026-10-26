@@ -1033,10 +1033,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   Patronus and GitHub keep no other `bd` writer waiting.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it`)
 - `--check` must print `next_step`, the step the app's row shows of the subject (`domain_policy::next_step`, as
-  `bd status` prints it) over what the check read: the robots Patronus listed, the pull requests, the readiness when
-  the start waits for it, the landing gate of the start; a problem of a failed robot is not read, so a step that needs
-  it waits for it.
+  `bd status` prints it) over what the check read: the robots Patronus listed, the problems of the failed robot of the
+  subject (whether it failed for the approvals, as the session reads them), the pull requests, the readiness when the
+  start waits for it, the landing gate of the start; a step that needs a fact the check didn't read (the readiness of a
+  Dry Run) waits for it.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 - The start must be decided by the rule of the app, `domain_policy::land::decide`, over the facts `bd` read: what the
   table alone refuses (not synced, parked) fails the command before Patronus or GitHub is asked; the review and the
   rules of the target are read only when the decision waits for them; the `refusals` are its blockers in their order,
@@ -1047,8 +1049,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_with_nothing_in_its_way_pushes_what_it_lands_root_first_then_starts`, `every_fact_without_an_answer_waits_or_confirms_and_never_refuses`, `bd_accepts_by_an_allowance_only_the_cancel_an_unknown_review_and_unknown_rules`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`the_table_refuses_first_then_the_target_then_a_push_that_drops_remote_commits_unless_allowed`, `the_landing_gate_refuses_unless_allowed_then_a_conflict_with_the_target`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 - The target branch, the stack and the tips must come from the sync of the same run, and the Space and the GitHub
   repository from one read of the push URL of `origin`, shared with the push.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
@@ -1078,8 +1079,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last
   robot of the branch is the default.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dry_run_takes_a_profile_by_name_and_checks_no_review`, `the_profile_of_the_last_robot_is_the_default_and_none_drops_it`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_profile_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push profile cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_profile_cases_answer_alike_in_the_app_and_bd`)
 - Before a Safe Push (never a dry run) it must check the code-owner review as the app's start does, with the pull request
   the robot starts from, always asked again ([Patronus](../branch/patronus.spec.md#code-owner-review)), and a
   `missing` readiness must refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
@@ -1099,8 +1099,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`, `a_review_patronus_cannot_answer_refuses_the_safe_push_unless_allowed`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`missing_approvals_refuse_unless_skipped_and_approvals_judged_at_the_start_confirm`, `the_default_profile_is_the_last_robots_while_offered_and_a_profile_is_confirmed`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
 - A Safe Push that pushes new commits into the open pull request the robot starts from, which someone approved, must
   read the GitHub rules of the target first, as the app's start does ([Patronus](../branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run)):
   one `GET rules/branches/<target>` (`read_branch_rules`), never for a dry run, `--create-pull-request`, a start
@@ -1115,7 +1114,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `a_push_that_dismisses_approvals_patronus_does_not_count_starts_and_says_so`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`, `the_rules_are_read_only_for_a_push_into_an_approved_pull_request`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`, `the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
   `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
   prints would (with its `title` and `body`), assigned to the user (`--no-assign` leaves it unassigned) and with the
@@ -1148,10 +1147,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   the head of the merged pull request of the listing at its tip or its remote branch up to date ("pull request #7 of
   auth is merged", D13).
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_landed`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`, `the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - A robot on the last commit of the branch, or a Safe Push whose commit has commits of it, of a branch of its stack
   (decided as `bd push` decides it), must refuse the start with `robot_running`, in the words of the app, the commits
   named by id; a running Safe Push of an older commit, which the push fails, too, unless `--cancel-running` cancels it
@@ -1161,10 +1157,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`, `the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced`)
   [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `the_robots_match_their_branches_by_the_cases`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`, `the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - A proven dangling reference (as `bd check` reports it) of the branch or a branch it is built on must refuse the start
   with `dangling_reference` (exit 4), nothing pushed; the trial build that finds it builds only what lands (every
   branch for a whole stack that forks), naming the use, `fixed_by` and the fix (of two references both,
@@ -1172,8 +1165,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
   [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - With `branchdeck.symbols on`, a use by a commit of what lands of a name that a commit outside it adds (a missing
   declaration of `bd check`), which no merged Safe Push landed, must refuse the start with `missing_declaration`
   (exit 4), nothing pushed, in the same trial session (`trial_check::landing_gate`, the rule of the app's start too). A
@@ -1184,8 +1176,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   anyway.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`, `a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`, `a_safe_push_check_of_the_whole_stack`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once.
   So before the lock, `bd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
   replay what the robot lands onto the tip that the sync read, as a plain `git rebase` replays it, with no resolution

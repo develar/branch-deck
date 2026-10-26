@@ -561,8 +561,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should wait for the Safe Push of an ancestor, which lands its commits`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`, `the safe push review cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
 - One decision then says what the start does, Rust's (`domain_policy::land::decide`, the rule `bd safe-push` decides
   by) over the facts the session holds: the table and the robots, the merge profiles, the remote statuses, the holds,
   the pull requests, the review as Patronus answered it for the branch as it is (a stale answer is not acted on), the
@@ -589,8 +588,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   it replaces, then the robot, from the pull request or through the API with the profile.
   [@test] ../../src/presenters/land.test.ts (`starts at once when Rust decided there is nothing to say, and waits for its decision before it`, `opens the popover for a key and for each confirmation of the decision: a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the facts Rust waits for, each saying what it waits for, and refuses with why a read failed`, `refuses with the words of the first blocker, offering the push or the object it names: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `lets a start without review wait for its profile, and confirm the one that skips the review`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_with_nothing_in_its_way_pushes_what_it_lands_root_first_then_starts`, `every_fact_without_an_answer_waits_or_confirms_and_never_refuses`, `the_table_refuses_first_then_the_target_then_a_push_that_drops_remote_commits_unless_allowed`, `the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`, `a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`, `missing_approvals_refuse_unless_skipped_and_approvals_judged_at_the_start_confirm`, `the_pull_request_decides_the_route_a_draft_refuses_and_another_base_refuses_only_counted_approvals`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_as_bd_answers_today`, `the_safe_push_profile_cases_answer_as_bd_answers_today`, `the_safe_push_review_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push mode and route cases answer as the app answers today`, `the safe push profile cases answer as the app answers today`, `the safe push review cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_profile_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
 - A click waits for the facts its decision needs, its button busy with "Checking…": the session answers each of them,
   a failure too (the review it asks at once, `unavailable` while Patronus can't be asked), so the wait ends; then it
   starts at once, says the refusal in an `info` toast ("Push" its action where the push alone is the step), or opens
@@ -646,8 +644,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/patronus/src/service_test.rs (`the_options_of_a_robot_say_whether_its_profile_skips_the_review`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`the_default_profile_is_the_last_robots_while_offered_and_a_profile_is_confirmed`, `a_start_offers_the_profiles_of_its_mode_and_without_approvals_the_emergency_ones_and_a_skipping_default`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_robot_on_the_last_commit_is_one_that_runs_on_the_branch_as_it_is`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_profile_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push profile cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_profile_cases_answer_alike_in_the_app_and_bd`)
 - The target branch is the branch of `origin` the baseline tracks (`origin/master` → `master`); a local baseline or one
   on another remote can't be started.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
@@ -888,10 +885,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   master" while one is open (`retargetToTarget`, [Next Step](next-step.spec.md#the-table)).
   [@test] ../../crates/domain-policy/src/pull_request_test.rs (`a_safe_push_starts_from_the_open_pull_request_into_the_target_or_a_virtual_branch_while_patronus_names_the_github_repository`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the retarget of a pull request into the parent's branch as the next step, whose approvals don't count`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`, `the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 - The popover says it: "Comments /patronus merge on #7: Patronus reports there and closes it once merged." A comment
   can't choose a merge profile: the popover offers none, and "Safe Push With Profile…" is disabled ("A comment on #7
   runs the default checks: it can't choose a profile"); a branch whose own profile is another one says "A comment runs
@@ -1011,8 +1005,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/bd-remote/src/robot_test.rs (`a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should close by content the pull requests of the branches a Safe Push landed after a change below its commit, not of one with work left`)
   [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the stack and whole stack cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - Until the update archives them, the branches a merged robot landed that way (the same view, a robot first seen merged
   too: `getLandedBy`) say so in their rows, "Landed with oauth", "Landed with the whole air stack"
   (`LandedWithChip`, `info`, beside the status "landed" and the hollow `info` node of a branch in master), its hover "In master with the
@@ -1294,8 +1287,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_offers_the_profiles_of_its_mode_and_without_approvals_the_emergency_ones_and_a_skipping_default`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`, `should say that an emergency profile skips all checks, and start with it`, `should start with the profile of the last robot when its options said it skips the review`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
 
 ### Restart and cancel
 
@@ -1319,8 +1311,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_restart_is_refused_as_a_start_without_its_own_robot_then_by_a_landing`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should refuse the restart of the failed robot of a branch a merged Safe Push of a branch built on it landed, in its menu, its robot's details and its preview`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
 - The restart and the cancel command check in Rust too, on the user's robots they list themselves
   (`repository_model::start_guard`): a restart is a start of the robot's subject in its mode that the robot itself does
@@ -1396,8 +1387,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   `landing.hold`): a landing that left nothing, else the branch's own running Safe Push, else the first running Safe
   Push that lands it; the page only words it (`src/presenters/reasons.ts`).
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_branch_is_held_by_what_landed_it_whole_then_its_own_safe_push_then_one_that_lands_it`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - The stack branch of a whole stack ([Whole Stack](whole-stack.spec.md)) is held as a branch is, by one rule of Rust
   for the app and `bd push --with-children` (`domain_policy::holds::stack_branch_hold`, the view's `landing.hold` of
   the stack): a parked member keeps it local ("Holds parked login: land the stack in pieces"); then merged Safe
@@ -1558,8 +1548,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   why: a dry run doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the popover, and not restart it`, `should cancel the robot it replaces without a push when the remote branch has the commits`, `should start the Safe Push that replaces a robot which finished meanwhile, without a cancel`)
-  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
-  [@test] ../../src/lib/scenario-cases.test.ts (`the landing cases answer as the app answers today`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)). When it drops the commits the remote has now, the toast's
   action first opens the confirm of the row's push button. A robot its restart canceled for a push that did not

@@ -35,10 +35,7 @@
 
 use crate::branch_table::BranchTable;
 use crate::derive::{land_answer_of, wanted_readiness};
-use crate::facts::{
-  AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, Seq, TableFacts, derive_patronus, listed_robots, patronus_inputs,
-  robots_digest, session_remote,
-};
+use crate::facts::{AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, Seq, TableFacts, derive_patronus, robots_digest};
 use crate::patronus_view::{ContentMemo, lock_memo};
 use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
@@ -583,35 +580,17 @@ impl Actor {
   /// table of the last sync, the robots, the remote branches the session knows. Nothing before a table and an answer of
   /// Patronus, nothing while a derivation runs (its answer asks again), nothing for the inputs of the last one
   fn derive_patronus(&mut self) {
-    let Some(table) = self.facts.table.value().map(Arc::clone) else {
+    let Some(derivation) = self.facts.begin_patronus(&self.state, self.life.now()) else {
       return;
     };
-    if self.facts.robots.view().head.value.is_none() {
-      return;
-    }
-    let robots = listed_robots(self.facts.robots.view());
-    let needs_review = self.facts.robots.view().needs_review.clone();
-    let remote = session_remote(&table, &self.state);
-    let inputs = patronus_inputs(self.facts.table.fact().seq, &remote, &robots, &needs_review);
-    if !self.facts.patronus.begin(inputs, self.life.now()) {
-      return;
-    }
     let Some(mailbox) = self.mailbox.upgrade() else {
       return;
     };
-    let seq = self.state.next_seq();
+    let (seq, inputs) = (self.state.next_seq(), derivation.inputs);
     let (host, key, memo) = (Arc::clone(&self.host), self.key.clone(), Arc::clone(&self.facts.memo));
     tokio::spawn(
       async move {
-        let derive = move || {
-          let of = PatronusOf {
-            table: &table,
-            remote: &remote,
-            robots: &robots,
-            needs_review: &needs_review,
-          };
-          host.derive_patronus(&key, &of, &mut lock_memo(&memo))
-        };
+        let derive = move || host.derive_patronus(&key, &derivation.of(), &mut lock_memo(&memo));
         let result = tokio::task::spawn_blocking(in_current_span(derive))
           .await
           .unwrap_or_else(|error| Err(ApiError::internal(format!("The view of the robots failed: {error}"))));

@@ -18,25 +18,14 @@
       "remote": "unpushed",
       "rules": "dismiss"
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "safePush",
-        "safePushBlocker": null
+        "row": "11",
+        "kind": "safePush"
       },
-      "decision": {
-        "kind": "refuse",
-        "offersPush": true
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["push_dismisses_approvals"],
-        "push_needed": true,
-        "pull_request": 7,
-        "rules": true
-      },
-      "start": {
-        "error": "push_dismisses_approvals"
+      "land": {
+        "blockers": ["dismissesApprovals"],
+        "start": "comment:7"
       }
     }
   },
@@ -119,7 +108,8 @@
         "src/components/branch/RequestReviewForm.tsx#const candidates = view?.candidates ?? []"
       ],
       "bd": ["crates/bd-remote/src/request_review_command.rs#let Candidates { candidates, without_reviewer } = candidates(Some(&review.readiness), &pull_request);"]
-    }
+    },
+    "closed": "s8-policy"
   },
   {
     "id": "create-pull-request-waits-for-the-mirror",
@@ -180,10 +170,6 @@
     ],
     "discrepancy": "D9",
     "closed": "s1-holes",
-    "asymmetry": {
-      "kind": "byDesign",
-      "why": "--allow-unknown-rules of bd is the popover's confirmation (owner decision 6): docs/design/rust-domain-authority.md#решения-которые-подтверждает-владелец"
-    },
     "given": {
       "readiness": "approved",
       "pullRequest": {
@@ -192,25 +178,15 @@
       "remote": "unpushed",
       "rules": "unknown"
     },
-    "app": {
+    "expect": {
       "step": {
-        "kind": "safePush",
-        "safePushBlocker": null
+        "row": "11",
+        "kind": "safePush"
       },
-      "decision": {
-        "kind": "confirm",
-        "reasons": ["rulesUnknown"]
-      }
-    },
-    "bd": {
-      "check": {
-        "refusals": ["rules_unknown"],
-        "push_needed": true,
-        "pull_request": 7,
-        "rules": null
-      },
-      "start": {
-        "error": "rules_unknown"
+      "land": {
+        "confirmations": ["rulesUnknown"],
+        "start": "comment:7",
+        "pushes": ["auth"]
       }
     }
   },
@@ -247,7 +223,6 @@
     "title": "an open pull request into a virtual branch (of the parent, of another branch of the table, of one that landed): the app refused the Safe Push and offered the retarget as the step (row 5), bd retargeted it as a step of the start; closed in s8-policy: both decide by land::decide, whose first effect retargets it into the target (PlannedEffect::Retarget), and start from it; the readiness of both is asked with it (pull_request::start_pull_request)",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:5", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D11",
-    "twins": [],
     "today": {
       "app": ["src/lib/safe-push-start.ts#async function retargetForStart", "crates/domain-policy/src/pull_request.rs#pub fn start_pull_request"],
       "bd": ["crates/domain-policy/src/land.rs#matches!(base_of(pull_request, facts.target, facts.prefix), PullRequestBase::Virtual { .. }).then(|| PlannedEffect::Retarget {"]
@@ -265,7 +240,6 @@
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D12",
-    "twins": [],
     "today": {
       "app": [
         "crates/repository-model/src/derive.rs#pub fn lands_of",
@@ -285,7 +259,6 @@
     "title": "GitHub merged the pull request with the commits the branch has: the app held the branch (row 1), bd read only the open pull requests and the robots and started through the API; closed in s8-policy: one rule, domain_policy::landed::landed_state, lands the branch at both sides (the view's landedStates, bd's landed refusal), as the case row-1-merged-pull-request shows",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D13",
-    "twins": [],
     "today": {
       "app": ["crates/repository-model/src/derive.rs#pub fn landed_states_of", "crates/domain-policy/src/landed.rs#fn by_pull_request("],
       "bd": [
@@ -307,7 +280,6 @@
       "spec/cli/agent-cli.spec.md#bd-safe-push"
     ],
     "discrepancy": "D14",
-    "twins": [],
     "today": {
       "app": ["crates/repository-model/src/derive.rs#pub fn lands_of", "src/presenters/land.ts#case \"reviewUnknown\":"],
       "bd": [

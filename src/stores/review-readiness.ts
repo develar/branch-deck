@@ -85,7 +85,7 @@ interface ReadinessInput {
  * the API (no pull request, one into another base), which counts no approval. Null without a tip. A key of a whole
  * stack (`stackReadinessKey`) is its stack branch with the pull request of the whole stack, while the sync built it.
  */
-export function readinessInputOf(branchName: string): ReadinessInput | null {
+function readinessInputOf(branchName: string): ReadinessInput | null {
   const root = stackRootOfReadinessKey(branchName)
   if (root !== null) {
     return stackReadinessInputOf(branchName, root)
