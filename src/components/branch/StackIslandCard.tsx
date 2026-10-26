@@ -36,7 +36,7 @@ import { hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
-import { describePushWithChildrenBlocker, formatAskFirst, formatPushWithChildrenLabel, stackPushSubject } from "@/lib/stack"
+import { formatAskFirst, formatPushWithChildrenLabel, stackPushSubject } from "@/lib/stack"
 import type { StackIsland } from "@/lib/stack-collapse"
 import type { StackStateChip } from "@/lib/stack-state"
 import { getStackStateChips } from "@/lib/stack-state"
@@ -51,6 +51,8 @@ import {
   formatWholeStackBranch,
   stackReadinessKey,
 } from "@/lib/whole-stack"
+import { useRowPart } from "@/model/store"
+import { actionBlocker } from "@/presenters/actions"
 import { formatPushHoldReason } from "@/presenters/reasons"
 import type { ChildrenPushOrder, StackBranch } from "@/stores/branch-sync"
 import {
@@ -68,7 +70,7 @@ import {
 } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { landedStacksStore, useStackLandedBy } from "@/stores/landed-stacks"
-import { useBranchRobot, useLandedWithChildrenReason, usePushHold, useStackRobot } from "@/stores/patronus"
+import { useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -413,12 +415,15 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
  * both send counts once. The hover names it and lists what it sends, and the branches that ask first in their rows; a
  * click pushes and leaves the hover as it is (`HoverDescription`), so it shows the progress while the pointer stays.
  * Disabled, "↑" with the reason in its hover, while it would push nothing beyond the root
- * (`describePushWithChildrenBlocker`: the stack is on the remote, the root row's push is the push, the branches with work
- * ask first, or only the stack branch has work and doesn't go along) and while a Safe Push runs in the stack: a push
+ * (Rust's reason, `domain_policy::actions`: the stack is on the remote, the root row's push is the push, the branches with
+ * work ask first, or only the stack branch has work and doesn't go along) and while a Safe Push runs in the stack: a push
  * won't land. While a push runs, the spinner and the percent, its name ("Pushing 7 branches 45%"; "Pushing the whole
  * stack 45%" for the stack branch alone) and the line of git on hover: the one indicator of the pushes of the stack; the
  * start of the Safe Push of the whole stack shows its push in its own button, this one disabled meanwhile.
  */
+/** Why the push of a stack without branches to land is disabled: Rust offers no Push with Children of its root */
+const NOTHING_TO_PUSH = "Nothing to push: the stack is on the remote"
+
 function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
   const stackPush = useStackPush(root)
   const current = stackPush === null ? null : stackPushSubject(root, stackPush)
@@ -434,7 +439,8 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
   const stackBranchProgress = useStackBranchPushProgress(root)
   const progress = alone ? stackBranchProgress : branchProgress
   const hold = usePushHold(root)
-  const landed = useLandedWithChildrenReason(root)
+  // Push with Children of the root as Rust offers it (`domain_policy::actions`)
+  const rootActions = useRowPart(root, "actions")
   const stack = useStackBranch(root)
   const { children } = summary
   const withStackBranch = children?.stackBranch?.kind === "along" && stack !== undefined
@@ -445,7 +451,7 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
     if (summary.rootHeld) {
       blocker = hold === null || hold.kind === "landed" ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
     } else {
-      blocker = describePushWithChildrenBlocker(root, children, landed)
+      blocker = actionBlocker(rootActions, "push-with-children", { subject: root }) ?? (children?.offers === true ? null : NOTHING_TO_PUSH)
     }
   }
   let label = "Push with Children"

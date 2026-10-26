@@ -1,4 +1,34 @@
 {
+  "actions": {
+    "robot:from-comment": [
+      {"availability": {"kind": "enabled"}, "id": "cancel-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot-pull-request"}
+    ],
+    "robot:older": [
+      {
+        "availability": {
+          "kind": "disabled",
+          "reason": {
+            "code": "rule",
+            "reason": {
+              "code": "ancestor",
+              "landing": {"branch": "auth", "robotId": "robot-1", "wholeStack": false},
+              "mode": "rebaseAutosquash"
+            }
+          }
+        },
+        "id": "push-and-restart-robot"
+      },
+      {"availability": {"kind": "enabled"}, "id": "copy-robot-prompt"},
+      {"availability": {"kind": "enabled"}, "id": "copy-robot-full-prompt"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"}
+    ],
+    "robot:robot-1": [
+      {"availability": {"kind": "enabled"}, "id": "cancel-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"}
+    ]
+  },
   "given": {
     "branch": "login",
     "commits": ["(auth) Add auth", "(auth/login) Add login"],

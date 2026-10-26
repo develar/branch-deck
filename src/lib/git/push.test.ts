@@ -131,7 +131,13 @@ function applyToSession(branches: readonly { branchName: string; wholeStack?: bo
   })
 }
 
-vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {} }))
+vi.mock("@/model/store", () => ({
+  whenSessionViewAt: async () => {},
+  // Rust offers Create Pull Request… of a branch without a live pull request (`domain_policy::actions`), over the pull
+  // requests the test lists
+  getRowPart: (key: string, part: string) =>
+    part === "actions" && (stores.pullRequests[key]?.state ?? "closed") === "closed" ? [{ id: "create-pull-request", availability: { kind: "enabled" } }] : undefined,
+}))
 
 vi.mock("@/lib/bindings", () => ({
   commands: {

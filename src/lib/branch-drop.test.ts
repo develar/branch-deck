@@ -1,11 +1,10 @@
 // @spec spec/branch/move-commits.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { StackProblemView } from "@/lib/bindings"
+import type { ActionId, StackProblemView } from "@/lib/bindings"
 import type { BranchDropFacts } from "@/lib/branch-drop"
-import { moveDrop, parkBlocker, parkDrop, rewriteBlocker, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
+import { moveDrop, parkDrop, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
 import type { ParkedState } from "@/lib/parked"
-import type { PushHold } from "@/lib/patronus"
-import { testRobot } from "@/lib/test-robot"
+import { SYNC_WAIT } from "@/presenters/actions"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
 
@@ -40,15 +39,33 @@ const parked: Record<string, ParkedState> = {
 }
 const descendants: Record<string, string[]> = { auth: ["login", "oauth"], login: ["oauth"] }
 
-function facts(patch: Partial<BranchDropFacts> = {}): BranchDropFacts {
+/**
+ * Why Rust refuses an action of a branch, as its menu words it: null while it can run, undefined while the branch doesn't
+ * offer it. `viewer` failed for its stack problem: only its fixes run; a root offers no Unstack
+ */
+const RUST: Record<string, Partial<Record<ActionId, string | null>>> = {
+  viewer: { "move-to": "viewer has conflicting parents", park: "viewer has conflicting parents", "stack-on": null, unstack: null },
+  auth: { "move-to": null, park: null, "stack-on": null },
+  docs: { "move-to": null, park: null, "stack-on": null },
+  login: { "move-to": null, park: null, "stack-on": null, unstack: null },
+  oauth: { "move-to": null, park: null, "stack-on": null, unstack: null },
+}
+
+/** The facts of a drop, the actions as Rust decides them (`RUST`), a sync of the table over them as the page lays it */
+function facts(patch: Partial<Omit<BranchDropFacts, "blocker">> & { readonly rust?: typeof RUST } = {}): BranchDropFacts {
+  const { rust = RUST, ...rest } = patch
+  const isSyncing = rest.isSyncing ?? false
   return {
     branch: name => branches[name],
     parked: name => parked[name] ?? null,
-    hold: () => null,
+    blocker: (name, id) => {
+      const blocker = rust[name]?.[id]
+      return blocker === null && isSyncing ? SYNC_WAIT : blocker
+    },
     descendants: name => descendants[name] ?? [],
     stacksEnabled: true,
-    isSyncing: false,
-    ...patch,
+    isSyncing,
+    ...rest,
   }
 }
 
@@ -64,12 +81,9 @@ describe("branch drop", () => {
     expect(parkDrop(["auth", "login"], facts())).toEqual({ refusal: "Cannot park: They are parked already" })
     expect(parkDrop(["docs"], facts({ isSyncing: true }))).toEqual({ refusal: "Cannot park docs: Wait for the sync to finish" })
 
-    const own: PushHold = { kind: "own", branch: "docs", robot: testRobot("r1", "docs") }
-    const refusal = parkDrop(["docs"], facts({ hold: name => (name === "docs" ? own : null) }))
-    expect(refusal).toEqual({ refusal: expect.stringMatching(/^Cannot park docs: A .+ of docs is running.*: it lands whatever a park says$/) })
-    // a landed hold parks: nothing of it is left to land anyway
-    expect(parkBlocker(branches.docs!, { ...own, kind: "landed" }, false)).toBeNull()
-    expect(parkBlocker(testBranch("empty", null, { commitCount: 0 }), null, false)).toBe("The branch has no commits")
+    // a robot lands it: as Park Branch… of its menu says it
+    const held = "A Safe Push of docs is running: wait until it merges, or restart it on the current branch: it lands whatever a park says"
+    expect(parkDrop(["docs"], facts({ rust: { ...RUST, docs: { park: held } } }))).toEqual({ refusal: `Cannot park docs: ${held}` })
   })
 
   it("unparks the dragged branches with a line of their own, the ones parked with them along, never one alone, and leaves those that land", () => {
@@ -94,18 +108,13 @@ describe("branch drop", () => {
     expect(stackOnDrop(["docs"], "auth", facts({ stacksEnabled: false }))).toBeNull()
   })
 
-  it("blocks the rewrites of a branch with a stack problem by its reason, and runs the fixes Rust offers for it", () => {
-    const viewer = branches.viewer!
-    expect(rewriteBlocker(viewer, false)).toBe("viewer has conflicting parents")
+  it("blocks the rewrites of a branch with a stack problem by the reason Rust gives, and runs the fixes it offers", () => {
     expect(moveDrop(["viewer"], "docs", facts())).toEqual({ refusal: "Cannot move viewer to docs: viewer has conflicting parents" })
-    // a fix runs, another parent is no fix
+    // a fix of its problem runs
     expect(stackOnDrop(["viewer"], "tools", facts())).toEqual({ names: ["viewer"] })
-    expect(stackOnDrop(["viewer"], "docs", facts())).toEqual({ refusal: "Cannot stack viewer on docs: viewer has conflicting parents" })
     expect(stackOnDrop(["viewer"], "ci", facts({ isSyncing: true }))).toEqual({ refusal: "Cannot stack viewer on ci: Wait for the sync to finish" })
     // no declared parent, yet the problem offers the unstack
     expect(unstackDrop(["viewer"], facts())).toEqual({ names: ["viewer"] })
-    // another failure says so
-    expect(rewriteBlocker({ ...viewer, stack: { ...viewer.stack!, problems: [] } }, false)).toBe("The branch failed to sync")
   })
 
   it("unstacks one dragged branch that is stacked, and shows no zone for a root", () => {
@@ -113,6 +122,8 @@ describe("branch drop", () => {
     expect(unstackDrop(["docs"], facts())).toBeNull()
     expect(unstackDrop(["login", "oauth"], facts())).toBeNull()
     expect(unstackDrop(["login"], facts({ stacksEnabled: false }))).toBeNull()
+    // Rust offers no Unstack of the branch: no zone
+    expect(unstackDrop(["login"], facts({ rust: { login: {} } }))).toBeNull()
     expect(unstackDrop(["login"], facts({ isSyncing: true }))).toEqual({ refusal: "Cannot unstack login from auth: Wait for the sync to finish" })
   })
 

@@ -7,7 +7,7 @@ import { pushWholeStack } from "@/lib/git/stack-push"
 import type { LandingDecision } from "@/lib/landing-gate"
 import { checkLandingBeforeStart, formatLandingFix } from "@/lib/landing-gate"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
-import { getRobotActions } from "@/lib/patronus-actions"
+import { getRobotActionItems } from "@/lib/patronus-actions"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { showRobotEventToast } from "@/lib/robot-toast"
 import { checkTargetBeforeStart } from "@/lib/target-conflict"
@@ -261,6 +261,6 @@ function announceStart(title: string, robot: PatronusRobot, profileName: string 
     title,
     description,
     stepLast: true,
-    stepOf: (current, branch) => getRobotActions(current, branch).find(action => action.id === "cancel-robot") ?? null,
+    stepOf: current => getRobotActionItems(current).find(action => action.id === "cancel-robot") ?? null,
   })
 }

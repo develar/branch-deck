@@ -13,9 +13,11 @@ import { notifyError } from "@/lib/errors"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { openPullRequest } from "@/lib/pull-request"
-import { describeCodeOwnersFact, formatCandidate, formatDraftReason, formatRefused, formatRequestedToast } from "@/lib/request-review"
+import { describeCodeOwnersFact, formatCandidate, formatRefused, formatRequestedToast } from "@/lib/request-review"
 import { showToast } from "@/lib/toast-message"
 import { stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { useRowPart } from "@/model/store"
+import { actionBlocker } from "@/presenters/actions"
 import type { Branch } from "@/stores/branch-sync"
 import { useOpenPullRequest } from "@/stores/branch-sync"
 import { runOperation, useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
@@ -77,7 +79,9 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
   useIndicatorClaim(surface)
   const isRequesting = useSurfaceBusy(surface) !== null
 
-  const blocker = view?.draft === true ? formatDraftReason(pullRequest.number) : null
+  // as Rust offers the request (a draft asks nobody)
+  const actions = useRowPart(branch.name, "actions")
+  const blocker = actionBlocker(actions, "request-review", { subject: branch.name }) ?? null
   // the reviewers see the commits: the request pushes the work the remote lacks first (Rust's push action of the remote
   // status; an unknown one is no push), a step of it, not of the user
   const pushes = branch.remoteStatus != null && branch.remoteStatus.action.kind !== "upToDate"

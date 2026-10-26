@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vite-plus/test"
-import type { PullRequestView, ReviewCandidate } from "@/lib/bindings"
+import { afterEach, describe, expect, it } from "vite-plus/test"
+import type { ActionState, PullRequestView, ReviewCandidate } from "@/lib/bindings"
 import { describeCodeOwnersFact, formatRefused, formatRequestedToast, getRequestReviewItem } from "@/lib/request-review"
+import { branchSyncStore } from "@/stores/branch-sync"
+import { disabled, enabled, setActions } from "@/test-support/actions"
 
 const ilya: ReviewCandidate = { login: "ikorennoy", fullName: "Ilya Korennoy", groups: ["IJPL Code Platform"], preselected: true }
 
@@ -24,29 +26,30 @@ describe("what Request Review… says of the code owners", () => {
 })
 
 describe("the Request Review… item", () => {
-  const open = () => {}
+  afterEach(() => branchSyncStore.setState({ openPullRequests: {}, actions: {} }))
+
+  /** The open pull request of `auth` as Rust reads it, and the request as Rust offers it */
+  function setRequest(view: PullRequestView, request: ActionState): void {
+    branchSyncStore.setState({ openPullRequests: { auth: view } })
+    setActions({ auth: [request] })
+  }
 
   it("asks the chosen code owners on the open pull request", () => {
     const candidates = [ilya, { ...ilya, login: "bob", fullName: "Bob", preselected: false }]
-    expect(getRequestReviewItem(pullRequest({ candidates }), open)).toMatchObject({
-      id: "request-review",
-      label: "Request Review…",
-      disabled: false,
-      description: "Ask Ilya Korennoy to review #1078",
-    })
-    expect(getRequestReviewItem(pullRequest(), open)).toMatchObject({ disabled: false, description: "Ask for a review of #1078" })
+    setRequest(pullRequest({ candidates }), enabled("request-review")[0]!)
+    expect(getRequestReviewItem("auth")).toMatchObject({ id: "request-review", label: "Request Review…", description: "Ask Ilya Korennoy to review #1078" })
+    expect(getRequestReviewItem("auth")?.disabled).toBeUndefined()
+    setRequest(pullRequest(), enabled("request-review")[0]!)
+    expect(getRequestReviewItem("auth")).toMatchObject({ description: "Ask for a review of #1078" })
   })
 
-  it("is disabled with the reason for a draft only: work the remote lacks is pushed by the request", () => {
-    expect(getRequestReviewItem(pullRequest({ draft: true, candidates: [ilya] }), open)).toMatchObject({
-      disabled: true,
-      description: "#1078 is a draft: mark it ready for review on GitHub first",
-    })
-    expect(getRequestReviewItem(pullRequest({ candidates: [ilya] }), open)).toMatchObject({ disabled: false })
+  it("is disabled with the reason Rust gives for a draft: work the remote lacks is pushed by the request", () => {
+    setRequest(pullRequest({ draft: true, candidates: [ilya] }), disabled("request-review", { code: "draft", number: 1078 }))
+    expect(getRequestReviewItem("auth")).toMatchObject({ disabled: true, description: "#1078 is a draft: mark it ready for review on GitHub first" })
   })
 
   it("is not there without an open pull request", () => {
-    expect(getRequestReviewItem(undefined, open)).toBeNull()
+    expect(getRequestReviewItem("auth")).toBeNull()
   })
 })
 

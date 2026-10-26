@@ -1,0 +1,250 @@
+{
+  "ids": [
+    "safe-push",
+    "safe-push-with-profile",
+    "dry-run",
+    "check-approvals",
+    "safe-push-without-review",
+    "push",
+    "push-with-children",
+    "review-changes",
+    "open-pull-request",
+    "request-review",
+    "retarget-pull-request",
+    "create-pull-request",
+    "rename",
+    "move-to",
+    "stack-on",
+    "unstack",
+    "ungroup",
+    "amend-changes",
+    "add-issue-reference",
+    "squash-fixups",
+    "unapply",
+    "park",
+    "unpark",
+    "safe-push-whole-stack",
+    "dry-run-whole-stack",
+    "safe-push-main-line",
+    "open-stack-pull-request",
+    "create-stack-pull-request",
+    "review-whole-stack",
+    "restart-robot",
+    "push-and-restart-robot",
+    "cancel-robot",
+    "copy-robot-prompt",
+    "copy-robot-full-prompt",
+    "open-robot",
+    "open-robot-pull-request"
+  ],
+  "blockers": [
+    [
+      "push",
+      {
+        "code": "rule",
+        "reason": {
+          "code": "parked",
+          "branch": "auth",
+          "with": null,
+          "note": ""
+        }
+      }
+    ],
+    [
+      "safe-push",
+      {
+        "code": "step",
+        "blocker": {
+          "code": "syncing"
+        }
+      }
+    ],
+    [
+      "create-pull-request",
+      {
+        "code": "pending",
+        "fact": "pullRequests"
+      }
+    ],
+    [
+      "restart-robot",
+      {
+        "code": "problemsFailed",
+        "message": "502 Bad Gateway"
+      }
+    ],
+    [
+      "rename",
+      {
+        "code": "syncing"
+      }
+    ],
+    [
+      "push",
+      {
+        "code": "syncFailed",
+        "problem": null
+      }
+    ],
+    [
+      "rename",
+      {
+        "code": "syncFailed",
+        "problem": "auth is in a stack cycle"
+      }
+    ],
+    [
+      "push",
+      {
+        "code": "noCommits"
+      }
+    ],
+    [
+      "review-changes",
+      {
+        "code": "noCommits"
+      }
+    ],
+    [
+      "rename",
+      {
+        "code": "noCommits"
+      }
+    ],
+    [
+      "push",
+      {
+        "code": "upToDate"
+      }
+    ],
+    [
+      "request-review",
+      {
+        "code": "draft",
+        "number": 7
+      }
+    ],
+    [
+      "safe-push-with-profile",
+      {
+        "code": "commentRoute",
+        "number": 7
+      }
+    ],
+    [
+      "add-issue-reference",
+      {
+        "code": "allReferenced"
+      }
+    ],
+    [
+      "park",
+      {
+        "code": "parkHeld",
+        "reason": {
+          "code": "held",
+          "branch": "auth",
+          "hold": {
+            "kind": "own",
+            "by": {
+              "branch": "auth",
+              "robotId": "r1",
+              "wholeStack": false
+            },
+            "carried": null
+          },
+          "mode": "rebaseAutosquash",
+          "target": "master"
+        }
+      }
+    ],
+    [
+      "push-with-children",
+      {
+        "code": "nothingBeyond",
+        "why": {
+          "kind": "askFirst",
+          "names": ["login"]
+        }
+      }
+    ],
+    [
+      "push-with-children",
+      {
+        "code": "nothingBeyond",
+        "why": {
+          "kind": "onlyBranch"
+        }
+      }
+    ],
+    [
+      "push-with-children",
+      {
+        "code": "nothingBeyond",
+        "why": {
+          "kind": "landed",
+          "by": [
+            {
+              "branch": "deploy",
+              "robotId": "r1",
+              "wholeStack": false
+            },
+            {
+              "branch": "side-test",
+              "robotId": "r2",
+              "wholeStack": false
+            }
+          ],
+          "own": false,
+          "target": "master"
+        }
+      }
+    ],
+    [
+      "push-with-children",
+      {
+        "code": "nothingBeyond",
+        "why": {
+          "kind": "stackBranch",
+          "along": {
+            "kind": "unpublished"
+          }
+        }
+      }
+    ],
+    [
+      "push-with-children",
+      {
+        "code": "nothingBeyond",
+        "why": {
+          "kind": "stackBranch",
+          "along": {
+            "kind": "dropsRemote"
+          }
+        }
+      }
+    ],
+    [
+      "push-with-children",
+      {
+        "code": "nothingBeyond",
+        "why": {
+          "kind": "onRemote"
+        }
+      }
+    ],
+    [
+      "create-pull-request",
+      {
+        "code": "landed",
+        "landed": {
+          "by": {
+            "kind": "baseline",
+            "upstream": "origin/master"
+          },
+          "after": []
+        }
+      }
+    ]
+  ]
+}

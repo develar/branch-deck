@@ -143,9 +143,9 @@ with the user.
 
 - A failed robot (not for missing approvals) and a running one whose required check failed have "Copy Prompt for
   Agent" and "Copy Prompt with CI Details", after the restart or the cancel and before "Open in Patronus", in every form
-  of the robot's actions (`getRobotActions`): the branch menu, the robot details and the
+  of the robot's actions (`getRobotActionItems`, as Rust offers them): the branch menu, the robot details and the
   [landing overview](../repository/landing-overview.spec.md#overview).
-  [@test] ../../src/lib/patronus-actions.test.ts (`offers the prompt for an agent for a failed robot and for a running one whose required check failed, none for missing approvals`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../tests/e2e/patronus/robot-prompt.spec.ts (`should offer both prompts in the details of the failed robot`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should restart a failed robot from the overview, and open the pull request it was started from`)
 - The text is written through the app's clipboard plugin (`copyTextLater`): it is built after the click, and WebKit

@@ -5,6 +5,7 @@ import { getBranchStackFixItems } from "@/hooks/useBranchContextActions"
 import { useClosePreview } from "@/hooks/useClosePreview"
 import type { StackProblemView } from "@/lib/bindings"
 import { toPreviewMenu } from "@/lib/menu"
+import { useRowPart } from "@/model/store"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchSync } from "@/stores/branch-sync"
 import { useOperations } from "@/stores/operations"
@@ -22,7 +23,8 @@ export function StackProblemAlert({ branch, problem }: { branch: Branch; problem
   const operations = useOperations()
   const isSyncing = useBranchSync(state => state.isSyncing)
   const closePreview = useClosePreview()
-  const fixes = getBranchStackFixItems(branch, operations, isSyncing)
+  const actions = useRowPart(branch.name, "actions")
+  const fixes = getBranchStackFixItems(branch, operations, isSyncing, actions)
   const items = closePreview === null ? fixes : (toPreviewMenu([fixes], closePreview, NO_KEYS)[0] ?? [])
   return (
     <Alert variant="destructive" data-testid="branch-stack-problem">

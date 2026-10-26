@@ -168,7 +168,7 @@ the stack's pull request).
 
 - **The robot**: its restart, the push and restart of a robot whose branch moved past its commit
   (`runPushAndRestart`: the push is a step of it) and its cancel (`runRobotAction`, subject `robot:<id>`);
-  `getRobotActions` marks them with `operationItem`, so the slot, the details and the landing overview show the running
+  `getRobotActionItems` marks them with `operationItem`, so the slot, the details and the landing overview show the running
   one (a spinner in place of its icon), a second restart joins it and the cancel waits.
 - **The pull request**: the retarget of the next step (`retargetToTarget`, subject `pr:<n>`), the creation and
   "Continue on GitHub" (`submitPullRequest`, `continueOnGitHub`: a second submit joins; one that must wait throws

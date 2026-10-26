@@ -11,7 +11,7 @@ import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import { PendingSection } from "@/components/shared/PendingSection"
-import { getGatedRobotActions, robotProblemsReason } from "@/hooks/useBranchNextStep"
+import { getRobotItems, robotProblemsReason, useRobotParts } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -136,6 +136,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const patronusAvailable = usePatronusAvailable()
   // a store read beside the stores the details select: it changes with `needsReview` and the failure of the problems
   const problemsUnknown = useStore(patronusStore, () => robotProblemsReason(robot, branch ?? null))
+  const robotParts = useRobotParts(robot)
   // the details name it; a poll or the start may have named it before
   const profileName = details?.profileName ?? robot.profile?.name ?? null
   return (
@@ -256,7 +257,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
         {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
-        {getGatedRobotActions(robot, branch ?? null, needsReview, failing, operations).map(action => (
+        {getRobotItems(robot, operations, robotParts).map(action => (
           <RobotActionButton key={action.id} action={action} />
         ))}
       </div>

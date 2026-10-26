@@ -9,6 +9,9 @@ targets:
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchContextMenuRow.tsx
   - ../../src/hooks/useBranchContextActions.ts
+  - ../../crates/domain-policy/src/actions.rs
+  - ../../crates/repository-model/src/action_view.rs
+  - ../../src/presenters/actions.ts
   - ../../src/lib/patronus-actions.ts
   - ../../src/components/shared/InlineForm.tsx
   - ../../src/components/shared/InlineInputDialog.tsx
@@ -240,7 +243,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   text are links to the tracker (the issue navigation of the project). A state of the robot of the branch (it failed on
   the branch as it is, it runs, a Dry Run runs) shows the robot below the text as the landing overview lists it
   (`RobotRow`, without the branch name): its state and time (the mode only for a Dry Run, a link that opens it in
-  Patronus; the mode and the profile on hover), and its actions from the one list of the branch menu (`getGatedRobotActions`: Restart Safe Push, Copy Prompt for
+  Patronus; the mode and the profile on hover), and its actions from the one list of the branch menu (`getRobotItems`: Restart Safe Push, Copy Prompt for
   Agent, Copy Prompt with CI Details, Open in Patronus, Open Pull Request #N). The failed state says so: "Safe Push
   failed on ABC-123 as it is: fix it, or Restart Safe Push". A blocked branch offers "Show auth", the parent it waits
   for (`LandingNode.shows`). A click in the hover never toggles the row. The node is no
@@ -525,7 +528,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   remote branch is up to date", "Unstacking oauth…"); a branch without the item (O without a pull request) does nothing.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show an unstack started from the menu on the row's ⋯ and let the other rewrites queue behind it, from a key too`)
 - P must push the focused branch as its push button does (`pushOrConfirm`, the stack where the button pushes it, the
-  question before a push that drops remote commits), when that button is enabled (`canPushNow`, the rule of P in the
+  question before a push that drops remote commits), when that button is enabled (the `push` Rust decides with a running push over it, as P in the
   preview).
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a branch under Your Move until the filter changes, once its move is made`)
 - S must open the Safe Push popover at the slot of the focused row when its "Safe Push" is enabled (Patronus answered,
@@ -559,10 +562,25 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 ### Branch menu
 
+- Which actions a branch, a whole stack and a robot offer, and why each can't run now, must be Rust's
+  (`domain_policy::actions`, the `actions` of the view by subject: the branch, `stack:<root>`, `robot:<id>`): every
+  surface presents them by their stable ids in one look and one set of words (`src/presenters/actions.ts`: label,
+  key, icon, a blocker in words), the menu, the "⋯" of an island, the branch preview, the review window, the robot's
+  details and the robots indicator, the command palette, the toasts of a robot and the drops of a drag; an action is
+  disabled with its reason, never hidden for it. What runs on the page lies over them until the operations are Rust's:
+  a running operation (`operationItem`), a running push, and a sync of the table over a rewrite and a park, which
+  queues behind it then. Presence by what only the page holds stays the page's: "Squash N Fixups…" (the autosquash
+  plan), "Ungroup" (the prefix to remove), "Close Pull Request #12…" of a pull request of the whole stack that no
+  longer matches it.
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus`, `the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_in_this_order`, `a_rewrite_needs_commits_a_build_and_no_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`, `a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_offers_the_actions_of_each_subject_and_a_patch_only_those_that_changed`)
+  [@test] ../../crates/domain-policy/src/action_catalog_test.rs (`every_action_and_every_blocker_code_is_in_the_action_catalog_the_page_reads`)
+  [@test] ../../src/presenters/actions.test.ts (`presents every action of the catalog Rust writes by its id, with its look`, `words every blocker of the catalog as the page says it`, `lays a sync of the table over a rewrite, keeping the reason Rust gave`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`offers only what Rust offers: no item of an action it doesn't offer, none hidden it does`)
 - The groups must come in the order of how often their actions are wanted, Safe Push first: "Fix Conflict…" for a
   branch with a conflict (its next step, above the rest); the landing: where Patronus answers "Safe Push" (`S`; "Safe
   Push · 3" for a stacked branch), then the actions of the branch's robot as every surface of the robot lists them
-  (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart Safe Push" (it pushes first while the
+  (`getRobotActionItems`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart Safe Push" (it pushes first while the
   remote lacks work), "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request
   other than the branch's own), then "Patronus ›" with the rarer starts: "Safe Push With Profile…" (always the popover,
   its profile to choose; disabled for a start that comments on a pull request, which runs the default checks), "Dry
@@ -580,17 +598,19 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   with the push; before Patronus answers whether the repository is on Space its starts stay, disabled with "Waits for
   the answer of Patronus" ([Next Step](next-step.spec.md#facts-without-an-answer)). An item with a key (P, S, D, O, M) is never in a submenu; a key of an item in a
   submenu (⌘C of "Copy Full Branch Name") works on the row as well.
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`, `starts with the push off Space: no Safe Push and no Patronus ›`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`, `starts with the push off Space, where Rust offers no start of Patronus`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests, as the review window does`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus`, `the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)
 - The menu of a branch that can't change now (no commits, a sync error, a sync running) keeps every item: the
   rewrites (Rename…, Move to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash
   Fixups…) are disabled with the reason ("Wait for the sync to finish", "The branch failed to sync", the reason of a
-  stack problem, "The branch has no commits", `getRewriteBlocker`), except the fixes of a stack problem, which only wait
+  stack problem, "The branch has no commits", as Rust decides them, a sync of the table over them), except the fixes of a stack problem, which only wait
   for the sync ([Stacked Branches](stacked-branches.spec.md#ui)); what rewrites nothing on the branch stays as it is: Review Changes, the pull request
   and its review request, Push and Push with Children (they wait for the sync themselves), Safe Push, Safe Push With
   Profile… and Dry Run (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions.
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites disabled with the reason`)
 - An action of the menu must run once ([Running Operations](../../docs/design/operations.md)): while it runs, until the
   sync that shows its result ends, its item is running (disabled, a spinner in place of its icon) on every surface, a
@@ -628,13 +648,14 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The push item must be the push button of the row as a menu item (`getPushButtonNow`), also where the row has no
   button for a first push: its name ("Push (2)", "Force Push (1)", "Push Stack (3 branches)" with "Pushes auth, login and oauth, parents first" on
   hover), what it pushes (`pushOrConfirm`: the stack only where the button pushes it, the question in the button's
-  description before a push that drops remote commits), enabled as that button (`canPushNow`), else disabled with the
+  description before a push that drops remote commits), enabled as that button (the `push` Rust decides), else disabled with the
   reason ("The remote branch is up to date", the blocked parent, "The branch failed to sync: merge conflict" for a
   branch the last sync did not build, the running Safe Push that holds it, "The stack is being pushed" while its stack
   push runs, "Wait for the sync to finish"). It is the one push of the branch in the
   menu: no second "Push Stack" pushes an ancestor past the question its own push button asks. The branch preview and
   the review list the same item.
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `is disabled with the reason while the stack push runs`, `is disabled with the reason for a branch the last sync did not build, not as up to date`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `is disabled with the reason while the stack push runs, also over the hold of a parked branch it pushes`, `is disabled with the reason Rust gives: a branch the last sync did not build names the status of its row, not up to date`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_in_this_order`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
 - An item shows its key only where the key works: the push `P`, "Safe Push" `S`, "Review Changes" `D`, "Open Pull
   Request" `O` and "Move to…" `M`, the keys of the row ([Keyboard](#keyboard)). "Review Changes" reviews the branch in

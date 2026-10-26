@@ -58,7 +58,7 @@ use domain_types::next_step::{NextStepView, StackPullRequest};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
-use domain_types::repository_view::{BranchLanding, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
+use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
   BranchPush, BranchSection, BranchStatus, BranchStructure, BranchView, Demand, Fact, FactState, LandedSection, Parked, ParkedMember, PullRequestsView, RobotsView,
   SubjectReadiness, WholeStackView, stack_readiness_key,
@@ -922,10 +922,27 @@ impl StepSources<'_> {
     })
   }
 
-  /// The GitHub repository of the branches is known: GitHub lists it, or Patronus names the mirror
+  /// The GitHub repository of the branches is known
   fn repository(&self) -> bool {
-    matches!(self.pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) || self.robots.head.value.as_ref().is_some_and(|head| head.github_repository.is_some())
+    github_repository_known(self.pull_requests, self.robots)
   }
+}
+
+/// The GitHub repository of the branches is known: GitHub lists it, or Patronus names the mirror
+pub(crate) fn github_repository_known(pull_requests: &PullRequestsView, robots: &RobotsView) -> bool {
+  matches!(pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) || robots.head.value.as_ref().is_some_and(|head| head.github_repository.is_some())
+}
+
+/// What holds the push of a branch now, with its robot: a hold of the view (`BranchLanding::hold`) whose robot holds
+/// pushes, or merged for a hold of what landed
+pub(crate) fn live_hold<'a>(facts: &'a BranchPatronus, robots: &'a RobotsView) -> Option<(&'a HoldView, &'a PatronusRobot)> {
+  let hold = facts.landing.hold.as_ref()?;
+  let robot = robots.robots.get(&hold.by.robot_id)?;
+  let holds = match hold.kind {
+    HoldKind::Landed => robot.status == PatronusRobotStatus::Success,
+    HoldKind::Own | HoldKind::Span => holds_pushes(robot),
+  };
+  holds.then_some((hold, robot))
 }
 
 /// The next step and the node of every branch of the rows of `sources` and of every whole stack that forks, by subject
@@ -946,12 +963,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let own_robot_landed = landed_by
       .zip(robot)
       .is_some_and(|(landed, robot)| landed.own && landed.after.is_empty() && landed.by.robot_id == robot.robot.id);
-    let hold = landing.and_then(|landing| landing.hold.as_ref()).filter(|hold| {
-      sources.robot(Some(&hold.by.robot_id)).is_some_and(|robot| match hold.kind {
-        HoldKind::Landed => robot.status == PatronusRobotStatus::Success,
-        HoldKind::Own | HoldKind::Span => holds_pushes(robot),
-      })
-    });
+    let hold = facts.and_then(|facts| live_hold(facts, sources.robots));
     let subject = Subject::branch(name);
     let stack_pull_request = sources.stack_pull_request_of(name);
     let remote = sources.remote.branches.get(name.as_str()).and_then(RemoteFact::branch);

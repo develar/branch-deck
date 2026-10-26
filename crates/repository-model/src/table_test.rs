@@ -4,7 +4,7 @@ use domain_types::commit::Commit;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{BranchStatus, CommitSync, SyncState, SyncStep};
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate, StackProblem, StackProblemView};
-use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, PushAction, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
+use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::sync_fixtures::integrated_branch_info;
@@ -101,22 +101,9 @@ pub(crate) fn branch_status(branch: &str, status: BranchSyncStatus) -> SyncEvent
 
 pub(crate) fn remote_status(branch: &str, unpushed: &[&str]) -> RemoteStatusUpdate {
   let mut status = RemoteStatusUpdate {
-    branch_name: branch.to_string(),
-    remote_exists: true,
     remote_tip: Some("remote-tip".to_string()),
     unpushed_commits: unpushed.iter().map(ToString::to_string).collect(),
-    commits_behind: 0,
-    dropped_commits: Vec::new(),
-    commits_amended: 0,
-    commits_restacked: 0,
-    commits_landed: 0,
-    landed_commits: Vec::new(),
-    commits_reworded: 0,
-    ancestor_commits_ahead: 0,
-    my_unpushed_count: 0,
-    fast_forward: true,
-    last_push_time: 0,
-    action: PushAction::UpToDate,
+    ..domain_types::fixtures::remote_status(branch)
   };
   status.action = push::action(&status);
   status

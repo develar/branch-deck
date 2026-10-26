@@ -278,8 +278,11 @@ function isOwn(blocker: StepBlocker | null): boolean {
   return blocker === null || blocker.code === "step" || blocker.code === "staleReadiness"
 }
 
-/** The words of a reason of the subject (`isOwn` false) */
-function subjectReason(blocker: StepBlocker): string {
+/**
+ * The words of a reason of the subject (`isOwn` false); the step's own reasons are worded by its kind
+ * (`presentNextStep`), "" here
+ */
+export function formatStepBlocker(blocker: StepBlocker): string {
   switch (blocker.code) {
     case "rule":
       return formatReason(blocker.reason)
@@ -566,11 +569,11 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
   // a start reads only a fresh answer of the readiness: one still to come or a stale one holds nothing back, the start
   // waits for it itself
   const readinessWaits = forStart && (step.staleReadiness || (step.kind.kind === "pending" && step.kind.fact === "readiness"))
-  const general = isOwn(step.safePush) ? running : subjectReason(step.safePush!)
+  const general = isOwn(step.safePush) ? running : formatStepBlocker(step.safePush!)
   const shown = show(step, context, general)
   const blockerOf = (blocker: StepBlocker | null): string | null => {
     if (!isOwn(blocker)) {
-      return subjectReason(blocker!)
+      return formatStepBlocker(blocker!)
     }
     if (running !== null || blocker === null || readinessWaits) {
       return running

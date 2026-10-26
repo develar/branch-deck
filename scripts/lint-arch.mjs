@@ -11,6 +11,11 @@
 // scheduler on its clock; no store or hook polls on a timer of its own:
 // - `poll-timer`: a `setTimeout` or a `setInterval` in src/stores or src/hooks (their tests aside); a timer of the UI (a
 //   debounce, a hover intent, the tick of the relative times) is an entry of ALLOWLIST that says so.
+// The rules of the domain are Rust's (`domain-policy`, docs/design/rust-domain-authority.md, s8-policy): the page presents
+// what the view decides and decides nothing itself:
+// - `rule-module`: a rule module whose rule moved into Rust comes back (`RULE_MODULES`), or src/lib or src/hooks (their
+//   tests aside) exports a function or a constant named as a rule: `can…`, `needs…`, `allows…`, `…Blocker`,
+//   `…Decision`, `is…Blocked`; a formatter (`format…`) words a reason Rust gave and decides nothing.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds; an entry that matches nothing fails, so the list never outlives its code.
 import { globSync, readFileSync } from "node:fs"
@@ -42,9 +47,27 @@ export const ALLOWLIST = [
   { file: "src/hooks/useCommitDrag.ts", rule: "poll-timer", reason: "the drag image goes once the browser took it: no request" },
   { file: "src/hooks/useAutoUpdate.ts", rule: "poll-timer", reason: "one check for updates shortly after the start of the app, never again by a timer" },
   { file: "src/hooks/useMovePreview.ts", rule: "poll-timer", reason: "the dry run of a move waits for the selection to rest: a debounce" },
+  {
+    file: "src/lib/patronus.ts",
+    rule: "rule-module",
+    reason:
+      "needsRobotAttention and its branch and stack forms: the failed robots the landing overview, Attention and the Dock badge count, until the robots overview is a part of the view (s9)",
+  },
+  {
+    file: "src/hooks/useCommitReviewActions.ts",
+    rule: "rule-module",
+    reason: "commitReviewBlocker: the review of the commit rows the user selected, a selection of the page and no action of a subject Rust offers",
+  },
 ]
 
 const SOURCES = ["src/**/*.{ts,tsx}", "tests/e2e/**/*.ts"]
+
+/** The rule modules of the page whose rules Rust decides now (`domain-policy`): deleted, they don't come back */
+export const RULE_MODULES = ["src/lib/branch-next-step.ts", "src/lib/landing-node.ts", "src/lib/safe-push-decision.ts"]
+// the export of a function or a constant named as a rule, its name the group
+const RULE_EXPORT = /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)((?:can|needs|allows)[A-Z][\w$]*|(?!format)[\w$]*(?:Blocker|Decision)|is[\w$]*Blocked)\b/
+/** The sources whose exports a rule name refuses: the modules and the hooks of the page, their tests aside */
+const RULED = /^src\/(?:lib|hooks)\/(?!.*\.test\.tsx?$)/
 
 // the words of an error: the whole receiver of `.message` (`result.error.message`), so `typeof error.message ===
 // "string"` is a check of the type; the helpers that answer the message; an error as a string
@@ -125,6 +148,9 @@ export function findProblems(file, source) {
   const lines = text.split("\n")
   const problems = []
   const controlled = messageControl(text)
+  if (RULE_MODULES.includes(file)) {
+    problems.push({ file, line: 1, rule: "rule-module", text: "a rule module whose rule Rust decides (domain-policy)" })
+  }
   lines.forEach((line, index) => {
     const at = { file, line: index + 1, text: source.split("\n")[index].trim() }
     if (controlled.test(line)) {
@@ -135,6 +161,9 @@ export function findProblems(file, source) {
     }
     if (TIMED.test(file) && TIMER.test(line)) {
       problems.push({ ...at, rule: "poll-timer" })
+    }
+    if (RULED.test(file) && RULE_EXPORT.test(line)) {
+      problems.push({ ...at, rule: "rule-module" })
     }
   })
   for (const call of text.matchAll(ROUTE_ERROR)) {
@@ -181,7 +210,9 @@ if (import.meta.main) {
   const problems = lintArchitecture(join(import.meta.dirname, ".."))
   if (problems.length > 0) {
     console.error(problems.join("\n"))
-    console.error(`${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, and polls on no timer of its own (scripts/lint-arch.mjs)`)
+    console.error(
+      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own and decides no rule of the domain (scripts/lint-arch.mjs)`,
+    )
     process.exit(1)
   }
 }

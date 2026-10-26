@@ -68,7 +68,7 @@ export function formatLanded(landed: Landed): string {
     case "baseline":
       return `Landed in ${landed.by.upstream}`
     case "robots":
-      return robotsLandedWords(landed.by.by, landed.by.own, landed.by.target)
+      return formatRobotsLanded(landed.by.by, landed.by.own, landed.by.target)
     case "pullRequest":
       return `Pull request #${landed.by.number} is merged`
   }
@@ -80,7 +80,7 @@ export function formatLandedWhole(landed: Landed | null | undefined): string | n
 }
 
 /** "Landed in master with login and the whole air stack", each subject once; of the subject's own robot "Merged by Patronus" */
-function robotsLandedWords(by: readonly RobotOf[], own: boolean, target: string): string {
+export function formatRobotsLanded(by: readonly RobotOf[], own: boolean, target: string): string {
   return own ? "Merged by Patronus" : `Landed in ${target} with ${joinNames([...new Set(by.map(it => formatLandingSubject(subjectOf(it))))])}`
 }
 
@@ -152,7 +152,7 @@ const words = {
     }
   },
   stackParked: ({ member }) => `Holds parked ${member}: land the stack in pieces`,
-  stackLanded: ({ by, own, target }) => robotsLandedWords(by, own, target),
+  stackLanded: ({ by, own, target }) => formatRobotsLanded(by, own, target),
   stackHeld: ({ root, mode }) => stackHeldWords(root, mode),
   cantPush: ({ branch }, statusText) => `${branch} can't be pushed: ${statusText(branch) === "" ? "it failed to sync" : statusText(branch)}`,
   dropsRemote: ({ branch, behind }) =>

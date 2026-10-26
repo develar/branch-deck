@@ -17,6 +17,8 @@
 //! - `actions`: what the app's actions on the remote run on, the same for the app's commands and the E2E server's routes
 //!   (`RemoteActions`: the Patronus service with the Space repository, git, the sessions with the tables of their last
 //!   syncs, the landing gate of the host); the flows are its methods
+//! - `action_view`: the actions of each subject of the view (`actions_of`: every branch, whole stack and robot, by
+//!   `domain_policy::actions`), derived with every patch over the next steps of the same patch
 //! - `facts`: the facts of a session, each with the number of the observation that answered it (`Seq`, one counter per
 //!   session) and the state of a fact without an answer (`FactRecord`); `FactStore`, the table of the last sync, the
 //!   robots of Patronus (`RobotsFact`, by id) with the details a window demands, and the Patronus view with the landing
@@ -64,6 +66,7 @@
 //!   (`begin_push`, `end_push`), a deleted archived or unapplied branch; `bd sync` folds its events into one too and
 //!   summarizes it
 
+pub mod action_view;
 pub mod actions;
 pub mod branch_table;
 pub mod derive;

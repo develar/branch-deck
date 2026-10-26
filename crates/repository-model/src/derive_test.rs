@@ -6,6 +6,7 @@ use crate::state::View;
 use crate::table::TableState;
 use crate::table::table_test::{grouped, remote_status};
 use domain_policy::parked::parked_state;
+use domain_types::actions::{ActionId, Availability};
 use domain_types::error::ApiError;
 use domain_types::fixtures::pull_request;
 use domain_types::landing::{Confirmation, FactWait, Land, LandFact, LandProfiles, PlannedEffect, ProfileChoice, StartRoute, Subject};
@@ -502,6 +503,14 @@ fn the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_
     stack.step
   );
   // the robot of a branch finishes merged: only its step changes
+  let branch = finish_merged(&mut facts);
+  let second = view.diff(&state, &facts).unwrap();
+  assert_eq!(second.changes.next_steps.keys().collect::<Vec<_>>(), [&branch]);
+  assert_eq!(second.changes.next_steps[&branch].node.kind, LandingNodeKind::InMaster, "merged by its robot");
+}
+
+/// The robot `r0` of the large table finishes merged, as the poll of the session answers it; its branch
+fn finish_merged(facts: &mut FactStore) -> String {
   let robot = facts.robots.view().robots["r0"].clone();
   let branch = robot.branch_name.clone().unwrap();
   facts.apply(
@@ -518,9 +527,33 @@ fn the_view_carries_the_next_step_and_the_node_of_each_subject_and_a_patch_only_
       },
     },
   );
+  branch
+}
+
+/// The view offers the actions of each branch, whole stack and robot, each enabled or disabled with the reason, and a
+/// patch carries only those of the subjects whose actions changed
+#[test]
+fn the_view_offers_the_actions_of_each_subject_and_a_patch_only_those_that_changed() {
+  let (state, mut facts) = crate::derive::derive_budget_test::session();
+  let mut view = View::new(1, "user");
+  let first = view.diff(&state, &facts).unwrap();
+  let actions = &first.changes.actions;
+  let availability = |key: &str, id: ActionId| actions[key].iter().find(|action| action.id == id).map(|action| action.availability.clone());
+  assert_eq!(availability("lone001", ActionId::SafePush), Some(Availability::Enabled), "approved: ready to land");
+  assert_eq!(availability("lone001", ActionId::OpenPullRequest), Some(Availability::Enabled));
+  assert!(availability("stack:stack0", ActionId::SafePushWholeStack).is_some(), "the whole stack starts");
+  assert_eq!(availability("robot:r0", ActionId::OpenRobot), Some(Availability::Enabled));
+  assert_eq!(availability("robot:r0", ActionId::CancelRobot), Some(Availability::Enabled), "it runs");
+  // the robot of a branch finishes merged: only the actions of the robot and of its branch change
+  let branch = finish_merged(&mut facts);
   let second = view.diff(&state, &facts).unwrap();
-  assert_eq!(second.changes.next_steps.keys().collect::<Vec<_>>(), [&branch]);
-  assert_eq!(second.changes.next_steps[&branch].node.kind, LandingNodeKind::InMaster, "merged by its robot");
+  let changed: Vec<&String> = second.changes.actions.keys().collect();
+  assert!(changed.contains(&&"robot:r0".to_string()), "{changed:?}");
+  assert!(changed.iter().all(|key| **key == branch || *key == "robot:r0"), "{changed:?}");
+  assert!(
+    !second.changes.actions["robot:r0"].iter().any(|action| action.id == ActionId::CancelRobot),
+    "merged: nothing to cancel"
+  );
 }
 
 /// A blocked row names the parent it waits for (the hover of its node offers to show it): the one its block names, else

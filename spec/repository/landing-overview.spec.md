@@ -146,7 +146,7 @@ indicator, whose states were the same story told twice.
   [Patronus](../branch/patronus.spec.md#timing)), for a finished one the state in its hue and when it finished
   ("Failed · 50 minutes ago"), with the mode and the merge profile on hover ("Safe Push · Large Scale Change"); the mode
   is written only for a Dry Run ("Dry Run · 15m · ~20m", a link that opens it in Patronus): a Safe Push is what
-  lands. Then the actions of the robot as every surface lists them (`getGatedRobotActions`,
+  lands. Then the actions of the robot as every surface lists them (`getRobotItems`, as Rust offers them,
   [Patronus](../branch/patronus.spec.md#restart-and-cancel)), icon buttons named after the robot ("Cancel Safe Push of
   JIRA-456", "Open Safe Push of JIRA-456 in Patronus") with the name of the action as the tooltip, a disabled one
   adding why. The second line of a running robot is its progress bar beside the check it waits for. While the overview

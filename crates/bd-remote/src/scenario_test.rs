@@ -16,11 +16,13 @@ use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::stack_summary::whole_stack;
 use bd_core::sync_command::{SyncOutput, SyncState, lock, sync_locked};
+use domain_policy::actions::{Problems, RobotFacts, robot_actions};
 use domain_policy::facts::Robots;
 use domain_policy::landed::LandedFacts;
 use domain_policy::next_step::PatronusStanding;
 use domain_policy::pull_request::start_pull_request;
 use domain_policy::stack::WholeStack;
+use domain_types::actions::ActionState;
 use domain_types::commit::Commit;
 use domain_types::landing::{self, Land, LandAnswer, ProfileChoice, Subject};
 use domain_types::next_step::NextStepView;
@@ -991,7 +993,7 @@ impl Situation {
     } else {
       None
     };
-    let next_steps = self.next_steps(&context, &synced, &table, &facts, given, &readiness, &open_pull_requests, &landed_states);
+    let (next_steps, actions) = self.next_steps(&context, &synced, &table, &facts, given, &readiness, &open_pull_requests, &landed_states);
     let report = &synced.report;
     let tips = |of: &HashMap<String, String>| -> BTreeMap<String, String> {
       of.iter()
@@ -1015,6 +1017,7 @@ impl Situation {
       "landedStates": landed_states,
       "land": land,
       "nextSteps": next_steps,
+      "actions": actions,
     });
     name_ids(&mut value, &names_of(&synced));
     settle_robots(&mut value["robots"]);
@@ -1077,7 +1080,8 @@ impl Situation {
   /// the facts of the case's repository: the rows of its sync (syncing while the app's sync runs, `sync`), the Patronus
   /// view with the landing needs and the robots, each failed one with why it failed as its problems tell (`reason`), the
   /// listing of the pull requests, the readiness of `readiness`, where each open pull request goes and what landed each
-  /// subject
+  /// subject; with the actions of each robot (`robot:<id>`, `domain_policy::actions::robot_actions`) over those facts and
+  /// the steps of the rows of their branches
   #[expect(clippy::too_many_arguments, reason = "the facts the session derives the steps of, each computed once by the caller")]
   fn next_steps(
     &self,
@@ -1089,7 +1093,7 @@ impl Situation {
     readiness: &BTreeMap<String, Value>,
     open: &BTreeMap<String, PullRequestView>,
     landed: &BTreeMap<String, landing::Landed>,
-  ) -> BTreeMap<String, NextStepView> {
+  ) -> (BTreeMap<String, NextStepView>, BTreeMap<String, Vec<ActionState>>) {
     let failed: HashMap<&str, BranchStatus> = synced
       .branches
       .iter()
@@ -1184,7 +1188,25 @@ impl Situation {
       target: &target,
       view_stacks: None,
     };
-    next_steps(&sources)
+    let steps = next_steps(&sources);
+    let actions = robots
+      .robots
+      .values()
+      .map(|robot| {
+        let row = robot.branch_name.as_deref().filter(|name| rows.iter().any(|(row, _)| row == name));
+        let facts = RobotFacts {
+          robot,
+          restart: facts.view.restarts.get(&robot.id),
+          pushes: row.is_some() || (robot.branch_name.is_none() && robot.stack_root.is_some()),
+          needs_review: robots.needs_review.get(&robot.id).copied(),
+          failing: false,
+          problems: Problems::Known,
+          step: row.and_then(|name| steps.get(name)).map(|view| &view.step),
+        };
+        (format!("robot:{}", robot.id), robot_actions(&facts))
+      })
+      .collect();
+    (steps, actions)
   }
 
   /// What the facts of the app's side read the remote services with: the Space repository, the fake Patronus and GitHub,

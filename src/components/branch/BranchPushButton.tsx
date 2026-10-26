@@ -10,7 +10,7 @@ import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { RobotActionButton } from "@/components/branch/PatronusChip"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
-import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { pushBranch, pushFromButton } from "@/lib/git/push"
@@ -22,7 +22,7 @@ import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from 
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useObjectBusy } from "@/stores/operations"
+import { useObjectBusy, useOperations } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -236,6 +236,8 @@ const HOLD_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-re
  */
 function PushHeldActions({ branch, close }: { branch: Branch; close: () => void }) {
   const hold = usePushHold(branch.name)
+  const robotParts = useRobotParts(hold?.robot)
+  const operations = useOperations()
   const blocker = blockingBranchOf(branch)
   if (blocker !== null) {
     return (
@@ -256,7 +258,7 @@ function PushHeldActions({ branch, close }: { branch: Branch; close: () => void 
     return null
   }
   const own = hold.kind === "own"
-  const actions = getGatedRobotActions(hold.robot, own ? branch : null).filter(it => HOLD_ACTIONS.has(it.id) && (own || it.id === "open-robot"))
+  const actions = getRobotItems(hold.robot, operations, robotParts).filter(it => HOLD_ACTIONS.has(it.id) && (own || it.id === "open-robot"))
   return (
     <div className="flex flex-wrap gap-2" data-testid="push-hold-actions">
       {actions.map(action => (

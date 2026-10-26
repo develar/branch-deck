@@ -328,20 +328,6 @@ function childrenActionOf(branchName: string, unpushedChildren: UnpushedChildren
 }
 
 /**
- * Whether the push button of the branch is enabled, for P in the branch preview and on the focused row of the branch
- * table: synced without an error, with commits, something to push, no push running, the branch not rebuilt anew by a sync
- * running (a push during a sync waits for it), no inline action on the row
- */
-export function canPushNow(branch: Branch, { isPushing, processing }: { isPushing: boolean; processing: boolean }): boolean {
-  return (
-    !branch.hasError &&
-    branch.commitCount > 0 &&
-    !processing &&
-    !getPushButtonState(branch, { isPushing, hold: getPushHold(branch.name), parked: getParkedState(branch.name) }).disabled
-  )
-}
-
-/**
  * The first push of a branch is a step of its landing: Safe Push and Create Pull Request push the branch themselves
  * (`pushForAction`), so the row, the preview and the review window offer no push of a branch the remote lacks, only
  * its menu does, with Push with Children of a root. A push stays while it runs, while a Safe Push holds the branch

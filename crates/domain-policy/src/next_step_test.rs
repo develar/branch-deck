@@ -257,7 +257,8 @@ fn shape(step: &NextStep) -> (StepRow, StepKind, Option<StepBlocker>, Option<Ste
   (step.row, step.kind.clone(), step.safe_push.clone(), step.dry_run.clone())
 }
 
-fn landed_by_oauth() -> Landed {
+/// What a merged Safe Push of oauth landed: all of the subject
+pub(crate) fn landed_by_oauth() -> Landed {
   Landed {
     by: LandedBy::Robots {
       by: vec![robot_of("oauth", "r9")],

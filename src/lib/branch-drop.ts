@@ -6,17 +6,19 @@
  * gives for the same action. A drop while a rewrite of the repository runs is taken: its action waits for that rewrite in
  * the queue (`runOperation`).
  */
+import type { ActionId } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
-import type { PushHold } from "@/lib/patronus"
-import { hasStackFix, stackOnFixes, stackProblemOf } from "@/lib/stack"
-import { formatPushHoldReason } from "@/presenters/reasons"
 import type { Branch } from "@/stores/branch-sync"
 
-/** What a drop decides by: the branches as the last sync left them */
+/** What a drop decides by: the branches as the last sync left them, and their actions as Rust decides them */
 export interface BranchDropFacts {
   branch: (name: string) => Branch | undefined
   parked: (name: string) => ParkedState | null
-  hold: (name: string) => PushHold | null
+  /**
+   * Why the action `id` of the branch `name` can't run now, as its menu says it (`domain_policy::actions`, a sync of the
+   * table over a rewrite); null while it can, undefined while the branch doesn't offer it
+   */
+  blocker: (name: string, id: ActionId) => string | null | undefined
   /** The branches stacked on `name`, directly or further down */
   descendants: (name: string) => readonly string[]
   stacksEnabled: boolean
@@ -28,51 +30,10 @@ export interface BranchDropFacts {
 export type BranchDrop = { readonly names: readonly string[] } | { readonly refusal: string }
 
 /**
- * Why a rewrite of the branch (rename, move, ungroup, restack, amend, unapply, issue reference, squash) can't run now:
- * it has no commits, it failed to sync (a stack problem says which: "login has conflicting parents"; only its fixes run,
- * `fixBlocker`), or a sync rebuilds the branches (also a quiet resync of a row that shows its last state); null when it
- * can
- */
-export function rewriteBlocker(branch: Branch, isSyncing: boolean): string | null {
-  if (branch.commits.length === 0) {
-    return "The branch has no commits"
-  }
-  if (branch.hasError) {
-    return stackProblemOf(branch)?.reason ?? "The branch failed to sync"
-  }
-  return fixBlocker(branch, isSyncing)
-}
-
-/**
- * Why a fix of the stack problem of the branch (`StackProblemView.fixes`: Stack On, Unstack, Rename…) can't run now: a
- * sync rebuilds the branches; the problem itself doesn't block its fixes, as a regroup keeps a problem it finds
- */
-export function fixBlocker(branch: Branch, isSyncing: boolean): string | null {
-  return branch.status === "Syncing" || isSyncing ? "Wait for the sync to finish" : null
-}
-
-/**
- * Why a branch that is not parked can't be parked now: a robot lands it (it lands whatever a park says), it has no
- * commits, or a sync rebuilds the branches; null when it can
- */
-export function parkBlocker(branch: Branch, hold: PushHold | null, isSyncing: boolean): string | null {
-  if (hold !== null && hold.kind !== "landed") {
-    return `${formatPushHoldReason(branch.name, hold)}: it lands whatever a park says`
-  }
-  if (branch.commits.length === 0) {
-    return "The branch has no commits"
-  }
-  if (branch.status === "Syncing" || isSyncing) {
-    return "Wait for the sync to finish"
-  }
-  return null
-}
-
-/**
  * The move of the dragged commits into the branch `target` of a row, or back out of the branches (`target` null):
  * a row of the Parked card leaves a drag of branches that land to the card, which parks them (null). Refused for a drag
- * of whole branches while one of them can't be rewritten (`rewriteBlocker`), as Move to… of their menu; a drag of
- * commit rows moves during a sync, as Move to… of a commit
+ * of whole branches while one of them can't be rewritten, as Move to… of their menu says (`blocker`); a drag of commit
+ * rows moves during a sync, as Move to… of a commit
  */
 export function moveDrop(branches: readonly string[], target: string | null, facts: BranchDropFacts): BranchDrop | null {
   if (target !== null && branches.length > 0 && facts.parked(target) !== null && showsParkDrop(branches, facts)) {
@@ -80,8 +41,8 @@ export function moveDrop(branches: readonly string[], target: string | null, fac
   }
   for (const name of branches) {
     const branch = facts.branch(name)
-    const blocker = branch === undefined ? "The branch is gone" : rewriteBlocker(branch, facts.isSyncing)
-    if (blocker !== null) {
+    const blocker = branch === undefined ? "The branch is gone" : facts.blocker(name, "move-to")
+    if (blocker != null) {
       return { refusal: `Cannot move ${name} ${target === null ? "back" : `to ${target}`}: ${blocker}` }
     }
   }
@@ -95,7 +56,7 @@ export function showsParkDrop(names: readonly string[], facts: BranchDropFacts):
 
 /**
  * The park of the dragged branches that land; those parked already stay as they are. Refused when all of them are
- * parked, or when one that lands can't be parked now (`parkBlocker`)
+ * parked, or when one that lands can't be parked now, as Park Branch… of its menu says (`blocker`)
  */
 export function parkDrop(names: readonly string[], facts: BranchDropFacts): BranchDrop {
   const landing = names.filter(name => facts.parked(name) === null)
@@ -105,8 +66,8 @@ export function parkDrop(names: readonly string[], facts: BranchDropFacts): Bran
   }
   for (const name of landing) {
     const branch = facts.branch(name)
-    const blocker = branch === undefined ? "The branch is gone" : parkBlocker(branch, facts.hold(name), facts.isSyncing)
-    if (blocker !== null) {
+    const blocker = branch === undefined ? "The branch is gone" : facts.blocker(name, "park")
+    if (blocker != null) {
       return { refusal: `Cannot park ${name}: ${blocker}` }
     }
   }
@@ -145,7 +106,8 @@ export function unparkDrop(names: readonly string[], facts: BranchDropFacts): Br
 /**
  * The stack of the one dragged branch `name` on `target`, as "Stack On…" of its menu: null where the chip doesn't show
  * (stacked branches off, more than one branch dragged, the row of the branch itself); refused on a branch stacked on it
- * (a cycle), on its parent already, or while the branch can't be rewritten (`rewriteBlocker`)
+ * (a cycle), on its parent already, or while Stack On… of its menu can't run (`blocker`: a stack problem lets its fixes
+ * run)
  */
 export function stackOnDrop(names: readonly string[], target: string, facts: BranchDropFacts): BranchDrop | null {
   const [name] = names
@@ -162,16 +124,17 @@ export function stackOnDrop(names: readonly string[], target: string, facts: Bra
   if (facts.descendants(name).includes(target)) {
     return { refusal: `Cannot stack ${name} on ${target}: ${target} is stacked on it` }
   }
-  const problem = stackProblemOf(branch)
-  const fix = problem !== null && stackOnFixes(problem).includes(target)
-  const blocker = fix ? fixBlocker(branch, facts.isSyncing) : rewriteBlocker(branch, facts.isSyncing)
+  const blocker = facts.blocker(name, "stack-on")
+  if (blocker === undefined) {
+    return null
+  }
   return blocker === null ? { names } : { refusal: `Cannot stack ${name} on ${target}: ${blocker}` }
 }
 
 /**
- * The unstack of the one dragged branch: null where the zone doesn't show (stacked branches off, more than one branch
- * dragged, a branch stacked on none that no stack problem offers to unstack); refused while it can't be rewritten
- * (`rewriteBlocker`), or for a fix of its stack problem while a sync runs (`fixBlocker`)
+ * The unstack of the one dragged branch: null where the zone doesn't show (more than one branch dragged, a branch whose
+ * menu offers no Unstack: stacked on none and no stack problem offers it, stacked branches off); refused while it can't
+ * run, as its menu says (`blocker`)
  */
 export function unstackDrop(names: readonly string[], facts: BranchDropFacts): BranchDrop | null {
   const [name] = names
@@ -183,12 +146,10 @@ export function unstackDrop(names: readonly string[], facts: BranchDropFacts): B
     return null
   }
   const parent = branch.stack?.declaredParent ?? null
-  const problem = stackProblemOf(branch)
-  const fix = problem !== null && hasStackFix(problem, "Unstack")
-  if (parent === null && !fix) {
+  const blocker = facts.blocker(name, "unstack")
+  if (blocker === undefined) {
     return null
   }
-  const blocker = fix ? fixBlocker(branch, facts.isSyncing) : rewriteBlocker(branch, facts.isSyncing)
   const cannot = parent === null ? `Cannot unstack ${branch.name}` : `Cannot unstack ${branch.name} from ${parent}`
   return blocker === null ? { names } : { refusal: `${cannot}: ${blocker}` }
 }

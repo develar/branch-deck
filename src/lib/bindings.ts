@@ -519,6 +519,47 @@ export const commands = {
 export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"zoom":1} as const;
 
 /* Types */
+/**  Why an action can't run now, as a code with the facts its words need */
+export type ActionBlocker = 
+/**  A reason of the rules: its build blocked, parked, a robot that holds or lands it, a stack branch not built */
+{ code: "rule"; reason: Reason } | 
+/**
+ *  What the next step of the subject says against its start (`NextStep::safe_push`, `dry_run`, `without_review`): the
+ *  step words it
+ */
+{ code: "step"; blocker: StepBlocker } | 
+/**  A fact of the remote it needs has no answer yet */
+{ code: "pending"; fact: StepFact } | 
+/**  Patronus didn't tell why the robot failed: a restart and a prompt would act as if it hadn't failed for approvals */
+{ code: "problemsFailed"; message: string } | 
+/**  A sync rebuilds the branch (a rewrite: any sync) */
+{ code: "syncing" } | 
+/**  The last sync didn't build the branch: `problem` the reason of its stack problem, where the sync says it */
+{ code: "syncFailed"; problem: string | null } | { code: "noCommits" } | 
+/**  The remote branch has every commit of the branch */
+{ code: "upToDate" } | 
+/**  Its open pull request is a draft: nobody is asked to review it */
+{ code: "draft"; number: number } | 
+/**  The robot starts from a comment on the pull request, which runs the default checks: no profile to choose */
+{ code: "commentRoute"; number: number } | 
+/**  Every commit of the branch has an issue reference */
+{ code: "allReferenced" } | 
+/**  A robot lands the branch (`reason`, its hold): it lands whatever a park says */
+{ code: "parkHeld"; reason: Reason } | 
+/**  Push with Children has nothing to push beyond the branch itself */
+{ code: "nothingBeyond"; why: NothingBeyond } | 
+/**  All of it landed: nothing is left to review in a new pull request */
+{ code: "landed"; landed: Landed };
+
+/**  An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface */
+export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | "push" | "push-with-children" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request";
+
+/**  An action a subject offers now, and whether it can run */
+export type ActionState = {
+	id: ActionId,
+	availability: Availability,
+};
+
 export type AddIssueReferenceParams = {
 	repositoryPath: string,
 	branchName: string,
@@ -701,6 +742,9 @@ export type AutosquashScope = { type: "all" } |
 { type: "unassigned" } | 
 /**  Only this fixup commit, into its target */
 { type: "fixup"; value: string };
+
+/**  Whether an action can run now: disabled with the reason, never hidden for it (UX Writing, "Actions") */
+export type Availability = { kind: "enabled" } | { kind: "disabled"; reason: ActionBlocker };
 
 /**  The first move of the other side after the user answered a request with a comment: the turn is the user's again */
 export type BackToYou = {
@@ -3261,6 +3305,22 @@ export type NodeLabel =
 /**  Off Space: it lands through `number` */
 { kind: "landsThrough"; number: number };
 
+/**  Why Push with Children of a branch pushes nothing beyond the branch itself */
+export type NothingBeyond = 
+/**  The branches stacked on it whose push drops remote commits: each asks first in its row */
+{ kind: "askFirst"; names: string[] } | 
+/**  Only the branch has commits to push: its own push sends them */
+{ kind: "onlyBranch" } | 
+/**
+ *  Merged Safe Pushes landed the branch and every branch stacked on it whole: `by` each robot once, in the order they
+ *  merged, `own` when the robot of the whole stack of the branch landed them all; `target` of the first
+ */
+{ kind: "landed"; by: RobotOf[]; own: boolean; target: string } | 
+/**  The branches are on the remote; the stack branch of the whole stack of the root stays, and why */
+{ kind: "stackBranch"; along: StackBranchAlong } | 
+/**  The branches are on the remote */
+{ kind: "onRemote" };
+
 /**  What the limits of a failure left out */
 export type OmittedFailures = {
 	/**  Failed builds beyond the limit */
@@ -4304,6 +4364,12 @@ export type RepositoryView = {
 	 *  the first sync
 	 */
 	nextSteps: { [key in string]: NextStepView },
+	/**
+	 *  The actions of each subject (a branch, `stack:<root>` the whole stack of a root, `robot:<id>` a robot of the user)
+	 *  and whether each can run now, as `domain_policy::actions` decides them over the table, its next steps and the facts;
+	 *  none before the first sync
+	 */
+	actions: { [key in string]: ActionState[] },
 	sections: TableSections,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
@@ -5638,6 +5704,8 @@ export type TableChanges = {
 	removedLandedStates?: string[],
 	nextSteps?: { [key in string]: NextStepView },
 	removedNextSteps?: string[],
+	actions?: { [key in string]: ActionState[] },
+	removedActions?: string[],
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,

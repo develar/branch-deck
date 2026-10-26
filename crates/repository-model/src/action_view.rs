@@ -1,0 +1,219 @@
+//! The actions of each subject of the view of a session (`actions_of`): every branch of the table, the whole stack of
+//! every root that heads one (`stack:<root>`) and every robot of the user (`robot:<id>`), as `domain_policy::actions`
+//! decides them over the table, the next steps the view derived with the same patch, its pushes and decisions of the
+//! starts, the open pull requests, what landed each subject, and the facts of the remote services
+//! (docs/design/rust-domain-authority.md, s8-policy). The view derives them with every patch, a sync included: a sync
+//! is a reason.
+
+use crate::derive::{github_repository_known, live_hold, row_of_view};
+use crate::facts::FactStore;
+use crate::table::TableState;
+use domain_policy::actions::{BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, review_blocker, robot_actions, stack_actions};
+use domain_policy::next_step::{Listing, PatronusStanding};
+use domain_types::actions::{ActionState, NothingBeyond};
+use domain_types::landing::{LandDecisions, Landed, StartRoute};
+use domain_types::next_step::NextStepView;
+use domain_types::patronus::PatronusRobotStatus;
+use domain_types::pull_request::PullRequestView;
+use domain_types::reason::Reason;
+use domain_types::repository_view::{HoldKind, PatronusView, RobotOf};
+use domain_types::session::{BranchPush, BranchView, RobotsView, SyncState, WholeStackView, stack_readiness_key};
+use std::collections::{BTreeMap, HashSet};
+
+/// What the actions of a view are decided on beside the table and the facts: the parts of the view derived with the same
+/// patch
+pub struct ActionSources<'a> {
+  pub steps: &'a BTreeMap<String, NextStepView>,
+  pub pushes: &'a BTreeMap<String, BranchPush>,
+  pub lands: &'a BTreeMap<String, LandDecisions>,
+  pub open_pull_requests: &'a BTreeMap<String, PullRequestView>,
+  pub landed: &'a BTreeMap<String, Landed>,
+}
+
+/// The actions of every subject of `state` by subject key (`domain_policy::actions`); none before the first sync, whose
+/// next steps they read
+#[must_use]
+pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources<'_>) -> BTreeMap<String, Vec<ActionState>> {
+  let parts = &state.parts;
+  let part = facts.patronus.part();
+  let robots = facts.robots.view();
+  let pull_requests = facts.pull_requests.view();
+  let standing = PatronusStanding::of(&robots.head, &part.state);
+  let patronus = standing.answer();
+  let listing = Listing::of(&pull_requests.head);
+  let repository = github_repository_known(pull_requests, robots);
+  let sync_running = matches!(state.sync, SyncState::Running { .. });
+  let mut actions = BTreeMap::new();
+  for (name, branch) in &parts.branches {
+    let Some(step) = sources.steps.get(name) else {
+      continue;
+    };
+    let row = row_of_view(branch);
+    let hold = part.view.branches.get(name).and_then(|facts| live_hold(facts, robots));
+    let hold_reason = hold.map(|(hold, robot)| Reason::Held {
+      branch: name.clone(),
+      hold: hold.clone(),
+      mode: robot.push_mode,
+      target: robot.target_branch.clone(),
+    });
+    let children = sources.pushes.get(name).and_then(|push| push.children.as_ref()).map(|push| Children {
+      push,
+      statuses_pending: sync_running && !push.offers && unparked_line(parts, name, branch).any(|it| parts.branches.get(it).is_none_or(|it| it.remote.status.is_none())),
+      landed: landed_with_children(&part.view, robots, name, &branch.structure.descendants),
+    });
+    let facts = BranchFacts {
+      row: Row {
+        name,
+        syncing: row.syncing,
+        status: row.status,
+        blocked_by: row.blocked_by.as_deref(),
+        sync_failed: row.sync_failed,
+        problem: branch.head.stack.as_ref().and_then(|stack| stack.problems.first()),
+        commit_count: row.commit_count,
+        parked: branch.structure.parked.as_ref(),
+        declared_parent: branch.head.stack.as_ref().and_then(|stack| stack.declared_parent.as_deref()),
+        all_referenced: branch.head.all_commits_have_issue_references,
+      },
+      patronus,
+      step: &step.step,
+      hold: hold_reason.as_ref(),
+      hold_landed: hold.is_some_and(|(hold, _)| hold.kind == HoldKind::Landed),
+      remote: branch.remote.status.as_ref(),
+      children,
+      pull_request: pull_requests.pull_requests.get(name),
+      open_pull_request: sources.open_pull_requests.get(name),
+      listing,
+      repository,
+      comment_route: sources.lands.get(name).and_then(|lands| match lands.safe_push.start_route() {
+        Some(StartRoute::Comment { number }) => Some(*number),
+        _ => None,
+      }),
+      stacks_enabled: parts.header.stacks_enabled,
+    };
+    actions.insert(name.clone(), branch_actions(&facts));
+  }
+  for (root, branch) in &parts.branches {
+    let Some(whole) = &branch.structure.whole_stack else {
+      continue;
+    };
+    let key = stack_readiness_key(root);
+    let main_line = &branch.structure.main_line;
+    let leaf = main_line.last();
+    let leaf_step = leaf.and_then(|leaf| sources.steps.get(leaf)).map(|view| &view.step);
+    let leaf_review = leaf.and_then(|leaf| parts.branches.get(leaf)).and_then(|leaf| {
+      let row = row_of_view(leaf);
+      review_blocker(&Row {
+        name: &leaf.head.name,
+        syncing: row.syncing,
+        status: row.status,
+        blocked_by: row.blocked_by.as_deref(),
+        sync_failed: row.sync_failed,
+        problem: leaf.head.stack.as_ref().and_then(|stack| stack.problems.first()),
+        commit_count: row.commit_count,
+        parked: None,
+        declared_parent: None,
+        all_referenced: false,
+      })
+    });
+    let (shape, step) = match whole {
+      WholeStackView::Forking { not_built } => (
+        StackShape::Forking {
+          not_built: not_built.as_ref(),
+          tip: parts.stacks.get(root).is_some_and(|stack| stack.tip.is_some()),
+          main_line: leaf_step,
+        },
+        sources.steps.get(&key).map(|view| &view.step),
+      ),
+      WholeStackView::Chain { .. } => (
+        StackShape::Chain {
+          length: main_line.len() + 1,
+          review: leaf_review.as_ref(),
+        },
+        leaf_step,
+      ),
+    };
+    let facts = StackFacts {
+      root,
+      patronus,
+      shape,
+      step,
+      pull_request: pull_requests.stack_pull_requests.get(root),
+      open_pull_request: sources.open_pull_requests.get(&key),
+      repository,
+      landed: sources.landed.get(&key),
+    };
+    actions.insert(key, stack_actions(&facts));
+  }
+  let table_robots: HashSet<&str> = part
+    .view
+    .branches
+    .values()
+    .filter_map(|facts| facts.robot_id.as_deref())
+    .chain(part.view.stacks.values().filter_map(|facts| facts.robot_id.as_deref()))
+    .collect();
+  for robot in robots.robots.values() {
+    let row = robot.branch_name.as_deref().filter(|name| parts.branches.contains_key(*name));
+    let of_table = row.is_some() || table_robots.contains(robot.id.as_str());
+    let problems = if robot.status != PatronusRobotStatus::Failure || !of_table {
+      Problems::Known
+    } else if let Some(message) = robots.problems_failed.get(&robot.id) {
+      Problems::Failed(message)
+    } else if robots.needs_review.contains_key(&robot.id) {
+      Problems::Known
+    } else {
+      Problems::Pending
+    };
+    let facts = RobotFacts {
+      robot,
+      restart: part.view.restarts.get(&robot.id),
+      pushes: row.is_some() || (robot.branch_name.is_none() && robot.stack_root.is_some()),
+      needs_review: robots.needs_review.get(&robot.id).copied(),
+      failing: robots.failing.contains(&robot.id),
+      problems,
+      step: row.and_then(|name| sources.steps.get(name)).map(|view| &view.step),
+    };
+    actions.insert(format!("robot:{}", robot.id), robot_actions(&facts));
+  }
+  actions
+}
+
+/// The branch and the branches stacked on it that aren't parked: what Push with Children reads the statuses of
+fn unparked_line<'a>(parts: &'a crate::table::TableParts, name: &'a str, branch: &'a BranchView) -> impl Iterator<Item = &'a str> {
+  std::iter::once(name).chain(
+    branch
+      .structure
+      .descendants
+      .iter()
+      .map(String::as_str)
+      .filter(|it| parts.branches.get(*it).is_none_or(|it| it.structure.parked.is_none())),
+  )
+}
+
+/// Merged Safe Pushes landed `name` and every branch stacked on it whole: each robot once, in the order they merged;
+/// `own` when the robot of the whole stack of `name` landed them all. `None` for a branch without descendants, or while
+/// one of them is left
+fn landed_with_children(view: &PatronusView, robots: &RobotsView, name: &str, descendants: &[String]) -> Option<NothingBeyond> {
+  if descendants.is_empty() {
+    return None;
+  }
+  let mut by: Vec<(&RobotOf, u32, &str)> = Vec::new();
+  for branch in std::iter::once(name).chain(descendants.iter().map(String::as_str)) {
+    let landed = view.branches.get(branch)?.landed_by.as_ref().filter(|landed| landed.after.is_empty())?;
+    let robot = robots.robots.get(&landed.by.robot_id).filter(|robot| robot.status == PatronusRobotStatus::Success)?;
+    if !by.iter().any(|(of, _, _)| of.robot_id == landed.by.robot_id) {
+      by.push((&landed.by, robot.finish_time.unwrap_or(0), &robot.target_branch));
+    }
+  }
+  by.sort_by_key(|(_, finish, _)| *finish);
+  let own = by.iter().all(|(of, _, _)| of.whole_stack && of.branch == name);
+  let target = by.first().map(|(_, _, target)| (*target).to_string())?;
+  Some(NothingBeyond::Landed {
+    by: by.into_iter().map(|(of, _, _)| of.clone()).collect(),
+    own,
+    target,
+  })
+}
+
+#[cfg(test)]
+#[path = "action_view_test.rs"]
+mod action_view_test;

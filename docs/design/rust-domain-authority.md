@@ -853,7 +853,7 @@ repository». Аудит всех функций в тот же день наш�
   Fetch присоединяется; push ждёт идущий rewrite. `operations.md` в том же коммите: «Conflicts», «Items» и
   «Rewrites» — rewrite, который должен ждать, встаёт в очередь со step на поверхности, его пункт не отключается и info
   toast «Cannot undo the move» не приходит; Undo помечается выполненным после `Ok`. Решение 3 и блокировка rewrites
-  во время sync (`getRewriteBlocker`) остаются до s11.
+  во время sync (`whileSyncing` поверх `actions` в `src/presenters/actions.ts`) остаются до s11.
 - **Захват репозитория:** Safe Push start, toast «Update Project», Create PR и Request Review, Close Landed, undo
   park и regroup, результаты push по (репозиторий, ветка). Сделано (`fix/remote-perf`): повтор Create при отставании
   поиска находит PR через REST `pulls?head=<owner>:<branch>&state=open` и отвечает `created: false`
@@ -2112,6 +2112,21 @@ rewrites между процессами через файл `s10`; `s12` ждё
      (правила target для PR виртуальной ветки) спрашиваются по нему; строка 5 больше не отказывает, её слот остаётся
      retarget до шага 10. Таблица сценариев: факты несут `land` (решение сессии над фактами случая), колонка
      `app.decision` — `presentLand` этого решения; D11, D12, D14 закрыты.
+  14. Действия (шаг s8-12): `RepositoryView.actions` по ключу субъекта (ветка, `stack:<root>`, `robot:<id>`; обёртки
+     `BranchView.actions`/`StackView.actions` нет, как у `nextSteps`) — `Vec<ActionState { id: ActionId, availability }>`
+     (`domain_types::actions`), решает `domain_policy::actions` (`branch_actions`, `stack_actions`, `robot_actions`;
+     вывод — `repository_model::action_view::actions_of`) над next step того же патча, `pushes`, `lands`, открытыми PR,
+     `landedStates` и фактами; выводится каждым патчем, во время sync тоже. Причина — `ActionBlocker` (`Rule{Reason}`,
+     `Step{StepBlocker}` — слова шага, `Pending{fact}`, `Syncing`, `SyncFailed`, `NothingBeyond`, …); каталог
+     `crates/domain-policy/actions.json` (каждый id и пример каждой причины) читает `src/presenters/actions.test.ts`.
+     Sync таблицы не отключает rewrites в Rust: иначе каждый resync слал бы действия каждой строки; страница
+     накладывает его (`whileSyncing`) вместе с операциями (`operationItem`) и идущим push — до `Queued{op}` s10.
+     Присутствие по данным только страницы остаётся ей: «Squash N Fixups…» (план autosquash), «Ungroup» (префикс),
+     «Close Pull Request #12…» осиротевшего PR whole stack (память `landed-stacks`, s9). Палитра ⌘K показывает действия
+     ветки в фокусе из того же строителя меню; drop-цели drag читают те же действия. `lint:arch` ограждает правила:
+     удалённые модули не возвращаются, экспорт `can…`/`needs…`/`allows…`/`…Blocker`/`…Decision`/`is…Blocked` в
+     `src/lib`/`src/hooks` — только записью `ALLOWLIST` (`needsRobotAttention` до s9, `commitReviewBlocker` выделения).
+     `bd` ничего не получает (действия `bd` — intents s9).
 
 ### s9-engine-remote
 
@@ -2273,7 +2288,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   имени (R10, debounce IPC; при заметной задержке — TS-проверка против оракула `src/test-support/branch-names.cases.json`,
   который пишет Rust-тест); `SignIn`/`SignOut` с `Channel<SignInEvent>` (`crates/github/src/device_flow.rs` уже есть).
   `operations.md`: решение 3 «a rewrite lasts until its sync ends» заменяется «операция кончается с запуском sync,
-  который её обслуживает», «Conflicts» — rewrite во время sync допускается сразу (`getRewriteBlocker` и «Wait for
+  который её обслуживает», «Conflicts» — rewrite во время sync допускается сразу (`whileSyncing` и «Wait for
   the sync to finish» уходят, C14), решение 4. AGENTS.md «Repository lock»: rewrite и Update Project берут lock после
   prepare на замороженных oids, под lock — только witness, CAS-запись и move («before it reads anything» уходит);
   `bd sync` и sync после rewrite `bd` уходят из списка держателей; «The app's sync never takes it» становится «a

@@ -2,8 +2,7 @@ import type { ParentState, StackFix, StackProblemView } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { groupFor } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
-import { formatReason, formatStackHold } from "@/presenters/reasons"
-import type { Branch, ChildrenPushOrder } from "@/stores/branch-sync"
+import type { Branch } from "@/stores/branch-sync"
 
 /**
  * The stack problem the sync reports for the branch, the first of its problems, with its label, its reason, its message
@@ -191,43 +190,6 @@ export function formatPushWithChildrenLabel(order: readonly string[], withStackB
 export function formatAskFirst(names: readonly string[]): string {
   const one = names.length === 1
   return `${joinNames(names)} ${one ? "asks" : "ask"} first in ${one ? "its row" : "their rows"}: the push drops remote commits`
-}
-
-/**
- * Why Push with Children of `name` has nothing to push beyond the branch itself, as its menu item and the push of the
- * island header say it; null while it does. `children` is what Rust orders it to push (`ChildrenPush`: its order, the
- * children left out because their push drops remote commits, what it does with the stack branch of the whole stack of a
- * root: "Nothing to push" only while that one has nothing to push either). `landed`: merged Safe Pushes landed the
- * branch and every branch built on it whole (`useLandedWithChildrenReason`): "Landed in master with deploy and
- * side-test: nothing of air and its children is left to push".
- */
-export function describePushWithChildrenBlocker(name: string, children: ChildrenPushOrder | null, landed: string | null = null): string | null {
-  if (children?.offers === true) {
-    return null
-  }
-  const askFirst = children?.askFirst ?? []
-  if (askFirst.length > 0) {
-    return formatAskFirst(askFirst)
-  }
-  if (children?.order.includes(name) === true) {
-    return `Only ${name} has commits to push: its own push sends them`
-  }
-  if (landed !== null) {
-    return `${landed}: nothing of ${name} and its children is left to push`
-  }
-  const along = children?.stackBranch ?? null
-  switch (along?.kind) {
-    case "unpublished":
-      return "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack"
-    case "notBuilt":
-      return `The branches of the stack are on the remote. ${formatReason(along.reason)}`
-    case "held":
-      return `The branches of the stack are on the remote. ${formatStackHold(along.reason)}`
-    case "dropsRemote":
-      return "The branches of the stack are on the remote. The whole stack branch stays: its push would drop remote commits it lacks"
-    default:
-      return "Nothing to push: the stack is on the remote"
-  }
 }
 
 /**

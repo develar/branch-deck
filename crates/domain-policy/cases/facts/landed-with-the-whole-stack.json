@@ -1,4 +1,12 @@
 {
+  "actions": {
+    "robot:from-comment": [
+      {"availability": {"kind": "enabled"}, "id": "cancel-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot-pull-request"}
+    ],
+    "robot:robot-0": [{"availability": {"kind": "enabled"}, "id": "open-robot"}]
+  },
   "given": {
     "branch": "login",
     "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],

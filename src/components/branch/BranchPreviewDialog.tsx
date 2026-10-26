@@ -27,12 +27,11 @@ import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useMissingCommitOwners } from "@/hooks/useMissingCommitOwners"
-import { canPushNow } from "@/hooks/usePushButton"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { getStatusBadge } from "@/hooks/useStatusBadge"
 import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
-import { branchReviewBlocker } from "@/lib/branch-review"
+import { reviewBlockerOf } from "@/lib/branch-review"
 import { openBranchReviewWindow, reviewBranchCommit } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushOrConfirm } from "@/lib/git/push"
@@ -44,6 +43,8 @@ import { openPullRequest } from "@/lib/pull-request"
 import { stackProblemOf } from "@/lib/stack"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
+import { useRowPart } from "@/model/store"
+import { isActionEnabled } from "@/presenters/actions"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useIsBranchPushing } from "@/stores/branch-sync"
 import { useObjectBusy } from "@/stores/operations"
@@ -85,11 +86,13 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
   const isPushing = useIsBranchPushing(currentName ?? "")
   const processing = useObjectBusy(currentName ?? "") !== null
-  const canPush = branch !== undefined && canPushNow(branch, { isPushing, processing })
+  // as Rust decides the push and the review of the branch, with what runs on the page over the push
+  const actions = useRowPart(currentName ?? "", "actions")
+  const canPush = branch !== undefined && isActionEnabled(actions, "push") && !isPushing && !processing
   const pullRequest = usePullRequest(currentName ?? "")
   const summary = branch === undefined ? null : getBranchSummary(branch.summary, branch.descriptionTitle)
   const patronusAvailable = usePatronusAvailable()
-  const reviewBlocker = branch === undefined ? null : branchReviewBlocker(branch)
+  const reviewBlocker = branch === undefined ? null : reviewBlockerOf(branch, actions)
   const canReview = branch !== undefined && reviewBlocker === null
   const safePushBlocker = useBranchNextStep(currentName ?? "")?.safePushBlocker ?? null
   // as the footer's "Safe Push" is shown (`SafePushButton`, where Patronus is); disabled, S says why

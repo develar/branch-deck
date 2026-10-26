@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { openActivityInWindow } from "@/hooks/useActivityPanel"
 import { useAppCommand } from "@/hooks/useAppCommand"
+import { useBranchMenu } from "@/hooks/useBranchContextActions"
 import { useSyncAvailability } from "@/hooks/useSyncAvailability"
 import { openActivity } from "@/lib/activity-window"
 import { PALETTE_GROUPS, paletteCommands } from "@/lib/command-palette"
@@ -13,13 +14,30 @@ import { logError } from "@/lib/errors"
 import { kbdLabel } from "@/lib/menu"
 import { titleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
-import { requestReveal, selectBranches } from "@/stores/commit-move"
+import { getSelectedBranches, requestReveal, selectBranches } from "@/stores/commit-move"
 import { MAIN_VIEWS, showMainView } from "@/stores/main-view"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
 interface CommandGroup {
   readonly value: PaletteGroup
   readonly items: readonly PaletteCommand[]
+}
+
+/** Expands the row of a branch an action of the palette shows the commits of (Amend Changes…, Unapply…) */
+function expandRow(name: string, expanded: boolean): void {
+  if (expanded) {
+    requestReveal({ branchName: name, commitIds: [] })
+  }
+}
+
+/** The branch the actions of the palette act on: the one whose row has the focus, else the one branch selected */
+function branchAtHand(focused: HTMLElement | null): string | null {
+  const row = focused?.closest<HTMLElement>("tr[data-row-id]")?.dataset.rowId
+  if (row !== undefined) {
+    return row
+  }
+  const selected = getSelectedBranches()
+  return selected.length === 1 ? selected[0]! : null
 }
 
 /** Shows the branch: its row expanded and scrolled into view (`requestReveal`), selected and focused, so its keys work */
@@ -31,8 +49,9 @@ function goToBranch(name: string): void {
 
 /**
  * The command palette of the main window (spec/repository/command-palette.spec.md): ⌘K (View → Command Palette…, the
- * app command `open_command_palette`) opens a dialog with a search over the views, Activity, the commands of the app
- * and the branches of the table. A command runs once the palette closed and gave the focus back where it was, so what
+ * app command `open_command_palette`) opens a dialog with a search over the views, Activity, the commands of the app,
+ * the actions of the branch whose row has the focus (its menu, as Rust decides the actions) and the branches of the
+ * table. A command runs once the palette closed and gave the focus back where it was, so what
  * the command focuses (a row, the Activity panel) keeps it; Escape closes it with nothing run.
  */
 export function CommandPalette() {
@@ -40,6 +59,9 @@ export function CommandPalette() {
   const sync = useSyncAvailability()
   const autoSyncOnFocus = useAppSettings(state => state.autoSyncOnFocus)
   const branches = useBranchSync(state => state.branchOrder)
+  // the branch at hand when the palette opened, and its menu as the stores have it while the palette shows
+  const [actionBranch, setActionBranch] = useState<string | null>(null)
+  const branchGroups = useBranchMenu(actionBranch ?? "", expandRow)
   // the element focused before the palette, and the command chosen in it
   const focusBefore = useRef<HTMLElement | null>(null)
   const chosen = useRef<PaletteCommand | null>(null)
@@ -63,6 +85,7 @@ export function CommandPalette() {
     if (!open) {
       focusBefore.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
       chosen.current = null
+      setActionBranch(branchAtHand(focusBefore.current))
       setOpen(true)
     }
   })
@@ -76,6 +99,7 @@ export function CommandPalette() {
         toggleActivityPanel: () => openActivity(),
         openActivityWindow: () => openActivityInWindow(null),
         goToBranch,
+        branchMenu: actionBranch === null || branchGroups === null ? null : { name: actionBranch, groups: branchGroups },
       })
     : []
   const groups: CommandGroup[] = PALETTE_GROUPS.map(group => ({ value: group, items: commands.filter(command => command.group === group) })).filter(group => group.items.length > 0)
@@ -121,7 +145,7 @@ export function CommandPalette() {
           <ComboboxList className="max-h-80 border-t border-border">
             {(group: CommandGroup) => (
               <ComboboxGroup key={group.value} items={group.items}>
-                <ComboboxLabel>{group.value}</ComboboxLabel>
+                <ComboboxLabel>{group.value === "Branch" && actionBranch !== null ? actionBranch : group.value}</ComboboxLabel>
                 <ComboboxCollection>
                   {(command: PaletteCommand) => (
                     <ComboboxItem key={command.id} value={command} disabled={command.disabled} className="pr-2" data-command-id={command.id}>

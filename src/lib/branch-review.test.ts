@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { BranchReviewSegment } from "@/lib/bindings"
 import {
-  branchReviewBlocker,
   branchReviewWindowKey,
   keepSegmentRange,
   moveView,
   planReviewOpen,
+  reviewBlockerOf,
   reviewCommitKey,
   sameReviewTable,
   segmentRangeSubject,
@@ -17,6 +17,7 @@ import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { placed, testBranch } from "@/stores/test-branch"
+import { disabled, enabled } from "@/test-support/actions"
 import type { BranchReviewWindowData } from "@/types/sub-window"
 
 function segment(name: string, base: string, head: string): BranchReviewSegment {
@@ -64,10 +65,12 @@ describe("keepSegmentRange", () => {
   })
 })
 
-describe("branchReviewBlocker", () => {
-  it("allows a synced branch with commits", () => {
-    expect(branchReviewBlocker(testBranch("ui", null))).toBeNull()
-    expect(branchReviewBlocker(testBranch("ui", null, { hasError: true }))).toBe("The branch failed to sync")
+describe("reviewBlockerOf", () => {
+  it("says why Rust refuses the review of a branch, in the words of its row", () => {
+    const ui = testBranch("ui", null, { statusText: "merge conflict" })
+    expect(reviewBlockerOf(ui, enabled("review-changes"))).toBeNull()
+    expect(reviewBlockerOf(ui, [disabled("review-changes", { code: "syncFailed", problem: null })])).toBe("The branch failed to sync")
+    expect(reviewBlockerOf(ui, [disabled("review-changes", { code: "noCommits" })])).toBe("No commits to review")
   })
 })
 

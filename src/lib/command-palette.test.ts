@@ -1,10 +1,11 @@
 // @spec spec/repository/command-palette.spec.md
 
-import { ListTreeIcon } from "lucide-react"
+import { ListTreeIcon, ShieldCheckIcon } from "lucide-react"
 import { describe, expect, it, vi } from "vite-plus/test"
 import { runAppCommand } from "@/lib/app-commands"
 import { paletteCommands } from "@/lib/command-palette"
 import type { PaletteSources } from "@/lib/command-palette"
+import type { MenuItemGroups } from "@/lib/menu"
 
 vi.mock("@/lib/app-commands", () => ({ runAppCommand: vi.fn() }))
 
@@ -17,6 +18,7 @@ function sources(overrides: Partial<PaletteSources> = {}): PaletteSources {
     toggleActivityPanel: vi.fn(),
     openActivityWindow: vi.fn(),
     goToBranch: vi.fn(),
+    branchMenu: null,
     ...overrides,
   }
 }
@@ -57,6 +59,39 @@ describe("paletteCommands", () => {
     )
     expect(commands.filter(command => command.id === "view:branches").map(command => command.label)).toEqual(["Branches"])
     expect(commands.filter(command => command.id === "branch:auth")).toHaveLength(1)
+  })
+
+  it("offers the actions of the branch at hand as its menu has them, an item of a submenu named with it, disabled with the reason", () => {
+    const review = vi.fn()
+    const dryRun = vi.fn()
+    const groups: MenuItemGroups = [
+      [
+        { id: "safe-push", label: "Safe Push", icon: ShieldCheckIcon, kbds: ["s"], disabled: true, description: "Waits for the answer of Patronus", onSelect: () => {} },
+        { id: "patronus", label: "Patronus", onSelect: () => {}, children: [{ id: "dry-run", label: "Dry Run", onSelect: dryRun }] },
+      ],
+      [{ id: "review-changes", label: "Review Changes", kbds: ["d"], description: "The diff of the branch", onSelect: review }],
+      [{ id: "stack-on", label: "Stack On…", onSelect: () => {}, children: [{ label: "docs", onSelect: () => {} }] }],
+    ]
+    const commands = paletteCommands(sources({ branchMenu: { name: "auth", groups } })).filter(command => command.group === "Branch")
+    expect(commands.map(command => [command.id, command.label, command.disabled ?? false, command.description ?? null])).toEqual([
+      ["action:auth:safe-push", "Safe Push", true, "Waits for the answer of Patronus"],
+      ["action:auth:patronus/dry-run", "Patronus › Dry Run", false, null],
+      ["action:auth:review-changes", "Review Changes", false, null],
+      ["action:auth:stack-on/docs", "Stack On › docs", false, null],
+    ])
+    // the keys of the row are no keys of the window
+    expect(commands.some(command => command.kbds !== undefined)).toBe(false)
+    commands[1]!.run()
+    commands[2]!.run()
+    expect([dryRun.mock.calls.length, review.mock.calls.length]).toEqual([1, 1])
+    // between the commands of the app and the branches
+    expect([...new Set(paletteCommands(sources({ branchMenu: { name: "auth", groups } })).map(command => command.group))]).toEqual([
+      "Views",
+      "Activity",
+      "Commands",
+      "Branch",
+      "Branches",
+    ])
   })
 
   it("runs what its source runs", () => {

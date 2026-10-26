@@ -88,7 +88,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
 ### The table
 
 - The next step is the first row that matches. "Safe Push elsewhere" is the reason every other surface disables
-  "Safe Push" with (`safePushBlocker`, `getSafePushBlocker`); a Dry Run is never held back by approvals, a draft, a
+  "Safe Push" with (`safePushBlocker`, the `safe-push` action Rust offers); a Dry Run is never held back by approvals, a draft, a
   pull request into another base or a robot that lands an ancestor (`dryRunBlocker`).
 
   | # | State | Slot | Safe Push elsewhere |
@@ -189,7 +189,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   Request…" without one) while Patronus can't tell whether the approvals count (`unknown`, `unavailable`): a restart may
   fail again; before the first answer the step waits for it (row 0). Approved, but started without the pull request: "Safe Push", a new start from it counts the approvals. The
   restart of such a robot is disabled with the reason of rows 7 to 10 while the approvals are missing, on every surface
-  that offers it: "⋯", the robot details and the landing overview (`getGatedRobotActions`).
+  that offers it: "⋯", the robot details and the landing overview (`getRobotItems`, as Rust offers them).
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`)
   [@test] ../../src/presenters/next-step.test.ts (`rows 2 and 3: restarts the robot, or the pull request that collects the approvals, or a Safe Push where it can't restart`)
 - A stacked branch has no row of its own (row 4 is removed, the numbers of the others stay): its Safe Push lands it with
@@ -329,7 +329,8 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   readiness without an answer and for GitHub's first answer itself (the waits of `domain_policy::land::decide`, never
   `unlisted` before that answer), so neither holds it back there.
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should wait with Checking… for the pull requests and the approvals, S and the menu saying why, then start the Safe Push they allow`, `should never offer Create Pull Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed refresh`)
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push, in the words of every surface that offers it`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push in the words of its next step, and what runs on the row over it`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests, as the review window does`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
 - A failed answer is an answer, never "no": a listing GitHub can't give (signed out, SSO, no access, or a failure
   before any listing; `getPullRequestListing` `unlisted`, `pullRequestsUnlisted`, `formatAvailabilityHint`) leaves the
   pull requests unknown, so rows 5 to 10 don't apply and the Safe Push stays, its hover saying it ("Lands JIRA-456 into

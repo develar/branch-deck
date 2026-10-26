@@ -1,4 +1,11 @@
 {
+  "actions": {
+    "robot:from-comment": [
+      {"availability": {"kind": "enabled"}, "id": "cancel-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot-pull-request"}
+    ]
+  },
   "given": {"branch": "auth", "pullRequest": {"base": "test-user/virtual/gone"}},
   "land": {
     "decision": {

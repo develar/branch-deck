@@ -13,6 +13,7 @@ import { readSafePush } from "@/hooks/useSafePush"
 import { getStackNextStep } from "@/hooks/useStackNextStep"
 import { internalError } from "@/lib/api-error"
 import type {
+  ActionState,
   BranchRules,
   Fact,
   LandAnswer,
@@ -92,6 +93,8 @@ export interface ScenarioFacts {
    * over the facts of the case's repository, the rows syncing while the app's sync runs
    */
   readonly nextSteps: Readonly<Record<string, NextStepView>>
+  /** The actions of each robot as the session decides them (`domain_policy::actions::robot_actions`), by `robot:<id>` */
+  readonly actions: Readonly<Record<string, readonly ActionState[]>>
 }
 
 const FACTS_DIRECTORY = "/crates/domain-policy/cases/facts"
@@ -275,6 +278,7 @@ function seedSync(given: Given, facts: ScenarioFacts): void {
     openPullRequests: facts.openPullRequests,
     landedStates: landedStatesOf(given, facts),
     nextSteps: facts.nextSteps,
+    actions: facts.actions,
     isSyncing: given.sync === "running",
     pushingBranches: {},
     stackPushes: {},

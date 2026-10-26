@@ -135,3 +135,25 @@ pub fn missing_approvals(group: &str, needed: Option<u32>) -> crate::patronus::R
     reason: crate::patronus::MissingApprovalsReason::ApprovalsMissing,
   }
 }
+
+/// The remote status of `branch` pushed as it is: on the remote at "remote", nothing to push
+pub fn remote_status(branch: &str) -> crate::RemoteStatusUpdate {
+  crate::RemoteStatusUpdate {
+    branch_name: branch.to_string(),
+    remote_exists: true,
+    remote_tip: Some("remote".to_string()),
+    unpushed_commits: Vec::new(),
+    commits_behind: 0,
+    dropped_commits: Vec::new(),
+    commits_amended: 0,
+    commits_restacked: 0,
+    commits_landed: 0,
+    landed_commits: Vec::new(),
+    commits_reworded: 0,
+    ancestor_commits_ahead: 0,
+    my_unpushed_count: 0,
+    fast_forward: true,
+    last_push_time: 0,
+    action: crate::PushAction::UpToDate,
+  }
+}

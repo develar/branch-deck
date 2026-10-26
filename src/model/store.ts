@@ -23,6 +23,7 @@
 import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import type {
+  ActionState,
   ApiError,
   BranchChange,
   BranchStructure as StructureView,
@@ -407,6 +408,9 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   }
   if (changes === null || Object.keys(changes.nextSteps ?? {}).length > 0 || (changes.removedNextSteps?.length ?? 0) > 0) {
     update.nextSteps = next.nextSteps
+  }
+  if (changes === null || Object.keys(changes.actions ?? {}).length > 0 || (changes.removedActions?.length ?? 0) > 0) {
+    update.actions = next.actions
   }
   if (changes === null || changes.unassigned != null) {
     update.unassignedCommits = next.sections.unassigned
@@ -1046,11 +1050,14 @@ async function loadAutosquashPlan(repositoryPath: string): Promise<void> {
 interface RowParts {
   /** The next step and the node of the subject (`RepositoryView.nextSteps`) */
   readonly landing: NextStepView
+  /** The actions of the subject and whether each can run now (`RepositoryView.actions`; `robot:<id>` a robot's) */
+  readonly actions: readonly ActionState[]
 }
 
 /** The record of the store that keeps each part of the rows */
 const ROW_PARTS: { readonly [P in keyof RowParts]: (state: BranchSyncState) => Readonly<Record<string, RowParts[P]>> } = {
   landing: state => state.nextSteps,
+  actions: state => state.actions,
 }
 
 /** The part `part` of the row of `subject` as the view holds it now; undefined while the view has none of it */

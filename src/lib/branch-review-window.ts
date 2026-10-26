@@ -12,7 +12,7 @@ import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { BranchReviewPart, PatronusReviewRequirement } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
-import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewBlocker, planReviewOpen, requestAction, reviewCommitKey } from "@/lib/branch-review"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason, reviewBlockerOf, planReviewOpen, requestAction, reviewCommitKey } from "@/lib/branch-review"
 import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
 import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import { logError, notifyError, recordError } from "@/lib/errors"
@@ -219,7 +219,7 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
  */
 export function reviewBranchCommit(branchName: string, commitHash: string, path: string | null): Promise<boolean> | null {
   const branch = getBranch(branchName)
-  if (branch === undefined || branchReviewBlocker(branch) !== null || branch.status === "MergeConflict" || branch.status === "AnalyzingConflict") {
+  if (branch === undefined || reviewBlockerOf(branch) !== null || branch.status === "MergeConflict" || branch.status === "AnalyzingConflict") {
     return null
   }
   const copy = branch.commits.find(it => it.originalHash === commitHash)
@@ -360,7 +360,7 @@ function wholeStackScopeOf(chain: readonly string[], baselineBranch: string): Wh
     return null
   }
   const leafBranch = getBranch(leaf)
-  const blocker = leafBranch === undefined ? branchGoneReason(leaf) : branchReviewBlocker(leafBranch)
+  const blocker = leafBranch === undefined ? branchGoneReason(leaf) : reviewBlockerOf(leafBranch)
   const commits = mainLine.reduce((sum, name) => sum + (getBranch(name)?.commitCount ?? 0), 0)
   return {
     root,

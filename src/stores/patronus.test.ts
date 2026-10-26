@@ -32,8 +32,8 @@ import {
   applyRobotsFacts,
   applySessionFacts,
   getBranchRobot,
+  getRobot,
   getLandedBy,
-  getLandedWithChildrenReason,
   getLandingBranchCount,
   getLandingNeeds,
   getLandingSpan,
@@ -59,6 +59,7 @@ import {
 import { robotCoverageStore, watchRobotCoverage } from "@/stores/robot-coverage"
 import { applyRobotDetailsFacts, resetRobotDetails } from "@/stores/robot-details"
 import { PUSH, testRemoteStatus } from "@/stores/test-branch"
+import { enabled } from "@/test-support/actions"
 import { emptyView } from "@/test-support/fake-sessions"
 import { branchFacts, landedWhole, robotOf, stackFacts, stackHeld, withRowRobots } from "@/test-support/patronus-repository"
 import { describeToast, openToasts, resetToasts, toastModule, toasts as shownToasts } from "@/test-support/toast-mock"
@@ -225,7 +226,13 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 }))
 
 // the session lists the robots a refresh asks for and the page gets its patch
+const { rowParts } = vi.hoisted(() => ({
+  /** The parts of the view of a row by subject key (`getRowPart`), as the test sets what Rust answers */
+  rowParts: { of: (_key: string, _part: string): unknown => undefined },
+}))
+
 vi.mock("@/model/store", () => ({
+  getRowPart: (key: string, part: string) => rowParts.of(key, part),
   refreshSessionFacts: async (_repositoryPath: string, _family: string, reason: string) => {
     patronus.refreshes.push(reason)
     answerRobots(patronus.list!, reason === "manual")
@@ -505,6 +512,26 @@ async function answerView(view: Partial<PatronusView>): Promise<void> {
 
 const START = 1_000_000_000
 
+/**
+ * The actions Rust offers of a robot in these tests, as `domain_policy::actions::robot_actions` decides them (its table
+ * test covers each state): a running one cancels, a failed one restarts, the prompts of one that failed (not for the
+ * approvals) or whose required check fails; it opens in Patronus
+ */
+rowParts.of = (key, part) => {
+  const robot = part === "actions" && key.startsWith("robot:") ? getRobot(key.slice("robot:".length)) : undefined
+  if (robot === undefined) {
+    return undefined
+  }
+  const entry = Object.values(patronusStore.getState().repositories)[0]
+  const prompts = robot.status === "failure" ? entry?.needsReview[robot.id] !== true : robot.status === "running" && entry?.failing[robot.id] === true
+  return enabled(
+    ...(robot.status === "failure" ? (["restart-robot"] as const) : []),
+    ...(robot.status === "running" ? (["cancel-robot"] as const) : []),
+    ...(prompts ? (["copy-robot-prompt", "copy-robot-full-prompt"] as const) : []),
+    "open-robot",
+  )
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(START)
@@ -621,7 +648,7 @@ describe("holds", () => {
     await answerView({ branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true) } })
     // the Safe Push of login landed auth and login: session is left, so is the stack branch, which carries it
     expect(getPushHold("auth")).toMatchObject({ kind: "landed", branch: "login" })
-    expect([getStackLandedReason("auth"), formatStackHold(getStackLanding("auth").hold), getLandedWithChildrenReason("auth")]).toEqual([null, null, null])
+    expect([getStackLandedReason("auth"), formatStackHold(getStackLanding("auth").hold)]).toEqual([null, null])
 
     // session landed with its own: nothing of the stack is left
     patronus.list = available(login, robot({ id: "session-robot", branchName: "session", sourceRevision: "session-tip", status: "success", finishTime: 300 }))
@@ -635,9 +662,6 @@ describe("holds", () => {
     })
     expect(getStackLandedReason("auth")).toBe("Landed in master with login and session")
     expect(formatStackHold(getStackLanding("auth").hold)).toBe("Landed in master with login and session: nothing of it is left to push")
-    expect(getLandedWithChildrenReason("auth")).toBe("Landed in master with login and session")
-    // a branch without children has no Push with Children
-    expect(getLandedWithChildrenReason("login")).toBeNull()
   })
 
   it("takes the robot of each row from the view of the session, which matched it, never from its own matching", async () => {

@@ -3,11 +3,13 @@ import type { DragEvent } from "react"
 import { useStore } from "zustand"
 import { toast } from "@/components/ui/toast"
 import type { BranchDrop, BranchDropFacts } from "@/lib/branch-drop"
+import { getRowPart } from "@/model/store"
+import { actionBlocker, SYNC_WAIT } from "@/presenters/actions"
 import { branchSyncStore, getBranch, getBranchCommits, getParkedState, getStackDescendants, isStacksEnabled, resolveCommits } from "@/stores/branch-sync"
 import type { CommitDrag } from "@/stores/commit-move"
 import { clearHoverRefusal, commitMoveStore, endCommitDrag, isDroppableOn, setDragOrigin, setHoverRefusal, useDroppableDrag } from "@/stores/commit-move"
 import { operationsStore } from "@/stores/operations"
-import { getPushHold, patronusStore } from "@/stores/patronus"
+import { patronusStore } from "@/stores/patronus"
 
 /** `dataTransfer` type of a commit drag; the commits themselves are in the commit move store */
 export const COMMIT_DRAG_TYPE = "application/x-branch-deck-commits"
@@ -63,7 +65,12 @@ export function getBranchDropFacts(): BranchDropFacts {
   return {
     branch: getBranch,
     parked: getParkedState,
-    hold: getPushHold,
+    blocker: (name, id) => {
+      const branch = getBranch(name)
+      const blocker = actionBlocker(getRowPart(name, "actions"), id, { subject: name, statusText: branch?.statusText ?? "" })
+      // a rewrite and a park wait for a sync of the table, as the menu says
+      return blocker === null && branchSyncStore.getState().isSyncing ? SYNC_WAIT : blocker
+    },
     descendants: getStackDescendants,
     stacksEnabled: isStacksEnabled(),
     isSyncing: branchSyncStore.getState().isSyncing,

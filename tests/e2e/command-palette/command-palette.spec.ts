@@ -41,7 +41,8 @@ testWithIssueLinks.describe("Command palette", () => {
     await openPalette(page)
     // the window comes to the front: ⌘K of a sub-window opens the palette of the main window
     await expect.poll(() => windowCalls(page)).toContain("set_focus")
-    await expect(palette(page).getByRole("listbox").getByRole("group")).toHaveText([/^Views/, /^Activity/, /^Commands/, /^Branches/])
+    // the actions of the focused branch, named by it, between the commands of the app and the branches
+    await expect(palette(page).getByRole("listbox").getByRole("group")).toHaveText([/^Views/, /^Activity/, /^Commands/, /^ABC-123/, /^Branches/])
     // the key of a command of the window, none for the others
     await expect(
       palette(page)
@@ -83,6 +84,23 @@ testWithIssueLinks.describe("Command palette", () => {
     expect((await expectActivityOpened(page, count)).data.kind).toBeNull()
     // the log shows in one place
     await expect(activityPanel(page)).toHaveCount(0)
+  })
+
+  testWithIssueLinks("should offer the actions of the focused branch as its menu does and run one: Review Changes opens its review", async ({ page }) => {
+    const row = findBranchRow(page, "JIRA-456")
+    await row.focus()
+    await expect(row).toBeFocused()
+    await openPalette(page)
+    const actions = palette(page)
+      .getByRole("group")
+      .filter({ hasText: /^JIRA-456/ })
+    // the items of its menu, a submenu's item named with it; a rewrite during no sync acts
+    await expect(actions.getByRole("option", { name: /^Review Changes/ })).toBeVisible()
+    await expect(actions.getByRole("option", { name: /^Copy › Copy Branch Name/ })).toBeVisible()
+    await expect(actions.getByRole("option", { name: /^Move to…/ })).not.toHaveAttribute("aria-disabled", "true")
+    const count = (await getOpenedSubWindows(page)).length
+    await runByKeyboard(page, "review changes", "Review Changes")
+    await expect.poll(async () => (await getOpenedSubWindows(page)).slice(count).map(window => window.windowId)).toEqual(["branch-review"])
   })
 
   testWithIssueLinks("should run the commands of the app: Sync Branches, Settings… and Install Agent CLI…", async ({ page }) => {

@@ -4,6 +4,7 @@
 //! version of the last patch, for a window that opens or lost a patch. Rust decides equality, so the page keeps the
 //! identity of every part a patch does not carry.
 
+use crate::action_view::{ActionSources, actions_of};
 use crate::derive::{landed_states_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
@@ -61,22 +62,17 @@ impl View {
     let (stacks, removed_stacks) = diff_keyed(&last.stacks, &parts.stacks);
     // the remote statuses of a running sync come one by one: the pushes are ordered over the table it leaves, in the
     // patch that ends it (a push waits for the sync), never resent with every status
-    let (pushes, removed_pushes) = if matches!(state.sync, SyncState::Running { .. }) {
-      (BTreeMap::new(), Vec::new())
-    } else {
-      diff_keyed(&last.pushes, &push_view(parts, &facts.patronus.part().view, facts.pull_requests.view()))
-    };
+    let syncing = matches!(state.sync, SyncState::Running { .. });
+    let pushes_now = (!syncing).then(|| push_view(parts, &facts.patronus.part().view, facts.pull_requests.view()));
+    let (pushes, removed_pushes) = pushes_now.as_ref().map_or_else(|| (BTreeMap::new(), Vec::new()), |now| diff_keyed(&last.pushes, now));
     let open = session_open_pull_requests(state, facts, &self.prefix);
     let (open_pull_requests, removed_open_pull_requests) = diff_keyed(&last.open_pull_requests, &open);
     // the decisions of the starts, as the pushes: decided over the table a sync leaves, not over each of its statuses
-    let (lands, removed_lands) = if matches!(state.sync, SyncState::Running { .. }) {
-      (BTreeMap::new(), Vec::new())
-    } else {
-      diff_keyed(&last.lands, &lands_of(state, facts, &self.prefix))
-    };
+    let lands_now = (!syncing).then(|| lands_of(state, facts, &self.prefix));
+    let (lands, removed_lands) = lands_now.as_ref().map_or_else(|| (BTreeMap::new(), Vec::new()), |now| diff_keyed(&last.lands, now));
     // what landed each subject, as the starts: over the table a sync leaves, its landing report with it
     let landed = landed_states_of(state, facts);
-    let (landed_states, removed_landed_states) = if matches!(state.sync, SyncState::Running { .. }) {
+    let (landed_states, removed_landed_states) = if syncing {
       (BTreeMap::new(), Vec::new())
     } else {
       diff_keyed(&last.landed_states, &landed)
@@ -84,6 +80,16 @@ impl View {
     // the next steps of the rows as they are, a sync of a branch included (row 1): over the table of the last sync
     let steps = next_steps_of(state, facts, &open, &landed);
     let (next_steps, removed_next_steps) = diff_keyed(&last.next_steps, &steps);
+    // the actions of the subjects as they are, a sync included (a reason): over the steps just derived, and the pushes
+    // and the starts as the view keeps them through a sync
+    let sources = ActionSources {
+      steps: &steps,
+      pushes: pushes_now.as_ref().unwrap_or(&last.pushes),
+      lands: lands_now.as_ref().unwrap_or(&last.lands),
+      open_pull_requests: &open,
+      landed: &landed,
+    };
+    let (actions, removed_actions) = diff_keyed(&last.actions, &actions_of(state, facts, &sources));
     let (last_archived, archived) = (&last.sections.archived, &parts.sections.archived);
     let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
     let archived_changes = ArchivedChanges {
@@ -110,6 +116,8 @@ impl View {
       removed_landed_states,
       next_steps,
       removed_next_steps,
+      actions,
+      removed_actions,
       unassigned: changed_commits(&last.sections.unassigned, &parts.sections.unassigned),
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),

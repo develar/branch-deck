@@ -11,6 +11,8 @@ targets:
   - ../../src-tauri/src/menu.rs
   - ../../src/pages/IndexPage.tsx
   - ../../src/hooks/useActivityPanel.ts
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/presenters/actions.ts
 ---
 
 # Command Palette
@@ -21,9 +23,10 @@ Date: 2026-10-22
 ## Summary
 
 The main window has more places than its menus show at a glance: the views, the Activity panel and window, a branch
-among dozens. ⌘K opens a dialog with one search over them and over the commands of the app (Sync, Update Project,
-Settings…), as the palettes of IntelliJ (Search Everywhere) and VS Code do: type a few letters, press Enter. It is a way
-to where the user wants to be, not a second menu of a branch: the actions of a branch stay on its row.
+among dozens. ⌘K opens a dialog with one search over them, over the commands of the app (Sync, Update Project,
+Settings…) and over the actions of the branch at hand, as the palettes of IntelliJ (Search Everywhere) and VS Code do:
+type a few letters, press Enter. The actions of a branch are its menu's, as Rust decides them: one builder, one set of
+names and reasons.
 
 ## Goals
 
@@ -33,8 +36,7 @@ to where the user wants to be, not a second menu of a branch: the actions of a b
 
 ## Non-goals
 
-- No actions of a branch (push, Safe Push, rename): they come with the actions of the branch view of the Rust domain
-  ([Rust as the Domain Authority](../../docs/design/rust-domain-authority.md)), stage s8.
+- No actions of a branch other than the one at hand: a branch elsewhere is a "Go to <branch>" away.
 - No palette in the sub-windows: ⌘K of any window opens the palette of the main window.
 - No history and no ranking of what was chosen before.
 
@@ -54,11 +56,19 @@ to where the user wants to be, not a second menu of a branch: the actions of a b
 - The groups, in this order (`paletteCommands`): Views (`MAIN_VIEWS` of `src/stores/main-view.ts`, Branches and
   Landing: a view joins the palette by its entry there), Activity (Activity Panel, which toggles the side panel as the header button does, and
   Activity Window), Commands (the items Sync Branches, Update Project, Settings…, Install Agent CLI… and, where the
-  build updates itself, Check for Updates… of `mainMenus`, disabled with the reason where the menu disables them) and
-  Branches ("Go to <branch>" for every branch of the table, in its order).
+  build updates itself, Check for Updates… of `mainMenus`, disabled with the reason where the menu disables them), the
+  actions of the branch at hand (below) and Branches ("Go to <branch>" for every branch of the table, in its order).
   [@test] ../../src/lib/command-palette.test.ts (`lists the views, Activity, the commands of the app's menu and the branches, by namespaced ids`, `hints only the keys of the window, disables Sync with its reason, offers updates where the build updates itself`)
+- Actions of the branch at hand, between Commands and Branches, the group named by the branch: the branch whose row had
+  the focus when the palette opened, else the one branch selected; none without one. Its commands are the items of its
+  menu ([Branch Row](../branch/branch-row.spec.md#branch-menu), `getBranchContextMenuItems`, which presents the
+  actions Rust decides: `domain_policy::actions`), the same names, disabled with the same reasons; an item of a
+  submenu is named with it ("Patronus › Dry Run", "Copy › Copy Branch Name"). A key of the row is no key of the
+  window: none is hinted.
+  [@test] ../../src/lib/command-palette.test.ts (`offers the actions of the branch at hand as its menu has them, an item of a submenu named with it, disabled with the reason`)
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should offer the actions of the focused branch as its menu does and run one: Review Changes opens its review`, `should open from ⌘K of the native menu, list every source and give the focus back on Escape`)
 - Every command has an id in the namespace of its source (`view:branches`, `activity:panel`, `app:sync_branches`,
-  `branch:auth`); an id that a source gave before is left out, so a command shows once.
+  `action:auth:review-changes`, `branch:auth`); an id that a source gave before is left out, so a command shows once.
   [@test] ../../src/lib/command-palette.test.ts (`keeps one entry per id, the first source's`)
 - Landing of the Views shows the Landing view; Go to <branch> from it shows the branches first.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should change the view only by the user: a sync keeps it, a reveal of a branch shows the branches`)

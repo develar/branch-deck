@@ -44,7 +44,7 @@ import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { recordRobot } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
-import { branchSyncStore, structureIn, useBranchSync, whenSynced } from "@/stores/branch-sync"
+import { branchSyncStore, structureIn, whenSynced } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -452,32 +452,6 @@ export function getLandingBranchCount(branchName: string): number {
 }
 
 /**
- * Why Push with Children of `name` has nothing to push (`formatLandedWholeReason`): merged Safe Pushes landed the branch
- * and every branch built on it whole ("Landed in master with deploy and side-test"); null while one of them is left, and
- * for a branch without children. While the rest has work, the landed ones are only left out of the push.
- */
-export function useLandedWithChildrenReason(name: string): string | null {
-  const landed = useRepositoryFacts().landed
-  return useBranchSync(state => landedWithChildrenIn(landed, state, name))
-}
-
-/** Non-hook variant of `useLandedWithChildrenReason`, for menus built on open */
-export function getLandedWithChildrenReason(name: string): string | null {
-  return landedWithChildrenIn(currentFacts().landed, branchSyncStore.getState(), name)
-}
-
-function landedWithChildrenIn(landed: ReadonlyMap<string, LandedBy>, state: BranchSyncState, name: string): string | null {
-  const descendants = structureIn(state, name).descendants
-  if (descendants.length === 0) {
-    return null
-  }
-  return formatLandedWholeReason(
-    [name, ...descendants].map(it => landed.get(it)),
-    name,
-  )
-}
-
-/**
  * Why the whole stack of `root` has nothing left to push or land: merged Safe Pushes landed every branch of it whole
  * (`formatLandedWholeReason`), "Merged by Patronus" of its own robot, else "Landed in master with oauth and the whole
  * auth stack"; null while one of them is left, and for a stack that doesn't fork
@@ -548,11 +522,6 @@ export function getStackLanding(root: string): StackLanding {
 export function useRobotRestart(robotId: string | undefined): RobotRestart | null {
   const key = useRepositoryKey()
   return useStore(patronusStore, state => (robotId === undefined ? null : (state.repositories[key]?.view?.restarts[robotId] ?? null)))
-}
-
-/** Non-hook variant of `useRobotRestart`, for menus built on open */
-export function getRobotRestart(robotId: string): RobotRestart | null {
-  return currentRepository()?.view?.restarts[robotId] ?? null
 }
 
 /**
@@ -743,18 +712,6 @@ export function useRobotFailing(robotId: string | undefined): boolean {
 export function useFailingRobots(): Readonly<Record<string, true>> {
   const key = useRepositoryKey()
   return useStore(patronusStore, state => state.repositories[key]?.failing ?? EMPTY.failing)
-}
-
-/** Non-hook variant of `useRobotNeedsReview`, for menus built on open */
-export function isRobotNeedingReview(robotId: string): boolean {
-  const key = currentKey()
-  return key !== null && patronusStore.getState().repositories[key]?.needsReview[robotId] === true
-}
-
-/** A required check of the running robot failed (`robot_is_failing`): it will fail */
-export function isRobotFailing(robotId: string): boolean {
-  const key = currentKey()
-  return key !== null && patronusStore.getState().repositories[key]?.failing[robotId] === true
 }
 
 /** The robots of the selected repository, by id; re-renders only when they change, not on every refresh */
@@ -1095,12 +1052,6 @@ export function isPatronusAvailable(): boolean {
 export function usePatronusOffered(): boolean {
   const key = useRepositoryKey()
   return useStore(patronusStore, state => state.repositories[key]?.availability?.status !== "notPatronus")
-}
-
-/** Non-hook variant of `usePatronusOffered`, for menus built on open */
-export function isPatronusOffered(): boolean {
-  const key = currentKey()
-  return key === null || patronusStore.getState().repositories[key]?.availability?.status !== "notPatronus"
 }
 
 /**

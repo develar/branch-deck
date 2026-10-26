@@ -92,6 +92,8 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     removed_landed_states,
     next_steps,
     removed_next_steps,
+    actions,
+    removed_actions,
     unassigned,
     archived,
     unapplied,
@@ -142,6 +144,10 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     view.next_steps.remove(key);
   }
   view.next_steps.extend(next_steps);
+  for key in &removed_actions {
+    view.actions.remove(key);
+  }
+  view.actions.extend(actions);
   let sections = &mut view.sections;
   set_if_some(&mut sections.unassigned, unassigned);
   set_if_some(&mut sections.unapplied, unapplied);

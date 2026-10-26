@@ -264,14 +264,15 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../src/stores/patronus.test.ts (`holds every branch the whole-stack Safe Push lands`, `holds nothing for a dry run of the whole stack`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_whole_stack_waits_for_its_build_its_last_commit_then_a_member_that_lands_a_part`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
-- Its actions are the actions of a robot (`getRobotActions`): the restart works on the stack branch, and pushes it first
+- Its actions are the actions of a robot (`getRobotActionItems`, as Rust offers them): the restart works on the stack branch, and pushes it first
   while it has work its remote lacks (`pushWholeStack`, a running robot canceled first), only while the sync built it;
   cancel, the prompts, Patronus, its pull request. Once merged Safe Pushes landed every branch of the stack, its restart
   is refused, with or without the push, of a Dry Run too, with the reason its Safe Push Whole Stack says ("Landed in
   master with deploy and side-test", `getStackLandedReason`), on every surface that lists the actions (the "⋯" of the
   island, "Whole Stack ›" of the menus of its branches); the header offers no step, and the landing overview lists the stack in
   master without its robot.
-  [@test] ../../src/lib/patronus-actions.test.ts (`restarts the robot of the whole stack on its stack branch, pushed first, refused once merged Safe Pushes landed every branch of it`)
+  [@test] ../../src/lib/patronus-actions.test.ts (`restarts the robot of the whole stack on its stack branch, pushed first`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it`)
 - A push of the stack branch alone (`pushWholeStack`: the restart, Request Review… of its pull request, the creation of
   its pull request, the start of its Safe Push) must show where the pushes of the stack show, one indicator: the push of

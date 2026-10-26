@@ -1,11 +1,10 @@
-import { ClipboardCopyIcon, ClipboardListIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon } from "lucide-react"
-import type { PatronusRobot, RobotRestart } from "@/lib/bindings"
+import type { ActionState, PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { pushBranch } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
-import { canCancelRobot, describeRobot, formatPushMode, formatRobotRestartLabel, formatRobotSubject, openRobot } from "@/lib/patronus"
+import { describeRobot, formatPushMode, formatRobotRestartLabel, formatRobotSubject, openRobot } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { copyRobotFullPrompt, copyRobotPrompt } from "@/lib/robot-prompt-copy"
 import { showRobotEventToast } from "@/lib/robot-toast"
@@ -13,12 +12,13 @@ import type { RunningMove } from "@/lib/running-move"
 import { robotRestartMove } from "@/lib/running-move"
 import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
-import { startCheck } from "@/presenters/reasons"
+import { getRowPart } from "@/model/store"
+import type { ActionItem } from "@/presenters/actions"
+import { presentAction } from "@/presenters/actions"
 import { recordRobot } from "@/stores/activity"
-import type { Branch } from "@/stores/branch-sync"
 import type { OperationKey, Operations } from "@/stores/operations"
 import { getOperations, operationItem, runOperation } from "@/stores/operations"
-import { cancelPatronusRobot, getRobotRestart, isRobotFailing, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
+import { cancelPatronusRobot, restartPatronusRobot } from "@/stores/patronus"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
@@ -86,111 +86,82 @@ function runPushAndRestart(robot: PatronusRobot, branchName: string | null, root
   )
 }
 
-/** An action of `getRobotActions`, named by its `id` */
+/** An action of a robot (`getRobotActionItems`), named by its `id` */
 export interface RobotAction extends MenuItem {
   id: "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request"
 }
 
-/** A robot whose failure an agent can fix: it failed (not for missing approvals), or a required check failed while it runs */
-export function hasRobotFailurePrompt(robot: PatronusRobot, needsReview: boolean, failing: boolean): boolean {
-  return robot.status === "failure" ? !needsReview : failing && robot.status === "running"
-}
-
-/**
- * "Restart Safe Push" of `robot` as the view decides it (`restart`, `RobotRestart` of the robot: the action and why it
- * can't start now), over the operations that run (`running`): the push first while the remote lacks work of the branch
- * (`branchName`; of the whole stack its stack branch), the cancel of a running robot first; null when it has no restart
- */
-export function restartItemOf(robot: PatronusRobot, restartOf: RobotRestart | null, branchName: string | null, running: Operations): RobotAction | null {
-  const action = restartOf?.action ?? null
-  const root = robot.branchName === null ? (robot.stackRoot ?? null) : null
-  const start = restartOf === null ? null : startCheck(restartOf.refusal)
-  if (action === "restart") {
-    return operationItem(
-      running,
-      {
-        id: "restart-robot",
-        label: formatRobotRestartLabel(robot),
-        icon: RotateCcwIcon,
-        ...(start?.ok === false && { disabled: true, description: start.reason }),
-        onSelect: () => void runRobotAction("restart-robot", robot),
-      },
-      robotOperation("restart-robot", robot),
-    ) as RobotAction
-  }
-  if (action !== "pushAndRestart" || (branchName === null && root === null)) {
-    return null
-  }
-  // a running robot tests a commit the branch moved past: the push cancels it first, the one push into its branch; the
-  // push is part of the restart, its name is the restart's
-  const runs = robot.status === "running" && robot.sourceRevision !== null
-  const pushed = root === null ? branchName! : formatRobotSubject(robot)
-  return operationItem(
-    running,
-    {
-      id: "push-and-restart-robot",
-      label: formatRobotRestartLabel(robot),
-      icon: RotateCcwIcon,
-      ...(start?.ok === false
-        ? { disabled: true, description: start.reason }
-        : {
-            description: runs
-              ? `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${pushed} and starts it again on the pushed commit`
-              : `Pushes ${pushed} and starts it again on the pushed commit`,
-          }),
-      onSelect: () => void runPushAndRestart(robot, root === null ? branchName : null, root),
-    },
-    robotOperation("push-and-restart-robot", robot),
-  ) as RobotAction
-}
-
-/**
- * The actions of a robot, one list for every surface that shows it (the branch menu, the robot details, the robots
- * indicator), in this order: "Restart Safe Push" (it pushes first while the branch has work the remote lacks, also
- * for a running robot, which it cancels first; disabled with the reason while a start is not possible: a blocked
- * branch, a robot that lands an ancestor or the branch, a branch a merged Safe Push landed whole: the `restarts` of the
- * view, `domain_policy::holds::restart_action` and `land::restart_refusal`), "Cancel Safe Push" while it runs,
- * "Copy Prompt for Agent" and "Copy Prompt with CI Details" for a failed or failing robot (`hasRobotFailurePrompt`),
- * "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. `branch` is the branch of the robot,
- * null when it has no row (archived since it merged): the restart then takes the remote branch as Patronus has it.
- * The robot of the whole stack (`stackRoot`) has no branch: its restart works on the stack branch, which a push of it
- * sends first (`pushWholeStack`), waits for a robot of a branch of the stack, and is refused once every branch of the
- * stack landed.
- * `needsReview`: the robot failed for missing approvals; a component passes the value it subscribed to, so its list
- * follows it; `failing` likewise: a required check of the running robot failed.
- */
-export function getRobotActions(
-  robot: PatronusRobot,
-  branch: Branch | null,
-  needsReview = isRobotNeedingReview(robot.id),
-  failing = isRobotFailing(robot.id),
-  operations: Operations = getOperations(),
-): RobotAction[] {
+/** What each action of a robot runs and how the facts of the robot name it */
+function robotActionItem(robot: PatronusRobot, id: RobotAction["id"]): ActionItem {
   const mode = formatPushMode(robot.pushMode)
-  const items: RobotAction[] = []
-  const restart = restartItemOf(robot, getRobotRestart(robot.id), branch?.name ?? null, operations)
-  if (restart !== null) {
-    items.push(restart)
+  switch (id) {
+    case "restart-robot":
+      return { label: formatRobotRestartLabel(robot), onSelect: () => void runRobotAction("restart-robot", robot) }
+    case "push-and-restart-robot": {
+      // a running robot tests a commit the branch moved past: the push cancels it first, the one push into its branch;
+      // the push is part of the restart, its name is the restart's
+      const root = robot.branchName === null ? (robot.stackRoot ?? null) : null
+      const pushed = root === null ? (robot.branchName ?? "") : formatRobotSubject(robot)
+      const runs = robot.status === "running" && robot.sourceRevision !== null
+      return {
+        label: formatRobotRestartLabel(robot),
+        description: runs
+          ? `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${pushed} and starts it again on the pushed commit`
+          : `Pushes ${pushed} and starts it again on the pushed commit`,
+        onSelect: () => void runPushAndRestart(robot, root === null ? robot.branchName : null, root),
+      }
+    }
+    case "cancel-robot":
+      return { label: `Cancel ${mode}`, onSelect: () => void runRobotAction("cancel-robot", robot) }
+    case "copy-robot-prompt":
+      return { onSelect: () => void copyRobotPrompt(robot) }
+    case "copy-robot-full-prompt":
+      return { onSelect: () => void copyRobotFullPrompt(robot) }
+    case "open-robot":
+      return { onSelect: () => openRobot(robot) }
+    case "open-robot-pull-request": {
+      const pullRequest = robot.pullRequest
+      return { label: `Open Pull Request #${pullRequest?.number ?? ""}`, kbds: null, onSelect: () => pullRequest != null && openPullRequestUrl(pullRequest.url) }
+    }
   }
-  if (canCancelRobot(robot)) {
-    items.push(
-      operationItem(
-        operations,
-        { id: "cancel-robot", label: `Cancel ${mode}`, icon: ShieldOffIcon, onSelect: () => void runRobotAction("cancel-robot", robot) },
-        robotOperation("cancel-robot", robot),
-      ) as RobotAction,
-    )
-  }
-  if (hasRobotFailurePrompt(robot, needsReview, failing)) {
-    items.push(
-      { id: "copy-robot-prompt", label: "Copy Prompt for Agent", icon: ClipboardCopyIcon, onSelect: () => void copyRobotPrompt(robot) },
-      { id: "copy-robot-full-prompt", label: "Copy Prompt with CI Details", icon: ClipboardListIcon, onSelect: () => void copyRobotFullPrompt(robot) },
-    )
-  }
-  items.push({ id: "open-robot", label: "Open in Patronus", icon: ExternalLinkIcon, onSelect: () => openRobot(robot) })
-  const pullRequest = robot.pullRequest
-  if (pullRequest != null) {
-    items.push({ id: "open-robot-pull-request", label: `Open Pull Request #${pullRequest.number}`, icon: GitPullRequestIcon, onSelect: () => openPullRequestUrl(pullRequest.url) })
-  }
-  return items
+}
+
+/** The operation of an action of a robot that one runs at a time per robot: a restart, a push and restart, a cancel */
+function robotOperationOf(robot: PatronusRobot, id: RobotAction["id"]): OperationKey | null {
+  return id === "restart-robot" || id === "push-and-restart-robot" || id === "cancel-robot" ? robotOperation(id, robot) : null
+}
+
+/**
+ * The actions of a robot as Rust offers them (`robot:<id>` of `RepositoryView.actions`, `domain_policy::actions`), one
+ * list for every surface that shows it (the branch menu, the robot details, the robots indicator, a toast), in this
+ * order: "Restart Safe Push" (it pushes first while the branch has work the remote lacks, also for a running robot,
+ * which it cancels first), "Cancel Safe Push" while it runs, "Copy Prompt for Agent" and "Copy Prompt with CI Details"
+ * for a failed or failing robot, "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. Rust
+ * disables a restart and the prompts while Patronus didn't tell why the robot failed, a restart while the approvals the
+ * step of its branch misses (`stepReason`: the words of that step, `BranchNextStep.safePushBlocker`) or what refuses a
+ * start stands in its way. A restart, a push and restart and a cancel run one at a time per robot (`operationItem`).
+ * `offered`: the actions of the robot a component subscribed to, so its list follows them.
+ */
+export function getRobotActionItems(
+  robot: PatronusRobot,
+  operations: Operations = getOperations(),
+  stepReason: string | null = null,
+  offered: readonly ActionState[] | undefined = getRowPart(`robot:${robot.id}`, "actions"),
+): RobotAction[] {
+  const actions = offered ?? []
+  const words = { subject: robot.branchName ?? robot.stackRoot ?? "", step: stepReason }
+  return actions.flatMap(action => {
+    const id = action.id as RobotAction["id"]
+    const item = presentAction(actions, id, robotActionItem(robot, id), words)
+    if (item === null) {
+      return []
+    }
+    const key = robotOperationOf(robot, id)
+    return [(key === null ? item : operationItem(operations, item, key)) as RobotAction]
+  })
+}
+
+/** The restart of a robot, which pushes first or not */
+export function isRestart(item: RobotAction): boolean {
+  return item.id === "restart-robot" || item.id === "push-and-restart-robot"
 }

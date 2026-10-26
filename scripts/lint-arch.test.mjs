@@ -135,3 +135,28 @@ test("an allowlist entry needs its reason and a finding to hold", t => {
     "ALLOWLIST: src/b.ts (message-control) matches nothing: remove it",
   ])
 })
+
+test("a rule of the domain in the page is refused: a deleted rule module, an export of src/lib or src/hooks named as a rule", () => {
+  const source = [
+    "export function canPushNow(branch) {}",
+    "export const needsPush = branch => true",
+    "export function allowsPushMode(mode) {}",
+    "export function getSafePushBlocker(branch) {}",
+    "export async function startDecision() {}",
+    "export function isStartBlocked() {}",
+    // words of a reason Rust gave, a type, a name of no rule, a function of the module only
+    "export function formatParkedBlocker(state) {}",
+    "export type LandingDecision = string",
+    "export function canvasOf() {}",
+    "function rewriteBlocker() {}",
+  ].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  const refused = ["1 rule-module", "2 rule-module", "3 rule-module", "4 rule-module", "5 rule-module", "6 rule-module"]
+  assert.deepEqual(rules("src/lib/example.ts"), refused)
+  assert.deepEqual(rules("src/hooks/useExample.ts"), refused)
+  assert.deepEqual(rules("src/lib/example.test.ts"), [])
+  assert.deepEqual(rules("src/components/Example.tsx"), [])
+  assert.deepEqual(findProblems("src/lib/branch-next-step.ts", "export const x = 1\n"), [
+    { file: "src/lib/branch-next-step.ts", line: 1, rule: "rule-module", text: "a rule module whose rule Rust decides (domain-policy)" },
+  ])
+})

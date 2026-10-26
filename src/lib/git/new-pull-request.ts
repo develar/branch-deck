@@ -5,6 +5,8 @@ import type { CompareFields, GitHubRepository } from "@/lib/pull-request"
 import { getCompareUrl, openPullRequest } from "@/lib/pull-request"
 import { baselineOnRemote } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
+import { getRowPart } from "@/model/store"
+import { findAction } from "@/presenters/actions"
 import { recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getOpenPullRequest } from "@/stores/branch-sync"
@@ -144,19 +146,13 @@ export function getBranchesGitHubRepository(): GitHubRepository | null {
   return owner === undefined || name === undefined ? null : { owner, name }
 }
 
-/** The pull request of a branch that keeps it from getting a new one: open (a draft too) or merged, not closed */
-function getLivePullRequest(branchName: string): PullRequest | undefined {
-  const pullRequest = getPullRequest(branchName)
-  return pullRequest?.state === "closed" ? undefined : pullRequest
-}
-
 /**
- * A branch can get a new pull request: it has no open or merged pull request (a closed one doesn't count), and the
- * GitHub repository is known (`getBranchesGitHubRepository`). Whether it is on the remote doesn't matter: the creation
- * pushes it first (`pushForAction`).
+ * Rust offers a new pull request of the branch (`create-pull-request` of its actions, `domain_policy::actions`): it has
+ * no open or merged pull request (a closed one doesn't count), and the GitHub repository is known. Whether it is on the
+ * remote doesn't matter: the creation pushes it first (`pushForAction`).
  */
-export function canCreatePullRequest(branch: Branch): boolean {
-  return getBranchesGitHubRepository() !== null && getLivePullRequest(branch.name) === undefined
+function offersPullRequest(branchName: string): boolean {
+  return findAction(getRowPart(branchName, "actions"), "create-pull-request") !== undefined
 }
 
 /**
@@ -172,11 +168,11 @@ export function formatNewPullRequestBlocker(branchName: string, live: PullReques
 
 /**
  * The GitHub form of a new pull request of the pushed branch into the baseline (`getPullRequestBase`), with `fields`
- * filled in: "Continue on GitHub" of the dialog; null when the branch can't get one (`canCreatePullRequest`)
+ * filled in: "Continue on GitHub" of the dialog; null when the branch can't get one (`offersPullRequest`)
  */
 export function getNewPullRequestUrl(branch: Branch, fields?: CompareFields): string | null {
   const repository = getBranchesGitHubRepository()
-  if (repository === null || !canCreatePullRequest(branch)) {
+  if (repository === null || !offersPullRequest(branch.name)) {
     return null
   }
   return getCompareUrl(repository, getPullRequestBase(), getFullBranchName(branch.name), fields)
@@ -195,7 +191,7 @@ export const CREATE_PULL_REQUEST_LABEL = "Create Pull Request…"
  * without one or with only a closed one; null when there is neither (not on GitHub)
  */
 export function getPullRequestToastAction(branch: Branch): ToastActionProps | null {
-  if (canCreatePullRequest(branch)) {
+  if (offersPullRequest(branch.name)) {
     return { children: CREATE_PULL_REQUEST_LABEL, onClick: () => openCreatePullRequestDialog(branch.name) }
   }
   const pullRequest = getPullRequest(branch.name)

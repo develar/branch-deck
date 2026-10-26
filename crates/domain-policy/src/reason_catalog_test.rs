@@ -3,13 +3,13 @@
 //! `UPDATE_REASON_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/reason/)'` writes it; without the variable a
 //! stale catalog fails.
 
+use crate::catalog_test::assert_catalog;
 use domain_types::fixtures::{carried, robot_of, stack_commit as commit, whole_stack_robot_of};
 use domain_types::landing::{LandingFix, LandingRefusal, ReferenceKind};
 use domain_types::patronus::PatronusPushMode;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView, RobotOf};
 use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState};
-use std::path::Path;
 
 /// The position of the code of `reason` among the codes: a new code fails to compile here until it has an example
 const fn code_index(reason: &Reason) -> usize {
@@ -220,17 +220,5 @@ fn every_reason_code_has_an_example_in_the_catalog_the_page_reads() {
   }
   assert!(covered.iter().all(|covered| *covered), "a code without an example: {covered:?}");
 
-  let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("reasons.json");
-  let mut written = serde_json::to_string_pretty(&examples).expect("the reasons serialize");
-  written.push('\n');
-  if std::env::var_os("UPDATE_REASON_CATALOG").is_some() {
-    std::fs::write(&path, &written).expect("the catalog is written");
-    return;
-  }
-  // by value: the formatter of the repository lays the file out its own way
-  let committed: Option<serde_json::Value> = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok());
-  assert!(
-    committed == serde_json::to_value(&examples).ok(),
-    "reasons.json is stale: UPDATE_REASON_CATALOG=1 cargo nextest run -p domain-policy -E 'test(/reason/)' writes it"
-  );
+  assert_catalog("reasons.json", "UPDATE_REASON_CATALOG", "reason", &examples);
 }

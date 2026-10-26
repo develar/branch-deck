@@ -10,13 +10,13 @@ import { SafePushButton } from "@/components/branch/SafePushButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
-import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import { firstPushPending, firstPushWait, useLandingPushes, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
 import { openPullRequest } from "@/lib/pull-request"
+import { useRowPart } from "@/model/store"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { branchSubject, operationLabel, stopWaitingItem, useUnclaimedOperation } from "@/stores/operations"
@@ -38,10 +38,10 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   // until Patronus answers, its Safe Push waits there, disabled with why
   const patronusOffered = usePatronusOffered()
   const closePreview = useContext(ClosePreviewContext)
-  // the menu's item: "Create Pull Request…" of a branch without a live pull request, on GitHub; disabled with the reason
-  // of the next step once nothing of it is left to land
-  const landed = useBranchNextStep(branch.name)?.landed ?? null
-  const createItem = getCreatePullRequestItem(branch, landed)
+  // the menu's item: "Create Pull Request…" of a branch without a live pull request, on GitHub, as Rust offers it; the
+  // actions of the branch it subscribes to are its argument, so the item follows them
+  const actions = useRowPart(branch.name, "actions")
+  const createItem = getCreatePullRequestItem(branch, actions)
   // as the push button of the row: only a branch that synced without an error has something to push
   // the first push of a branch is a step of Safe Push and Create Pull Request: "⋯" offers it; unless Push with Children
   // takes the stack branch of the whole stack along, whose open pull request it updates

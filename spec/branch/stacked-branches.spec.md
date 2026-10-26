@@ -396,9 +396,11 @@ menu stacks, unstacks and renames branches.
   push names a stack branch that moved as the stack branch, apart from its root ("Cannot push the whole stack branch of
   auth"). `bd push <root> --with-children` follows the same rule ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
-  [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes`, `says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, the children ask first, or they all landed`)
+  [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes`)
+  [@test] ../../src/presenters/actions.test.ts (`words every blocker of the catalog as the page says it`, `says why Push with Children leaves the stack branch of the whole stack as it is, and names the children that ask first`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
   [@test] ../../src/lib/git/push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `goes along while its pull request is open, though the remote doesn't have it yet`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`, `is pushed alone when the branches are on the remote, with the pull request of the whole stack`, `refuses the whole push when its remote moved with commits it lacks, and says so as the stack branch`)
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`takes the stack branch of the whole stack of a root along once it is on the remote, counted and named, and says why while it doesn't`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`takes the stack branch of the whole stack of a root along, counted and named, and says why it doesn't in Rust's words`)
   [@test] ../../src/hooks/usePushButton.test.ts (`names the stack branch of the whole stack that Push with Children of a root takes along`)
   [@test] ../../crates/sync-core/src/push_test.rs (`the_stack_branch_goes_with_the_branches_and_a_moved_one_is_named_as_the_stack_branch`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should take the whole stack branch along in Push with Children of the root once its pull request is open, from the push and the menu`, `should push a parent with its children`)
@@ -407,8 +409,11 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_with_children_covers_the_branch_and_its_descendants`, `push_with_children_leaves_out_what_asks_first_is_held_or_landed`, `push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
-  [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes`, `says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, the children ask first, or they all landed`)
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is offered beside the push on every branch with children, disabled with the reason while it would push nothing beyond the branch`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)
+  [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes`)
+  [@test] ../../src/presenters/actions.test.ts (`words every blocker of the catalog as the page says it`, `says why Push with Children leaves the stack branch of the whole stack as it is, and names the children that ask first`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is offered beside the push where Rust offers it, with its label of what it pushes, and the stack push over it`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
   [@test] ../../src/lib/git/push.test.ts (`starts above the branches a running Safe Push holds`, `waits for the sync, then pushes the children as the sync leaves them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`, `should offer Push with Children while a sync runs and when the root is pushed`)
 
@@ -596,7 +601,8 @@ menu stacks, unstacks and renames branches.
   rewrite, Unapply, Review Changes and Safe Push say the reason ("publish-viewer has conflicting parents") instead of
   "The branch failed to sync"; a drag takes the fixes too (`stackOnDrop`, `unstackDrop`).
   [@test] ../../tests/e2e/stacked-branches/stack-problems.spec.ts (`should name conflicting parents, keep the commits and stack on a parent from the alert`, `should offer the fixes in the menu and block the other rewrites with the problem`, `should unstack a branch with conflicting parents from the menu`, `should cut a branch out of a parent cycle from its alert`, `should open the rename of a branch whose name differs from another only in case`, `should show the problem with its fixes in the preview, a fix closing the preview`)
-  [@test] ../../src/lib/branch-drop.test.ts (`blocks the rewrites of a branch with a stack problem by its reason, and runs the fixes Rust offers for it`)
+  [@test] ../../src/lib/branch-drop.test.ts (`blocks the rewrites of a branch with a stack problem by the reason Rust gives, and runs the fixes it offers`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_rewrite_needs_commits_a_build_and_no_sync_and_the_fixes_of_a_stack_problem_run_while_it_blocks_the_rest`)
 - A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,
   a disabled push button (in the row and the preview), no share in a push of the stack (`domain_policy::push::push_plan`
   leaves a branch the last sync did not build out, `Kept::NotBuilt`), and, expanded, a `warning` alert with a link that

@@ -3,6 +3,7 @@ import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
 import type {
+  ActionState,
   AutosquashPlan,
   BranchError,
   BranchOrigin,
@@ -270,15 +271,21 @@ export interface BranchSyncState {
    * `useRowPart(subject, "landing")`
    */
   nextSteps: Readonly<Record<string, NextStepView>>
+  /**
+   * The actions of each subject (a branch, `stack:<root>` the whole stack, `robot:<id>` a robot) and whether each can run
+   * now, as Rust decides them (`RepositoryView.actions`, `domain_policy::actions`); presented by `src/presenters/actions.ts`
+   */
+  actions: Readonly<Record<string, readonly ActionState[]>>
 }
 
-/** The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`, `nextSteps`) */
-export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps"> = {
+/** The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`, `nextSteps`, `actions`) */
+export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions"> = {
   pushes: {},
   openPullRequests: {},
   lands: {},
   landedStates: {},
   nextSteps: {},
+  actions: {},
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({

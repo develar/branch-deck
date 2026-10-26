@@ -89,7 +89,7 @@ where a dialog would cover it.
 - A commit of a branch must open the review window of the branch at the commit (`reviewBranchCommit`: the copy of the
   commit in the virtual branch, `focus.commitId`, and the file, `focus.path`), titled "Review login · a1b2c3d", from
   every surface below; a commit of no branch, of a branch the branch review can't show (blocked, failed, in conflict:
-  `branchReviewBlocker`) or one its virtual branch doesn't have yet (no copy, a conflicting or blocked commit) opens
+  `reviewBlockerOf`, the Review Changes Rust offers) or one its virtual branch doesn't have yet (no copy, a conflicting or blocked commit) opens
   the window `commit-review`. Only the main window decides: a list in a sub-window opens `commit-review`.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review an unassigned commit in the review window of the commit`)

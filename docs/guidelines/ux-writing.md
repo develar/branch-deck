@@ -151,7 +151,7 @@ Built by hand in each place, the actions drifted apart: the menu named a restart
 indicator could cancel a robot but not restart it.
 
 - **One builder per object**: the actions of an object come from one function returning `MenuItem`s, each with a
-  stable `id` (`getRobotActions` in `src/lib/patronus-actions.ts`, `getBranchContextMenuItems` in
+  stable `id` (`getRobotActionItems` in `src/lib/patronus-actions.ts`, `getBranchContextMenuItems` in
   `src/hooks/useBranchContextActions.ts`). A menu renders the list (`MenuItems`); a popover, a footer or an icon row
   renders the same items as buttons, picking them by `id`. A surface never builds its own copy of an action.
 - **A menu leads with what lands its object**: the branch menu starts with "Safe Push", then the push and the review;

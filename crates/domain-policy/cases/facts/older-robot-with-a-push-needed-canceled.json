@@ -1,4 +1,16 @@
 {
+  "actions": {
+    "robot:from-comment": [
+      {"availability": {"kind": "enabled"}, "id": "cancel-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot-pull-request"}
+    ],
+    "robot:older": [
+      {"availability": {"kind": "enabled"}, "id": "push-and-restart-robot"},
+      {"availability": {"kind": "enabled"}, "id": "cancel-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"}
+    ]
+  },
   "given": {"flags": ["cancelRunning"], "remote": "unpushed", "robot": {"on": "older", "state": "running"}},
   "land": {
     "decision": {

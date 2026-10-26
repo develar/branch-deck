@@ -5,7 +5,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { RelativeTime } from "@/components/shared/RelativeTime"
-import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -19,9 +19,7 @@ import type { RobotOverviewEntry } from "@/lib/robot-overview"
 import { isFailingEntry } from "@/lib/robot-overview"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatWholeStack } from "@/lib/whole-stack"
-import { useBranch } from "@/stores/branch-sync"
 import { useOperations } from "@/stores/operations"
-import { useRobotNeedsReview } from "@/stores/patronus"
 
 interface RobotListProps {
   /** The section title; "Landing · 2" */
@@ -56,12 +54,11 @@ export function RobotList({ title, testId, entries, onReveal }: RobotListProps) 
  */
 export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal?: (name: string) => void }) {
   const { robot, chip, branchName } = entry
-  const branch = useBranch(entry.stackRoot === undefined ? branchName : "")
   // the whole stack is named in a sentence as "the whole air stack", and a click shows its root
   const subject = entry.stackRoot === undefined ? branchName : formatWholeStack(entry.stackRoot)
   const reveal = entry.stackRoot ?? branchName
-  const needsReview = useRobotNeedsReview(robot.id)
-  // a restart or a cancel that runs shows in its button
+  // the actions Rust offers of the robot; a restart or a cancel that runs shows in its button
+  const robotParts = useRobotParts(robot)
   const operations = useOperations()
   const mode = formatPushMode(robot.pushMode)
   const Icon = patronusChipIcons[chip.kind]
@@ -139,7 +136,7 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
         )}
       </span>
       <span className="flex">
-        {getGatedRobotActions(robot, branch ?? null, needsReview, failing, operations).map(action => (
+        {getRobotItems(robot, operations, robotParts).map(action => (
           <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${subject} in Patronus` : `${action.label} of ${subject}`} />
         ))}
       </span>

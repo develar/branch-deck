@@ -1,4 +1,20 @@
 {
+  "actions": {
+    "robot:from-comment": [
+      {"availability": {"kind": "enabled"}, "id": "cancel-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot-pull-request"}
+    ],
+    "robot:older": [
+      {"availability": {"kind": "enabled"}, "id": "push-and-restart-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"}
+    ],
+    "robot:robot-0": [
+      {"availability": {"kind": "enabled"}, "id": "restart-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot-pull-request"}
+    ]
+  },
   "given": {
     "pullRequest": {"approvers": ["alice"]},
     "readiness": "unknown",

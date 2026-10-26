@@ -10,7 +10,7 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ReviewRequest } from "@/lib/bindings"
-import { branchReviewBlocker } from "@/lib/branch-review"
+import { reviewBlockerOf } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
 import { formatFileCount } from "@/lib/commit-files"
@@ -23,6 +23,7 @@ import type { ReviewPatronus } from "@/lib/pull-request-review"
 import { getReviewSafePush } from "@/lib/pull-request-review"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
+import { useRowPart } from "@/model/store"
 import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { usePatronusAvailable } from "@/stores/patronus"
@@ -182,7 +183,8 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
   const showBranch = () => requestReveal({ branchName, commitIds: [] })
   // the review of its branch, as D on the branch row opens it
   const branch = useBranchSync(state => state.branches[branchName])
-  const reviewBlocker = branch === undefined ? `${branchName} is not in the table` : branchReviewBlocker(branch)
+  const actions = useRowPart(branchName, "actions")
+  const reviewBlocker = branch === undefined ? `${branchName} is not in the table` : reviewBlockerOf(branch, actions)
   const reviewBranch = () => {
     if (reviewBlocker === null) {
       void openBranchReviewWindow(branchName)

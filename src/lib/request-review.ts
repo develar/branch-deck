@@ -1,8 +1,11 @@
-import { UserPlusIcon } from "lucide-react"
 import type { PullRequest, PullRequestView, RequestedReviewers, ReviewCandidate, ReviewReadiness } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
+import { getRowPart } from "@/model/store"
+import { presentAction } from "@/presenters/actions"
+import { getOpenPullRequest } from "@/stores/branch-sync"
+import { openRequestReview } from "@/stores/request-review-popover"
 
 /** "Ilya Korennoy", else the login */
 export function formatCandidate(candidate: Pick<ReviewCandidate, "login" | "fullName">): string {
@@ -10,30 +13,26 @@ export function formatCandidate(candidate: Pick<ReviewCandidate, "login" | "full
 }
 
 /**
- * "Request Review…" of a branch, which opens the popover of its open pull request (`open`), as Rust reads it
- * (`PullRequestView`): disabled with the reason while it is a draft; work the remote lacks is no reason, the request
- * pushes it first (`pushForAction`), so the reviewers see the commits. Null without an open pull request, where it
- * never applies (Create Pull Request… asks the reviewers then).
+ * "Request Review…" of the open pull request of the subject `key` (a branch, `stack:<root>`), as Rust offers it (none
+ * without an open pull request, disabled for a draft): its popover asks the code owners Patronus suggests (the readiness
+ * of the subject), the push first; null without one
  */
-export function getRequestReviewItem(pullRequest: PullRequestView | undefined, open: () => void): MenuItem | null {
+export function getRequestReviewItem(key: string): MenuItem | null {
+  const pullRequest = getOpenPullRequest(key)
   if (pullRequest === undefined) {
     return null
   }
-  const reason = pullRequest.draft ? formatDraftReason(pullRequest.number) : null
-  const chosen = pullRequest.candidates.filter(candidate => candidate.preselected)
-  return {
-    id: "request-review",
-    label: "Request Review…",
-    icon: UserPlusIcon,
-    disabled: reason !== null,
-    description: reason ?? (chosen.length > 0 ? `Ask ${joinNames(chosen.map(formatCandidate))} to review #${pullRequest.number}` : `Ask for a review of #${pullRequest.number}`),
-    onSelect: open,
-  }
+  return presentAction(getRowPart(key, "actions"), "request-review", { description: describeRequestReview(pullRequest), onSelect: () => openRequestReview(key) }, { subject: key })
 }
 
-/** Why nobody is asked to review a draft (`PullRequestView.draft`) */
-export function formatDraftReason(number: number): string {
-  return `#${number} is a draft: mark it ready for review on GitHub first`
+/**
+ * What "Request Review…" of the open pull request `pullRequest` does (`PullRequestView`), whose availability Rust decides
+ * (`domain_policy::actions`: a draft asks nobody): the code owners Patronus preselects, else a review of it; work the
+ * remote lacks is no reason, the request pushes it first (`pushForAction`), so the reviewers see the commits
+ */
+export function describeRequestReview(pullRequest: PullRequestView): string {
+  const chosen = pullRequest.candidates.filter(candidate => candidate.preselected)
+  return chosen.length > 0 ? `Ask ${joinNames(chosen.map(formatCandidate))} to review #${pullRequest.number}` : `Ask for a review of #${pullRequest.number}`
 }
 
 /**

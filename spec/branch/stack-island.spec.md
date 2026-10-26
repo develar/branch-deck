@@ -206,7 +206,7 @@ Rust places: at each fork the child with the longest chain), whose one robot lan
   reason while a Safe Push holds the root and while it pushes nothing beyond the root, as the root's menu:
   [Stacked Branches](stacked-branches.spec.md#pull-requests)),
   "Review Whole Stack" (the review window of the stack branch; of a straight chain, of its last branch from the root,
-  disabled with the reason of the branch menu's, `branchReviewBlocker`: no commits, failed, blocked) and the actions of
+  disabled with the reason of the branch menu's, `reviewBlockerOf`, as Rust decides it: no commits, failed, blocked) and the actions of
   the robot of the whole stack; then "Collapse Stack" / "Expand Stack".
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header`, `should open Request Review… of the whole stack at the header while its Safe Push runs and the header offers no step`)

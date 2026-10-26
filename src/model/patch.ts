@@ -59,6 +59,10 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
   if (Object.keys(changes.nextSteps ?? {}).length > 0 || (changes.removedNextSteps?.length ?? 0) > 0) {
     nextSteps = { ...withoutKeys(nextSteps, changes.removedNextSteps ?? []), ...changes.nextSteps }
   }
+  let actions = view.actions
+  if (Object.keys(changes.actions ?? {}).length > 0 || (changes.removedActions?.length ?? 0) > 0) {
+    actions = { ...withoutKeys(actions, changes.removedActions ?? []), ...changes.actions }
+  }
   const sections = view.sections
   const archived = changes.archived
   return {
@@ -73,6 +77,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     lands,
     landedStates,
     nextSteps,
+    actions,
     sections: {
       unassigned: changes.unassigned ?? sections.unassigned,
       unapplied: changes.unapplied ?? sections.unapplied,

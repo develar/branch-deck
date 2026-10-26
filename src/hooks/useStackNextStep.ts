@@ -1,11 +1,9 @@
-import { GitPullRequestCreateIcon } from "lucide-react"
 import type { StepInputs } from "@/hooks/useBranchNextStep"
 import { announceApproval, busyOf, getBranchNextStep, getStepInputs, stepActionsOf, tellApprovalNews, useBranchNextStep, useStepInputs } from "@/hooks/useBranchNextStep"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
-import type { Landed, Reason, StackLanding } from "@/lib/bindings"
+import type { ActionState, StackLanding } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
-import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
 import { formatLandingSubject } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
@@ -13,11 +11,11 @@ import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
+import { presentAction } from "@/presenters/actions"
 import type { BranchNextStep, StepContext } from "@/presenters/next-step"
 import { presentNextStep } from "@/presenters/next-step"
-import { formatLandedWhole, formatReasonOrNull } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
-import { getLandedState, getStackBranch, getStackNotBuilt, getWholeStack, useForkingStackNotBuilt, useStackBranch, useWholeStack } from "@/stores/branch-sync"
+import { getStackBranch, getWholeStack, useStackBranch, useWholeStack } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getStackLanding, useStackLanding } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
@@ -69,64 +67,42 @@ export function wholeStackRestOf(root: string): WholeStackRest {
   return wholeStackRestIn(getStackLanding(root).rest, getStackBranch(root))
 }
 
-/** What "Create Pull Request of the Stack…" of a whole stack that forks reads */
-interface StackPullRequestFacts {
-  readonly stack: StackBranch | undefined
-  /** Why the sync didn't build its stack branch; null when it did */
-  readonly notBuilt: Reason | null
-  /** What landed all of it */
-  readonly landed: Landed | null | undefined
-  readonly target: string
+/**
+ * "Create Pull Request of the Stack…": the pull request of the stack branch into the baseline, as Rust offers it of the
+ * whole stack (`actions`, `stack:<root>` of `RepositoryView.actions`: of a stack that forks on GitHub without a live
+ * pull request of it, disabled while the sync didn't build it and once all of it landed); null while it doesn't
+ */
+function stackPullRequestItemOf(root: string, actions: readonly ActionState[] | undefined, stack: StackBranch | undefined, target: string): MenuItem | null {
+  const members = stack?.members.length ?? 0
+  return presentAction(
+    actions,
+    "create-stack-pull-request",
+    {
+      description: `The pull request of ${formatWholeStack(root)} into ${target}: the commits of ${formatBranchCount(members)}, which one Safe Push lands`,
+      onSelect: () => openStackPullRequestDialog(root),
+    },
+    { subject: root },
+  )
 }
 
-/**
- * "Create Pull Request of the Stack…": the pull request of the stack branch into the baseline, disabled with the reason
- * while the sync didn't build it, and once all of it landed (nothing of it is left to review or land)
- */
-function stackPullRequestItemOf(root: string, facts: StackPullRequestFacts): MenuItem | null {
-  const { stack, target } = facts
-  if (stack === undefined) {
-    return null
-  }
-  const blocker = formatReasonOrNull(facts.notBuilt) ?? formatLandedWhole(facts.landed)
-  return {
-    id: "create-stack-pull-request",
-    label: "Create Pull Request of the Stack…",
-    icon: GitPullRequestCreateIcon,
-    disabled: blocker !== null,
-    description: blocker ?? `The pull request of ${formatWholeStack(root)} into ${target}: the commits of ${formatBranchCount(stack.members.length)}, which one Safe Push lands`,
-    onSelect: () => openStackPullRequestDialog(root),
-  }
-}
-
-/**
- * "Create Pull Request of the Stack…" of `root` now (`stackPullRequestItemOf`), for the menus; null for a stack that
- * doesn't fork or without the GitHub repository of the branches
- */
+/** "Create Pull Request of the Stack…" of `root` now (`stackPullRequestItemOf`), for the menus */
 export function getCreateStackPullRequestItem(root: string): MenuItem | null {
-  if (getWholeStack(root)?.kind !== "forking" || getBranchesGitHubRepository() === null) {
-    return null
-  }
-  return stackPullRequestItemOf(root, {
-    stack: getStackBranch(root),
-    notBuilt: getStackNotBuilt(root),
-    landed: getLandedState(stackReadinessKey(root)),
-    target: getReadinessTarget(),
-  })
+  return stackPullRequestItemOf(root, getRowPart(stackReadinessKey(root), "actions"), getStackBranch(root), getReadinessTarget())
 }
 
 /** What the words of the step of a whole stack read beside those of a branch (`StepInputs`): what its start lands, its pull request */
 interface StackInputs extends StepInputs {
   readonly rest: StackLanding["rest"]
   readonly stack: StackBranch | undefined
-  readonly notBuilt: Reason | null
+  /** The actions Rust offers of the whole stack: its Create Pull Request of the Stack… */
+  readonly actions: readonly ActionState[] | undefined
 }
 
-/** The context of the step of the whole stack of `root` over `inputs`; `landed` what landed all of it */
-function stackContextOf(root: string, inputs: StackInputs, landed: Landed | null, forStart: boolean): StepContext {
+/** The context of the step of the whole stack of `root` over `inputs` */
+function stackContextOf(root: string, inputs: StackInputs, forStart: boolean): StepContext {
   const key = stackReadinessKey(root)
   const rest = wholeStackRestIn(inputs.rest, inputs.stack)
-  const create = stackPullRequestItemOf(root, { stack: inputs.stack, notBuilt: inputs.notBuilt, landed, target: inputs.target })
+  const create = stackPullRequestItemOf(root, inputs.actions, inputs.stack, inputs.target)
   return {
     subject: formatWholeStack(root),
     target: inputs.target,
@@ -163,8 +139,8 @@ export function getStackNextStep(root: string, options?: { readonly forStart: tr
   if (view === undefined) {
     return null
   }
-  const inputs: StackInputs = { ...getStepInputs(key, view.step), rest: getStackLanding(root).rest, stack: getStackBranch(root), notBuilt: getStackNotBuilt(root) }
-  return { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, view.step.landed, options !== undefined)) }
+  const inputs: StackInputs = { ...getStepInputs(key, view.step), rest: getStackLanding(root).rest, stack: getStackBranch(root), actions: getRowPart(key, "actions") }
+  return { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, options !== undefined)) }
 }
 
 /**
@@ -182,14 +158,14 @@ export function useStackNextStep(root: string): StackNextStep | null {
     ...useStepInputs(key, view?.step),
     rest: useStackLanding(forks ? root : "").rest,
     stack: useStackBranch(forks ? root : ""),
-    notBuilt: useForkingStackNotBuilt(root),
+    actions: useRowPart(key, "actions"),
   }
   const leaf = whole?.kind === "chain" ? whole.leaf : null
   const leafStep = useBranchNextStep(leaf ?? "")
   if (leaf !== null) {
     return leafStep === null ? null : { leaf, step: leafStep }
   }
-  return view === undefined ? null : { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, view.step.landed, false)) }
+  return view === undefined ? null : { leaf: null, step: presentNextStep(view.step, stackContextOf(root, inputs, false)) }
 }
 
 /**

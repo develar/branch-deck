@@ -19,6 +19,7 @@ import { robotRailMarks } from "@/lib/robot-coverage"
 import { blockingBranchOf, describeParentState, passedParentOf, stackProblemOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { laneContentInsetClass } from "@/lib/stack-lanes"
+import { useRowPart } from "@/model/store"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useOperations } from "@/stores/operations"
@@ -125,8 +126,9 @@ function BlockedAlert({ branch }: { branch: Branch }) {
 function PassedParentAlert({ branch }: { branch: Branch }) {
   const baseline = useBaselineOnRemote()
   const operations = useOperations()
+  const actions = useRowPart(branch.name, "actions")
   const passed = passedParentOf(branch)
-  const unstack = getBranchUnstackItem(branch, operations)
+  const unstack = getBranchUnstackItem(branch, operations, actions)
   if (passed === null || unstack === null) {
     return null
   }

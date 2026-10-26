@@ -98,7 +98,8 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   branch is not built on its parent).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
-  [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
+  [@test] ../../src/lib/branch-review.test.ts (`says why Rust refuses the review of a branch, in the words of its row`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
 - "Review Whole Stack" (the "⋯" of a stack island and "Whole Stack ›" of the menu of every branch of the stack) must open the same window for
   the whole stack of a stack that forks (`openWholeStackReviewWindow`, titled "Review the whole air stack"): one part,
   its stack branch `{prefix}/stack/<root>` on the baseline (`GetBranchReviewParams::whole_stack`), every commit of
@@ -276,9 +277,9 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   action of a row, the selected repository), deduplicated, for the last opened chain. An unavailable Safe Push or
   Push stays, disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for
   the sync to finish"): one blocker for the menu, S on the row, the branch preview and the review
-  (`getSafePushBlocker`, `getPushBlocker`).
+  (the `safe-push` and `push` actions Rust decides, `domain_policy::actions`).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push, in the words of every surface that offers it`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push in the words of its next step, and what runs on the row over it`)
 - While the main window shows another repository, the title bar keeps the last items, enabled: their hover says the
   consequence, "Switches the main window to app", and a click makes the main window select the window's repository,
   wait for its sync and run the action on its branches (`showRepository`); the user never selects it by hand. The pull

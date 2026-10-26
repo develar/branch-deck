@@ -3,6 +3,8 @@
 //! architecture test keeps the crate away from git, the network, tokio, Tauri and clap). One file per rule, each tested
 //! by tables of its own:
 //!
+//! - `actions`: the actions a branch, a whole stack or a robot offers and whether each can run now, disabled with the
+//!   reason (`branch_actions`, `stack_actions`, `robot_actions`), for every surface of the app
 //! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
 //!   session or from the grouped branches of a sync, the robots of the user by id (`Robots`) and what is known of a
 //!   remote branch (`RemoteBranch`)
@@ -51,6 +53,7 @@
 //!   effective base, the children and the descendants, the main line, the whole stack of a branch by declared parent
 //!   (`whole_stack_of`), its branches as a sentence names them and what is left of it to land (`whole_stack_rest`)
 
+pub mod actions;
 pub mod facts;
 pub mod holds;
 pub mod land;
@@ -69,6 +72,12 @@ pub mod review;
 pub mod robot_match;
 pub mod stack;
 
+#[cfg(test)]
+mod action_catalog_test;
+#[cfg(test)]
+mod actions_test;
+#[cfg(test)]
+mod catalog_test;
 #[cfg(test)]
 mod holds_test;
 #[cfg(test)]

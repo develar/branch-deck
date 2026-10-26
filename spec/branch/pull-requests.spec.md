@@ -334,8 +334,8 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
   [@test] ../../src/lib/create-pull-request-context.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
-- "Create Pull Request…" is offered to any branch without a live pull request, on the remote or not (`canCreatePullRequest`
-  asks only the GitHub repository and the pull request): the push is the creation's first step, never a step the user
+- "Create Pull Request…" is offered to any branch without a live pull request, on the remote or not (Rust offers `create-pull-request`
+  by the GitHub repository and the pull request alone): the push is the creation's first step, never a step the user
   takes or reads about. Opening the dialog pushes nothing; Create (and "Continue on GitHub") pushes what the push
   button would (`pushForAction`: the branch and the ancestors with work, root first, without a push toast; Activity
   records it), its progress in the button ("Pushing 45%"), Escape and a click outside don't close the dialog meanwhile.
@@ -520,7 +520,8 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   no approvals): "Cannot check whether the push of the new commits keeps the approvals of #1078: GitHub answered 500."
   A refused push ("Cannot request a review on
   #1078" with its reason) asks nobody. Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
-  [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is disabled with the reason for a draft only: work the remote lacks is pushed by the request`, `is not there without an open pull request`)
+  [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is not there without an open pull request`, `is disabled with the reason Rust gives for a draft: work the remote lacks is pushed by the request`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_reads_where_each_open_pull_request_goes_and_whom_request_review_offers`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should push the commits the remote lacks as the first step of Request Review…`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should say in Request Review… while Patronus names no code owners, when it fails to, and when the rules of the branch can't be read`)

@@ -1,14 +1,12 @@
 import { RobotActionButton } from "@/components/branch/PatronusChip"
 import { StatusChip } from "@/components/branch/StatusChip"
-import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatPushMode } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatTimestamp } from "@/lib/time"
-import { useBranch } from "@/stores/branch-sync"
 import { useOperations } from "@/stores/operations"
-import { useRobotFailing } from "@/stores/patronus"
 import { useCoveringRobot } from "@/stores/robot-coverage"
 
 export interface RobotCommitMarkerProps {
@@ -44,10 +42,9 @@ export function RobotCommitMarker({ branchName, change }: RobotCommitMarkerProps
 
 /** The robot that lacks the commit, why, and the actions of the robot */
 function RobotCommitDetails({ robot, change }: { robot: PatronusRobot; change: "added" | "changed" }) {
-  const failing = useRobotFailing(robot.id)
   const operations = useOperations()
-  // the robot of a branch built on this one, or of the whole stack: its actions are the ones of its own branch
-  const subject = useBranch(robot.branchName ?? "")
+  // the robot of a branch built on this one, or of the whole stack: its actions are the ones Rust offers of it
+  const robotParts = useRobotParts(robot)
   const mode = formatPushMode(robot.pushMode)
   const started = robot.sourceRevision === null ? "" : ` on ${formatShortHash(robot.sourceRevision)}`
   const title = change === "added" ? `Added after the ${mode} started${started}` : `Changed since the ${mode} started${started}`
@@ -77,7 +74,7 @@ function RobotCommitDetails({ robot, change }: { robot: PatronusRobot; change: "
       </dl>
       <p className="text-xs text-muted-foreground">{`The result won't cover this commit. Restart ${mode} to test the current ${what}.`}</p>
       <div className="flex flex-wrap gap-2">
-        {getGatedRobotActions(robot, subject ?? null, false, failing, operations).map(action => (
+        {getRobotItems(robot, operations, robotParts).map(action => (
           <RobotActionButton key={action.id} action={action} />
         ))}
       </div>

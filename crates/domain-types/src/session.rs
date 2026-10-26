@@ -14,6 +14,7 @@
 //! landing needs, keyed by branch and stack); a window tells the session what it shows and needs (`Demand`) and asks it
 //! to read a fact again (`RefreshFactsParams`).
 
+use crate::actions::ActionState;
 use crate::branch_integration::BranchIntegrationInfo;
 use crate::commit::Commit;
 use crate::conflict::WordResolutionSummary;
@@ -355,6 +356,10 @@ pub struct RepositoryView {
   /// `domain_policy::next_step` and `domain_policy::landing_node` decide them over the table and the facts; none before
   /// the first sync
   pub next_steps: BTreeMap<String, NextStepView>,
+  /// The actions of each subject (a branch, `stack:<root>` the whole stack of a root, `robot:<id>` a robot of the user)
+  /// and whether each can run now, as `domain_policy::actions` decides them over the table, its next steps and the facts;
+  /// none before the first sync
+  pub actions: BTreeMap<String, Vec<ActionState>>,
   pub sections: TableSections,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
@@ -996,6 +1001,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_next_steps: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub actions: BTreeMap<String, Vec<ActionState>>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_actions: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,

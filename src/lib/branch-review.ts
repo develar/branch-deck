@@ -1,8 +1,9 @@
-import type { BranchReviewSegment } from "@/lib/bindings"
+import type { ActionState, BranchReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { sameStringRecord } from "@/lib/record"
 import type { ReviewFilter } from "@/lib/review-owners"
-import { formatBlockedReason, stackProblemOf } from "@/lib/stack"
+import { getRowPart } from "@/model/store"
+import { actionBlocker } from "@/presenters/actions"
 import { structureIn } from "@/stores/branch-sync"
 import type { Branch, BranchSyncState } from "@/stores/branch-sync"
 import type { BranchReviewGroup, BranchReviewWindowData } from "@/types/sub-window"
@@ -100,18 +101,13 @@ export function requestAction(
   }
 }
 
-/** Why a branch can't be reviewed now; null when it can: its virtual branch must be built on its parents */
-export function branchReviewBlocker(branch: Branch): string | null {
-  if (branch.commitCount === 0) {
-    return "No commits to review"
-  }
-  if (branch.status === "Blocked") {
-    return formatBlockedReason(branch)
-  }
-  if (branch.hasError) {
-    return stackProblemOf(branch)?.reason ?? "The branch failed to sync"
-  }
-  return null
+/**
+ * Why the branch `branch` can't be reviewed now, as Rust decides its Review Changes (`domain_policy::actions`: no
+ * commits, its build blocked or failed; its virtual branch must be built on its parents); null when it can. `actions`:
+ * the actions of the branch a component subscribed to (`useRowPart`)
+ */
+export function reviewBlockerOf(branch: Pick<Branch, "name" | "statusText">, actions: readonly ActionState[] | undefined = getRowPart(branch.name, "actions")): string | null {
+  return actionBlocker(actions, "review-changes", { subject: branch.name, statusText: branch.statusText }) ?? null
 }
 
 /** A contiguous part of the chain: the indexes of its first and last segment */

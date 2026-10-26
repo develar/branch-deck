@@ -1,4 +1,15 @@
 {
+  "actions": {
+    "robot:newer": [
+      {"availability": {"kind": "enabled"}, "id": "cancel-robot"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"}
+    ],
+    "robot:older": [
+      {"availability": {"kind": "enabled"}, "id": "copy-robot-prompt"},
+      {"availability": {"kind": "enabled"}, "id": "copy-robot-full-prompt"},
+      {"availability": {"kind": "enabled"}, "id": "open-robot"}
+    ]
+  },
   "given": {"readiness": "space"},
   "land": {
     "decision": {

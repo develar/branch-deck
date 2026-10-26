@@ -214,10 +214,6 @@ export function openRobotUrl(url: string): void {
   openUrl(url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))
 }
 
-export function canCancelRobot(robot: PatronusRobot): boolean {
-  return robot.status === "running"
-}
-
 /**
  * The restart the details of a robot offer (`RobotRestart.action` of the view, `domain_policy::holds::restart_action`):
  * a restart, one that pushes first, or none
@@ -253,7 +249,7 @@ export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<Patronu
     return `${changed} ${formatRobotRestartLabel(robot)} to test the current ${what}.`
   }
   // canceling, a robot started on the branch or the stack branch can be restarted; one of a temporary ref can't
-  if (canCancelRobot(robot) && robotSubjectOf(robot) !== null) {
+  if (robot.status === "running" && robotSubjectOf(robot) !== null) {
     return `${changed} Cancel ${formatPushMode(robot.pushMode)}, then ${formatRobotRestartLabel(robot)} to test the current ${what}.`
   }
   return changed

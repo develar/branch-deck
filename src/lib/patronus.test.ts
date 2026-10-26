@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { LandedBy, RobotRestartAction, SafePushSlotInput } from "@/lib/patronus"
 import {
-  canCancelRobot,
   describeRobot,
   formatLandedReason,
   formatLandedWholeReason,
@@ -170,11 +169,6 @@ describe("formatSafePushLoginCommand", () => {
 })
 
 describe("actions", () => {
-  it("cancels a running robot only", () => {
-    expect(canCancelRobot(robot({ status: "running" }))).toBe(true)
-    expect(canCancelRobot(robot({ status: "canceling" }))).toBe(false)
-  })
-
   it("holds pushes with a running Safe Push only: a dry run or a cancel holds nothing", () => {
     expect(isHoldingRobot(robot({ status: "running" }))).toBe(true)
     expect(isHoldingRobot(robot({ status: "running", pushMode: "dryRun" }))).toBe(false)

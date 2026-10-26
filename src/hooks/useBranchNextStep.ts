@@ -4,7 +4,7 @@ import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
-import type { LandingFix, NextStep, PatronusRobot, PullRequest, PullRequestView, RobotRestart } from "@/lib/bindings"
+import type { ActionState, LandingFix, NextStep, NextStepView, PatronusRobot, PullRequest, PullRequestView } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
@@ -12,7 +12,7 @@ import { CREATE_PULL_REQUEST_LABEL } from "@/lib/git/new-pull-request"
 import { announce } from "@/lib/os-notification"
 import { formatPushMode, formatSafePushLoginCommand } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
-import { getRobotActions, restartItemOf } from "@/lib/patronus-actions"
+import { getRobotActionItems, isRestart } from "@/lib/patronus-actions"
 import { isWindows } from "@/lib/platform"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
@@ -21,7 +21,7 @@ import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
-import type { BranchNextStep, NextStepActions, NextStepBusy, NextStepKind, StepContext } from "@/presenters/next-step"
+import type { BranchNextStep, NextStepActions, NextStepBusy, StepContext } from "@/presenters/next-step"
 import { formatPendingFact, formatProblemsFailure, presentNextStep } from "@/presenters/next-step"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
@@ -29,10 +29,9 @@ import { branchSyncStore, getBranch, useBranchSync } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import type { Operation, Operations } from "@/stores/operations"
 import { getObjectBusy, getOperations, operationLabel, runOperation, useObjectOperation, useOperationsWhile } from "@/stores/operations"
-import { getRobot, getRobotProblemsFailure, getRobotRestart, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
+import { getRobot, getRobotProblemsFailure, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, retargetPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject, isSelectedRepository, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
-import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import type { SafePushStarting } from "@/stores/safe-push"
 import { getSafePushStarting, useSafePushStarting } from "@/stores/safe-push"
@@ -94,9 +93,10 @@ export interface StepInputs {
   readonly operation: Operation | undefined
   /** The start of a Safe Push of the row that runs */
   readonly starting: SafePushStarting | null
-  /** The robot the step restarts, with how Rust decides its restart; undefined while the step restarts none */
+  /** The robot the step restarts; undefined while the step restarts none */
   readonly robot: PatronusRobot | undefined
-  readonly restart: RobotRestart | null
+  /** The actions Rust offers of that robot (`robot:<id>`), its restart among them */
+  readonly robotActions: readonly ActionState[] | undefined
   /** The operations that run, while the step restarts a robot (its item says a running restart and what it waits for) */
   readonly running: Operations | null
   /** The open pull request of the subject, while the step asks for a review of it */
@@ -124,7 +124,7 @@ export function useStepInputs(key: string, step: NextStep | undefined): StepInpu
     operation: useObjectOperation(key),
     starting: useSafePushStarting(key),
     robot: useStore(patronusStore, () => (robotId === null ? undefined : getRobot(robotId))),
-    restart: useStore(patronusStore, () => (robotId === null ? null : getRobotRestart(robotId))),
+    robotActions: useRowPart(robotId === null ? "" : `robot:${robotId}`, "actions"),
     running: useOperationsWhile(robotId !== null),
     pullRequest: useBranchSync(state => (review ? state.openPullRequests[key] : undefined)),
     repositoryPath: useSelectedProjectPath() ?? null,
@@ -139,7 +139,7 @@ export function getStepInputs(key: string, step: NextStep | undefined): StepInpu
     operation: getObjectBusy(key),
     starting: getSafePushStarting(key),
     robot: robotId === null ? undefined : getRobot(robotId),
-    restart: robotId === null ? null : getRobotRestart(robotId),
+    robotActions: robotId === null ? undefined : getRowPart(`robot:${robotId}`, "actions"),
     running: robotId === null ? null : getOperations(),
     pullRequest: asksReview(step) ? branchSyncStore.getState().openPullRequests[key] : undefined,
     repositoryPath: getSelectedProject()?.path ?? null,
@@ -178,8 +178,8 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     fixLanding,
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
-    restart: robot === undefined || running === null ? null : restartItemOf(robot, inputs.restart, robot.branchName, running),
-    requestReview: getRequestReviewItem(inputs.pullRequest, () => openRequestReview(key)),
+    restart: robot === undefined || running === null ? null : (getRobotActionItems(robot, running, null, inputs.robotActions).find(isRestart) ?? null),
+    requestReview: inputs.pullRequest === undefined ? null : getRequestReviewItem(key),
   }
 }
 
@@ -297,32 +297,29 @@ export function announceApproval(news: ApprovalNews, pullRequest: PullRequest | 
   )
 }
 
-/** The actions of a failed robot that read why it failed: a restart, the prompts for an agent */
-const UNKNOWN_FAILURE_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-restart-robot", "copy-robot-prompt", "copy-robot-full-prompt"])
+/** The parts of the view the actions of a robot read: its actions, and the step of its branch that words a restart it holds back */
+export interface RobotParts {
+  readonly actions: readonly ActionState[] | undefined
+  readonly landing: NextStepView | undefined
+}
 
-/** The next steps that wait for approvals: a restart of a robot that failed for them would fail again */
-const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting"])
+/** `RobotParts` of `robot` now */
+function robotPartsOf(robot: PatronusRobot): RobotParts {
+  return { actions: getRowPart(`robot:${robot.id}`, "actions"), landing: robot.branchName === null ? undefined : getRowPart(robot.branchName, "landing") }
+}
+
+/** `RobotParts` of `robot`, re-rendering when one changes; none without a robot */
+export function useRobotParts(robot: PatronusRobot | null | undefined): RobotParts {
+  return { actions: useRowPart(robot == null ? "" : `robot:${robot.id}`, "actions"), landing: useRowPart(robot?.branchName ?? "", "landing") }
+}
 
 /**
- * The actions of a robot (`getRobotActions`) for every surface that shows them (the branch menu, the robot details, the
- * landing overview): its restart is disabled with the reason of the next step while the approvals that count are still
- * missing (a restart of a robot that failed for them fails again)
+ * The actions of a robot as Rust offers them (`getRobotActionItems`) for every surface that shows them (the branch menu,
+ * the robot details, the robots indicator, the hold of a push): a restart the approvals its branch misses hold back
+ * says so in the words of the step of the branch. A component passes the parts it subscribed to (`useRobotParts`), so
+ * its list follows them.
  */
-export function getGatedRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview?: boolean, failing?: boolean, operations?: Operations): RobotAction[] {
-  const actions = getRobotActions(robot, branch, needsReview, failing, operations)
-  // why the robot of a branch or of a whole stack failed is still to come, or Patronus didn't give it
-  // (`loadReviewProblems` reads them for the robots of the table): no restart and no prompt as if it hadn't failed for
-  // the approvals
-  const problems = robotProblemsReason(robot, branch)
-  if (problems !== null) {
-    return actions.map(item => (UNKNOWN_FAILURE_ACTIONS.has(item.id) ? { ...item, disabled: true, description: problems } : item))
-  }
-  if (branch === null) {
-    return actions
-  }
-  const step = getBranchNextStep(branch.name)
-  const reason = step !== null && APPROVAL_STEPS.has(step.kind) ? step.safePushBlocker : null
-  return reason === null
-    ? actions
-    : actions.map(item => (item.id === "restart-robot" || item.id === "push-and-restart-robot" ? { ...item, disabled: true, description: reason } : item))
+export function getRobotItems(robot: PatronusRobot, operations: Operations = getOperations(), parts: RobotParts = robotPartsOf(robot)): RobotAction[] {
+  const step = robot.branchName === null || parts.landing === undefined ? null : getBranchNextStep(robot.branchName)
+  return getRobotActionItems(robot, operations, step?.safePushBlocker ?? null, parts.actions)
 }

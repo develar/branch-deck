@@ -2,19 +2,22 @@ import type { LucideIcon } from "lucide-react"
 import { AppWindowIcon, GitBranchIcon, HistoryIcon } from "lucide-react"
 import { mainMenus } from "@/lib/main-menu"
 import type { MainMenuState } from "@/lib/main-menu"
+import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem, FROM_MENU } from "@/lib/menu"
 import type { MainViewEntry } from "@/stores/main-view"
 
 /*
  * The command palette of the main window (⌘K, spec/repository/command-palette.spec.md): a way to where the user wants
- * to be and to the commands of the app, not to the actions of a branch. Its sources, in their order: the views of the
- * window (`MAIN_VIEWS`, which a view joins by its entry), Activity, the commands of the app's menu (the items of
- * `mainMenus`, so the palette offers them as the menu does) and "Go to <branch>" for every branch of the table.
+ * to be, to the commands of the app and to the actions of the branch at hand. Its sources, in their order: the views of
+ * the window (`MAIN_VIEWS`, which a view joins by its entry), Activity, the commands of the app's menu (the items of
+ * `mainMenus`, so the palette offers them as the menu does), the actions of the branch whose row has the focus (the
+ * items of its menu, `getBranchContextMenuItems`, which present the actions Rust decides) and "Go to <branch>" for every
+ * branch of the table.
  */
 
-export type PaletteGroup = "Views" | "Activity" | "Commands" | "Branches"
+export type PaletteGroup = "Views" | "Activity" | "Commands" | "Branch" | "Branches"
 
-export const PALETTE_GROUPS: readonly PaletteGroup[] = ["Views", "Activity", "Commands", "Branches"]
+export const PALETTE_GROUPS: readonly PaletteGroup[] = ["Views", "Activity", "Commands", "Branch", "Branches"]
 
 export interface PaletteCommand {
   /** Namespaced by its source (`view:branches`, `activity:panel`, `app:sync_branches`, `branch:auth`): one entry per id */
@@ -42,6 +45,34 @@ export interface PaletteSources {
   readonly toggleActivityPanel: () => void
   readonly openActivityWindow: () => void
   readonly goToBranch: (name: string) => void
+  /** The branch whose row has the focus, with the groups of its menu; null without one */
+  readonly branchMenu: { readonly name: string; readonly groups: MenuItemGroups } | null
+}
+
+/**
+ * The actions of the branch `name` from the groups of its menu, each as the menu has it (its name, disabled with its
+ * reason), an item of a submenu named with it ("Patronus › Dry Run"); a submenu with nothing to act on is none. A key
+ * of the row is no key of the window: none is hinted
+ */
+function branchActions(name: string, groups: MenuItemGroups): PaletteCommand[] {
+  const command = (item: MenuItem, path: string, label: string): PaletteCommand => ({
+    id: `action:${name}:${path}`,
+    label,
+    group: "Branch",
+    ...(item.icon !== undefined && { icon: item.icon }),
+    ...(item.disabled === true && { disabled: true }),
+    ...(item.disabled === true && item.description !== undefined && { description: item.description }),
+    run: () => item.onSelect(FROM_MENU),
+  })
+  return groups.flat().flatMap(item => {
+    const path = item.id ?? item.label
+    if (item.children === undefined) {
+      return [command(item, path, item.label)]
+    }
+    return item.children
+      .filter(child => child.children === undefined)
+      .map(child => command(child, `${path}/${child.id ?? child.label}`, `${item.label.replace(/…$/, "")} › ${child.label}`))
+  })
 }
 
 /** The commands of the app's menu the palette offers: what the user does with the app, never a view setting */
@@ -79,6 +110,7 @@ export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
         },
       ]
     }),
+    ...(sources.branchMenu === null ? [] : branchActions(sources.branchMenu.name, sources.branchMenu.groups)),
     ...sources.branches.map(name => ({ id: `branch:${name}`, label: `Go to ${name}`, group: "Branches" as const, icon: GitBranchIcon, run: () => sources.goToBranch(name) })),
   ]
   const seen = new Set<string>()

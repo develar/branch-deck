@@ -120,7 +120,7 @@ its row.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
   [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should keep the sections and the push of the preview in their places while Patronus and GitHub answer`)
 - P must work in any keyboard layout (the physical key). P on the focused row of the table pushes by the same rule
-  (`canPushNow`, [Branch Row](branch-row.spec.md#keyboard)).
+  (the `push` Rust decides, a running push over it, [Branch Row](branch-row.spec.md#keyboard)).
 - The push must be disabled while a sync or a push of the branch runs, while an inline action runs on the row, and when
   everything is pushed.
 - The preview must stay open, and its status and last push time must follow the push result.

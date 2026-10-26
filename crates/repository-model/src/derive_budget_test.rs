@@ -4,13 +4,15 @@
 //! and the whole patch of the view. A budget of the derivation (docs/design/rendering-performance.md): the minimum of
 //! several runs decides it, so the preemption of a loaded machine doesn't; the times are printed.
 
+use crate::action_view::{ActionSources, actions_of};
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
-use crate::derive::{landed_states_of, next_steps_of, open_pull_requests_view, wanted_readiness};
+use crate::derive::{landed_states_of, next_steps_of, open_pull_requests_view, push_view, wanted_readiness};
 use crate::facts::{FactResult, FactStore, Observation, RobotsRead, Seq};
 use crate::state::View;
 use crate::table::TableState;
 use crate::table::table_test::{branch_status, grouped, run_sync, synced};
 use domain_types::fixtures::{missing_approvals, pull_request, robot};
+use domain_types::next_step::NextStepView;
 use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use domain_types::repository_view::{BranchPatronus, LandingNeeds, PatronusView};
@@ -239,7 +241,7 @@ fn least(mut derive: impl FnMut()) -> Duration {
     .unwrap_or_default()
 }
 
-/// A flush derives the next step and the node of every row twice, the readiness it asks and the patch, within the
+/// A flush derives the next step, the node and the actions of every row, the readiness it asks and the patch, within the
 /// budget; the whole first patch of the view is printed beside it
 #[test]
 fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_budget() {
@@ -260,14 +262,27 @@ fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_
     visible_branches: state.order().to_vec(),
     ..Demand::default()
   };
+  let pushes = push_view(&state.parts, &facts.patronus.part().view, facts.pull_requests.view());
+  let actions = |steps: &BTreeMap<String, NextStepView>| {
+    let sources = ActionSources {
+      steps,
+      pushes: &pushes,
+      lands: &BTreeMap::new(),
+      open_pull_requests: &open,
+      landed: &landed,
+    };
+    actions_of(&state, &facts, &sources)
+  };
+  assert!(actions(&steps).len() >= 141 + 3, "every row and every whole stack has its actions");
   let flush = least(|| {
     let _ = wanted_readiness(&state, &facts, "user", &demand);
-    let _ = next_steps_of(&state, &facts, &open, &landed);
+    let steps = next_steps_of(&state, &facts, &open, &landed);
+    let _ = actions(&steps);
   });
   let patch = least(|| {
     let mut view = View::new(1, "user");
     let _ = view.diff(&state, &facts);
   });
-  eprintln!("the next steps of 141 rows per flush: {flush:?} (budget {BUDGET:?}); the first patch of the view: {patch:?}");
+  eprintln!("the next steps and the actions of 141 rows per flush: {flush:?} (budget {BUDGET:?}); the first patch of the view: {patch:?}");
   assert!(flush <= BUDGET, "the next steps of a flush took {flush:?}, over the budget of {BUDGET:?}");
 }

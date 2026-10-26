@@ -6,6 +6,7 @@ targets:
   - ../../src/lib/os-notification.ts
   - ../../crates/domain-types/src/patronus.rs
   - ../../crates/domain-policy/src/review.rs
+  - ../../crates/domain-policy/src/actions.rs
   - ../../crates/patronus/src/actions.rs
   - ../../crates/patronus/src/client.rs
   - ../../crates/patronus/src/review.rs
@@ -524,7 +525,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should close the branch preview for the Safe Push of its Patronus section`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push popover of the focused row with S and start it with Enter, which takes it out of Your Move`)
-- Every entry point asks one predicate first, the next step of the branch (`getSafePushBlocker`, [Next
+- Every entry point asks one predicate first, the next step of the branch (the `safe-push` action, [Next
   Step](next-step.spec.md)), which asks the start refusal Rust decides first (`domain_policy::land::start_refusal`, the
   view's `landing.start` and `landing.dryRun`, worded by `src/presenters/reasons.ts`): a start
   is not possible while a robot runs on the commit the branch is at (Patronus would refuse it: "A Safe Push of the last
@@ -1078,7 +1079,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
 - Each failing robot is told once: a `warning` toast "A required check of auth failed" / "Bazel Community Build
   Aggregator · the Safe Push will fail" (the checks from its details, which the warning doesn't name; a watched robot
-  by what it tests), for 10 s, with "Cancel Safe Push" first (the action of the robot, `getRobotActions`) and "Open in
+  by what it tests), for 10 s, with "Cancel Safe Push" first (the action of the robot, `getRobotActionItems`) and "Open in
   Patronus" below the text, recorded in Activity. In the background an OS notification says it at once while "Safe
   Push failures" is on in Settings → Notifications (`notifyPatronusFailures`, on by default), and the toast shows on the next focus.
   [@test] ../../src/stores/patronus.test.ts (`tells once that a running robot will fail, with Cancel Safe Push and the failed checks`)
@@ -1092,7 +1093,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   whose problems the session doesn't read (a watched robot, one of no branch of the table):
   - an `error` toast "Safe Push of auth failed" / "Fast Tests · auth → master" (the checks that failed from its
     details, else what it tested), with "Copy Prompt for Agent" first, or "Restart Safe Push" (the action of the robot,
-    `getRobotActions`, where a restart is possible) when its builds never started, and "Open in Patronus" below the
+    `getRobotActionItems`, where a restart is possible) when its builds never started, and "Open in Patronus" below the
     text ([Safe Push Failure Prompt](safe-push-failure-prompt.spec.md#the-failed-toast));
   - for missing approvals a `warning` toast "Safe Push of auth needs review" / "The code owners did not approve the
     changes" (a robot started with a profile: "Large Scale Change doesn't skip the code-owner review: the code owners
@@ -1314,7 +1315,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   refused, of a Dry Run too, as its Safe Push and Dry Run are ("Landed in master with oauth", row 1 of
   [Next Step](next-step.spec.md#the-table)): its commits are in the target. One with commits after the landed ones
   restarts, for them.
-  [@test] ../../src/lib/patronus-actions.test.ts (`says why a restart waits: a robot that lands an ancestor, a merged Safe Push that landed the branch whole`)
+  [@test] ../../src/lib/patronus-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_restart_is_refused_as_a_start_without_its_own_robot_then_by_a_landing`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should refuse the restart of the failed robot of a branch a merged Safe Push of a branch built on it landed, in its menu, its robot's details and its preview`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_as_bd_answers_today`)
@@ -1336,16 +1338,21 @@ explicit choice of the user, offered only where the approvals count in a pull re
   state ("Restarting the Safe Push…").
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart a robot once while its restart runs, running in the slot and in its details, landing from the click`)
   [@test] ../../src/stores/operations.test.ts (`lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request`)
-- One builder lists the actions of a robot (`getRobotActions`), and every surface of the robot renders that list: the
-  branch menu, the details (the chip popover, the preview section) and the [landing overview](../repository/landing-overview.spec.md#overview).
+- Rust decides the actions of a robot (`domain_policy::actions::robot_actions`, `robot:<id>` of the view's `actions`):
+  a restart while one is offered (`restarts` of the view), disabled while Patronus didn't tell why it failed, while the
+  step of its branch misses approvals (a restart would fail again: the words of that step) or a start is refused; the
+  cancel of a running robot; the prompts of a failed robot (not for approvals) or of a running one whose required check
+  failed, disabled as the restart while why it failed is to come. One builder presents that list
+  (`getRobotActionItems`), and every surface of the robot renders it: the branch menu, the details (the chip popover,
+  the preview section), the robots indicator, the toasts of the robot and the [landing overview](../repository/landing-overview.spec.md#overview).
   In this order: "Restart Safe Push" or "Restart Safe Push" (below), "Cancel Safe Push", "Open in Patronus",
   and "Open Pull Request #12" for a robot started from a pull request (the branch menu leaves it out when it is the
   branch's own pull request, which its "Open Pull Request" opens). Each names the mode of the robot ("Restart Dry Run");
   a bare "Cancel" in a popover reads like closing it. The menu of a branch that can't change (a conflict, a sync error, a
   sync running) keeps "Cancel Safe Push" and "Open in Patronus": they don't change the branch.
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
-  [@test] ../../src/lib/patronus.test.ts (`cancels a running robot only`)
-  [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
+  [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`, `presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`)
   [@test] ../../crates/patronus/src/actions_test.rs (`restart_answers_the_new_robot_and_cancel_the_canceling_one`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
 - A restart is the toast "Safe Push restarted", a cancel "Safe Push is canceling", each naming the branch and the
@@ -1364,7 +1371,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   its toast "Safe Push restarted" is the one toast, the push has none (Activity records both).
   [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is`)
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
-  [@test] ../../src/lib/patronus-actions.test.ts (`restarts a failed robot as Rust offers it, pushing first while the branch has work the remote lacks, disabled with the reason of a refusal`)
+  [@test] ../../src/lib/patronus-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`, `restarts one robot at a time: a push and restart waits while the restart runs, and pushes first`)
   [@test] ../../src/lib/git/push.test.ts (`says only the restart for the restart of a finished robot that pushes first, recorded once`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the branch preview, landing from the click`)
 - A failed action is a toast with what Patronus said; without a token it says "Run ./safePush.cmd once to log in to
@@ -1468,7 +1475,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   cell says why (the robot chip, "lands with oauth", "Landed with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or
   restart it on the current branch", "A Safe Push of oauth is running: it lands 1 commit of auth with it". The description of the
-  preview's push offers what it names, from the robot's actions (`getGatedRobotActions`): "Restart Safe Push" of its own
+  preview's push offers what it names, from the robot's actions (`getRobotItems`): "Restart Safe Push" of its own
   robot and "Open in Patronus" of the robot that holds it (`push-hold-actions`). A push of several branches leaves it
   out (`domain_policy::push::push_plan`, `Kept::Held`): Push Stack sends only the branches above it, Push with Children
   of the island's header and of the root's menu skips it.
