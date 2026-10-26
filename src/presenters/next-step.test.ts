@@ -221,12 +221,15 @@ describe("the words of the next step", () => {
 })
 
 describe("the step's blocker of a start", () => {
-  it("is the step's for a Safe Push, of a start that skips the approvals only what the step says of a start without review, of a Dry Run its own", () => {
+  it("is the step's for a Safe Push, of a start that skips the approvals the reasons of the subject on every row, of a Dry Run its own", () => {
     const syncing: StepBlocker = { code: "syncing" }
     const steps = [
+      // row 11 listed: no start without review is offered, a default start whose profile skips the review still waits
+      // for the sync, which its decision doesn't read
+      presentNextStep(testStep({ kind: "safePush" }, { safePush: syncing, dryRun: syncing }), testContext()),
       // row 7: a start without review is offered, held back by the reasons of the subject alone
       presentNextStep(
-        testStep({ kind: "createPullRequest", groups: MISSING, stack: null, repository: true }, { safePush: OWN, withoutReview: { blocker: syncing } }),
+        testStep({ kind: "createPullRequest", groups: MISSING, stack: null, repository: true }, { safePush: syncing, dryRun: syncing, withoutReview: { blocker: syncing } }),
         testContext(),
       ),
       // row 8: the approvals hold it back, nothing else
@@ -238,14 +241,23 @@ describe("the step's blocker of a start", () => {
         testContext(),
       ),
       // row 6: a draft, which a start through the API never reads
-      presentNextStep(testStep({ kind: "draft", number: 7 }, { safePush: OWN, dryRun: syncing }), testContext()),
+      presentNextStep(testStep({ kind: "draft", number: 7 }, { safePush: OWN }), testContext()),
+      // row 10 while a start of the row runs: what runs holds every start back
+      presentNextStep(testStep({ kind: "awaiting", number: 1078, groups: ASKED }, { safePush: OWN }), testContext({ busy: { id: "", label: "Starting the Safe Push" } })),
     ]
     for (const step of steps) {
       expect(startStepBlocker(step, "rebaseAutosquash", false)).toBe(step.safePushBlocker)
-      expect(startStepBlocker(step, "rebaseAutosquash", true)).toBe(step.withoutReview?.blocker ?? null)
       expect(startStepBlocker(step, "dryRun", true)).toBe(step.dryRunBlocker)
     }
-    expect(steps.map(step => startStepBlocker(step, "rebaseAutosquash", true))).toEqual(["Wait for the sync to finish", null, null])
+    expect(steps.map(step => startStepBlocker(step, "rebaseAutosquash", true))).toEqual([
+      "Wait for the sync to finish",
+      "Wait for the sync to finish",
+      null,
+      null,
+      "Starting the Safe Push…",
+    ])
+    // a start without review is held back as the menu item of it says
+    expect(startStepBlocker(steps[1]!, "rebaseAutosquash", true)).toBe(steps[1]!.withoutReview?.blocker)
   })
 })
 

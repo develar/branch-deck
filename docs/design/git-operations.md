@@ -3400,10 +3400,13 @@ table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, reco
 mapping note read at the sync's start names the copy of before), the stack branches, the parked branches and the remote
 facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the remote tip of each branch from
 `SyncReport::remote_tips`, up to date when the `RemoteStatusUpdate` the sync emitted for it has a remote branch and no
-work for it, `domain_policy::push::needs_push`; of each stack branch its `StackBranchUpdate::remote`); `bd`
-builds it from the report of its sync and the remote statuses of the table state its sync folded (below; `bd status`
-from a grouping, with the remote tips only). The session of each worktree and branch prefix keeps the table of its
-last successful sync (the session host answers it after a run, from its report and the statuses a
+work for it, `domain_policy::push::needs_push`; of each stack branch its `StackBranchUpdate::remote`) and the branches
+the fetched baseline has whole (`BranchTable::in_baseline`, of the landing report of `BaselineStatus`, none of their
+commits stays local: every reader of the rules over the table, the decision of a start, the view's holds and pushes of
+an action, the guards and `bd`, leaves them out of a push alike, `push::kept`); `bd` builds it from the report of its
+sync, the remote statuses of the table state its sync folded and its landing report (below; `bd status` from a
+grouping, with the remote tips only). The session of each worktree and branch prefix keeps the table of its last
+successful sync (the session host answers it after a run, from its report and the statuses and the landing report a
 `RemoteStatusCollector` kept while it forwarded every event to the session; a failed sync keeps the one before) and
 derives the Patronus view of it (below) on the remote branches as it knows them: a push moves a remote branch without
 a sync, and the session's table state has its outcome (`session_remote`); `bd` reads the table's
@@ -3503,9 +3506,9 @@ run that serves it ended (`SyncAnswer`: the outcome and the version of the view 
 waits for, since the patch and the answer travel apart); a failure is the run's `ApiError`. The app's host
 (`GitSessionHost`) reads the git config for each sync (`ConfigSnapshot`, its git prefix kept for the commands after
 it and checked against the session's), takes the issue links and the object cache of `RepositoryStateCache`, and after a
-successful run answers its table (`SyncedTable`: the report and `BranchTable::from_report` with the remote statuses a
-`RemoteStatusCollector` kept). The session keeps that table as a fact (`FactStore::table`, `Loading` until a run
-succeeded, `Stale` with the error of a later run that failed; a deferred run changes nothing) with the memo of the
+successful run answers its table (`SyncedTable`: the report and `BranchTable::from_report` with the remote statuses and
+the landing report a `RemoteStatusCollector` kept). The session keeps that table as a fact (`FactStore::table`,
+`Loading` until a run succeeded, `Stale` with the error of a later run that failed; a deferred run changes nothing) with the memo of the
 content walks of its views, and answers both with the remote branches as it knows them (`Sessions::table`, which the
 guards of the app's actions read). A Tauri channel of a page that went away never
 fails its send, so a window's subscriptions end with the window (`Destroyed`) and with each page load of it (a

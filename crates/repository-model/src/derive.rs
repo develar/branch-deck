@@ -32,7 +32,7 @@
 //! (`grouped_rows`); `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
 //! session asks it of.
 
-use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
+use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline};
 use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::table::{TableParts, TableState};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
@@ -233,14 +233,9 @@ impl PushFacts<'_> {
   }
 }
 
-/// The branches of the landing report `baseline` the fetched baseline has whole
+/// The branches of the landing report `baseline` the fetched baseline has whole (`branch_table::in_baseline`)
 fn fully_landed(baseline: &LandedSection) -> HashSet<&str> {
-  baseline
-    .landing
-    .iter()
-    .filter(|branch| branch.remaining == 0)
-    .filter_map(|branch| branch.name.as_deref())
-    .collect()
+  in_baseline(&baseline.landing).collect()
 }
 
 /// What the rules read of a table and its Patronus facts: the robots by id, the holds of the branches
@@ -318,12 +313,12 @@ impl<'a> LandingFacts<'a> {
     ancestors
   }
 
-  /// What keeps `name` out of the push of a start (`push::kept`): `replaces` the robot the start cancels, `in_baseline`
-  /// the branches the fetched baseline has whole
-  fn kept_from_start(&self, name: &str, replaces: Option<&str>, in_baseline: &HashSet<&str>) -> Option<Kept> {
+  /// What keeps `name` out of the push of a start (`push::kept`): `replaces` the robot the start cancels; landed, what
+  /// a merged Safe Push landed whole and what the fetched baseline has whole (`BranchTable::in_baseline`)
+  fn kept_from_start(&self, name: &str, replaces: Option<&str>) -> Option<Kept> {
     kept(
       false,
-      self.landed_whole(name).is_some() || in_baseline.contains(name),
+      self.landed_whole(name).is_some() || self.table.in_baseline.contains(name),
       self.holds.get(name),
       replaces,
       self.table.not_built.contains_key(name),
@@ -331,28 +326,25 @@ impl<'a> LandingFacts<'a> {
   }
 
   /// What a start of `name` pushes (`push::start_push`), over the holds of every robot but `replaces`, the robot the
-  /// start cancels; `in_baseline` the branches the fetched baseline has whole
-  fn start_push(&self, name: &'a str, replaces: Option<&str>, in_baseline: &HashSet<&str>) -> StartPush<'a> {
+  /// start cancels
+  fn start_push(&self, name: &'a str, replaces: Option<&str>) -> StartPush<'a> {
     start_push(
       name,
       self.remote_of(name),
       self.ancestors_nearest_first(name).into_iter().map(|ancestor| StartAncestor {
         name: ancestor,
-        kept: self.kept_from_start(ancestor, replaces, in_baseline),
+        kept: self.kept_from_start(ancestor, replaces),
         remote: self.remote_of(ancestor),
       }),
     )
   }
 
-  /// Whether a start of `name` pushes (`push::start_push`) over the holds of every robot: only the refusal of a Dry Run
-  /// reads it (D15), and a Dry Run replaces none. A remote not compared yet pushes nothing known; a view knows no
-  /// landing report, so an ancestor the fetched baseline has whole counts by its remote
+  /// Whether a start of `name` pushes (`push::start_push`, past what landed as `decide` passes it) over the holds of
+  /// every robot: only the refusal of a Dry Run reads it (D15), and a Dry Run replaces none. A remote not compared yet
+  /// pushes nothing known
   #[must_use]
   pub fn start_pushes(&self, name: &str) -> bool {
-    self
-      .table
-      .branch(name)
-      .is_some_and(|branch| !self.start_push(&branch.name, None, &HashSet::new()).branches.is_empty())
+    self.table.branch(name).is_some_and(|branch| !self.start_push(&branch.name, None).branches.is_empty())
   }
 
   /// The input of a start of `name`; `pushes` whether it pushes (`start_pushes`, or what `bd` pushes)
@@ -427,12 +419,12 @@ impl<'a> LandingFacts<'a> {
     let start = Start::Branch(self.branch_start(name, self.start_pushes(name)));
     let replaces = self.replaces(name).map(str::to_string);
     // the push of an action replaces what a Safe Push start replaces: its robot lands the ancestors it holds no longer;
-    // one that landed is left as it is, as a start leaves it (`push::start_push`)
-    let none = HashSet::new();
+    // one that landed (a merged Safe Push or the fetched baseline has it whole) is left as it is, as a start leaves it
+    // (`push::start_push`)
     let ancestors = self
       .ancestors_nearest_first(name)
       .into_iter()
-      .map(|ancestor| (ancestor, self.kept_from_start(ancestor, replaces.as_deref(), &none)))
+      .map(|ancestor| (ancestor, self.kept_from_start(ancestor, replaces.as_deref())))
       .filter(|(_, kept)| *kept != Some(Kept::Landed));
     let chain = std::iter::once((name, None)).chain(ancestors).map(|(branch, kept)| PushStep {
       name: branch,
@@ -469,19 +461,19 @@ impl<'a> LandingFacts<'a> {
   /// The subject part of the decision of a start of `name` (`domain_policy::land::decide`): its robots, what landed it,
   /// why it stays local, what it lands with the remote and the hold of each branch, the robot a Safe Push replaces, and
   /// the open pull request of the whole stack it is a branch of (of `pull_requests`, the listing of the session or of
-  /// `bd`). `None` for a branch the table lacks
+  /// `bd`); what landed it by the landing report `baseline`, what lands past what the table has landed whole
+  /// (`BranchTable::in_baseline`, as the view's pushes read it). `None` for a branch the table lacks
   #[must_use]
   pub fn branch_subject(&self, name: &str, pull_requests: Option<&PullRequestsView>, baseline: &LandedSection) -> Option<BranchSubject<'_>> {
     let name = self.table.branch(name)?.name.as_str();
     let replaces = self.replaces(name);
-    let in_baseline = fully_landed(baseline);
     let chain = build_ancestors(&self.repo, name)
       .into_iter()
       .chain(std::iter::once(name))
       .map(|branch| LandsBranch {
         name: branch,
         landed_whole: self.landed_whole(branch).is_some(),
-        in_baseline: in_baseline.contains(branch),
+        in_baseline: self.table.in_baseline.contains(branch),
         remote: self.remote_of(branch),
         hold: self.holds.get(branch),
         not_built: self.table.not_built.contains_key(branch),

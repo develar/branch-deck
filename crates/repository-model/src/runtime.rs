@@ -845,13 +845,13 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       if prefix != key.prefix {
         return Err(prefix_changed(&key.prefix, &prefix));
       }
-      // the remote statuses among the events are kept for the table
+      // the remote statuses and the landing report among the events are kept for the table
       let collector = RemoteStatusCollector::new(reporter);
       let reporter = environment.reporter(&key, Arc::new(collector.clone()));
       let report = sync_branches(&git, &key.worktree, &key.prefix, reporter, options)
         .await
         .map_err(|error| environment.api_error(error))?;
-      let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses());
+      let table = BranchTable::from_report(&key.prefix, &report, &collector.take_statuses(), &collector.take_landing());
       Ok(SyncedTable { report, table })
     })
   }

@@ -1224,7 +1224,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_pushes_again_over_a_moved_remote_that_lacks_nothing_of_its_stack_branch`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
-  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_the_whole_stack`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_the_whole_stack`, `a_safe_push_of_the_whole_stack_over_a_moved_remote`)
 - A stack branch that is not `built` must refuse the start, nothing pushed or started: `stack_conflict` (exit 4) with the
   commit (`error.commits`) and the files (`error.paths`) when a commit of it conflicts with the commits of the stack
   before it, `stack_not_built` (exit 4) naming the branch of the stack that is blocked or failed, or why it is stale;

@@ -2,7 +2,7 @@ use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, next_steps, run_in, run_json, write};
 use bd_cli::remote_fixture_test::{
   AUTH, LANDED_SUBJECTS, MASTER_RULES, STACK, Space, dismissing_rules, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, minutes_ago,
-  pull_request_json, push_from_elsewhere_to, rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, search_answer, stack_robot,
+  pull_request_json, push_from_elsewhere_to, rebuild_on_a_newer_baseline, reviewed_on_github, robot, safe_push, search_answer, stack_remote_moved_back, stack_robot,
 };
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
@@ -13,7 +13,6 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use test_utils::git_test_utils::git_command;
 
 /// `bd push` with `args`
 fn bd_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
@@ -1483,26 +1482,7 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
 #[test_log::test]
 fn the_whole_stack_pushes_again_over_a_moved_remote_that_lacks_nothing_of_its_stack_branch() {
   let space = forking_stack();
-  let session_commit = |file: &str, subject: &str, time: i64| {
-    write(&space.repo, file, format!("{subject}\n"));
-    commit_all(&space.repo, subject, time);
-    let (exit_code, output) = run_in(&space.repo, &["sync"]);
-    assert_eq!(exit_code, 0, "{output}");
-  };
-  let (exit_code, output) = run_in(&space.repo, &["sync"]);
-  assert_eq!(exit_code, 0, "{output}");
-  git(&space.repo, &["push", "-q", "origin", STACK]);
-  let older = space.remote_tip(STACK);
-  session_commit("session-2.txt", "(auth/session) Add the session cache", 1_700_000_500);
-  git(&space.repo, &["push", "-q", "origin", STACK]);
-  assert_ne!(space.remote_tip(STACK), older, "the remote has the newer build");
-  let moved = git_command()
-    .args(["update-ref", &format!("refs/heads/{STACK}"), &older])
-    .current_dir(space.remote.path())
-    .output()
-    .unwrap();
-  assert!(moved.status.success(), "{}", String::from_utf8_lossy(&moved.stderr));
-  session_commit("session-3.txt", "(auth/session) Expire the session cache", 1_700_000_600);
+  stack_remote_moved_back(&space);
 
   let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
   assert_eq!(exit_code, 0, "{output}");

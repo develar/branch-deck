@@ -1,7 +1,7 @@
 //! The branch table a sync left (or a grouping read without one, `bd status`), what the repository view derives from
 //! (docs/design/git-operations.md, "Session facts"): the grouped branches in the order of the table, their virtual
-//! tips, the copies the sync wrote, the stack branches and the parked branches. The app keeps the one of its last sync
-//! per repository; `bd` builds it from the report of its sync.
+//! tips, the copies the sync wrote, the stack branches, the parked branches and the branches the fetched baseline has
+//! whole. The app keeps the one of its last sync per repository; `bd` builds it from the report of its sync.
 
 use domain_policy::facts::{RemoteBranch, Repository};
 use domain_policy::push::needs_push;
@@ -10,8 +10,9 @@ use domain_types::GroupedBranchInfo;
 use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
+use domain_types::landed::LandedBranch;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sync_core::robot_commits::mapped_virtual;
 use sync_core::sync::SyncReport;
 
@@ -35,11 +36,16 @@ pub struct BranchTable {
   /// What the sync knows of the remote branches of the table and of its stack branches (`remote_facts`); a table read
   /// without a sync (`bd status`) has the remote tips only
   pub remote: RemoteFacts,
+  /// The branches the fetched baseline has whole, by the landing report the sync sent (`in_baseline`): nothing of them is
+  /// left to land, so no push of a start or of an action sends them (`domain_policy::push::kept`); a table read without
+  /// a sync has none
+  pub in_baseline: BTreeSet<String>,
 }
 
 impl BranchTable {
-  /// The table a sync left, with the remote statuses it emitted (`RemoteStatusUpdate`)
-  pub fn from_report(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusUpdate]) -> Self {
+  /// The table a sync left, with the remote statuses it emitted (`RemoteStatusUpdate`) and its landing report
+  /// (`landing` of `SyncEvent::BaselineStatus`)
+  pub fn from_report(prefix: &str, report: &SyncReport, statuses: &[RemoteStatusUpdate], landing: &[LandedBranch]) -> Self {
     Self {
       prefix: prefix.to_string(),
       baseline: report.baseline.clone(),
@@ -50,6 +56,7 @@ impl BranchTable {
       stack_branches: report.stack_branches.clone(),
       parked: report.grouping.parked.entries.clone(),
       remote: remote_facts(prefix, report, statuses),
+      in_baseline: in_baseline(landing).map(str::to_string).collect(),
     }
   }
 
@@ -89,6 +96,11 @@ impl BranchTable {
   pub fn stack(&self, root: &str) -> Option<&StackBranchUpdate> {
     self.stack_branches.iter().find(|stack| stack.root == root && !stack.members.is_empty())
   }
+}
+
+/// The branches of the landing report `landing` the fetched baseline has whole: none of their commits stays local
+pub fn in_baseline(landing: &[LandedBranch]) -> impl Iterator<Item = &str> {
+  landing.iter().filter(|branch| branch.remaining == 0).filter_map(|branch| branch.name.as_deref())
 }
 
 /// What a remote branch is now, as the deriver of the Patronus view knows it: the session from its table, which a push

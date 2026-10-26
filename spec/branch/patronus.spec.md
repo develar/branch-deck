@@ -835,6 +835,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_start_pushes_the_ancestors_with_work_up_to_the_nearest_held_one_past_what_landed`, `a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_built`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_push_of_a_start_is_the_push_of_its_row_past_an_ancestor_that_landed`)
   [@test] ../../src/lib/safe-push-start.test.ts (`pushes the branches its decision pushes and no other: base below a landed parent, not the parent`)
+  [@test] ../../src/lib/git/push.test.ts (`pushes the branches a start decided and no other: the ancestor of a branch the remote has, alone`, `pushes the branches a start decided in one push: base and the branch past a parent that landed, not the parent`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe_push_holds`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
 - A stored stack parent can stay after the branch stopped needing it ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)).
@@ -1273,14 +1274,16 @@ explicit choice of the user, offered only where the approvals count in a pull re
   `ShieldOffIcon`, which takes neither ⌘↵ nor the focus; its hover: "Starts the Safe Push with a merge profile that
   skips the code-owner review, such as Large Scale Change", disabled with the reason of the branch (a sync, a running
   robot), never the approvals (`getSafePushWithoutReviewItem`, `BranchNextStep.withoutReview`). A start that skips the
-  approvals (this one, or a default start whose profile is known to skip the review) is held back by the step only so:
-  by what it says of a start without review, the click and the popover alike (`startStepBlocker`); its decision says
-  the rest. It closes the dialog,
+  approvals (this one, or a default start whose profile is known to skip the review) is held back by the step only by
+  the reasons of the subject on every row (a sync, a failure, no commits, the robots, parked, landed, what runs on the
+  row: `BranchNextStep.subjectBlocker`; its decision has no fact of a sync), never by the step's own (the approvals, a
+  draft, another base), the click and the popover alike (`startStepBlocker`); its decision says the rest. It closes
+  the dialog,
   reveals the row and opens the popover of its Safe Push without review, also when the popover of the row is open
   (it opens again in the other mode). The dialog of any other step has no such button.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`)
   [@test] ../../src/presenters/next-step.test.ts (`row 7: Create Pull Request… naming the code owners, or In #12 of the whole stack, quietly`, `rows 8 to 10: changes requested, Request Review…, the wait naming the people asked`)
-  [@test] ../../src/presenters/next-step.test.ts (`is the step's for a Safe Push, of a start that skips the approvals only what the step says of a start without review, of a Dry Run its own`)
+  [@test] ../../src/presenters/next-step.test.ts (`is the step's for a Safe Push, of a start that skips the approvals the reasons of the subject on every row, of a Dry Run its own`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`, `should not offer it in the dialog of a branch whose Safe Push needs no pull request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push popover without review from the pull request dialog`)
 - The popover is "Safe Push of auth" with the start "Safe Push Without Review". Its review line names the missing
@@ -1433,13 +1436,16 @@ explicit choice of the user, offered only where the approvals count in a pull re
     built on it lands the branch: its push would fail that Safe Push at the end, as any push into what a running Safe
     Push lands (`landing.dryRun`, D15: `bd safe-push --mode dry-run` refuses it too, `robot_running`);
   - the push an action needs (a pull request, a review request, a start) is refused, before it is made, by a branch of
-    its chain up to the first held ancestor the sync did not build or whose push drops remote commits
-    (`domain_policy::holds::push_blocker`, the view's `landing.push`);
+    its chain up to the first held ancestor, past one that landed (a merged Safe Push landed it whole, or the fetched
+    baseline has every commit of it, as the decision of a start passes it), that the sync did not build or whose push
+    drops remote commits (`domain_policy::holds::push_blocker`, the view's `landing.push`);
   - the hashes tell, without git, when the robot took its branch as it is (its tip, or its remote branch that has the
     same commits) or a commit of it the branch built new ones on: the copies a sync wrote say which copy is a commit of
     the branch now, so an amend below the robot's commit in the same sync is told by content.
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`, `the_robot_of_the_whole_stack_lands_every_branch_of_it`, `the_merged_robot_that_left_the_least_work_names_the_landing`, `a_dry_run_lands_nothing`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_dry_run_whose_push_goes_into_a_running_safe_push_is_held`, `the_push_of_an_action_is_refused_by_an_unbuilt_or_dropping_branch_of_its_chain`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_push_of_a_start_is_the_push_of_its_row_past_an_ancestor_that_landed`)
+  [@test] ../../crates/repository-model/src/branch_table_test.rs (`the_table_of_a_sync_carries_the_branches_the_fetched_baseline_has_whole`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_safe_push_waits_for_a_block_the_last_commit_a_robot_that_lands_it_then_one_that_lands_an_ancestor`, `a_dry_run_waits_for_the_last_commit_and_for_the_span_hold_of_the_push_it_makes`)
   [@test] ../../crates/domain-policy/src/holds_test.rs (`the_push_of_an_action_stops_at_a_held_ancestor_and_refuses_a_branch_not_built_or_dropping_commits`)

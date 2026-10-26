@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use domain_policy::push;
+use domain_types::landed::LandedBranch;
 use domain_types::{DroppedCommit, LandedRemoteCommit, ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::{CommitKey, WalkedCommit, ids_by_key, same_changes, walk_commits, walk_commits_with_messages};
@@ -831,30 +832,44 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
   })
 }
 
-/// A reporter that forwards every event of a sync to `inner` and keeps the remote statuses it emitted, so the caller
-/// that keeps the branch table of the sync (the app's `sync_branches`, the route of the test server) has the remote
-/// facts of its branches (`BranchTable::from_report`) as `bd` has them from its events
+/// A reporter that forwards every event of a sync to `inner` and keeps the remote statuses and the landing report it
+/// emitted, so the caller that keeps the branch table of the sync (the session's run, in the app and the test server)
+/// has the remote facts of its branches and the branches the fetched baseline has whole (`BranchTable::from_report`) as
+/// `bd` has them from its events
 #[derive(Clone)]
 pub struct RemoteStatusCollector<P> {
   inner: P,
   statuses: Arc<Mutex<Vec<RemoteStatusUpdate>>>,
+  landing: Arc<Mutex<Vec<LandedBranch>>>,
 }
 
 impl<P> RemoteStatusCollector<P> {
   pub fn new(inner: P) -> Self {
-    Self { inner, statuses: Arc::default() }
+    Self {
+      inner,
+      statuses: Arc::default(),
+      landing: Arc::default(),
+    }
   }
 
   /// The remote statuses sent so far, in the order the sync sent them
   pub fn take_statuses(&self) -> Vec<RemoteStatusUpdate> {
     std::mem::take(&mut *self.statuses.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
   }
+
+  /// The landing report of the sync (`landing` of `SyncEvent::BaselineStatus`): the local commits the fetched baseline
+  /// has, by branch; empty before the event
+  pub fn take_landing(&self) -> Vec<LandedBranch> {
+    std::mem::take(&mut *self.landing.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+  }
 }
 
 impl<P: ProgressReporter> ProgressReporter for RemoteStatusCollector<P> {
   fn send(&self, event: SyncEvent) -> Result<()> {
-    if let SyncEvent::RemoteStatusUpdate(status) = &event {
-      self.statuses.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(status.clone());
+    match &event {
+      SyncEvent::RemoteStatusUpdate(status) => self.statuses.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(status.clone()),
+      SyncEvent::BaselineStatus { landing, .. } => landing.clone_into(&mut self.landing.lock().unwrap_or_else(std::sync::PoisonError::into_inner)),
+      _ => {}
     }
     self.inner.send(event)
   }

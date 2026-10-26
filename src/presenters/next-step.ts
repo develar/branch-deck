@@ -116,6 +116,12 @@ export interface BranchNextStep {
   readonly safePushBlocker: string | null
   /** Why a Dry Run can't start: never the approvals */
   readonly dryRunBlocker: string | null
+  /**
+   * Why no start of the subject can start whatever its step: a reason of the subject (a sync, a failure, no commits,
+   * the robots, parked, landed), else what runs on the row; all that holds back a Safe Push that skips the approvals
+   * (`startStepBlocker`)
+   */
+  readonly subjectBlocker: string | null
   /** The step depends on the readiness of the subject: the session asks Patronus for it */
   readonly needsReadiness: boolean
   /** The fact a pending step ("Checking…", row 0) waits for, for `data-waits-for`; null for any other step */
@@ -602,6 +608,7 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
     tone,
     safePushBlocker,
     dryRunBlocker: blockerOf(step.dryRun),
+    subjectBlocker: general,
     needsReadiness: step.needsReadiness,
     waitsFor: step.kind.kind === "pending" ? step.kind.fact : null,
     notice,
@@ -614,15 +621,17 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
 
 /**
  * Why the step holds a start in `mode` back, as Rust's next step says it: a Dry Run by its own blocker; a Safe Push that
- * skips the approvals (`skipsApprovals`: Start Without Review, a profile known to skip the review) only by what the step
- * says of a start without review (`withoutReview`, rows 7 and 11), never by the approvals it goes without; its decision
- * says the rest. The one rule of the click and of the read of a start (`requestSafePush`, `readSafePush`)
+ * skips the approvals (`skipsApprovals`: Start Without Review, a profile known to skip the review) by the reasons of the
+ * subject on every row (`subjectBlocker`: a sync, a failure, no commits, the robots, parked, landed, what runs on the
+ * row; a decision has no fact of a sync), never by the step's own (the approvals it goes without, a draft or another
+ * base no start through the API reads); its decision says the rest. The one rule of the click and of the read of a
+ * start (`requestSafePush`, `readSafePush`)
  */
 export function startStepBlocker(step: BranchNextStep, mode: "rebaseAutosquash" | "dryRun", skipsApprovals: boolean): string | null {
   if (mode === "dryRun") {
     return step.dryRunBlocker
   }
-  return skipsApprovals ? (step.withoutReview?.blocker ?? null) : step.safePushBlocker
+  return skipsApprovals ? step.subjectBlocker : step.safePushBlocker
 }
 
 /** The step of a subject the view has none of yet (no row): no slot, nothing to say against a start, which decides itself */
@@ -632,6 +641,7 @@ export const NO_NEXT_STEP: BranchNextStep = {
   tone: "default",
   safePushBlocker: null,
   dryRunBlocker: null,
+  subjectBlocker: null,
   needsReadiness: false,
   waitsFor: null,
   notice: null,

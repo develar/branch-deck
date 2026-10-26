@@ -1,7 +1,7 @@
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use domain_types::{GroupedBranchInfo, SyncEvent};
 use pretty_assertions::assert_eq;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use sync_core::remote_status::RemoteStatusCollector;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::git_test_utils::TestRepo;
@@ -40,7 +40,7 @@ async fn synced(repo: &TestRepo) -> (BranchTable, bool) {
     })
     .collect();
   let all_forwarded = !statuses.is_empty() && forwarded == statuses;
-  (BranchTable::from_report("test", &report, &statuses), all_forwarded)
+  (BranchTable::from_report("test", &report, &statuses, &reporter.take_landing()), all_forwarded)
 }
 
 /// What a remote status said of a remote branch at `remote_tip`
@@ -94,4 +94,28 @@ async fn the_table_of_a_sync_carries_the_remote_facts_of_its_branches_and_stacks
     stacks: BTreeMap::from([("auth".to_string(), fact(Some(&stack), false))]),
   };
   assert_eq!(table.remote, expected);
+}
+
+/// The table of a sync carries the branches the fetched baseline has whole, by the landing report its events carried
+/// (`RemoteStatusCollector::take_landing`), as `bd` reads them of its sync: a robot landed the commit of auth, ui stays
+/// local
+#[tokio::test]
+async fn the_table_of_a_sync_carries_the_branches_the_fetched_baseline_has_whole() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("other.txt", "other\n")]);
+  let login = clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  clone.create_commit("(ui) Add button", "button.txt", "button\n");
+  // the robot pushed the commit of auth upstream: its change and author, its message without the prefix
+  let author = clone
+    .git_executor()
+    .execute_command(&["log", "-1", "--format=%an%x00%ae%x00%ad", "--date=raw", &login], clone.path_str())
+    .unwrap();
+  let fields: Vec<&str> = author.trim_end().split('\0').collect();
+  std::fs::write(upstream.path().join("login.txt"), "login\n").unwrap();
+  upstream.git_executor().execute_command(&["add", "login.txt"], upstream.path_str()).unwrap();
+  let env = [("GIT_AUTHOR_NAME", fields[0]), ("GIT_AUTHOR_EMAIL", fields[1]), ("GIT_AUTHOR_DATE", fields[2])];
+  upstream.git_executor().cmd(&["commit", "-m", "Add login"], upstream.path_str()).env(&env).text().unwrap();
+  clone.git_executor().execute_command(&["fetch", "origin"], clone.path_str()).unwrap();
+
+  let (table, _) = synced(&clone).await;
+  assert_eq!(table.in_baseline, BTreeSet::from(["auth".to_string()]));
 }

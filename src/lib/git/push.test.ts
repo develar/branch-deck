@@ -7,6 +7,7 @@ import { resetEventToasts } from "@/lib/event-toast"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushBranch, pushForAction } from "@/lib/git/push"
 import { pushStack, pushUpTo, pushWholeStack, pushWithChildren } from "@/lib/git/stack-push"
+import { getPushOrders } from "@/stores/branch-sync"
 import type { Branch, PushOrders, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { operationsStore, runOperation } from "@/stores/operations"
@@ -1117,6 +1118,26 @@ describe("pushForAction", () => {
     expect(await pushForAction("login")).toEqual({ pushed: true })
     expect(calls).toEqual(["push auth login"])
     expect(toasts).toEqual([])
+  })
+
+  it("pushes the branches a start decided and no other: the ancestor of a branch the remote has, alone", async () => {
+    addBranch("login", "auth")
+    stores.branches.login = { ...stores.branches.login!, remoteStatus: testRemoteStatus({ exists: true, remoteTip: "tip" }) }
+    // login is up to date, yet the start pushes what its decision pushes: never "nothing to push"
+    expect(await pushForAction("login", { branches: ["auth"] })).toEqual({ pushed: true })
+    expect(calls).toEqual(["push auth"])
+    expect(toasts).toEqual([])
+  })
+
+  it("pushes the branches a start decided in one push: base and the branch past a parent that landed, not the parent", async () => {
+    addBranch("base", null)
+    addBranch("auth", "base")
+    addBranch("login", "auth")
+    // the push of the row would send auth too: the decision of the start passes it, and only the decision counts
+    expect(getPushOrders("login").action).toEqual(["base", "auth", "login"])
+    expect(await pushForAction("login", { branches: ["base", "login"] })).toEqual({ pushed: true })
+    expect(calls).toEqual(["push base login"])
+    expect(records).toEqual(["push base", "push login"])
   })
 
   it("refuses a push that drops remote commits of the branch or of an ancestor: the row asks first", async () => {

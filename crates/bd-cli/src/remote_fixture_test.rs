@@ -219,6 +219,34 @@ pub fn forking_stack() -> Space {
   space
 }
 
+/// The stack branch of `forking_stack` pushed twice, then moved back on the remote to the older build (someone's push
+/// of an older state, no commit the stack branch lacks), and one more commit of session synced: the remote stack branch
+/// is not where the sync left the lease
+pub fn stack_remote_moved_back(space: &Space) {
+  let sync = || {
+    let (exit_code, output) = run_in(&space.repo, &["sync"]);
+    assert_eq!(exit_code, 0, "{output}");
+  };
+  let session_commit = |file: &str, subject: &str, time: i64| {
+    write(&space.repo, file, format!("{subject}\n"));
+    commit_all(&space.repo, subject, time);
+    sync();
+  };
+  sync();
+  git(&space.repo, &["push", "-q", "origin", STACK]);
+  let older = space.remote_tip(STACK);
+  session_commit("session-2.txt", "(auth/session) Add the session cache", 1_700_000_500);
+  git(&space.repo, &["push", "-q", "origin", STACK]);
+  assert_ne!(space.remote_tip(STACK), older, "the remote has the newer build");
+  let moved = git_command()
+    .args(["update-ref", &format!("refs/heads/{STACK}"), &older])
+    .current_dir(space.remote.path())
+    .output()
+    .unwrap();
+  assert!(moved.status.success(), "{}", String::from_utf8_lossy(&moved.stderr));
+  session_commit("session-3.txt", "(auth/session) Expire the session cache", 1_700_000_600);
+}
+
 /// A robot of the whole stack of auth, on its stack branch at `revision`, started three hours ago
 pub fn stack_robot(id: &str, status: &str, revision: &str) -> Value {
   let mut robot = robot_json(id, status, &format!("refs/heads/{STACK}"), &minutes_ago(180));

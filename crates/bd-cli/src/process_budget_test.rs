@@ -3,7 +3,7 @@
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
 use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
-use crate::remote_fixture_test::{AUTH, Space, auth_remote_moved_back, needs_code_owner, repo_with_remote, robot as robot_json};
+use crate::remote_fixture_test::{AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, repo_with_remote, robot as robot_json, stack_remote_moved_back};
 use crate::{Cli, Command};
 use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
@@ -918,6 +918,45 @@ fn a_safe_push_check_of_the_whole_stack() {
       ("symbolic-ref", 1),
       ("update-ref", 4),
       ("var", 1),
+    ],
+  );
+}
+
+/// `bd safe-push auth --whole-stack` over a stack branch someone moved back on the remote to an older build since the
+/// sync (D4): the sync of a stack it built already (no build), what the start is decided on and the review of the stack
+/// branch's commits, then the refused push of the stack branch, the fetch of what the remote has now and its remote
+/// status, the push again over it, once, each push with the size check of what it adds (`log`, `cat-file`); and the
+/// target conflict check (`TARGET_CHECK`)
+#[test]
+fn a_safe_push_of_the_whole_stack_over_a_moved_remote() {
+  let space = forking_stack();
+  stack_remote_moved_back(&space);
+  let environment = space.environment();
+  let context = space_context(&environment);
+  let args = SafePushArgs {
+    branch: "auth".to_string(),
+    whole_stack: true,
+    ..SafePushArgs::default()
+  };
+  let output = safe_push(&context, &args, &environment).unwrap();
+  assert!(output.pushed.len() == 1 && output.pushed[0].pushed_over && output.robot.is_some(), "{output:?}");
+  assert_eq!(space.remote_tip(STACK), space.local_tip(STACK));
+  assert_safe_push_processes(
+    &context,
+    &[
+      ("cat-file", 5),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("fetch", 1),
+      ("for-each-ref", 3),
+      ("log", 11),
+      ("merge-base", 1),
+      ("push", 2),
+      ("reflog", 1),
+      ("remote", 2),
+      ("rev-list", 2),
+      ("rev-parse", 1),
+      ("symbolic-ref", 1),
     ],
   );
 }

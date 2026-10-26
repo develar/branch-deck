@@ -27,7 +27,7 @@ use repository_model::derive::{StepSources, grouped_rows, landed_states, next_st
 use repository_model::patronus_view::{landed_commits, with_landing_needs};
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sync_core::grouping::BranchGrouping;
 use sync_core::stack_branch::read_stack_branches;
 use tracing::debug;
@@ -486,6 +486,8 @@ pub(crate) fn grouping_table(context: &RepoContext, grouping: &BranchGrouping, s
         .collect(),
       stacks: BTreeMap::new(),
     },
+    // no sync: no landing report
+    in_baseline: BTreeSet::new(),
   }
 }
 

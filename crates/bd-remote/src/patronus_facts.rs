@@ -63,7 +63,7 @@ impl PatronusFacts {
   }
 }
 
-/// The table of `bd`'s sync, with the remote statuses it emitted
+/// The table of `bd`'s sync, with the remote statuses and the landing report it emitted
 pub fn table_of(context: &RepoContext, synced: &SyncOutput) -> BranchTable {
-  BranchTable::from_report(&context.prefix, &synced.report, &synced.remote_statuses)
+  BranchTable::from_report(&context.prefix, &synced.report, &synced.remote_statuses, &synced.landed_section.landing)
 }

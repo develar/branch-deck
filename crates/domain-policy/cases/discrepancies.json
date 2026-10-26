@@ -69,7 +69,7 @@
     ],
     "discrepancy": "D3b",
     "today": {
-      "app": ["src/presenters/next-step.ts#return skipsApprovals ? (step.withoutReview?.blocker ?? null) : step.safePushBlocker"],
+      "app": ["src/presenters/next-step.ts#return skipsApprovals ? step.subjectBlocker : step.safePushBlocker"],
       "bd": ["crates/bd-remote/src/safe_push_command.rs#Refusal::new(ErrorCode::PullRequestOtherBase, message)", "crates/domain-policy/src/pull_request.rs#pub fn base_of"]
     },
     "closed": "s8-policy"
