@@ -17,6 +17,7 @@
 //!   (`fill`, a `OneShot` of `bd` today)
 //! - `events`: where the caller of an operation hears its steps, the progress of its push and its outcome
 //!   (`EventSink`)
+//! - `issue`: the state of a YouTrack issue (Mark Fixed and its undo, the same intent)
 //! - `land`: the plan of a Safe Push or a Dry Run (`prepare`): the decision of `domain_policy::land` over the facts of
 //!   the session of the app, or of the one-shot session of `bd` with the reads its first decision waits for, with the
 //!   profiles it offers and its fingerprint, and with what its run needs (`planned_of`)
@@ -47,6 +48,7 @@ pub mod close;
 pub mod engine;
 pub mod events;
 pub mod facts;
+pub mod issue;
 pub mod land;
 pub mod land_execute;
 pub mod land_session;

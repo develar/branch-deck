@@ -12,7 +12,7 @@ use crate::events::EventSink;
 use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Steps};
 use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
-use crate::{close, land, pull_request, review, robot};
+use crate::{close, issue, land, pull_request, review, robot};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Land, PlannedEffect, Subject};
@@ -50,7 +50,7 @@ pub async fn run(registry: &Registry, key: &SessionKey, request: OperationReques
 /// pull request)
 ///
 /// # Errors
-/// `invalid_arguments` for an intent whose family has no plan here yet
+/// `invalid_arguments` for a push, which has no plan here yet, and for an invalid review
 pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> Result<Option<Plan>, ApiError> {
   match intent {
     Intent::Land(start) => Ok(land::prepare(sessions, key, start).await),
@@ -60,16 +60,14 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::CreatePullRequest(_) | Intent::RequestReview { .. } => Ok(pull_request::prepare_planned(sessions, key, &intent).await.map(|planned| planned.plan)),
     Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. } => Ok(close::prepare_close(sessions, key, &intent).await),
     Intent::SubmitReview { .. } => review::review_plan(&intent).map(Some),
-    _ => Err(not_yet()),
+    Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
+    Intent::Push(_) => Err(not_yet()),
   }
 }
 
-/// An intent whose family runs through its own commands until it moves here
+/// A push runs through its own commands (`push_branch`, `push_branches`, `bd push`) until it moves here
 fn not_yet() -> ApiError {
-  ApiError::new(
-    ErrorCode::InvalidArguments,
-    "Only a start, a restart and a cancel of a robot, a retarget, the creation of a pull request, a review request, the closes of pull requests and a review run through prepare and execute so far",
-  )
+  ApiError::new(ErrorCode::InvalidArguments, "A push runs through its own commands, not through prepare and execute yet")
 }
 
 /// Runs `intent` in the session of `key` on the plan its caller accepted (`accepted`: the fingerprint of the plan it
@@ -92,7 +90,8 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. }) => Box::pin(pull_request::execute_pull_request(registry, key, intent, accepted, services, events)).await,
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::execute_close(registry, key, intent, accepted, services, events).await,
     intent @ Intent::SubmitReview { .. } => Box::pin(review::execute_review(registry, key, intent, accepted, services, events)).await,
-    _ => Err(not_yet()),
+    intent @ Intent::SetIssueState { .. } => issue::execute_issue(registry, key, intent, accepted, services, events).await,
+    Intent::Push(_) => Err(not_yet()),
   }
 }
 

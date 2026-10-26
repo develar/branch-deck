@@ -4,16 +4,13 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
-import type { YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackStateChange } from "@/lib/bindings"
+import type { YouTrackAuthStatus, YouTrackIssueAnswer } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { compileIssuePatterns, parseTextSegments } from "@/lib/issue-links"
-import type { SelectContext } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
 import { isMainWindow } from "@/lib/window-label"
 import { formatYouTrackHost, youTrackKeyOf } from "@/lib/youtrack"
-import { runOperation } from "@/stores/operations"
 import { getRecentProjects } from "@/stores/settings/repositorySettings"
 
 /*
@@ -217,48 +214,3 @@ export function getYouTrackKeyOfIssue(issueKey: string | null): string | null {
 
 /** The value Mark Fixed sets: the resolved state of YouTrack's default workflow */
 export const FIXED_STATE = "Fixed"
-
-/**
- * Sets the state of the issue to Fixed (one operation: a second click joins it), then "Marked ABC-1 Fixed" with Undo,
- * which sets the state it had while the issue is still Fixed
- */
-export function markIssueFixed(key: string, context: SelectContext): Promise<void> {
-  return runOperation({ id: "mark-fixed", subject: issueSubject(key), objects: [], kind: "remote", label: `Marking ${key} fixed`, surface: context.surface }, async () => {
-    const result = await commands.setYoutrackIssueState(key, FIXED_STATE, null)
-    void loadIssue(key)
-    if (result.status === "error") {
-      notifyError(`Cannot mark ${key} fixed`, result.error)
-      return
-    }
-    const change = result.data
-    const previous = change.previous
-    // the toast of the issue: its Undo says in place that the issue is in its state again
-    showEventToast({
-      key: toastKeys.issue(key),
-      render: () => ({
-        type: "success",
-        title: `Marked ${key} Fixed`,
-        ...(previous !== null && { description: `Was ${previous}`, action: { label: "Undo", onClick: () => void undoMarkFixed(key, change) } }),
-      }),
-    })
-  }).then(() => {})
-}
-
-async function undoMarkFixed(key: string, change: YouTrackStateChange): Promise<void> {
-  if (change.previous === null) {
-    return
-  }
-  const result = await commands.setYoutrackIssueState(key, change.previous, FIXED_STATE)
-  void loadIssue(key)
-  if (result.status === "error") {
-    notifyError(`Cannot undo the Fixed state of ${key}`, result.error)
-    return
-  }
-  const title = `${key} is ${change.previous} again`
-  showEventToast({ key: toastKeys.issue(key), render: () => ({ type: "success", title }) })
-}
-
-/** The subject of an issue's operations */
-export function issueSubject(key: string): string {
-  return `issue:${key}`
-}

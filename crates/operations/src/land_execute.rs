@@ -593,8 +593,10 @@ impl<'a> Run<'a> {
           PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
-          // a close and a review are operations of their own (`close`, `review`), never a step of a start
-          PlannedEffect::ClosePullRequest { .. } | PlannedEffect::SubmitReview { .. } => self.fail(ApiError::internal("A start closes and reviews no pull request")),
+          // a close, a review and the state of an issue are operations of their own, never a step of a start
+          PlannedEffect::ClosePullRequest { .. } | PlannedEffect::SubmitReview { .. } | PlannedEffect::SetIssueState { .. } => {
+            self.fail(ApiError::internal("A start closes and reviews no pull request and sets the state of no issue"))
+          }
         }
       };
       self.records.push(EffectRecord { effect, status });

@@ -416,6 +416,8 @@ pub enum PlannedEffect {
   /// The review `verdict` of the user on the commit `commit` of the pull request `number` of someone else
   /// (`Intent::SubmitReview`)
   SubmitReview { number: u32, verdict: PullRequestReviewEvent, commit: String },
+  /// The state field of the YouTrack issue `key` goes to `state` (`Intent::SetIssueState`)
+  SetIssueState { key: String, state: String },
 }
 
 impl PlannedEffect {

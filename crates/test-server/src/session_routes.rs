@@ -303,6 +303,10 @@ impl ServiceHost for TestServices {
     Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.github_service())
   }
 
+  fn youtrack(&self, key: &SessionKey) -> Result<Arc<youtrack::service::YouTrackService>, ApiError> {
+    Ok(remote_of(&*self.state()?, &key.worktree).map_err(rejected)?.shared_youtrack_service())
+  }
+
   fn space_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {
     Box::pin(async move { Ok(space_of(&*self.state()?, &key.worktree).map_err(rejected)?.map(|(_, space)| space)) })
   }

@@ -4,9 +4,10 @@ use crate::operation::{operation, tauri_error};
 use app_api::api_error::IntoApiError;
 use cli_tools::environment::ToolEnvironment;
 use domain_types::error::ApiError;
-use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
+use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackUser};
 use remote_facts::youtrack_cli::{hand_token_to_cli, handed_token_file};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tracing::instrument;
 use youtrack::client::YouTrackClient;
@@ -19,7 +20,8 @@ pub const YOUTRACK_AUTH_CHANGED_EVENT: &str = "youtrack-auth-changed";
 
 /// The YouTrack of the app, shared by the windows, and its own sign-in (`youtrack::sign_in_session`)
 pub struct YouTrackState {
-  pub service: YouTrackService,
+  /// Shared with the operations of the sessions (`SetIssueState` through `ServiceHost::youtrack`)
+  pub service: Arc<YouTrackService>,
   sign_in: YouTrackSignInSession,
   /// The id of the permanent token the app made for the `youtrack` CLI (`remote_facts::youtrack_cli`)
   handed_token: Option<PathBuf>,
@@ -28,11 +30,11 @@ pub struct YouTrackState {
 impl YouTrackState {
   pub fn new(app_version: &str, app_data_dir: Option<&Path>) -> Self {
     Self {
-      service: YouTrackService::new(
+      service: Arc::new(YouTrackService::new(
         YouTrackClient::new(&app_user_agent(app_version)),
         EnvironmentToken::from_process(),
         app_data_dir.map(token_file),
-      ),
+      )),
       sign_in: YouTrackSignInSession::default(),
       handed_token: app_data_dir.map(handed_token_file),
     }
@@ -140,13 +142,4 @@ pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackSt
 #[specta::specta]
 pub async fn get_youtrack_issue(youtrack: State<'_, YouTrackState>, key: String) -> Result<YouTrackIssueAnswer, ApiError> {
   operation(async move { Ok(youtrack.service.issue(&key).await) }).await
-}
-
-/// Sets the state field of the issue (Mark Fixed, and its undo with `expected`, the value the change set); the
-/// previous value
-#[tauri::command]
-#[instrument(skip(youtrack))]
-#[specta::specta]
-pub async fn set_youtrack_issue_state(youtrack: State<'_, YouTrackState>, key: String, state: String, expected: Option<String>) -> Result<YouTrackStateChange, ApiError> {
-  operation(async move { youtrack.service.set_state(&key, &state, expected.as_deref()).await.map_err(ApiError::internal) }).await
 }

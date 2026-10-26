@@ -8,17 +8,28 @@ async fn invoke(client: &reqwest::Client, addr: SocketAddr, id: &str, name: &str
   post_as(client, addr, Named::Id(id), &format!("/invoke/{name}"), params).await
 }
 
+/// A test repository whose fake YouTrack has the open issue ABC-1 with the `fields` of `fixture` (and its `signedIn`):
+/// its id, its path, the fixture endpoint of its YouTrack and the URL of the fake
+async fn with_issue(client: &reqwest::Client, addr: SocketAddr, fixture: Value) -> (String, String, String, Value) {
+  let (id, path) = create_repository(client, addr).await;
+  let endpoint = format!("/repositories/{id}/youtrack");
+  let issue = json!({"key": "ABC-1", "summary": "The settings page loses the timeout", "state": "Open", "fields": fixture["fields"]});
+  let mut body = json!({"issues": [issue]});
+  if let Some(signed_in) = fixture.get("signedIn") {
+    body["signedIn"] = signed_in.clone();
+  }
+  post(client, addr, &endpoint, body).await;
+  let url = client.get(format!("http://{addr}{endpoint}")).send().await.unwrap().json::<Value>().await.unwrap()["url"].clone();
+  (id, path, endpoint, url)
+}
+
 /// A browser sign-in, a Mark Fixed and an expired sign-in run the real session and service against the fake YouTrack
 /// of the repository; the fixture endpoint reads back what reached it
 #[tokio::test]
 async fn the_youtrack_commands_run_the_real_session_and_service_against_the_fake() {
-  let addr = start_test_server().await;
-  let client = reqwest::Client::new();
-  let (id, _) = create_repository(&client, addr).await;
-  let fixture = format!("/repositories/{id}/youtrack");
-  let issue = json!({"key": "ABC-1", "summary": "The settings page loses the timeout", "state": "Open", "fields": [{"name": "Priority", "value": "Major"}]});
-  post(&client, addr, &fixture, json!({"issues": [issue]})).await;
-  let url = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json::<Value>().await.unwrap()["url"].clone();
+  let (addr, client) = (start_test_server().await, reqwest::Client::new());
+  let fields = json!([{"name": "Priority", "value": "Major"}]);
+  let (id, path, fixture, url) = with_issue(&client, addr, json!({"fields": fields})).await;
 
   let started = invoke(
     &client,
@@ -39,8 +50,12 @@ async fn the_youtrack_commands_run_the_real_session_and_service_against_the_fake
   let status = invoke(&client, addr, &id, "get_youtrack_auth_status", json!({})).await;
   assert_eq!((&status["url"], &status["source"]), (&url, &json!("signIn")));
 
-  let change = invoke(&client, addr, &id, "set_youtrack_issue_state", json!({"key": "ABC-1", "state": "Fixed", "expected": null})).await;
-  assert_eq!(change, json!({"field": "State", "previous": "Open"}));
+  // Mark Fixed is an intent of the session of the repository, with its YouTrack
+  let intent = json!({"kind": "setIssueState", "key": "ABC-1", "state": "Fixed", "expected": null});
+  let plan = post(&client, addr, "/invoke/prepare", json!({"repositoryPath": path, "intent": intent})).await;
+  let execute = json!({"repositoryPath": path, "intent": intent, "fingerprint": plan["fingerprint"], "accepted": []});
+  let outcome = post(&client, addr, "/invoke/execute", execute).await;
+  assert_eq!(outcome["result"], json!({"kind": "issue", "field": "State", "previous": "Open"}), "{outcome}");
   let log: Value = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json().await.unwrap();
   assert_eq!(log["commands"], json!([{"query": "State Fixed", "issues": ["ABC-1"]}]));
   assert_eq!(log["lookups"], json!(["ABC-1"]));
@@ -55,16 +70,9 @@ async fn the_youtrack_commands_run_the_real_session_and_service_against_the_fake
 /// app's command reads it with its service: the issue links name the fake, and the app is signed in to it
 #[tokio::test]
 async fn a_new_pull_request_reads_its_issue_summaries_from_the_youtrack_of_the_repository() {
-  let addr = start_test_server().await;
-  let client = reqwest::Client::new();
-  let (id, path) = create_repository(&client, addr).await;
-  let fixture = format!("/repositories/{id}/youtrack");
-  let issue = json!({"key": "ABC-1", "summary": "The settings page loses the timeout", "state": "Open", "fields": []});
-  post(&client, addr, &fixture, json!({"issues": [issue], "signedIn": "signIn"})).await;
-  let url = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json::<Value>().await.unwrap()["url"]
-    .as_str()
-    .unwrap()
-    .to_string();
+  let (addr, client) = (start_test_server().await, reqwest::Client::new());
+  let (id, path, fixture, url) = with_issue(&client, addr, json!({"fields": [], "signedIn": "signIn"})).await;
+  let url = url.as_str().unwrap().to_string();
   let vcs_xml = format!(
     r#"<?xml version="1.0" encoding="UTF-8"?>
 <project version="4"><component name="IssueNavigationConfiguration"><option name="links"><list><IssueNavigationLink>

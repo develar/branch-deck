@@ -18,6 +18,8 @@ targets:
   - ../../crates/sync-utils/src/secret_store.rs
   - ../../crates/domain-types/src/youtrack.rs
   - ../../src-tauri/src/commands/youtrack.rs
+  - ../../crates/operations/src/issue.rs
+  - ../../src/lib/issue-actions.ts
   - ../../src-tauri/src/lib.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../crates/test-server/src/youtrack_fixtures.rs
@@ -243,12 +245,16 @@ client takes a pasted token.
   Duplicate"), so a menu built before cannot turn a Duplicate into Fixed.
   [@test] ../../crates/youtrack/src/issue_test.rs (`a_command_names_the_field_and_the_value_without_braces`)
   [@test] ../../crates/youtrack/src/service_test.rs (`a_state_change_returns_the_previous_state_and_an_undo_checks_the_state_first`, `a_resolved_issue_is_not_marked_again`)
-- It is one operation (`mark-fixed` of `issue:<key>`, remote): a second click joins it. "Marked ABC-1 Fixed", "Was
-  Open", with Undo, which sets the previous state only while the issue is still Fixed ("ABC-1 is now Verified"
-  otherwise), then "ABC-1 is Open again" in place of the toast it was pressed on (one toast of the issue,
+- It is one operation of the session of the window (`SetIssueState`, `crates/operations/src/issue.rs`, holding the
+  issue, with the YouTrack of the app): a second click joins it, and its item says "Marking ABC-1 Fixed…" meanwhile.
+  "Marked ABC-1 Fixed", "Was Open", with Undo, the same intent back to the previous state, which sets it only while the
+  issue is still Fixed ("ABC-1 is now Verified" otherwise), then "ABC-1 is Open again" in place of the toast it was
+  pressed on (one toast of the issue, the event of the outcome `NewsKey::Issue`,
   [One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)); YouTrack clears `resolved` itself. A failure is "Cannot mark ABC-1 fixed" or
   "Cannot undo the Fixed state of ABC-1" with YouTrack's reason (`notifyError`, so in Activity too).
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
+  [@test] ../../crates/operations/src/issue_test.rs (`a_change_of_the_state_of_an_issue_is_its_one_effect_and_its_undo_the_same_intent`)
+  [@test] ../../crates/test-server/src/youtrack_host_test.rs (`the_youtrack_commands_run_the_real_session_and_service_against_the_fake`)
 - Surfaces: the popover of every key (the rows, the commits, the preview, the toasts, the merge toast of a robot
   among them), and "Mark ABC-1 Fixed" in the menu of a branch whose issue key is of the YouTrack: the keyboard path,
   where the work landed. Patronus marks an issue fixed itself only for a commit that says so ("fixed ABC-1", also

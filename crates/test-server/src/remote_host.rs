@@ -101,7 +101,7 @@ pub struct RemoteHost {
   youtrack: Arc<FakeYouTrack>,
   youtrack_server: FakeServer,
   /// The app's YouTrack service on the token file of `app_data`; a fixture of the sign-in makes it read the file again
-  youtrack_service: YouTrackService,
+  youtrack_service: Arc<YouTrackService>,
   youtrack_sign_in: YouTrackSignInSession,
   /// The remote of the repository (`.git/upstream.git`) as its pre-receive hook asks it: held and refused pushes
   git_remote: FakeRemote,
@@ -235,7 +235,11 @@ impl RemoteHost {
     let youtrack = Arc::new(FakeYouTrack::default());
     youtrack.set_clock(PAGE_CLOCK_START);
     let youtrack_server = FakeServer::serve(youtrack::fake_youtrack::router(Arc::clone(&youtrack)));
-    let youtrack_service = YouTrackService::new(YouTrackClient::new("Branch Deck test server"), None, Some(youtrack::token_store::token_file(&app_data)));
+    let youtrack_service = Arc::new(YouTrackService::new(
+      YouTrackClient::new("Branch Deck test server"),
+      None,
+      Some(youtrack::token_store::token_file(&app_data)),
+    ));
     let host = Self {
       patronus,
       patronus_server,
@@ -514,8 +518,13 @@ impl RemoteHost {
     &self.youtrack_server.url
   }
 
-  pub const fn youtrack_service(&self) -> &YouTrackService {
+  pub fn youtrack_service(&self) -> &YouTrackService {
     &self.youtrack_service
+  }
+
+  /// The YouTrack of the repository for the operations of its session (`ServiceHost::youtrack`)
+  pub fn shared_youtrack_service(&self) -> Arc<YouTrackService> {
+    Arc::clone(&self.youtrack_service)
   }
 
   /// The app's sign-in to YouTrack, run by the real session

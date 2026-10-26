@@ -138,7 +138,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   // the issue of the branch, once its work landed: the backend refuses an issue resolved already
   const youTrackKey = getYouTrackKeyOfIssue(branch.issueKey)
   if (youTrackKey !== null) {
-    landingActions.push({ ...getMarkFixedItem(youTrackKey, operations), label: `Mark ${youTrackKey} Fixed` })
+    landingActions.push({ ...getMarkFixedItem(youTrackKey, branchSyncStore.getState().operations), label: `Mark ${youTrackKey} Fixed` })
   }
   groups.push(landingActions)
 

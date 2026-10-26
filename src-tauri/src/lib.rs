@@ -71,8 +71,8 @@ use commands::window_management::{
 };
 use commands::window_menu::show_window_menu;
 use commands::youtrack::{
-  YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, set_youtrack_issue_state, sign_out_of_youtrack,
-  start_youtrack_cli_sign_in, start_youtrack_sign_in, wait_youtrack_cli_sign_in, wait_youtrack_sign_in,
+  YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, sign_out_of_youtrack, start_youtrack_cli_sign_in,
+  start_youtrack_sign_in, wait_youtrack_cli_sign_in, wait_youtrack_sign_in,
 };
 use lock_wait::cancel_lock_wait;
 use sync_utils::span::in_current_span;
@@ -116,7 +116,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       save_youtrack_token,
       sign_out_of_youtrack,
       get_youtrack_issue,
-      set_youtrack_issue_state,
       fetch_review_head,
       cancel_review_fetch,
       prune_review_refs,

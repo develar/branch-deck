@@ -16,6 +16,7 @@ use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::commands::github::GitHubState;
 use crate::commands::patronus::PatronusState;
 use crate::commands::pull_requests::github_repository;
+use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::{api_error, no_branch_prefix};
@@ -52,6 +53,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Webview};
 use tracing::instrument;
 use trial_check::landing_gate::landing_needs_of;
+use youtrack::service::YouTrackService;
 
 /// How often the app removes the sessions idle for `IDLE_LIMIT`
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -239,6 +241,10 @@ impl ServiceHost for AppServices {
 
   fn github(&self, _key: &SessionKey) -> Result<Arc<GitHubService>, ApiError> {
     Ok(Arc::clone(&self.app.state::<GitHubState>().service))
+  }
+
+  fn youtrack(&self, _key: &SessionKey) -> Result<Arc<YouTrackService>, ApiError> {
+    Ok(Arc::clone(&self.app.state::<YouTrackState>().service))
   }
 
   fn space_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {

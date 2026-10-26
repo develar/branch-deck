@@ -19,7 +19,7 @@ use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
 use domain_types::session::Version;
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
-use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
+use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackUser};
 use file_diffs::model::{
   BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
 };
@@ -957,24 +957,6 @@ pub struct YouTrackIssueParams {
 pub async fn get_youtrack_issue(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<YouTrackIssueParams>) -> CommandResult<YouTrackIssueAnswer> {
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   Ok(Json(host.youtrack_service().issue(&params.key).await))
-}
-
-#[derive(Deserialize)]
-pub struct SetYouTrackIssueStateParams {
-  key: String,
-  state: String,
-  expected: Option<String>,
-}
-
-/// Sets the state field of the issue in the fake YouTrack, as the app does (Mark Fixed and its undo)
-pub async fn set_youtrack_issue_state(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<SetYouTrackIssueStateParams>,
-) -> CommandResult<YouTrackStateChange> {
-  let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
-  let change = host.youtrack_service().set_state(&params.key, &params.state, params.expected.as_deref()).await;
-  change.map(Json).map_err(|e| failed("set the state of the issue", e))
 }
 
 /// The review requests of the fixture set by `POST /repositories/{id}/review-requests`, as the session of a test

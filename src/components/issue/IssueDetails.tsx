@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { useStore } from "zustand"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { LinkedText } from "@/components/commit/LinkedText"
@@ -8,7 +9,7 @@ import type { YouTrackIssue } from "@/lib/bindings"
 import { getIssueActions } from "@/lib/issue-actions"
 import { openSettings } from "@/lib/settings-window"
 import { formatRelativeTime } from "@/lib/time"
-import { useOperations } from "@/stores/operations"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { loadIssue, useIssueEntry } from "@/stores/youtrack"
 
 /**
@@ -54,7 +55,8 @@ export function IssueDetails({ issueKey }: { issueKey: string }) {
 }
 
 function FoundIssue({ issue }: { issue: YouTrackIssue }) {
-  const running = useOperations()
+  // the change of the issue runs in the session of the window
+  const operations = useStore(branchSyncStore, state => state.operations)
   const now = useNow(60_000)
   const state = issue.state
   return (
@@ -79,7 +81,7 @@ function FoundIssue({ issue }: { issue: YouTrackIssue }) {
         </dl>
       )}
       <div className="flex flex-wrap gap-2">
-        {getIssueActions(issue, running).map(item => (
+        {getIssueActions(issue, operations).map(item => (
           <MenuItemButton
             key={item.id}
             item={item}

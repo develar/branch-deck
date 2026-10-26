@@ -27,6 +27,7 @@ use sync_core::github_repository::{GitHubRepository, parse_known_github_reposito
 use sync_core::patronus::{SpaceRepository, required_target_branch};
 use sync_utils::span::in_current_span;
 use tracing::warn;
+use youtrack::service::YouTrackService;
 
 /// What the reads of a host are made with, for the session of a key
 pub trait ServiceHost: Send + Sync + 'static {
@@ -44,6 +45,14 @@ pub trait ServiceHost: Send + Sync + 'static {
   /// # Errors
   /// Why there is none (the E2E server stopped)
   fn github(&self, key: &SessionKey) -> Result<Arc<GitHubService>, ApiError>;
+
+  /// The YouTrack of the app, which the state of an issue is set in; a host without one (`bd`) answers why
+  ///
+  /// # Errors
+  /// Why there is none
+  fn youtrack(&self, _key: &SessionKey) -> Result<Arc<YouTrackService>, ApiError> {
+    Err(ApiError::new(ErrorCode::InvalidArguments, "No YouTrack here: the app sets the state of an issue"))
+  }
 
   /// The Space repository `origin` of the worktree pushes to; `None` off Space
   fn space_repository<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>>;

@@ -594,8 +594,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   there, `linkIssuesToYouTrack(page, url)`), and the app's `YouTrackService` on the token file of the host's app data
   directory (no `YOUTRACK_TOKEN`, no keychain). `get_youtrack_auth_status`, `start_youtrack_sign_in`,
   `wait_youtrack_sign_in`, `cancel_youtrack_sign_in`, `save_youtrack_token`, `sign_out_of_youtrack` (the session of
-  `crates/youtrack/src/sign_in_session.rs`, the core of the app's commands), `get_youtrack_issue` and
-  `set_youtrack_issue_state` (the service) run for the page's repository (`X-Repository-Id`). The fake answers as
+  `crates/youtrack/src/sign_in_session.rs`, the core of the app's commands) and `get_youtrack_issue` (the service) run
+  for the page's repository (`X-Repository-Id`), and Mark Fixed, the `SetIssueState` of `execute`, with the service of
+  the session's repository (`ServiceHost::youtrack`). The fake answers as
   YouTrack does: `api/config` names the Hub; the Hub page of `localhost-auth` (`api/rest/oauth2/auth`) redirects back to
   the app's listener with a code at once, a user who approved before, and a client or a redirect it does not accept to
   `/hub/auth/oauth/error`; `api/rest/oauth2/token` trades a code once for the verifier of its challenge and renews with

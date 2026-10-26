@@ -10,6 +10,7 @@ use crate::patronus::{PatronusPushMode, PatronusRobot};
 use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedReviewers};
 use crate::reason::Reason;
 use crate::session::Version;
+use crate::youtrack::YouTrackStateChange;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -63,7 +64,8 @@ pub enum Intent {
     body: Option<String>,
     then_land: bool,
   },
-  /// The YouTrack issue `key` goes into `state` (Mark Fixed, its undo), while it is in `expected`
+  /// The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
+  /// is in `expected`); without `expected`, only an open issue changes
   SetIssueState { key: String, state: String, expected: Option<String> },
 }
 
@@ -354,6 +356,8 @@ pub enum OperationResult {
   Reviewers(Box<RequestedReviewers>),
   /// The Safe Push of a reviewed pull request of someone else: its comment and the robot it started
   Review(Box<ReviewResult>),
+  /// The state field of an issue and the value it had (`Intent::SetIssueState`): its undo sets that value again
+  Issue(Box<YouTrackStateChange>),
 }
 
 /// What the Safe Push of a reviewed pull request answered (`Intent::SubmitReview` with `then_land`)

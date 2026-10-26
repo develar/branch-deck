@@ -85,11 +85,6 @@ export const commands = {
 	/**  The issue of `key` for the popover, from the YouTrack the token is for */
 	getYoutrackIssue: (key: string) => typedError<YouTrackIssueAnswer, ApiError>(__TAURI_INVOKE("get_youtrack_issue", { key })),
 	/**
-	 *  Sets the state field of the issue (Mark Fixed, and its undo with `expected`, the value the change set); the
-	 *  previous value
-	 */
-	setYoutrackIssueState: (key: string, state: string, expected: string | null) => typedError<YouTrackStateChange, ApiError>(__TAURI_INVOKE("set_youtrack_issue_state", { key, state, expected })),
-	/**
 	 *  Fetches the head (and, if missing, the base) of a pull request into `refs/branch-deck/review/<n>/…` unless both
 	 *  commits are local, and returns the range to review; `progress` receives how far the fetch is. A newer call of the
 	 *  same window, `cancel_review_fetch` of it, or its close kills the fetch.
@@ -2682,7 +2677,10 @@ export type Intent =
  *  verdict: the Safe Push alone, the user approved the commit before
  */
 ({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never } | 
-/**  The YouTrack issue `key` goes into `state` (Mark Fixed, its undo), while it is in `expected` */
+/**
+ *  The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
+ *  is in `expected`); without `expected`, only an open issue changes
+ */
 ({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; comment?: never; commit?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; subject?: never; thenLand?: never; verdict?: never };
 
 export type IssueNavigationConfig = {
@@ -3446,7 +3444,11 @@ export type OperationResult =
 /**  The Safe Push of a reviewed pull request of someone else: its comment and the robot it started */
 {
 	kind: "review",
-} & ReviewResult;
+} & ReviewResult | 
+/**  The state field of an issue and the value it had (`Intent::SetIssueState`): its undo sets that value again */
+{
+	kind: "issue",
+} & YouTrackStateChange;
 
 /**  What an operation cost */
 export type OperationStats = {
@@ -3958,7 +3960,9 @@ export type PlannedEffect =
  *  The review `verdict` of the user on the commit `commit` of the pull request `number` of someone else
  *  (`Intent::SubmitReview`)
  */
-{ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent; commit: string };
+{ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent; commit: string } | 
+/**  The state field of the YouTrack issue `key` goes to `state` (`Intent::SetIssueState`) */
+{ kind: "setIssueState"; key: string; state: string };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
