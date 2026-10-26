@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { diffCells, mergeCells } from "@/lib/diff/row-cells"
+import { diffCells, fileLayoutOf, mergeCells, oneSideOf } from "@/lib/diff/row-cells"
 import { buildFileRows, buildMergeRows, LEFT, MIDDLE, NEW, OLD, RIGHT, rowAt } from "@/lib/diff/rows"
 import type { LineRow } from "@/lib/diff/rows"
 import { block, mergeBlock, textDiff, textMerge } from "@/test-support/diff-blocks"
@@ -65,5 +65,24 @@ describe("diffCells", () => {
     ])
     const deletedRow = lineRow(rowAt(buildFileRows(diff, "unified"), 1))
     expect(unified.cell(deletedRow, OLD)).toBe("deleted")
+  })
+
+  it("shows a file with one side as that side alone in every layout, with its line numbers, as IntelliJ's one-sided viewer", () => {
+    // an added file: no old blob; a deleted one: no new blob; a changed one has both
+    expect([oneSideOf({ oldId: null, newId: "b" }), oneSideOf({ oldId: "a", newId: null }), oneSideOf({ oldId: "a", newId: "b" })]).toEqual([NEW, OLD, null])
+    expect([fileLayoutOf("split", NEW), fileLayoutOf("inline", OLD), fileLayoutOf("split", null)]).toEqual(["unified", "unified", "split"])
+    const added = textDiff(0, 3, [block(0, 0, 0, 3)])
+    for (const mode of ["split", "unified", "inline"] as const) {
+      const cells = diffCells(added, mode, NEW)
+      const row = lineRow(rowAt(buildFileRows(added, fileLayoutOf(mode, NEW)), 1))
+      expect([cells.columns, cells.numbers, row.kind, row.lines, cells.cell(row, NEW)]).toEqual([[NEW], [NEW], "added", [null, 1], "inserted"])
+    }
+    const deleted = textDiff(2, 0, [block(0, 2, 0, 0)])
+    const cells = diffCells(deleted, "split", OLD)
+    const row = lineRow(rowAt(buildFileRows(deleted, fileLayoutOf("split", OLD)), 0))
+    expect([cells.columns, cells.numbers, row.kind, cells.cell(row, OLD)]).toEqual([[NEW], [OLD], "deleted", "deleted"])
+    // a file with both sides keeps its layout: two columns in Split, both line numbers in one column otherwise
+    const changed = textDiff(1, 1, [block(0, 1, 0, 1)])
+    expect([diffCells(changed, "split").numbers, diffCells(changed, "unified").numbers]).toEqual([[], [OLD, NEW]])
   })
 })

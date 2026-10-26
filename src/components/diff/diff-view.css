@@ -149,13 +149,14 @@
 
 /*
  * The divider of the sides: the line between the halves of a row, a hit area of 4 px to each side of it (DiffView's
- * `dragSplit`); a fold row and a header have none, so their buttons stay free
+ * `dragSplit`); a fold row, a header and the one column of a file with one side have none, so their buttons and their
+ * line numbers stay free
  */
-[data-split] .dv-row > .dv-half[data-side="1"] {
+[data-split] .dv-row > .dv-half + .dv-half[data-side="1"] {
   position: relative;
 }
 
-[data-split].dv-scroller .dv-row > .dv-half[data-side="1"]::before {
+[data-split].dv-scroller .dv-row > .dv-half + .dv-half[data-side="1"]::before {
   position: absolute;
   inset-block: 0;
   left: -4px;

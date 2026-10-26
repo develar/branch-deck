@@ -283,6 +283,25 @@ simpleTest.describe("Commit files in nested directories", () => {
     await expect.poll(async () => (await scrollLeft(deletions)) === (await scrollLeft(additions)) && (await scrollLeft(additions)) < 160).toBe(true)
   })
 
+  simpleTest("Split shows an added file as its one side, with its line numbers, as IntelliJ's one-sided viewer", async ({ page }) => {
+    const { tree, preview } = await openTreePreview(page)
+    await expect(preview.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
+    const added = tree.getByRole("treeitem", { name: "RowMapperTest.kt" })
+    await added.getByText("RowMapperTest.kt").click()
+    // one column the width of the view, each row its line number and its line, inserted; no empty half beside it
+    const rows = added.locator(".dv-row[data-kind=added]")
+    await expect(rows).toHaveCount(6)
+    await expect(rows.first().locator(".dv-half")).toHaveCount(1)
+    await expect(rows.first().locator(".dv-num")).toHaveText(["1"])
+    await expect(rows.first().locator(".dv-half")).toHaveAttribute("data-cell", "inserted")
+    // a line longer than the column keeps its horizontal scroll: the one column has the scroll bar of its side
+    await page.setViewportSize({ width: 480, height: 800 })
+    const bar = added.locator(".dv-hscroll")
+    await expect(bar).toHaveCount(1)
+    await expect(bar).toHaveAttribute("data-side", "1")
+    await expect.poll(() => overflowsSideways(bar)).toBe(true)
+  })
+
   simpleTest("Inline shows a lightly edited line as one row", async ({ page }) => {
     // the diff engine finds line 2 a similar pair: ` + 1` inserted after `state`
     const { preview, reducer } = await openReducerDiff(page)

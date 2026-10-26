@@ -565,10 +565,10 @@ export class DiffPainter {
         }
       }
     } else {
-      // Unified and Inline: one side, both line numbers; a deleted row shows the old line
+      // Unified and Inline: one side, both line numbers (a file with one side: its own); a deleted row shows the old line
       const side = value.kind === "deleted" ? OLD : NEW
       const half = this.half(NEW, rowCells.cell(value, side), value.tint, null)
-      half.append(this.number(value.lines[OLD] ?? null), this.number(value.lines[NEW] ?? null))
+      half.append(...rowCells.numbers.map(numberSide => this.number(value.lines[numberSide] ?? null)))
       half.append(this.code(file, painterFile, value, side, value.lines[side] ?? null, tables, height))
       rowElement.append(half)
       value.lines.forEach((line, lineSide) => {

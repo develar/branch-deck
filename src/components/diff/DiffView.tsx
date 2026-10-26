@@ -20,7 +20,7 @@ import { DiffLayout, visualLinePrefix } from "@/lib/diff/layout"
 import { inlineParts } from "@/lib/diff/line-parts"
 import { getLineTable, lineText, maxColumns } from "@/lib/diff/line-table"
 import { DIFF_FONT_SIZE, DIFF_TAB_SIZE, measureFont, rowHeightOf, textMetricsOf } from "@/lib/diff/metrics"
-import { diffCells, mergeCells } from "@/lib/diff/row-cells"
+import { diffCells, fileLayoutOf, mergeCells, oneSideOf } from "@/lib/diff/row-cells"
 import type { RowCells } from "@/lib/diff/row-cells"
 import { buildFileRows, buildMergeRows, EXPANDED, getFoldLevels, MIDDLE, NEW, nextFoldLevel, OLD, rowAt, rowOfLine, setFoldLevels } from "@/lib/diff/rows"
 import type { FileRows, FoldRow } from "@/lib/diff/rows"
@@ -220,7 +220,9 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
   }
   const { file, diff } = entry
   const text = diff?.content.kind === "text" ? diff.content : null
-  const rows = text === null ? null : buildFileRows(text, mode, folds.get(text) ?? getFoldLevels(text))
+  // an added or a deleted file shows its one side, as IntelliJ's one-sided viewer: no empty half beside it in Split
+  const oneSide = diff === undefined ? null : oneSideOf(diff)
+  const rows = text === null ? null : buildFileRows(text, fileLayoutOf(mode, oneSide), folds.get(text) ?? getFoldLevels(text))
   const digits = String(Math.max(text?.oldLineCount ?? 0, text?.newLineCount ?? 0, 1)).length
   // without a header nothing collapses: the row above the view is the header
   const collapsed = toggled !== null && !pending && startsCollapsed(file, diff) !== toggled.has(file.path)
@@ -240,7 +242,7 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
     merge: undefined,
     pending,
     model: text,
-    cells: text === null ? null : diffCells(text, mode),
+    cells: text === null ? null : diffCells(text, mode, oneSide),
     rows,
     ids,
     // the old side of a rename has the grammar of its old path
@@ -903,10 +905,11 @@ export function DiffView({
   })
 
   // the divider of Split, as IntelliJ's DiffSplitter: the line between the halves of a row, 4 px to each side of it
-  // (`.dv-half[data-side="1"]::before` gives the cursor); a drag sets the share, a double click makes the sides equal
+  // (`.dv-half + .dv-half[data-side="1"]::before` gives the cursor; the one column of a file with one side has none); a
+  // drag sets the share, a double click makes the sides equal
   const onDividerOf = (event: { clientX: number; clientY: number }) => {
     // by the point, not the target: the drag before a double click captured the pointer
-    const half = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('.dv-row > .dv-half[data-side="1"]') ?? null
+    const half = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('.dv-row > .dv-half + .dv-half[data-side="1"]') ?? null
     return half !== null && Math.abs(event.clientX - half.getBoundingClientRect().left) <= 4
   }
   const dragSplit = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1118,7 +1121,7 @@ function HorizontalBars({ file, sideWidths, columnWidth, codeWidths }: { file: P
     <div className="dv-hscrolls">
       {columns.map((side, index) => (
         <div key={side} className="dv-hscroll" data-side={side}>
-          <div style={{ width: widths[index]! + file.gutterColumns * columnWidth * (sideBySide ? 1 : 2), height: 1 }} />
+          <div style={{ width: widths[index]! + file.gutterColumns * columnWidth * (sideBySide ? 1 : (file.cells?.numbers.length ?? 2)), height: 1 }} />
         </div>
       ))}
     </div>
@@ -1163,7 +1166,7 @@ function scrollParentOf(element: HTMLElement): HTMLElement | null {
 
 /**
  * The width of the code of each side in CSS px: its column, less the line numbers, the bar of a change and the
- * padding; one column shows both line numbers
+ * padding; one column shows both line numbers, or the one of a file with one side
  */
 function codeWidthsOf(file: PreparedFile, width: number, columnWidth: number, split: number): number[] {
   const gutter = file.gutterColumns * columnWidth
@@ -1176,7 +1179,7 @@ function codeWidthsOf(file: PreparedFile, width: number, columnWidth: number, sp
     return [old - gutter - chrome, width - old - 1 - gutter - chrome]
   }
   // a border of 1 px between two columns
-  const code = columns > 1 ? (width - (columns - 1)) / columns - gutter - chrome : width - 2 * gutter - chrome
+  const code = columns > 1 ? (width - (columns - 1)) / columns - gutter - chrome : width - (file.cells?.numbers.length ?? 2) * gutter - chrome
   return file.ids.map(() => code)
 }
 

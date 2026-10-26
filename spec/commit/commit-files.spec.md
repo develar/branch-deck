@@ -295,6 +295,13 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`Inline shows a lightly edited line as one row`)
   [@test] ../../src/lib/diff/line-parts.test.ts (`puts the deleted part of the old line before the inserted part, each with the runs of its side`, `aligns a pure insertion: the old line without a range gets an empty one, so the row is the new line`)
   [@test] ../../src/lib/diff/rows.test.ts (`makes each similar pair of a block one row only in the Inline view, also at the end of a file`)
+- An added and a deleted file (a side without a blob, `oneSideOf`) must show that side alone in every view, Split too:
+  one column the width of the view with its line numbers, every line inserted or deleted, as IntelliJ's diff shows such
+  a file in its one-sided viewer (`SimpleOnesideDiffViewer`, [Diff View](../../docs/design/diff-view.md#the-row-model)).
+  Split showed an empty grey half beside it. A file with two sides keeps the view the toggle chose; a long line keeps
+  its horizontal scroll.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`Split shows an added file as its one side, with its line numbers, as IntelliJ's one-sided viewer`)
+  [@test] ../../src/lib/diff/row-cells.test.ts (`shows a file with one side as that side alone in every layout, with its line numbers, as IntelliJ's one-sided viewer`)
 - Split must scroll its two sides together: a horizontal scroll of one side moves the other to the same place, as
   IntelliJ's diff does.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`Split scrolls both sides together`)

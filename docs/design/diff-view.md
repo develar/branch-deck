@@ -1,7 +1,7 @@
 # Diff View: Our Own Renderer on the Blocks of the Engine
 
 **Status:** Implemented  
-**Updated:** 2026-10-18  
+**Updated:** 2026-10-26  
 **Tags:** [ui, diff, highlighting, virtualization, performance]
 
 **What runs and what is planned.** The steps of the Migration run: the row model, the layout, the highlight worker,
@@ -116,6 +116,21 @@ The rows of a block depend on the mode:
   line before the inserted parts. Another block shows as in Unified.
 - **Split:** `max(old, new)` rows. The shorter side is filled.
 
+**A file with one side.** An added file has no old blob, a deleted file no new blob (`oneSideOf` in `row-cells.ts`).
+Such a file shows its one side alone in every mode: the rows of Unified, which are its lines as one block, in one
+column the width of the view, with the line numbers of its side only (`RowCells.numbers`), every line inserted (green)
+or deleted (grey). This is what IntelliJ does: `SimpleDiffTool.createComponent` and `UnifiedDiffTool.createComponent`
+take `SimpleOnesideDiffViewer` first when `OnesideDiffViewer.canShowRequest` finds one of the two contents an
+`EmptyContent` (`community/platform/diff-impl/src/com/intellij/diff/tools/simple/SimpleDiffTool.java`,
+`.../tools/util/side/OnesideDiffViewer.java`), and that viewer highlights all the lines of its editor as
+`TextDiffType.INSERTED` or `DELETED`. Before, Split showed an added file as an empty grey half beside the new lines in
+half the width. The Split/Unified/Inline toggle stays as it is for every other file. A file that exists on both sides
+with an empty text keeps its two sides, as IntelliJ's `DocumentContent` of an empty document is no `EmptyContent`. A
+long line keeps its horizontal scroll: the one column has the scroller of its side. The column has no divider, so a
+drag at its line numbers moves no split (`.dv-half + .dv-half[data-side="1"]`, `onDividerOf`). The view of a
+declaration outside the review (`DeclarationFileView`, a synthetic added file) shows one line number for the same
+reason.
+
 The rows of an `ignored` block show as unchanged lines. Unified and Inline show its new lines and leave out its old
 lines, so the old line numbers jump, as in IntelliJ. Split shows both sides plain, the shorter side filled.
 
@@ -154,7 +169,8 @@ The view keeps the levels by the `TextDiff` object, so the lines a diff expanded
 the diff.
 
 **Sides.** A row holds a line reference per side: a line index, or a gap. Split has two sides, and Unified is a
-projection of the same rows into one column. The 3-way view of the merge comparison adds a third side (the left, the
+projection of the same rows into one column, with both line numbers; a file with one side is that projection with its
+own line numbers. The 3-way view of the merge comparison adds a third side (the left, the
 base, the right). No other type changes for it.
 
 **End of the file.** A side without a newline at its end gets a marker after its last line, with the tooltip "No
@@ -755,4 +771,5 @@ Small commits. Each one is green: lint, types, unit tests, and the e2e tests of 
 - [Commit Row](../../spec/commit/commit-row.spec.md) ("Conflict view")
 - `src/lib/diff/file-diff-model.ts`: the model of the backend
 - VS Code: the viewport tokenization of `TextMateTokenizationSupport`
-- IntelliJ: `SyncScrollSupport`, `FoldingModelSupport`, the soft wraps of the editor
+- IntelliJ: `SyncScrollSupport`, `FoldingModelSupport`, the soft wraps of the editor, `SimpleOnesideDiffViewer` and
+  `OnesideDiffViewer.canShowRequest` (a file with one side)

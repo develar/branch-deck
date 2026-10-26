@@ -14,6 +14,11 @@ export interface RowCells {
   /** The sides that show a column; Unified and Inline show one column with both line numbers */
   readonly columns: readonly number[]
   /**
+   * The sides whose line numbers one column shows: the old and the new of Unified and Inline, the one side of a file
+   * with one side; a column per side shows its own
+   */
+  readonly numbers: readonly number[]
+  /**
    * The inner ranges take the colour of their own kind (`data-typed`), as the Split of IntelliJ; otherwise the colour
    * of their cell
    */
@@ -47,15 +52,34 @@ function typedMergeRanges(ranges: readonly number[] | undefined): readonly numbe
 const MODIFIED_RANGE = 2
 
 /**
- * The cells of a diff: the old and the new side in Split, one column in Unified and Inline. Split colours a block by
- * its type on both sides, as IntelliJ's `SimpleDiffChangeUi`: inserted when it has new lines only, deleted when it has
- * old lines only, modified when it has both. Unified and Inline colour a deleted line deleted and an inserted line
- * inserted (`DiffDrawUtil.createUnifiedChunkHighlighters`).
+ * The side of a file that has one (`OLD` of a deleted file, `NEW` of an added one), null for a file with both. Such a
+ * file shows that side alone in every layout, its lines and its line numbers, as IntelliJ's `SimpleDiffTool` and
+ * `UnifiedDiffTool` choose `SimpleOnesideDiffViewer` when a side is `EmptyContent` (`OnesideDiffViewer.canShowRequest`)
  */
-export function diffCells(diff: TextDiff, mode: DiffViewMode): RowCells {
-  const split = mode === "split"
+export function oneSideOf(file: { readonly oldId: string | null; readonly newId: string | null }): number | null {
+  if (file.oldId === null && file.newId !== null) {
+    return NEW
+  }
+  return file.newId === null && file.oldId !== null ? OLD : null
+}
+
+/** The layout of the rows of a file: a file with one side lays out as one column (`oneSideOf`) */
+export function fileLayoutOf(mode: DiffViewMode, oneSide: number | null): DiffViewMode {
+  return oneSide === null ? mode : "unified"
+}
+
+/**
+ * The cells of a diff: the old and the new side in Split, one column in Unified and Inline, and for a file with one
+ * side (`oneSide`) one column with its line numbers alone, in every layout. Split colours a block by its type on both
+ * sides, as IntelliJ's `SimpleDiffChangeUi`: inserted when it has new lines only, deleted when it has old lines only,
+ * modified when it has both. Unified and Inline colour a deleted line deleted and an inserted line inserted
+ * (`DiffDrawUtil.createUnifiedChunkHighlighters`), and so does a file with one side, all of it one block.
+ */
+export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | null = null): RowCells {
+  const split = fileLayoutOf(mode, oneSide) === "split"
   return {
     columns: split ? [OLD, NEW] : [NEW],
+    numbers: split ? [] : oneSide === null ? [OLD, NEW] : [oneSide],
     typed: split,
     cell: (row, side) => {
       if (split) {
@@ -97,6 +121,7 @@ export function mergeCells(merge: TextMerge, middle: MergeMiddle): RowCells {
   }
   return {
     columns: [LEFT, MIDDLE, RIGHT],
+    numbers: [],
     // the words of a merge block take the colour of the block
     typed: false,
     cell: (row, side) => {
