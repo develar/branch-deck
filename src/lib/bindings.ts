@@ -8,10 +8,11 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**
 	 *  Pushes a branch to the remote, replacing the remote branch only as the user saw it, and answers its new remote
-	 *  status; a remote that moved is fetched and answered instead. The session of the repository gets the outcome
-	 *  (`Sessions::push`): the answer names the version of the view whose patch has it. Under the repository lock, and
-	 *  refused in Rust as `bd push` refuses it (`push_guard`): a branch the last sync did not build, a parked branch or one
-	 *  built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (the robots as Rust reads them).
+	 *  status; a remote that moved is fetched and answered instead. An operation of the session of the repository
+	 *  (`operations::push`), which gets the outcome: the answer names the version of the view whose patch has it. Decided
+	 *  under the repository lock, pushed after it, and refused in Rust as `bd push` refuses it (`push_guard`): a branch the
+	 *  last sync did not build, a parked branch or one built on parked, one a merged Safe Push landed whole, one a running
+	 *  Safe Push holds (the robots as Rust reads them).
 	 *  `progress` receives how far the push is, and whom it waits for while another holder has the repository lock (as long
 	 *  as it lives); `cancel_lock_wait` of the channel's id ends that wait, with nothing pushed.
 	 */
@@ -20,9 +21,9 @@ export const commands = {
 	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
 	 *  branch only as the user saw it, and answers their new remote statuses; a remote branch that moved is named, with the
 	 *  statuses fetched after it. The session gets the outcome as from `push_branch`, an unapplied branch's too, so no
-	 *  sync follows. Under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
+	 *  sync follows. Decided under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
 	 *  stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or it is
-	 *  not built; an unapplied branch takes only the lock. `progress` receives how far the push is, and whom it waits for
+	 *  not built; an unapplied branch is checked by nothing and reads no robots. `progress` receives how far the push is, and whom it waits for
 	 *  while another holder has the lock, until `cancel_lock_wait` of its id.
 	 */
 	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<ViewAnswer<PushBranchesOutcome>, ApiError>(__TAURI_INVOKE("push_branches", { params, progress })),
@@ -4189,7 +4190,7 @@ export type PushBranchesOutcome =
  *  Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches.
  *  `pushed_over`: the remote branch of one had moved since the status the user saw, without commits it lacks, so the
  *  push went again, once, over these statuses of every branch, fetched after the first push was refused, in the order
- *  of the branches (`PushBranchesParams::over_moved`); empty when the first push went
+ *  of the branches (`PreparedPush::over_moved`); empty when the first push went
  */
 { type: "pushed"; remoteStatuses: RemoteStatusUpdate[]; pushedOver: RemoteStatusUpdate[] } | 
 /**

@@ -1,12 +1,13 @@
 //! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the app's push of
-//! one branch and of a stack (`push_branches`, `repository_model::push_guard`), and `bd push`, all through one leased push
+//! one branch and of a stack (`push_branches`, `operations::push`), and `bd push`, all through one leased push
 //! (`push_leased`). A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched
 //! and reported, never overwritten blindly: the push goes again over what it has now, once, only when nothing of it is
-//! lost (`domain_policy::push::over_moved_remote`; the app through `PushBranchesParams::over_moved`, `bd push` on its
-//! own leases). The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the same way.
+//! lost (`domain_policy::push::over_moved_remote`, `PreparedPush::over_moved`, which `operations::push::send` runs for
+//! the app and `bd push` alike). The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the same
+//! way.
 
 use crate::config_snapshot::ConfigSnapshot;
-use crate::push_lease::{PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, prepare_push_expecting, push_refs};
+use crate::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, prepare_push_expecting, push_refs};
 use crate::push_size::{PushTooLarge, check_push_size};
 use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_remote_statuses};
 use crate::transfer_progress::TransferProgress;
@@ -182,7 +183,7 @@ pub enum PushBranchesOutcome {
   /// Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches.
   /// `pushed_over`: the remote branch of one had moved since the status the user saw, without commits it lacks, so the
   /// push went again, once, over these statuses of every branch, fetched after the first push was refused, in the order
-  /// of the branches (`PushBranchesParams::over_moved`); empty when the first push went
+  /// of the branches (`PreparedPush::over_moved`); empty when the first push went
   #[serde(rename_all = "camelCase")]
   Pushed {
     remote_statuses: Vec<RemoteStatusUpdate>,
@@ -199,59 +200,6 @@ pub enum PushBranchesOutcome {
     whole_stack: bool,
     remote_statuses: Vec<RemoteStatusUpdate>,
   },
-}
-
-impl PushBranchesParams {
-  /// The push again over what the remote has now, after `refused` (the outcome of this push) found a remote branch moved
-  /// since the status the user saw: every branch leased on the head fetched after the refusal, when the remote of each
-  /// one that moved has no commits its branch lacks and the branch has work for it
-  /// (`domain_policy::push::over_moved_remote`); `None` for a push that went, or when a moved remote has someone's
-  /// commits or the branch as it is, which the outcome tells instead
-  pub fn over_moved(&self, refused: &PushBranchesOutcome) -> Option<Self> {
-    let PushBranchesOutcome::RemoteMoved { remote_statuses, .. } = refused else {
-      return None;
-    };
-    if remote_statuses.len() != self.branches.len() {
-      return None;
-    }
-    let moved: Vec<&RemoteStatusUpdate> = self
-      .branches
-      .iter()
-      .zip(remote_statuses)
-      .filter(|(branch, status)| status.remote_tip != branch.expected_remote)
-      .map(|(_, status)| status)
-      .collect();
-    if moved.is_empty() || !moved.into_iter().all(over_moved_remote) {
-      return None;
-    }
-    let branches = self
-      .branches
-      .iter()
-      .zip(remote_statuses)
-      .map(|(branch, status)| StackPushBranch {
-        expected_remote: status.remote_tip.clone(),
-        ..branch.clone()
-      })
-      .collect();
-    Some(Self {
-      repository_path: self.repository_path.clone(),
-      my_email: self.my_email.clone(),
-      baseline_branch: self.baseline_branch.clone(),
-      branches,
-    })
-  }
-}
-
-impl PushBranchesOutcome {
-  /// This outcome of the push again over the moved remote (`PushBranchesParams::over_moved`) after `refused`, the
-  /// first push: one that went says what it went over
-  #[must_use]
-  pub fn over(self, refused: Self) -> Self {
-    match (self, refused) {
-      (Self::Pushed { remote_statuses, .. }, Self::RemoteMoved { remote_statuses: pushed_over, .. }) => Self::Pushed { remote_statuses, pushed_over },
-      (outcome, _) => outcome,
-    }
-  }
 }
 
 /// Force-pushes the virtual branches to `origin` in one atomic `git push`, each leased on the remote head the user saw
@@ -292,16 +240,19 @@ pub fn push_ref_names(branch_prefix: &str, params: &PushBranchesParams) -> Resul
     .collect()
 }
 
-/// A push whose commits and leases are fixed (`prepare_push_branches`): each ref goes as the commit it was at then
-/// (`<commit>:refs/heads/<name>`), leased on the remote head the user saw, so a branch that moves before `send` changes
-/// nothing of what goes
-#[derive(Debug)]
+/// A push whose commits and leases are fixed under the repository lock (`prepare_push_branches`, or `PreparedPush::leased`
+/// on the tips a sync under the same lock left): each ref goes as the commit it was at then (`<commit>:refs/heads/<name>`),
+/// leased on the remote head the user saw, so a branch that moves before the push changes nothing of what goes. Its
+/// network part is `push`, its push again over a moved remote `over_moved` (`operations::push::send` runs both)
+#[derive(Debug, Clone)]
 pub struct PreparedPush {
   repository_path: String,
   baseline: String,
   my_email: Option<String>,
   /// `branchdeck.pushSizeLimit` as the push was prepared; `None` for no check
   size_limit: Option<u64>,
+  remote: String,
+  options: PushOptions,
   branches: Vec<LeasedBranch>,
   /// `StackPushBranch::whole_stack` of each branch, in their order
   whole_stack: Vec<bool>,
@@ -350,32 +301,108 @@ pub fn prepare_push_branches(
     baseline: params.baseline_branch.clone(),
     my_email: params.my_email.clone(),
     size_limit: ConfigSnapshot::read(git_executor, repository_path)?.push_size_limit()?,
-    branches,
+    remote: PUSH_REMOTE.to_string(),
+    // one ref needs no `--atomic`, which a remote may not support
+    options: PushOptions {
+      atomic: branches.len() > 1,
+      dry_run: false,
+    },
     whole_stack: params.branches.iter().map(|branch| branch.whole_stack).collect(),
+    branches,
   })
 }
 
 impl PreparedPush {
-  /// The network part of `push_branches`: one `git push --porcelain --atomic --progress` of the prepared commits
-  /// (`push_leased`), then the remote statuses of the pushed branches, or, refused, of the fetched ones
-  #[instrument(skip_all, fields(repository_path = %self.repository_path, branches = self.branches.len()))]
-  pub fn send(&self, git_executor: &GitCommandExecutor, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushBranchesOutcome> {
-    let target = PushTarget {
+  /// The push of `branches` (parents first, the stack branches of whole stacks after them, `whole_stack` of each) whose
+  /// commits and leases the caller fixed itself under the repository lock (`bd push`, on the tips of the sync it ran
+  /// under it): to `target.remote` with `options`
+  #[must_use]
+  pub fn leased(target: &PushTarget<'_>, branches: Vec<LeasedBranch>, whole_stack: Vec<bool>, options: PushOptions) -> Self {
+    Self {
+      repository_path: target.repository_path.to_string(),
+      baseline: target.baseline.to_string(),
+      my_email: target.my_email.map(str::to_string),
+      size_limit: target.size_limit,
+      remote: target.remote.to_string(),
+      options,
+      branches,
+      whole_stack,
+    }
+  }
+
+  /// The refs of the push, parents first, as they go
+  #[must_use]
+  pub fn branches(&self) -> &[LeasedBranch] {
+    &self.branches
+  }
+
+  fn target(&self) -> PushTarget<'_> {
+    PushTarget {
       repository_path: &self.repository_path,
-      remote: PUSH_REMOTE,
+      remote: &self.remote,
       baseline: &self.baseline,
       my_email: self.my_email.as_deref(),
       size_limit: self.size_limit,
+    }
+  }
+
+  /// The network part of every push: one `git push --porcelain --progress` of the prepared commits, `--atomic` for more
+  /// than one ref (`push_leased`)
+  ///
+  /// # Errors
+  /// What git failed with
+  #[instrument(skip_all, fields(repository_path = %self.repository_path, branches = self.branches.len()))]
+  pub fn push(&self, git_executor: &GitCommandExecutor, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<LeasedPush> {
+    push_leased(git_executor, &self.target(), &self.branches, self.options, Some(on_progress))
+  }
+
+  /// The push again over what the remote has now, after `refused` (the answer of this push) found remote branches
+  /// moved since the status the user saw: the same commits, every ref leased on the head fetched after the refusal,
+  /// when the remote of each one that moved has no commits its branch lacks and the branch has work for it
+  /// (`domain_policy::push::over_moved_remote`); `None` for a push that went, or when a moved remote has someone's
+  /// commits or the branch as it is, which the answer tells instead
+  #[must_use]
+  pub fn over_moved(&self, refused: &LeasedPush) -> Option<Self> {
+    let LeasedPush::RemoteMoved { moved, remote_statuses } = refused else {
+      return None;
     };
-    // one ref needs no `--atomic`, which a remote may not support
-    let options = PushOptions {
-      atomic: self.branches.len() > 1,
-      dry_run: false,
-    };
-    match push_leased(git_executor, &target, &self.branches, options, Some(on_progress))? {
+    if remote_statuses.len() != self.branches.len() || !moved.iter().all(|index| remote_statuses.get(*index).is_some_and(over_moved_remote)) {
+      return None;
+    }
+    let branches = self
+      .branches
+      .iter()
+      .zip(remote_statuses)
+      .map(|(branch, status)| LeasedBranch {
+        push: PushRef {
+          lease: status.remote_tip.clone(),
+          source: if status.remote_tip.is_some() { LeaseSource::Expected } else { LeaseSource::Absent },
+          ..branch.push.clone()
+        },
+        ..branch.clone()
+      })
+      .collect();
+    Some(Self { branches, ..self.clone() })
+  }
+
+  /// The remote statuses of the pushed branches now, in their order
+  ///
+  /// # Errors
+  /// What git failed with
+  pub fn statuses(&self, git_executor: &GitCommandExecutor) -> Result<Vec<RemoteStatusUpdate>> {
+    leased_statuses(git_executor, &self.target(), &self.branches).context("Failed to compute remote status")
+  }
+
+  /// What the app's push did, of `answer` of this push: the remote statuses of the pushed branches, or, refused because
+  /// a remote branch moved, of the fetched ones; `pushed_over` the statuses a push again over a moved remote went over
+  ///
+  /// # Errors
+  /// A push the remote refused for another reason, one too large, or the statuses that failed
+  pub fn outcome(&self, git_executor: &GitCommandExecutor, answer: LeasedPush, pushed_over: Vec<RemoteStatusUpdate>) -> Result<PushBranchesOutcome> {
+    match answer {
       LeasedPush::Pushed(_) => Ok(PushBranchesOutcome::Pushed {
-        remote_statuses: leased_statuses(git_executor, &target, &self.branches).context("Failed to compute remote status")?,
-        pushed_over: Vec::new(),
+        remote_statuses: self.statuses(git_executor)?,
+        pushed_over,
       }),
       LeasedPush::RemoteMoved { moved, remote_statuses } => Ok(PushBranchesOutcome::RemoteMoved {
         branch_name: self.branches[moved[0]].name.clone(),
@@ -386,6 +413,15 @@ impl PreparedPush {
       LeasedPush::TooLarge(too_large) => Err(anyhow::Error::new(too_large)),
       LeasedPush::WouldReject => bail!("The remote would reject the push"),
     }
+  }
+
+  /// The push and its outcome (`push`, `outcome`), without a push again over a moved remote
+  ///
+  /// # Errors
+  /// What `push` and `outcome` failed with
+  pub fn send(&self, git_executor: &GitCommandExecutor, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushBranchesOutcome> {
+    let answer = self.push(git_executor, on_progress)?;
+    self.outcome(git_executor, answer, Vec::new())
   }
 }
 

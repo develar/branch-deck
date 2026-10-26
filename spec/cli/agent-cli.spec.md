@@ -58,6 +58,8 @@ targets:
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push.rs
+  - ../../crates/operations/src/push.rs
+  - ../../crates/operations/src/pull_request.rs
   - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/bd-core/src/review_summary.rs
   - ../../crates/bd-remote/src/push_hold.rs
@@ -902,8 +904,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd push <branch>…` must sync first under the repository lock, then push the branches in one atomic
   `git push --porcelain` through the remote command policy, parents first, with an explicit lease per ref; `--all`
-  must need `--yes`. The commits and the leases are fixed under the lock and the network push sends exactly them
-  after it (`<commit>:refs/heads/<name>`): no other writer waits for the network.
+  must need `--yes`. The lock covers only the sync and the plan of the push: its refs, their commits and leases, fixed
+  on the tips the sync left. The retargets, the cancel and the restart of `--restart-running` and the network push run
+  after it, through the one push core the app's push runs too (`operations::push`), and the network push sends exactly
+  the fixed commits (`<commit>:refs/heads/<name>`): no other writer waits for GitHub, Patronus or the network.
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`the_network_push_holds_no_repository_lock`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
@@ -985,14 +989,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   command, with `--repo` for a GitHub repository `origin` doesn't push to (a mirror). The summaries of the issues come
   from YouTrack as in the app, read with the token of `YOUTRACK_TOKEN` or of the app's sign-in and never renewed.
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_carries_its_parents_commits`, `with_children_pushes_the_branches_stacked_on_the_named_ones`, `the_pull_request_command_names_a_github_mirror`)
-- After the push, with the lock released, it must retarget the open pull request of each pushed branch whose base is a
-  virtual branch of the user (`{prefix}/virtual/…`) to the baseline, as the app's push does (one search of the pull
-  requests, one `PATCH pulls/<n>` each): `retargeted` lists them (`branch`, `number`, `url`, `old_base`, `new_base`, and
+- Before the push, with the lock released, it must retarget the open pull request of each branch it pushes whose base
+  is a virtual branch of the user (`{prefix}/virtual/…`) to the baseline, as the app's push does (one search of the
+  pull requests, one `PATCH pulls/<n>` each; D3a: GitHub never compares the pushed commits with a parent's branch the
+  pull request no longer goes into, and a push the remote then refuses leaves the retarget done): `retargeted` lists them (`branch`, `number`, `url`, `old_base`, `new_base`, and
   `approved_by`, whose approvals GitHub may dismiss). A pull request into another base (a release branch) stays. A
   retarget GitHub refuses, or a listing that fails for another reason than a missing token, is a `retarget_warnings`
-  line, with the `gh pr edit` that retargets it; the push stands. `--dry-run` lists the retargets a push would make
+  line, with the `gh pr edit` that retargets it; the push goes on. `--dry-run` lists the retargets a push would make
   and changes nothing on GitHub. Without a GitHub repository of the branches or a token, GitHub is not asked.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget`)
 - On Space, with the Safe Push CLI logged in, it must hold the branches the app holds
   ([Patronus](../branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)): a named branch whose Safe Push
   runs on it, or on a branch built on it whose commit has commits of it, is `robot_running` (exit 4, nothing pushed),
@@ -1005,7 +1011,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   now when the repository lacks its commit): a parent a restack placed below the robot's branch after its start is
   pushed. An ancestor taken along that a Safe Push lands stays as the robot took it, and its child is pushed alone,
   carrying its commits. A canceling robot and a dry run hold nothing. `--restart-running` cancels the Safe Push of
-  a named branch, pushes it with the ancestors that robot lands, and restarts it on the pushed commit (`restarted`).
+  a named branch after the lock, pushes it with the ancestors that robot lands, and restarts it on the pushed commit
+  (`restarted`).
   One robots request after the sync; off Space, without a token or an answer of Patronus nothing is held. `bd
   safe-push` pushes without the check: it cancels the robot it replaces itself. A running Safe Push of the whole stack
   must hold every branch of the stack its commit has ("A Safe Push of the whole auth stack is running: it lands 1

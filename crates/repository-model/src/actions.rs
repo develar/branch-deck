@@ -1,6 +1,6 @@
-//! What the app's actions on the remote run on, the same for the app's commands and the E2E server's routes: the push
-//! (`push_guard`), and the landing check of the popover, the start, the restart and the cancel of a robot
-//! (`start_guard`). Each host builds one `RemoteActions` per command (`RemoteActions::new`); every flow is a method of
+//! What the app's actions on the robots run on, the same for the app's commands and the E2E server's routes: the landing
+//! check of the popover, the start, the restart and the cancel of a robot (`start_guard`; the push is
+//! `operations::push`). Each host builds one `RemoteActions` per command (`RemoteActions::new`); every flow is a method of
 //! it, in the module of its checks, and reads the user's robots itself: never the page's, never a list kept before. The
 //! table the checks read is the one of the last sync of the repository's session (`Sessions::table`), the landing gate
 //! the host's (`LandingGate`). The branch prefix is the one the host resolved for the command (`BranchPrefixes`), never
@@ -65,15 +65,6 @@ impl<'a> RemoteActions<'a> {
   /// is not open or never synced
   pub(crate) async fn table(&self, repository_path: &str) -> Option<TableFacts> {
     self.sessions.table(&self.key(repository_path)).await
-  }
-
-  /// The user's robots for the check of the push, which holds nothing up: one full list asked now
-  /// (`PatronusService::robots_for_checks`), read before the lock, as no network request runs under it; none off Space
-  pub(crate) async fn robots_for_checks(&self) -> Vec<PatronusRobot> {
-    match self.patronus {
-      Some((service, repository)) => service.robots_for_checks(repository, self.branch_prefix).await,
-      None => Vec::new(),
-    }
   }
 
   /// The user's robots for the landing check of the popover: the list of a robot action

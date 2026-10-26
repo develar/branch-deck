@@ -219,7 +219,11 @@ Two runs keep their own record, each one place for every surface of it:
   branch waits for it, and a stack push claims its branches once it knows them, before its checks, so a push of one of
   them meanwhile waits instead of sending it twice. A push inside an operation (the
   creation of a pull request, a review request, a push and restart, a Safe Push start) is a step of it, not an
-  operation of its own.
+  operation of its own. In Rust the push the page asks (`push_branch`, `push_branches`) is already an operation of the
+  session (`operations::push`, [Push and land](git-operations.md#push-and-land)): admitted per ref it writes in the
+  registry of the operations, so a push of a ref another push of the app writes waits for it there and the pushes of
+  other refs run side by side, its steps in the view's `operations` (`Checking`, `WaitingForSync`, `WaitingForLock`,
+  `Pushing`); the page's record above stays its own until its push is an intent of the session (s9-12, s9-13).
 - **The start of a Safe Push or a Dry Run** (`safePushStore.starting`): its steps (checking, pushing, starting) span
   the check, the popover the user answers, and the start; the next step reads it as the row's busy state
   (`busyFact`), the slot shows its step.

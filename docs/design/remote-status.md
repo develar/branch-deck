@@ -255,8 +255,9 @@ the status of each branch against what it fetched.
   GitHub shows lags behind the remote), after a minute, five and fifteen, then no more until another head; a fetch in
   flight asks none.
 - **Never under a push**: a branch the app pushes is not fetched, and the fetch claims the remote refs it writes
-  (`push_guard::claim_free_refs`): a push of one of them waits for it, as two pushes of one ref do, because both write
-  the remote-tracking ref (a lock failure of git) and the status of the later one is the newer.
+  (`repository_model::ref_claims::claim_free_refs`): a push of one of them waits for it (`claim_refs` after its
+  admission), because both write the remote-tracking ref (a lock failure of git) and the status of the later one is the
+  newer; two pushes of one ref wait for each other in the registry of the operations (`Resource::Ref`).
 - **The lease holds**: the status the fetch leaves lists the fetched commits as dropped, so a push replaces them only
   once the user saw them (a Force Push that asks first), as after any fetch ("Push lease").
 - **The news**: the commits of others a fetch brought (`others_behind`, their authors) are news of the session

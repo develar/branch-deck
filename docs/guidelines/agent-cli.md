@@ -1338,13 +1338,15 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
 
 ### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`, `bd push --unapplied <name>`
 
-Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first, under the
-repository lock (see "Agent push" in [Git Operations](../design/git-operations.md)). Every pull request of a virtual
+Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first: the sync and
+the plan of the push (its refs, their commits and leases) under the repository lock, the retargets, the cancel and the
+restart of `--restart-running` and the network push after it (see "Push and land" and "Agent push" in
+[Git Operations](../design/git-operations.md)). Every pull request of a virtual
 branch goes into the baseline, a stacked branch's with the commits of the branches it is built on
 ([Landing](../design/landing.md)). A stacked branch takes those branches along when they have commits for the remote,
 as the app's push button does, so their remote branches stay what it is built on. `--alone` pushes only the named
-branches, which carry their parents' commits; `--expect-remote` does too. After the push bd retargets the open pull
-requests of the pushed branches whose base is a virtual branch to the baseline (`retargeted`).
+branches, which carry their parents' commits; `--expect-remote` does too. Before the push bd retargets the open pull
+requests of the branches it pushes whose base is a virtual branch to the baseline (`retargeted`).
 
 ```json
 {"schema":2,…,"remote":"origin","dry_run":false,
@@ -1441,13 +1443,13 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   only when the link of `.idea/vcs.xml` is an issue page of the YouTrack you are signed in to), the issues linked, an
   item per commit with its body as paragraphs, and for a stacked branch the branches it is built on, whose commits it
   holds too. `command` takes the title and reads the body from stdin (`--body-file -`).
-- `retargeted`: after the push, with the lock released, the open pull requests of the pushed branches whose base is a
+- `retargeted`: before the push, with the lock released, the open pull requests of the pushed branches whose base is a
   virtual branch of the user (`<prefix>/virtual/…`: a parent's branch, opened when pull requests went there) go into
   the baseline (one search of the pull requests, one `PATCH pulls/<n>` each), as the app's push retargets them. Each
   has `branch`, `number`, `url`, `old_base`, `new_base` and `approved_by`: GitHub may dismiss the approvals of a
   pull request whose base changes, so name them to the user. A pull request into another base (a release branch)
   stays. A retarget GitHub refuses, or a listing that fails for another reason than a missing token, is a
-  `retarget_warnings` line with the `gh pr edit` that does it; the push stands. With `--dry-run`, `retargeted` lists
+  `retarget_warnings` line with the `gh pr edit` that does it; the push goes on. With `--dry-run`, `retargeted` lists
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 

@@ -770,21 +770,21 @@ pub async fn check_target_conflict(
   .await
 }
 
-/// The app's push of one branch, through the same guarded push (`push_guard`: the robots of the fake Patronus, then the
-/// repository lock and the refusals of parked, landed, held and not built branches, then the core), to the remote of
-/// the template (`remote_git_fixtures`)
+/// The app's push of one branch, through the same push of its session (`operations::push`: the robots of the fake
+/// Patronus, then the repository lock and the refusals of parked, landed, held and not built branches, then the network
+/// push after it), to the remote of the template (`remote_git_fixtures`)
 pub async fn push_branch(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::push::PushBranchParams>) -> Response {
   guarded_push(state, &headers, "push the branch", params.as_stack(), sync_core::push::PushOutcome::of_stack).await
 }
 
-/// The app's stack push, through the same guarded push, to the remote of the template
+/// The app's stack push, through the same push of its session, to the remote of the template
 pub async fn push_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::push::PushBranchesParams>) -> Response {
   guarded_push(state, &headers, "push the branches", params, Ok).await
 }
 
-/// The guarded push of `params` as the app's command runs it, in the session of its key: its progress and its wait for
-/// a holder of the repository lock on the channel of the page, the wait stopped by `cancel_lock_wait`; `outcome` makes
-/// the answer
+/// The push of `params` as the app's command runs it, an operation of the session of its key: its progress and its wait
+/// for a holder of the repository lock on the channel of the page, the wait stopped by `cancel_lock_wait`; `outcome`
+/// makes the answer
 async fn guarded_push<T: serde::Serialize + Send + 'static>(
   state: Arc<AppState>,
   headers: &HeaderMap,
@@ -799,17 +799,22 @@ async fn guarded_push<T: serde::Serialize + Send + 'static>(
     let service = space.as_ref().map(|(host, _)| host.patronus_service());
     // the git config of the push (its size limit) as the config commands of the test read and write it
     let git = config_git(&state, &params.repository_path)?;
-    let actions = RemoteActions::new(
-      service.as_deref().zip(space.as_ref().map(|(_, space)| space)),
-      &git,
-      &state.sessions,
-      &state.landing_gate,
-      &branch_prefix,
-    );
+    let host = operations::push::PushHost {
+      git,
+      git_common_dir: common_dir,
+      registry: state.registry.clone(),
+      key: SessionKey {
+        worktree: params.repository_path.clone(),
+        prefix: branch_prefix,
+      },
+      patronus: service.zip(space.map(|(_, space)| space.name)),
+      events: Arc::new(operations::events::NoEvents),
+      unknown_holder_timeout: history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT,
+    };
     let ticket = register_wait(&state.lock_waits, channel, |_| {});
     let canceled = canceled_by(&ticket);
-    let pushed = actions
-      .push_branches(common_dir, params, move |tick| progress.send(&tick), canceled)
+    let pushed = host
+      .push_branches(params, move |tick| progress.send(&tick), canceled)
       .await
       .and_then(|answer| answer.try_map(outcome));
     canceled_code(pushed.map(Json).map_err(|e| failed(operation, e)), &ticket)

@@ -78,18 +78,12 @@ fn fixture() -> Fixture {
 impl Fixture {
   /// The operations of the view of the session now, by id
   async fn operations(&self) -> Vec<RunningOperation> {
-    self.sessions.get_snapshot(&self.key).await.map_or_default(|view| view.operations.into_values().collect())
+    view_operations(&self.sessions, &self.key).await
   }
 
   /// The operations of the view once `done` holds of them; the other tasks run meanwhile
   async fn until(&self, done: impl Fn(&[RunningOperation]) -> bool) -> Vec<RunningOperation> {
-    loop {
-      let operations = self.operations().await;
-      if done(&operations) {
-        return operations;
-      }
-      tokio::task::yield_now().await;
-    }
+    operations_until(&self.sessions, &self.key, done).await
   }
 
   async fn admit(&self, request: OperationRequest, heard: &Arc<Heard>) -> Admitted {
@@ -109,6 +103,22 @@ impl Fixture {
   fn spawn_admit(&self, request: OperationRequest) -> tokio::task::JoinHandle<RunningGuard> {
     let (registry, key) = (Arc::clone(&self.registry), self.key.clone());
     tokio::spawn(async move { running(registry.admit(&key, request, Arc::new(Heard::default())).await.unwrap()) })
+  }
+}
+
+/// The operations of the view of the session of `key` now
+pub(crate) async fn view_operations(sessions: &Sessions, key: &SessionKey) -> Vec<RunningOperation> {
+  sessions.get_snapshot(key).await.map_or_default(|view| view.operations.into_values().collect())
+}
+
+/// The operations of the view of the session of `key` once `done` holds of them; the other tasks run meanwhile
+pub(crate) async fn operations_until(sessions: &Sessions, key: &SessionKey, done: impl Fn(&[RunningOperation]) -> bool) -> Vec<RunningOperation> {
+  loop {
+    let operations = view_operations(sessions, key).await;
+    if done(&operations) {
+      return operations;
+    }
+    tokio::task::yield_now().await;
   }
 }
 

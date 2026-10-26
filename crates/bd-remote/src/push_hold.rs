@@ -11,9 +11,7 @@
 use crate::landed::{LandedBranch, landed_branches};
 use bd_core::bd_command::shell_word;
 use bd_core::context::RepoContext;
-use bd_core::error::CliError;
 use domain_types::branch_names::to_final_branch_name;
-use domain_types::error::ErrorCode;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::reason::Reason;
@@ -87,8 +85,8 @@ pub(crate) fn refusing_subject(refusal: &Reason, own: &Subject) -> Subject {
 }
 
 /// The holds of the branches, the table and the session whose Patronus view the holds of the stack branches are
-/// decided over, and the Patronus service that cancels and restarts their robots; none of a push that checked them
-/// already
+/// decided over, and the Patronus service `operations::push` cancels and restarts their robots with; none of a push that
+/// checked them already
 #[derive(Default)]
 pub struct PushHolds {
   holds: HashMap<String, PushHold>,
@@ -126,25 +124,10 @@ impl PushHolds {
     }
   }
 
-  /// Cancels the robot before the push that restarts it
-  pub fn cancel(&self, context: &RepoContext, robot: &PatronusRobot) -> Result<(), CliError> {
-    context
-      .runtime()?
-      .block_on(self.service()?.cancel(&context.prefix, &robot.id))
-      .map_err(|message| CliError::new(ErrorCode::PatronusError, message))?;
-    Ok(())
-  }
-
-  /// Starts the canceled robot again, on the pushed commit
-  pub fn restart(&self, context: &RepoContext, robot: &PatronusRobot) -> Result<PatronusRobot, CliError> {
-    context
-      .runtime()?
-      .block_on(self.service()?.restart(&context.prefix, &robot.id))
-      .map_err(|message| CliError::new(ErrorCode::PatronusError, message))
-  }
-
-  fn service(&self) -> Result<&PatronusService, CliError> {
-    self.service.as_deref().ok_or_else(|| CliError::new(ErrorCode::PatronusError, "Patronus is not available"))
+  /// The Patronus service the push cancels and restarts the robots `--restart-running` names with; none off Space or
+  /// without a token
+  pub fn service(&self) -> Option<&PatronusService> {
+    self.service.as_deref()
   }
 }
 

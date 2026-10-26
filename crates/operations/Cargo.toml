@@ -9,6 +9,10 @@ publish = false
 [dependencies]
 repository-model = { path = "../repository-model" }
 remote-facts = { path = "../remote-facts" }
+sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
+patronus = { path = "../patronus" }
+github = { path = "../github" }
 domain-types = { path = "../domain-types" }
 domain-policy = { path = "../domain-policy" }
 git-ops = { path = "../git-ops" }
@@ -22,8 +26,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 domain-types = { path = "../domain-types", features = ["fixtures"] }
-# the inputs of a sync, which the session host of the tests answers
-sync-core = { path = "../sync-core" }
+# the fake Patronus whose requests a push counts
+patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 pretty_assertions.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

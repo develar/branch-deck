@@ -45,7 +45,8 @@ pub enum Admitted {
   Joined(Joined),
 }
 
-/// The operations of the process by session
+/// The operations of the process by session; a clone is the same registry
+#[derive(Clone)]
 pub struct Registry {
   sessions: Arc<Sessions>,
   channels: Arc<Mutex<HashMap<OperationId, Channel>>>,
@@ -89,6 +90,12 @@ impl Registry {
       sessions,
       channels: Arc::new(Mutex::new(HashMap::new())),
     }
+  }
+
+  /// The sessions whose operations it admits
+  #[must_use]
+  pub const fn sessions(&self) -> &Arc<Sessions> {
+    &self.sessions
   }
 
   /// Admits `request` in the session of `key` (opened when it is not), with `events` for its caller: it runs at once,
@@ -243,21 +250,23 @@ impl RunningGuard {
 
   /// The operation goes on to `step`: the view shows it, the caller hears it
   pub fn step(&self, step: OperationStep) {
-    self.events.send(OperationEvent::Step {
-      op: self.id.clone(),
-      step: step.clone(),
-    });
-    let id = self.id.clone();
-    drop(self.sessions.apply(&self.key, move |state| state.apply_operation(OperationPatch::Step { id, step })));
+    self.stepper().step(step);
   }
 
   /// Its push sent `percent` of what it sends, `line` what git said last: only the caller hears it
   pub fn progress(&self, percent: u32, line: String) {
-    self.events.send(OperationEvent::Progress {
-      op: self.id.clone(),
-      percent,
-      line,
-    });
+    self.stepper().progress(percent, line);
+  }
+
+  /// What tells the step and the progress of the operation from a blocking step of it, on another thread
+  #[must_use]
+  pub fn stepper(&self) -> Stepper {
+    Stepper {
+      id: self.id.clone(),
+      key: self.key.clone(),
+      sessions: Arc::clone(&self.sessions),
+      events: Arc::clone(&self.events),
+    }
   }
 
   /// The moves of rows the operation makes from now on
@@ -293,6 +302,37 @@ impl Drop for RunningGuard {
   }
 }
 
+/// The step and the progress of a running operation, told from any thread (`RunningGuard::stepper`); its end stays the
+/// guard's
+#[derive(Clone)]
+pub struct Stepper {
+  id: OperationId,
+  key: SessionKey,
+  sessions: Arc<Sessions>,
+  events: Arc<dyn EventSink>,
+}
+
+impl Stepper {
+  /// The operation goes on to `step`: the view shows it, the caller hears it
+  pub fn step(&self, step: OperationStep) {
+    self.events.send(OperationEvent::Step {
+      op: self.id.clone(),
+      step: step.clone(),
+    });
+    let id = self.id.clone();
+    drop(self.sessions.apply(&self.key, move |state| state.apply_operation(OperationPatch::Step { id, step })));
+  }
+
+  /// Its push sent `percent` of what it sends, `line` what git said last: only the caller hears it
+  pub fn progress(&self, percent: u32, line: String) {
+    self.events.send(OperationEvent::Progress {
+      op: self.id.clone(),
+      percent,
+      line,
+    });
+  }
+}
+
 /// A request that joined the operation of the same intent
 pub struct Joined {
   op: OperationId,
@@ -315,4 +355,4 @@ impl Joined {
 
 #[cfg(test)]
 #[path = "registry_test.rs"]
-mod registry_test;
+pub(crate) mod registry_test;

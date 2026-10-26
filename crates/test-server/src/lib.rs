@@ -136,6 +136,11 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       state: std::sync::Weak::clone(state),
     };
     let host = repository_model::runtime::GitSessionHost::new(git_executor.clone(), environment);
+    let sessions = Arc::new(repository_model::session::Sessions::new(
+      tokio::runtime::Handle::current(),
+      Arc::new(host),
+      Arc::clone(&session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
+    ));
     AppState {
       repositories: DashMap::new(),
       path_to_id: DashMap::new(),
@@ -148,11 +153,8 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       templates,
       branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
       lock_waits: history_rewrite::lock_wait::LockWaits::default(),
-      sessions: Arc::new(repository_model::session::Sessions::new(
-        tokio::runtime::Handle::current(),
-        Arc::new(host),
-        Arc::clone(&session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
-      )),
+      registry: operations::registry::Registry::new(Arc::clone(&sessions)),
+      sessions,
       session_clocks,
     }
   });

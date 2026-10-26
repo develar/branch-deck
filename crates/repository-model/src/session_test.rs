@@ -15,7 +15,7 @@ use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, Patron
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState};
 use domain_types::repository_view::{LandingNeeds, PatronusView};
 use domain_types::session::{
-  BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, ViewPatch,
+  BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, Version, ViewPatch,
 };
 use domain_types::stack::BlockReason;
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
@@ -635,6 +635,18 @@ fn pushed(branch: &str, tip: &str) -> PushBranchesOutcome {
   }
 }
 
+/// The push of `subjects` in the session of `key` as `operations::push` tells it: begun, then ended with what `outcome`
+/// left; answers the version of the patch of its end
+async fn push(sessions: &Sessions, key: &SessionKey, subjects: Vec<RemoteSubject>, outcome: anyhow::Result<PushBranchesOutcome>) -> anyhow::Result<Option<Version>> {
+  drop(sessions.begin_push(key, subjects.clone()));
+  let statuses = outcome.as_ref().ok().map(|outcome| match outcome {
+    PushBranchesOutcome::Pushed { remote_statuses, .. } | PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => remote_statuses.clone(),
+  });
+  let pushed = matches!(outcome, Ok(PushBranchesOutcome::Pushed { .. }));
+  let version = sessions.tell_push(key, subjects, statuses, pushed).version().await;
+  outcome.map(|_| version)
+}
+
 /// The remote tip `branch` shows in the view
 fn remote_tip(view: &RepositoryView, branch: &str) -> Option<String> {
   view.branches.get(branch)?.remote.status.as_ref()?.remote_tip.clone()
@@ -652,26 +664,24 @@ async fn synced_window(sessions: &Sessions, host: &ScriptedHost, worktree: &str,
 }
 
 /// A push without a sync: its outcome reaches the window as one patch of the remote status it left, and the answer names
-/// the version of that patch; nothing syncs. A failed push changes nothing, and so does one whose future was dropped,
-/// after which a sync shows what it computes again
+/// the version of that patch; nothing syncs. A failed push changes nothing, after which a sync shows what it computes
+/// again
 #[tokio::test]
 async fn a_push_without_a_sync_patches_the_remote_status_it_left() {
   let host = Arc::new(ScriptedHost::default());
   let (sessions, _clock) = scripted(&host);
   let (key, window) = synced_window(&sessions, &host, "/repo", auth_built()).await;
 
-  let answer = sessions.push(&key, pushing("auth"), async { Ok(pushed("auth", "pushed")) }).await.unwrap();
+  let version = push(&sessions, &key, pushing("auth"), Ok(pushed("auth", "pushed"))).await.unwrap();
   let patches = window.take();
   assert_eq!(patches.len(), 1, "{patches:?}");
   let change = &patches[0].changes.branches["auth"];
   assert_eq!((change.head.is_none(), change.sync.is_none()), (true, true), "only the remote status: {change:?}");
-  assert_eq!(answer.version, Some(patches[0].next));
+  assert_eq!(version, Some(patches[0].next));
   assert_eq!(remote_tip(&snapshot(&sessions, &key).await, "auth").as_deref(), Some("pushed"));
   assert_eq!(host.runs(), 1, "no sync after the push");
 
-  sessions.push(&key, pushing("auth"), async { Err(anyhow::anyhow!("rejected")) }).await.unwrap_err();
-  let dropped = sessions.push(&key, pushing("auth"), std::future::pending());
-  tokio::time::timeout(Duration::from_millis(20), dropped).await.unwrap_err();
+  push(&sessions, &key, pushing("auth"), Err(anyhow::anyhow!("rejected"))).await.unwrap_err();
   let mut events = auth_built();
   events.push(SyncEvent::RemoteStatusUpdate(remote_at("auth", "fetched")));
   host.push(events, Ok(report(false, &[])));
@@ -695,11 +705,13 @@ async fn a_focus_after_the_sessions_own_push_runs_no_sync() {
   assert_eq!(outcome(sessions.sync(&key, SyncReason::Open)).await, Ok(SyncOutcome::Synced));
 
   let tip = repo.rev_parse("test/virtual/auth").unwrap();
-  let push = async {
-    repo.git(&["push", "-q", "origin", "test/virtual/auth"]);
-    Ok(pushed("auth", &tip))
-  };
-  sessions.push(&key, pushing("auth"), push).await.unwrap();
+  drop(sessions.begin_push(&key, pushing("auth")));
+  repo.git(&["push", "-q", "origin", "test/virtual/auth"]);
+  sessions
+    .tell_push(&key, pushing("auth"), Some(vec![remote_at("auth", &tip)]), true)
+    .version()
+    .await
+    .unwrap();
   assert_eq!(repo.rev_parse("refs/remotes/origin/test/virtual/auth").unwrap(), tip, "the push moved the ref a sync reads");
   let before = git.process_stats().unwrap().counts();
   assert_eq!(outcome(sessions.set_window_focus(&key, true).unwrap()).await, Ok(SyncOutcome::Unchanged));
@@ -742,7 +754,7 @@ async fn the_outcome_of_a_push_in_one_session_leaves_the_branch_of_the_same_name
   let (other, other_window) = synced_window(&sessions, &host, "/b", auth_built()).await;
   let before = snapshot(&sessions, &other).await;
 
-  sessions.push(&pushed_in, pushing("auth"), async { Ok(pushed("auth", "pushed")) }).await.unwrap();
+  push(&sessions, &pushed_in, pushing("auth"), Ok(pushed("auth", "pushed"))).await.unwrap();
   assert_eq!(remote_tip(&snapshot(&sessions, &pushed_in).await, "auth").as_deref(), Some("pushed"));
   assert_eq!(snapshot(&sessions, &other).await, before);
   assert_eq!(other_window.take(), []);
@@ -1202,10 +1214,10 @@ async fn the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_
   sessions.write_pull_request(&key, PullRequestWrite::Closed { number: 7 }).await.unwrap();
   assert_eq!(heard(&mut events), Vec::<String>::new(), "a close lists nothing");
 
-  sessions.push(&key, pushing("auth"), async { Ok(pushed("auth", "pushed")) }).await.unwrap();
+  push(&sessions, &key, pushing("auth"), Ok(pushed("auth", "pushed"))).await.unwrap();
   assert_eq!(heard(&mut events), vec![r#"pushed ["auth"]"#]);
   let unapplied = vec![RemoteSubject::Unapplied("old".to_owned())];
-  sessions.push(&key, unapplied, async { Ok(pushed("old", "pushed")) }).await.unwrap();
+  push(&sessions, &key, unapplied, Ok(pushed("old", "pushed"))).await.unwrap();
   assert_eq!(heard(&mut events), Vec::<String>::new(), "an unapplied branch has no pull request");
 }
 

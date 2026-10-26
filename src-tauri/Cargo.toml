@@ -32,6 +32,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 repository-model = { path = "../crates/repository-model" }
+operations = { path = "../crates/operations" }
 tauri.workspace = true
 serde.workspace = true
 sync-core = { path = "../crates/sync-core", features = ["specta"] }

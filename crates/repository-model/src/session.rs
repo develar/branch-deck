@@ -28,14 +28,13 @@ use domain_types::error::ApiError;
 use domain_types::landing::{Land, LandAnswer};
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::PatronusView;
-use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewAnswer, ViewPatch};
+use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewPatch};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
-use sync_core::push::PushBranchesOutcome;
 use sync_core::sync::SyncReport;
 use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::Clock;
@@ -525,40 +524,30 @@ impl Sessions {
     hold.unwrap_or_else(|| unreachable!("with_entry runs its action"))
   }
 
-  /// The push of `subjects` (`RemoteSubject::of` each branch of its parameters, in their order) in the session of
-  /// `key`, `push` being the host's guarded push: from now on a sync shows no remote status of them, and at the end the
-  /// remote statuses the push left (pushed, or fetched when the remote moved) go into the table
-  /// (`TableState::end_push`), newer than any sync that started before, and their remote-tracking refs into the inputs
-  /// the session knows, so a focus after it syncs nothing; a push that fails, or whose future is dropped, leaves the
-  /// status a sync computed meanwhile. Answers the push's outcome with the version of the view after its patch (`None`:
-  /// the session is not open)
-  ///
-  /// # Errors
-  /// What the push failed with
-  pub async fn push(
-    &self,
-    key: &SessionKey,
-    subjects: Vec<RemoteSubject>,
-    push: impl Future<Output = anyhow::Result<PushBranchesOutcome>>,
-  ) -> anyhow::Result<ViewAnswer<PushBranchesOutcome>> {
-    let begun = subjects.clone();
-    drop(self.apply(key, move |state| state.begin_push(&begun)));
-    let mut running = RunningPush {
-      sessions: self,
-      key,
-      subjects: Some(subjects),
-    };
-    let outcome = push.await;
-    let statuses = outcome.as_ref().ok().map(|outcome| match outcome {
-      PushBranchesOutcome::Pushed { remote_statuses, .. } | PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => remote_statuses.clone(),
-    });
-    let pushed = matches!(outcome, Ok(PushBranchesOutcome::Pushed { .. }));
-    let version = running.end(statuses, pushed).version().await;
-    outcome.map(|outcome| ViewAnswer { outcome, version })
+  /// A push of `subjects` (`RemoteSubject::of` each branch of its parameters, in their order) starts in the session of
+  /// `key`: from now on a sync shows no remote status of them, until its end (`tell_push`). Nothing for a session that is
+  /// not open
+  pub fn begin_push(&self, key: &SessionKey, subjects: Vec<RemoteSubject>) -> Applied {
+    self.apply(key, move |state| state.begin_push(&subjects))
+  }
+
+  /// The push of `subjects` that `begin_push` began ended: `statuses`, the remote statuses it left in their order
+  /// (pushed, or fetched when the remote moved), go into the table (`TableState::end_push`), newer than any sync that
+  /// started before, and their remote-tracking refs into the inputs the session knows, so a focus after it syncs nothing;
+  /// `None` for a push that failed, which leaves the status a sync computed meanwhile. `pushed`: it pushed (the remote
+  /// did not move), and the pull requests of its subjects are listed again. The applied change answers the version of
+  /// the view after its patch; nothing for a session that is not open
+  pub fn tell_push(&self, key: &SessionKey, subjects: Vec<RemoteSubject>, statuses: Option<Vec<RemoteStatusUpdate>>, pushed: bool) -> Applied {
+    self.send_end(key, |reply| Message::PushEnded {
+      subjects,
+      statuses,
+      pushed,
+      reply,
+    })
   }
 
   /// The fetch of the remote branches of `asks` in the session of `key` (`moved_remote`), `fetch` being the host's
-  /// fetch of them (`moved_remote::fetch_asked`), run as a push of them runs (`push`): from now on a sync shows no
+  /// fetch of them (`moved_remote::fetch_asked`), run as a push of them runs (`begin_push`, `tell_push`): from now on a sync shows no
   /// remote status of them, and at the end the statuses it fetched go into the table, their remote-tracking refs into the
   /// inputs the session knows, the commits of others it brought into the news; no listing of the pull requests follows.
   /// A future dropped ends it with nothing fetched. Answers the version of the view after its patch (`None`: the session
@@ -690,6 +679,11 @@ pub struct SessionHold {
 pub struct Applied(Option<oneshot::Receiver<Version>>);
 
 impl Applied {
+  /// No change: nothing went to a session
+  pub const fn none() -> Self {
+    Self(None)
+  }
+
   /// The change went to the actor of an open session, which runs it
   #[must_use]
   pub const fn is_sent(&self) -> bool {
@@ -702,36 +696,6 @@ impl Applied {
       Some(version) => version.await.ok(),
       None => None,
     }
-  }
-}
-
-/// A push the session knows runs (`Sessions::push`): its end goes to the session once, also when the push's future is
-/// dropped (a failure then)
-struct RunningPush<'a> {
-  sessions: &'a Sessions,
-  key: &'a SessionKey,
-  /// `None` once the end was sent
-  subjects: Option<Vec<RemoteSubject>>,
-}
-
-impl RunningPush<'_> {
-  /// `pushed`: the push pushed (the remote did not move)
-  fn end(&mut self, statuses: Option<Vec<RemoteStatusUpdate>>, pushed: bool) -> Applied {
-    let Some(subjects) = self.subjects.take() else {
-      return Applied(None);
-    };
-    self.sessions.send_end(self.key, |reply| Message::PushEnded {
-      subjects,
-      statuses,
-      pushed,
-      reply,
-    })
-  }
-}
-
-impl Drop for RunningPush<'_> {
-  fn drop(&mut self) {
-    drop(self.end(None, false));
   }
 }
 

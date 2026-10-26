@@ -28,6 +28,7 @@ use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams,
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use object_cache::cache::ObjectCache;
+use operations::registry::Registry;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
@@ -58,6 +59,8 @@ const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 /// check a start through
 pub struct SessionsState {
   sessions: Arc<Sessions>,
+  /// The operations of the remote that run or wait in the sessions (`operations::registry`)
+  registry: Registry,
   windows: Mutex<WindowSubscriptions>,
   landing_gate: Arc<dyn LandingGate>,
 }
@@ -130,6 +133,7 @@ impl SessionsState {
     }
     sessions.sweep_every(SWEEP_INTERVAL);
     Self {
+      registry: Registry::new(Arc::clone(&sessions)),
       sessions,
       windows: Mutex::new(WindowSubscriptions::default()),
       landing_gate: Arc::new(AppLandingGate {
@@ -142,6 +146,11 @@ impl SessionsState {
   /// The sessions, for a command whose result a session applies (a push, a deletion)
   pub fn sessions(&self) -> &Sessions {
     &self.sessions
+  }
+
+  /// The registry of the operations of the remote in the sessions: the app's push runs there
+  pub const fn registry(&self) -> &Registry {
+    &self.registry
   }
 
   /// The landing gate of the app's starts and popovers (`AppLandingGate`)

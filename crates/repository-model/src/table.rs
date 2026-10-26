@@ -131,7 +131,8 @@ impl RemoteSubject {
 /// The pushes of one subject in flight
 #[derive(Clone, Debug, Default)]
 struct Push {
-  /// How many run: a second push of the same ref waits in Rust for the first (`PushingRefs`), yet runs from its call
+  /// How many run: a second push of the same ref waits for the first in the registry of the operations
+  /// (`operations::push`), yet runs from its call
   running: u32,
   /// What a sync saw of the remote while they ran, which a push that fails leaves
   seen: Option<BranchRemote>,

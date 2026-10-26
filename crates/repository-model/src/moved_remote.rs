@@ -4,12 +4,12 @@
 //! of `domain_policy::refresh::moved_remote_fetch_due`. `MovedFetches` keeps the last fetch of each branch, so one head
 //! is fetched once, and again only while the remote lacks it (a mirror that lags). The fetch runs as a push of the
 //! branch runs in the session (`Sessions::fetch_moved_remotes`): a sync meanwhile shows no remote status of it, and the
-//! status the fetch left goes into the table after it; a push of the same remote ref waits for it (`push_guard`), and a
+//! status the fetch left goes into the table after it; a push of the same remote ref waits for it (`ref_claims`), and a
 //! branch the app pushes is not fetched.
 
 use crate::branch_table::BranchTable;
 use crate::facts::session_remote;
-use crate::push_guard::claim_free_refs;
+use crate::ref_claims::claim_free_refs;
 use crate::session::{SessionKey, Sessions};
 use crate::table::{RemoteSubject, TableState};
 use domain_policy::refresh::{MovedRemoteFetch, moved_remote_fetch_due};

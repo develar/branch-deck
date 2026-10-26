@@ -1,16 +1,17 @@
 //! Every pull request of a virtual branch goes into the baseline, with the commits of the branches it is built on: the
 //! approvals Patronus counts are the ones of a pull request into its target (`docs/design/landing.md`). An open pull
 //! request whose base is a virtual branch of the user (`{prefix}/virtual/…`: a parent's branch, from before, or the one
-//! of a parent that landed; `domain_policy::pull_request::base_of`) is retargeted to the baseline (`PATCH pulls/<n>`, `retarget_pull_request`): by `bd push`
-//! for the pushed branches and by `bd safe-push` for the branch it starts and the branches its push takes along, as the
-//! app's push does. A pull request into any other base (a release branch) is left as it is: that base may be meant.
+//! of a parent that landed; `domain_policy::pull_request::base_of`) is retargeted to the baseline (`PATCH pulls/<n>`,
+//! `operations::pull_request`), before the push: by `bd push` for the branches it pushes (D3a) and by `bd safe-push` for
+//! the branch it starts and the branches its push takes along (D11), as the app's push does. A pull request into any
+//! other base (a release branch) is left as it is: that base may be meant.
 
 use crate::request_review_command::availability_error;
 use bd_core::context::RepoContext;
 use domain_policy::pull_request::base_of;
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, ReviewerState};
 use github::service::GitHubService;
-use remote_facts::pull_request_writes::retarget_pull_request;
+use operations::pull_request::retarget_each;
 use remote_facts::pull_requests::{GitHubWriteError, failure_message, list_pull_requests};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -79,28 +80,20 @@ pub(crate) struct Retargets {
   pub(crate) warnings: Vec<String>,
 }
 
-/// Retargets `retargets` on GitHub, one `PATCH` each; one GitHub refuses stays in `from` and is a warning with the `gh`
-/// command that retargets it (`refusal_warning`). Nothing fails: the push before it is done.
+/// Retargets `retargets` on GitHub, one `PATCH` each (`operations::pull_request::retarget_each`); one GitHub refuses
+/// stays in `from` and is a warning with the `gh` command that retargets it (`refusal_warning`). Nothing fails: the push
+/// goes after it either way
 pub(crate) fn retarget_all(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository, retargets: Vec<RetargetedPullRequest>) -> Retargets {
+  let writes: Vec<(u32, &str)> = retargets.iter().map(|retarget| (retarget.number, retarget.new_base.as_str())).collect();
+  let answers = runtime.block_on(retarget_each(github, &context.repository, repository, &writes));
   let mut result = Retargets::default();
-  for retarget in retargets {
-    match retarget_one(context, github, runtime, repository, &retarget) {
+  for (retarget, answer) in retargets.into_iter().zip(answers) {
+    match answer {
       Ok(()) => result.retargeted.push(retarget),
       Err(error) => result.warnings.push(refusal_warning(&retarget, repository, error)),
     }
   }
   result
-}
-
-/// Changes the base of the pull request to `to`
-pub(crate) fn retarget_one(
-  context: &RepoContext,
-  github: &GitHubService,
-  runtime: &Runtime,
-  repository: &GitHubRepository,
-  retarget: &RetargetedPullRequest,
-) -> Result<(), GitHubWriteError> {
-  runtime.block_on(retarget_pull_request(github, &context.repository, repository, retarget.number, &retarget.new_base))
 }
 
 /// "cannot retarget pull request #8 of login to master: <what GitHub said>; `gh pr edit 8 --repo acme/monorepo --base
@@ -122,7 +115,7 @@ pub(crate) fn refusal_warning(retarget: &RetargetedPullRequest, repository: &Git
 }
 
 /// Lists the pull requests of the branches (one search) and retargets the open ones of `names` into a virtual branch to
-/// `base`; with `dry_run`, only says which it would retarget. Without a GitHub token nothing is asked or said; another
+/// `base`, before their push; with `dry_run`, only says which it would retarget. Without a GitHub token nothing is asked or said; another
 /// failure of the listing is a warning.
 pub(crate) fn retarget_pull_requests_of(
   context: &RepoContext,

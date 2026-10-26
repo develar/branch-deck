@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use test_utils::git_test_utils::refuse_every_push;
 
 /// `bd push` with `args`
 fn bd_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
@@ -1219,7 +1220,7 @@ fn retargets_sent(github: &FakeGitHub) -> Vec<(String, Value)> {
 }
 
 /// Every pull request of a virtual branch goes into the baseline: the open one of a pushed branch whose base is a
-/// virtual branch (its parent's) is retargeted after the push; one into master or a release branch is left as it is
+/// virtual branch (its parent's) is retargeted before the push; one into master or a release branch is left as it is
 #[test_log::test]
 fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
@@ -1262,6 +1263,24 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
   );
   let (_, schema) = run_json(&environment, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+}
+
+/// The retarget goes before the push (D3a), after the lock: GitHub never compares the pushed commits with the parent's
+/// branch the pull request no longer goes into. A push the remote then refuses leaves the retarget done, which is the
+/// rule's anyway (every pull request into the baseline)
+#[test_log::test]
+fn push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let pull_requests = [pull_request_of("login", 8, AUTH, &[])];
+  let (github, url) = fake_github(&space, &pull_requests);
+  github.answer("PATCH", "/repos/acme/monorepo/pulls/8", FakeAnswer::ok(json!({"number": 8})));
+  let environment = reviewed_on_github(&space, &url);
+  refuse_every_push(space.remote.path());
+
+  let (exit_code, output) = bd_push(&environment, &["login"]);
+  assert_error(&output, exit_code, (4, "push_refused"));
+  assert_eq!(retargets_sent(&github), [("/repos/acme/monorepo/pulls/8".to_string(), json!({"base": "master"}))]);
 }
 
 /// `bd push <root> --with-children` takes the stack branch of the whole stack along while its pull request is open,

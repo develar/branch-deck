@@ -16,6 +16,10 @@
 //!   (`fill`, a `OneShot` of `bd` today)
 //! - `events`: where the caller of an operation hears its steps, the progress of its push and its outcome
 //!   (`EventSink`)
+//! - `push`: the push of the virtual branches, one core for the app and `bd`: the lock only while the push is decided and
+//!   its commits and leases are fixed, the network push after it (`send`, once more over a remote that moved without
+//!   commits a branch lacks), the robots it restarts; the app's push as an operation of its session (`PushHost`)
+//! - `pull_request`: the writes of pull requests an operation makes: the retarget into the base its rule names
 //! - `witness`: what a plan was prepared on (`Witness`, its `Fingerprint`): the tips of the refs it moves and leases
 //!   from one `for-each-ref`, the pull requests and the robots it reads, and the check before the first effect
 //!   (`plan_changed`)
@@ -24,6 +28,8 @@ pub mod engine;
 pub mod events;
 pub mod facts;
 pub mod needs;
+pub mod pull_request;
+pub mod push;
 pub mod registry;
 pub mod witness;
 

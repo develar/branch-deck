@@ -49,12 +49,12 @@
 //!   patches at most every 16 ms; `GitSessionHost`, the syncs, the Patronus views and the landing needs of the app's
 //!   sessions with git
 //! - `push_guard`: the checks of the app's push under the repository lock, by the rules of `bd push`: parked, landed
-//!   whole, held by a running Safe Push; the words of the holds for both sides; the sequence of the push (`push_branches`,
-//!   in the session of its key)
+//!   whole, held by a running Safe Push; the words of the holds for both sides (the push itself is `operations::push`)
 //! - `session`: the sessions of the process by worktree and branch prefix (`Sessions`, `SessionKey`): open, subscribe,
-//!   snapshot, focus, the demand of each window (`set_demand`), sync tickets, `apply` and `push` (the result of an
-//!   operation, with the version of its patch), `apply_with` (a change on the actor that answers, as the registry of the
-//!   operations admits one) and `hold` (a session kept while an operation runs), and their removal once idle (`sweep`, on the session clock); the
+//!   snapshot, focus, the demand of each window (`set_demand`), sync tickets, `apply` (the result of an operation, with
+//!   the version of its patch), `begin_push` and `tell_push` (a push that sends and how it ended), `apply_with` (a
+//!   change on the actor that answers, as the registry of the operations admits one) and `hold` (a session kept while an
+//!   operation runs), and their removal once idle (`sweep`, on the session clock); the
 //!   timers of a session wait on its clock (`runtime::sleep_until`); the events of the sessions for the scheduler of the
 //!   facts (`events`, `SessionEvent`), which reads with `begin` and applies with `apply_facts`; `write_robot`,
 //!   `write_pull_request`
@@ -84,6 +84,7 @@ pub mod patch;
 pub mod patronus_view;
 pub mod pull_request_facts;
 pub mod push_guard;
+pub mod ref_claims;
 pub mod readiness_facts;
 pub mod review_request_facts;
 pub mod runtime;

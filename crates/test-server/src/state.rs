@@ -24,6 +24,8 @@ pub struct AppState {
   /// The sessions of the repositories (`session_routes`), as the app hosts them; their facts are read by the scheduler
   /// of the facts over the fakes (`TestFactSources`)
   pub sessions: std::sync::Arc<repository_model::session::Sessions>,
+  /// The operations of the remote that run or wait in the sessions, as the app keeps them (`operations::registry`)
+  pub registry: operations::registry::Registry,
   /// The clocks the sessions age on, one per test repository: each stands still, so no session of a test goes away by
   /// itself, and moves only by its test
   pub session_clocks: std::sync::Arc<WorktreeClocks>,

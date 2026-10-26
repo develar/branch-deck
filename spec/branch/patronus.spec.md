@@ -69,6 +69,7 @@ targets:
   - ../../crates/git-ops/src/trial_rebase.rs
   - ../../src/stores/safe-push.ts
   - ../../crates/repository-model/src/push_guard.rs
+  - ../../crates/operations/src/push.rs
   - ../../crates/repository-model/src/start_guard.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/lib/branch-rules.ts
@@ -191,11 +192,11 @@ reports in it and closes it once merged.
   [@test] ../../src/stores/patronus.test.ts (`takes the robot of each row from the view of the session, which matched it, never from its own matching`)
 - Every command of Patronus, of a push and of a pull request names the repository only: Rust resolves the prefix
   `{prefix}` of its branches for the command, as the sync does (`BranchPrefixes`, no git process while it knows the
-  repository's git prefix), and the actions on the remote (`RemoteActions`: the push, the start, the restart, the
-  cancel, the landing check) take that prefix, never one from the page. The page keeps its stores by the prefix it
+  repository's git prefix), and the actions on the remote (`operations::push::PushHost`: the push; `RemoteActions`:
+  the start, the restart, the cancel, the landing check) take that prefix, never one from the page. The page keeps its stores by the prefix it
   shows ([Settings](../repository/settings.spec.md)).
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_robots_of_the_fixture_come_through_the_real_service`, `a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
-  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_guarded_push_runs_the_processes_of_the_core_push`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_runs_the_processes_of_the_core_push`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_robots_of_the_fixture_come_through_the_real_service`)
 - The pushed tip comes with the remote status of the branch: the `rev-parse` that checks the remote branch exists
   returns it, so it costs no extra git process.
@@ -1501,9 +1502,10 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`, `refuses a branch a merged Safe Push of a branch built on it landed, without reading its status`)
 - The app's push itself (`push_branch`, `push_branches`, the E2E server's routes of them) checks the same in Rust
   before it pushes, by the rules of `bd push` (`repository_model::push_guard`, one sequence of both hosts,
-  `RemoteActions::push_branches`): it reads the user's robots first (one full list asked now, never one kept for the
-  page, a background request: none off Space, without a token, while Patronus fails or its requests back off, as `bd
-  push` reads its holds; no network request runs under the repository lock), then under the lock refuses a branch the last sync has no row of ("… is no branch of the last
+  `operations::push::PushHost::push_branches`): it reads the user's robots first (one full list asked now, never one
+  kept for the page, a background request: none off Space, without a token, while Patronus fails or its requests back
+  off, as `bd push` reads its holds; none for unapplied branches alone, on which no Safe Push runs; no network request
+  runs under the repository lock), then under the lock refuses a branch the last sync has no row of ("… is no branch of the last
   sync"), a branch a merged Safe Push landed whole ("… merged into master with its Safe Push (…): nothing of it is left
   to push"), a branch whose own Safe Push runs, one a Safe Push of a branch built on it or of its whole stack lands,
   and the stack branch of a whole stack while its robot runs on it, every branch of it landed whole or it is not
@@ -1516,6 +1518,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_stack_branch_that_is_not_built_is_refused`, `a_branch_the_last_sync_has_no_row_of_is_refused`)
   [@test] ../../crates/patronus/src/service_test.rs (`the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere`, `the_checks_send_nothing_while_the_requests_back_off`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes`)
+  [@test] ../../crates/operations/src/push_test.rs (`the_push_of_an_unapplied_branch_reads_no_robots`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push nothing into a branch whose Safe Push started after the page's list: Rust refuses it, and the toast says why`)
 - The app's push must hold the repository lock only while it decides: the checks above and the commits that go,
   fixed under it; the network push after it sends those commits (`<commit>:refs/heads/<name>`), each leased on the
@@ -1523,8 +1526,13 @@ explicit choice of the user, offered only where the approvals count in a pull re
   Pushes (or pushes) pressed on several branches one after another push side by side; none waits for another one's
   network push, and none is refused with the app itself as the holder ("`branch-deck` (pid …, for 10 s) holds the
   repository"). Only the pushes of one remote ref (the same branch twice, two whole stacks of one stack branch) wait
-  for each other, without a bound, and the second then finds the remote at its commit.
-  [@test] ../../crates/repository-model/src/push_guard_test.rs (`the_pushes_of_two_branches_run_side_by_side`, `the_pushes_of_one_ref_wait_for_each_other_and_both_push`)
+  for each other, without a bound: the registry of the operations of the session admits a push per ref it writes
+  (`Queued` behind the push before it; a second click of the same push joins it), and the second then finds the
+  remote at its commit. A push that sends holds no lock: another branch's push, a rewrite and a sync finish meanwhile,
+  and it sends the commit it froze. A push whose caller goes away (its window closed) runs to its end, its refs held
+  until its `git push` ended, and its outcome goes to the session.
+  [@test] ../../crates/operations/src/push_test.rs (`the_pushes_of_two_branches_run_side_by_side`, `the_pushes_of_one_ref_wait_for_each_other_and_both_push`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze`, `a_push_whose_caller_goes_away_runs_to_its_end`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_prepared_push_sends_the_commit_it_was_prepared_for`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start the Safe Pushes of two branches pressed one after the other, side by side`)
 - While another holder has the repository lock (`bd pick --follow` of an agent for 48 s, a rewrite of the app), the
@@ -1533,7 +1541,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   updated about once a second; once the holder releases the lock, the push goes. Only a lock that no record names a
   live holder of (a holder that writes none) refuses the push after 10 s: "Nothing was pushed: another Branch Deck
   operation holds the repository; try again when it is done".
-  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_push_waits_while_the_holder_of_the_lock_lives_and_names_it`, `a_push_while_a_holder_no_record_names_holds_the_lock_is_refused`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_waits_while_the_holder_of_the_lock_lives_and_names_it`, `a_push_while_a_holder_no_record_names_holds_the_lock_is_refused`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed_one`)
   [@test] ../../src/lib/transfer-progress.test.ts (`names the holder of the repository lock the push waits for, without a percent`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for another holder of the repository lock as long as it lives, and then start`)
@@ -1543,7 +1551,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   action whose step the push is (the Safe Push start, a review request) starts nothing and shows no error; the same
   step pushes and starts once pressed again. Safe Pushes and a move pressed while the holder holds the lock all run
   once it released it.
-  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_push_whose_wait_is_stopped_pushes_nothing`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_whose_wait_is_stopped_pushes_nothing`)
   [@test] ../../src/lib/transfer-progress.test.ts (`offers Stop Waiting of a push only while it waits for another holder of the repository lock, on the push's channel`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should stop the wait of a Safe Push for another holder of the repository lock with Stop Waiting beside its step, nothing pushed or started`)
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should say whom a push waits for in the hover of its button, whose Stop Waiting pushes nothing`)

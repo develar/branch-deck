@@ -14,6 +14,7 @@ targets:
   - ../../src/stores/stack-collapse.ts
   - ../../crates/domain-policy/src/push.rs
   - ../../crates/repository-model/src/push_guard.rs
+  - ../../crates/operations/src/push.rs
   - ../../src/lib/ui-types.ts
   - ../../src/stores/push-confirm.ts
   - ../../src/lib/remote-status.ts
@@ -253,7 +254,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   when each remote that moved lost nothing, as the push of one branch does, else the toast is of the branch that moved
   ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)).
   [@test] ../../crates/domain-policy/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost`)
-  [@test] ../../crates/repository-model/src/push_guard_test.rs (`pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks`)
+  [@test] ../../crates/operations/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch`)
   [@test] ../../src/lib/git/push.test.ts (`says a push Rust made again over a remote that moved from what it went over, in one push of the page`, `tells a remote with commits the branch lacks, and pushes nothing over it`, `pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `says a stack push Rust made again over a remote that moved from what it went over, in one push of the page`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`, `a_moved_lease_refuses_every_branch_and_names_it`)
