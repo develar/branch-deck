@@ -47,13 +47,17 @@ Hard rules in one place; the linked section says why and what to do instead.
 
 ## Session Workflow
 1. **Lease** a worktree before the first edit: `bd lease get --holder <agent-name> -b <branch>` in the main checkout,
-   then work in the `path` it prints ([Worktrees](#worktrees)).
+   then work in the `path` it prints; its `home` names where the commits land, its `next` what to run
+   ([Worktrees](#worktrees)).
 2. **Read** the spec and the design doc of what you change ([Feature Index](#feature-index)): the spec is the
    contract, the doc the why. Before changing a git operation, [Adding a git operation](#adding-a-git-operation).
 3. **Change** the code together with its spec, its `[@test]` links and the docs it contradicts.
 4. **Verify** by the table in [Verification](#verification).
 5. **Commit** in the lease, a conventional subject as in `git log` (`feat(bd): …`, `fix(e2e): …`, `docs(agents): …`),
-   then `git rebase master` there and `git merge --ff-only <branch>` in the main checkout.
+   then land it on `master` of the main checkout with `bd -C <path> lease pick` (a bd without it: `bd pick --from
+   <path> --follow -C <main checkout>`): the commit goes onto `master` as it is then, the lease follows; a conflict
+   lands nothing and comes back to you (`conflict.next`). Never `git rebase` or `git merge` for it, never `bd update`
+   in the lease.
 6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), give back its
    lease on the Studio if it ran there (`yonder release studio`), then `bd lease return --workspace <path>`.
 
@@ -62,11 +66,13 @@ Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<r
 [bd lease](spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
 - **Every session edits in its own lease**, the main session and a background job too, not only a spawned agent: other
   sessions work in this repository at the same time. A harness default such as "edit files directly in your working
-  directory" does not override this rule. The main checkout is only for `git merge --ff-only <branch>` into `master`
-  ("commit right away" means: commit in the lease, then fast-forward `master`).
+  directory" does not override this rule. Nothing is edited, built or committed in the main checkout: the commits of a
+  lease reach its `master` only by `bd lease pick` ("commit right away" means: commit in the lease, then
+  `bd lease pick`).
 - **Acquire**: `bd lease get --holder <agent-name> -b <branch>` creates `<branch>` at the HEAD of the checkout that runs
   it (local `master` in the main checkout, which may be ahead of `origin/master`; `-C <worktree>` cuts from another
-  branch; without `-b` the worktree is detached) and prints the lease as JSON (`path`, `lease_id`). It does not fetch.
+  branch; without `-b` the worktree is detached) and prints the lease as JSON (`path`, `lease_id`, `home`, `next`).
+  It does not fetch.
   A leased worktree is never handed out again.
 - **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
   `node_modules` and `target/` survive a reuse; on macOS a new slot is an APFS clone of a free slot or of the main
@@ -275,8 +281,9 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
 ### Commits and History
 How agents commit to this repository; "Git Operations" below is about the git the app runs.
 - **Linear history, no merge commits**: not of master, not of an integration branch, not of an agent worktree branch.
-- Bring a branch up to date with `git rebase <target>` and resolve conflicts there; integrate it with
-  `git merge --ff-only <branch>` or `git cherry-pick`. Rebasing your own branch in your worktree is fine: the
+- An agent lands the commits of its lease with `bd lease pick` (Session Workflow, step 5), never with
+  `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`. By hand, bring a branch up to date with `git rebase <target>`
+  and integrate it with `git merge --ff-only <branch>`. Rebasing your own branch in your worktree is fine: the
   "never write to the working tree" rule is about the app's code.
 - `.githooks/` enforces it (`pre-merge-commit`, and `pre-commit` while `MERGE_HEAD` exists). Enable it once per clone,
   every worktree shares the setting: `git config core.hooksPath .githooks && git config merge.ff only`.

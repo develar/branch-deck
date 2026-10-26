@@ -233,6 +233,8 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     ErrorCode::OperationInProgress
     | ErrorCode::RangeUnknown
     | ErrorCode::SourceOnNewerBaseline
+    | ErrorCode::HomeBranchSwitched
+    | ErrorCode::NoHomeBranch
     | ErrorCode::SlotBusy
     | ErrorCode::HostSlot
     | ErrorCode::UnlandedCommits

@@ -2,6 +2,7 @@
 //! (spec/cli/lease.spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
+use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, counted_git};
 use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
@@ -13,8 +14,8 @@ use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::free_space::available_bytes;
 use lease_pool::host_slots::{HostSlotsParams, clean_host_slots};
 use lease_pool::lease::{
-  Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, Pool, SkipReason,
-  SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
+  Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool,
+  SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir, ready_lease_at,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
 use schemars::JsonSchema;
@@ -39,6 +40,9 @@ pub struct LeaseArgs {
 pub enum LeaseCommand {
   /// Lease a worktree of the pool at the HEAD of this checkout: a free slot moved there, else a new one
   Get(LeaseGetArgs),
+  /// Land the commits of this lease on the branch of the checkout it was leased from, the lease following onto the new
+  /// tip: `bd pick --from <lease> --follow` run in that checkout. Nothing to land: the lease only follows
+  Pick(LeasePickArgs),
   /// Give the lease of a worktree back; refused while it has unlanded commits, local changes or a process in it
   Return(LeaseReturnArgs),
   /// Every slot of the pool and its lease, from the state alone. Read only
@@ -65,6 +69,13 @@ pub struct LeaseGetArgs {
   /// `branchdeck.leaseMinFree`, else no check
   #[arg(long, value_name = "SIZE")]
   pub min_free: Option<String>,
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeasePickArgs {
+  /// Print what the pick would do; nothing is written but git objects
+  #[arg(long)]
+  pub dry_run: bool,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -191,6 +202,11 @@ pub struct LeaseGetOutput {
   /// The branch created at `source_head` and checked out; without it HEAD is detached
   #[serde(skip_serializing_if = "Option::is_none")]
   pub branch: Option<String>,
+  /// Where the commits of the lease land (`bd lease pick`)
+  pub home: LeaseHomeOutput,
+  /// What to run, in order: `bd lease pick` in the lease after each commit that builds and passes its tests, `bd lease
+  /// return` once the task is done
+  pub next: Vec<String>,
   /// Unix seconds
   pub leased_at: u64,
   /// A free slot was moved (only the diff written); false: a new slot was added
@@ -224,6 +240,66 @@ pub struct LeaseGetOutput {
   /// none
   #[serde(skip_serializing_if = "Option::is_none")]
   pub waited_for_clone_ms: Option<u64>,
+}
+
+/// Where the commits of a lease land
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseHomeOutput {
+  /// The checkout they land on, its top level: the source of the get
+  pub checkout: String,
+  /// The branch they land on, checked out there at the get; `null`: the source had a detached HEAD, and `bd lease pick`
+  /// refuses (`no_home_branch`)
+  pub branch: Option<String>,
+  /// `bd workspace`: the branch the checkout has checked out now (`null`: a detached HEAD), when it is not `branch`:
+  /// `bd lease pick` refuses (`home_branch_switched`) until it is back; ask the user
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub switched_to: Option<Option<String>>,
+}
+
+impl LeaseHomeOutput {
+  pub fn new(home: &LeaseHome, switched_to: Option<Option<String>>) -> Self {
+    Self {
+      checkout: home.checkout.clone(),
+      branch: home.branch.clone(),
+      switched_to,
+    }
+  }
+}
+
+/// The commands of a session in the lease at `path`, in order: the pick of each commit onto its home (none while the
+/// home has no branch to land on), the return once the task is done
+pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str) -> Vec<String> {
+  let mut next = Vec::new();
+  if home.branch.is_some() && !home.checkout.is_empty() {
+    next.push(format!("bd -C {} lease pick", shell_word(path)));
+  }
+  next.push(format!("bd lease return --lease-id {lease_id}"));
+  next
+}
+
+/// The checkout and the branch the commits of the lease of this worktree land on (`bd lease pick`): `no_lease` outside
+/// a leased slot, `no_home_branch` when its get's source had a detached HEAD
+pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> {
+  let lease = ready_lease_at(Path::new(&context.dirs.git_common_dir), &context.dirs.top_level)
+    .map_err(lease_error)?
+    .ok_or_else(|| {
+      CliError::new(
+        ErrorCode::NoLease,
+        format!("{} is no leased worktree of the pool: run bd lease pick in your lease", context.dirs.top_level),
+      )
+    })?;
+  let home = lease.home();
+  match home.branch {
+    Some(branch) if !home.checkout.is_empty() => Ok((home.checkout, branch)),
+    _ => Err(CliError::new(
+      ErrorCode::NoHomeBranch,
+      format!(
+        "The lease was cut from a detached HEAD of {}: there is no branch its commits land on. Check out the branch there and pick them with `bd pick --from {} --follow`",
+        if home.checkout.is_empty() { "its source" } else { &home.checkout },
+        shell_word(&context.dirs.top_level)
+      ),
+    )),
+  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -341,6 +417,8 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     slot: got.slot.name.clone(),
     source_head: lease.source_head.clone(),
     branch: lease.branch.clone(),
+    home: LeaseHomeOutput::new(&lease.home(), None),
+    next: lease_next(&got.slot.path, &lease.home(), &lease.id),
     leased_at: lease.leased_at,
     reused: lease.reused,
     created_by: got.created_by.map(|created_by| match created_by {

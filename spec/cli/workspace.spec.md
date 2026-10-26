@@ -1,6 +1,6 @@
 ---
 name: bd workspace
-description: Requirements for bd workspace, which a coding agent runs before its first edit, and the two rules it reads, branchdeck.agentLease (work in a lease of the pool and land each commit with bd pick, on by default) and branchdeck.agentSubjectBranch (start each commit subject with its branch, off by default), which the user changes in Settings → Agents.
+description: Requirements for bd workspace, which a coding agent runs before its first edit, and the two rules it reads, branchdeck.agentLease (work in a lease of the pool and land each commit with bd lease pick, on by default) and branchdeck.agentSubjectBranch (start each commit subject with its branch, off by default), which the user changes in Settings → Agents.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/workspace_command.rs
@@ -44,7 +44,7 @@ in the session wins over both.
 ## Requirements
 
 - `bd workspace` (`-C <dir>`, else the current directory) must print `{"schema":2,"kind","lease","subject_branch",
-  "stacks","top_level","subdir","shared_checkout","lease_id","holder","local_changes","active_leases","next"}`; each
+  "stacks","top_level","subdir","shared_checkout","home","lease_id","holder","local_changes","active_leases","next"}`; each
   rule is `{on, source, invalid, reason}`, `source` the config scope that sets it (`local`, `worktree`, `command`,
   `global`, `system`) or `default`. By default the lease is on and the subject branch off.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it`)
@@ -52,10 +52,13 @@ in the session wins over both.
 - In the main worktree (`kind: main`) with the lease on, `next` must be `bd lease get --holder <your name> -C
   <top level>`; `subdir` names where bd runs below the top level, and `local_changes` counts the local changes of the
   checkout, which a lease does not have. Inside a leased slot (`kind: lease`) `shared_checkout` must be the source the
-  slot was leased from, in the form of `top_level` (backslashes on Windows), `lease_id` and `holder` its lease, and
-  `next` the pick of its commits into the shared checkout and the return of this lease. `active_leases` must list every
+  slot was leased from, in the form of `top_level` (backslashes on Windows), `home` the same as `bd lease get` prints
+  it ([bd lease](lease.spec.md)), `lease_id` and `holder` its lease, and `next` the same as the get's: `bd -C <top
+  level> lease pick` and the return of this lease. When the shared checkout has another branch checked out now than
+  at the get, `home.switched_to` names it (`null`: a detached HEAD), so the agent asks the user before it picks. `active_leases` must list every
   ready lease of the pool, so a session that lost its path finds its own by `holder`.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it`)
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_home_that_switched_its_branch`)
 - A value of the global config must set a rule for every repository, a value of the repository's own config must win
   over it, and a value git does not read as a boolean must leave the default with `invalid`.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`the_global_config_turns_a_rule_off_and_a_repository_keeps_its_own`)
@@ -69,8 +72,9 @@ in the session wins over both.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`a_pool_that_cant_be_written_turns_the_lease_off`)
   [@test] ../../crates/lease-pool/src/agent_workspace_test.rs (`the_probe_of_the_pool_writes_its_first_existing_parent_and_removes_its_file`, `the_subdir_is_the_path_below_the_top_level`)
 - It must write no ref, config, index or working tree, and run one `rev-parse`, one `git config` of the `branchdeck.*`
-  keys, in the main worktree one more of the pool config, and in the main worktree or a lease one `status` of the
-  shared checkout (`GIT_OPTIONAL_LOCKS=0`).
+  keys, in the main worktree one more of the pool config, in the main worktree or a lease one `status` of the
+  shared checkout (`GIT_OPTIONAL_LOCKS=0`), and in a lease one more `rev-parse` of the branch the shared checkout has
+  checked out now.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_workspace`)
 - The output must match `bd schema` (`workspace`).
@@ -78,7 +82,8 @@ in the session wins over both.
 - The skill's description must start with the first edit ("Use before the first edit or commit in a Git repository:
   `bd workspace` …") and stay within the 1024 characters of the Agent Skills format; its body must say to run
   `bd workspace` first and follow it, the user's words winning: with the lease, work only in its `path` (in Claude Code
-  `EnterWorktree` with that path), land each commit that builds and passes its tests at once, return only its own
+  `EnterWorktree` with that path), land each commit that builds and passes its tests at once with `bd lease pick`,
+  never by a `git rebase` or `git merge` into the shared checkout and never with `bd update` in the lease, return only its own
   lease and ask the user when the task needs the `local_changes`; without it, stage only its own paths; with the
   subject branch, `(branch) ` first, a branch of `bd status --brief` reused where it fits, `(parent/leaf)` for a new
   stack; never change either rule.

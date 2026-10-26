@@ -45,6 +45,8 @@ pub struct PickParams {
   pub follow: bool,
   /// Check only: nothing is written but git objects, and no lock is taken
   pub dry_run: bool,
+  /// The branch the target must have checked out (`bd lease pick`), else `PickRefusal::BranchSwitched`
+  pub expect_branch: Option<String>,
 }
 
 /// What groups a picked commit on the target, by its subject
@@ -154,6 +156,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     source,
     upstream: upstream.as_deref(),
     follow: params.follow,
+    expect_branch: params.expect_branch.as_deref(),
   };
   let (plan, applied) = if params.dry_run {
     let plan = check_pick(git_executor, target, &request)?;

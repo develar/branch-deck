@@ -91,6 +91,11 @@ pub enum ErrorCode {
   /// `bd pick --from`: the worktree stands on a newer baseline than the branch; the branch is updated first
   /// (`bd update`, by the session that owns it)
   SourceOnNewerBaseline,
+  /// `bd lease pick`: the checkout the lease was cut from has another branch checked out than at the get; nothing was
+  /// changed. Ask the user: they switched it, and the pick waits until the branch is back
+  HomeBranchSwitched,
+  /// `bd lease pick`: the lease was cut from a detached HEAD, so no branch is named to land on
+  NoHomeBranch,
   /// Uncommitted, staged or untracked files sit on paths `bd update`, `bd pick` (or their undo) writes; `paths` lists
   /// them. Nothing was changed; never stash them, ask the user
   UncommittedOverlap,
@@ -187,7 +192,7 @@ pub enum ErrorCode {
   /// `bd request-review`: GitHub asked nobody, it refused every reviewer (the author, a user without access); the
   /// message names each with the reason
   ReviewRefused,
-  /// `bd lease return`: the worktree holds no lease of the pool, or its get still prepares it
+  /// `bd lease return`, `bd lease pick`: the worktree holds no lease of the pool, or its get still prepares it
   NoLease,
   /// `bd lease return --lease-id`: the worktree holds another lease
   LeaseMismatch,
@@ -265,6 +270,8 @@ impl ErrorCode {
       | Self::HunkConflict
       | Self::RangeUnknown
       | Self::SourceOnNewerBaseline
+      | Self::HomeBranchSwitched
+      | Self::NoHomeBranch
       | Self::UncommittedOverlap
       | Self::SessionStale
       | Self::UnsupportedConflict

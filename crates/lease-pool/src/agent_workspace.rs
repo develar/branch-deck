@@ -1,16 +1,17 @@
 //! Where a coding agent works and how it writes a commit subject, asked before its first edit (`bd workspace`,
 //! spec/cli/workspace.spec.md): `branchdeck.agentLease` (on by default) says to work in a lease of the pool and land each
-//! commit with `bd pick`, `branchdeck.agentSubjectBranch` (off by default) to start each subject with its `(branch)`.
+//! commit with `bd lease pick`, `branchdeck.agentSubjectBranch` (off by default) to start each subject with its `(branch)`.
 //! Read only: one `rev-parse`, one `git config`, and in the shared checkout or a lease one `status` of the shared
-//! checkout; in the shared checkout with the lease on, one more `git config` for the pool directory.
+//! checkout; in a lease one more `rev-parse` of the branch the shared checkout has checked out now; in the shared
+//! checkout with the lease on, one more `git config` for the pool directory.
 //! `agent_defaults` reads the same two rules of the global git config, what `bd install` and the app's Install Agent CLI
 //! report.
 
-use crate::lease::{SlotState, canonical_path, lease_status_core, pool_dir};
+use crate::lease::{LeaseHome, SlotState, canonical_path, lease_status_core, pool_dir};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
-use git_ops::revs::repository_dirs;
+use git_ops::revs::{read_head, repository_dirs};
 use std::path::{Path, PathBuf};
 use sync_core::repository_config::{ConfigSetting, read_config_entries, repository_config_from_entries};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, get_uncommitted_changes};
@@ -36,8 +37,8 @@ pub struct ActiveLease {
   pub holder: String,
   /// The slot, its top level
   pub path: String,
-  /// The checkout the slot was leased from, its top level; empty when the state does not name it
-  pub source: String,
+  /// Where its commits go
+  pub home: LeaseHome,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +58,9 @@ pub struct AgentWorkspace {
   pub shared_checkout: Option<String>,
   /// The lease of this slot (`WorkspaceKind::Lease`)
   pub this_lease: Option<ActiveLease>,
+  /// In a lease: the branch its home checkout has checked out now (`None`: a detached HEAD), when it is not the branch
+  /// of the get: `bd lease pick` refuses until it is back
+  pub home_switched: Option<Option<String>>,
   /// Every lease of the pool that is ready
   pub active_leases: Vec<ActiveLease>,
   /// The number of local changes of the shared checkout: files a lease does not have
@@ -80,6 +84,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
       subdir: String::new(),
       shared_checkout: None,
       this_lease: None,
+      home_switched: None,
       active_leases: Vec::new(),
       local_changes: None,
       pool_unusable: None,
@@ -98,8 +103,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
         lease_id: lease.id.clone(),
         holder: lease.holder.clone(),
         path: status.slot.path.clone(),
-        // git writes the source with `/`; the same form as `top_level`, backslashes on Windows
-        source: canonical_path(Path::new(&lease.source)),
+        home: lease.home(),
       })
     })
     .collect();
@@ -113,7 +117,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
     WorkspaceKind::Linked
   };
   let shared_checkout = match (&kind, &this_lease) {
-    (WorkspaceKind::Lease, Some(lease)) if !lease.source.is_empty() => Some(lease.source.clone()),
+    (WorkspaceKind::Lease, Some(lease)) if !lease.home.checkout.is_empty() => Some(lease.home.checkout.clone()),
     (WorkspaceKind::Main, _) => Some(top_level.clone()),
     _ => None,
   };
@@ -129,6 +133,13 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
       .files
       .len(),
     ),
+    _ => None,
+  };
+  let home_switched = match (&kind, &this_lease, &shared_checkout) {
+    (WorkspaceKind::Lease, Some(lease), Some(checkout)) if Path::new(checkout).is_dir() => {
+      let now = read_head(git, checkout)?.and_then(|(_, branch)| branch);
+      (now != lease.home.branch).then_some(now)
+    }
     _ => None,
   };
   let pool_unusable = if kind == WorkspaceKind::Main && config.agent_lease.value {
@@ -149,6 +160,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
     top_level: Some(top_level),
     shared_checkout,
     this_lease,
+    home_switched,
     active_leases,
     local_changes,
     pool_unusable,

@@ -526,26 +526,15 @@ fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut Pick
   (context, output)
 }
 
-/// `bd pick --from <worktree> --follow`: before the lock the baseline, the marks of both worktrees and the check (HEAD
-/// with its committer date, the fork point and whether the tip has it, the range with the patch id marks, one `replay`, the copies, both dry runs); under it the
-/// marks again, the witness (the guards and HEAD of both worktrees, the upstream; the local changes of added paths need
-/// no git) and the two moves with their marks (`update-ref`, `read-tree`); after it the grouping of the picked commits
-/// (the inputs and one `log` of the commits ahead: a new prefix needs no diffs). `the_check_of_a_pick_runs_before_the_lock`
-/// pins which of them run under the lock
-#[test]
-fn a_pick() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let lane = TestWorktree::detached(&repo);
-  lane.commit("(lane) Add a", "a.txt", "a\n");
-  lane.commit("(lane) Add b", "b.txt", "b\n");
-  commit_subjects(&repo, &["(own) Add c"]);
-  let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
+/// Two commits picked onto a branch one commit ahead and the worktree followed, with the processes of `a_pick`
+#[track_caller]
+fn assert_followed_pick(context: &RepoContext, output: &PickOutput) {
   assert_eq!(
     (output.picked.len(), output.followed.as_ref().map(|followed| followed.state)),
     (2, Some(bd_update::pick_command::FollowedState::Moved))
   );
   assert_processes(
-    &context,
+    context,
     &[
       ("cat-file", 1),
       ("config", 1),
@@ -563,6 +552,23 @@ fn a_pick() {
       ("update-ref", 4),
     ],
   );
+}
+
+/// `bd pick --from <worktree> --follow`: before the lock the baseline, the marks of both worktrees and the check (HEAD
+/// with its committer date, the fork point and whether the tip has it, the range with the patch id marks, one `replay`, the copies, both dry runs); under it the
+/// marks again, the witness (the guards and HEAD of both worktrees, the upstream; the local changes of added paths need
+/// no git) and the two moves with their marks (`update-ref`, `read-tree`); after it the grouping of the picked commits
+/// (the inputs and one `log` of the commits ahead: a new prefix needs no diffs). `the_check_of_a_pick_runs_before_the_lock`
+/// pins which of them run under the lock
+#[test]
+fn a_pick() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(lane) Add a", "a.txt", "a\n");
+  lane.commit("(lane) Add b", "b.txt", "b\n");
+  commit_subjects(&repo, &["(own) Add c"]);
+  let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
+  assert_followed_pick(&context, &output);
 }
 
 /// The environment of bd in `repo` with the lease pool in a temporary home, which lives as long as the guard
@@ -679,7 +685,34 @@ fn a_workspace() {
   let git = counted_git(&environment).unwrap();
   let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path))).unwrap();
   assert_eq!(output.lease_id.as_deref(), Some(got.lease_id.as_str()));
-  assert_git_processes(&git, &[("config", 1), ("rev-parse", 1), ("status", 1)]);
+  assert_git_processes(&git, &[("config", 1), ("rev-parse", 2), ("status", 1)]);
+}
+
+/// `bd lease pick`: the lease from the state of the pool, no git; then the processes of `bd pick --from <lease>
+/// --follow` in the checkout it was cut from (`a_pick`)
+#[test]
+fn a_lease_pick() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (_home, environment) = lease_environment(&repo);
+  let got = lease_get(&LeaseContext::resolve(&environment, None).unwrap(), &environment, &LeaseGetArgs::default()).unwrap();
+  let lane = std::path::Path::new(&got.path);
+  for (subject, file) in [("(lane) Add a", "a.txt"), ("(lane) Add b", "b.txt")] {
+    std::fs::write(lane.join(file), "x\n").unwrap();
+    test_utils::git_test_utils::git_command().args(["add", file]).current_dir(lane).output().unwrap();
+    test_utils::git_test_utils::git_command()
+      .args(["commit", "-q", "-m", subject])
+      .current_dir(lane)
+      .output()
+      .unwrap();
+  }
+  commit_subjects(&repo, &["(own) Add c"]);
+  let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
+  let (checkout, branch) = bd_lease::lease_command::lease_home(&lease).unwrap();
+  assert_git_processes(&lease.git, &[("rev-parse", 1)]);
+  let context = context(&repo);
+  assert_eq!(checkout, context.repository);
+  let output = crate::lease_pick_in(&context, &got.path, branch, &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
+  assert_followed_pick(&context, &output);
 }
 
 /// `bd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool

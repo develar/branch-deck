@@ -1075,7 +1075,7 @@ fn a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot() {
   let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
   assert_error(&output, exit_code, (4, "unlanded_commits"));
   assert_eq!(output["error"]["commits"], json!([commit]));
-  assert!(output["error"]["message"].as_str().unwrap().contains("bd pick --from"), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("lease pick`"), "{output}");
 
   // a branch holds the commit now; a local change refuses next
   slot_git(&path, &["branch", "keep", "HEAD"]);

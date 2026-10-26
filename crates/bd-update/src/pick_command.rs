@@ -223,6 +223,20 @@ pub struct PickConflictOutput {
 }
 
 pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -> Result<PickOutput, CliError> {
+  pick_into(context, args, environment, None)
+}
+
+/// Where `bd lease pick` lands a lease's commits: the branch the lease was cut from, and the command that picks again
+#[derive(Debug, Clone)]
+pub struct HomePick {
+  /// The branch the target must have checked out, else `home_branch_switched`
+  pub branch: String,
+  /// `bd -C <lease> lease pick`: what a conflict's `next` runs again
+  pub again: String,
+}
+
+/// `bd pick`, or with `home` the pick of `bd lease pick` (`args.from` the lease, `args.follow` set)
+pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>) -> Result<PickOutput, CliError> {
   let from = match (&args.from, &args.revisions) {
     (Some(dir), _) => PickFrom::Worktree(environment.cwd.join(dir).to_string_lossy().into_owned()),
     (None, Some(revisions)) => PickFrom::Revisions(revisions.clone()),
@@ -233,6 +247,7 @@ pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -
     from,
     follow: args.follow,
     dry_run: args.dry_run,
+    expect_branch: home.map(|home| home.branch.clone()),
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
@@ -240,7 +255,7 @@ pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -
     held_lock: None,
   };
   let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(pick_error)?;
-  output(context, &result, args.dry_run)
+  output(context, &result, args.dry_run, home)
 }
 
 /// The code of a failed pick: a refusal of `git_ops::pick`, else as for an update (`core_error`)
@@ -249,12 +264,13 @@ fn pick_error(error: anyhow::Error) -> CliError {
     Some(PickRefusal::InvalidSource(_)) => ErrorCode::InvalidArguments,
     Some(PickRefusal::RangeUnknown(_)) => ErrorCode::RangeUnknown,
     Some(PickRefusal::SourceOnNewerBaseline(_)) => ErrorCode::SourceOnNewerBaseline,
+    Some(PickRefusal::BranchSwitched(_)) => ErrorCode::HomeBranchSwitched,
     None => return core_error(error),
   };
   CliError::new(code, format!("{error:#}"))
 }
 
-fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<PickOutput, CliError> {
+fn output(context: &RepoContext, result: &PickResult, dry_run: bool, home: Option<&HomePick>) -> Result<PickOutput, CliError> {
   let check = &result.check;
   if let PickState::Blocked { worktree, paths, path_count } = &check.state {
     let mut error = uncommitted_overlap(paths.clone(), *path_count as usize, "pick");
@@ -301,7 +317,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
       clean: conflict.clean.iter().map(|commit| short.get(&commit.id).to_string()).collect(),
       files: conflict.files.clone(),
       files_omitted: conflict.file_count.saturating_sub(u32::try_from(conflict.files.len()).unwrap_or(u32::MAX)),
-      next: next_step(context, result, &short),
+      next: next_step(context, result, &short, home),
     }),
     _ => None,
   };
@@ -371,20 +387,25 @@ fn dependency_output(context: &RepoContext, dependency: &PickDependency, short: 
 
 /// What an agent does with a conflict: the source is moved onto the branch and the commit made again there, never with
 /// a `git cherry-pick` in the shared checkout
-fn next_step(context: &RepoContext, result: &PickResult, short: &ShortIds) -> String {
+fn next_step(context: &RepoContext, result: &PickResult, short: &ShortIds, home: Option<&HomePick>) -> String {
   let check = &result.check;
   let onto = short.get(&check.head);
   let base = short.get(&check.base);
   let resolve = "resolve it there: regenerate a generated file, never keep one side of a code hunk";
   let no_cherry_pick = "Never `git cherry-pick` here: it leaves CHERRY_PICK_HEAD, which blocks every bd rewrite";
-  match &check.follow {
-    Some(follow) => format!(
+  match (&check.follow, home) {
+    (Some(follow), Some(home)) => format!(
+      "Move the lease onto {onto} (`git -C {worktree} rebase --onto {onto} {base}`), {resolve}, then run `{again}` again. {no_cherry_pick}",
+      worktree = follow.worktree,
+      again = home.again,
+    ),
+    (Some(follow), None) => format!(
       "Move the worktree onto {onto} (`git -C {worktree} rebase --onto {onto} {base}`), {resolve}, then run `{bd} pick --from {worktree} --follow` \
        again. {no_cherry_pick}",
       worktree = follow.worktree,
       bd = context.bd,
     ),
-    None => format!("Rebase the commits onto {onto} where they were made, {resolve}, then pick them again. {no_cherry_pick}"),
+    (None, _) => format!("Rebase the commits onto {onto} where they were made, {resolve}, then pick them again. {no_cherry_pick}"),
   }
 }
 

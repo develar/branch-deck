@@ -234,7 +234,7 @@ pub enum LeaseRefusal {
   #[error("{key} {value:?}: {reason}")]
   InvalidSize { key: String, value: String, reason: String },
   #[error(
-    "HEAD of {path} has {} commit(s) that {}; land them first (`bd pick --from {path} --follow` in the shared checkout); --confirm-preserved gives them up, only when the user says they are kept elsewhere",
+    "HEAD of {path} has {} commit(s) that {}; land them first (`bd -C {path} lease pick`); --confirm-preserved gives them up, only when the user says they are kept elsewhere",
     .commits.len(),
     .check.describe()
   )]
@@ -1896,6 +1896,41 @@ pub struct SlotStatus {
   pub missing: bool,
   /// With `processes`: the processes in it, except the session of `bd`, git's maintenance and `caffeinate`
   pub processes: Option<Vec<BusyProcess>>,
+}
+
+/// Where the commits of a lease go (`bd lease pick`): the source checkout of its get and the branch it had checked out
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeaseHome {
+  /// The source checkout, its top level; empty when the state does not name it (a lease of an older bd)
+  pub checkout: String,
+  /// The branch checked out there at the get; `None` for a detached HEAD, where no pick can land
+  pub branch: Option<String>,
+}
+
+impl Lease {
+  pub fn home(&self) -> LeaseHome {
+    LeaseHome {
+      // git writes the source with `/`; the form of a top level, backslashes on Windows
+      checkout: if self.source.is_empty() {
+        String::new()
+      } else {
+        canonical_path(Path::new(&self.source))
+      },
+      branch: self.source_branch.clone(),
+    }
+  }
+}
+
+/// The ready lease of the slot whose top level is `top_level`, from the state, no git; `None` outside a leased slot
+pub fn ready_lease_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Lease>> {
+  let top_level = canonical_path(Path::new(top_level));
+  let (slots, _) = lease_status_core(git_common_dir, false)?;
+  Ok(
+    slots
+      .into_iter()
+      .find(|status| status.state == SlotState::Ready && status.slot.path == top_level)
+      .and_then(|status| status.slot.lease),
+  )
 }
 
 /// Every slot of the pool from the state, no git: with `processes`, the process scan of each slot too

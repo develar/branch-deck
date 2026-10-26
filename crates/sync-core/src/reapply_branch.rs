@@ -144,6 +144,7 @@ pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBr
       source: PickSource::Revisions(&range),
       upstream: upstream.as_deref(),
       follow: false,
+      expect_branch: None,
     },
   )
   .inspect_err(|_| chain.discard(git_executor, repo))?;

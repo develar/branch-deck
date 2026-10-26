@@ -2,6 +2,7 @@
 //! (spec/cli/workspace.spec.md). The core is `lease_pool::agent_workspace`; this module turns it into the rules and the
 //! next commands of the agent
 
+use crate::lease_command::{LeaseHomeOutput, lease_next};
 use bd_core::bd_command::shell_word;
 use bd_core::context::Environment;
 use bd_core::error::CliError;
@@ -21,7 +22,7 @@ pub struct WorkspaceOutput {
   /// Where bd runs: `main` (the shared checkout), `linked` (a worktree of its own outside the pool), `lease` (a leased
   /// slot of the pool) or `none` (no working tree: nothing to edit)
   pub kind: WorkspaceKindOutput,
-  /// Work in a lease of your own and land each commit with `bd pick` (`branchdeck.agentLease`, on by default)
+  /// Work in a lease of your own and land each commit with `bd lease pick` (`branchdeck.agentLease`, on by default)
   pub lease: AgentRule,
   /// Start each commit subject with `(branch)` (`branchdeck.agentSubjectBranch`, off by default); off: write the
   /// subject as the repository does
@@ -33,9 +34,12 @@ pub struct WorkspaceOutput {
   pub top_level: Option<String>,
   /// Where bd runs below the top level, `/`-separated: continue there in the lease; empty at the top level
   pub subdir: String,
-  /// The checkout your commits land on (`bd pick -C <shared_checkout>`): the main worktree, or the source of this lease
+  /// The checkout your commits land on: the main worktree, or the source of this lease (`home.checkout`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub shared_checkout: Option<String>,
+  /// In a lease: where its commits land (`bd lease pick`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub home: Option<LeaseHomeOutput>,
   /// The lease of this slot, for `bd lease return --lease-id`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub lease_id: Option<String>,
@@ -131,12 +135,7 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
   let this_lease = answer.this_lease.as_ref();
   let next = match kind {
     WorkspaceKindOutput::Main if lease.on => vec![format!("bd lease get --holder <your name> -C {}", shell_word(&top_level))],
-    WorkspaceKindOutput::Lease => answer.shared_checkout.as_ref().map_or_else(Vec::new, |shared| {
-      vec![
-        format!("bd pick --from {} --follow -C {}", shell_word(&top_level), shell_word(shared)),
-        format!("bd lease return --lease-id {}", this_lease.map_or_default(|lease| lease.lease_id.as_str())),
-      ]
-    }),
+    WorkspaceKindOutput::Lease => this_lease.map_or_else(Vec::new, |lease| lease_next(&top_level, &lease.home, &lease.lease_id)),
     _ => Vec::new(),
   };
   WorkspaceOutput {
@@ -148,6 +147,7 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
     top_level: answer.top_level,
     subdir: answer.subdir,
     shared_checkout: answer.shared_checkout,
+    home: this_lease.map(|lease| LeaseHomeOutput::new(&lease.home, answer.home_switched.clone())),
     lease_id: this_lease.map(|lease| lease.lease_id.clone()),
     holder: this_lease.map(|lease| lease.holder.clone()),
     local_changes: answer.local_changes,

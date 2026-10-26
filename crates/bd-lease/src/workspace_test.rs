@@ -49,10 +49,11 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
     (&json!("lease"), &json!(true), &json!(shared), &lease["lease_id"], &json!("lane-1"))
   );
   assert_eq!(output["local_changes"], json!(1), "the shared checkout's, which the lease lacks");
+  assert_eq!(output["home"], json!({ "checkout": shared, "branch": "master" }));
   assert_eq!(
     output["next"],
     json!([
-      format!("bd pick --from {} --follow -C {}", shell_word(&slot), shell_word(&shared)),
+      format!("bd -C {} lease pick", shell_word(&slot)),
       format!("bd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()),
     ])
   );

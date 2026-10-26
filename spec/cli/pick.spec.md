@@ -31,7 +31,9 @@ rewrites with `bd update`, `bd fold` and `bd group`. `bd pick --from <worktree>`
 the branch checked out at `-C`. It replays them in memory with `git replay` and leaves out a commit whose change the
 branch has already. It checks before the repository lock, which every worktree shares, and under it only reads again
 what the check read; then it moves the branch, and the files follow through the guarded working-tree update. `--follow` moves the source worktree onto the new tip the same way. A conflict
-or local changes in the way change nothing; `bd undo` takes the pick back, the worktree too. How it works: "Pick" in
+or local changes in the way change nothing; `bd undo` takes the pick back, the worktree too. A lease of the pool lands
+its commits with `bd lease pick`, this pick run in the checkout it was cut from, onto the branch it had checked out
+([bd lease](lease.spec.md)). How it works: "Pick" in
 [Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `bd help worktrees`
 ([Agent CLI](agent-cli.spec.md)).
 
@@ -94,6 +96,9 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   leaves `CHERRY_PICK_HEAD`).
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_conflict_after_a_commit_left_out_by_its_patch_id_names_the_commit_and_lists_the_left_out_one`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
+- A pick that names the branch the target must have checked out (`bd lease pick`) must refuse another one as
+  `home_branch_switched` (exit 4), checked with the branch of the witness under the lock; nothing moves.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_home_that_switched_its_branch`)
 - A picked commit whose prefix names a branch the branch has already must be listed in `dependencies` when that
   branch is not built on every branch whose commits its hunks depend on (the edges by lines, no symbols), with the
   copy, `prefix_branch` and `depends_on`, in a `--dry-run` too. `plan`, the `bd group` plan that moves the commit
@@ -213,7 +218,7 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
 | 1 | a commit conflicts (`state: "conflict"`): an output, not an error |
 | 2 | `invalid_arguments` |
 | 3 | `head_moved`, `locked` (retryable) |
-| 4 | `range_unknown`, `source_on_newer_baseline`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale` |
+| 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale` |
 
 - The outputs must match `bd schema` (`pick`, `undo`).
   [@test] ../../crates/bd-update/src/pick_test.rs (`pick_outputs_match_the_schema`)

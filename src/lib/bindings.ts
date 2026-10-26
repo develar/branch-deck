@@ -1761,6 +1761,13 @@ export type ErrorCode =
  */
 "source_on_newer_baseline" | 
 /**
+ *  `bd lease pick`: the checkout the lease was cut from has another branch checked out than at the get; nothing was
+ *  changed. Ask the user: they switched it, and the pick waits until the branch is back
+ */
+"home_branch_switched" | 
+/**  `bd lease pick`: the lease was cut from a detached HEAD, so no branch is named to land on */
+"no_home_branch" | 
+/**
  *  Uncommitted, staged or untracked files sit on paths `bd update`, `bd pick` (or their undo) writes; `paths` lists
  *  them. Nothing was changed; never stash them, ask the user
  */
@@ -1898,7 +1905,7 @@ export type ErrorCode =
  *  message names each with the reason
  */
 "review_refused" | 
-/**  `bd lease return`: the worktree holds no lease of the pool, or its get still prepares it */
+/**  `bd lease return`, `bd lease pick`: the worktree holds no lease of the pool, or its get still prepares it */
 "no_lease" | 
 /**  `bd lease return --lease-id`: the worktree holds another lease */
 "lease_mismatch" | 

@@ -566,7 +566,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd lease`
 
-- `bd lease get`, `return`, `status` and `adopt` (the pool of worktrees that agent sessions lease):
+- `bd lease get`, `pick`, `return`, `status` and `adopt` (the pool of worktrees that agent sessions lease):
   [bd lease](lease.spec.md).
 
 ### `bd fold`
@@ -1437,11 +1437,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd help worktrees`
 
 - It must say how sessions that share a checkout work in worktrees of their own: the lease of a worktree with
-  `bd lease get` and its return with `bd lease return` and their refusals, the `(branch)` prefix written
+  `bd lease get` (its `home` and `next`) and its return with `bd lease return` and their refusals, the `(branch)` prefix written
   when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
   `fixup!` subject on the shared branch, `bd rename`, `bd suggest` only for commits without a prefix); one owner
   rewrites the shared branch (`bd reword` among its rewrites) and every other session only adds commits with
-  `bd pick --from <worktree> --follow`, never with `git cherry-pick`, its one rewrite a `bd reword` of its own landed
+  `bd lease pick` from its lease (its refusals `home_branch_switched`, `no_home_branch`, `no_lease`) or
+  `bd pick --from <worktree> --follow`, never with `git cherry-pick` and never with `bd update` in a lease, its one rewrite a `bd reword` of its own landed
   commit with `-C <shared checkout>` and `--expect-head`, without `--sync`; after a rewrite a session's next write is
   `head_moved`, which `--allow-append` does not cure; the outcomes of a pick (`grouped_by: none`, `already_present`, `conflict.next`,
   `uncommitted_overlap`, `range_unknown`, `source_on_newer_baseline`, `followed.state`, the undo); `bd pick --dry-run`

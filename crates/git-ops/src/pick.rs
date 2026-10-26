@@ -42,6 +42,9 @@ pub struct PickRequest<'a> {
   pub upstream: Option<&'a str>,
   /// Move the source worktree onto the new tip too; only with `PickSource::Worktree`
   pub follow: bool,
+  /// The branch the target must have checked out (`bd lease pick`: the branch the lease was cut from); another one is
+  /// refused as `PickRefusal::BranchSwitched`
+  pub expect_branch: Option<&'a str>,
 }
 
 /// A commit of the range, oldest first
@@ -196,6 +199,9 @@ pub enum PickRefusal {
   /// The source stands on a newer baseline than the target: the target is updated first
   #[error("{0}")]
   SourceOnNewerBaseline(String),
+  /// The target has another branch checked out than `PickRequest::expect_branch`
+  #[error("{0}")]
+  BranchSwitched(String),
 }
 
 /// Check, writing nothing but git objects, whether the commits of `request` apply onto the branch checked out at
@@ -217,6 +223,13 @@ pub enum PickRefusal {
 #[instrument(skip(git_executor))]
 pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &PickRequest<'_>) -> Result<PickPlan> {
   let branch = check_update_guards(git_executor, target)?;
+  if let Some(expected) = request.expect_branch
+    && expected != branch
+  {
+    return Err(anyhow::Error::new(PickRefusal::BranchSwitched(format!(
+      "{target} has {branch} checked out, not {expected}, the branch the commits were to land on"
+    ))));
+  }
   let head_line = git_executor.execute_command(&["log", "-1", "--date=raw", "--format=%H%x00%cd", "HEAD", "--"], target)?;
   let (head, head_date) = head_line.split_once('\0').ok_or_else(|| anyhow!("Unexpected HEAD {head_line:?}"))?;
   let head = head.to_string();

@@ -123,8 +123,8 @@ Other tasks
   (`branchdeck.agentSubjectBranch`, off by default), and `next` what to run; the user's words win over it.
 - Update the branch onto its baseline: `bd update` (--no-fetch, --dry-run), the app's Update Project; a conflict opens
   a resolve session (exit 1), which `bd help update` explains.
-- Several sessions or worktrees on one branch: `bd lease get` leases a worktree of your own, `bd lease return` gives
-  it back; `bd pick --from <worktree> --follow` lands the commits of another worktree here (or `bd pick <rev>`,
+- Several sessions on one branch: `bd lease get` leases a worktree, `bd lease pick` in it lands its commits where it
+  was cut from, `bd lease return` gives it back; `bd pick --from <worktree> --follow` (or `bd pick <rev>`,
   `<a>..<b>`; --expect-head, --dry-run), never `git cherry-pick`; `bd help worktrees` explains it.
 - Fixups: `bd fold` folds the fixup!, squash! and amend! commits into their targets (`bd fold --help`).
 - A message to change: `bd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
@@ -232,8 +232,9 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
 
 0. Lease your worktree when `bd workspace` says `lease.on` (`branchdeck.agentLease`, on by default; its `next` is the
    command): `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
-   prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, and `lease_id`; work and commit
-   only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
+   prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, `lease_id`, `home` (the
+   `checkout` and the `branch` your commits land on) and `next` (the pick of step 2, the return of step 5); work and
+   commit only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
    none free the pool adds one (`created_by`: `clone`, an APFS clone on macOS without what the `delete` clean rules
    delete, or `checkout`), one at a time: a get waits while another adds a slot, says whom it waits for on stderr,
    and takes a slot freed meanwhile (`waited_for_clone_ms`). --branch <name> (-b) creates a branch there. `skipped`
@@ -255,9 +256,14 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    no `fixup!` subject on the shared branch, `bd fold` would fold it into its target. Rename a branch with
    `bd rename <old> <new>`, which rewrites every prefix, children included. `bd suggest` is for commits that came
    without a prefix.
-2. Land your commits, with -C <shared checkout>: `bd pick --from <your worktree> --follow`. bd replays them onto the
-   branch in memory, under the repository lock that every worktree shares, so no fold or update runs halfway through
-   it; the files follow, and --follow moves your worktree onto the new tip (its local changes on other paths stay).
+2. Land each commit that builds and passes its tests at once, from your lease: `bd -C <your lease> lease pick`, the
+   `next` of `bd lease get` and `bd workspace`. It is `bd pick --from <your lease> --follow` run in `home.checkout`,
+   onto `home.branch`, whatever moved there since: no test again on the new tip, a conflict comes back to you. From a
+   worktree that is no lease, with -C <shared checkout>: `bd pick --from <your worktree> --follow`. bd replays the
+   commits onto the branch in memory, under the repository lock that every worktree shares, so no fold or update runs
+   halfway through it; the files follow, and --follow moves your worktree onto the new tip (its local changes on
+   other paths stay). With nothing to land, `bd lease pick` only moves your lease onto the tip (`up_to_date`,
+   `followed.state: moved`): the commits of the other sessions.
    - `picked[]`: the copies, each with the `group` it lands in; `grouped_by: none` is a commit without a prefix: fix
      the subject before the owner groups it.
    - `dependencies[]`: a commit whose prefix names a branch that is not built on the branches it needs (`depends_on`:
@@ -271,12 +277,17 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
      make the commit again there, regenerate a generated file, never keep one side of a code hunk; then pick again.
      Never `git cherry-pick` it into the shared checkout: it leaves `CHERRY_PICK_HEAD`, which blocks every rewrite.
    - `uncommitted_overlap` (exit 4): local files of the named worktree sit on paths the pick writes; ask the user.
-     `range_unknown` or `source_on_newer_baseline` (exit 4): name the commits (`bd pick <first>^..<last>`), or let the
-     owner update the branch first.
+     `range_unknown` or `source_on_newer_baseline` (exit 4): name the commits (`bd pick <first>^..<last>`), or ask the
+     owner to update the branch first; never `bd update` in a lease, it moves the lease past the branch.
+   - `bd lease pick`: `home_branch_switched` (exit 4): the shared checkout has another branch checked out than at the
+     get, nothing landed; ask the user, and pick again once the branch is back (`bd workspace` shows
+     `home.switched_to`). `no_home_branch` (exit 4): the lease was cut from a detached HEAD, no branch is named; ask
+     the user where the commits go. `no_lease` (exit 2): run it inside your lease.
    - `followed.state` `head_moved` or `blocked`: the branch moved, your worktree did not; the same command again moves
      only the worktree. A build daemon or a file watcher of the worktree may need a restart after it moved.
    - `bd undo <undo_token>` moves the branch and your worktree back.
-3. Check that the branch still holds your work after the owner rewrote it: `bd pick --from <your worktree> --dry-run`
+3. Check that the branch still holds your work after the owner rewrote it: `bd lease pick --dry-run` in your lease
+   (elsewhere `bd pick --from <your worktree> --dry-run`)
    (`up_to_date`, every commit `already_present`). Never compare by date (a `git log` limited by time): a rewrite can
    change the dates, and a fold changes the ids; compare subjects without the `(prefix) ` only as a hint, the content
    decides.
@@ -612,9 +623,11 @@ Before the first edit or commit in a repository, run `bd workspace` and follow i
 wins over it:
 - `lease.on`: work in a worktree of your own. Run the first command of `next` (`bd lease get --holder <your name>`, a
   name of this session) and edit, build and commit only in its `path` (and `subdir` there); in Claude Code,
-  `EnterWorktree` with that `path` moves the session there. `bd workspace` inside it names the rest: land each commit
-  that builds and passes its tests at once, with the `bd pick --from <lease> --follow -C <shared_checkout>` of `next`;
-  once the task is done and every commit landed, `bd lease return --lease-id <lease_id>`. Return only your own lease,
+  `EnterWorktree` with that `path` moves the session there. Its `next` (and `bd workspace` inside it) names the rest:
+  land each commit that builds and passes its tests at once with `bd -C <path> lease pick`, onto the branch of `home`;
+  a conflict comes back to you, `conflict.next` says what to do. Once the task is done and every commit landed,
+  `bd lease return --lease-id <lease_id>`. Never `git rebase` or `git merge` into the shared checkout, and never
+  `bd update` in a lease. Return only your own lease,
   never one of `active_leases` that another session holds. A lease lacks the `local_changes` of the shared checkout:
   when the task needs them, ask the user.
 - `lease.on` false (`reason` says why, when it is set): work where you are; stage only the paths you changed, never
@@ -636,7 +649,8 @@ When several sessions or worktrees work on one branch, run `bd help worktrees` f
 command prints and what each of its refusals asks.
 
 - Run bd in the repository, or pass `-C <repo>`.
-- Land the commits of another worktree with `bd pick`, never with `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
+- Land the commits of your lease with `bd lease pick`, of another worktree with `bd pick`, never with
+  `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema <command>` prints the JSON Schema of its output, `bd version` the version of bd and git.
 - Never reorder, squash or split commits, except folding fixup!, squash! and amend! commits with `bd fold`, and never

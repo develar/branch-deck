@@ -1595,6 +1595,18 @@ the files, and the guards, none of which a return may take from the shared check
 path, and decides alone without a recorded branch, when the branch is gone, or when the pick can't tell
 (`range_unknown`, a merge in the range); the output names the check (`landed_check`).
 
+Where the commits of a lease land is part of the lease: the get records the source checkout and the branch it had
+checked out (`source`, `source_branch`) and prints them as `home` with the session's `next`. Before, the get printed
+only `source_head`, and the landing was a `bd pick --from <lease> --follow -C <source>` that only `bd workspace`
+named, while the agent instructions of the repository named `git rebase master` and `git merge --ff-only`: on
+2026-10-26 a session whose master had moved compared the commits by hand and rebased its lease with `git rebase
+--onto`. `bd lease pick` inside the lease is that pick, the paths and the branch from the lease
+(`lease_pool::lease::ready_lease_at`, no git), with the branch as part of the pick's request (`PickRequest::
+expect_branch`): `check_pick` refuses another branch checked out in the source as `PickRefusal::BranchSwitched`
+(`home_branch_switched`), and `recheck_pick`, which compares the branch under the lock, sends a switch back to that
+check, so the commits never land on a branch the user switched to. It replays onto the tip as it is then: a commit
+tested on an older tip lands without a test on the new one, and a conflict comes back to the lease.
+
 Which processes keep a slot busy was learned from 27 sessions of idea-1 (2026-10-19 to 24) whose returns were
 refused: mostly the Bazel server of the slot, then git's maintenance, the `caffeinate` of Claude Code and the `jq` of
 `bd lease return | jq`. The agents ran `ps` and `lsof` to tell them, some killed them, a kill was refused by the

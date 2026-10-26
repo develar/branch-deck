@@ -135,7 +135,7 @@ branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `cr
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -794,7 +794,8 @@ Lands the commits of another worktree on the branch checked out at `-C`, without
 [bd pick](../../spec/cli/pick.spec.md)). Agent sessions that share a checkout commit in worktrees of their own (a
 `bd lease` worktree, detached HEAD) and land each commit on the shared branch this way: the commits are replayed in memory
 with `git replay`, and under the repository lock, which every worktree shares, the branch moves and the files follow
-through the guarded update. `--follow` moves the source worktree onto the new tip the same way.
+through the guarded update. `--follow` moves the source worktree onto the new tip the same way. Inside a lease of the
+pool, `bd lease pick` is this pick, run in the checkout the lease was cut from (below).
 
 ```json
 {"schema":2,…,"branch":"master","state":"picked","dry_run":false,"source_worktree":"/Users/me/.branch-deck/pool/repo-1a2b3c4d/3/repo","base":"5f6a7b8c",
@@ -851,7 +852,7 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
 - A pick or a follow killed between the move and its files leaves the mark `refs/branch-deck/update-pending/<worktree
   id>`, as an update does; the next pick, update or undo lets the files follow first.
 
-### `bd lease get [--holder <label>] [-b <branch>] [--min-free <size>]`, `return`, `status`, `adopt`
+### `bd lease get [--holder <label>] [-b <branch>] [--min-free <size>]`, `pick`, `return`, `status`, `adopt`
 
 The pool of worktrees that agent sessions work in, one session per slot (`lease_pool::lease`, "Lease" in
 [Git Operations](../design/git-operations.md), the contract [bd lease](../../spec/cli/lease.spec.md)). A lease needs no
@@ -860,7 +861,9 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 ```json
 {"schema":2,"repository":"/Users/me/idea-1","pool":"/Users/me/.branch-deck/pool/idea-1-3f2a9c01",
  "path":"/Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1","lease_id":"<uuid>","holder":"lane-1","slot":"idea-12",
- "source_head":"<full id>","leased_at":1792411982,"reused":true,"seeded":[".claude/settings.local.json"],
+ "source_head":"<full id>","home":{"checkout":"/Users/me/idea-1","branch":"master"},
+ "next":["bd -C /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 lease pick","bd lease return --lease-id <uuid>"],
+ "leased_at":1792411982,"reused":true,"seeded":[".claude/settings.local.json"],
  "skipped":[{"slot":"idea-1","path":"…/1/idea-1","reason":"dirty","paths":["left.txt"]}],"processes_checked":true}
 ```
 
@@ -892,6 +895,17 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   bd lease get: checking out 3f2a9c01 in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
   bd lease get: looking for local changes in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
   ```
+- `home` names where the commits of the lease land: `checkout`, the source of the get, and `branch`, the branch it
+  had checked out (`null` for a detached HEAD: nothing to pick onto, and `next` is only the return). `next` is what the
+  session runs, in order: `bd -C <path> lease pick` after each commit that builds and passes its tests, and the
+  return once the task is done.
+- `bd lease pick [--dry-run]` inside the lease is `bd pick --from <lease> --follow` in `home.checkout`, onto
+  `home.branch`, and prints what `bd pick` prints: the commits replayed onto the tip as it is then, whatever other
+  sessions landed meanwhile, and the lease moved onto the new tip; with nothing to land the lease only follows
+  (`up_to_date`, `followed.state: moved`). A conflict lands nothing (exit 1), its `conflict.next` names `bd lease pick`
+  to run again. Refused with nothing changed: `home_branch_switched` (exit 4; another branch is checked out there now:
+  ask the user), `no_home_branch` (exit 4; cut from a detached HEAD), `no_lease` (exit 2; not inside a lease), and the
+  refusals of `bd pick`.
 - `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
   or the current directory, or, with `--lease-id` and no `--workspace`, the slot of that lease from any checkout of the
   repository: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
@@ -1749,11 +1763,12 @@ by the test `schema_lists_every_output`. `COMMAND_OUTPUTS` in `schema.rs` is the
 
 Run by an agent before its first edit or commit (the skill says so; the contract
 [bd workspace](../../spec/cli/workspace.spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
-`git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config and in the main worktree or a
-lease one `status` of the shared checkout. Two rules of the git config, each `{on, source, invalid, reason}`:
+`git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config, in the main worktree or a
+lease one `status` of the shared checkout, and in a lease one more `rev-parse` of the branch the shared checkout has
+checked out now. Two rules of the git config, each `{on, source, invalid, reason}`:
 
 - `lease`: `branchdeck.agentLease`, on by default. Work in a lease of the pool, land each commit that builds and passes
-  its tests at once with `bd pick`, return the lease when done. Off with a `reason` in a linked worktree outside the
+  its tests at once with `bd lease pick`, return the lease when done. Off with a `reason` in a linked worktree outside the
   pool (a checkout of its own already), outside a working tree, and when the pool directory can't be written (a
   sandbox; a probe file in its first existing parent, removed at once).
 - `subject_branch`: `branchdeck.agentSubjectBranch`, off by default. Start each commit subject with `(branch) `. Off
@@ -1762,7 +1777,8 @@ lease one `status` of the shared checkout. Two rules of the git config, each `{o
 `source` is the scope that sets the rule (`local`, `worktree`, `command`, `global`, `system`) or `default`; the user
 sets the global value and the repository's own in Settings → Agents, or with `git config [--global]`. `kind` is
 `main`, `linked`, `lease` or `none`; `subdir` where bd runs below the top level; `shared_checkout` the checkout the
-commits land on (the main worktree, or the source of this lease); `lease_id` and `holder` this slot's lease;
+commits land on (the main worktree, or the source of this lease); in a lease `home` as `bd lease get` prints it, with
+`switched_to` when the shared checkout has another branch checked out now (`null`: detached); `lease_id` and `holder` this slot's lease;
 `local_changes` the number of local changes of the shared checkout, which a lease lacks; `active_leases` every ready
 lease of the pool (`lease_id`, `holder`, `path`); `next` the commands to run, in order:
 
@@ -1772,7 +1788,7 @@ lease of the pool (`lease_id`, `holder`, `path`); `next` the commands to run, in
  "active_leases":[],"next":["bd lease get --holder <your name> -C /work/app"]}
 ```
 
-Inside the lease `next` is `bd pick --from <slot> --follow -C <shared checkout>` and `bd lease return --lease-id <id>`.
+Inside the lease `next` is `bd -C <slot> lease pick` and `bd lease return --lease-id <id>`, as `bd lease get` printed it.
 
 ### `bd version`, `bd --version`
 

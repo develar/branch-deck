@@ -17,7 +17,9 @@ use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::write_json;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
-use bd_lease::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
+use bd_lease::lease_command::{
+  LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status,
+};
 use bd_lease::workspace_command::workspace;
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
@@ -35,7 +37,7 @@ use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UnstackArgs, group, rename, restack, unstack};
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
-use bd_update::pick_command::{PickArgs, PickOutput, pick};
+use bd_update::pick_command::{HomePick, PickArgs, PickOutput, pick, pick_into};
 use bd_update::unapply_command::{ReapplyArgs, UnapplyArgs, reapply, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
 use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, update};
@@ -291,6 +293,35 @@ fn operation_name(matches: &ArgMatches) -> String {
   names.join(" ")
 }
 
+/// `bd lease pick`: `bd pick --from <this lease> --follow` in the checkout the lease was cut from, onto the branch it
+/// had checked out then
+fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<PickOutput, CliError> {
+  let (checkout, branch) = lease_home(lease)?;
+  let home_options = RepoOptions {
+    repo: Some(std::path::Path::new(&checkout)),
+    prefix: options.prefix,
+    full_ids: options.full_ids,
+    no_cache: options.no_cache,
+  };
+  let context = RepoContext::resolve(environment, &home_options)?;
+  lease_pick_in(&context, &lease.dirs.top_level, branch, environment, args)
+}
+
+/// `bd lease pick` of the lease at `lease_dir` in `context`, the checkout it was cut from, onto `branch`
+fn lease_pick_in(context: &RepoContext, lease_dir: &str, branch: String, environment: &Environment, args: &LeasePickArgs) -> Result<PickOutput, CliError> {
+  let pick_args = PickArgs {
+    from: Some(PathBuf::from(lease_dir)),
+    follow: true,
+    dry_run: args.dry_run,
+    ..PickArgs::default()
+  };
+  let home = HomePick {
+    branch,
+    again: format!("{} -C {} lease pick", context.bd, bd_core::bd_command::shell_word(lease_dir)),
+  };
+  pick_into(context, &pick_args, environment, Some(&home))
+}
+
 /// Runs the command inside its root span `operation{op, operation_id}` (`OperationId::span`), so every log line of it
 /// names the operation (docs/design/async-patterns.md#operation-spans); the JSON output does not carry the id yet
 fn execute_operation(invocation: &Invocation, environment: &Environment, out: &mut dyn Write) -> i32 {
@@ -341,6 +372,15 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Lease(LeaseArgs { command: LeaseCommand::Get(args) }) => lease_context(None)
       .and_then(|context| lease_get(&context, environment, args))
       .and_then(|output| print(out, &output)),
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Pick(args),
+    }) => {
+      return print_summary(
+        out,
+        lease_context(None).and_then(|lease| lease_pick(&lease, environment, &options, args)),
+        PickOutput::exit_code,
+      );
+    }
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Return(args),
     }) => lease_context(args.workspace.as_deref())

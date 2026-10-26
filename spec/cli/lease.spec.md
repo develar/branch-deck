@@ -1,9 +1,13 @@
 ---
 name: bd lease
-description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand; the host slots of bd host are leases of the pool that a lend table lends to one run at a time.
+description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand; the host slots of bd host are leases of the pool that a lend table lends to one run at a time.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/lease_command.rs
+  - ../../crates/bd-cli/src/lib.rs
+  - ../../crates/bd-update/src/pick_command.rs
+  - ../../crates/update-core/src/pick.rs
+  - ../../crates/git-ops/src/pick.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
@@ -29,10 +33,12 @@ Date: 2026-10-19
 
 ## Summary
 
-Agent sessions that share a checkout each work in a worktree of their own and land their commits with `bd pick`
+Agent sessions that share a checkout each work in a worktree of their own and land their commits with `bd lease pick`
 ([bd pick](pick.spec.md)). `bd lease` keeps the pool of those worktrees. `bd lease get` leases a slot at the HEAD of
 the source checkout: a free slot is moved there, so only the diff between the two commits is written, and a new slot
-is added only when no slot is free. `bd lease return` frees the slot once its commits landed. The state in
+is added only when no slot is free. Its answer names where the commits of the lease land (`home`) and what the session
+runs (`next`), so an agent never works out the landing itself. `bd lease pick` in the lease lands each commit on that
+branch, onto its tip as it is then, and the lease follows. `bd lease return` frees the slot once its commits landed. The state in
 `$GIT_COMMON_DIR/branch-deck/leases.json` is the authority. A free slot is pool property, and the next get replaces
 its content, so no ancestry check decides whether a slot is free. How it works: "Lease" in
 [Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `bd help worktrees`
@@ -65,6 +71,11 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Get
 
+- The answer of a get must name where the commits of the lease land, `home`: `checkout` (the source checkout, its top
+  level) and `branch` (the branch it had checked out, `null` for a detached HEAD), and `next`, what the session runs in
+  order: `bd -C <path> lease pick` after each commit that builds and passes its tests, `bd lease return --lease-id
+  <id>` once the task is done. With no branch in `home` there is nothing to pick onto, and `next` is only the return.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`the_get_names_the_home_of_the_lease_and_the_commands_of_the_session`)
 - `bd lease get` must lease a free slot of the pool of this repository, moved to the exact HEAD commit of `-C` (or the
   current directory), detached, and print `path`, `lease_id` (a UUID), `holder` (`--holder`, default `agent-<uuid>`),
   `slot` (the worktree id), `source_head`, `leased_at`, `reused`, `seeded` and `processes_checked`. A slot whose
@@ -225,7 +236,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [{`pid`, `command`, `argv` (at most 200 characters), `kind`: `bazel_server` or `other`, `workspace`?}], the message
   naming each with its argv, so no `ps` is needed to tell them), HEAD
   with commits that no branch, tag or remote branch holds (`unlanded_commits`, exit 4, `commits`, the message naming
-  `bd pick --from <dir> --follow`), and local changes (`dirty_worktree`, exit 4, `paths`). The commits of the commit
+  `bd -C <dir> lease pick`), and local changes (`dirty_worktree`, exit 4, `paths`). The commits of the commit
   the slot was leased at never count as unlanded, also after a rewrite of master made them unreachable.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
 - The question of the unlanded check is whether the branch of the source has every change of the slot. The get must
@@ -277,6 +288,27 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - `--confirm-preserved` must give up the unlanded commits (`given_up`) and discard the local changes (`discarded`)
   with `reset --hard HEAD` and `clean -fd`: the ignored files stay.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
+
+### Pick
+
+- `bd lease pick` inside a lease must be `bd pick --from <lease> --follow` run in the `home.checkout` of the lease,
+  onto `home.branch`: the commits the lease has and the branch lacks replayed onto its tip as it is then (whatever
+  other sessions landed meanwhile; no test runs again), and the lease moved onto the new tip, its answer that of
+  `bd pick` (`state`, `picked`, `followed`, `undo_token`). With nothing to land the lease only follows
+  (`state: up_to_date`, `followed.state: moved`), so it gets what the other sessions landed. --dry-run writes nothing
+  but git objects.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_lands_the_commits_on_the_home_branch_and_the_lease_follows`)
+- The branch is checked under the repository lock with the rest of the pick's witness: when the home checkout has
+  another branch checked out, nothing lands, `home_branch_switched` (exit 4) names both branches, and the agent asks
+  the user. Inside the lease `bd workspace` shows the switch (`home.switched_to`). A lease cut from a detached HEAD has
+  no branch to land on: `no_home_branch` (exit 4). Outside a leased slot: `no_lease` (exit 2).
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_home_that_switched_its_branch`)
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`the_get_names_the_home_of_the_lease_and_the_commands_of_the_session`, `a_lease_pick_outside_a_lease_is_refused`)
+- A conflict must land nothing (exit 1, `state: conflict`), and its `conflict.next` must name `bd -C <lease> lease pick`
+  as the command to run again once the commit is made again on the tip.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_changes_nothing_and_names_itself_again`)
+- Its git processes are those of the pick (`a_pick`); the lease itself comes from the state of the pool, without git.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_pick`)
 
 ### Clean rules
 
@@ -435,9 +467,9 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
 |---|---|
 | 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
-| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits) |
+| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits); `bd lease pick`: `home_branch_switched`, `no_home_branch` and the refusals of `bd pick` |
 
-- The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`).
+- The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`; `bd lease pick` prints `pick`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)
