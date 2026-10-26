@@ -1,17 +1,16 @@
 use crate::commands::branch_prefix::PrefixInputs;
 use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
-use crate::commands::session::SessionsState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
-use app_api::api_error::{api_error, patronus_error};
+use app_api::api_error::patronus_error;
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
 use domain_types::patronus::{
-  GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobot, PatronusRobotParams,
-  PatronusRobotStatus, PostPatronusCommandParams, ReadPatronusCommandReplyParams,
+  GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PostPatronusCommandParams,
+  ReadPatronusCommandReplyParams,
 };
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
@@ -22,7 +21,6 @@ use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
-use repository_model::actions::RemoteActions;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
@@ -204,96 +202,6 @@ pub async fn get_robot_commit_map(
     .map(Option::unwrap_or_default)
   })
   .await
-}
-
-/// What the app's actions on the robots run on (`repository_model::actions`): the one service of the app and the Space
-/// repository of the repository (none off Space: a robot action is refused), the sessions with the tables of their last
-/// syncs, and the prefix the command resolved for it (`PrefixInputs`)
-pub(crate) fn remote_actions<'a>(
-  patronus: &'a PatronusState,
-  space: Option<&'a SpaceRepository>,
-  git_executor: &'a GitCommandExecutor,
-  sessions: &'a SessionsState,
-  branch_prefix: &'a str,
-) -> RemoteActions<'a> {
-  RemoteActions::new(space.map(|space| (&*patronus.service, space)), git_executor, sessions.sessions(), branch_prefix)
-}
-
-// jscpd:ignore-start: the restart and the cancel are two commands of the page with the same states, one action apart
-/// Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
-/// a start (`RemoteActions::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
-#[tauri::command]
-#[instrument(skip(git_executor, patronus, sessions, settings, prefixes))]
-#[specta::specta]
-pub async fn restart_patronus_robot(
-  git_executor: State<'_, GitCommandExecutor>,
-  patronus: State<'_, PatronusState>,
-  sessions: State<'_, SessionsState>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
-  params: PatronusRobotParams,
-) -> Result<PatronusRobot, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    act_on_robot(inputs, &patronus, &sessions, &params, RobotAction::Restart).await
-  })
-  .await
-}
-
-/// Asks Patronus to cancel a running robot of the user's list (`RemoteActions::cancel_robot`); it answers it canceling
-#[tauri::command]
-#[instrument(skip(git_executor, patronus, sessions, settings, prefixes))]
-#[specta::specta]
-pub async fn cancel_patronus_robot(
-  git_executor: State<'_, GitCommandExecutor>,
-  patronus: State<'_, PatronusState>,
-  sessions: State<'_, SessionsState>,
-  settings: State<'_, SettingsService>,
-  prefixes: State<'_, BranchPrefixes>,
-  params: PatronusRobotParams,
-) -> Result<PatronusRobot, ApiError> {
-  operation(async move {
-    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
-    act_on_robot(inputs, &patronus, &sessions, &params, RobotAction::Cancel).await
-  })
-  .await
-}
-
-// jscpd:ignore-end
-
-/// What the user does with a robot of the list
-enum RobotAction {
-  Restart,
-  Cancel,
-}
-
-/// The restart or the cancel of the robot of `params` on the Space repository of the repository (`start_guard`)
-async fn act_on_robot(
-  inputs: PrefixInputs,
-  patronus: &PatronusState,
-  sessions: &SessionsState,
-  params: &PatronusRobotParams,
-  action: RobotAction,
-) -> Result<PatronusRobot, ApiError> {
-  let git_executor = inputs.git.clone();
-  let branch_prefix = inputs.resolve(&params.repository_path).await?;
-  let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
-  let actions = remote_actions(patronus, space.as_ref(), &git_executor, sessions, &branch_prefix);
-  let robot = match action {
-    RobotAction::Restart => actions.restart_robot(params).await,
-    RobotAction::Cancel => actions.cancel_robot(params).await,
-  }
-  .map_err(api_error)?;
-  sessions.write_robot(&params.repository_path, branch_prefix, &robot).await;
-  Ok(robot)
-}
-
-/// The current status of one robot, read right before a push into its branch
-#[tauri::command]
-#[instrument(skip(patronus))]
-#[specta::specta]
-pub async fn get_patronus_robot_status(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotStatus, ApiError> {
-  operation(async move { patronus.service.robot_status(&params.robot_id).await.map_err(patronus_error) }).await
 }
 
 /// Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) of a pull request of someone else the user

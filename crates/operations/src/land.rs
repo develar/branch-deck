@@ -136,6 +136,8 @@ pub fn planned_of(sources: &LandSources<'_>, land: &Land) -> Option<Planned> {
     source_ref,
     merge_request,
     notes: Vec::new(),
+    subject: land.subject.clone(),
+    mode: land.mode,
   })
 }
 

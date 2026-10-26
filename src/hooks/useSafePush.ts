@@ -12,21 +12,21 @@ import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, openRobot } from "@/lib/patronus"
-import { getRobotActionItems } from "@/lib/patronus-actions"
 import { openPullRequest, openPullRequestUrl } from "@/lib/pull-request"
 import { showRobotEventToast } from "@/lib/robot-toast"
+import { pushedBefore, recordEffects } from "@/lib/run-intent"
 import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
+import { getRobotActionItems } from "@/presenters/actions"
 import type { LandPrompt } from "@/presenters/land"
 import { presentLand, startRouteOf } from "@/presenters/land"
 import { formatLandingFix } from "@/presenters/landing"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP, startStepBlocker } from "@/presenters/next-step"
 import { presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
-import { recordActivity, recordPush, recordRetarget, recordRobot } from "@/stores/activity"
-import type { RemoteStatus } from "@/stores/branch-sync"
+import { recordActivity, recordRobot } from "@/stores/activity"
 import {
   branchSyncStore,
   getBranch,
@@ -578,12 +578,6 @@ async function prepareIn(repositoryPath: string, land: Land): Promise<Plan | nul
   return result.data
 }
 
-/** The remote status of each branch the push of `plan` sends, before it: what Activity says the push changed */
-function pushedBefore(plan: Plan): ReadonlyMap<string, RemoteStatus | null> {
-  const push = plan.effects.find(effect => effect.kind === "push")
-  return new Map(push?.kind === "push" ? push.branches.map(name => [name, getBranch(name)?.remoteStatus ?? null] as const) : [])
-}
-
 /**
  * Runs the start Rust planned (`execute` of the intent of `plan` on its fingerprint, every confirmation of it accepted:
  * the popover showed them, or the click had none) in `repositoryPath`, the repository it was planned in: the session
@@ -631,28 +625,6 @@ async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | u
   setLandProgress(result.data.op, null)
   recordEffects(result.data, repositoryPath, before)
   return tellOutcome(result.data, planned, repositoryPath)
-}
-
-/**
- * Activity of the effects of a start before its robot, each with the operation: the retargets of the pull requests
- * into a virtual branch (D11) and the push, which has no toast of its own
- */
-function recordEffects(outcome: Outcome, repositoryPath: string, before: ReadonlyMap<string, RemoteStatus | null>): void {
-  for (const { effect, status } of outcome.effects) {
-    if (status.kind !== "done") {
-      continue
-    }
-    if (effect.kind === "retarget") {
-      const url = getPullRequest(effect.branch)?.url
-      if (url !== undefined) {
-        recordRetarget(`Retargeted #${effect.number} to ${effect.to}`, `${effect.branch} · it went into ${effect.from}`, url)
-      }
-    } else if (effect.kind === "push") {
-      for (const name of effect.branches) {
-        recordPush(repositoryPath, name, before.get(name) ?? null, null)
-      }
-    }
-  }
 }
 
 /**

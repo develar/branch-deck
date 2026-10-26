@@ -36,7 +36,8 @@ targets:
   - ../../src/lib/landed.ts
   - ../../src/lib/git/push.ts
   - ../../src/lib/git/new-pull-request.ts
-  - ../../src/lib/patronus-actions.ts
+  - ../../src/lib/robot-run.ts
+  - ../../src/presenters/actions.ts
   - ../../src/lib/push-summary.ts
   - ../../src/stores/patronus.ts
   - ../../src/stores/review-requests.ts

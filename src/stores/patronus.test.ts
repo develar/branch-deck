@@ -19,8 +19,8 @@ import type {
 import { notifyError, setErrorRecorder } from "@/lib/errors"
 import { resetEventToasts } from "@/lib/event-toast"
 import { setWindowFocus } from "@/lib/os-notification"
-import { showRobotToast } from "@/lib/patronus-actions"
 import { formatFailedRobotToast, resetFailingAnnouncements, tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
+import { showRobotToast } from "@/lib/robot-toast"
 import { showRobotEventToast } from "@/lib/robot-toast"
 import { currentDemand, resetDemand } from "@/model/demand"
 import { formatPushHoldReason, formatStackHold } from "@/presenters/reasons"
@@ -261,6 +261,7 @@ vi.mock("@/stores/branch-sync", () => ({
       syncCount: branches.syncCount,
       tableRevision: branches.tableRevision,
       baselineBranch: "origin/master",
+      operations: {},
     }),
     subscribe: () => () => {},
   },
@@ -1260,7 +1261,7 @@ describe("failed robots", () => {
     await failRunningRobot()
     const failed = openToasts()[0]!
     expect(describeToast(failed)).toEqual(["Safe Push of auth failed", "Fast Tests · auth → master", "Restart Safe Push", "Open in Patronus"])
-    // what the restart says once Patronus answered it (`announceRobot`)
+    // what the restart says once Patronus answered it (`announceRobot` of `robot-run.ts`)
     showRobotToast("Safe Push restarted", robot({ id: "r2", startTime: 300 }))
     expect(openToasts()).toEqual([failed])
     expect(openToasts().map(describeToast)).toEqual([["Safe Push restarted", "auth → master", "Open in Patronus", undefined]])

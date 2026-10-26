@@ -1,7 +1,9 @@
 //! The run of a start of a Safe Push or a Dry Run (`Intent::Land`; docs/design/rust-domain-authority.md, "Инварианты
 //! планов"; docs/design/git-operations.md, "Push and land"), one for the app and `bd`: the plan is prepared again from
 //! the facts now (`StartHost::plan`) and runs only on the fingerprint its caller accepted, with every confirmation of it
-//! accepted; then, in this order:
+//! accepted. A restart of a robot (`Intent::RestartRobot`, `robot::execute_restart`) runs the same way (`run_planned`):
+//! its plan pushes first while the branch has work the remote lacks, and its last effect restarts the robot
+//! (`PlannedEffect::RestartRobot`) where a start starts one. Then, in this order:
 //!
 //! 1. the cheap witness, before the lock: the tips of the refs the plan moves and leases, one `for-each-ref`;
 //! 2. the repository lock, the full witness and the freeze of the commits and the leases of the push under it (no HTTP
@@ -16,23 +18,24 @@
 //! 7. the robots and the pull requests of the facts as they are now (no request): a robot that lands a part of the
 //!    subject started meanwhile, or the pull request of a comment that closed, skips the start as `plan_changed`;
 //! 8. the start: through the API, or as a `/patronus` comment with the reply of the bot read on the clock of the session
-//!    (`robot_start`); the robot it started goes into the facts.
+//!    (`robot_start`), or the restart; the robot it started goes into the facts.
 //!
 //! A refusal the facts know (a blocker, an unaccepted confirmation, a changed fingerprint, a held lock) does nothing:
-//! every effect comes after the full witness. The first effect that fails stops the start; the effects before it stay
-//! done, and the outcome lists each with its status.
+//! every effect comes after the full witness (a plan that moves and leases no ref reads none and takes no lock). The
+//! first effect that fails stops the start; the effects before it stay done, and the outcome lists each with its
+//! status.
 
 use crate::push::{OverMoved, Sent, send};
 use crate::robot_start::{ApiStart, CommentStart, Commented, patronus_failure, start_by_comment, start_through_api};
 use crate::witness::{Witness, check, read_refs};
 use domain_policy::holds::is_active;
-
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use domain_types::landing::{Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
 use domain_types::operation::{
-  EffectRecord, EffectStatus, Fingerprint, LandResult, NewsKey, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, StartComment, StartNote,
+  EffectRecord, EffectStatus, Fingerprint, Intent, LandResult, NewsKey, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, RobotResult, StartComment,
+  StartNote,
 };
-use domain_types::patronus::{PatronusMergeRequest, PatronusRobot};
+use domain_types::patronus::{PatronusMergeRequest, PatronusPushMode, PatronusRobot};
 use domain_types::pull_request::CreatedPullRequest;
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
@@ -46,7 +49,7 @@ use remote_facts::fact_sources::Read;
 use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_request};
 use remote_facts::pull_requests::GitHubWriteError;
 use repository_model::ref_claims::claim_refs;
-use repository_model::start_guard::start_refusal_text;
+use repository_model::refusal_words::start_refusal_text;
 use repository_model::table::RemoteSubject;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -74,6 +77,10 @@ pub struct Planned {
   pub merge_request: Option<PatronusMergeRequest>,
   /// What the checks of the host before the plan could not do in full (the outcome tells them)
   pub notes: Vec<StartNote>,
+  /// What it lands: the subject of the start, or of the robot a restart starts again
+  pub subject: Subject,
+  /// The push mode of the robot it starts or restarts
+  pub mode: PatronusPushMode,
 }
 
 /// A branch a start pushes, before its commit and lease are frozen
@@ -263,9 +270,27 @@ pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Ste
   let began = std::time::Instant::now();
   steps.step(OperationStep::Checking);
   let planned = host.plan(land).await?.ok_or_else(|| unknown_subject(&land.subject))?;
+  run_planned(host, services, steps, op, planned, accepted, began).await
+}
+
+/// Runs `planned`, a plan prepared again just now (a start, or a restart of a robot, `robot::execute_restart`), as `op`
+/// on what its caller accepted: its blockers refuse it, then the fingerprint and the confirmations, the witness, the
+/// lock and the freeze (none for a plan that moves and leases no ref), then its effects in their order (see the module)
+///
+/// # Errors
+/// As `execute`, before any effect
+pub(crate) async fn run_planned(
+  host: &dyn StartHost,
+  services: &StartServices,
+  steps: &Steps,
+  op: OperationId,
+  planned: Planned,
+  accepted: &Accepted,
+  began: std::time::Instant,
+) -> Result<Started, ApiError> {
   // what refuses it now is told as itself, a refusal the check against the newest target found too
   if let Some(blocker) = planned.plan.blockers.first() {
-    return Err(refusal(blocker, &planned.plan.blockers, &land.subject, &host.current().await.robots));
+    return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots));
   }
   check(&accepted.fingerprint, &planned.plan.fingerprint)?;
   if planned.plan.confirmations.iter().any(|confirmation| !accepted.confirmations.contains(confirmation)) {
@@ -274,14 +299,19 @@ pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Ste
   if !planned.plan.waits.is_empty() {
     return Err(ApiError::new(ErrorCode::PlanChanged, "The start still waits for facts nobody answered; prepare it again"));
   }
-  // the cheap witness: a stale plan goes without a wait for the lock
-  let names: Vec<String> = planned.witness.refs.keys().cloned().collect();
-  let (git, path) = (services.git.clone(), services.repository_path.clone());
-  let cheap = blocking(move || read_refs(&git, &path, &names).map_err(git_failure)).await?;
-  witnessed(&planned.witness, &cheap)?;
-  let frozen = frozen_under_lock(services, steps, &planned.witness).await?;
-  witnessed(&planned.witness, &frozen)?;
-  let prepared = freeze(services, &planned.pushes, &frozen)?;
+  // a plan that moves and leases no ref (a restart on the remote branch as it is) has no witness to read, no lock
+  let prepared = if planned.witness.refs.is_empty() {
+    None
+  } else {
+    // the cheap witness: a stale plan goes without a wait for the lock
+    let names: Vec<String> = planned.witness.refs.keys().cloned().collect();
+    let (git, path) = (services.git.clone(), services.repository_path.clone());
+    let cheap = blocking(move || read_refs(&git, &path, &names).map_err(git_failure)).await?;
+    witnessed(&planned.witness, &cheap)?;
+    let frozen = frozen_under_lock(services, steps, &planned.witness).await?;
+    witnessed(&planned.witness, &frozen)?;
+    freeze(services, &planned.pushes, &frozen)?
+  };
   debug!(effects = planned.plan.effects.len(), "the witness holds: the effects run");
   // the robots the facts held when the plan ran: one listed later that lands a part of it started meanwhile
   let known: HashSet<String> = host.current().await.robots.into_iter().map(|robot| robot.id).collect();
@@ -392,10 +422,11 @@ fn unknown_subject(subject: &Subject) -> ApiError {
   ApiError::new(ErrorCode::UnknownBranch, format!("The last sync has no {}: nothing was pushed or started", subject.words()))
 }
 
-/// The first blocker of a plan as the start answers it: the code `bd` refuses it with, in the words of the guards; a
-/// refusal of the landing gate with every refusal of it among `blockers` (each with its fix), a conflict with the target
-/// with its commit and files
-fn refusal(reason: &Reason, blockers: &[Reason], subject: &Subject, robots: &[PatronusRobot]) -> ApiError {
+/// The first blocker of `plan` as the start answers it: the code `bd` refuses it with, in the words of the guards; a
+/// refusal of the landing gate with every refusal of it among its blockers (each with its fix), a conflict with the
+/// target with its commit and files
+fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRobot]) -> ApiError {
+  let blockers = plan.blockers.as_slice();
   let code = match reason {
     Reason::Landed { .. } | Reason::StackLanded { .. } | Reason::LandedIn { .. } | Reason::PullRequestMerged { .. } => ErrorCode::Landed,
     Reason::StackNotBuilt {
@@ -422,7 +453,11 @@ fn refusal(reason: &Reason, blockers: &[Reason], subject: &Subject, robots: &[Pa
     Reason::LandingRefused { refusal } => refusal.reason(),
     _ => start_refusal_text(reason, &subject.words(), robots),
   };
-  let error = ApiError::new(code, format!("Nothing was pushed or started: {words}"));
+  let nothing = match &plan.intent {
+    Intent::RestartRobot { .. } => "Nothing was restarted",
+    _ => "Nothing was pushed or started",
+  };
+  let error = ApiError::new(code, format!("{nothing}: {words}"));
   match reason {
     Reason::LandingRefused { .. } => error.with_details(ErrorDetails::Landing {
       refusals: blockers
@@ -509,6 +544,7 @@ impl<'a> Run<'a> {
           PlannedEffect::Push { .. } => self.push(prepared.take()).await,
           PlannedEffect::StartRobot { route } => self.start(route).await,
           PlannedEffect::CreatePullRequest => self.create_pull_request().await,
+          PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
         }
       };
       self.records.push(EffectRecord { effect, status });
@@ -553,35 +589,43 @@ impl<'a> Run<'a> {
     }
   }
 
-  /// The running Safe Push the start replaces is canceled; one that finished meanwhile (as the facts or its status,
-  /// one request, say) is as it is: nothing is left to cancel, and the start goes on
+  /// The running Safe Push the start replaces (or the robot a restart pushes into) is canceled; one that finished
+  /// meanwhile is as it is (`robot::cancel`): nothing is left to cancel, and the start goes on
   async fn cancel(&mut self, robot_id: &str) -> EffectStatus {
     self.steps.step(OperationStep::CancelingRobot);
     let current = self.host.current().await;
-    if let Some(finished) = current.robots.iter().find(|robot| robot.id == robot_id && !is_active(robot)) {
-      debug!(robot_id, "the robot the start replaces finished meanwhile");
-      self.canceled = Some(finished.clone());
-      return EffectStatus::Done;
-    }
-    // it may have finished since the session listed it; a status that can't be read asks for the cancel all the same
-    if let Ok(status) = self.services.patronus.robot_status(robot_id).await
-      && status.is_finished()
-    {
-      debug!(robot_id, ?status, "the robot the start replaces finished since it was listed");
-      if let Some(listed) = current.robots.into_iter().find(|robot| robot.id == robot_id) {
-        let finished = PatronusRobot { status, ..listed };
-        self.version = self.host.write_robot(finished.clone()).await.or(self.version);
-        self.canceled = Some(finished);
-      }
-      return EffectStatus::Done;
-    }
-    match self.services.patronus.cancel(&self.services.prefix, robot_id).await {
-      Ok(robot) => {
-        self.version = self.host.write_robot(robot.clone()).await.or(self.version);
-        self.canceled = Some(robot);
+    let host = self.host;
+    let write = move |robot: PatronusRobot| host.write_robot(robot);
+    match crate::robot::cancel(&self.services.patronus, &self.services.prefix, &current.robots, robot_id, &write).await {
+      Ok(canceled) => {
+        self.version = canceled.version.or(self.version);
+        self.canceled = Some(canceled.robot);
         EffectStatus::Done
       }
-      Err(message) => self.fail(patronus_failure(message)),
+      Err(error) => self.fail(error),
+    }
+  }
+
+  /// The robot is restarted, after the checks before a start (a pushed branch that moved since, a robot of its subject
+  /// started meanwhile); the new robot into the facts
+  async fn restart(&mut self, robot_id: &str) -> EffectStatus {
+    if let Some(skipped) = self.before_start().await {
+      return skipped;
+    }
+    self.steps.step(OperationStep::Starting);
+    let answer = self.services.patronus.restart(&self.services.prefix, robot_id).await.map_err(patronus_failure);
+    self.robot_started(answer).await
+  }
+
+  /// The robot a start or a restart started goes into the facts; what Patronus refused it with fails the effect
+  async fn robot_started(&mut self, answer: Result<PatronusRobot, ApiError>) -> EffectStatus {
+    match answer {
+      Ok(robot) => {
+        self.version = self.host.write_robot(robot.clone()).await.or(self.version);
+        self.robot = Some(robot);
+        EffectStatus::Done
+      }
+      Err(error) => self.fail(error),
     }
   }
 }
@@ -589,10 +633,7 @@ impl<'a> Run<'a> {
 impl Planned {
   /// The branch of a branch start, the root of a whole stack
   fn plan_subject_name(&self) -> &str {
-    match &self.plan.intent {
-      domain_types::operation::Intent::Land(land) => land.subject.name(),
-      _ => "",
-    }
+    self.subject.name()
   }
 }
 
@@ -678,15 +719,11 @@ impl Run<'_> {
     }
     let current = self.host.current().await;
     let plan = &self.planned.plan;
-    let dry_run = plan_mode_is_dry_run(plan);
+    let dry_run = self.planned.mode == PatronusPushMode::DryRun;
     let canceled = self.canceled.as_ref().map(|robot| robot.id.as_str());
     let started = current.robots.iter().find(|robot| {
       let lands = robot.branch_name.as_ref().is_some_and(|branch| plan.lands.contains(branch)) || robot.stack_root.as_deref() == Some(self.planned.plan_subject_name());
-      lands
-        && is_active(robot)
-        && (robot.push_mode == domain_types::patronus::PatronusPushMode::DryRun) == dry_run
-        && !self.known.contains(&robot.id)
-        && Some(robot.id.as_str()) != canceled
+      lands && is_active(robot) && (robot.push_mode == PatronusPushMode::DryRun) == dry_run && !self.known.contains(&robot.id) && Some(robot.id.as_str()) != canceled
     });
     if let Some(robot) = started {
       return Some(self.skip(changed_before_start(&format!("a robot of what it lands started meanwhile ({})", robot.url))));
@@ -708,10 +745,6 @@ fn short(full: &str) -> String {
   full.rsplit('/').next().unwrap_or(full).to_string()
 }
 
-fn plan_mode_is_dry_run(plan: &Plan) -> bool {
-  matches!(&plan.intent, domain_types::operation::Intent::Land(land) if land.mode == domain_types::patronus::PatronusPushMode::DryRun)
-}
-
 /// What the start was planned on changed after its first effects, before its robot (`what`): no robot started, and the
 /// effects before stay done
 fn changed_before_start(what: &str) -> ApiError {
@@ -730,10 +763,7 @@ impl Run<'_> {
       return skipped;
     }
     self.steps.step(OperationStep::Starting);
-    let land = match &self.planned.plan.intent {
-      domain_types::operation::Intent::Land(land) => land.clone(),
-      _ => return self.fail(ApiError::internal("The plan of a start has another intent")),
-    };
+    let mode = self.planned.mode;
     match route {
       StartRoute::Api { profile } => {
         let start = ApiStart {
@@ -741,26 +771,20 @@ impl Run<'_> {
           prefix: &self.services.prefix,
           source_ref: &self.planned.source_ref,
           target: &self.services.target,
-          mode: land.mode,
+          mode,
           profile: profile.as_ref().map(|profile| profile.id.clone()),
           merge_request: self.planned.merge_request.clone(),
         };
-        match start_through_api(&self.services.patronus, start).await {
-          Ok(robot) => {
-            self.version = self.host.write_robot(robot.clone()).await.or(self.version);
-            self.robot = Some(robot);
-            EffectStatus::Done
-          }
-          Err(error) => self.fail(error),
-        }
+        let answer = start_through_api(&self.services.patronus, start).await;
+        self.robot_started(answer).await
       }
-      StartRoute::Comment { number } => self.comment(*number, land.mode).await,
+      StartRoute::Comment { number } => self.comment(*number, mode).await,
     }
   }
 
   /// The `/patronus` comment on the pull request `number` and the reply of the bot: accepted is done, no reply within
   /// the wait is unknown (the bot may still answer it)
-  async fn comment(&mut self, number: u32, mode: domain_types::patronus::PatronusPushMode) -> EffectStatus {
+  async fn comment(&mut self, number: u32, mode: PatronusPushMode) -> EffectStatus {
     let Some((github, repository)) = &self.services.github else {
       return self.fail(ApiError::new(ErrorCode::InvalidArguments, "The GitHub repository of the branches is unknown"));
     };
@@ -829,20 +853,24 @@ impl Run<'_> {
   /// The run as its outcome tells it, with what its effects answered
   fn started(self, op: OperationId, began: std::time::Instant) -> Started {
     let subject = self.planned.plan_subject_name().to_string();
-    let mode = match &self.planned.plan.intent {
-      domain_types::operation::Intent::Land(land) => land.mode,
-      _ => domain_types::patronus::PatronusPushMode::RebaseAutosquash,
+    let mode = self.planned.mode;
+    let result = match &self.planned.plan.intent {
+      Intent::RestartRobot { .. } => OperationResult::Robot(Box::new(RobotResult {
+        robot: self.robot.clone(),
+        canceled: self.canceled.clone(),
+        already_finished: false,
+      })),
+      _ => OperationResult::Land(Box::new(LandResult {
+        robot: self.robot.clone(),
+        canceled: self.canceled.clone(),
+        comment: self.commented.as_ref().map(|commented| StartComment {
+          number: commented.number,
+          url: commented.comment_url.clone(),
+          accepted: commented.accepted,
+        }),
+        notes: self.planned.notes.clone(),
+      })),
     };
-    let result = OperationResult::Land(Box::new(LandResult {
-      robot: self.robot.clone(),
-      canceled: self.canceled.clone(),
-      comment: self.commented.as_ref().map(|commented| StartComment {
-        number: commented.number,
-        url: commented.comment_url.clone(),
-        accepted: commented.accepted,
-      }),
-      notes: self.planned.notes.clone(),
-    }));
     let outcome = Outcome {
       op,
       effects: self.records,
@@ -869,4 +897,4 @@ impl Run<'_> {
 
 #[cfg(test)]
 #[path = "land_execute_test.rs"]
-mod land_execute_test;
+pub(crate) mod land_execute_test;

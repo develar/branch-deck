@@ -121,11 +121,9 @@ struct Allowed {
   removed_in: &'static str,
 }
 
-const ALLOWED: &[Allowed] = &[Allowed {
-  from: "repository-model",
-  to: "patronus",
-  removed_in: "s9-engine-remote",
-}];
+/// Empty since s9-engine-remote took the restart and the cancel of a robot out of `repository-model` (its last edge, to
+/// `patronus`); a new entry needs the stage that removes it
+const ALLOWED: &[Allowed] = &[];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {

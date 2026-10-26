@@ -338,6 +338,22 @@ pub enum OperationResult {
   None,
   /// A start of a Safe Push or a Dry Run
   Land(Box<LandResult>),
+  /// A restart or a cancel of a robot
+  Robot(Box<RobotResult>),
+}
+
+/// What a restart or a cancel of a robot answered: the toast of the robot and the Activity entry of the page name it
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RobotResult {
+  /// The robot as the operation left it: the new one a restart started, the one a cancel canceled (canceling), or the
+  /// one that had finished before the cancel; none when a restart did not get to the restart
+  pub robot: Option<PatronusRobot>,
+  /// The running robot a restart that pushes first canceled before its push
+  pub canceled: Option<PatronusRobot>,
+  /// The cancel found the robot finished: nothing was canceled, and `robot` is as it ended
+  pub already_finished: bool,
 }
 
 /// What a start of a Safe Push or a Dry Run answered: the toast and the Activity entry of the page name it

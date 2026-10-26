@@ -194,7 +194,7 @@
     "id": "direct-ipc-skips-the-checks",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the IPC of a start, a restart, a cancel and a push ran without the checks of the decision; bd checks in its commands. Since s1-holes the app's commands check in Rust too: the push under the repository lock refuses parked, landed and held branches, the start, the restart and the cancel refuse parked, landed, not built and overlapped subjects on the robots Rust lists itself",
+    "title": "the IPC of a start, a restart, a cancel and a push ran without the checks of the decision; bd checks in its commands. Since s1-holes the app's commands check in Rust too: the push under the repository lock refuses parked, landed and held branches, the start, the restart and the cancel refuse parked, landed, not built and overlapped subjects on the robots Rust lists itself; since s9-engine-remote the start, the restart and the cancel are intents of the engine, decided again by execute over the facts of the session",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
@@ -205,9 +205,9 @@
     "closed": "s1-holes",
     "today": {
       "app": [
-        "crates/operations/src/land_execute.rs#return Err(refusal(blocker, &planned.plan.blockers, &land.subject, &host.current().await.robots));",
-        "crates/repository-model/src/start_guard.rs#check_restart(facts, &robot_id)",
-        "crates/repository-model/src/start_guard.rs#check_cancel(&robots, &params.robot_id, params.replaced)",
+        "crates/operations/src/land_execute.rs#return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots));",
+        "crates/operations/src/robot.rs#let mut blockers: Vec<Reason> = restart.refusal.iter().cloned().collect();",
+        "crates/operations/src/robot.rs#check(&accepted.fingerprint, &plan.fingerprint)?;",
         "crates/operations/src/push.rs#check_push(&facts, &params.branches).map_err(|refusal| anyhow!(refusal))?;"
       ],
       "bd": [

@@ -10,8 +10,8 @@ import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { formatPushMode } from "@/lib/patronus"
-import { showRobotToast } from "@/lib/patronus-actions"
 import type { PushUpToStep } from "@/lib/push-up-to"
+import { showRobotToast } from "@/lib/robot-toast"
 import { joinNames } from "@/lib/text"
 import { pushProgressOf } from "@/lib/transfer-progress"
 import { formatWholeStack, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
@@ -332,12 +332,13 @@ async function settledOrder(orderOf: () => StackPushOrder, repositoryPath: strin
 }
 
 /**
- * Whether no running Safe Push holds a branch of the push (`checkPushHold`), so the push may go: one held branch
- * refuses the whole push, with the reason. The robot a Safe Push start replaces is canceled once, by the push right
- * before it sends (`cancels`), whichever of its branches it holds.
+ * Whether no Safe Push holds a branch of the push (`checkPushHold`), so the push may go: one landed branch refuses the
+ * whole push, with the reason; a running robot of one Rust refuses it for (`holder`). The robot a Safe Push start
+ * replaces is canceled once, by the push right before it sends (`cancels`), whichever of its branches it holds.
  */
 async function checkStackHolds(names: readonly string[], options: StackPushOptions, report: PushReport): Promise<PushClearance> {
   let cancels: PatronusRobot | null = null
+  let holder: PatronusRobot | null = null
   for (const name of names) {
     const hold = getPushHold(name)
     if (hold !== null && hold.robot.id === cancels?.id) {
@@ -348,8 +349,9 @@ async function checkStackHolds(names: readonly string[], options: StackPushOptio
       return false
     }
     cancels ??= clearance.cancels
+    holder ??= clearance.holder
   }
-  return { cancels }
+  return { cancels, holder }
 }
 
 /** The branches in the table, or null when one is gone (it said so) */

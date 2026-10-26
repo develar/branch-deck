@@ -251,20 +251,6 @@ pub struct PatronusStartOptions {
   pub default_profile_id: Option<String>,
 }
 
-/// A robot of the selected repository
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PatronusRobotParams {
-  pub repository_path: String,
-  pub robot_id: String,
-  /// The cancel of the robot a start or a push replaces or restarts (`start_guard::check_cancel`): a robot that finished
-  /// meanwhile is answered as it is, already finished, instead of "not running", and the start or the push goes on
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub replaced: bool,
-}
-
 /// What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
 /// `domain_policy::land::decide`), each by the user: the flags of `bd safe-push` (`--allow-dangling`, `--allow-missing`,
 /// `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`), Start Anyway of the app for the

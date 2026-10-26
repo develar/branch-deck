@@ -193,15 +193,14 @@ async function pushAndRestartFromMenu(page: Page) {
 }
 
 /**
- * Presses the Restart Safe Push of a robot that runs on an older commit, which cancels it, pushes and restarts it, and
- * waits for the answer of each step in turn: under load each takes seconds, more than one assertion's time for the three
+ * Presses the Restart Safe Push of a robot that runs on an older commit, whose plan cancels it, pushes and restarts it,
+ * and waits for the answer of its run (`execute` of the restart): under load the three effects take seconds, more than
+ * one assertion's time
  */
 async function runAndWaitForRestart(page: Page, press: () => Promise<unknown>): Promise<void> {
-  const steps = ["cancel_patronus_robot", "push_branch", "restart_patronus_robot"].map(command => nextAnswer(page, command))
+  const restarted = nextAnswer(page, "execute")
   await press()
-  for (const step of steps) {
-    await step
-  }
+  await restarted
 }
 
 /** "Safe Push" of the open branch menu disabled, `reason` on its hover; then its "Patronus ›" opened */
@@ -649,7 +648,7 @@ test.describe("Patronus actions", () => {
 
     let popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
     await expect(popover.getByRole("button", { name: "Cancel Safe Push" })).toHaveCount(0)
-    await runAndWaitForAnswer(page, "restart_patronus_robot", () => popover.getByRole("button", { name: "Restart Safe Push" }).click())
+    await runAndWaitForAnswer(page, "execute", () => popover.getByRole("button", { name: "Restart Safe Push" }).click())
     await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect((await repo.getPatronusLog()).restarts).toEqual([FAILED.id])
     await page.keyboard.press("Escape")

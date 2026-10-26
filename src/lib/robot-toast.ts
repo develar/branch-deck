@@ -9,7 +9,7 @@ import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { operationsStore } from "@/stores/operations"
 import { getBranchRobot, getStackRobot, patronusStore } from "@/stores/patronus"
-import { isSelectedRepository, repositoryStore } from "@/stores/repository"
+import { getSelectedRepositoryPath, isSelectedRepository, repositoryStore } from "@/stores/repository"
 
 /*
  * The toast of a robot (docs/guidelines/ux-writing.md#one-toast-per-event): its start, restart and cancel, a required
@@ -111,4 +111,13 @@ export function showRobotEventToast({ repositoryPath, robot, type, title, descri
         : { type, title, description, action: step, secondaryAction: patronus }
     },
   })
+}
+
+/**
+ * The toast of a robot that started, restarted or is canceling, in the repository the main window shows, where its
+ * action ran ("Safe Push restarted" / "auth → master", with "Open in Patronus"): it takes the place of the toast of the
+ * robot it restarted or cancels ("Safe Push of auth failed" becomes "Safe Push restarted")
+ */
+export function showRobotToast(title: string, robot: PatronusRobot, repositoryPath: string = getSelectedRepositoryPath()): void {
+  showRobotEventToast({ repositoryPath, robot, type: "success", title, description: describeRobot(robot) })
 }

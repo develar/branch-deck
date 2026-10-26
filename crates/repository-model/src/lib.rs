@@ -9,14 +9,10 @@
 //! needs, the pull requests of GitHub with the rules of their bases, the merge profiles, the review readiness, the review
 //! requests of others and the details of the robots a window demands (the scheduler of `remote-facts` reads them by the
 //! rules of `domain-policy`, the session orders the answers and the app's writes). Besides them: the table of a sync
-//! (`branch_table`), the rule of what the robots land (`patronus_view`) and the guards of the app's actions on the
-//! remote (`push_guard`, `start_guard`, run through `actions`). It holds what the checks and the remote services found
-//! and runs no check and asks no remote service itself (the hosts answer the landing needs), except the Patronus client
-//! `RemoteActions` carries until the engine of the remote takes the restart and the cancel of a robot.
+//! (`branch_table`), the rule of what the robots land (`patronus_view`) and the check of the app's push under the lock
+//! (`push_guard`). It holds what the checks and the remote services found and runs no check and asks no remote service
+//! itself (the hosts answer the landing needs); the actions on the remote are the engine's (`operations`).
 //!
-//! - `actions`: what the app's actions on the robots run on, the same for the app's commands and the E2E server's routes
-//!   (`RemoteActions`: the Patronus service with the Space repository, git, the sessions with the tables of their last
-//!   syncs); the flows are its methods
 //! - `action_view`: the actions of each subject of the view (`actions_of`: every branch, whole stack and robot, by
 //!   `domain_policy::actions`), derived with every patch over the next steps of the same patch
 //! - `facts`: the facts of a session, each with the number of the observation that answered it (`Seq`, one counter per
@@ -43,6 +39,8 @@
 //!   their order, the news that approvals arrived
 //! - `review_request_facts`: the pull requests of others that wait for the user's review, as the listings leave them,
 //!   and the news of the requests a listing added
+//! - `refusal_words`: the words of the refusals of the rules for `bd`, the engine and the push guard
+//!   (`start_refusal_text`), and why the stack branch of a whole stack is no build of its commits
 //! - `runtime`: the actor of a session: its mailbox, the runs of its syncs with the mailbox as their reporter, the
 //!   patches at most every 16 ms; `GitSessionHost`, the syncs, the Patronus views and the landing needs of the app's
 //!   sessions with git
@@ -56,10 +54,6 @@
 //!   timers of a session wait on its clock (`runtime::sleep_until`); the events of the sessions for the scheduler of the
 //!   facts (`events`, `SessionEvent`), which reads with `begin` and applies with `apply_facts`; `write_robot`,
 //!   `write_pull_request`
-//! - `start_guard`: the checks of the app's restart and cancel of a robot, by the rules of `bd safe-push`: parked,
-//!   landed whole, not built, a robot on its last commit or one that lands a part of it; the words of the robot refusals
-//!   for `bd`, the engine and the app (`start_refusal_text`), and the whole sequence of the action (`restart_robot`,
-//!   `cancel_robot`)
 //! - `state`: what a session sent its windows of the table (`View`): the patch of the parts that changed since
 //!   (`diff`), the snapshot at the version of the last patch
 //! - `sync_scheduler`: when a session syncs: one run at a time, one quiet follow-up, one check of the inputs after the
@@ -71,7 +65,6 @@
 //!   too and summarizes it
 
 pub mod action_view;
-pub mod actions;
 pub mod branch_table;
 pub mod derive;
 pub mod facts;
@@ -83,10 +76,10 @@ pub mod pull_request_facts;
 pub mod push_guard;
 pub mod readiness_facts;
 pub mod ref_claims;
+pub mod refusal_words;
 pub mod review_request_facts;
 pub mod runtime;
 pub mod session;
-pub mod start_guard;
 pub mod state;
 pub mod sync_scheduler;
 pub mod table;

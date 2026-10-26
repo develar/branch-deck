@@ -3013,38 +3013,37 @@ Code: `crates/trial-check/src/landing_gate.rs`, `crates/domain-types/src/landing
 `crates/operations/src/land_session.rs`, `src/presenters/landing.ts`; the landing needs `crates/repository-model/src/facts.rs`,
 `crates/repository-model/src/runtime.rs`, `crates/bd-remote/src/status.rs`.
 
-#### Robot start guard
+#### Robot restart and cancel
 
-The start of a Safe Push or a Dry Run is an operation of the engine ([Push and land](#push-and-land)): its plan
-refuses what `bd safe-push` refuses, decided again by `execute` before its first effect over the facts of the
-session, never the page's. The page decides a restart and a cancel of a robot before it asks, but the IPC of each is a
-command anyone can call (another window, a robot raced by the IDE or `bd`). So each checks in Rust before it asks
-Patronus, by the rules of `bd safe-push`, on the table of the last sync the session keeps ([Session facts](#session-facts))
-and the user's robots it lists itself, never the page's (`repository_model::start_guard`; both hosts run the same
-sequence, the methods of `repository_model::actions::RemoteActions`: `restart_robot`, `cancel_robot`), until their
-family moves into the engine (s9-9):
+The start of a Safe Push or a Dry Run, the restart and the cancel of a robot are operations of the engine
+([Push and land](#push-and-land)): the page asks `prepare` of the intent (`RestartRobot`, `CancelRobot`) and runs the
+plan with `execute`, from every surface that offers them (the robot menu, its details, the robots indicator, a toast,
+the hold of a push); the plan is decided again by `execute` before its first effect over the facts of the session,
+never the page's (`operations::robot`):
 
-1. One full list of the user's robots (`PatronusService::robots_for_action`: one request now, never the list kept for
-   the page, which a robot the IDE or `bd` started since would be missing from): a list Patronus doesn't give fails the
-   action, in the words of a failed action ("Run ./safePush.cmd once to log in to Patronus").
-2. The Patronus view of the table of the last sync of the repository's session (`Sessions::table`) with them
-   (`push_guard::guard_facts`): no git where the hashes tell, else the content walks of the session's memo. A
-   repository not synced yet (its session never synced) is refused.
-3. A restart (`check_restart`) is a start of the robot's subject in its mode that the robot itself does not refuse as
-   the robot of the last commit: a parked subject, one merged Safe Pushes landed whole, one the sync did not build
-   (`stack_not_built_words`, `stack_conflict_words`), then the robot part of the start
-   (`domain_policy::land::start_refusal` over the facts of the view, `derive::LandingFacts`), in the words of
-   `start_refusal_text`, which `bd` and the engine use too; a robot the list lacks or of a temporary ref is refused, a
-   subject without a row of the table is not checked (Patronus restarts on its remote branch). A cancel
-   (`check_cancel`) needs a robot of the list that is running or canceling, and no table; the cancel of the robot a
-   push replaces or restarts (`replaced`) answers one that finished meanwhile as listed (`CancelCheck::AlreadyFinished`),
-   without asking Patronus, so the push goes on. The engine's cancel of the robot a start replaces reads its status
-   (one request) when the facts still have it running, and goes on the same way when it finished.
+1. A restart is the restart the view offers (`PatronusView.restarts`, `domain_policy::holds::restart_action`), refused
+   by what the view refuses it by (`domain_policy::land::restart_refusal`: a parked subject first, a branch the sync did
+   not build for a restart that pushes it, then a start of its subject that the robot itself does not refuse, then
+   merged Safe Pushes that landed it whole), in the words of `start_refusal_text` ("Nothing was restarted: …"). A robot
+   of a temporary ref, a running one on the commit of its branch, a merged one have no plan.
+2. A plain restart (the remote has the branch) moves and leases no ref: no witness read, no lock, the restart through
+   the API, the new robot into the session. A restart of a branch with work its remote lacks pushes first, as a start
+   pushes (`land_execute::run_planned`): the retarget of its pull request out of a virtual branch, the cancel of the
+   running robot (the push into its branch would fail it at the end), the lock only for the witness and the freeze,
+   the push after it, then the restart, skipped (`plan_changed`) when the pushed branch moved since. A push that drops
+   commits of the remote the branch lacks refuses the restart (`DropsRemote`): the push button asks first.
+3. A cancel cancels whatever the robot does by then: one that finished as the facts of the session say, or as its
+   status says since (one request), is answered as it ended (`already_finished`), nothing canceled; the cancel of the
+   robot a start or a restart replaces is the same (`robot::cancel`).
 
-No lock: a restart or a cancel changes no ref of the repository.
+The robots each decides on are the session's, asked no list of its own; every robot it restarted or canceled goes into
+the session, so every window shows it at once. A restart and a cancel hold their robot (`Resource::Robot`): a second
+click of the same joins it, a cancel during a restart waits for it; a restart holds what its robot lands and the ref
+of its push too. The push of the app (`push_branch`) restarts a robot it canceled through the same intent until its
+family moves into the engine (s9-12).
 
-Code: `crates/repository-model/src/start_guard.rs` (the checks), `crates/patronus/src/service.rs` (`robots_for_action`),
-`src-tauri/src/commands/patronus.rs`, `crates/test-server/src/tauri_command_bridge.rs`.
+Code: `crates/operations/src/robot.rs`, `crates/operations/src/land_execute.rs`, `src/lib/robot-run.ts`,
+`src/presenters/actions.ts` (`getRobotActionItems`).
 
 #### Agent robot status (`bd robot`)
 
@@ -3169,7 +3168,7 @@ no operation.
 - **Branch prefix**: the backend's order (`resolve_branch_prefix` of `crates/app-settings/src/resolve.rs`, used by
   `bd` and by every command of the app that names branches: the sync family, Patronus, the push, the pull requests,
   the branch review and the stack independence, which take the repository path alone, `PrefixInputs` in
-  `src-tauri/src/commands/branch_prefix.rs`; the actions on the remote get it through `RemoteActions::new`) puts the specific prefix first: the repository's own (local,
+  `src-tauri/src/commands/branch_prefix.rs`; the operations of the remote get it through the key of their session) puts the specific prefix first: the repository's own (local,
   worktree or command scope), then the app's `globalUserBranchPrefix`, then the global or system one, and names where
   the prefix came from (`ResolvedBranchPrefix`). `get_branch_prefix_from_git_config_sync` reads the value with its scope
   in one `git config -z --show-scope --get`, for the page's `resolve_branch_prefix` and for the first command of a
@@ -3515,13 +3514,11 @@ and the checks of the app's actions on them. The crate `repository-model` holds 
 repository ([Rust as the Domain Authority](rust-domain-authority.md)); the scheduler that reads the facts is
 `remote-facts`', the rules it asks by and the matching of the robots are `domain-policy`'s. `repository-model` reaches
 no remote reader, no Update Project and no lease pool (`crates/bd-cli/src/architecture_test.rs`) and no trial check
-(its hosts answer the landing needs and the landing gate); its edge to `patronus` (the client `RemoteActions` carries)
-is allowed until the stage that removes it. Its views are read-only. Its guards (`push_guard`, the app's push, and
-`start_guard`, the start, restart and cancel of a robot and the landing check of the popover) are the whole sequence of
-the Tauri command and of the E2E server's route: the user's robots as `PatronusService` reads them for the action
-(never the page's, never a list kept before), the table of the last sync of the repository's session
-(`Sessions::table`, with the memo of its content walks and the remote branches as the session knows them), the landing
-gate of the host (`landing::LandingGate`) and the git work in a blocking step.
+(its hosts answer the landing needs and the landing gate), and no Patronus client: the start, the restart and the
+cancel of a robot are operations of the engine (`operations`). Its views are read-only. Its check of the app's push
+(`push_guard`) reads the user's robots as `PatronusService` reads them for the push (never the page's, never a list
+kept before), the table of the last sync of the repository's session (`Sessions::table`, with the memo of its content
+walks and the remote branches as the session knows them) and does the git work in a blocking step.
 
 #### The table of a session
 
@@ -3903,8 +3900,9 @@ Patronus view's, the landing needs the host's.
   (`operations::land::prepare_one_shot` over its one-shot session: the first decision over what `needs(Land)` read,
   then the review and the rules it waits for, read once, then the decision again, with the landing gate and the target
   check it ran; its flags are the allowances of the intent),
-  `bd status` and `bd robot` what landed. The guards of the app's commands (`push_guard`, `start_guard`) decide by the
-  same rules on the table of the last sync; a start of the app is decided again by the engine before its effects. The
+  `bd status` and `bd robot` what landed. The check of the app's push (`push_guard`) decides by the same rules on the
+  table of the last sync; a start, a restart and a cancel of the app are decided again by the engine before their
+  effects. The
   scenario table runs each case through both sides
   (`crates/bd-remote/src/scenario_test.rs`: the derivation of a session over the table state of a sync and a
   `FactStore` fed as a host feeds it, then `bd safe-push --check` and its start) against one expectation.

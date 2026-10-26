@@ -73,10 +73,7 @@ vi.mock("@/stores/patronus", () => ({
   getStackLandedReason: () => null,
   getBranchLanding: () => ({ hold: null, start: null, dryRun: null, replaces: null, push: null }),
   getStackLanding: () => ({ hold: null, start: null, dryRun: null, replaces: null }),
-  fetchPatronusRobotStatus: async () => "running",
   whenRepositoryViewCurrent: async () => {},
-  cancelPatronusRobot: async () => null,
-  restartPatronusRobot: async () => null,
 }))
 vi.mock("@/stores/pull-requests", async () => ({
   pullRequestsStore: (await import("@/test-support/quiet-store")).quietStore,

@@ -19,7 +19,6 @@ import { pushWithChildren } from "@/lib/git/stack-push"
 import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
-import { getRobotActionItems } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { formatPushWithChildrenLabel, stackOnFixes, stackProblemOf } from "@/lib/stack"
@@ -27,7 +26,7 @@ import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong } from "@/lib/whole-stack"
 import { getRowPart } from "@/model/store"
 import type { ActionItem, BlockerWords } from "@/presenters/actions"
-import { ACTION_LOOKS, findAction, presentAction, whileSyncing } from "@/presenters/actions"
+import { ACTION_LOOKS, findAction, getRobotActionItems, presentAction, whileSyncing } from "@/presenters/actions"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP } from "@/presenters/next-step"
 import type { Branch } from "@/stores/branch-sync"
@@ -117,8 +116,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const nextStep = getBranchNextStep(branch.name) ?? NO_NEXT_STEP
   const robot = getBranchRobot(branch.name)
   // its pull request is the branch's one, which "Open Pull Request" already opens
-  const robotActions =
-    robot === undefined ? [] : getRobotActionItems(robot, operations).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
+  const robotActions = robot === undefined ? [] : getRobotActionItems(robot).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
   const landingActions = present(
     // the build of what its Safe Push lands needs a branch outside it: the fix first ("Stack lane-run on stills-codec")
     nextStep.landingFix === null ? null : rewriteItem(branch, nextStep.landingFix, operations),

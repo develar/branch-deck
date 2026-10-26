@@ -21,7 +21,7 @@ use patronus::service::PatronusService;
 use repository_model::branch_table::BranchTable;
 use repository_model::one_shot::OneShot;
 use repository_model::push_guard::{every_branch_landed, own_hold_words, span_hold_words, stack_hold_words};
-use repository_model::start_guard::start_refusal_text;
+use repository_model::refusal_words::start_refusal_text;
 use std::collections::HashMap;
 use std::sync::Arc;
 use sync_core::patronus_start::push_mode_name;

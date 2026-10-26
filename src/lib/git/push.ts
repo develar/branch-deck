@@ -11,9 +11,10 @@ import { pushStack } from "@/lib/git/stack-push"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { canceledBeforeStart, isLockWaitCanceled } from "@/lib/lock-wait"
 import { describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
-import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
+import { showRobotToast } from "@/lib/robot-toast"
+import { runFailure, runIntent } from "@/lib/run-intent"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { pushProgressOf } from "@/lib/transfer-progress"
@@ -33,7 +34,7 @@ import {
   whenSynced,
 } from "@/stores/branch-sync"
 import { isRewriteRunning, whenRewritesDone } from "@/stores/operations"
-import { cancelPatronusRobot, fetchPatronusRobotStatus, getBranchLanding, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
+import { getBranchLanding, getPushHold, whenRepositoryViewCurrent } from "@/stores/patronus"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getRepositorySwitchReason, getSelectedRepositoryPath, repositoryStore, vcsRequestFactory } from "@/stores/repository"
@@ -226,8 +227,11 @@ async function pushOneOf(request: VcsRequest, branchName: string, options: PushO
     return null
   }
   // a remote that moved since the row showed it, without commits the branch lacks, the push goes over in Rust, once
-  // (`pushedOver`); one that moves again, or one with commits the branch lacks, is told
-  const pushed = await pushWithProgress(request, baselineBranch, branch, options, report)
+  // (`pushedOver`); one that moves again, or one with commits the branch lacks, is told. A robot the view says holds the
+  // branch opens from the refusal of Rust
+  const holder = clearance.holder
+  const told = holder === null ? report : passingCanceled((title, error) => report(title, error, { children: "Open in Patronus", onClick: () => openRobot(holder) }), report)
+  const pushed = await pushWithProgress(request, baselineBranch, branch, options, told)
   if (pushed === null) {
     return null
   }
@@ -363,39 +367,41 @@ async function pushWithProgress(
 
 /**
  * Restarts a robot the push canceled, on the pushed commit, in the repository of the push (`request`, also after a
- * switch), and records it in Activity there in the words of a restart toast; the caller says it, in the toast of its
- * action. Undefined when the restart failed (an error toast said so).
+ * switch): the restart of the engine (`RestartRobot`), whose plan pushes nothing more now; Activity records it there in
+ * the words of a restart toast, the caller says it in the toast of its action. Undefined when the restart failed or its
+ * plan refused it (an error toast said so)
  */
 export async function restartAfterPush(robot: PatronusRobot, request: VcsRequest): Promise<PatronusRobot | undefined> {
   const mode = formatPushMode(robot.pushMode)
-  try {
-    const restarted = await restartPatronusRobot(robot, request)
-    recordRobot(`${mode} restarted`, describeRobot(restarted), restarted, request.repositoryPath)
-    return restarted
-  } catch (error) {
-    notifyError(`Cannot restart the ${mode}`, error)
+  const run = await runIntent(request.repositoryPath, { kind: "restartRobot", robotId: robot.id })
+  const restarted = run.kind === "ran" && run.outcome.result.kind === "robot" ? run.outcome.result.robot : null
+  if (restarted === null) {
+    notifyError(`Cannot restart the ${mode}`, runFailure(run, `Patronus offers no restart of it now`))
     return undefined
   }
+  recordRobot(`${mode} restarted`, describeRobot(restarted), restarted, request.repositoryPath)
+  return restarted
 }
 
 /**
  * Whether a push may go (`checkPushHold`): false when a hold refuses it (it said why); else the robot to cancel right
- * before it sends, the one it restarts or replaces (null for none)
+ * before it sends, the one it restarts or replaces (null for none), and the running robot the view says holds it
+ * (`holder`, null for none), which Rust refuses the push for while it runs and its error opens
  */
-export type PushClearance = false | { readonly cancels: PatronusRobot | null }
+export type PushClearance = false | { readonly cancels: PatronusRobot | null; readonly holder: PatronusRobot | null }
 
-const CLEAR: PushClearance = { cancels: null }
+const CLEAR: PushClearance = { cancels: null, holder: null }
 
 /**
  * A branch whose Safe Push runs, or that a Safe Push of a branch built on it lands, is not pushed (`PushHold`): the push
  * won't land, and a push into the robot's own branch makes it fail at the end ("branch was modified"). The rows offer no
- * push then; this refuses one that raced with a start (the IDE, `bd`) or came from a toast. The status is read fresh
- * first (one row on the server), so a robot that finished meanwhile holds nothing. The robot the push restarts or
- * replaces (`restartRobot`, `replacesRobot`) is canceled instead, by the push after its last check, right before it
- * sends (`cancels`), so no refusal follows the cancel. A branch a merged Safe Push landed (`landed`) is refused without a
- * read: its commits are in the target. The holds are those of the repository view of the robots and the branches as
- * they are now (`whenRepositoryViewCurrent`): a robot of a branch built on it holds it only while its commit has
- * commits of it.
+ * push then; a push that raced with a start (the IDE, `bd`) or came from a toast goes to Rust, which reads the user's
+ * robots now and refuses it while the robot runs (one that finished meanwhile holds nothing); its error opens the robot
+ * (`holder`). The robot the push restarts or replaces (`restartRobot`, `replacesRobot`) is canceled instead, by the
+ * push after its last check, right before it sends (`cancels`), so no refusal follows the cancel. A branch a merged Safe
+ * Push landed (`landed`) is refused here: its commits are in the target. The holds are those of the repository view of
+ * the robots and the branches as they are now (`whenRepositoryViewCurrent`): a robot of a branch built on it holds it
+ * only while its commit has commits of it.
  */
 export async function checkPushHold(branchName: string, options: PushOptions, report: PushReport): Promise<PushClearance> {
   // the holds of the robots and the branches as they are now: a robot started meanwhile holds it once the view says so
@@ -405,31 +411,30 @@ export async function checkPushHold(branchName: string, options: PushOptions, re
     return CLEAR
   }
   if (hold.robot.id === options.restartRobot?.id || hold.robot.id === options.replacesRobot?.id) {
-    return { cancels: hold.robot }
+    return { cancels: hold.robot, holder: null }
   }
-  const status = hold.kind === "landed" ? null : await fetchPatronusRobotStatus(hold.robot).catch(() => null)
-  if (status !== null && status !== "running") {
-    return CLEAR
+  if (hold.kind !== "landed") {
+    return { cancels: null, holder: hold.robot }
   }
-  // the robot that holds it opens from the error: its restart, its cancel
+  // the robot that landed it opens from the error
   report(`Cannot push ${branchName}`, formatPushHoldReason(branchName, hold), { children: "Open in Patronus", onClick: () => openRobot(hold.robot) })
   return false
 }
 
 /**
  * Cancels the robot of a hold before the push that restarts or replaces it, or before a Safe Push start that replaces it
- * without a push; a robot that finished meanwhile holds nothing, so the push or the start goes on (`replaced`); false
- * when Patronus refused (it said so)
+ * without a push: the cancel of the engine (`CancelRobot`); a robot that finished meanwhile holds nothing, so the push or
+ * the start goes on; false when Patronus refused (it said so)
  */
 export async function cancelHoldingRobot(robot: PatronusRobot, report: PushReport = notifyError, request: VcsRequest | null = null): Promise<boolean> {
   const mode = formatPushMode(robot.pushMode)
-  try {
-    await cancelPatronusRobot(robot, request, true)
-    return true
-  } catch (error) {
-    report(`Cannot cancel the ${mode}`, error)
+  const run = await runIntent(request?.repositoryPath ?? getSelectedRepositoryPath(), { kind: "cancelRobot", robotId: robot.id })
+  const failure = runFailure(run, `Patronus lists no robot ${robot.id} of the user`)
+  if (failure !== null) {
+    report(`Cannot cancel the ${mode}`, failure)
     return false
   }
+  return true
 }
 
 /**

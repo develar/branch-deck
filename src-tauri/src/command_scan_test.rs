@@ -365,8 +365,7 @@ fn blocking_spans(body: &str) -> Vec<std::ops::Range<usize>> {
 }
 
 /// The lines of an async `body` that open the object cache on the worker: neither inside a `run_blocking(…)` (or a
-/// `run_waiting…(…)` of a rewrite) nor in a
-/// `move ||` closure a core runs off the workers (`RemoteActions::start_robot`)
+/// `run_waiting…(…)` of a rewrite) nor in a `move ||` closure a core runs off the workers
 fn object_cache_on_the_worker(body: &str) -> Vec<String> {
   let spans = blocking_spans(body);
   let mut offset = 0;

@@ -4,7 +4,6 @@
 //! (a push, a start, the landing check) is never answered from a kept one: a robot started elsewhere (the IDE, `bd`)
 //! since that list would hold nothing.
 
-use crate::actions::{ActionError, availability_message};
 use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, REVIEW_APPROVAL_CHECK_SKIP_OPTION, RobotDto, RobotUpdateRequest};
 use crate::token::{TokenLookup, TokenStamp};
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
@@ -149,20 +148,6 @@ impl PatronusService {
       info!(availability = ?result.availability, "no robots for the checks: nothing holds");
     }
     result.robots
-  }
-
-  /// The user's robots in `repository` for the check of an action that asks Patronus anyway (a start, a restart, a
-  /// cancel, and the landing check of the popover, whose landed commits the start's gate must see too:
-  /// `repository_model::start_guard`): one full list asked now, never a kept one, as `bd safe-push` reads it; a list
-  /// Patronus doesn't give fails the action, in the words of a failed action. A start from the popover asks three such
-  /// lists (the landing check, the push's `robots_for_checks`, the start; a fourth to cancel the robot it replaces):
-  /// `a_start_from_the_popover_asks_three_full_lists` pins the count
-  pub async fn robots_for_action(&self, repository: &str, branch_prefix: &str) -> Result<Vec<PatronusRobot>, ActionError> {
-    let result = self.list(repository, branch_prefix, None, false, false, false).await;
-    match result.availability {
-      PatronusAvailability::Available => Ok(result.robots),
-      availability => Err(availability_message(availability)),
-    }
   }
 
   /// The robots of `known` whose status changed; the others are not in the result. Always a background request.

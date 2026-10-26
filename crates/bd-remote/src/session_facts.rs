@@ -70,8 +70,9 @@ impl SessionFacts {
   }
 }
 
-/// The robots `robots` as `session` knows them now, then the Patronus view over them: the robots `bd status` and the
-/// merge of `bd robot` read of the object cache (`robot_list::read_robots`), not of a list of this command
+/// The robots `robots` as `session` knows them now, then the Patronus view over them: the robots `bd status` reads of
+/// the object cache (`robot_list::read_robots`), not of a list of this command, and those of the merge of `bd robot`
+/// with the merged robot among them
 pub fn know_robots(session: &mut OneShot, git: &GitCommandExecutor, robots: Vec<PatronusRobot>) {
   let result = PatronusRobotsResult {
     availability: PatronusAvailability::Available,

@@ -4972,7 +4972,6 @@ dependencies = [
  "git-executor",
  "git-ops",
  "history-rewrite",
- "patronus",
  "pretty_assertions",
  "serde",
  "serde_json",

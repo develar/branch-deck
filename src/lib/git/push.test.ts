@@ -23,7 +23,7 @@ const { calls, records, robots, stores } = vi.hoisted(() => ({
   robots: {
     /** The running Safe Push of `auth`, which holds its push */
     running: undefined as PatronusRobot | undefined,
-    /** What Patronus answers when the push reads the status fresh */
+    /** What Patronus answers the robots of Rust's check of the push: a robot that finished holds nothing */
     status: "running" as string,
     /** The branches a running Safe Push of a branch built on them lands: branch -> its robot */
     spans: {} as Record<string, PatronusRobot>,
@@ -145,6 +145,13 @@ vi.mock("@/lib/bindings", () => ({
     pushBranch: async (params: { branchName: string; expectedRemote: string | null }) => {
       calls.push(`push ${params.branchName}`)
       stores.expectedRemotes.push(params.expectedRemote)
+      // Rust reads the robots now (`robots.status`) and refuses a push into a branch a running Safe Push holds
+      const own = params.branchName === "auth" && robots.running?.status === "running" ? robots.running : undefined
+      const holder = own ?? (robots.spans[params.branchName]?.status === "running" ? robots.spans[params.branchName] : undefined)
+      if (holder !== undefined && robots.status === "running") {
+        const lands = holder.branchName === params.branchName ? "" : `: it lands ${params.branchName} with it`
+        return { status: "error", error: { code: "internal", message: `Nothing was pushed: A Safe Push of ${holder.branchName} is running${lands}`, details: null } }
+      }
       stores.whilePushing()
       const moved = stores.movedRemotes.shift()
       const remoteStatus = { branchName: params.branchName, remoteExists: true, remoteTip: moved?.remoteTip ?? "tip", commitsBehind: moved?.commitsBehind ?? 0 }
@@ -372,29 +379,36 @@ vi.mock("@/stores/patronus", async () => ({
   getStackLandedReason: (root: string) => robots.stackLanded[root] ?? null,
   getBranchLanding: (name: string) => ({ hold: null, start: null, dryRun: null, replaces: null, push: robots.pushBlockers[name] ?? null }),
   getStackLanding: (root: string) => ({ hold: stackHoldOf(root), start: null, dryRun: null, replaces: null }),
-  fetchPatronusRobotStatus: async () => robots.status,
   whenRepositoryViewCurrent: async () => {
     robots.whileViewing()
     robots.spans = Object.fromEntries(Object.entries(robots.spans).filter(([name]) => !robots.released.includes(name)))
   },
-  cancelPatronusRobot: async (robot: PatronusRobot, request: { repositoryPath: string } | null, replaced = false) => {
-    // the cancel of a robot the push or the start replaces or restarts: one that finished meanwhile lets it go on
-    calls.push(replaced ? `cancel ${robot.id}` : `cancel ${robot.id} explicitly`)
-    robots.askedIn.push(request?.repositoryPath ?? stores.selected)
-    robots.whileCanceling()
-    // the store has it canceling: it holds nothing
-    for (const held of [robots.running, robots.stack, ...Object.values(robots.spans)]) {
-      if (held?.id === robot.id) {
-        held.status = "canceling"
+}))
+
+// the cancel and the restart of a robot are intents of the engine: what reaches Patronus is the test
+vi.mock("@/lib/run-intent", () => ({
+  runIntent: async (repositoryPath: string, intent: { kind: string; robotId: string }) => {
+    const known = [robots.running, robots.stack, ...Object.values(robots.spans)].find(robot => robot?.id === intent.robotId)
+    const robot = known ?? ({ ...RUNNING, id: intent.robotId } as PatronusRobot)
+    robots.askedIn.push(repositoryPath)
+    if (intent.kind === "cancelRobot") {
+      calls.push(`cancel ${robot.id}`)
+      robots.whileCanceling()
+      // the session has it canceling: it holds nothing
+      for (const held of [robots.running, robots.stack, ...Object.values(robots.spans)]) {
+        if (held?.id === robot.id) {
+          held.status = "canceling"
+        }
       }
+      return { kind: "ran", outcome: { effects: [], result: { kind: "robot", robot: { ...robot, status: "canceling" }, canceled: null, alreadyFinished: false } } }
     }
-    return { ...robot, status: "canceling" }
-  },
-  restartPatronusRobot: async (robot: PatronusRobot, request: { repositoryPath: string } | null) => {
     calls.push(`restart ${robot.id}`)
-    robots.askedIn.push(request?.repositoryPath ?? stores.selected)
-    return { ...robot, id: "restarted", url: "https://patronus/restarted" }
+    return {
+      kind: "ran",
+      outcome: { effects: [], result: { kind: "robot", robot: { ...robot, id: "restarted", url: "https://patronus/restarted" }, canceled: null, alreadyFinished: false } },
+    }
   },
+  runFailure: () => null,
 }))
 
 vi.mock("@/stores/pull-requests", async () => ({
@@ -403,13 +417,16 @@ vi.mock("@/stores/pull-requests", async () => ({
   getPullRequest: (name: string) => stores.pullRequests[name],
   getStackPullRequest: (root: string) => stores.stackPullRequests[root],
   getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
-  retargetPullRequest: async (name: string, base: string) => {
-    calls.push(`retarget ${name} ${base}`)
+  // the engine retargets it into the target, "master", and Activity records it as the run of its intent does
+  retargetPullRequest: async (name: string) => {
+    calls.push(`retarget ${name} master`)
     stores.whileRetargeting()
     if (stores.retargetError !== null) {
       throw new Error(stores.retargetError)
     }
-    stores.pullRequests[name] = { ...stores.pullRequests[name]!, baseRefName: base }
+    const before = stores.pullRequests[name]!
+    records.push(`Retargeted #${before.number} to master: ${name} · it went into ${(before.baseRefName ?? "").replace("user/virtual/", "")}`)
+    stores.pullRequests[name] = { ...before, baseRefName: "master" }
   },
 }))
 vi.mock("@/stores/activity", async () => ({
@@ -623,14 +640,15 @@ describe("the toast of a push", () => {
 })
 
 describe("pushBranch into a branch whose Safe Push runs", () => {
-  it("refuses the push: it won't land, and the Safe Push would fail at the end", async () => {
+  it("goes to Rust, which refuses it while the robot runs: it won't land, and the toast opens the robot", async () => {
     expect(await pushBranch("auth")).toBe(false)
-    expect(calls).toEqual([])
+    expect(calls).toEqual(["push auth"])
     expect(toasts.map(toast => toast.title)).toEqual(["Cannot push auth"])
-    expect(text(toasts[0]!.description)).toContain("A Safe Push of auth is running: wait until it merges, or restart it on the current branch")
+    expect(text(toasts[0]!.description)).toContain("Nothing was pushed: A Safe Push of auth is running")
+    expect(toasts[0]!.actionProps?.children).toBe("Open in Patronus")
   })
 
-  it("pushes when the Safe Push finished meanwhile: the status is read fresh", async () => {
+  it("pushes when the Safe Push finished meanwhile: Rust reads the robots now", async () => {
     robots.status = "success"
     expect(await pushBranch("auth")).toBe(true)
     expect(calls).toEqual(["push auth"])
@@ -650,9 +668,9 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     expect(records).toEqual(["push auth", "Safe Push restarted"])
   })
 
-  it("refuses a restart of another robot: only the robot the push restarts lets it through", async () => {
+  it("cancels no robot for the restart of another one: Rust refuses the push while the one that holds it runs", async () => {
     expect(await pushBranch("auth", { restartRobot: { ...RUNNING, id: "other", status: "failure" } })).toBe(false)
-    expect(calls).toEqual([])
+    expect(calls).toEqual(["push auth"])
   })
 
   it("says only the restart for the restart of a finished robot that pushes first, recorded once", async () => {
@@ -668,6 +686,7 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
     expect(await pushBranch("auth")).toBe(false)
     expect(text(toasts[0]!.description)).toContain("A Safe Push of login is running: it lands auth with it")
+    expect(toasts[0]!.actionProps?.children).toBe("Open in Patronus")
   })
 
   it("pushes a parent a restack placed below a running Safe Push once the repository view of the robots as they are now says the robot has none of it", async () => {
@@ -680,10 +699,10 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     expect(toasts.filter(toast => toast.type === "error")).toEqual([])
   })
 
-  it("refuses a branch a merged Safe Push of a branch built on it landed, without reading its status", async () => {
+  it("refuses a branch a merged Safe Push of a branch built on it landed, before Rust", async () => {
     robots.running = undefined
     addBranch("login", "auth")
-    // a status read would let the push through: the robot finished
+    // the robot finished: a merged Safe Push landed it, which no read of the robots changes
     robots.status = "success"
     robots.landed.auth = { ...RUNNING, id: "login-run", branchName: "login", status: "success", finishTime: 200 }
     expect(await pushBranch("auth")).toBe(false)
@@ -1155,13 +1174,13 @@ describe("pushForAction", () => {
     expect(calls).toEqual([])
   })
 
-  it("returns the reason of a hold instead of a toast", async () => {
+  it("returns the reason of a hold instead of a toast: Rust's refusal while the robot runs", async () => {
     robots.running = { ...RUNNING }
     const result = await pushForAction("auth")
     expect(result.pushed).toBe(false)
     expect(result.pushed ? null : result.reason).toContain("A Safe Push of auth is running")
     expect(toasts).toEqual([])
-    expect(calls).toEqual([])
+    expect(calls).toEqual(["push auth"])
   })
 
   it("says a branch gone from the list in place", async () => {

@@ -11,8 +11,6 @@ import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { CREATE_PULL_REQUEST_LABEL } from "@/lib/git/new-pull-request"
 import { announce } from "@/lib/os-notification"
 import { formatPushMode, formatSafePushLoginCommand } from "@/lib/patronus"
-import type { RobotAction } from "@/lib/patronus-actions"
-import { getRobotActionItems, isRestart } from "@/lib/patronus-actions"
 import { isWindows } from "@/lib/platform"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
@@ -21,14 +19,16 @@ import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
+import type { RobotAction, SessionOperations } from "@/presenters/actions"
+import { getRobotActionItems, isRestart } from "@/presenters/actions"
 import type { BranchNextStep, NextStepActions, NextStepBusy, StepContext } from "@/presenters/next-step"
 import { formatPendingFact, formatProblemsFailure, presentNextStep } from "@/presenters/next-step"
-import { recordApproval, recordRetarget } from "@/stores/activity"
+import { recordApproval } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, useBranchSync } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
-import type { Operation, Operations } from "@/stores/operations"
-import { getObjectBusy, getOperations, operationLabel, runOperation, useObjectOperation, useOperationsWhile } from "@/stores/operations"
+import type { Operation } from "@/stores/operations"
+import { getObjectBusy, operationLabel, runOperation, useObjectOperation } from "@/stores/operations"
 import { getRobot, getRobotProblemsFailure, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, retargetPullRequest } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
@@ -39,8 +39,8 @@ import { getLandRun, useLandRun } from "@/stores/safe-push"
 
 /**
  * Retargets the open pull request of the branch to the target of Patronus, as a pull request names it ("master"), as
- * every pull request of a virtual branch goes, and says so (Activity too): the step of row 5, the menu, and the Safe
- * Push form of a branch whose pull request merges into a virtual branch
+ * every pull request of a virtual branch goes (`retargetPullRequest`: the engine runs it, Activity records it), and says
+ * so: the step of row 5, the menu, and the Safe Push form of a branch whose pull request merges into a virtual branch
  */
 export async function retargetToTarget(branchName: string): Promise<void> {
   const pullRequest = getPullRequest(branchName)
@@ -61,11 +61,10 @@ export async function retargetToTarget(branchName: string): Promise<void> {
       resources: [`pr:${pullRequest.number}:base`],
     },
     () =>
-      retargetPullRequest(branchName, base).then(
+      retargetPullRequest(branchName).then(
         () => {
           const title = `Retargeted #${pullRequest.number} to ${base}`
           const description = `${branchName} · its approvals count for a Safe Push now`
-          recordRetarget(title, description, pullRequest.url)
           showToast({ title, description, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
         },
         (error: unknown) => notifyError(failure, error),
@@ -98,8 +97,8 @@ export interface StepInputs {
   readonly robot: PatronusRobot | undefined
   /** The actions Rust offers of that robot (`robot:<id>`), its restart among them */
   readonly robotActions: readonly ActionState[] | undefined
-  /** The operations that run, while the step restarts a robot (its item says a running restart and what it waits for) */
-  readonly running: Operations | null
+  /** The operations of the session, while the step restarts a robot (its item says a running restart) */
+  readonly running: SessionOperations | null
   /** The open pull request of the subject, while the step asks for a review of it */
   readonly pullRequest: PullRequestView | undefined
   readonly repositoryPath: string | null
@@ -126,7 +125,7 @@ export function useStepInputs(key: string, step: NextStep | undefined): StepInpu
     starting: useLandRun(key),
     robot: useStore(patronusStore, () => (robotId === null ? undefined : getRobot(robotId))),
     robotActions: useRowPart(robotId === null ? "" : `robot:${robotId}`, "actions"),
-    running: useOperationsWhile(robotId !== null),
+    running: useBranchSync(state => (robotId === null ? null : state.operations)),
     pullRequest: useBranchSync(state => (review ? state.openPullRequests[key] : undefined)),
     repositoryPath: useSelectedProjectPath() ?? null,
   }
@@ -141,7 +140,7 @@ export function getStepInputs(key: string, step: NextStep | undefined): StepInpu
     starting: getLandRun(key),
     robot: robotId === null ? undefined : getRobot(robotId),
     robotActions: robotId === null ? undefined : getRowPart(`robot:${robotId}`, "actions"),
-    running: robotId === null ? null : getOperations(),
+    running: robotId === null ? null : branchSyncStore.getState().operations,
     pullRequest: asksReview(step) ? branchSyncStore.getState().openPullRequests[key] : undefined,
     repositoryPath: getSelectedProject()?.path ?? null,
   }
@@ -180,7 +179,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),
-    restart: robot === undefined || running === null ? null : (getRobotActionItems(robot, running, null, inputs.robotActions).find(isRestart) ?? null),
+    restart: robot === undefined || running === null ? null : (getRobotActionItems(robot, { offered: inputs.robotActions, running }).find(isRestart) ?? null),
     requestReview: inputs.pullRequest === undefined ? null : getRequestReviewItem(key),
   }
 }
@@ -318,10 +317,15 @@ export function useRobotParts(robot: PatronusRobot | null | undefined): RobotPar
 /**
  * The actions of a robot as Rust offers them (`getRobotActionItems`) for every surface that shows them (the branch menu,
  * the robot details, the robots indicator, the hold of a push): a restart the approvals its branch misses hold back
- * says so in the words of the step of the branch. A component passes the parts it subscribed to (`useRobotParts`), so
- * its list follows them.
+ * says so in the words of the step of the branch. A component passes the parts and the operations of the session it
+ * subscribed to (`useRobotParts`, `useSessionOperations`), so its list follows them.
  */
-export function getRobotItems(robot: PatronusRobot, operations: Operations = getOperations(), parts: RobotParts = robotPartsOf(robot)): RobotAction[] {
+export function getRobotItems(robot: PatronusRobot, running: SessionOperations = branchSyncStore.getState().operations, parts: RobotParts = robotPartsOf(robot)): RobotAction[] {
   const step = robot.branchName === null || parts.landing === undefined ? null : getBranchNextStep(robot.branchName)
-  return getRobotActionItems(robot, operations, step?.safePushBlocker ?? null, parts.actions)
+  return getRobotActionItems(robot, { stepReason: step?.safePushBlocker ?? null, offered: parts.actions, running })
+}
+
+/** The operations of the session of the repository the main window shows, re-rendering when they change */
+export function useSessionOperations(): SessionOperations {
+  return useBranchSync(state => state.operations)
 }

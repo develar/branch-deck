@@ -12,10 +12,9 @@
 //! `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`; the holds themselves are the rules'
 //! (`domain_policy::holds`, decided into the view by `derive::decide_landing`).
 
-use crate::branch_table::{BranchTable, RemoteFacts};
-use crate::derive::LandingFacts;
+use crate::branch_table::BranchTable;
 use crate::facts::{PatronusOf, TableFacts, derive_patronus};
-use crate::start_guard::{stack_conflict_words, stack_not_built_words};
+use crate::refusal_words::{stack_conflict_words, stack_not_built_words};
 use domain_policy::parked::parked_state;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::Subject;
@@ -38,7 +37,6 @@ const APP_OWN_HOLD_REMEDY: &str = "restart it on the current branch";
 /// both
 pub struct GuardFacts {
   synced: Arc<BranchTable>,
-  remote: RemoteFacts,
   pub robots: Vec<PatronusRobot>,
   pub view: PatronusView,
 }
@@ -58,12 +56,7 @@ pub fn guard_facts(git_executor: &GitCommandExecutor, repository_path: &str, tab
     needs_review: &BTreeMap::new(),
   };
   let view = derive_patronus(git_executor, repository_path, &of, &mut table.memo());
-  GuardFacts {
-    synced,
-    remote: table.remote.clone(),
-    robots,
-    view,
-  }
+  GuardFacts { synced, robots, view }
 }
 
 impl GuardFacts {
@@ -73,11 +66,6 @@ impl GuardFacts {
 
   pub fn robot(&self, id: &str) -> Option<&PatronusRobot> {
     self.robots.iter().find(|robot| robot.id == id)
-  }
-
-  /// What the rules read of these facts, for an intent of the caller's own (`derive::LandingFacts`)
-  pub(crate) fn landing(&self) -> LandingFacts<'_> {
-    LandingFacts::new(&self.synced, &self.remote, &self.view, &self.robots, None)
   }
 
   /// The hold of the push of `name` (`domain_policy::holds::branch_hold`)

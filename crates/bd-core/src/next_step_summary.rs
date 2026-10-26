@@ -5,7 +5,7 @@
 
 use domain_types::next_step::{NextStep, StepBlocker, StepFact, StepFailure, StepKind};
 use domain_types::patronus::{MissingReviewGroup, PatronusRobot, Person};
-use repository_model::start_guard::start_refusal_text;
+use repository_model::refusal_words::start_refusal_text;
 use schemars::JsonSchema;
 use serde::Serialize;
 

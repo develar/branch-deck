@@ -82,8 +82,10 @@ that is the move of a row, its `move` ([Moves](#moves)).
    [Rust Domain Authority](rust-domain-authority.md) re-resolve the intent in Rust). A branch goes by its name. A
    rewrite that ends while the window shows another repository syncs nothing: that one syncs when it opens. A push waits for the rewrites of its repository too, the queued ones and
    their syncs included (`whenRewritesDone`): it sends what they leave.
-3. **A remote action waits for a remote action of its subject or of a branch it works on** (restart and cancel of one
-   robot), and is refused meanwhile: a cancel queued behind a restart would act on the robot the restart replaced.
+3. **A remote action waits for a remote action of its subject or of a branch it works on**, and on the page is
+   refused meanwhile. The restart and the cancel of one robot wait for each other in Rust instead (the registry of the
+   session queues the cancel behind the restart and decides it again once the restart ended), as a retarget waits
+   for a retarget of the same pull request.
    Where an action names the resources it writes (`resources`: a field of a pull request, `pr:<n>:base` of a retarget,
    `pr:<n>:reviewers` of a review request), two such actions wait only for one that writes the same resource: a
    retarget and a review request of one pull request run side by side. A review request that pushes first names the
@@ -166,11 +168,14 @@ the stack's pull request).
 
 ### Remote actions
 
-- **The robot**: its restart, the push and restart of a robot whose branch moved past its commit
-  (`runPushAndRestart`: the push is a step of it) and its cancel (`runRobotAction`, subject `robot:<id>`);
-  `getRobotActionItems` marks them with `operationItem`, so the slot, the details and the landing overview show the running
-  one (a spinner in place of its icon), a second restart joins it and the cancel waits.
-- **The pull request**: the retarget of the next step (`retargetToTarget`, subject `pr:<n>`), the creation and
+- **The robot**: its restart (with the push first of a robot whose branch moved past its commit) and its cancel are
+  operations of the session in Rust (`RestartRobot`, `CancelRobot` of `operations::robot`, holding `Resource::Robot`;
+  `src/lib/robot-run.ts` runs them, `runIntent`): `getRobotActionItems` marks the item of one the session runs running
+  (`RepositoryView.operations`), so the slot, the details and the landing overview show it (a spinner in place of its
+  icon) in every window; a second restart joins it in Rust, and a cancel during it waits there.
+- **The pull request**: the retarget of the next step (`retargetToTarget`, subject `pr:<n>`: its slot and its row
+  busy, the retarget itself an operation of the session, `Retarget` of `operations::pull_request`, which holds its
+  base, so a review request of it runs beside), the creation and
   "Continue on GitHub" (`submitPullRequest`, `continueOnGitHub`: a second submit joins; one that must wait throws
   why), "Request Review…" (`RequestReviewForm`, its button the surface).
 - **The review of a pull request**: Approve, Request Changes and Approve and Safe Push (`runReviewWrite`, subject
@@ -199,12 +204,12 @@ a part of its view (`RepositoryView.operations`), and the moves its operations d
 laid over the nodes (`presentOperationMoves`), in every window, from the admission of the operation:
 
 - the start of a Safe Push or a Dry Run (`RunningMove::Starting`, `operations::engine::execute_land`; `lands`:
-  Landing, and the branches its Safe Push lands beside; a Dry Run waits).
+  Landing, and the branches its Safe Push lands beside; a Dry Run waits);
+- the restart of a robot, its push first included (`RunningMove::Restarting`, `operations::robot::execute_restart`;
+  the same `lands`).
 
 Until their families move, the page's operations declare theirs (`OperationSpec.move`, read by `getOperationMoves`):
 
-- the restart and the push and restart of a robot (`lands`: Landing, and the branches its Safe Push lands beside; a Dry
-  Run waits);
 - the creation of a pull request (not "Continue on GitHub": the user creates it there) and a review request: Waiting.
 
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
@@ -221,8 +226,9 @@ One run keeps its own record, one place for every surface of it:
   repository, row and order), and so does the push of an action, which hears why it failed; another push of the same
   branch waits for it, and a stack push claims its branches once it knows them, before its checks, so a push of one of
   them meanwhile waits instead of sending it twice. A push inside an operation (the
-  creation of a pull request, a review request, a push and restart, a Safe Push start) is a step of it, not an
-  operation of its own. In Rust the push the page asks (`push_branch`, `push_branches`) is already an operation of the
+  creation of a pull request, a review request, a Safe Push start, a restart) is a step of it, not an operation of its
+  own; the push of a restart shows on the push button of its branch (or of its whole stack) from the steps and the
+  progress its run tells its caller. In Rust the push the page asks (`push_branch`, `push_branches`) is already an operation of the
   session (`operations::push`, [Push and land](git-operations.md#push-and-land)): admitted per ref it writes in the
   registry of the operations, so a push of a ref another push of the app writes waits for it there and the pushes of
   other refs run side by side, its steps in the view's `operations` (`Checking`, `WaitingForSync`, `WaitingForLock`,

@@ -1,7 +1,7 @@
 //! Why an action of the domain is refused, as a code with the facts its words need, never the words
 //! (docs/design/rust-domain-authority.md, s8-policy): `domain_policy` decides it (`holds`, `land`: a start's blockers too,
 //! `land::decide`), the page words it
-//! (`src/presenters/reasons.ts`), `bd` and the guards of the app in their own words (`repository_model::start_guard`,
+//! (`src/presenters/reasons.ts`), `bd` and the engine in their own words (`repository_model::refusal_words`,
 //! `repository_model::push_guard`). `crates/domain-policy/reasons.json` lists every code with an example, which
 //! the formatters of both sides are tested on.
 

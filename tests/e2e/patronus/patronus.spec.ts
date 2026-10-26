@@ -23,7 +23,6 @@ import {
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
-import { holdCommandCalls } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
 // before, and the merged one took an hour: the usual time of a Safe Push
@@ -116,11 +115,13 @@ test.describe("Patronus chip", () => {
   })
 
   test("should restart a robot once while its restart runs, running in the slot and in its details, landing from the click", async ({ page, repo }) => {
-    const restarts = await holdCommandCalls(page, "restart_patronus_robot")
+    // the restart runs in the session until Patronus answers it
+    await repo.holdRemoteAnswers({ hold: ["restart"] })
     const restart = getSlot(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })
     const node = getLandingNode(findBranchRow(page, "ABC-123"))
     await expect(node).toHaveAttribute("data-kind", "needsFix")
     await restart.click()
+    await expect.poll(async () => (await repo.getArrivedAnswers()).includes("restart")).toBe(true)
     await expect(restart).toHaveAttribute("aria-busy", "true")
     await expect(restart).toBeDisabled()
     // the restart is the move made: the branch lands before Patronus answers it
@@ -132,9 +133,9 @@ test.describe("Patronus chip", () => {
     await expect(again).toBeDisabled()
     await again.click({ force: true })
 
-    restarts.release()
+    await repo.holdRemoteAnswers({ release: ["restart"] })
     await expect(page.getByText("Safe Push restarted", { exact: true })).toBeVisible()
-    expect(restarts.calls).toHaveLength(1)
+    // one restart reached Patronus: the second click joined the first
     expect((await repo.getPatronusLog()).restarts).toEqual([FAILED.id])
     await expect(node).toHaveAttribute("data-kind", "landing")
   })

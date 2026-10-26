@@ -7,7 +7,7 @@
 //! (`LandedPullRequest`).
 
 use crate::error::ApiError;
-use crate::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode};
+use crate::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot};
 use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
@@ -68,6 +68,16 @@ impl Subject {
     match self {
       Self::Branch { name } => name.clone(),
       Self::WholeStack { root } => format!("the whole {root} stack"),
+    }
+  }
+
+  /// What `robot` tests: the whole stack of its stack branch, else its branch; none of a temporary ref (the IDE, the
+  /// CLI), which no subject is
+  pub fn of_robot(robot: &PatronusRobot) -> Option<Self> {
+    match (&robot.stack_root, &robot.branch_name) {
+      (Some(root), _) => Some(Self::whole_stack(root)),
+      (None, Some(name)) => Some(Self::branch(name)),
+      (None, None) => None,
     }
   }
 
@@ -376,7 +386,7 @@ pub enum LandFact {
   LandingNeeds,
 }
 
-/// What a start does, in the order of its effects (the contract's `PlannedEffect`)
+/// What a start or a restart does, in the order of its effects (the contract's `PlannedEffect`)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -392,6 +402,8 @@ pub enum PlannedEffect {
   StartRobot { route: StartRoute },
   /// The pull request of the subject is opened, where the code owners approve (none is open)
   CreatePullRequest,
+  /// The robot is restarted (`Intent::RestartRobot`): Patronus starts it again on the newest commit of its remote branch
+  RestartRobot { robot_id: String },
 }
 
 impl PlannedEffect {

@@ -139,11 +139,15 @@ pub fn start_refusal(start: &Start<'_>, mode: PatronusPushMode, robots: &Robots<
   }
 }
 
-/// Why a restart of a robot in `mode` is refused: a start of its subject that the robot itself does not refuse (it is
-/// the robot on the last commit) and that pushes nothing, then `landed`, what tells that merged Safe Pushes landed the
-/// subject whole
+/// Why a restart of a robot in `mode` is refused: what the table refuses first (`table`: the subject stays local,
+/// parked or built on parked, a whole stack with a parked member; a restart that pushes first a branch the sync did not
+/// build), then a start of its subject that the robot itself does not refuse (it is the robot on the last commit) and
+/// that pushes nothing, then `landed`, what tells that merged Safe Pushes landed the subject whole
 #[must_use]
-pub fn restart_refusal(start: &Start<'_>, mode: PatronusPushMode, robots: &Robots<'_>, landed: Option<Reason>) -> Option<Reason> {
+pub fn restart_refusal(start: &Start<'_>, mode: PatronusPushMode, robots: &Robots<'_>, table: Option<Reason>, landed: Option<Reason>) -> Option<Reason> {
+  if table.is_some() {
+    return table;
+  }
   let start = match *start {
     Start::Branch(branch) => Start::Branch(BranchStart {
       last_commit: None,

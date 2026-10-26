@@ -16,7 +16,8 @@ targets:
   - ../../src/lib/robot-prompt-copy.ts
   - ../../src/lib/prompt-text.ts
   - ../../src/lib/clipboard.ts
-  - ../../src/lib/patronus-actions.ts
+  - ../../src/lib/robot-run.ts
+  - ../../src/presenters/actions.ts
   - ../../src/lib/patronus-failing.ts
 ---
 

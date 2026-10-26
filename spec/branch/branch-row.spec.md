@@ -13,7 +13,7 @@ targets:
   - ../../crates/domain-policy/src/landing_node.rs
   - ../../crates/repository-model/src/action_view.rs
   - ../../src/presenters/actions.ts
-  - ../../src/lib/patronus-actions.ts
+  - ../../src/lib/robot-run.ts
   - ../../src/components/shared/InlineForm.tsx
   - ../../src/components/shared/InlineInputDialog.tsx
   - ../../src/stores/inline-row-action.ts
@@ -615,7 +615,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`, `starts with the push off Space, where Rust offers no start of Patronus`, `offers Safe Push disabled until Patronus answers, and Create Pull Request… until GitHub lists the pull requests, as the review window does`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus`, `the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
-  [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)
+  [@test] ../../src/presenters/robot-actions.test.ts (`cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from`)
 - The menu of a branch that can't change now (no commits, a sync error, a sync running) keeps every item: the
   rewrites (Rename…, Move to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash
   Fixups…) are disabled with the reason ("Wait for the sync to finish", "The branch failed to sync", the reason of a

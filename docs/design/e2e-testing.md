@@ -456,14 +456,14 @@ log of the fake). No test answers a remote write in the page: the registry test 
   is the head the test's pull request then shows.
 - **Bridge**: the reads of the session's robots (`TestFactSources`: the app's reads, `ServiceFactSources`, over the
   services of each test repository, `TestServices`, the lists, polls and details counted; the merge profiles and the
-  review readiness held as the tests hold them), `get_robot_failure`, `get_patronus_target_branch`,
-  `restart_patronus_robot`, `cancel_patronus_robot` and `get_patronus_robot_status` call the service as
-  `src-tauri/src/commands/patronus.rs` does (a restart and a cancel give their robot to the session, as the app's
-  commands do): the list answers `notPatronus` while the repository is not on Space and names the GitHub repository by
-  the real `resolve_github_repository`; the start options need Space and the target branch of the baseline
-  (`required_target_branch`). A start is `execute` of the engine over the services of the test repository
-  (`operations::land_session::session_start`, its landing gate without the object cache), its events on the stream of
-  its channel; the held answer `start` holds its `POST /robots` at the fake, so a test sees "Starting…".
+  review readiness held as the tests hold them), `get_robot_failure` and `get_patronus_target_branch` call the
+  service as `src-tauri/src/commands/patronus.rs` does: the list answers `notPatronus` while the repository is not on
+  Space and names the GitHub repository by the real `resolve_github_repository`; the start options need Space and the
+  target branch of the baseline (`required_target_branch`). A start, a restart and a cancel of a robot and a retarget
+  are `execute` of the engine over the services of the test repository (`operations::engine::execute`, the start's
+  landing gate without the object cache), their events on the stream of its channel; the held answers `start`,
+  `restart` and `cancel` hold their `POST /robots`, `POST /robots/*/restart` and `PUT /robots/*/cancel` at the fake,
+  so a test sees "Starting…" or a restart that runs.
 - **Actions**: in `state_only` the fake acts as Patronus does: a start (`POST /robots`) lists a new running robot
   `started-<n>` built from its body (source and target branch, mode), on the commit its source branch is at then
   (`robots_hook`, pinned: a later change of the branch doesn't move it), dated by `clock`, which the host sets to the
@@ -526,7 +526,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
 - **GitHub bridge**: the reads of the session's pull requests, of the rules of their bases and of the review requests
   of others (`TestFactSources`: the pull requests, counted, and the rules of a base, each holding the
   repository as a command does, and `review_requests_of`, counted, which answers the fixture of the review requests),
-  `create_pull_request`, `retarget_pull_request`, `close_pull_request` and `request_pull_request_reviewers` (which
+  `create_pull_request`, `close_pull_request` and `request_pull_request_reviewers` (which
   give what they wrote to the session of the repository and answer the version of its patch, as the app's commands
   do), `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request` (the text of the real core, the
   viewer GitHub answers), `wait_for_github_branch`, `search_github_users` and `submit_pull_request_review` call the

@@ -75,7 +75,8 @@ targets:
   - ../../crates/operations/src/push.rs
   - ../../crates/operations/src/land.rs
   - ../../src-tauri/src/commands/operations.rs
-  - ../../crates/repository-model/src/start_guard.rs
+  - ../../crates/operations/src/robot.rs
+  - ../../crates/operations/src/land_execute.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/lib/branch-rules.ts
   - ../../crates/remote-facts/src/branch_rules.rs
@@ -109,7 +110,9 @@ targets:
   - ../../src/stores/update-project.ts
   - ../../crates/sync-core/src/baseline_fetch.rs
   - ../../src-tauri/src/commands/fetch_baseline.rs
-  - ../../src/lib/patronus-actions.ts
+  - ../../src/lib/robot-run.ts
+  - ../../src/lib/run-intent.ts
+  - ../../src/presenters/actions.ts
   - ../../src/components/ui/toast.tsx
   - ../../src/lib/event-toast.ts
   - ../../src/lib/robot-toast.ts
@@ -197,8 +200,8 @@ reports in it and closes it once merged.
   [@test] ../../src/stores/patronus.test.ts (`takes the robot of each row from the view of the session, which matched it, never from its own matching`)
 - Every command of Patronus, of a push and of a pull request names the repository only: Rust resolves the prefix
   `{prefix}` of its branches for the command, as the sync does (`BranchPrefixes`, no git process while it knows the
-  repository's git prefix), and the actions on the remote (`operations::push::PushHost`: the push; `RemoteActions`:
-  the start, the restart, the cancel, the landing check) take that prefix, never one from the page. The page keeps its stores by the prefix it
+  repository's git prefix), and the operations of the remote (`operations::push::PushHost`: the push; the engine: the
+  start, the restart, the cancel, the retarget) take that prefix, never one from the page. The page keeps its stores by the prefix it
   shows ([Settings](../repository/settings.spec.md)).
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_robots_of_the_fixture_come_through_the_real_service`, `a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
   [@test] ../../crates/operations/src/push_test.rs (`a_push_runs_the_processes_of_the_core_push`)
@@ -1339,29 +1342,35 @@ explicit choice of the user, offered only where the approvals count in a pull re
   block holds its restart back. Once a merged Safe Push landed all of the branch ([below](#merged)), its restart is
   refused, of a Dry Run too, as its Safe Push and Dry Run are ("Landed in master with oauth", row 1 of
   [Next Step](next-step.spec.md#the-table)): its commits are in the target. One with commits after the landed ones
-  restarts, for them.
-  [@test] ../../src/lib/patronus-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`)
+  restarts, for them. A parked branch stays local, and so does a whole stack with a parked member: its restart is
+  refused before anything else ("Parked: Unpark it to push"), as its start is; a restart that pushes first is refused for
+  a branch the sync did not build.
+  [@test] ../../src/presenters/robot-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
-  [@test] ../../crates/domain-policy/src/land_test.rs (`a_restart_is_refused_as_a_start_without_its_own_robot_then_by_a_landing`)
+  [@test] ../../crates/domain-policy/src/land_test.rs (`a_restart_is_refused_by_the_table_first_then_as_a_start_without_its_own_robot_then_by_a_landing`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should refuse the restart of the failed robot of a branch a merged Safe Push of a branch built on it landed, in its menu, its robot's details and its preview`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
-- The restart and the cancel command check in Rust too, on the user's robots they list themselves
-  (`repository_model::start_guard`): a restart is a start of the robot's subject in its mode that the robot itself does
-  not refuse (its own robot on the last commit restarts); a robot the list lacks and one of a temporary ref are
-  refused ("Nothing was restarted: the Safe Push is of a temporary ref (the IDE, the CLI): a restart would test its old
-  commit"), a branch without a row restarts on its remote branch. A cancel of a robot the list lacks or one that
-  finished is refused ("Nothing was canceled: the Safe Push is not running"); a canceling one is canceled again.
-  The cancel of the robot a start or a push replaces or restarts (`replaced`) answers one that finished meanwhile as it
-  is, already finished, without asking Patronus, and the start or the push goes on.
-  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_restart_is_a_start_its_own_robot_does_not_refuse_never_of_a_temporary_ref`, `a_cancel_of_a_robot_not_in_the_list_or_finished_is_refused`, `the_cancel_of_a_replaced_robot_that_finished_meanwhile_is_already_finished`)
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`, `a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel`)
-- A restart or a cancel runs once per robot (an operation of the robot, [Running Operations](../../docs/design/operations.md)):
+- A restart and a cancel are intents of the engine (`RestartRobot`, `CancelRobot`; `operations::robot`), decided in
+  Rust over the facts of the session, never the page's, and decided again by `execute` before the first effect: the
+  plan of a restart is the restart the view offers, refused by the refusal of the view ("Nothing was restarted: …"); a
+  robot of a temporary ref, a running one on the commit of its branch and a merged one have none. A plain restart moves
+  no ref: no lock. A restart that pushes first retargets the pull request of the branch out of a virtual branch,
+  cancels the running robot, pushes the branch (the lock only for the witness and the freeze) and restarts the robot
+  after the push, skipped when the pushed branch moved since; a push that drops commits of the remote the branch lacks
+  refuses it ("the remote branch of auth has 2 commits auth lacks"). A cancel of a robot that finished meanwhile (as
+  the session or its status says) is answered as it ended, nothing canceled ("Safe Push already finished"); the
+  robot a start or a restart replaces is canceled the same way, so the start or the push goes on.
+  [@test] ../../crates/operations/src/robot_test.rs (`a_restart_restarts_alone_while_the_remote_has_the_branch_and_pushes_first_a_branch_that_changed`, `a_restart_that_pushes_first_cancels_the_running_robot_pushes_and_restarts_it_on_the_pushed_commit`, `a_restart_on_the_remote_branch_takes_no_lock`, `a_cancel_of_a_robot_that_finished_is_as_it_ended_and_cancels_nothing`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`, `a_cancel_of_a_robot_that_finished_is_answered_as_it_ended_and_a_start_goes_on`)
+  [@test] ../../src/lib/robot-run.test.ts (`answers a robot that finished meanwhile as it ended: nothing was canceled`, `says what its plan refuses it by, and runs nothing`)
+- A restart or a cancel runs once per robot (an operation of the session, [Running Operations](../../docs/design/operations.md)):
   while it runs, it is running on every surface of the robot (the slot, the details, the landing overview: disabled,
-  a spinner in place of its icon, `aria-busy`), a second click joins it, the other one of the robot waits with its busy
-  state ("Restarting the Safe Push…").
+  a spinner in place of its icon, `aria-busy`), a second click joins it, a cancel during a restart waits for it; the
+  restart is the move of its row from the click on (the row lands). A Safe Push of what the robot lands waits for it.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart a robot once while its restart runs, running in the slot and in its details, landing from the click`)
-  [@test] ../../src/stores/operations.test.ts (`lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request`)
+  [@test] ../../crates/operations/src/robot_test.rs (`a_second_restart_of_a_robot_joins_the_first_and_its_cancel_and_a_start_of_its_branch_wait_for_it`)
+  [@test] ../../src/presenters/robot-actions.test.ts (`runs the restart of the engine from both restarts, and shows one running in the session running on every surface`)
 - Rust decides the actions of a robot (`domain_policy::actions::robot_actions`, `robot:<id>` of the view's `actions`):
   a restart while one is offered (`restarts` of the view), disabled while Patronus didn't tell why it failed, while the
   step of its branch misses approvals (a restart would fail again: the words of that step) or a start is refused; the
@@ -1376,17 +1385,19 @@ explicit choice of the user, offered only where the approvals count in a pull re
   sync running) keeps "Cancel Safe Push" and "Open in Patronus": they don't change the branch.
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
-  [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`, `presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`)
+  [@test] ../../src/presenters/robot-actions.test.ts (`cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from`, `presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`)
   [@test] ../../crates/patronus/src/actions_test.rs (`restart_answers_the_new_robot_and_cancel_the_canceling_one`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
 - A restart is the toast "Safe Push restarted", a cancel "Safe Push is canceling", each naming the branch and the
   target ("auth → master") with "Open in Patronus" (the new robot's page for a restart), as a start does, in place of
   the toast of the robot they restart or cancel; Activity records them in the same words. A failure is "Cannot restart
-  the Safe Push" / "Cannot cancel the Safe Push".
+  the Safe Push" / "Cannot cancel the Safe Push"; a refusal of the plan and facts that changed after the push say why in
+  an info toast under the same title.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
   [@test] ../../src/stores/patronus.test.ts (`is replaced in place by the toast of its restart, a newer robot of the branch`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart from the toast a Safe Push whose builds never started`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
+  [@test] ../../src/lib/robot-run.test.ts (`restarts through the engine and says it in the toast of the robot and Activity`, `cancels through the engine: the robot is canceling`, `says the change of the facts after its push in an info toast, and a failure of Patronus in an error toast`)
 - Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks (by content,
   or commits reworded since its push: the remote has them with the old messages, which Patronus would land), every
   surface offers "Restart Safe Push" instead of Restart: the push of the row, then the restart on the pushed commit,
@@ -1395,7 +1406,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   its toast "Safe Push restarted" is the one toast, the push has none (Activity records both).
   [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is`)
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
-  [@test] ../../src/lib/patronus-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`, `restarts one robot at a time: a push and restart waits while the restart runs, and pushes first`)
+  [@test] ../../src/presenters/robot-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`, `names what a restart of a robot of a branch changed since does: it cancels a running one, then pushes`)
   [@test] ../../src/lib/git/push.test.ts (`says only the restart for the restart of a finished robot that pushes first, recorded once`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the branch preview, landing from the click`)
 - A failed action is a toast with what Patronus said; without a token it says "Run ./safePush.cmd once to log in to
@@ -1509,12 +1520,11 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open and restart the robot from the description of the preview's push, which says why it can't push`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`, `push_with_children_leaves_out_what_asks_first_is_held_or_landed`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer no push: it won't land, and the menu says why`)
-- A push that raced with a start (the IDE, `bd`, another window) reads the status of the robot first (`GET
-  /robots/{id}/status`, one row): still running, it pushes nothing and says why ("Cannot push auth", with "Open in
-  Patronus" of the robot); finished meanwhile,
-  it pushes. A branch a merged Safe Push landed is refused without a read: the robot finished, its commits are in the
-  target. Nothing asks: no dialog.
-  [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`, `refuses a branch a merged Safe Push of a branch built on it landed, without reading its status`)
+- A push that raced with a start (the IDE, `bd`, another window) goes to Rust, which reads the user's robots now
+  (below): still running, it pushes nothing and says why ("Cannot push auth", with "Open in Patronus" of the robot the
+  view says holds it); finished meanwhile, it pushes. A branch a merged Safe Push landed is refused on the page: the
+  robot finished, its commits are in the target. Nothing asks: no dialog.
+  [@test] ../../src/lib/git/push.test.ts (`goes to Rust, which refuses it while the robot runs: it won't land, and the toast opens the robot`, `pushes when the Safe Push finished meanwhile: Rust reads the robots now`, `refuses a branch a Safe Push of a branch built on it lands`, `refuses a branch a merged Safe Push of a branch built on it landed, before Rust`)
 - The app's push itself (`push_branch`, `push_branches`, the E2E server's routes of them) checks the same in Rust
   before it pushes, by the rules of `bd push` (`repository_model::push_guard`, one sequence of both hosts,
   `operations::push::PushHost::push_branches`): it reads the user's robots first (one full list asked now, never one
@@ -1573,13 +1583,18 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should run two Safe Pushes and a move started while another process holds the repository lock once it released it`)
 - The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the landing overview; "Cancels the run on 1a2b3c4, pushes auth and starts
-  it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit. The restart is the action: its
-  toast "Safe Push restarted" with "Open in Patronus" is the one toast; Activity records the push and the restart. The
-  advice of the details names it: "… Restart Safe Push to test the current branch."
+  it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit, the steps of its plan in
+  Rust (`RestartRobot`); the push shows on the push button of the branch (of the whole stack: "Pushing the whole stack
+  45%"). The restart is the action: its toast "Safe Push restarted" with "Open in Patronus" is the one toast; Activity
+  records the push and the restart. The advice of the details names it: "… Restart Safe Push to test the current
+  branch." A push of the page that restarts a robot (the toast of a moved remote) cancels it and restarts it through
+  the same intents.
   [@test] ../../src/lib/patronus.test.ts (`asks to cancel a running robot the remote moved past, and offers nothing for a robot of a temporary ref`)
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
-  [@test] ../../src/lib/patronus-actions.test.ts (`pushes and restarts a running robot of a branch changed since: it cancels it first`)
-  [@test] ../../src/lib/git/push.test.ts (`cancels, pushes and restarts the running Safe Push for its restart, in the one toast of the restart`, `refuses a restart of another robot: only the robot the push restarts lets it through`)
+  [@test] ../../src/presenters/robot-actions.test.ts (`names what a restart of a robot of a branch changed since does: it cancels a running one, then pushes`)
+  [@test] ../../crates/operations/src/robot_test.rs (`a_restart_that_pushes_first_cancels_the_running_robot_pushes_and_restarts_it_on_the_pushed_commit`)
+  [@test] ../../src/lib/git/push.test.ts (`cancels, pushes and restarts the running Safe Push for its restart, in the one toast of the restart`, `cancels no robot for the restart of another one: Rust refuses the push while the one that holds it runs`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it, the stack landing from the click`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit, from Restart Safe Push`)
 - A Safe Push of a branch whose Safe Push runs on an older commit replaces it, and confirms first: "Cancels the Safe
   Push of auth running on 1a2b3c4." Its push cancels the robot at the first branch that robot holds (the branch, or an

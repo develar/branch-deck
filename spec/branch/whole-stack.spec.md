@@ -45,7 +45,8 @@ targets:
   - ../../src/stores/landed-stacks.ts
   - ../../src/lib/landed-stack.ts
   - ../../crates/domain-policy/src/landed.rs
-  - ../../src/lib/patronus-actions.ts
+  - ../../src/lib/robot-run.ts
+  - ../../src/presenters/actions.ts
   - ../../src/lib/patronus-failing.ts
   - ../../src/lib/robot-overview.ts
   - ../../src/lib/robot-prompt.ts
@@ -272,7 +273,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   master with deploy and side-test", `getStackLandedReason`), on every surface that lists the actions (the "⋯" of the
   island, "Whole Stack ›" of the menus of its branches); the header offers no step, and the landing overview lists the stack in
   master without its robot.
-  [@test] ../../src/lib/patronus-actions.test.ts (`restarts the robot of the whole stack on its stack branch, pushed first`)
+  [@test] ../../src/presenters/robot-actions.test.ts (`names what a restart of a robot of a branch changed since does: it cancels a running one, then pushes`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should run the restart of the robot of the whole stack once while its push runs: one push, one restart, one toast`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it`)
 - A push of the stack branch alone (`pushWholeStack`: the restart, Request Review… of its pull request, the creation of

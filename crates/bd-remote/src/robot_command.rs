@@ -2,10 +2,12 @@
 //! watches a robot the user started or restarted, and, when it failed or fails while it runs, why and which commits of
 //! the checked-out branch it tested (`spec/branch/safe-push-failure-prompt.spec.md`): the same failure and commit map
 //! as the app's Copy Prompt for Agent. Read only: no repository lock and no sync; the commit map compares the virtual
-//! branch as the last sync built it.
+//! branch as the last sync built it. Its facts come through a one-shot session of the grouping (`SessionFacts`), each
+//! read once: the robots to find the one of the branch, and for a merged Safe Push the pull requests (the robots beside
+//! them with `--robot`), whose open ones the merge closes in the app (`closes`, listed, never closed by `bd`).
 
 use crate::push_command::github_repository_of;
-use crate::robot_list::{keep_listed, read_robots};
+use crate::robot_list::keep_listed;
 use crate::safe_push_command::{RobotSummary, patronus_error, robot_summary};
 use crate::session_facts::{SessionFacts, listed_robots};
 use crate::status::grouping_table;
@@ -448,10 +450,11 @@ fn bd_services(context: &RepoContext, environment: &Environment, service: &Arc<P
   }
 }
 
-/// The open pull requests the merge of `robot` closes, as the app decides them: what it landed by the Patronus view of
-/// the user's robots (`listed` by this command, else the robots `bd status` keeps) over `table`, the table of the
-/// grouping, the pull requests GitHub lists, read as the app's session reads them; `None` off GitHub and while GitHub
-/// lists none
+/// The open pull requests the merge of `robot` closes, as the app decides them (`domain_policy::landed::
+/// pull_requests_to_close`): what it landed by the Patronus view of the user's robots over `table`, the table of the
+/// grouping, and the pull requests GitHub lists, read as the app's session reads them, side by side in one round of the
+/// one-shot session (the robots only when this command listed none: `listed`); `None` off GitHub and while GitHub lists
+/// none. `bd` closes none
 fn closes(
   context: &RepoContext,
   environment: &Environment,
@@ -463,13 +466,21 @@ fn closes(
   let repository = github_repository_of(context, &context.config().ok()?).ok()??;
   let services = bd_services(context, environment, service, space, Some(repository));
   let mut facts = SessionFacts::new(context, TableState::default(), table, services.sources());
-  facts.read(context, &[FactNeed::PullRequests]).ok()?;
+  let needs: &[FactNeed] = if listed.is_some() {
+    &[FactNeed::PullRequests]
+  } else {
+    &[FactNeed::Robots, FactNeed::PullRequests]
+  };
+  facts.read(context, needs).ok()?;
   let pull_requests = facts.session.facts().pull_requests.view();
   if !matches!(pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) {
     return None;
   }
   let pull_requests = pull_requests.clone();
-  let mut robots = listed.unwrap_or_else(|| read_robots(context, environment).robots);
+  let mut robots = match listed {
+    Some(robots) => robots,
+    None => listed_robots(&facts.session).ok()?.to_vec(),
+  };
   if !robots.iter().any(|known| known.id == robot.id) {
     robots.push(robot.clone());
   }
@@ -493,28 +504,26 @@ fn closes(
 }
 
 /// A robot of `--robot` must build the branch: its own, of a branch stacked on it, or of the whole stack it is a branch
-/// of (`stack_root`); with `--whole-stack`, the robot of the whole stack
+/// of (`stack_root`); with `--whole-stack`, the robot of the whole stack. What the robot tests is its subject
+/// (`Subject::of_robot`); a robot of a temporary ref was matched by its tip
 fn check_robot_of(robot: &PatronusRobot, name: &str, descendants: &[&str], stack_root: Option<&str>, whole: Option<&WholeStack<'_>>) -> Result<(), CliError> {
   let id = &robot.id;
-  let builds = match (&robot.stack_root, &robot.branch_name, whole) {
-    (Some(root), _, Some(WholeStack::Forking { root: whole_root } | WholeStack::Unbuilt { root: whole_root, .. })) => root == whole_root,
-    (Some(root), _, _) => stack_root == Some(root.as_str()),
-    (None, Some(other), Some(WholeStack::Chain { leaf, .. })) => other == leaf,
-    (None, Some(_), Some(WholeStack::Forking { .. } | WholeStack::Unbuilt { .. })) => false,
-    (None, Some(other), None) => other == name || descendants.contains(&other.as_str()),
-    // a temporary ref, matched by its tip
-    (None, None, _) => true,
+  let Some(subject) = Subject::of_robot(robot) else {
+    return Ok(());
+  };
+  let builds = match (&subject, whole) {
+    (Subject::WholeStack { root }, Some(WholeStack::Forking { root: whole_root } | WholeStack::Unbuilt { root: whole_root, .. })) => root == whole_root,
+    (Subject::WholeStack { root }, _) => stack_root == Some(root.as_str()),
+    (Subject::Branch { name: other }, Some(WholeStack::Chain { leaf, .. })) => other == leaf,
+    (Subject::Branch { .. }, Some(WholeStack::Forking { .. } | WholeStack::Unbuilt { .. })) => false,
+    (Subject::Branch { name: other }, None) => other == name || descendants.contains(&other.as_str()),
   };
   if builds {
     return Ok(());
   }
-  let message = match (&robot.stack_root, &robot.branch_name) {
-    (Some(root), _) => format!(
-      "Robot {id} runs on {}, not on {name}: `bd robot {root} --whole-stack --robot {id}`",
-      Subject::WholeStack { root: root.clone() }.words()
-    ),
-    (None, Some(other)) => format!("Robot {id} runs on {other}, not on {name}: `bd robot {other} --robot {id}`"),
-    (None, None) => format!("Robot {id} does not run on {name}"),
+  let message = match &subject {
+    Subject::WholeStack { root } => format!("Robot {id} runs on {}, not on {name}: `bd robot {root} --whole-stack --robot {id}`", subject.words()),
+    Subject::Branch { name: other } => format!("Robot {id} runs on {other}, not on {name}: `bd robot {other} --robot {id}`"),
   };
   Err(CliError::new(ErrorCode::InvalidArguments, message))
 }

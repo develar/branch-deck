@@ -528,7 +528,9 @@ impl<'a> LandingFacts<'a> {
   }
 
   /// The restart `robot` offers (`restart_action`) and why it can't start now (`restart_refusal`): of its branch, while
-  /// the branch has a row; of its whole stack, the stack branch as the sync left it, none for a stack without one
+  /// the branch has a row; of its whole stack, the stack branch as the sync left it, none for a stack without one. What
+  /// the table refuses comes first: a subject that stays local (parked, built on parked, a whole stack with a parked
+  /// member), and a branch the sync did not build for a restart that pushes it first
   fn restart(&self, robot: &PatronusRobot, needs_review: bool) -> Option<RobotRestart> {
     let mode = robot.push_mode;
     let (action, refusal) = match (&robot.branch_name, &robot.stack_root) {
@@ -537,7 +539,19 @@ impl<'a> LandingFacts<'a> {
         let refusal = self.table.branch(name).and_then(|branch| {
           // what merged Safe Pushes landed: the view derives without the landing report and the pull requests
           let landed = landed_reason(&self.landed_facts(&NO_LANDING), &landed_subject(self.table, self.remote, Of::Branch(&branch.name), None));
-          restart_refusal(&Start::Branch(self.branch_start(&branch.name, false)), mode, &self.robots, landed)
+          let start = self.branch_start(&branch.name, false);
+          let not_built = start.not_built.filter(|_| action == RestartAction::PushAndRestart).map(|block| Reason::CantPush {
+            branch: branch.name.clone(),
+            block,
+          });
+          let table = parked_state(&self.repo, &branch.name)
+            .map(|parked| Reason::Parked {
+              branch: branch.name.clone(),
+              with: parked.with,
+              note: parked.note,
+            })
+            .or(not_built);
+          restart_refusal(&Start::Branch(start), mode, &self.robots, table, landed)
         });
         (action, refusal)
       }
@@ -550,7 +564,11 @@ impl<'a> LandingFacts<'a> {
           Some(stack) => {
             let of = Of::WholeStack { root, members: &stack.members };
             let landed = landed_reason(&self.landed_facts(&NO_LANDING), &landed_subject(self.table, self.remote, of, None));
-            restart_refusal(&Start::WholeStack(self.stack_start(stack)), mode, &self.robots, landed)
+            let table = whole_stack_parked(&self.repo, stack.members.iter().map(String::as_str)).map(|parked| Reason::StackParked {
+              root: root.clone(),
+              member: parked.parked.with.clone().unwrap_or_else(|| parked.member.clone()),
+            });
+            restart_refusal(&Start::WholeStack(self.stack_start(stack)), mode, &self.robots, table, landed)
           }
         };
         (action, refusal)

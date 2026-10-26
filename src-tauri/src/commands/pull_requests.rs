@@ -16,9 +16,8 @@ use remote_facts::pull_request_create::{
   new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
 };
 use remote_facts::pull_request_writes::{
-  ClosePullRequestParams, GetPullRequestHeadParams, RequestPullRequestReviewersParams, RetargetPullRequestParams, SubmitPullRequestReviewParams,
-  close_pull_request as core_close_pull_request, read_pull_request_head, request_pull_request_reviewers as core_request_pull_request_reviewers,
-  retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
+  ClosePullRequestParams, GetPullRequestHeadParams, RequestPullRequestReviewersParams, SubmitPullRequestReviewParams, close_pull_request as core_close_pull_request,
+  read_pull_request_head, request_pull_request_reviewers as core_request_pull_request_reviewers, submit_pull_request_review as core_submit_pull_request_review,
 };
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
@@ -27,31 +26,6 @@ use repository_model::session::SessionKey;
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository};
 use tauri::State;
 use tracing::instrument;
-
-/// Changes the base of a pull request of the virtual branches: the push of a stacked branch keeps its pull request on
-/// the branch it is built on. The session of the repository has the new base at once, newer than every listing that
-/// started before (`write_pull_request`), and lists the pull requests again; the version of the view after its patch
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, github, sessions, settings, prefixes))]
-#[specta::specta]
-pub async fn retarget_pull_request(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  github: State<'_, GitHubState>,
-  sessions: State<'_, SessionsState>,
-  settings: Settings<'_>,
-  prefixes: Prefixes<'_>,
-  params: RetargetPullRequestParams,
-) -> Result<Option<Version>, ApiError> {
-  operation(async move {
-    let writer = PullRequestWriter::new(&git_executor, &repository_state, &github, &sessions, &settings, &prefixes);
-    let (path, number, base) = (params.repository_path.as_str(), params.pull_request_number, &params.base);
-    let retarget = async |service: &GitHubService, repository: &GitHubRepository| core_retarget_pull_request(service, path, repository, number, base).await;
-    let retargeted = |&(): &()| PullRequestWrite::Retargeted { number, base: base.clone() };
-    Ok(writer.write(path, retarget, retargeted).await?.version)
-  })
-  .await
-}
 
 /// Closes a pull request of the virtual branches with a comment: an ancestor a Safe Push of a stacked branch landed
 /// with it. The session of the repository has it closed at once; the version of the view after its patch

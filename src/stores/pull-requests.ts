@@ -10,6 +10,7 @@ import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
+import { runFailure, runIntent } from "@/lib/run-intent"
 import { formatReadinessSubject, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { refreshSessionFacts, whenSessionViewAt } from "@/model/store"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
@@ -225,22 +226,21 @@ export async function refreshPullRequests(reason: "manual" | "afterWrite" = "man
 }
 
 /**
- * Changes the base of the pull request of a branch on GitHub: resolves once the session has it (its patch is in the
- * store), so the toast of the push that follows reads it; the session lists the pull requests again. Throws what GitHub
- * said.
+ * Retargets the open pull request of a branch into the target on GitHub (`Retarget`, the engine of the session): a
+ * second retarget of it joins the first, a review request of it runs beside; resolves once the session has the new base
+ * (its patch is in the store), so the toast of the push that follows reads it, and Activity has it. Throws why not
  */
-export async function retargetPullRequest(branchName: string, base: string): Promise<void> {
+export async function retargetPullRequest(branchName: string): Promise<void> {
   const key = currentKey()
   const pullRequest = getPullRequest(branchName)
   if (key === null || pullRequest === undefined) {
     return
   }
-  const repositoryPath = pathOf(key)
-  const result = await commands.retargetPullRequest({ repositoryPath, pullRequestNumber: pullRequest.number, base })
-  if (result.status === "error") {
-    throw commandFailure(result.error)
+  const run = await runIntent(pathOf(key), { kind: "retarget", number: pullRequest.number })
+  const failure = runFailure(run, `The repository lists no open pull request #${pullRequest.number}`)
+  if (failure !== null) {
+    throw typeof failure === "string" ? new Error(failure) : commandFailure(failure)
   }
-  await whenSessionViewAt(repositoryPath, result.data)
 }
 
 /**

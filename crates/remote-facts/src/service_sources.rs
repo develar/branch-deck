@@ -20,7 +20,6 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
-use repository_model::actions::NOT_ON_SPACE;
 use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::session::SessionKey;
 use std::sync::Arc;
@@ -95,7 +94,11 @@ impl<H: ServiceHost> ServiceFactSources<H> {
   }
 
   async fn required_space(&self, key: &SessionKey) -> Result<SpaceRepository, ApiError> {
-    self.host.space_repository(key).await?.ok_or_else(|| ApiError::new(ErrorCode::NotOnSpace, NOT_ON_SPACE))
+    self
+      .host
+      .space_repository(key)
+      .await?
+      .ok_or_else(|| ApiError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus can't push it"))
   }
 
   /// The GitHub repository a read names (`owner/name`, as the last listing named it), else the host's

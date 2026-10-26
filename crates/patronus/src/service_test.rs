@@ -284,9 +284,9 @@ async fn polls_only_running_robots_with_their_known_status() {
   );
 }
 
-/// The robots of a check before an action of the app (`robots_for_checks`, `robots_for_action`) are asked now, never
-/// answered from the kept list of the page: a robot the IDE or `bd` started since the page's list is seen, and holds.
-/// The list a check fetched answers the page's next list
+/// The robots of the check of the app's push (`robots_for_checks`) are asked now, never answered from the kept list of
+/// the page: a robot the IDE or `bd` started since the page's list is seen, and holds. The list a check fetched answers
+/// the page's next list
 #[tokio::test]
 async fn the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere() {
   let (fake, client) = start_fake().await;
@@ -303,12 +303,10 @@ async fn the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere() 
   *fake.robots.lock().unwrap() = Some(vec![started]);
   assert_eq!(ids(&service.robots_for_checks("ultimate", "me").await), ["started"]);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the check asked, within the reuse window of the page's list");
-  assert_eq!(ids(&service.robots_for_action("ultimate", "me").await.unwrap()), ["started"]);
-  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 3, "so does the check of an action");
 
   // the page's list right after is the one the check fetched
   assert_eq!(ids(&service.robots("ultimate", "other", None, true, false).await.robots), ["started"]);
-  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 3);
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
 }
 
 /// A poll that sees a robot change drops the kept full list: the next list of the page asks Patronus instead of

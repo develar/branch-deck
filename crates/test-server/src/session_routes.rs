@@ -24,8 +24,8 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use domain_types::ProgressReporter;
-use domain_types::error::{ApiError, ErrorCode};
-use domain_types::operation::{CancelOperationParams, ExecuteParams, Intent, Plan, PrepareParams};
+use domain_types::error::ApiError;
+use domain_types::operation::{CancelOperationParams, ExecuteParams, Plan, PrepareParams};
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
@@ -405,31 +405,23 @@ impl operations::events::EventSink for StreamEvents {
   }
 }
 
-/// Runs an intent on the plan the page showed, as the app's `execute`: the same engine (`execute_land`) over the
-/// services of the test repository (its fake Patronus and fake GitHub, `TestServices`); its steps, the progress of its
-/// push and its outcome go to the event stream of its channel as `{"progress": <OperationEvent>}`, the answer last
+/// Runs an intent on the plan the page showed, as the app's `execute`: the same engine (`operations::engine::execute`)
+/// over the services of the test repository (its fake Patronus and fake GitHub, `TestServices`); its steps, the
+/// progress of its push and its outcome go to the event stream of its channel as `{"progress": <OperationEvent>}`, the
+/// answer last
 pub async fn execute(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<ExecuteParams>) -> Response {
   answer_with_progress(progress_channel(&headers), move |progress| async move {
     let key = session_key(&state, &params.repository_path).await?;
-    let Intent::Land(land) = params.intent else {
-      return Err(failed(
-        "execute",
-        ApiError::new(ErrorCode::InvalidArguments, "Only a Safe Push or a Dry Run runs through execute so far"),
-      ));
-    };
     let services = TestServices {
       state: Arc::downgrade(&state),
       git: state.git_executor.clone(),
     };
-    let (host, run) = operations::land_session::session_start(&services, &state.sessions, &key)
-      .await
-      .map_err(|error| failed("execute", error))?;
     let events: Arc<dyn operations::events::EventSink> = Arc::new(StreamEvents(progress));
     let accepted = operations::land_execute::Accepted {
       fingerprint: params.fingerprint,
       confirmations: params.accepted,
     };
-    let outcome = operations::engine::execute_land(&state.registry, &key, land, accepted, &host, &run, events).await;
+    let outcome = Box::pin(operations::engine::execute(&state.registry, &key, params.intent, accepted, &services, events)).await;
     Ok(Json(outcome.map_err(|error| failed("execute", error))?))
   })
   .await

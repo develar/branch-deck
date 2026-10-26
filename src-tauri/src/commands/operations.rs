@@ -1,15 +1,15 @@
 //! The operations of the remote as the page asks them (docs/design/rust-domain-authority.md, "Планирование и
 //! исполнение операций"): `prepare` answers the plan of an intent in the session of the repository, which the popover
 //! of a start renders and a click starts by (`operations::engine::prepare`); `execute` runs it on the plan the page
-//! showed (`operations::engine::execute_land`: admitted over the operations of the session, the witness, the lock only
-//! for the freeze, then the effects), its steps, the progress of its push and its outcome sent to the channel of the
-//! window that asked; `cancel_operation` stops one that waits for the lock or whose next effect has not started.
+//! showed (`operations::engine::execute`: admitted over the operations of the session, the witness, the lock only for
+//! the freeze, then the effects), its steps, the progress of its push and its outcome sent to the channel of the window
+//! that asked; `cancel_operation` stops one that waits for the lock or whose next effect has not started.
 
 use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::commands::session::{SessionsState, session_key};
 use crate::operation::operation;
-use domain_types::error::{ApiError, ErrorCode};
-use domain_types::operation::{CancelOperationParams, ExecuteParams, Intent, OperationEvent, Outcome, Plan, PrepareParams};
+use domain_types::error::ApiError;
+use domain_types::operation::{CancelOperationParams, ExecuteParams, OperationEvent, Outcome, Plan, PrepareParams};
 use git_executor::git_command_executor::GitCommandExecutor;
 use operations::events::EventSink;
 use operations::land_execute::Accepted;
@@ -20,8 +20,9 @@ use tracing::instrument;
 
 /// The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
 /// does now (`operations::land::prepare`, the rule `bd safe-push` decides by), what the user accepts first, what refuses
-/// it, the facts it waits for and the profiles it offers. A read: no lock, no effect. Null while the session is not open,
-/// before its Patronus view, or for a subject its table lacks
+/// it, the facts it waits for and the profiles it offers; the restart or the cancel of a robot, the retarget of a pull
+/// request (`operations::engine::prepare`). A read: no lock, no effect. Null while the session is not open, before its
+/// Patronus view, for a subject its table lacks, a robot it offers no restart of, a pull request it doesn't list
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path))]
 #[specta::specta]
@@ -52,8 +53,8 @@ impl EventSink for ChannelEvents {
 
 /// Runs an intent on the plan the page showed (`fingerprint`, with the confirmations the user `accepted`): the plan is
 /// prepared again and runs only on that fingerprint; its steps, the progress of its push and its outcome go to
-/// `events`. A start of a Safe Push or a Dry Run so far (`operations::engine::execute_land`); the others run through
-/// their own commands until their family moves here
+/// `events`. A start of a Safe Push or a Dry Run, a restart and a cancel of a robot, a retarget of a pull request so far
+/// (`operations::engine::execute`); the others run through their own commands until their family moves here
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path))]
 #[specta::specta]
@@ -69,17 +70,13 @@ pub async fn execute(
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;
-    let Intent::Land(land) = params.intent else {
-      return Err(ApiError::new(ErrorCode::InvalidArguments, "Only a Safe Push or a Dry Run runs through execute so far"));
-    };
-    let (host, services) = state.start(&app, &key).await?;
     let events: Arc<dyn EventSink> = Arc::new(ChannelEvents(events));
     let accepted = Accepted {
       fingerprint: params.fingerprint,
       confirmations: params.accepted,
     };
     // the run of a start is a large future: on the heap
-    Box::pin(operations::engine::execute_land(state.registry(), &key, land, accepted, &host, &services, events)).await
+    Box::pin(state.execute(&app, &key, params.intent, accepted, events)).await
   })
   .await
 }

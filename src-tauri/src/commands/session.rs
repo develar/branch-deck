@@ -22,14 +22,15 @@ use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
+use domain_types::operation::Intent;
 use domain_types::patronus::PatronusRobot;
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use object_cache::cache::ObjectCache;
-use operations::land_execute::StartServices;
-use operations::land_session::{SessionStart, session_start};
-use operations::registry::Registry;
+use operations::events::EventSink;
+use operations::land_execute::Accepted;
+use operations::registry::{Answer, Registry};
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
@@ -147,10 +148,11 @@ impl SessionsState {
     &self.registry
   }
 
-  /// A start in the session of `key` and what it runs on, over the services of the app (`AppServices`)
-  pub async fn start(&self, app: &AppHandle, key: &SessionKey) -> Result<(SessionStart, StartServices), ApiError> {
+  /// Runs `intent` in the session of `key` on the plan the page accepted, over the services of the app (`AppServices`):
+  /// the engine of the operations (`operations::engine::execute`)
+  pub async fn execute(&self, app: &AppHandle, key: &SessionKey, intent: Intent, accepted: Accepted, events: Arc<dyn EventSink>) -> Answer {
     let services = AppServices { app: app.clone() };
-    session_start(&services, &self.sessions, key).await
+    operations::engine::execute(&self.registry, key, intent, accepted, &services, events).await
   }
 
   fn windows(&self) -> std::sync::MutexGuard<'_, WindowSubscriptions> {

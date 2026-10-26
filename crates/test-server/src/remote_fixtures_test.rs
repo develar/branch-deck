@@ -377,8 +377,9 @@ async fn a_start_its_plan_refuses_is_refused_before_patronus_or_github_is_asked(
 }
 
 /// The merge profiles of the fixture, written as `robot-start-supported` answers them, read back through the real
-/// service as the fixture; a start (`execute`), a restart and a cancel run the app's core and the real service against the fake,
-/// which lists the robots they started, answers their status, and logs each request (`GET …/patronus`)
+/// service as the fixture; a start, a cancel and a restart (`prepare` and `execute` of their intents) run the engine and
+/// the real service against the fake, which lists the robots they started, answers their status, and logs each request
+/// (`GET …/patronus`)
 #[tokio::test]
 async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
   let (addr, client, id, repository_path) = synced_on_space(&[]).await;
@@ -431,12 +432,23 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
     (started.id.as_str(), started.status, started.branch_name.as_deref(), started.source_revision.as_deref()),
     ("started-1", PatronusRobotStatus::Running, Some("test-branch"), Some(tip.as_str()))
   );
-  let robot = |robot_id: &str| json!({"repositoryPath": repository_path, "robotId": robot_id});
-  let restarted: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/restart_patronus_robot", robot("started-1")).await).unwrap();
+  // the cancel and the restart run through the engine too, over the robots of the session: the running robot is
+  // canceled (its status read first: it could have finished), the canceling one restarted
+  let cancel = json!({"kind": "cancelRobot", "robotId": "started-1"});
+  let plan = plan_when(&client, addr, &repository_path, &cancel, |_| true).await;
+  let outcome = execute_plan(&client, addr, &repository_path, &cancel, &plan).await;
+  let canceled: PatronusRobot = serde_json::from_value(outcome["result"]["robot"].clone()).unwrap_or_else(|error| panic!("{error}: {outcome}"));
+  assert_eq!((canceled.status, &outcome["result"]["alreadyFinished"]), (PatronusRobotStatus::Canceling, &json!(false)));
+  let restart = json!({"kind": "restartRobot", "robotId": "started-1"});
+  let plan = plan_when(&client, addr, &repository_path, &restart, |_| true).await;
+  assert_eq!(
+    plan["effects"],
+    json!([{"kind": "restartRobot", "robotId": "started-1"}]),
+    "the remote has the branch: a plain restart"
+  );
+  let outcome = execute_plan(&client, addr, &repository_path, &restart, &plan).await;
+  let restarted: PatronusRobot = serde_json::from_value(outcome["result"]["robot"].clone()).unwrap_or_else(|error| panic!("{error}: {outcome}"));
   assert_eq!((restarted.id.as_str(), restarted.branch_name.as_deref()), ("restarted-1", Some("test-branch")));
-  let canceled: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/cancel_patronus_robot", robot("started-1")).await).unwrap();
-  assert_eq!(canceled.status, PatronusRobotStatus::Canceling);
-  assert_eq!(post(&client, addr, "/invoke/get_patronus_robot_status", robot("restarted-1")).await, "running");
 
   let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
   assert_eq!(
@@ -446,16 +458,15 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
         "mode": "DRY_RUN", "sourceBranchDeletePolicy": "NEVER", "mergeProfileId": "lsc"}]),
       json!(["started-1"]),
       json!(["started-1"]),
-      json!(["restarted-1"]),
+      json!(["started-1"]),
     )
   );
 }
 
-/// The robot a push or a restart replaces, which finished meanwhile: the cancel of the replaced robot (`replaced`)
-/// answers it as Patronus lists it, finished, instead of "not running", Patronus is asked no cancel, and a start goes on;
-/// an explicit Cancel of the same robot still says "not running"
+/// A robot that finished before its cancel: the cancel answers it as it ended (`alreadyFinished`), Patronus is asked no
+/// cancel, and a start that replaces it goes on
 #[tokio::test]
-async fn a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel() {
+async fn a_cancel_of_a_robot_that_finished_is_answered_as_it_ended_and_a_start_goes_on() {
   let (addr, client, id, repository_path) = synced_on_space(&[]).await;
   let fixture = format!("/repositories/{id}/patronus");
   let mut failed = running_on("test-branch");
@@ -463,15 +474,16 @@ async fn a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel() {
   failed["robots"][0]["finishTime"] = json!(1_704_142_800);
   post(&client, addr, &fixture, failed).await;
 
-  let cancel = json!({"repositoryPath": repository_path, "robotId": "r1", "replaced": true});
-  let replaced: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/cancel_patronus_robot", cancel).await).unwrap();
-  assert_eq!((replaced.id.as_str(), replaced.status), ("r1", PatronusRobotStatus::Failure));
+  let cancel = json!({"kind": "cancelRobot", "robotId": "r1"});
+  let plan = plan_when(&client, addr, &repository_path, &cancel, |_| true).await;
+  let outcome = execute_plan(&client, addr, &repository_path, &cancel, &plan).await;
+  let finished: PatronusRobot = serde_json::from_value(outcome["result"]["robot"].clone()).unwrap_or_else(|error| panic!("{error}: {outcome}"));
+  assert_eq!(
+    (finished.id.as_str(), finished.status, &outcome["result"]["alreadyFinished"]),
+    ("r1", PatronusRobotStatus::Failure, &json!(true))
+  );
+  assert_eq!(outcome["effects"][0]["status"]["kind"], "done", "{outcome}");
   start_dry_run_of_test_branch(&client, addr, &repository_path).await;
-
-  let explicit = post(&client, addr, "/invoke/cancel_patronus_robot", json!({"repositoryPath": repository_path, "robotId": "r1"})).await;
-  assert_eq!(explicit["status"], "error", "{explicit}");
-  let refusal = explicit["error"]["message"].as_str().unwrap();
-  assert!(refusal.contains("Nothing was canceled: the Safe Push is not running ("), "{refusal}");
   let log: serde_json::Value = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json().await.unwrap();
   assert_eq!((log["cancels"].clone(), log["starts"].as_array().map(Vec::len)), (json!([]), Some(1)));
 }

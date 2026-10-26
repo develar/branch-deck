@@ -234,7 +234,7 @@ fn a_whole_stack_waits_for_its_build_its_last_commit_then_a_member_that_lands_a_
 /// A restart is the start of its robot's subject that the robot itself does not refuse and that pushes nothing; a
 /// subject landed whole refuses it last
 #[test]
-fn a_restart_is_refused_as_a_start_without_its_own_robot_then_by_a_landing() {
+fn a_restart_is_refused_by_the_table_first_then_as_a_start_without_its_own_robot_then_by_a_landing() {
   let own = running("own", "login");
   let lands_it = running("s", "session");
   let robots = Robots::new([&own, &lands_it]);
@@ -248,20 +248,27 @@ fn a_restart_is_refused_as_a_start_without_its_own_robot_then_by_a_landing() {
     hold: Some(&hold),
     ..start()
   };
-  assert_eq!(restart_refusal(&Start::Branch(restart), DRY_RUN, &robots, None), None);
+  assert_eq!(restart_refusal(&Start::Branch(restart), DRY_RUN, &robots, None, None), None);
   let landed = Reason::Landed {
     branch: "login".to_string(),
     by: robot_of("session", "m"),
     own: false,
     target: "master".to_string(),
   };
-  assert_eq!(restart_refusal(&Start::Branch(restart), DRY_RUN, &robots, Some(landed.clone())), Some(landed));
+  assert_eq!(restart_refusal(&Start::Branch(restart), DRY_RUN, &robots, None, Some(landed.clone())), Some(landed.clone()));
+  // a parked subject stays local: a restart would land it
+  let parked = Reason::Parked {
+    branch: "login".to_string(),
+    with: None,
+    note: String::new(),
+  };
+  assert_eq!(restart_refusal(&Start::Branch(restart), DRY_RUN, &robots, Some(parked.clone()), Some(landed)), Some(parked));
   let span = SpanView {
     by: robot_of("session", "s"),
     carried: None,
   };
   assert!(matches!(
-    restart_refusal(&Start::Branch(BranchStart { span: Some(&span), ..restart }), SAFE_PUSH, &robots, None),
+    restart_refusal(&Start::Branch(BranchStart { span: Some(&span), ..restart }), SAFE_PUSH, &robots, None, None),
     Some(Reason::Descendant { .. })
   ));
 }

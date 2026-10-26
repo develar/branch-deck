@@ -23,13 +23,13 @@ use sync_core::transfer_progress::TransferProgress;
 use sync_utils::clock::TestClock;
 use test_utils::git_test_utils::{TestRepo, git_command, refuse_every_push, stack_ahead_of_bare_origin};
 
-const ALPHA: &str = "refs/heads/test/virtual/alpha";
-const ALPHA_REMOTE: &str = "refs/remotes/origin/test/virtual/alpha";
+pub(crate) const ALPHA: &str = "refs/heads/test/virtual/alpha";
+pub(crate) const ALPHA_REMOTE: &str = "refs/remotes/origin/test/virtual/alpha";
 
 /// The facts of a start as a test holds them: its plan, the robots of the session, and what the start told it
-struct Host {
-  planned: Planned,
-  robots: Mutex<Vec<PatronusRobot>>,
+pub(crate) struct Host {
+  pub(crate) planned: Planned,
+  pub(crate) robots: Mutex<Vec<PatronusRobot>>,
   /// Listed from the end of the push on: a robot another process started meanwhile
   meanwhile: Option<PatronusRobot>,
   /// What the start told the session, in order: `push <subjects>`, `pushed`, `robot <id>`
@@ -37,7 +37,7 @@ struct Host {
 }
 
 impl Host {
-  fn told(&self) -> Vec<String> {
+  pub(crate) fn told(&self) -> Vec<String> {
     self.told.lock().unwrap().clone()
   }
 
@@ -85,13 +85,13 @@ impl StartHost for Host {
 
 /// `stack_ahead_of_bare_origin` (`alpha` not on the remote yet) and a fake Patronus whose Safe Push `r1` runs on an
 /// older commit of `alpha`
-struct Fixture {
-  repo: TestRepo,
-  fake: Arc<FakePatronus>,
-  services: StartServices,
+pub(crate) struct Fixture {
+  pub(crate) repo: TestRepo,
+  pub(crate) fake: Arc<FakePatronus>,
+  pub(crate) services: StartServices,
 }
 
-async fn fixture() -> Fixture {
+pub(crate) async fn fixture() -> Fixture {
   let repo = stack_ahead_of_bare_origin();
   let (fake, client) = start_fake().await;
   *fake.robots.lock().unwrap() = Some(vec![robot_json("r1", "RUNNING", ALPHA, "2026-10-14T09:30:00Z")]);
@@ -136,7 +136,7 @@ fn alpha() -> Land {
 
 impl Fixture {
   /// The plan of the Safe Push of `alpha` with `effects`, its witness read now: the tip of `alpha` and its remote branch
-  fn planned(&self, effects: Vec<PlannedEffect>) -> Planned {
+  pub(crate) fn planned(&self, effects: Vec<PlannedEffect>) -> Planned {
     let names = [ALPHA.to_string(), ALPHA_REMOTE.to_string()];
     let refs = read_refs(&self.services.git, &self.services.repository_path, &names).unwrap();
     let pushes = effects.iter().any(|effect| matches!(effect, PlannedEffect::Push { .. })).then(|| PushedRef {
@@ -163,11 +163,13 @@ impl Fixture {
       source_ref: ALPHA.to_string(),
       merge_request: None,
       notes: Vec::new(),
+      subject: alpha().subject,
+      mode: PatronusPushMode::RebaseAutosquash,
     }
   }
 
   /// The host of `planned` whose session lists `r1` running on `alpha`
-  fn host(planned: Planned) -> Host {
+  pub(crate) fn host(planned: Planned) -> Host {
     Host {
       planned,
       robots: Mutex::new(vec![robot("r1", Some("alpha"), PatronusRobotStatus::Running, 1)]),
@@ -186,7 +188,7 @@ impl Fixture {
   }
 
   /// The commit of `alpha` on the bare origin; `None` while it has none
-  fn remote_alpha(&self) -> Option<String> {
+  pub(crate) fn remote_alpha(&self) -> Option<String> {
     let listed = self.repo.git(&["--git-dir", ".git/origin.git", "for-each-ref", "--format=%(objectname)", ALPHA]);
     (!listed.is_empty()).then_some(listed)
   }
@@ -195,7 +197,7 @@ impl Fixture {
     self.fake.starts.lock().unwrap().len()
   }
 
-  fn canceled(&self) -> Vec<String> {
+  pub(crate) fn canceled(&self) -> Vec<String> {
     self.fake.canceled.lock().unwrap().clone()
   }
 }
@@ -214,7 +216,7 @@ fn replace_and_start() -> Vec<PlannedEffect> {
   ]
 }
 
-fn statuses(started: &Started) -> Vec<&EffectStatus> {
+pub(crate) fn statuses(started: &Started) -> Vec<&EffectStatus> {
   started.outcome.effects.iter().map(|record| &record.status).collect()
 }
 
@@ -282,7 +284,11 @@ async fn a_start_retargets_the_pull_request_out_of_a_virtual_branch_before_it_pu
   assert_eq!(github.requests_to("PATCH", pull)[0].json(), serde_json::json!({"base": "master"}));
   assert_eq!(fixture.starts(), 1);
 
-  github.answer("PATCH", pull, github::fake_github::FakeAnswer::status(422, serde_json::json!({"message": "Validation Failed"})));
+  github.answer(
+    "PATCH",
+    pull,
+    github::fake_github::FakeAnswer::status(422, serde_json::json!({"message": "Validation Failed"})),
+  );
   let mut planned = fixture.planned(effects);
   planned.plan.pull_request = Some(8);
   let refused = fixture.run(&Fixture::host(planned), &Steps::none()).await.unwrap();

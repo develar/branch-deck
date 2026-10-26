@@ -144,12 +144,13 @@ to be on the remote.
 
 Pull requests opened into a parent's branch before this model, or of a parent that landed, still exist. A base under
 `{prefix}/virtual/` (`PullRequestBase::Virtual` of `domain_policy::pull_request::base_of`, for the app and `bd`) is never a choice, so it is retargeted
-to the baseline (`PATCH pulls/<n>`, `retarget_pull_request`):
+to the baseline (`PATCH pulls/<n>`, `operations::pull_request::retarget`):
 
 - the app, right before the push of the branch (`retargetBeforePush`, each branch of a stack push), as the first effect
   of a Safe Push start (`PlannedEffect::Retarget` of `domain_policy::land::decide`, run by the engine,
   `operations::land_execute`, before the cancel, the push and the robot, as `bd safe-push` runs it), and from the next step, row 5 "Retarget #7 to master", for any virtual base, the
-  current parent's included (`domain_policy::pull_request::base_of`, [Next Step](../../spec/branch/next-step.spec.md));
+  current parent's included (`domain_policy::pull_request::base_of`, the intent `Retarget` of the engine,
+  [Next Step](../../spec/branch/next-step.spec.md));
 - `bd push`, after the push and the lock, for the pushed branches; `bd safe-push` before its push, for the branch and
   the parents its push takes along, and a refused retarget of the branch's own pull request stops the start: Patronus
   would merge it into the old base. `--create-pull-request` takes the open pull request of the branch whatever its base

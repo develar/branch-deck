@@ -15,7 +15,6 @@ domain-types = { path = "../domain-types" }
 domain-policy = { path = "../domain-policy" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
-patronus = { path = "../patronus" }
 sync-utils = { path = "../sync-utils" }
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
 tracing.workspace = true

@@ -36,15 +36,20 @@ vi.mock("@/lib/bindings", () => ({
       session.writes.push(`create ${params.branchName} in ${params.repositoryPath}`)
       return { status: "ok", data: { outcome: { created: true, pullRequest: { number: 9 }, assignees: [], warnings: [] }, version: VERSION } }
     },
-    retargetPullRequest: async (params: { repositoryPath: string; pullRequestNumber: number; base: string }) => {
-      session.writes.push(`retarget #${params.pullRequestNumber} onto ${params.base} in ${params.repositoryPath}`)
-      return { status: "ok", data: VERSION }
-    },
     requestPullRequestReviewers: async (params: { repositoryPath: string; pullRequestNumber: number; reviewers: string[] }) => {
       session.writes.push(`request ${params.reviewers.join(" ")} on #${params.pullRequestNumber} in ${params.repositoryPath}`)
       return { status: "ok", data: { outcome: { requested: params.reviewers, refused: [] }, version: VERSION } }
     },
   },
+}))
+
+// the retarget is an intent of the engine: what reaches it is the test
+vi.mock("@/lib/run-intent", () => ({
+  runIntent: async (repositoryPath: string, intent: { kind: string; number: number }) => {
+    session.writes.push(`${intent.kind} #${intent.number} in ${repositoryPath}`)
+    return { kind: "ran" }
+  },
+  runFailure: () => null,
 }))
 
 vi.mock("@/model/store", () => ({
@@ -155,11 +160,10 @@ describe("the writes and the refresh", () => {
     expect(session.refreshed).toEqual(["pullRequests manual in /repo", "pullRequests afterWrite in /repo"])
   })
 
-  it("resolves a retarget once the session has it", async () => {
+  it("retargets the pull request of a branch through the engine, in the repository of its listing", async () => {
     applyPullRequestsFacts("/repo", LISTED, null)
-    await retargetPullRequest("auth", "user/virtual/core")
-    expect(session.writes).toEqual(["retarget #1 onto user/virtual/core in /repo"])
-    expect(session.waited).toEqual(["/repo at 7"])
+    await retargetPullRequest("auth")
+    expect(session.writes).toEqual(["retarget #1 in /repo"])
   })
 })
 

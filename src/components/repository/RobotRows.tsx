@@ -5,21 +5,20 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { RelativeTime } from "@/components/shared/RelativeTime"
-import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatFailedChecks } from "@/lib/check-counts"
 import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, openRobot, robotRingColor } from "@/lib/patronus"
-import type { RobotAction } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatCheckProgress, formatRobotProgress } from "@/lib/robot-eta"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
 import { isFailingEntry } from "@/lib/robot-overview"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatWholeStack } from "@/lib/whole-stack"
-import { useOperations } from "@/stores/operations"
+import type { RobotAction } from "@/presenters/actions"
 
 interface RobotListProps {
   /** The section title; "Landing · 2" */
@@ -59,7 +58,7 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
   const reveal = entry.stackRoot ?? branchName
   // the actions Rust offers of the robot; a restart or a cancel that runs shows in its button
   const robotParts = useRobotParts(robot)
-  const operations = useOperations()
+  const operations = useSessionOperations()
   const mode = formatPushMode(robot.pushMode)
   const Icon = patronusChipIcons[chip.kind]
   const active = chip.kind === "running"

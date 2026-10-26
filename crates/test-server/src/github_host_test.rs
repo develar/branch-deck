@@ -2,7 +2,7 @@ use crate::remote_fixtures::fixture_pulls;
 use crate::session_routes::TestFactSources;
 use crate::session_routes_test::{subscribe, subscription};
 use crate::tauri_command_bridge::review_requests_of;
-use crate::test_support::{Messages, Named, command, create_repository, delete_repository, head, post, post_as, start_test_server, start_test_server_with_state};
+use crate::test_support::{Messages, Named, command, create_repository, delete_repository, head, post, post_as, start_test_server, start_test_server_with_state, sync};
 use domain_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
 use pretty_assertions::assert_eq;
 use remote_facts::fact_sources::FactSources;
@@ -149,8 +149,9 @@ async fn until_listings(client: &reqwest::Client, addr: std::net::SocketAddr, id
 }
 
 /// The pull requests of the fixture come through the real service from the fake GitHub of the repository, with the
-/// head of an empty `headRefOid` resolved; a creation, a retarget and a close run the app's cores against the fake,
-/// which lists what they changed and logs each request (`GET …/pull-requests`)
+/// head of an empty `headRefOid` resolved; a creation and a close run the app's cores against the fake, a retarget the
+/// engine (`prepare` and `execute` of its intent), which lists what they changed and logs each request
+/// (`GET …/pull-requests`)
 #[tokio::test]
 async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real_service() {
   let addr = start_test_server().await;
@@ -161,8 +162,7 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   let _window = window(&client, addr, &id, &repository_path).await;
   assert_eq!(listed(&client, addr, &repository_path).await["availability"], json!({"status": "notGitHub"}));
 
-  let fixture = available(BTreeMap::from([("login".to_string(), pull_request("login", 7))]), BTreeMap::new());
-  let mut fixture = serde_json::to_value(fixture).unwrap();
+  let mut fixture = serde_json::to_value(login_into_parent()).unwrap();
   fixture["users"] = json!([{"login": "bob", "name": "Bob"}]);
   post(&client, addr, &format!("/repositories/{id}/pull-requests"), fixture).await;
   let pull_requests = listed(&client, addr, &repository_path).await;
@@ -179,8 +179,20 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   assert_eq!(created["pullRequest"]["number"], 8);
   assert_eq!(created["pullRequest"]["reviewers"], json!([{"login": "bob", "state": "requested", "requested": true}]));
   until_listings(&client, addr, &id, 3).await;
-  let retarget = json!({"repositoryPath": repository_path, "pullRequestNumber": 7, "base": "user-name/virtual/auth"});
-  post(&client, addr, "/invoke/retarget_pull_request", retarget).await;
+  // the retarget is an intent of the engine: its plan moves the pull request into the target the sync names, its run in
+  // the session
+  sync(&client, addr, &repository_path).await;
+  let intent = json!({"kind": "retarget", "number": 7});
+  let plan = post(&client, addr, "/invoke/prepare", json!({"repositoryPath": repository_path, "intent": intent})).await;
+  assert_eq!(
+    plan["effects"],
+    json!([{"kind": "retarget", "branch": "login", "number": 7, "from": "user-name/virtual/auth", "to": "master"}]),
+    "{plan}"
+  );
+  let execute = json!({"repositoryPath": repository_path, "intent": intent, "fingerprint": plan["fingerprint"], "accepted": []});
+  let outcome = post(&client, addr, "/invoke/execute", execute).await;
+  assert_eq!(outcome["effects"][0]["status"]["kind"], "done", "{outcome}");
+  assert!(outcome["versionAfter"].is_object(), "{outcome}");
   until_listings(&client, addr, &id, 4).await;
   let close = json!({"repositoryPath": repository_path, "pullRequestNumber": 8, "comment": "Landed with login"});
   post(&client, addr, "/invoke/close_pull_request", close).await;
@@ -191,7 +203,7 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   );
 
   let pull_requests = listed(&client, addr, &repository_path).await;
-  assert_eq!(pull_requests["pullRequests"]["login"]["baseRefName"], "user-name/virtual/auth");
+  assert_eq!(pull_requests["pullRequests"]["login"]["baseRefName"], "master");
   assert_eq!(pull_requests["pullRequests"]["auth"]["state"], "closed");
   let log = get(&client, addr, &format!("/repositories/{id}/pull-requests")).await;
   let writes: Vec<Value> = log["requests"]
@@ -207,7 +219,7 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
       json!(["POST", "/repos/acme/monorepo/pulls", {"title": "Add auth", "body": "b", "head": "user-name/virtual/auth", "base": "master"}]),
       json!(["POST", "/repos/acme/monorepo/issues/8/assignees", {"assignees": ["user-name"]}]),
       json!(["POST", "/repos/acme/monorepo/pulls/8/requested_reviewers", {"reviewers": ["bob"]}]),
-      json!(["PATCH", "/repos/acme/monorepo/pulls/7", {"base": "user-name/virtual/auth"}]),
+      json!(["PATCH", "/repos/acme/monorepo/pulls/7", {"base": "master"}]),
       json!(["POST", "/repos/acme/monorepo/issues/8/comments", {"body": "Landed with login"}]),
       json!(["PATCH", "/repos/acme/monorepo/pulls/8", {"state": "closed"}]),
     ]
@@ -317,6 +329,15 @@ async fn until_arrived(client: &reqwest::Client, addr: std::net::SocketAddr, id:
   }
 }
 
+/// The listing of the pull request #7 of login, which goes into the branch of its parent, from before
+fn login_into_parent() -> PullRequestsResult {
+  let into_parent = PullRequest {
+    base_ref_name: "user-name/virtual/auth".to_string(),
+    ..pull_request("login", 7)
+  };
+  available(BTreeMap::from([("login".to_string(), into_parent)]), BTreeMap::new())
+}
+
 /// A server with a repository of the simple template whose GitHub lists the pull request #7 of login: the server, its
 /// client, the repository's id and path
 async fn listing_login() -> (std::net::SocketAddr, reqwest::Client, String, String) {
@@ -327,8 +348,13 @@ async fn listing_login() -> (std::net::SocketAddr, reqwest::Client, String, Stri
 async fn listing_login_at(addr: std::net::SocketAddr) -> (std::net::SocketAddr, reqwest::Client, String, String) {
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository(&client, addr).await;
-  let fixture = available(BTreeMap::from([("login".to_string(), pull_request("login", 7))]), BTreeMap::new());
-  post(&client, addr, &format!("/repositories/{id}/pull-requests"), serde_json::to_value(fixture).unwrap()).await;
+  post(
+    &client,
+    addr,
+    &format!("/repositories/{id}/pull-requests"),
+    serde_json::to_value(login_into_parent()).unwrap(),
+  )
+  .await;
   (addr, client, id, repository_path)
 }
 

@@ -10,7 +10,7 @@ import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { RobotActionButton } from "@/components/branch/PatronusChip"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
-import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
 import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { pickRemoteCommits } from "@/lib/git/pick-remote"
@@ -24,7 +24,7 @@ import { useRowPart } from "@/model/store"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useObjectBusy, useOperations } from "@/stores/operations"
+import { useObjectBusy } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -261,7 +261,7 @@ const HOLD_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-re
 function PushHeldActions({ branch, close }: { branch: Branch; close: () => void }) {
   const hold = usePushHold(branch.name)
   const robotParts = useRobotParts(hold?.robot)
-  const operations = useOperations()
+  const operations = useSessionOperations()
   const blocker = blockingBranchOf(branch)
   if (blocker !== null) {
     return (

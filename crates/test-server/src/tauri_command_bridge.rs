@@ -13,8 +13,8 @@ use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestB
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
 use domain_types::patronus::{
-  GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobot, PatronusRobotParams,
-  PatronusRobotStatus, PatronusRobotsResult, PostPatronusCommandParams, ReadPatronusCommandReplyParams,
+  GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobotsResult, PostPatronusCommandParams,
+  ReadPatronusCommandReplyParams,
 };
 use domain_types::pull_request::{CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, RequestedReviewers};
 use domain_types::review_request::ReviewRequestsResult;
@@ -33,7 +33,6 @@ use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::reword::{RewordRequest, reword_request_core};
 use object_cache::cache::ObjectCache;
-use patronus::service::PatronusService;
 use remote_facts::patronus_command::{
   UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
 };
@@ -41,13 +40,9 @@ use remote_facts::pull_request_create::{
   CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
   new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
 };
-use remote_facts::pull_request_writes::{
-  ClosePullRequestParams, GetPullRequestHeadParams, RetargetPullRequestParams, close_pull_request as core_close_pull_request, read_pull_request_head,
-  retarget_pull_request as core_retarget_pull_request,
-};
+use remote_facts::pull_request_writes::{ClosePullRequestParams, GetPullRequestHeadParams, close_pull_request as core_close_pull_request, read_pull_request_head};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
-use repository_model::actions::RemoteActions;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::SessionKey;
 use repository_model::table::TableState;
@@ -816,34 +811,6 @@ async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> R
   Ok((common_dir, space_of(state, path)?))
 }
 
-/// What the app's actions on the robots run on (`repository_model::actions`), as the app's commands have it: the fake's
-/// service with the Space repository (none while no Patronus fixture put the repository on Space) and the sessions
-fn remote_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>, branch_prefix: &'a str) -> RemoteActions<'a> {
-  RemoteActions::new(service.zip(space), &state.git_executor, &state.sessions, branch_prefix)
-}
-
-/// What the `RemoteActions` of a command on the test repository are built of, owned by the command: the prefix resolved
-/// for it (`branch_prefix_of`), the fake's service and its Space repository (none while no Patronus fixture put it on
-/// Space)
-struct RemoteInputs {
-  branch_prefix: String,
-  space: Option<(Arc<RemoteHost>, SpaceRepository)>,
-  service: Option<Arc<PatronusService>>,
-}
-
-impl RemoteInputs {
-  async fn of(state: &AppState, repository_path: &str) -> Result<Self, Rejection> {
-    let branch_prefix = branch_prefix_of(state, repository_path).await?;
-    let space = space_of(state, repository_path)?;
-    let service = space.as_ref().map(|(host, _)| host.patronus_service());
-    Ok(Self { branch_prefix, space, service })
-  }
-
-  fn actions<'a>(&'a self, state: &'a AppState) -> RemoteActions<'a> {
-    remote_actions(state, self.service.as_deref(), self.space.as_ref().map(|(_, space)| space), &self.branch_prefix)
-  }
-}
-
 /// `$GIT_COMMON_DIR` of the repository at `path`, where the repository lock lives
 fn git_common_dir(git_executor: &git_executor::git_command_executor::GitCommandExecutor, path: &str) -> anyhow::Result<std::path::PathBuf> {
   let dirs = repository_dirs(git_executor, path)?.ok_or_else(|| anyhow::anyhow!("Cannot find the git directory of {path}"))?;
@@ -913,19 +880,6 @@ pub async fn sign_out_of_github(State(state): State<Arc<AppState>>, headers: Hea
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let signed_out = host.github_sign_in().sign_out(&host.github_service()).await;
   signed_out.map(Json).map_err(|e| failed("sign out of GitHub", e))
-}
-
-/// Changes the base of a pull request, as the app does: the session of the repository has it at once
-pub async fn retarget_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<RetargetPullRequestParams>) -> CommandResult<Option<Version>> {
-  let operation = "retarget the pull request";
-  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
-  let retarget = core_retarget_pull_request(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.base).await;
-  retarget.map_err(|e| failed(operation, e.to_string()))?;
-  let write = PullRequestWrite::Retargeted {
-    number: params.pull_request_number,
-    base: params.base,
-  };
-  Ok(Json(write_pull_request(&state, &params.repository_path, write).await))
 }
 
 /// Closes a pull request with a comment, as the app does: the session of the repository has it at once
@@ -1360,57 +1314,6 @@ pub async fn get_patronus_target_branch(State(state): State<Arc<AppState>>, Json
     find_target_branch(&git_executor, &params.repository_path, &params.baseline_branch)
   })
   .await
-}
-
-/// The robot an action answered goes into the robots of the session of the repository, as the app's commands write it
-async fn write_robot(state: &AppState, repository_path: &str, prefix: String, robot: &PatronusRobot) {
-  let key = SessionKey {
-    worktree: repository_path.to_owned(),
-    prefix,
-  };
-  // a session not open has no robots to keep it in
-  let _ = state.sessions.write_robot(&key, robot.clone()).await;
-}
-
-/// Restarts a robot as the app does (`RemoteActions::restart_robot`): the fake lists a new one on the newest commit of
-/// the branch
-pub async fn restart_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobot> {
-  act_on_robot(&state, &params, RobotAction::Restart).await
-}
-
-/// Cancels a robot as the app does (`RemoteActions::cancel_robot`): the fake answers it canceling
-pub async fn cancel_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobot> {
-  act_on_robot(&state, &params, RobotAction::Cancel).await
-}
-
-/// What the user does with a robot of the list
-enum RobotAction {
-  Restart,
-  Cancel,
-}
-
-/// The restart or the cancel of the robot of `params` with the actions of the repository, as the app's commands do
-async fn act_on_robot(state: &AppState, params: &PatronusRobotParams, action: RobotAction) -> CommandResult<PatronusRobot> {
-  let operation = match action {
-    RobotAction::Restart => "restart the Patronus robot",
-    RobotAction::Cancel => "cancel the Patronus robot",
-  };
-  let inputs = RemoteInputs::of(state, &params.repository_path).await?;
-  let actions = inputs.actions(state);
-  let robot = match action {
-    RobotAction::Restart => actions.restart_robot(params).await,
-    RobotAction::Cancel => actions.cancel_robot(params).await,
-  }
-  .map_err(|e| failed(operation, e))?;
-  write_robot(state, &params.repository_path, inputs.branch_prefix.clone(), &robot).await;
-  Ok(Json(robot))
-}
-
-/// The status of one robot as the app reads it before a push into its branch
-pub async fn get_patronus_robot_status(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobotStatus> {
-  let host = remote_of(&state, &params.repository_path)?;
-  let status = host.patronus_service().robot_status(&params.robot_id).await;
-  status.map(Json).map_err(|e| failed("read the status of the Patronus robot", patronus_error(e)))
 }
 
 pub async fn browse_repository(

@@ -11,7 +11,7 @@ import { RobotRing } from "@/components/branch/RobotProgress"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { StatusChip, StatusChipDot } from "@/components/branch/StatusChip"
 import { PendingSection } from "@/components/shared/PendingSection"
-import { getRobotItems, robotProblemsReason, useRobotParts } from "@/hooks/useBranchNextStep"
+import { getRobotItems, robotProblemsReason, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
 import { useRobotDetails } from "@/hooks/useRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
@@ -28,7 +28,6 @@ import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { formatPendingFact } from "@/presenters/next-step"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
-import { useOperations } from "@/stores/operations"
 import { patronusStore, useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotRestart } from "@/stores/patronus"
 
 /**
@@ -123,7 +122,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   const needsReview = useRobotNeedsReview(robot.id)
   const failing = useRobotFailing(robot.id)
   // a restart or a cancel that runs shows in its button
-  const operations = useOperations()
+  const operations = useSessionOperations()
   const localTip = useBranchTip(branchName)
   const remote = useBranchRemoteStatus(branchName)
   const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })

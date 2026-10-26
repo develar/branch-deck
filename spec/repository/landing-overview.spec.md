@@ -16,7 +16,8 @@ targets:
   - ../../src/lib/landing-overview.ts
   - ../../src/presenters/landing-node.ts
   - ../../src/lib/robot-overview.ts
-  - ../../src/lib/patronus-actions.ts
+  - ../../src/lib/robot-run.ts
+  - ../../src/presenters/actions.ts
   - ../../src/hooks/useRobotDetails.ts
   - ../../src/lib/check-counts.ts
   - ../../src/components/repository/UpdateProjectButton.tsx

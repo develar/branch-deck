@@ -7,7 +7,6 @@ import { baselineOnRemote } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { getRowPart } from "@/model/store"
 import { findAction } from "@/presenters/actions"
-import { recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getOpenPullRequest } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
@@ -113,9 +112,9 @@ export interface Retargeted {
 
 /**
  * Retargets the open pull request of a branch whose base is a virtual branch to the baseline before the branch is
- * pushed (`getPullRequestRetarget`): the pull request then shows what the Safe Push of the branch lands, and its
- * approvals count. Activity records it. Null when there was nothing to retarget, or the retarget failed (an error toast
- * said why; the push still runs, its toast offers the command).
+ * pushed (`getPullRequestRetarget`), as the engine runs it (`retargetPullRequest`, Activity records it): the pull request
+ * then shows what the Safe Push of the branch lands, and its approvals count. Null when there was nothing to retarget,
+ * or the retarget failed (an error toast said why; the push still runs, its toast offers the command).
  */
 export async function retargetBeforePush(branch: Branch): Promise<Retargeted | null> {
   const retarget = getPullRequestRetarget(branch.name)
@@ -124,12 +123,11 @@ export async function retargetBeforePush(branch: Branch): Promise<Retargeted | n
   }
   const { pullRequest, base } = retarget
   try {
-    await retargetPullRequest(branch.name, base)
+    await retargetPullRequest(branch.name)
   } catch (error) {
     notifyError(`Cannot retarget pull request #${pullRequest.number}`, error)
     return null
   }
-  recordRetarget(`Retargeted #${pullRequest.number} to ${base}`, `${branch.name} · it went into ${retarget.from}`, pullRequest.url)
   return { number: pullRequest.number, base }
 }
 

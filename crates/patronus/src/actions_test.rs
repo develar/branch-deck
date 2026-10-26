@@ -451,11 +451,7 @@ async fn an_action_without_a_token_tells_how_to_log_in() {
   let (service, _) = service(client, TokenLookup::Missing);
   assert_eq!(service.cancel("me", "running").await.unwrap_err(), "Run ./safePush.cmd once to log in to Patronus");
   assert_eq!(fake.canceled.lock().unwrap().len(), 0);
-  // the list the checks of an action read fails it in the same words, where the checks of a push see no robots
-  assert_eq!(
-    service.robots_for_action("ultimate", "me").await.unwrap_err(),
-    "Run ./safePush.cmd once to log in to Patronus"
-  );
+  // the checks of a push see no robots then
   assert_eq!(service.robots_for_checks("ultimate", "me").await, Vec::new());
 }
 
@@ -776,8 +772,7 @@ esac"#
 
 /// A start, a restart and a cancel change the robots, so the page's next full list asks Patronus instead of reusing the
 /// one just fetched: a reused list would show the robot the page canceled still running and lack the one it started.
-/// Only the page's lists are at stake: the checks of the app's actions (`robots_for_checks`, `robots_for_action`) never
-/// answer from a kept list
+/// Only the page's lists are at stake: the check of the app's push (`robots_for_checks`) never answers from a kept list
 #[tokio::test]
 async fn a_start_a_restart_and_a_cancel_forget_the_full_list() {
   let (fake, client) = start_fake().await;

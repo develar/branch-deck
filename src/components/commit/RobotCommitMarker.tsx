@@ -1,12 +1,11 @@
 import { RobotActionButton } from "@/components/branch/PatronusChip"
 import { StatusChip } from "@/components/branch/StatusChip"
-import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
+import { getRobotItems, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatPushMode } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatTimestamp } from "@/lib/time"
-import { useOperations } from "@/stores/operations"
 import { useCoveringRobot } from "@/stores/robot-coverage"
 
 export interface RobotCommitMarkerProps {
@@ -42,7 +41,7 @@ export function RobotCommitMarker({ branchName, change }: RobotCommitMarkerProps
 
 /** The robot that lacks the commit, why, and the actions of the robot */
 function RobotCommitDetails({ robot, change }: { robot: PatronusRobot; change: "added" | "changed" }) {
-  const operations = useOperations()
+  const operations = useSessionOperations()
   // the robot of a branch built on this one, or of the whole stack: its actions are the ones Rust offers of it
   const robotParts = useRobotParts(robot)
   const mode = formatPushMode(robot.pushMode)

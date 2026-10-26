@@ -17,7 +17,8 @@ import { TEST_SERVER_URL } from "./test-server-url"
 
 /**
  * An answer of a fake a test holds back (`HeldAnswer` of `remote_host.rs`): GitHub's search of the user's pull
- * requests, the review requests, the list of the robots, the pre-check of the code-owner review, the answer of the
+ * requests, the review requests, the list of the robots, the start, the restart and the cancel of a robot, the
+ * pre-check of the code-owner review, the answer of the
  * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the merge
  * profiles of the target, the view of the robots, the statuses of Settings (the GitHub and the YouTrack sign-in, the
  * tools), a push to the remote of the repository (which has its pack then, and moves no ref until the release)
@@ -27,6 +28,8 @@ export type HeldAnswer =
   | "reviewRequests"
   | "robots"
   | "start"
+  | "restart"
+  | "cancel"
   | "readiness"
   | "landingNeeds"
   | "robotProblems"

@@ -4,6 +4,8 @@ description: Requirements for the GitHub pull request status of the virtual bran
 style: plain-1
 targets:
   - ../../crates/domain-types/src/pull_request.rs
+  - ../../crates/operations/src/pull_request.rs
+  - ../../src/lib/run-intent.ts
   - ../../crates/github/src/client.rs
   - ../../crates/github/src/service.rs
   - ../../crates/github/src/token.rs
@@ -245,10 +247,16 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   next push does not retarget again. A retarget, the reviewers and a creation list them once more, after the listing in
   flight, whose answer then is the truth; a close lists nothing. The command answers once the view has the write, so
   the toast of the push that follows reads it. A pull request the app created stays until GitHub's search lists it, at
-  most five minutes.
+  most five minutes. The retarget the user asks (row 5 of the next step, its "⋯", the Safe Push form, the push of a
+  branch whose pull request goes into a virtual branch) is an intent of the engine (`Retarget`,
+  `operations::pull_request`): planned over the pull requests of the session, it moves an open one into the target
+  the baseline tracks (none of one into the target already; a merged one is refused), holds the base of the pull
+  request (a review request of it runs beside, a second retarget joins it), and writes the new base into the session.
   [@test] ../../crates/repository-model/src/pull_request_facts_test.rs (`a_late_listing_keeps_the_retarget_the_reviewers_and_the_close_written_after_it_started`, `a_created_pull_request_stays_until_the_search_lists_it`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_them`)
-  [@test] ../../src/stores/pull-requests.test.ts (`resolves a retarget once the session has it`)
+  [@test] ../../src/stores/pull-requests.test.ts (`retargets the pull request of a branch through the engine, in the repository of its listing`)
+  [@test] ../../crates/operations/src/robot_test.rs (`a_retarget_moves_an_open_pull_request_into_the_target_and_nothing_else`, `a_retarget_during_a_review_request_of_the_same_pull_request_runs_beside_it`)
+  [@test] ../../crates/test-server/src/github_host_test.rs (`pull_requests_are_listed_created_retargeted_and_closed_through_the_real_service`)
 - A repository that answered "not on GitHub" is asked again only by the refresh button: a sync or a focus does not run
   `git remote get-url` for it again. After GitHub's rate limit nothing but the refresh button asks before its
   `retry_at`, which the GitHub service holds per token too.

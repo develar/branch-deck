@@ -33,12 +33,6 @@ export const commands = {
 	 */
 	cancelLockWait: (channel: number) => __TAURI_INVOKE<boolean>("cancel_lock_wait", { channel }),
 	/**
-	 *  Changes the base of a pull request of the virtual branches: the push of a stacked branch keeps its pull request on
-	 *  the branch it is built on. The session of the repository has the new base at once, newer than every listing that
-	 *  started before (`write_pull_request`), and lists the pull requests again; the version of the view after its patch
-	 */
-	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("retarget_pull_request", { params })),
-	/**
 	 *  The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
 	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 	 */
@@ -160,15 +154,16 @@ export const commands = {
 	/**
 	 *  The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
 	 *  does now (`operations::land::prepare`, the rule `bd safe-push` decides by), what the user accepts first, what refuses
-	 *  it, the facts it waits for and the profiles it offers. A read: no lock, no effect. Null while the session is not open,
-	 *  before its Patronus view, or for a subject its table lacks
+	 *  it, the facts it waits for and the profiles it offers; the restart or the cancel of a robot, the retarget of a pull
+	 *  request (`operations::engine::prepare`). A read: no lock, no effect. Null while the session is not open, before its
+	 *  Patronus view, for a subject its table lacks, a robot it offers no restart of, a pull request it doesn't list
 	 */
 	prepare: (params: PrepareParams) => typedError<Plan | null, ApiError>(__TAURI_INVOKE("prepare", { params })),
 	/**
 	 *  Runs an intent on the plan the page showed (`fingerprint`, with the confirmations the user `accepted`): the plan is
 	 *  prepared again and runs only on that fingerprint; its steps, the progress of its push and its outcome go to
-	 *  `events`. A start of a Safe Push or a Dry Run so far (`operations::engine::execute_land`); the others run through
-	 *  their own commands until their family moves here
+	 *  `events`. A start of a Safe Push or a Dry Run, a restart and a cancel of a robot, a retarget of a pull request so far
+	 *  (`operations::engine::execute`); the others run through their own commands until their family moves here
 	 */
 	execute: (params: ExecuteParams, events: Channel<OperationEvent>) => typedError<Outcome, ApiError>(__TAURI_INVOKE("execute", { params, events })),
 	/**
@@ -176,15 +171,6 @@ export const commands = {
 	 *  it; a push that sends goes to its end. False for an operation that ended
 	 */
 	cancelOperation: (params: CancelOperationParams) => __TAURI_INVOKE<boolean>("cancel_operation", { params }),
-	/**
-	 *  Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
-	 *  a start (`RemoteActions::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
-	 */
-	restartPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, ApiError>(__TAURI_INVOKE("restart_patronus_robot", { params })),
-	/**  Asks Patronus to cancel a running robot of the user's list (`RemoteActions::cancel_robot`); it answers it canceling */
-	cancelPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, ApiError>(__TAURI_INVOKE("cancel_patronus_robot", { params })),
-	/**  The current status of one robot, read right before a push into its branch */
-	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, ApiError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),
 	/**
 	 *  Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
 	 *  with the failed builds, their tests and the log tails of the `teamcity` CLI
@@ -3499,7 +3485,11 @@ export type OperationResult =
 /**  A start of a Safe Push or a Dry Run */
 {
 	kind: "land",
-} & LandResult;
+} & LandResult | 
+/**  A restart or a cancel of a robot */
+{
+	kind: "robot",
+} & RobotResult;
 
 /**  What an operation cost */
 export type OperationStats = {
@@ -3864,17 +3854,6 @@ export type PatronusRobotDetails = {
 	progress: PatronusRobotProgress | null,
 };
 
-/**  A robot of the selected repository */
-export type PatronusRobotParams = {
-	repositoryPath: string,
-	robotId: string,
-	/**
-	 *  The cancel of the robot a start or a push replaces or restarts (`start_guard::check_cancel`): a robot that finished
-	 *  meanwhile is answered as it is, already finished, instead of "not running", and the start or the push goes on
-	 */
-	replaced?: boolean,
-};
-
 /**
  *  The merge profile of a robot, e.g. "Large Scale Change"; a known robot without one has `id` null (the default checks
  *  of the target branch)
@@ -4010,7 +3989,7 @@ export type Plan = {
 	approvalsSkippedBy: ApprovalsSkip | null,
 };
 
-/**  What a start does, in the order of its effects (the contract's `PlannedEffect`) */
+/**  What a start or a restart does, in the order of its effects (the contract's `PlannedEffect`) */
 export type PlannedEffect = 
 /**  The open pull request `number` of `branch` goes from the virtual branch `from` into the target `to` (D11) */
 { kind: "retarget"; branch: string; number: number; from: string; to: string } | 
@@ -4024,7 +4003,9 @@ export type PlannedEffect =
 /**  The robot starts */
 { kind: "startRobot"; route: StartRoute } | 
 /**  The pull request of the subject is opened, where the code owners approve (none is open) */
-{ kind: "createPullRequest" };
+{ kind: "createPullRequest" } | 
+/**  The robot is restarted (`Intent::RestartRobot`): Patronus starts it again on the newest commit of its remote branch */
+{ kind: "restartRobot"; robotId: string };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -4744,13 +4725,6 @@ export type RestoreBranchHeadParams = {
 	previousHead: string,
 };
 
-export type RetargetPullRequestParams = {
-	repositoryPath: string,
-	pullRequestNumber: number,
-	/**  The branch the pull request merges into from now on, as GitHub names it (`master`, `user/virtual/login`) */
-	base: string,
-};
-
 /**  What may succeed after an error (`ErrorCode::retry`) */
 export type Retry = 
 /**  The same request fails again: the user decides */
@@ -5152,6 +5126,19 @@ export type RobotOf = {
 export type RobotRestart = {
 	action: RestartAction,
 	refusal: Reason | null,
+};
+
+/**  What a restart or a cancel of a robot answered: the toast of the robot and the Activity entry of the page name it */
+export type RobotResult = {
+	/**
+	 *  The robot as the operation left it: the new one a restart started, the one a cancel canceled (canceling), or the
+	 *  one that had finished before the cancel; none when a restart did not get to the restart
+	 */
+	robot: PatronusRobot | null,
+	/**  The running robot a restart that pushes first canceled before its push */
+	canceled: PatronusRobot | null,
+	/**  The cancel found the robot finished: nothing was canceled, and `robot` is as it ended */
+	alreadyFinished: boolean,
 };
 
 /**  `bd robot-stats` and the Landing view */

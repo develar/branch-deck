@@ -20,16 +20,6 @@ use tracing::instrument;
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct RetargetPullRequestParams {
-  pub repository_path: String,
-  pub pull_request_number: u32,
-  /// The branch the pull request merges into from now on, as GitHub names it (`master`, `user/virtual/login`)
-  pub base: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
 pub struct ClosePullRequestParams {
   pub repository_path: String,
   pub pull_request_number: u32,

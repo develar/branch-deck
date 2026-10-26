@@ -11,7 +11,6 @@ import type {
   PatronusPart,
   PatronusPushMode,
   PatronusRobot,
-  PatronusRobotStatus,
   PatronusStartOptions,
   PatronusView,
   RepositoryView,
@@ -1245,47 +1244,6 @@ export async function readPatronusTargetBranch(): Promise<string | null> {
   const result = await commands.getPatronusTargetBranch({ repositoryPath, baselineBranch })
   if (result.status === "error") {
     throw commandFailure(result.error)
-  }
-  return result.data
-}
-
-async function robotAction(command: typeof commands.restartPatronusRobot, robot: PatronusRobot, request: VcsRequest | null = null, replaced = false): Promise<PatronusRobot> {
-  const { repositoryPath } = request ?? patronusRequest()
-  const key = robotsKeyOf(repositoryPath)
-  const result = await command({ repositoryPath, robotId: robot.id, replaced })
-  if (result.status === "error") {
-    throw commandFailure(result.error)
-  }
-  upsertPatronusRobot(result.data, key)
-  return result.data
-}
-
-/**
- * Starts the robot again on the newest commit of its branch, in the repository of `request` (by default the selected
- * one: a restart after a push restarts where the push went, also after a switch); resolves to the new robot, throws
- * what Patronus said
- */
-export function restartPatronusRobot(robot: PatronusRobot, request: VcsRequest | null = null): Promise<PatronusRobot> {
-  return robotAction(commands.restartPatronusRobot, robot, request)
-}
-
-/**
- * Asks Patronus to cancel the robot of the repository (by default the selected one); resolves to it canceling, throws
- * what Patronus said. `replaced`: the robot a start or a push replaces or restarts, which resolves to it as listed when
- * it finished meanwhile (nothing left to cancel) instead of throwing "not running"
- */
-export function cancelPatronusRobot(robot: PatronusRobot, request: VcsRequest | null = null, replaced = false): Promise<PatronusRobot> {
-  return robotAction(commands.cancelPatronusRobot, robot, request, replaced)
-}
-
-/** The current status of the robot (one row read), stored; null when Patronus can't answer */
-export async function fetchPatronusRobotStatus(robot: PatronusRobot): Promise<PatronusRobotStatus | null> {
-  const result = await commands.getPatronusRobotStatus({ ...patronusRequest(), robotId: robot.id })
-  if (result.status === "error") {
-    return null
-  }
-  if (result.data !== robot.status) {
-    upsertPatronusRobot({ ...robot, status: result.data })
   }
   return result.data
 }
