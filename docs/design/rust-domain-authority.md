@@ -2149,6 +2149,16 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `bd request-review`; (4) `Push*` — последним, когда у `push_branch(es)` не осталось других вызывающих: уходят
   `git/push.ts`, `git/stack-push.ts`, `git/new-pull-request.ts`, `git/unapplied-push.ts`, `usePushButton.ts`,
   `push_branch`, `push_branches`, `push_hold.rs`, `bd push`; (5) `SetIssueState`.
+  **Порядок приземления (уточнено при планировании, 2026-10-26):** (0) до движка — реальный remote в e2e: origin
+  шаблонов становится bare `.git/upstream.git` (как у `behind_upstream`), fixture-маршруты держат push на pre-receive
+  fifo, отказывают ему или сдвигают remote-ветку, спеки утверждают refs remote и журналы fakes вместо ответа страницы;
+  `PUSHES_IN_PAGE` падает до 0 и `pushed_in_page` удаляется — иначе push внутри `execute(Land)` в e2e ответить нечем.
+  Ядро push (`push_guarded` + `push_locked` → `operations::push`: допуск по ref, lock на проверки и заморозку, сеть
+  после unlock) извлекается **до** `Land`, потому что `Land` пушит внутри плана; тела `push_branch(es)` и `bd push`
+  зовут его сразу, а сами IPC push уходят последними, как в (4). `Land` приземляется двумя коммитами: движок
+  (`execute(Land)`, его тесты, `bd safe-push` и test-server как вызывающие), затем переключение приложения с удалением
+  пяти IPC и TS-оркестрации в одном коммите. `bd` читает факты через `Session::one_shot` и `needs(intent)`
+  (`remote_facts::service_sources::ServiceFactSources`, одна реализация `FactSources` для приложения и `bd`) до движка.
   `bd safe-push`, `push`, `robot`, `request-review` — адаптеры с прежними флагами плюс `--push` у request-review.
   **Конкурентность** ([раздел](#конкурентность-повторы-и-скорость)): lock каждого remote-intent'а — sync, проверки,
   полный witness и заморозка oids и leases, затем unlock (sync `bd` с его merge-tree остаётся под lock — названное
@@ -2242,8 +2252,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
   вместо −30 %: первый sync `perf:table` script 498 мс против 522 мс master): сначала профиль первого sync (что из
   script — презентеры строк, аппликатор патча, store'ы оркестрации, которые s9 удаляет), затем −30 % к master на том же
   замере Mac Studio (≤ 365 мс при 522 мс).
-- **Критерий выхода:** ни одна мутирующая remote-команда недостижима мимо `execute`; `PAGE_MOCKED` для этого семейства 0;
-  B4 достигнут или его разрыв назван с владельцем следующего этапа.
+- **Критерий выхода:** ни одна мутирующая remote-команда недостижима мимо `execute` (scan-тест: записи Patronus, GitHub,
+  YouTrack и `push_leased` зовутся только из `crates/operations`); `PAGE_MOCKED` для этого семейства 0 и `PUSHES_IN_PAGE`
+  0 (push в e2e доходит до bare origin тест-сервера); B4 достигнут или его разрыв назван с владельцем следующего этапа.
 
 ### s10-registry-journal
 
