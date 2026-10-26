@@ -1,20 +1,9 @@
 // The page's state of the branches beside the session's table: the pushes in flight, the rows, the commits a queued
 // rewrite acts on. The table itself comes from the patches of the session (`src/model/store.test.ts`)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { Commit } from "@/lib/bindings"
+import type { Commit, RunningOperation } from "@/lib/bindings"
 import type { Branch } from "@/stores/branch-sync"
-import {
-  branchSyncStore,
-  getBranchPushProgress,
-  getBranchTableRows,
-  isBranchPushing,
-  isStackPushing,
-  resolveCommits,
-  setBranchPushing,
-  setBranchPushProgress,
-  setStackPush,
-  wholeStackRootIn,
-} from "@/stores/branch-sync"
+import { branchSyncStore, getBranchTableRows, isBranchPushing, isStackPushing, resolveCommits, wholeStackRootIn } from "@/stores/branch-sync"
 import { placed, testBranch } from "@/stores/test-branch"
 
 const { repository } = vi.hoisted(() => ({
@@ -40,76 +29,27 @@ beforeEach(() => {
 })
 
 describe("a push in flight", () => {
-  it("keeps the push progress only while the push runs", () => {
-    const writing = { percent: 55, transferred: "1.23 KiB", speed: "1.23 MiB/s", line: "Writing objects:  50% (2/4)" }
-    setBranchPushing("a", true, "/repo")
-    expect(getBranchPushProgress("a")).toBeNull()
-    setBranchPushProgress("a", writing, "/repo")
-    expect(getBranchPushProgress("a")).toEqual(writing)
-    expect(isBranchPushing("a")).toBe(true)
-
-    setBranchPushing("a", false, "/repo")
-    // a channel message that arrives after the push ended
-    setBranchPushProgress("a", { ...writing, percent: 95 }, "/repo")
-    expect(isBranchPushing("a")).toBe(false)
-    expect(getBranchPushProgress("a")).toBeNull()
-    expect(branchSyncStore.getState().pushingBranches).toEqual({})
-  })
-
-  it("keeps the spinner of a push that ends after a switch of the repository off the branch of the same name there", () => {
-    showBranches(testBranch("a", null))
-    setBranchPushing("a", true, "/repo")
-    // another repository opens, with a branch of the same name; it shows no push of it and pushes its own
-    repository.path = "/other"
-    try {
-      expect(isBranchPushing("a")).toBe(false)
-      setBranchPushing("a", true, "/other")
-      // the push of /repo ends (its remote status goes to the session of /repo): the push of /other still runs
-      setBranchPushing("a", false, "/repo")
-      expect(isBranchPushing("a")).toBe(true)
-      setBranchPushing("a", false, "/other")
-      expect(isBranchPushing("a")).toBe(false)
-      expect(branchSyncStore.getState().pushingBranches).toEqual({})
-    } finally {
-      repository.path = "/repo"
+  /** The operation of the session of a push of the stack of `subject` of the branches `refs` (their virtual branches) */
+  function stackPush(subject: string, refs: readonly string[]): RunningOperation {
+    return {
+      id: "op",
+      intent: { kind: "push", subject: { kind: "branch", name: subject }, scope: { kind: "withAncestors" }, expectRemote: null, force: false, restartRunning: false },
+      resources: refs.map(name => ({ kind: "ref" as const, name: `user/virtual/${name}` })),
+      step: { kind: "pushing" },
+      origin: { kind: "thisProcess" },
+      moves: [],
     }
-  })
+  }
 
-  it("drops the progress of a push that ends after a switch: the next push of the branch starts without its percent", () => {
-    const writing = { percent: 45, transferred: "1.23 KiB", speed: "1.23 MiB/s", line: "Writing objects:  45% (2/4)" }
-    setBranchPushing("a", true, "/repo")
-    setBranchPushProgress("a", writing, "/repo")
-    repository.path = "/other"
-    try {
-      // the rows of /other show no progress of it, and its push of the branch of the same name starts at none
-      expect(getBranchPushProgress("a")).toBeNull()
-      setBranchPushing("a", false, "/repo")
-      setBranchPushing("a", true, "/other")
-      expect(getBranchPushProgress("a")).toBeNull()
-      setBranchPushing("a", false, "/other")
-    } finally {
-      repository.path = "/repo"
-    }
-    // back in /repo, a new push of it starts without the old percent
-    setBranchPushing("a", true, "/repo")
-    expect(getBranchPushProgress("a")).toBeNull()
-    setBranchPushing("a", false, "/repo")
-  })
-
-  it("keeps a stack push that runs on after a switch off the row of the same name there", () => {
-    setStackPush("core", ["auth", "core"], "/repo")
-    repository.path = "/other"
-    try {
-      // the row of core in /other is idle: its own stack push goes
-      expect(isStackPushing("core")).toBe(false)
-      setStackPush("core", ["core"], "/other")
-      setStackPush("core", null, "/repo")
-      expect(isStackPushing("core")).toBe(true)
-      setStackPush("core", null, "/other")
-      expect(branchSyncStore.getState().stackPushes).toEqual({})
-    } finally {
-      repository.path = "/repo"
-    }
+  it("is an operation of the session: the stack push of a row, the branches it sends, none after a switch of the repository", () => {
+    branchSyncStore.setState({ operations: { op: stackPush("core", ["auth", "core"]) } })
+    expect(isStackPushing("core")).toBe(true)
+    expect(isStackPushing("auth")).toBe(false)
+    expect([isBranchPushing("auth"), isBranchPushing("core"), isBranchPushing("ui")]).toEqual([true, true, false])
+    // the operations are of the shown repository: another one's branch of the same name is another branch
+    expect(isBranchPushing("auth", "/other")).toBe(false)
+    branchSyncStore.setState({ operations: {} })
+    expect(isStackPushing("core")).toBe(false)
   })
 })
 

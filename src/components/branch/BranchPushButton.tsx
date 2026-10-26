@@ -13,7 +13,7 @@ import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { getRobotItems, useRobotParts, useSessionOperations } from "@/hooks/useBranchNextStep"
 import { usePushButton, useStackBranchPushAlone } from "@/hooks/useBranchPushes"
 import { pickRemoteCommits } from "@/lib/git/pick-remote"
-import { pushFromButton } from "@/lib/git/stack-push"
+import { pushFromButton } from "@/lib/push-run"
 import { pushBranch } from "@/lib/push-run"
 import { blockingBranchOf, formatStackPushing, stackPushSubject } from "@/lib/stack"
 import type { PushProgress } from "@/lib/transfer-progress"
@@ -37,7 +37,7 @@ export interface BranchPushButtonProps {
   colored?: boolean
   /** Before the label instead of the upload icon, e.g. the key of the preview footer */
   hint?: ReactNode
-  /** The surface whose confirm requests this button answers: its own pushes, the menu, P (`pushOrConfirm`) */
+  /** The surface whose confirm requests this button answers: its own pushes, the menu, P (`pushFromButton`) */
   confirmTarget?: PushConfirmTarget
   /**
    * The branch row: an up arrow and the count ("↑ 3"), the percent while the push runs ("45%"); the label ("Force Push

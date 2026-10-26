@@ -9,7 +9,7 @@ import type { ActionId, ActionState, BranchPush, ChildrenPush } from "@/lib/bind
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem } from "@/lib/menu"
 import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
-import { branchSyncStore, setStackPush } from "@/stores/branch-sync"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { operationsStore } from "@/stores/operations"
 import { CREATE, forcePush, PUSH, placed, testBranch, testRemoteStatus } from "@/stores/test-branch"
 import { disabled, enabled, LANDING_BRANCH, setActions, withActions } from "@/test-support/actions"
@@ -76,8 +76,22 @@ function itemOf(name: string, id: string): MenuItem | undefined {
 
 afterEach(() => {
   operationsStore.setState({ running: [] })
-  branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, nextSteps: {}, actions: {}, isSyncing: false, stackPushes: {}, stackBranches: {}, pushes: {} })
+  branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, nextSteps: {}, actions: {}, isSyncing: false, operations: {}, stackBranches: {}, pushes: {} })
 })
+
+/** The push of the stack started from `startedFrom` of the branches `names` runs, an operation of the session */
+function setStackPush(startedFrom: string, names: readonly string[]): void {
+  const intent = {
+    kind: "push",
+    subject: { kind: "branch", name: startedFrom },
+    scope: { kind: "withAncestors" },
+    expectRemote: null,
+    force: false,
+    restartRunning: false,
+  } as const
+  const resources = names.map(name => ({ kind: "ref" as const, name: `user/virtual/${name}` }))
+  branchSyncStore.setState({ operations: { push: { id: "push", intent, resources, step: { kind: "pushing" }, origin: { kind: "thisProcess" }, moves: [] } } })
+}
 
 describe("Safe Push of the branch menu", () => {
   it("says why a branch can't start a Safe Push in the words of its next step, and what runs on the row over it", () => {
@@ -213,7 +227,7 @@ describe("the push of the branch menu", () => {
 
   it("is disabled with the reason while the stack push runs, also over the hold of a parked branch it pushes", () => {
     setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
-    setStackPush("login", ["auth", "login"], "/repo")
+    setStackPush("login", ["auth", "login"])
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The stack is being pushed" })])
     setBranchActions("login", disabled("push", { code: "rule", reason: { code: "parked", branch: "login", with: null, note: "" } }))
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The stack is being pushed" })])
@@ -276,7 +290,7 @@ describe("Push with Children in the branch menu", () => {
     expect(items[items.findIndex(item => item.id === "push") + 1]).toMatchObject({ id: "push-with-children", label: "Push with Children (login)" })
     // a branch without children has nothing to push with them
     expect(menuOf("login").some(item => item.id === "push-with-children")).toBe(false)
-    setStackPush("auth", ["login"], "/repo")
+    setStackPush("auth", ["login"])
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "The stack is being pushed" })
   })
 })

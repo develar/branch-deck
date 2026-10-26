@@ -23,7 +23,7 @@
 use crate::engine::{outcome_of, run, run_planned_in};
 use crate::events::EventSink;
 use crate::land::{LandHost, with_one_shot_sources};
-use crate::land_execute::{Accepted, Planned, PushedRef};
+use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::pull_request_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
@@ -292,6 +292,7 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
           whole_stack: false,
           unapplied: false,
           up_to: None,
+          lease: PushLease::Frozen,
         });
       }
       // the pull requests of what the push sends go into the target first, where every pull request of a virtual branch
@@ -357,6 +358,7 @@ fn push_step<'a>(facts: &PullRequestFacts<'_, 'a>, subject: &Subject) -> Option<
           whole_stack: true,
           unapplied: false,
           up_to: None,
+          lease: PushLease::Frozen,
         });
         effects.push(PlannedEffect::Push {
           branches: vec![root.clone()],

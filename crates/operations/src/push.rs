@@ -14,57 +14,47 @@
 //! run of a start (`land_execute::run_planned`): admitted per ref, after the sync of the session that runs, the robots
 //! asked now (none for an unapplied branch, C3), the witness, the lock only for the freeze, then the effects.
 //!
-//! The app's push of a stack (`push_branches` of both hosts, until s9-13) is an operation of its session (`PushHost`):
-//! admitted per ref it writes (`Resource::Ref`), so a push of a ref another push of the process writes waits for it and
-//! the pushes of other refs run side by side, and for a fetch of its refs that runs (`ref_claims`); it waits for a sync
-//! of the session that runs (`WaitingForSync`), reads the user's robots, decides under the lock
-//! (`push_guard::check_push`) and freezes (`prepare_push_branches`), pushes after it with its progress told to its
-//! caller, and its end goes to the session (`Sessions::begin_push`, `tell_push`: the remote statuses it left). It runs
-//! in a task of its own, so a caller that goes away leaves it running to its end, its refs held in the registry until
-//! its `git push` ended. `bd push` decides its refs on the sync it runs under the lock (the named exception of the lock
-//! span, until s11) and freezes them on the tips that sync left (`PreparedPush::leased`), then sends them the same way.
+//! The pushes of a stack are the same intent (`stack_planned`): Push Stack and the push button (`WithAncestors`), Push
+//! with Children, Push Up to Here (`UpTo`), in one atomic push of what `domain_policy::push` covers, and the stack
+//! branch of a whole stack alone (`whole_stack_planned`). `bd push` decides its refs on the sync it runs under the lock
+//! (the named exception of the lock span, until s11) and freezes them on the tips that sync left
+//! (`PreparedPush::leased`), then sends them the same way (`send`).
 
 use crate::engine::{run, run_planned_in};
 use crate::events::EventSink;
-use crate::land_execute::{Accepted, Planned, PushedRef, refusal_of};
+use crate::land_execute::{Accepted, Planned, PushLease, PushedRef, refusal_of};
 use crate::land_session::push_start;
-use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard, Stepper};
+use crate::registry::{Answer, OperationRequest, Registry, Stepper};
 use crate::witness::Witness;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use domain_policy::pull_request::base_of;
 use domain_policy::push::{PushPlan as PolicyPlan, PushScope as PlanScope, PushState, Verdict, action_push, push_plan, verdict};
 use domain_policy::reasons::stack_not_built;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
-use domain_types::operation::{
-  EffectRecord, EffectStatus, Fingerprint, Intent, NewsKey, OperationResult, OperationStats, OperationStep, Outcome, Plan, PullRequestField, Push, PushScope, Resource,
-};
+use domain_types::operation::{Fingerprint, Intent, OperationStep, Plan, PullRequestField, Push, PushScope, Resource};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestBase, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::PatronusView;
-use domain_types::session::{StackBranchAlong, SyncReason, SyncState, ViewAnswer, stack_readiness_key};
+use domain_types::session::{StackBranchAlong, SyncReason, SyncState, stack_readiness_key};
 use domain_types::stack::StackBranchUpdate;
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryLocked, lock_repository_while_held};
 use patronus::service::PatronusService;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::derive::{Holds, LandSources, PushRules, alone_push_of, up_to_push_of, with_pull_request_sources, with_push_states};
-use repository_model::facts::{FactStore, TableFacts};
-use repository_model::push_guard::{check_push, guard_facts};
-use repository_model::ref_claims::claim_refs;
-use repository_model::session::{Applied, SessionKey, Sessions};
-use repository_model::table::{RemoteSubject, TableState};
+use repository_model::facts::FactStore;
+use repository_model::push_guard::guard_facts;
+use repository_model::session::{SessionKey, Sessions};
+use repository_model::table::TableState;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
-use sync_core::push::{LeasedPush, NOT_SYNCED_YET, PUSH_REMOTE, PreparedPush, PushBranchesOutcome, PushBranchesParams, StackPushBranch, prepare_push_branches, push_ref_names};
+use sync_core::push::{LeasedPush, PUSH_REMOTE, PreparedPush};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::span::in_current_span;
-use tracing::{Instrument, debug, instrument};
+use tracing::{debug, instrument};
 
 /// Whether a push the remote refused because a remote branch moved goes once more over its new head
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,314 +145,6 @@ pub async fn restart_robots(service: &PatronusService, branch_prefix: &str, robo
     restarted.push(service.restart(branch_prefix, &robot.id).await?);
   }
   Ok(restarted)
-}
-
-/// What the app's push of a repository runs on, the same for the app's commands and the E2E server's routes: git, the
-/// `$GIT_COMMON_DIR` of the repository (where its lock lives), the registry of the operations of its sessions, the key of
-/// its session (the worktree and the branch prefix the host resolved for the command), the robots of the user and where
-/// the caller hears the operation. Owned: the push runs in a task of its own (`push_branches`)
-#[derive(Clone)]
-pub struct PushHost {
-  pub git: GitCommandExecutor,
-  pub git_common_dir: PathBuf,
-  pub registry: Registry,
-  pub key: SessionKey,
-  /// The service and the name of the Space repository of the robots that hold a push; `None` off Space: nothing holds it
-  pub patronus: Option<(Arc<PatronusService>, String)>,
-  pub events: Arc<dyn EventSink>,
-  /// How long a lock whose holder no record names is waited for (`DEFAULT_LOCK_TIMEOUT`); a live holder keeps the push
-  /// waiting as long as it lives
-  pub unknown_holder_timeout: Duration,
-}
-
-impl PushHost {
-  /// The app's push of `params` in its session: admitted per ref it writes (a push of the same refs waits for the one
-  /// before, then goes over what that one sent; the pushes of other refs run beside it), after the sync of the session
-  /// that runs, if one does; the user's robots (one full list asked now, none for unapplied branches), then, in a
-  /// blocking step, the repository lock, the checks (`check_push`: a branch the last sync did not build, a parked one,
-  /// one a merged Safe Push landed whole, one a running Safe Push holds) and the commits and leases fixed, then after the
-  /// lock the push of those commits (`send`, once more over a remote that moved without commits a branch lacks). While
-  /// another holder has the lock, the push waits as long as it lives, its progress naming it, until `canceled` says the
-  /// user stopped waiting (`LockWaitCanceled`, nothing pushed); a lock no record names refuses it after
-  /// `unknown_holder_timeout`, and so does a repository not synced yet. `on_progress` gets how far the push is. Answers
-  /// the outcome with the version of the view after its patch (`None`: the session is not open). The push runs in a task
-  /// of its own: a caller that goes away (its future dropped) leaves it running to its end, which goes to the session and
-  /// the registry when it ended, so no push of its refs is admitted while its `git push` still sends
-  ///
-  /// # Errors
-  /// A refusal of the checks or the lock, a push the remote refused for another reason, what git failed with
-  #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
-  pub async fn push_branches(
-    &self,
-    params: PushBranchesParams,
-    on_progress: impl FnMut(TransferProgress) + Send + 'static,
-    canceled: impl Fn() -> bool + Send + 'static,
-  ) -> Result<ViewAnswer<PushBranchesOutcome>> {
-    let host = self.clone();
-    tokio::spawn(async move { host.push_to_its_end(params, on_progress, canceled).await }.in_current_span()).await?
-  }
-
-  /// `push_branches` in its own task
-  async fn push_to_its_end(
-    self,
-    params: PushBranchesParams,
-    on_progress: impl FnMut(TransferProgress) + Send + 'static,
-    canceled: impl Fn() -> bool + Send + 'static,
-  ) -> Result<ViewAnswer<PushBranchesOutcome>> {
-    let names: Vec<String> = push_ref_names(&self.key.prefix, &params)?.into_iter().map(|(name, _)| name).collect();
-    let request = OperationRequest {
-      intent: Intent::Push(intent_of(&params.branches)),
-      resources: names.iter().map(|name| Resource::Ref { name: name.clone() }).collect(),
-      step: OperationStep::Checking,
-      moves: Vec::new(),
-    };
-    let guard = self.admitted(request).await?;
-    // a fetch of a remote branch whose pull request moved writes the remote-tracking ref too: the push is newer
-    let _claim = claim_refs(&self.git_common_dir, &names, || debug!("the push waits for the fetch of its refs")).await;
-    let subjects: Vec<RemoteSubject> = params.branches.iter().map(RemoteSubject::of).collect();
-    let mut in_session = InSession::begin(self.registry.sessions(), &self.key, subjects);
-    let pushed = self.run(&guard, params, on_progress, canceled).await;
-    let version = in_session.end(pushed.as_ref().ok()).version().await;
-    let answer = answer_of(&guard, &names, &pushed, version);
-    guard.finish(answer);
-    pushed.map(|outcome| ViewAnswer { outcome, version })
-  }
-
-  /// The guard of `request` once the registry runs it. A request of the same intent joined the push before it: the
-  /// adapter of `push_branches` answers a push outcome, not the joined one's, so it waits for that push to end and is
-  /// admitted again, to push what the remote still lacks
-  async fn admitted(&self, request: OperationRequest) -> Result<RunningGuard> {
-    loop {
-      match self.registry.admit(&self.key, request.clone(), Arc::clone(&self.events)).await? {
-        Admitted::Run(guard) => return Ok(guard),
-        Admitted::Joined(joined) => {
-          debug!(op = %joined.op().0, "the push waits for the same push before it");
-          drop(joined.answer().await);
-        }
-      }
-    }
-  }
-
-  /// The admitted push: the sync it waits for, the robots, the checks and the freeze under the lock, the push after it
-  async fn run(
-    &self,
-    guard: &RunningGuard,
-    params: PushBranchesParams,
-    mut on_progress: impl FnMut(TransferProgress) + Send + 'static,
-    canceled: impl Fn() -> bool + Send + 'static,
-  ) -> Result<PushBranchesOutcome> {
-    let sessions = self.registry.sessions();
-    // the sync that brings the tips into the table runs: the push checks what it builds
-    wait_for_running_sync(sessions, &self.key, &guard.stepper()).await;
-    let robots = if params.branches.iter().all(|branch| branch.unapplied) {
-      Vec::new()
-    } else {
-      self.robots().await
-    };
-    // the table of the last sync: a sync takes no lock, so the one read under it would be no newer
-    let table = sessions.table(&self.key).await;
-    let (git, common_dir, timeout, prefix, stepper) = (
-      self.git.clone(),
-      self.git_common_dir.clone(),
-      self.unknown_holder_timeout,
-      self.key.prefix.clone(),
-      guard.stepper(),
-    );
-    let (prepared, on_progress) = tokio::task::spawn_blocking(in_current_span(move || {
-      let lock = Lock {
-        common_dir,
-        unknown_holder_timeout: timeout,
-        canceled: &canceled,
-      };
-      let prepared = freeze(&git, &lock, table.as_ref(), robots, &prefix, &params, &stepper, &mut on_progress);
-      (prepared, on_progress)
-    }))
-    .await?;
-    let prepared = prepared?;
-    guard.step(OperationStep::Pushing);
-    let (git, stepper) = (self.git.clone(), guard.stepper());
-    tokio::task::spawn_blocking(in_current_span(move || {
-      let mut on_progress = on_progress;
-      let mut told = |tick: TransferProgress| {
-        stepper.progress(u32::from(tick.percent), tick.line.clone());
-        on_progress(tick);
-      };
-      let sent = send(&git, prepared, OverMoved::Once, &mut told)?;
-      let pushed_over = sent.over.map_or_default(|over| over.statuses);
-      sent.prepared.outcome(&git, sent.answer, pushed_over)
-    }))
-    .await?
-  }
-
-  /// The user's robots for the checks of the push, which hold nothing up: one full list asked now
-  /// (`PatronusService::robots_for_checks`), before the lock, as no network request runs under it; none off Space
-  async fn robots(&self) -> Vec<PatronusRobot> {
-    match &self.patronus {
-      Some((service, space)) => service.robots_for_checks(space, &self.key.prefix).await,
-      None => Vec::new(),
-    }
-  }
-}
-
-/// How the push takes the repository lock: the file of `common_dir`, waited for while its holder lives
-struct Lock<'a> {
-  common_dir: PathBuf,
-  unknown_holder_timeout: Duration,
-  canceled: &'a dyn Fn() -> bool,
-}
-
-/// The part of the app's push under the repository lock (no git process takes it): the checks on `table`, the table of
-/// the last sync of the session, with `robots` (`check_push`), and the commits and leases of the push fixed
-/// (`prepare_push_branches`, which refuses a branch the last sync did not build). While another holder has the lock,
-/// `on_progress` hears whom it waits for (`TransferProgress::waiting_for`) and the view shows `WaitingForLock`. Blocking
-#[expect(clippy::too_many_arguments, reason = "the lock, the facts of the checks, the push and its progress")]
-fn freeze(
-  git: &GitCommandExecutor,
-  lock: &Lock<'_>,
-  table: Option<&TableFacts>,
-  robots: Vec<PatronusRobot>,
-  branch_prefix: &str,
-  params: &PushBranchesParams,
-  stepper: &Stepper,
-  on_progress: &mut dyn FnMut(TransferProgress),
-) -> Result<PreparedPush> {
-  let mut waited = false;
-  let mut on_holder = |holder: &LockHolder| {
-    if !waited {
-      waited = true;
-      stepper.step(OperationStep::WaitingForLock);
-    }
-    on_progress(TransferProgress::waiting_for(holder));
-  };
-  let held =
-    lock_repository_while_held(&lock.common_dir, lock.unknown_holder_timeout, &mut on_holder, lock.canceled).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
-      Some(locked) => anyhow!(locked_refusal(locked)),
-      None => error,
-    })?;
-  if waited {
-    stepper.step(OperationStep::Checking);
-  }
-  let table = table.ok_or_else(|| anyhow!(NOT_SYNCED_YET))?;
-  let facts = guard_facts(git, &params.repository_path, table, robots);
-  check_push(&facts, &params.branches).map_err(|refusal| anyhow!(refusal))?;
-  let prepared = prepare_push_branches(git, branch_prefix, params, &facts.table().not_built)?;
-  drop(held);
-  Ok(prepared)
-}
-
-/// "Nothing was pushed: `bd sync` (pid 4242, for 3 s) holds the repository; try again when it is done"
-fn locked_refusal(locked: &RepositoryLocked) -> String {
-  let holder = locked.holder.as_ref().map_or_else(|| "another Branch Deck operation".to_string(), ToString::to_string);
-  format!("Nothing was pushed: {holder} holds the repository; try again when it is done")
-}
-
-/// A push the session knows sends (`Sessions::begin_push`): its end goes to the session once (`tell_push`), also when
-/// its task panics, as a push that failed
-struct InSession<'a> {
-  sessions: &'a Sessions,
-  key: &'a SessionKey,
-  /// `None` once the end was told
-  subjects: Option<Vec<RemoteSubject>>,
-}
-
-impl<'a> InSession<'a> {
-  fn begin(sessions: &'a Sessions, key: &'a SessionKey, subjects: Vec<RemoteSubject>) -> Self {
-    drop(sessions.begin_push(key, subjects.clone()));
-    Self {
-      sessions,
-      key,
-      subjects: Some(subjects),
-    }
-  }
-
-  /// The push ended with `outcome` (`None`: it failed): the remote statuses it left go into the table
-  fn end(&mut self, outcome: Option<&PushBranchesOutcome>) -> Applied {
-    let Some(subjects) = self.subjects.take() else {
-      return Applied::none();
-    };
-    let statuses = outcome.map(|outcome| match outcome {
-      PushBranchesOutcome::Pushed { remote_statuses, .. } | PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => remote_statuses.clone(),
-    });
-    let pushed = matches!(outcome, Some(PushBranchesOutcome::Pushed { .. }));
-    self.sessions.tell_push(self.key, subjects, statuses, pushed)
-  }
-}
-
-impl Drop for InSession<'_> {
-  fn drop(&mut self) {
-    drop(self.end(None));
-  }
-}
-
-/// The intent of the app's push of `branches`, parents first, as the registry admits it: the push of the last one, of
-/// its whole stack for a stack branch; one branch alone, up to a commit or unapplied as the branch says, several with the
-/// ones it is built on. The page decides which branches go until its push is an intent of its own (s9-12, s9-13)
-fn intent_of(branches: &[StackPushBranch]) -> Push {
-  let (subject, scope, expect_remote) = match branches {
-    [branch] => {
-      let scope = match &branch.tip {
-        _ if branch.unapplied => PushScope::Unapplied,
-        Some(commit) => PushScope::UpTo { commit: commit.clone() },
-        None => PushScope::Alone,
-      };
-      (subject_of(branch), scope, branch.expected_remote.clone())
-    }
-    [.., last] => (subject_of(last), PushScope::WithAncestors, None),
-    [] => (Subject::branch(""), PushScope::Alone, None),
-  };
-  Push {
-    subject,
-    scope,
-    expect_remote,
-    force: false,
-    restart_running: false,
-  }
-}
-
-fn subject_of(branch: &StackPushBranch) -> Subject {
-  if branch.whole_stack {
-    Subject::whole_stack(&branch.branch_name)
-  } else {
-    Subject::branch(&branch.branch_name)
-  }
-}
-
-/// The answer of the operation of the push of `names` (the full names of its refs), the registry's: the push effect done,
-/// failed as `lease_rejected` when a remote branch moved, or the error that stopped it
-fn answer_of(guard: &RunningGuard, names: &[String], pushed: &Result<PushBranchesOutcome>, version: Option<domain_types::session::Version>) -> Answer {
-  let status = match pushed {
-    Ok(PushBranchesOutcome::Pushed { .. }) => EffectStatus::Done,
-    Ok(PushBranchesOutcome::RemoteMoved { branch_name, .. }) => EffectStatus::Failed {
-      error: ApiError::new(ErrorCode::LeaseRejected, format!("The remote branch of {branch_name} moved: nothing was pushed")),
-    },
-    Err(error) => return Err(operation_error(error)),
-  };
-  Ok(Outcome {
-    op: guard.id().clone(),
-    effects: vec![EffectRecord {
-      effect: PlannedEffect::Push {
-        branches: names.to_vec(),
-        force: false,
-      },
-      status,
-    }],
-    news_key: names.last().map(|branch| NewsKey::Push { branch: branch.clone() }),
-    version_after: version,
-    result: OperationResult::None,
-    stats: OperationStats::default(),
-  })
-}
-
-/// The error that stopped an operation, as the registry keeps it: the code of a canceled wait or a held lock, else
-/// internal; the command answers its own (`app_api::api_error`)
-fn operation_error(error: &anyhow::Error) -> ApiError {
-  if error.downcast_ref::<LockWaitCanceled>().is_some() {
-    return ApiError::new(ErrorCode::Canceled, format!("{error:#}"));
-  }
-  if let Some(error) = error.downcast_ref::<ApiError>() {
-    return error.clone();
-  }
-  ApiError::internal(format!("{error:#}"))
 }
 
 /// The plan of the push `push` in the open session of `key` over the facts it holds now (`push_planned`), the holds of
@@ -656,7 +338,7 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       retargeted.push(pull_request);
     }
   }
-  let mut refs = BTreeMap::new();
+  let (mut refs, mut leases) = (BTreeMap::new(), BTreeMap::new());
   let mut pushes = Vec::new();
   for sent in sends {
     let sent_full = full(&sent.name)?;
@@ -666,7 +348,7 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       sources.remote.branches.get(&sent.name).and_then(|remote| remote.remote_tip.clone())
     };
     refs.insert(format!("refs/heads/{sent_full}"), sources.table.tips.get(&sent_full).cloned());
-    refs.insert(format!("refs/remotes/{PUSH_REMOTE}/{sent_full}"), remote);
+    leases.insert(format!("refs/remotes/{PUSH_REMOTE}/{sent_full}"), remote.clone());
     let base = sources.table.branch(&sent.name)?.stack.as_ref().and_then(|stack| stack.effective_base.as_deref());
     pushes.push(PushedRef {
       name: sent.name.clone(),
@@ -675,6 +357,7 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       whole_stack: false,
       unapplied: false,
       up_to: if sent.name == name { covered.up_to.clone() } else { None },
+      lease: PushLease::Planned(remote),
     });
   }
   let mut names: Vec<String> = sends.iter().map(|sent| sent.name.clone()).collect();
@@ -682,8 +365,8 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
     let stack = sources.table.stack_branches.iter().find(|stack| stack.root == name)?;
     refs.insert(format!("refs/heads/{}", stack.branch_name), stack.tip.clone());
     let remote = sources.remote.stacks.get(name).and_then(|remote| remote.remote_tip.clone());
-    refs.insert(format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote);
-    pushes.push(stack_branch_ref(stack));
+    leases.insert(format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote.clone());
+    pushes.push(stack_branch_ref(stack, remote));
     names.push(stack_readiness_key(name));
   }
   if !pushes.is_empty() {
@@ -704,7 +387,7 @@ fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       })
       .collect()
   };
-  let witness = Witness::of(refs, retargeted, std::iter::empty());
+  let witness = Witness::of(refs, retargeted, std::iter::empty()).leasing(leases);
   Some(push_plan_of(
     push,
     witness,
@@ -744,10 +427,8 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
     ExpectRemote::OfIntent => push.expect_remote.clone(),
     ExpectRemote::OfSession => sources.remote.stacks.get(root).and_then(|remote| remote.remote_tip.clone()),
   };
-  let refs = BTreeMap::from([
-    (source_ref.clone(), stack.tip.clone()),
-    (format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote),
-  ]);
+  let refs = BTreeMap::from([(source_ref.clone(), stack.tip.clone())]);
+  let leases = BTreeMap::from([(format!("refs/remotes/{PUSH_REMOTE}/{}", stack.branch_name), remote.clone())]);
   let confirmations = if asks && !push.force {
     vec![Confirmation::ForcePushDrops {
       branch: key.clone(),
@@ -757,12 +438,20 @@ fn whole_stack_planned(state: &TableState, sources: &LandSources<'_>, holds: Hol
     Vec::new()
   };
   let effects = vec![PlannedEffect::Push { branches: vec![key], force: asks }];
-  let witness = Witness::of(refs, std::iter::empty(), std::iter::empty());
-  Some(push_plan_of(push, witness, effects, confirmations, Vec::new(), vec![stack_branch_ref(stack)], source_ref))
+  let witness = Witness::of(refs, std::iter::empty(), std::iter::empty()).leasing(leases);
+  Some(push_plan_of(
+    push,
+    witness,
+    effects,
+    confirmations,
+    Vec::new(),
+    vec![stack_branch_ref(stack, remote)],
+    source_ref,
+  ))
 }
 
-/// The stack branch of a whole stack as a push sends it
-fn stack_branch_ref(stack: &StackBranchUpdate) -> PushedRef {
+/// The stack branch of a whole stack as a push sends it, leased on `remote`
+fn stack_branch_ref(stack: &StackBranchUpdate, remote: Option<String>) -> PushedRef {
   PushedRef {
     name: stack.root.clone(),
     full_name: stack.branch_name.clone(),
@@ -770,6 +459,7 @@ fn stack_branch_ref(stack: &StackBranchUpdate) -> PushedRef {
     whole_stack: true,
     unapplied: false,
     up_to: None,
+    lease: PushLease::Planned(remote),
   }
 }
 
@@ -866,6 +556,7 @@ fn alone_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_
       whole_stack: false,
       unapplied: false,
       up_to: None,
+      lease: PushLease::Frozen,
     });
   }
   if let Some(robot) = robot {
@@ -907,6 +598,7 @@ fn unapplied_planned(state: &TableState, name: &str, push: &Push, expect: Expect
       whole_stack: false,
       unapplied: true,
       up_to: None,
+      lease: PushLease::Frozen,
     })
     .into_iter()
     .collect();
@@ -969,15 +661,23 @@ impl PushPlan<'_> {
     } else {
       Vec::new()
     };
-    let refs = if self.pushed.is_empty() {
-      BTreeMap::new()
+    let (refs, leases) = if self.pushed.is_empty() {
+      (BTreeMap::new(), BTreeMap::new())
     } else {
-      BTreeMap::from([
-        (format!("refs/heads/{full_name}"), self.tip),
-        (format!("refs/remotes/{PUSH_REMOTE}/{full_name}"), self.expect_remote),
-      ])
+      (
+        BTreeMap::from([(format!("refs/heads/{full_name}"), self.tip)]),
+        BTreeMap::from([(format!("refs/remotes/{PUSH_REMOTE}/{full_name}"), self.expect_remote.clone())]),
+      )
     };
-    let witness = Witness::of(refs, self.retargeted, self.robot);
+    let pushes = self
+      .pushed
+      .into_iter()
+      .map(|pushed| PushedRef {
+        lease: PushLease::Planned(self.expect_remote.clone()),
+        ..pushed
+      })
+      .collect();
+    let witness = Witness::of(refs, self.retargeted, self.robot).leasing(leases);
     let mut plan = Plan {
       intent: Intent::Push(self.push.clone()),
       fingerprint: Fingerprint(String::new()),
@@ -994,7 +694,7 @@ impl PushPlan<'_> {
     Planned {
       plan,
       witness,
-      pushes: self.pushed,
+      pushes,
       source_ref: format!("refs/heads/{full_name}"),
       merge_request: None,
       notes: Vec::new(),
@@ -1004,22 +704,20 @@ impl PushPlan<'_> {
   }
 }
 
-/// What the push `push` asks the registry for: the ref of its subject, whatever its plan pushes now (a sync it waits for
-/// may give it work: the refs of a stack), the robot it cancels and restarts and the base of each pull request it
-/// retargets (of `planned`, its plan as the session has it now)
+/// What the push `push` asks the registry for: the refs its plan pushes now (of `planned`, its plan as the session has
+/// it now), in its order, so the view tells which branches it sends; the ref of its subject while it pushes none (a sync
+/// it waits for may give it work); the robot it cancels and restarts and the base of each pull request it retargets
 fn push_request(prefix: &str, push: &Push, planned: Option<&Planned>) -> OperationRequest {
-  let name = push.subject.name();
-  let full_name = match (&push.subject, &push.scope) {
-    (Subject::WholeStack { .. }, _) => to_stack_branch_name(prefix, name),
-    (_, PushScope::Unapplied) => qualified_branch_name(prefix, BranchKind::Unapplied, name),
-    _ => to_final_branch_name(prefix, name),
-  };
-  let mut resources: Vec<Resource> = full_name.ok().map(|name| Resource::Ref { name }).into_iter().collect();
-  for pushed in planned.map_or(&[][..], |planned| planned.pushes.as_slice()) {
-    let resource = Resource::Ref { name: pushed.full_name.clone() };
-    if !resources.contains(&resource) {
-      resources.push(resource);
-    }
+  let pushes = planned.map_or(&[][..], |planned| planned.pushes.as_slice());
+  let mut resources: Vec<Resource> = pushes.iter().map(|pushed| Resource::Ref { name: pushed.full_name.clone() }).collect();
+  if resources.is_empty() {
+    let name = push.subject.name();
+    let full_name = match (&push.subject, &push.scope) {
+      (Subject::WholeStack { .. }, _) => to_stack_branch_name(prefix, name),
+      (_, PushScope::Unapplied) => qualified_branch_name(prefix, BranchKind::Unapplied, name),
+      _ => to_final_branch_name(prefix, name),
+    };
+    resources.extend(full_name.ok().map(|name| Resource::Ref { name }));
   }
   for effect in planned.map_or(&[][..], |planned| planned.plan.effects.as_slice()) {
     match effect {

@@ -26,7 +26,7 @@ targets:
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchActions.tsx
   - ../../src/components/branch/BranchPushButton.tsx
-  - ../../src/lib/git/stack-push.ts
+  - ../../src/lib/push-run.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/components/shared/CollapsibleCard.tsx
@@ -152,7 +152,7 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   and the percent, "Pushing 7 branches" its name and the line of git on hover, the one indicator of the stack push
   (also of Push with Children from the root's menu), and every row it pushes shows the same progress on its own push
   button. So does the push of the stack branch alone, a step of the restart of its robot, of Request Review… of its
-  pull request and of the creation of its pull request (`pushWholeStack`): "Pushing the whole stack 45%" its name, the
+  pull request and of the creation of its pull request (the push step of each intent): "Pushing the whole stack 45%" its name, the
   line of git on hover ("Pushing the whole stack branch of air…" until git reports), no row of a branch busy; the
   start of the Safe Push of the whole stack shows its push in its own button instead (the spinner and "45%", named
   "Pushing 45%", below), the
@@ -183,7 +183,7 @@ Rust places: at each fork the child with the longest chain), whose one robot lan
   stack branch user-name/stack/air." with what stays said only of the branches on the remote ("…: the branches of the
   stack stay as they are on the remote.") and, with its pull request open and its approvals needed, "Approvals count
   in #12, the pull request of the whole stack."; Enter pushes the stack branch alone
-  (leased, `pushWholeStack`) and starts the robot from it (`stack: true`), the button busy meanwhile ("Checking…",
+  (leased, the push step of the start) and starts the robot from it (`stack: true`), the button busy meanwhile ("Checking…",
   the spinner and "45%" of its push, "Starting…", at the width it had at rest), the one indicator of its push: the header's push waits, disabled, without it. S on the focused header opens the same popover. Disabled with the reason of the whole stack:
   its stack branch not built ("The stack branch conflicts at 0caf9066 in config.js: the stack lands in pieces"), a
   robot of a branch of it, its approvals missing in its own pull request. While its stack branch is not built, the stack

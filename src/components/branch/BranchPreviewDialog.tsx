@@ -34,12 +34,12 @@ import { getBranchSummary } from "@/lib/branch"
 import { reviewBlockerOf } from "@/lib/branch-review"
 import { openBranchReviewWindow, reviewBranchCommit } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
-import { pushOrConfirm } from "@/lib/git/stack-push"
 import { formatShortHash } from "@/lib/hash"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import { formatLandedWith } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
+import { pushFromButton } from "@/lib/push-run"
 import { stackProblemOf } from "@/lib/stack"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
@@ -130,7 +130,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
     // the physical key, in any keyboard layout
     if (event.code === "KeyP" && canPush) {
       event.preventDefault()
-      pushOrConfirm(branch!.name, "preview")
+      pushFromButton(branch!.name, "preview")
     } else if (event.code === "KeyO" && pullRequest !== undefined) {
       event.preventDefault()
       openPullRequest(pullRequest)

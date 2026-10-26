@@ -86,7 +86,7 @@
     "closed": "s8-policy",
     "today": {
       "app": [
-        "crates/operations/src/push.rs#let sent = send(&git, prepared, OverMoved::Once, &mut told)?;",
+        "crates/operations/src/land_execute.rs#let sent = blocking(move || send(&git, prepared, OverMoved::Once, &mut |tick: TransferProgress| progress(&tick)).map_err(git_failure)).await;",
         "crates/operations/src/push_test.rs#fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks"
       ],
       "bd": [
@@ -213,7 +213,7 @@
         "crates/operations/src/land_execute.rs#return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots));",
         "crates/operations/src/robot.rs#let mut blockers: Vec<Reason> = restart.refusal.iter().cloned().collect();",
         "crates/operations/src/robot.rs#check(&accepted.fingerprint, &plan.fingerprint)?;",
-        "crates/operations/src/push.rs#check_push(&facts, &params.branches).map_err(|refusal| anyhow!(refusal))?;"
+        "crates/operations/src/push.rs#if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {"
       ],
       "bd": [
         "crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;",

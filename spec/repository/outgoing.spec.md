@@ -245,13 +245,14 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   [@test] ../../src/lib/push-run.test.ts (`is one toast per branch: a later push of it takes its place, its pull request action as the branch has it now`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should tell a later push of the branch in the toast of the first, in place: one toast per branch`)
 - A push must send the remote head of the row's remote status (`expectRemote` of the intent, null when the row
-  showed no remote branch) and lease on it: the plan is witnessed on it, and a remote-tracking ref that moved since
-  refuses it before anything (`plan_changed`); a push that waited for a sync or another push leases on what the session
-  has after it, asking first again when that drops commits. A Force Push drops the commits the row listed and nothing else, also when someone else's
+  showed no remote branch) and lease on it (`PushLease::Planned`, in the fingerprint of its plan): a remote-tracking
+  ref that moved since without the session knowing (a push from a terminal) refuses nothing before the push, the remote
+  refuses the lease, and the push goes on as for a remote that moved (below); a push that waited for a sync or another
+  push leases on what the session has after it, asking first again when that drops commits. A Force Push drops the commits the row listed and nothing else, also when someone else's
   commit was fetched after Branch Deck's last push; a plain push of a branch that took that commit in goes through.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_force_push_drops_the_remote_commit_the_user_saw`, `a_plain_push_with_the_seen_head_replaces_a_fetched_remote_commit`, `a_rebuilt_branch_replaces_the_remote_tip_it_saw`, `a_branch_not_on_the_remote_is_created_when_expected_absent`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`an_expected_lease_is_the_remote_tip_the_caller_saw`)
-  [@test] ../../crates/operations/src/push_test.rs (`a_push_over_a_remote_head_the_row_no_longer_shows_is_refused_before_anything`, `a_push_queued_behind_a_push_of_its_ref_is_decided_again_on_what_that_one_left`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_over_a_remote_head_the_row_no_longer_shows_leases_on_it_and_goes_again_over_the_remote`, `a_push_queued_behind_a_push_of_its_ref_is_decided_again_on_what_that_one_left`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A remote branch that moved since the row's status (a newer commit, a branch created or deleted elsewhere) must not
   be overwritten: nothing is pushed, the branch alone is fetched, and its row shows the fetched remote status. A
@@ -270,7 +271,6 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   [@test] ../../crates/domain-policy/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost`)
   [@test] ../../crates/operations/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch`)
-  [@test] ../../src/lib/git/stack-push.test.ts (`pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `says a stack push Rust made again over a remote that moved from what it went over, in one push of the page`)
   [@test] ../../src/lib/push-run.test.ts (`opens the toast of the remote that moved: its push goes over what the remote has, leased on it`)
   [@test] ../../crates/test-server/src/remote_git_fixtures_test.rs (`a_commit_on_the_remote_is_what_the_next_push_finds`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`, `a_moved_lease_refuses_every_branch_and_names_it`)
@@ -330,11 +330,9 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   Create Pull Request, no retarget clause), since the branch of the same name there has its own; the pull requests it
   lists again are of its repository: the session that ran the push lists them (its `PushEnded`), never the selected
   one's.
-  [@test] ../../src/lib/git/stack-push.test.ts (`pushes no stack of the same names there`, `refuses the push of an action in place`)
   [@test] ../../src/lib/push-run.test.ts (`pushes nothing of the branch of the same name in another repository the main window shows now, and says why`)
-  [@test] ../../src/lib/git/stack-push.test.ts (`retargets no pull request of the branch of the same name there after a switch during a retarget of the stack`, `offers no pull request of the branches of the same names there in the toast of a stack push that ends after a switch`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_writes_of_the_pull_requests_apply_at_once_and_a_late_listing_keeps_them`)
-  [@test] ../../src/stores/branch-sync.test.ts (`keeps the spinner of a push that ends after a switch of the repository off the branch of the same name there`, `drops the progress of a push that ends after a switch: the next push of the branch starts without its percent`, `keeps a stack push that runs on after a switch off the row of the same name there`)
+  [@test] ../../src/stores/branch-sync.test.ts (`is an operation of the session: the stack push of a row, the branches it sends, none after a switch of the repository`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_outcome_of_a_push_in_one_session_leaves_the_branch_of_the_same_name_in_another`)
 - The robot a push cancels, to restart it (Restart Safe Push) or because a start replaces it, must be canceled after
   the last of those checks, right before the push is sent: a switch before it cancels nothing, and from the cancel on
@@ -343,7 +341,6 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   changed on the remote" toast of a push offers its push only while its repository is shown: after a switch it says
   what the remote has without the push (it offers it again on the way back), and it closes once the branch is gone;
   a push of the branch takes its place ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event)).
-  [@test] ../../src/lib/git/stack-push.test.ts (`pushes the branches over the robot a start replaces after a switch during the cancel`, `pushes and restarts the whole stack's robot in the repository of the push after a switch during the cancel`)
 - While a push runs, its button must show the percent of the whole push, "Pushing 45%" ("Pushing…" until git reports
   a stage; the compact button of the row "45%" after the spinner, the label its accessible name), and its description on hover the last progress line of git, then what was sent so far and how fast,
   "1.23 MiB · 2.40 MiB/s", as the Update button shows a fetch ([Update Project](update-project.spec.md)), unless git's
@@ -354,7 +351,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   [@test] ../../crates/sync-core/src/transfer_progress_test.rs (`push_stages_have_the_same_shares`, `writing_reports_the_amount_and_the_rate`, `reporter_sends_the_first_progress_and_every_stage_end`, `reporter_skips_a_stage_end_that_changes_nothing`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_reports_its_progress`)
   [@test] ../../src/lib/transfer-progress.test.ts (`shows the percent once git reports a stage`, `shows the amount below git's line only when the line doesn't say it`)
-  [@test] ../../src/stores/branch-sync.test.ts (`keeps the push progress only while the push runs`)
+  [@test] ../../src/stores/branch-sync.test.ts (`is an operation of the session: the stack push of a row, the branches it sends, none after a switch of the repository`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`)
 
 ### Remote commits of others

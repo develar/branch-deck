@@ -202,6 +202,10 @@ export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: 
 /** The first pushed branch whose pull request goes into a virtual branch and needs a retarget, with its command */
 function findRetargetCommand(pushes: readonly PushOutcome[], repositoryPath: string): { branch: Branch; command: string } | null {
   for (const push of pushes) {
+    // the push retargeted it first: its pull request goes into the baseline, whatever the listing still says
+    if (push.retargeted !== undefined) {
+      continue
+    }
     const branch = pushedBranch(push.name, repositoryPath)
     const command = branch === undefined ? null : getRetargetCommand(branch)
     if (branch !== undefined && command !== null) {

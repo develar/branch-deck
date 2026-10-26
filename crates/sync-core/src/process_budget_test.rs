@@ -6,7 +6,7 @@
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::baseline::check_baseline_update;
 use crate::moved_remote::{MovedBranch, fetch_moved_remotes};
-use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
+use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
 use crate::robot_landing::{robot_landings, robot_spans};
@@ -25,7 +25,7 @@ use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_re
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
 use test_utils::process_budget::{alpha_and_beta_on_origin, assert_processes, counting, empty_cache, repo_on_origin};
 use test_utils::sync_fixtures::TestReporter;
@@ -737,10 +737,7 @@ fn an_atomic_push_of_a_stack() {
   let branch = |name: &str, parent: Option<&str>| StackPushBranch {
     branch_name: name.to_string(),
     parent_branch: parent.map(str::to_string),
-    expected_remote: None,
-    tip: None,
-    whole_stack: false,
-    unapplied: false,
+    ..StackPushBranch::default()
   };
   let params = PushBranchesParams {
     repository_path: path(&repo),
@@ -750,7 +747,7 @@ fn an_atomic_push_of_a_stack() {
   };
 
   let git = counting();
-  let outcome = push_branches(&git, PREFIX, &params, &HashMap::new(), &mut |_| {}).unwrap();
+  let outcome = push_branches(&git, PREFIX, &params, &mut |_| {}).unwrap();
   assert!(
     matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses, .. } if remote_statuses.len() == 2),
     "{outcome:?}"

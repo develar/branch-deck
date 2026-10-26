@@ -89,7 +89,7 @@ targets:
   - ../../src/stores/archived-branches.ts
   - ../../crates/repository-model/src/table.rs
   - ../../crates/repository-model/src/session.rs
-  - ../../src-tauri/src/commands/push.rs
+  - ../../crates/operations/src/push.rs
   - ../../src-tauri/src/commands/archived_branches.rs
   - ../../src/model/store.ts
 ---
@@ -372,9 +372,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   (Create Pull Request, Request Review, a Safe Push start) stops with that reason instead of going on with the remote
   branch as it is.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push pressed during a sync that could not build the branch, its virtual branch an older build`)
-  [@test] ../../crates/sync-core/src/push_test.rs (`a_push_of_a_branch_the_last_sync_did_not_build_is_refused`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_built`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`the_report_says_what_the_sync_read_and_the_tips_it_left`)
-  [@test] ../../src/lib/git/stack-push.test.ts (`refuses the action of a branch the last sync did not build, or built on one, instead of going on with its remote`)
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
   status but up to date is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
   ([Push colours](../repository/outgoing.spec.md#push-colours)), in every table: the node of the row says where it is on

@@ -18,7 +18,6 @@ pub mod patronus;
 mod patronus_test;
 pub mod pick_remote_commits;
 pub mod pull_requests;
-pub mod push;
 pub mod repository_browser;
 pub mod repository_config;
 pub mod review_requests;

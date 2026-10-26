@@ -4,8 +4,8 @@ use bd_cli::remote_fixture_test::{LANDED_SUBJECTS, auth_remote_moved_back, land_
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use std::collections::HashMap;
-use sync_core::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
+use sync_core::push::{LeasedBranch, LeasedPush, PreparedPush, PushTarget};
+use sync_core::push_lease::{PushOptions, prepare_push_expecting};
 use tempfile::TempDir;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, pre_receive_hook, refuse_every_push};
 
@@ -586,23 +586,26 @@ fn app_push(repo: &TestRepo, branch: &str) {
       repo.path().to_str().unwrap(),
     )
     .unwrap();
-  let params = PushBranchesParams {
-    repository_path: repo.path().to_str().unwrap().to_string(),
+  let path = repo.path().to_str().unwrap();
+  let expected = (exit_code == 0).then_some(remote_tip);
+  let [push] = prepare_push_expecting(repo.git_executor(), path, &[(format!("{PREFIX}/virtual/{branch}"), expected)])
+    .unwrap()
+    .try_into()
+    .unwrap();
+  let target = PushTarget {
+    repository_path: path,
+    remote: "origin",
+    baseline: "origin/master",
     my_email: None,
-    baseline_branch: "origin/master".to_string(),
-    branches: vec![StackPushBranch {
-      branch_name: branch.to_string(),
-      parent_branch: None,
-      expected_remote: (exit_code == 0).then_some(remote_tip),
-      tip: None,
-      whole_stack: false,
-      unapplied: false,
-    }],
+    size_limit: None,
   };
-  assert!(matches!(
-    push_branches(repo.git_executor(), PREFIX, &params, &HashMap::new(), &mut |_| {}).unwrap(),
-    PushBranchesOutcome::Pushed { .. }
-  ));
+  let leased = LeasedBranch {
+    name: branch.to_string(),
+    push,
+    parent_ref: None,
+  };
+  let prepared = PreparedPush::leased(&target, vec![leased], PushOptions { atomic: false, dry_run: false });
+  assert!(matches!(prepared.push(repo.git_executor(), &mut |_| {}).unwrap(), LeasedPush::Pushed(_)));
 }
 
 #[test_log::test]

@@ -59,7 +59,7 @@ use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_core::patronus::target_branch_of;
-use sync_core::push::{LeasedBranch, LeasedPush, PreparedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, prepare_push_branches};
+use sync_core::push::{LeasedBranch, LeasedPush, PreparedPush, PushTarget, not_built_reason};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
 use sync_core::sync::SyncReport;
@@ -665,8 +665,7 @@ pub(crate) fn plan_push<'a>(
     dry_run: args.dry_run,
   };
   // the stack branches come after the branches
-  let whole_stack = (0..leased.len()).map(|index| index >= candidates.len()).collect();
-  let prepared = PreparedPush::leased(&target, leased, whole_stack, options);
+  let prepared = PreparedPush::leased(&target, leased, options);
   Ok(PlannedPush {
     remote,
     remote_option,
@@ -933,32 +932,37 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
     }
     None => resolve_commit(&context.git, &context.repository, &format!("refs/remotes/{REMOTE}/{full_name}"))?,
   };
-  let params = PushBranchesParams {
-    repository_path: context.repository.clone(),
+  let baseline = detect_baseline_branch(&context.git, &context.repository)?;
+  let target = PushTarget {
+    repository_path: &context.repository,
+    remote: REMOTE,
+    baseline: &baseline,
     my_email: None,
-    baseline_branch: detect_baseline_branch(&context.git, &context.repository)?,
-    branches: vec![StackPushBranch {
-      branch_name: name.clone(),
-      parent_branch: None,
-      expected_remote: expected,
-      tip: None,
-      whole_stack: false,
-      unapplied: true,
-    }],
+    size_limit: push_size_limit(context)?,
   };
-  // an unapplied branch is no group of HEAD: no sync built it
-  let prepared = prepare_push_branches(&context.git, &context.prefix, &params, &HashMap::new())?;
+  // an unapplied branch is no group of HEAD: no sync built it; its commit and lease fixed here, under the lock
+  let branch = LeasedBranch {
+    name: name.clone(),
+    push: PushRef {
+      full_name: full_name.clone(),
+      tip: tip.clone(),
+      source: if expected.is_some() { LeaseSource::Expected } else { LeaseSource::Absent },
+      lease: expected,
+    },
+    parent_ref: None,
+  };
+  let options = PushOptions { atomic: false, dry_run: false };
+  let prepared = PreparedPush::leased(&target, vec![branch], options);
   drop(repository_lock);
   // the remote moved since the last fetch without commits the branch lacks: the push goes again over it, once, as the
   // app's does (D4); a lease the user named stays the lease
   let over = if args.expect_remote.is_some() { OverMoved::Never } else { OverMoved::Once };
   let sent = send(&context.git, prepared, over, &mut |_| {})?;
   let expected = sent.prepared.branches()[0].push.lease.clone();
-  let pushed_over = sent.over.map_or_default(|over| over.statuses);
-  let outcome = sent.prepared.outcome(&context.git, sent.answer, pushed_over)?;
+  let pushed_over = sent.over.is_some();
   let short = context.short_ids(std::iter::once(tip.as_str()).chain(expected.as_deref()));
-  match outcome {
-    PushBranchesOutcome::Pushed { pushed_over, .. } => Ok(PushOutput {
+  match sent.answer {
+    LeasedPush::Pushed(_) => Ok(PushOutput {
       schema: SchemaVersion,
       repository: context.repository.clone(),
       prefix: context.prefix.clone(),
@@ -976,7 +980,7 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
         lease: expected.as_deref().map(|lease| short.get(lease).to_string()),
         lease_source: if expected.is_some() { "expected" } else { "absent" }.to_string(),
         replaced_landed: Vec::new(),
-        pushed_over: !pushed_over.is_empty(),
+        pushed_over,
         pull_request: None,
       }],
       restarted: Vec::new(),
@@ -986,7 +990,7 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
       stack_warnings: Vec::new(),
       skipped: Vec::new(),
     }),
-    PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => {
+    LeasedPush::RemoteMoved { remote_statuses, .. } => {
       let head = remote_statuses.first().and_then(|status| status.remote_tip.clone());
       let error = CliError::new(
         ErrorCode::LeaseRejected,
@@ -1000,6 +1004,12 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
         None => error,
       })
     }
+    LeasedPush::Refused { summary } => Err(CliError::new(
+      ErrorCode::PushRefused,
+      format!("Nothing was pushed: the remote refused the push ({summary}). {REMOTE_REFUSED_NEXT}"),
+    )),
+    LeasedPush::TooLarge(too_large) => Err(CliError::from(&too_large)),
+    LeasedPush::WouldReject => Err(CliError::new(ErrorCode::LeaseRejected, format!("The remote would reject {full_name}: {WOULD_REJECT_NEXT}"))),
   }
 }
 

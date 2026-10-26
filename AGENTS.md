@@ -390,12 +390,12 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `lock_wait`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push`,
   `bd safe-push` (only its sync, then again the witness of its refs and the freeze of its push in the engine,
   `operations::land_execute`; the reads of the remote, the trial, the retargets, the cancel, the network push and the
-  robot start without it; a ref that moved meanwhile is `plan_changed`), the app's push of a branch alone and of an
-  unapplied branch (`execute` of the intent `Push`, `operations::push::execute_push`: the witness and the freeze of
-  its ref, as a start) and `push_branches` (`operations::push`, the one push core: admitted per ref in the registry of
-  the session, the user's robots before the lock, the refusals of unknown, parked, landed, held and not built branches
-  in Rust (`push_guard::check_push`) and the commits that go fixed under it, the network push of those commits after
-  it, side by side with the app's other pushes; only a push of the same remote ref waits, in the registry),
+  robot start without it; a ref that moved meanwhile is `plan_changed`), the app's pushes (`execute` of the intent
+  `Push`, `operations::push::execute_push`: of a branch alone, of a stack by `domain_policy::push::push_plan`, up to a
+  commit, of an unapplied branch, of the stack branch of a whole stack; admitted per ref in the registry of the
+  session, the user's robots before the lock, the refusals of parked, landed, held and not built branches in its plan,
+  the witness and the freeze of its refs under the lock, the network push of those commits after it, side by side
+  with the app's other pushes; only a push of the same remote ref waits, in the registry),
   `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`: after the fetch and the check, for the witness, the local changes and
   the move, also when it starts a resolve session; the landed report after the release), `bd pick` (after its check:
@@ -612,7 +612,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Issue groups | `branch/issue-groups` | `crates/history-rewrite/src/issue_groups.rs` |
 | Conflict fix (`bd check --fix`) | `branch/conflict-fix`, `commit/commit-row` | `crates/trial-check/src/conflict_fix.rs` |
 | Move to a branch (drag and drop, menus, keys) | `branch/move-commits` | `crates/history-rewrite/src/move_plan.rs` |
-| Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `crates/domain-policy/src/stack.rs` (parents, children, descendants, ancestors, main line), `repository_model::derive` (`BranchView.structure`, the push orders `RepositoryView.pushes`), `src/stores/stack-view.ts`, `src/lib/git/stack-push.ts`, `crates/sync-core/src/stack_branch.rs` |
+| Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `crates/domain-policy/src/stack.rs` (parents, children, descendants, ancestors, main line), `repository_model::derive` (`BranchView.structure`, the push orders `RepositoryView.pushes`), `src/stores/stack-view.ts`, `crates/operations/src/push.rs` (the pushes of a stack), `src/lib/push-run.ts`, `crates/sync-core/src/stack_branch.rs` |
 | Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/history-rewrite/src/stack_parents.rs` |
 | Parked branches: kept local, never pushed, not Your Move (`bd park`, `bd unpark`) | `branch/parked-branches` | `crates/history-rewrite/src/parked.rs`, `crates/sync-core/src/parked.rs`, `crates/domain-policy/src/parked.rs` |
 | Unapply and Reapply: a branch and its files out of HEAD, kept as `{prefix}/unapplied/<name>` in the Unapplied card, and back on top (`bd unapply`, `bd reapply`, `bd push --unapplied`) | `branch/unapply` | `crates/sync-core/src/unapply_branch.rs`, `crates/sync-core/src/reapply_branch.rs`, `crates/git-ops/src/unapply.rs`, `crates/git-ops/src/reapply.rs`, `src/components/branch/UnappliedBranchTableCard.tsx` |

@@ -181,14 +181,12 @@ branch built on it carries its commits, so it is parked with it.
   [@test] ../../src/lib/parked.test.ts (`starts no Safe Push and no Dry Run of a parked branch: its step is none, on every surface`, `says why nothing starts, of a branch and of one built on it`)
   [@test] ../../src/presenters/reasons.test.ts (`words every reason of the catalog Rust writes as the page says it`)
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
-  [@test] ../../src/lib/push-up-to.test.ts (`keeps a parked branch and a branch built on it local, in the words of their push button`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 - The app's push must refuse it in Rust too, as `bd push` does (`repository_model::push_guard`, under the repository
   lock): a push of a parked branch, of a branch built on one, or of the stack branch of a stack that holds one pushes
   nothing ("Nothing was pushed: login is parked: IJPL-1; it stays local until the user unparks it", "… holds parked
   login; land the stack in pieces"), so a push the page did not check (a race, IPC) never sends it; an unapplied branch
   under the name of a parked one is no branch of the table and pushes.
-  [@test] ../../crates/repository-model/src/push_guard_test.rs (`a_parked_branch_and_a_branch_built_on_parked_are_refused`, `an_unapplied_branch_is_checked_by_nothing_but_the_lock`)
 - The row must say it: the Status cell "Parked" or "Parked with auth" (the note in its hover) instead of the push
   state, its error or conflict still shown; the name cell of the parked branch shows its note instead of the summary,
   issue keys as links.

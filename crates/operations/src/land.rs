@@ -19,7 +19,7 @@
 //! fingerprint (`witness::check`).
 
 use crate::facts::fill;
-use crate::land_execute::{Planned, PushedRef};
+use crate::land_execute::{Planned, PushLease, PushedRef};
 use crate::needs::{FactNeed, waits};
 use crate::witness::Witness;
 use domain_policy::land::TargetConflictFact;
@@ -165,6 +165,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
           whole_stack: true,
           unapplied: false,
           up_to: None,
+          lease: PushLease::Frozen,
         })
         .into_iter()
         .collect();
@@ -184,6 +185,7 @@ fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) ->
             whole_stack: false,
             unapplied: false,
             up_to: None,
+            lease: PushLease::Frozen,
           })
         })
         .collect();

@@ -229,11 +229,11 @@ The whole stack is an object of its own in the app, beside its branches, named "
   polled, told and listed by the whole stack ("Whole air stack merged into master"), it holds every branch of the
   stack while it runs, and its rows say "lands with the whole air stack", after its merge "Landed with the whole air
   stack" until the update. Its restart works on the stack branch and
-  pushes it first while its remote lacks work (`pushWholeStack`, only a built one); its failure prompt lists the commits
+  pushes it first while its remote lacks work (the push step of `RestartRobot`, only a built one); its failure prompt lists the commits
   of every branch, matched by identity (the stack branch has no mapping notes).
 - **Its pull request** comes from "Create Pull Request of the Stack…" (the dialog of the stack branch, its text from
   `stack_pull_request_text`, the code owners Patronus names for the stack branch asked to review, the stack branch
-  pushed alone on Create) and opens from "Open Pull Request #12".
+  pushed alone on Create, the push step of its intent) and opens from "Open Pull Request #12".
 - **One list of its actions** (`getWholeStackMenuItems`, `src/hooks/useWholeStackActions.ts`) renders in the "⋯" of the
   island and under "Whole Stack ›" in the root's menu, so a small stack without an island has them too, and the root's
   preview: its Safe Push and Dry Run, the pull request, Push with Children, "Review Whole Stack" (the review window of
@@ -248,7 +248,8 @@ The whole stack is an object of its own in the app, beside its branches, named "
   row shows, so the menus of a small stack know its missing approvals before a click. The popover
   says what one robot lands, the main line first and then the side branches, which only the whole stack lands ("Lands 7
   branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test."), and that only the stack
-  branch is pushed; Enter pushes it alone and starts the robot from it, or comments on its pull request. A stack branch
+  branch is pushed; Enter pushes it alone (the `Push` effect of the start, the stack branch by its key `stack:<root>`)
+  and starts the robot from it, or comments on its pull request. A stack branch
   the sync didn't build disables it with the reason, and the stack lands in pieces: the Safe Push of the last branch of
   its main line is offered in its place.
 - **Its approvals** count only in its own pull request, as Patronus counts only those of the pull request whose comment
@@ -282,10 +283,10 @@ The whole stack is an object of its own in the app, beside its branches, named "
   request whose head is the branch's tip or a remote branch without commits it lacks; `RepositoryView.landedStates`). A branch built on
   a landed one lands without it ("Safe Push" where it said "Safe Push · 2"), and pushes without it: a landed branch is
   only left out of Push with Children and of a Push Up to Here, unlike a running robot, which holds every push of its
-  stack. A landed commit offers no Push Up to Here on any surface, as a commit the remote has (`isLandedCommit` in
-  `offersPushUpTo`: no push arrow and no item in the menu of the commit). Once every branch of
+  stack. A landed commit offers no Push Up to Here on any surface, as a commit the remote has (the view's
+  `BranchPush.upTo.commits`: no push arrow and no item in the menu of the commit). Once every branch of
   a stack landed, its stack branch is held too: it carries only commits that are in master, so Push with Children, the
-  island's push, `pushWholeStack` and `bd push <root> --with-children` leave it and say who landed the stack ("Landed in
+  island's push, the push of the stack branch alone and `bd push <root> --with-children` leave it and say who landed the stack ("Landed in
   master with deploy and side-test: nothing of it is left to push", `domain_policy::holds::stack_branch_hold`), and a
   failed robot of the whole stack restarts no more (`domain_policy::land::restart_refusal`).
 - **Landed by content.** A change below the commit the robot took (a new commit or an amend of a branch it is built

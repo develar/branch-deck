@@ -34,7 +34,7 @@ targets:
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/components/commit/MovableCommitList.tsx
   - ../../src/components/commit/PushUpToMark.tsx
-  - ../../src/lib/push-up-to.ts
+  - ../../src/presenters/push.ts
   - ../../src/components/branch/ArchivedBranchExpanded.tsx
   - ../../src/components/conflict/ConflictCommitContext.tsx
   - ../../src/components/conflict/MergeConflictViewer.tsx

@@ -7,19 +7,6 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
-	 *  branch only as the user saw it, and answers their new remote statuses; a remote branch that moved is named, with the
-	 *  statuses fetched after it. An operation of the session of the repository (`operations::push`), which gets the
-	 *  outcome, so no sync follows: the answer names the version of the view whose patch has it. Decided under the
-	 *  repository lock and refused in Rust (`push_guard`) for a branch the last sync did not build, a parked branch or one
-	 *  built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (the robots as Rust reads them);
-	 *  the stack branch of a whole stack also while a member is parked, every member landed whole, its robot runs on it or
-	 *  it is not built. `progress` receives how far the push is, and whom it waits for while another holder has the lock,
-	 *  until `cancel_lock_wait` of its id. A branch alone and an unapplied branch are pushed by `execute` of the intent
-	 *  `Push` (`operations::push::execute_push`); the pushes of a stack move there in s9-13.
-	 */
-	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<ViewAnswer<PushBranchesOutcome>, ApiError>(__TAURI_INVOKE("push_branches", { params, progress })),
-	/**
 	 *  Stops the wait of the command whose channel has the id `channel` for another holder of the repository lock: the
 	 *  command answers `canceled`, nothing changed. A wait that ended already (the lock taken) goes on
 	 */
@@ -4185,32 +4172,6 @@ export type PushAction =
 /**  The remote has the branch as it is, by content: nothing to push */
 { kind: "upToDate" };
 
-/**  What a stack push did */
-export type PushBranchesOutcome = 
-/**
- *  Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches.
- *  `pushed_over`: the remote branch of one had moved since the status the user saw, without commits it lacks, so the
- *  push went again, once, over these statuses of every branch, fetched after the first push was refused, in the order
- *  of the branches (`PreparedPush::over_moved`); empty when the first push went
- */
-{ type: "pushed"; remoteStatuses: RemoteStatusUpdate[]; pushedOver: RemoteStatusUpdate[] } | 
-/**
- *  The remote branch of `branch_name` (the first such, parents first) was not where the user saw it, so nothing was
- *  pushed: the push is atomic. Every branch was fetched, and `remote_statuses` show what the remote has now, in the
- *  order of the branches; a push with the `remote_tip` of `branch_name` replaces it. `whole_stack`: the one that moved
- *  is the stack branch of the whole stack of `branch_name` (`StackPushBranch::whole_stack`), not its virtual branch,
- *  which may be in the same push (Push with Children of the root)
- */
-{ type: "remoteMoved"; branchName: string; wholeStack: boolean; remoteStatuses: RemoteStatusUpdate[] };
-
-export type PushBranchesParams = {
-	repositoryPath: string,
-	myEmail: string | null,
-	baselineBranch: string,
-	/**  Parents first: the order of the refspecs and of the remote statuses of the outcome */
-	branches: StackPushBranch[],
-};
-
 /**  What a push answered (`Intent::Push`): the toast of the push and its Activity entry name it */
 export type PushResult = {
 	/**
@@ -5625,37 +5586,6 @@ export type StackPullRequest = {
 	root: string,
 };
 
-/**  One branch of a stack push (`PushBranchesParams`) */
-export type StackPushBranch = {
-	branchName: string,
-	/**
-	 *  The branch it is built on (`BranchStack::effective_base`): its commits are not counted as unpushed commits of
-	 *  this branch
-	 */
-	parentBranch?: string | null,
-	/**
-	 *  The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
-	 *  branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
-	 */
-	expectedRemote: string | null,
-	/**
-	 *  Push Up to Here: the commit of the virtual branch to push instead of its tip, so the remote gets the branch up to
-	 *  it and the commits after it stay unpushed. It must be one of the branch's own commits (not of its parent or the
-	 *  baseline), newer than `expected_remote` on the same line (`check_push_tip`)
-	 */
-	tip?: string | null,
-	/**
-	 *  The stack branch of the whole stack whose root `branch_name` is (`{prefix}/stack/<root>`), not its virtual branch:
-	 *  the caller pushes it only while the sync built it (`StackBranchState::Built`); no parent, no tip
-	 */
-	wholeStack?: boolean,
-	/**
-	 *  The unapplied branch `{prefix}/unapplied/<branch_name>`, pushed under its own name so the remote keeps a copy: no
-	 *  parent, no tip; a pull request of its virtual branch stays as it was
-	 */
-	unapplied?: boolean,
-};
-
 /**  A use of a name that a commit of an ancestor adds, by a commit of the branch */
 export type StackUse = {
 	/**  The commit of the branch */
@@ -6401,17 +6331,6 @@ export type ValidateRepositoryPathParams = {
 export type Version = {
 	epoch: number,
 	seq: number,
-};
-
-/**
- *  The answer of a command whose result the session of its repository applied to the table (a push): its own outcome,
- *  and the version of the view after the patch of that change, which a window waits for as it waits for the last patch
- *  of a sync (`SyncAnswer`); `None` when no session of the repository is open (no window shows it). A command with no
- *  outcome of its own (the deletion of an archived or unapplied branch) answers the version alone
- */
-export type ViewAnswer<T> = {
-	outcome: T,
-	version: Version | null,
 };
 
 /**

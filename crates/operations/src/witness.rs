@@ -26,6 +26,10 @@ pub struct Witness {
   pub pull_requests: BTreeMap<u32, PullRequestWitness>,
   /// The robots it reads (the ones that land a part of what it lands, the one it replaces), by id
   pub robots: BTreeMap<String, PatronusRobotStatus>,
+  /// The remote heads a push leases on as the plan saw them, by the full name of their remote-tracking ref
+  /// (`PushLease::Planned`): in the fingerprint, never read again, so a remote-tracking ref another push or a fetch
+  /// moved meanwhile refuses nothing before the push, and the remote refuses the lease instead
+  pub leases: BTreeMap<String, Option<String>>,
 }
 
 /// What a plan reads of a pull request
@@ -56,7 +60,14 @@ impl Witness {
         })
         .collect(),
       robots: robots.into_iter().map(|robot| (robot.id.clone(), robot.status)).collect(),
+      leases: BTreeMap::new(),
     }
+  }
+
+  /// This witness with `leases`, the remote heads its push leases on
+  #[must_use]
+  pub fn leasing(self, leases: BTreeMap<String, Option<String>>) -> Self {
+    Self { leases, ..self }
   }
 
   /// The fingerprint of `planned` (an intent, or the plan of one) prepared on this witness: equal only for the same

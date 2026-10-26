@@ -7,11 +7,12 @@
 import { Channel } from "@tauri-apps/api/core"
 import type { ApiError, Intent, OperationEvent, OperationId, Outcome, Plan, Reason } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { formatWholeStackBranch, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { whenSessionViewAt } from "@/model/store"
 import { formatReason } from "@/presenters/reasons"
 import { recordPush, recordRetarget } from "@/stores/activity"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { getBranch, setOperationPushProgress } from "@/stores/branch-sync"
+import { getBranch, getStackBranch, setOperationPushProgress } from "@/stores/branch-sync"
 import { getPullRequest } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
 
@@ -158,10 +159,29 @@ function shortBase(base: string): string {
   return base.startsWith(virtual) ? base.slice(virtual.length) : base
 }
 
-/** The remote status of each branch the push of `plan` sends, before it: what Activity says the push changed */
+/** The remote status a push up to `tip` was made against, as its toast and Activity count it: the commits up to it are ahead */
+export function sentPart(before: RemoteStatus | null, tip: string | undefined): RemoteStatus | null {
+  if (before === null || tip === undefined) {
+    return before
+  }
+  const sent = before.unpushedCommits.indexOf(tip) + 1
+  return sent === 0 ? before : { ...before, commitsAhead: sent, myCommitsAhead: Math.min(before.myCommitsAhead, sent) }
+}
+
+/**
+ * The remote status of each branch the push of `plan` sends, before it (of the stack branch of a whole stack under its
+ * key, `stack:<root>`; of the branch of a Push Up to Here the part up to its commit): what Activity says the push changed
+ */
 export function pushedBefore(plan: Plan): ReadonlyMap<string, RemoteStatus | null> {
   const push = plan.effects.find(effect => effect.kind === "push")
-  return new Map(push?.kind === "push" ? push.branches.map(name => [name, getBranch(name)?.remoteStatus ?? null] as const) : [])
+  const intent = plan.intent
+  const upTo = intent.kind === "push" && intent.scope.kind === "upTo" ? { name: intent.subject.kind === "branch" ? intent.subject.name : "", tip: intent.scope.commit } : null
+  const before = (name: string) => {
+    const root = stackRootOfReadinessKey(name)
+    const status = (root === null ? getBranch(name)?.remoteStatus : getStackBranch(root)?.remoteStatus) ?? null
+    return upTo?.name === name ? sentPart(status, upTo.tip) : status
+  }
+  return new Map(push?.kind === "push" ? push.branches.map(name => [name, before(name)] as const) : [])
 }
 
 /**
@@ -180,7 +200,8 @@ export function recordEffects(outcome: Outcome, repositoryPath: string, before: 
       }
     } else if (effect.kind === "push") {
       for (const name of effect.branches) {
-        recordPush(repositoryPath, name, before.get(name) ?? null, null)
+        const root = stackRootOfReadinessKey(name)
+        recordPush(repositoryPath, root === null ? name : formatWholeStackBranch(root), before.get(name) ?? null, null)
       }
     }
   }

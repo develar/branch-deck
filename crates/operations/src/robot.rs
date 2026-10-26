@@ -21,7 +21,7 @@
 
 use crate::engine::{outcome_of, run, run_planned_in};
 use crate::events::EventSink;
-use crate::land_execute::{Accepted, Planned, PushedRef};
+use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::session_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::patronus_failure;
@@ -126,6 +126,7 @@ pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Plan
           whole_stack: false,
           unapplied: false,
           up_to: None,
+          lease: PushLease::Frozen,
         };
         let tip = sources.table.tips.get(&pushed.full_name).cloned();
         (pushed, tip, sources.remote.branches.get(name))
@@ -139,6 +140,7 @@ pub fn restart_planned(sources: &LandSources<'_>, robot_id: &str) -> Option<Plan
           whole_stack: true,
           unapplied: false,
           up_to: None,
+          lease: PushLease::Frozen,
         };
         (pushed, stack.tip.clone(), sources.remote.stacks.get(root))
       }

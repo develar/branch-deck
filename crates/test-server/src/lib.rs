@@ -273,7 +273,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/dismiss_landed", post(tauri_command_bridge::dismiss_landed))
     .route("/invoke/fetch_baseline", post(tauri_command_bridge::fetch_baseline))
     .route("/invoke/cancel_lock_wait", post(tauri_command_bridge::cancel_lock_wait))
-    .route("/invoke/push_branches", post(tauri_command_bridge::push_branches))
     .route("/invoke/get_github_auth_status", post(tauri_command_bridge::get_github_auth_status))
     .route("/invoke/start_github_sign_in", post(tauri_command_bridge::start_github_sign_in))
     .route("/invoke/wait_github_sign_in", post(tauri_command_bridge::wait_github_sign_in))

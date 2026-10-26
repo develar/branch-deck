@@ -5,7 +5,7 @@ import { internalError } from "@/lib/api-error"
 import type { RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
 import { resetDemand } from "@/model/demand"
 import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
-import { branchSyncStore, getBranch, getStackBranch, setBranchPushing, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranch, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
 import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
 
 const { toasts, archived, syncRecords, prefixLoads } = vi.hoisted(() => ({
@@ -536,12 +536,10 @@ describe("the table of the view", () => {
     // a patch without a remote part keeps the status the branch shows, the same object
     await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
     expect(getBranch("a")!.remoteStatus).toBe(known)
-    // the spinner of a push (one that waits for a sync too) is the page's; the status is the session's
-    setBranchPushing("a", true, "/repo")
+    // a push is an operation of the session (one that waits for a sync too); the status is the session's
     await send({ branches: { a: { remote: { status: fakeRemoteStatus("a", 2, "moved") } }, b: { remote: { status: fakeRemoteStatus("b", 3) } } } })
     expect(getBranch("a")!.remoteStatus).toMatchObject({ remoteTip: "moved", commitsAhead: 2 })
     expect(getBranch("b")!.remoteStatus!.commitsAhead).toBe(3)
-    setBranchPushing("a", false, "/repo")
   })
 
   it("lets a command whose result the session applied wait for the patch of the version it answers", async () => {

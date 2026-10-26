@@ -30,7 +30,8 @@
 //!   clock of the session, and the robot it started (`comment_robot`)
 //! - `push`: the push of the virtual branches, one core for the app and `bd`: the lock only while the push is decided and
 //!   its commits and leases are fixed, the network push after it (`send`, once more over a remote that moved without
-//!   commits a branch lacks), the robots it restarts; the app's push as an operation of its session (`PushHost`)
+//!   commits a branch lacks), the robots it restarts; the intent `Push` of a branch alone, of a stack
+//!   (`domain_policy::push::push_plan`), up to a commit, of an unapplied branch and of the stack branch of a whole stack
 //! - `robot`: the restart of a robot of the user, with its push first while the branch has work the remote lacks, run as
 //!   a start runs, and its cancel (`cancel`: one that finished is as it ended, the cancel of a start too)
 //! - `pull_request`: the writes of pull requests an operation makes: the retarget into the target, a step of a start and

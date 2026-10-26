@@ -51,7 +51,7 @@ targets:
   - ../../src/lib/robot-overview.ts
   - ../../src/lib/robot-prompt.ts
   - ../../src/lib/robot-prompt-copy.ts
-  - ../../src/lib/git/stack-push.ts
+  - ../../src/lib/push-run.ts
   - ../../src/lib/git/push-toast.tsx
   - ../../src/lib/stack.ts
   - ../../src/hooks/useBranchContextActions.ts
@@ -208,7 +208,6 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`, `push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
-  [@test] ../../src/lib/git/stack-push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
@@ -268,7 +267,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_whole_stack_waits_for_its_build_its_last_commit_then_a_member_that_lands_a_part`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
 - Its actions are the actions of a robot (`getRobotActionItems`, as Rust offers them): the restart works on the stack branch, and pushes it first
-  while it has work its remote lacks (`pushWholeStack`, a running robot canceled first), only while the sync built it;
+  while it has work its remote lacks (the push step of `RestartRobot`, a running robot canceled first), only while the sync built it;
   cancel, the prompts, Patronus, its pull request. Once merged Safe Pushes landed every branch of the stack, its restart
   is refused, with or without the push, of a Dry Run too, with the reason its Safe Push Whole Stack says ("Landed in
   master with deploy and side-test", `getStackLandedReason`), on every surface that lists the actions (the "⋯" of the
@@ -278,16 +277,17 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should run the restart of the robot of the whole stack once while its push runs: one push, one restart, one toast`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it`)
-- A push of the stack branch alone (`pushWholeStack`: the restart, Request Review… of its pull request, the creation of
-  its pull request, the start of its Safe Push) must show where the pushes of the stack show, one indicator: the push of
+- A push of the stack branch alone (the push step of the restart, of Request Review… of its pull request, of the
+  creation of its pull request and of the start of its Safe Push; the "Push" of a refused start of the whole stack, the
+  intent `Push` of the subject `wholeStack`, `pushWholeStack`) must show where the pushes of the stack show, one indicator: the push of
   the header of its island ([Stack Island](stack-island.spec.md#header)), else the push button of the root's row of a
   small stack, "Pushing the whole stack 45%" with the line of git on hover, the branches of the stack not busy; the
   start of its Safe Push in its own button (the island's header, the root's slot of a small stack: the spinner and
   "45%", named "Pushing 45%"), the
   dialog of its pull request in its Create button ("Pushing 45%"); one hook decides which (`useStackBranchPushAlone`). One push of it at a time: a second request while one
-  runs (another action's, or Push with Children that takes it along) joins it, no push of its own, one indicator; a
-  failed push of it alone is said once and fails the request that joined too; then the request pushes only what the
-  remote still lacks (what a sync rebuilt since; the stack branch alone after a Push with Children that failed for a
+  runs (another action's, or Push with Children that takes it along) waits for it in the registry of the session (its
+  ref), no push of its own, one indicator; the same request joins it; then the request pushes only what the remote
+  still lacks (what a sync rebuilt since; the stack branch alone after a Push with Children that failed for a
   branch), nothing when the remote has it all. A second restart of the same robot is the same request, one operation of
   the robot whose item runs meanwhile: one push, one restart, one toast. Push with Children waits for a push of it alone and takes it along only while the remote still
   lacks it. Once merged Safe Pushes landed every branch of the stack, it carries only commits that are in the target:
@@ -296,7 +296,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)).
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it, the stack landing from the click`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it, the stack waiting from the click`, `should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should run the restart of the robot of the whole stack once while its push runs: one push, one restart, one toast`)
-  [@test] ../../src/lib/git/stack-push.test.ts (`joins a push of the stack branch that runs: one push, both done, Activity records it once`, `says a failed push once: the request that joined it fails with it`, `pushes what a sync rebuilt while the push it joined ran`, `is one request for a second restart of the same robot: one push, one restart, one toast`, `restarts after the push it joined, and pushes nothing of its own: the remote has the stack branch`, `leaves the stack branch to a push of it alone that runs: Push with Children waits, then sends only the branches`, `joins Push with Children that takes the stack branch along, and pushes it alone after one that failed`, `is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why`)
+  [@test] ../../crates/operations/src/push_test.rs (`the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_on_the_remote`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
@@ -349,8 +349,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - "Create Pull Request of the Stack…" must open the "Create pull request" dialog of the stack branch into the baseline
   ("Whole air stack → master", "Holds the commits of every branch of the stack: air, bazel, bridge and 4 more: 7
   branches · 14 commits"), its text from `stack_pull_request_text` (`get_new_stack_pull_request`: the descriptions in
-  one `git config`, the subjects as the rows show them); Create pushes the stack branch alone (`push_branches` with
-  `wholeStack`, leased on its remote head), then creates the pull request of its head. It asks the code owners of the
+  one `git config`, the subjects as the rows show them); Create pushes the stack branch alone (the push step of the
+  intent `CreatePullRequest`, leased on its remote head), then creates the pull request of its head. It asks the code owners of the
   whole stack to review, as the dialog of a branch asks the branch's: those Patronus suggests for the stack branch (the
   readiness of `stack:<root>`), preselected, while the sync built it.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click`)

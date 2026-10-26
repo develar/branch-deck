@@ -9,15 +9,14 @@ import { squashFixupInto } from "@/hooks/useSquashFixups"
 import { getDisplaySubject, getFixupTarget } from "@/lib/autosquash"
 import type { Commit } from "@/lib/bindings"
 import { findIssueKey, getCommitHash, getSubjectLine, parseSubject } from "@/lib/commit"
-import { pushUpTo } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
-import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
-import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets, getParkedState } from "@/stores/branch-sync"
+import { pushUpTo } from "@/lib/push-run"
+import { describePushUpTo, pushUpToIn } from "@/presenters/push"
+import { branchSyncStore, getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestCommitForm, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitFormRequest, useCommitMove, useRevealRequest } from "@/stores/commit-move"
 import type { CommitFormRequest } from "@/stores/commit-move"
 import { branchSubject, getOperations, operationItem } from "@/stores/operations"
-import { getLandedBy, getPushHold } from "@/stores/patronus"
 
 /** Branches listed in the "Move to" submenu */
 const MAX_MENU_TARGETS = 8
@@ -100,18 +99,20 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
 }
 
 /**
- * "Push Up to Here" of a commit the remote lacks (`pushUpToPlan`): the branch up to it, after the branches it is built
- * on that have work, root first; disabled with the reason when it can't; nothing for a commit the remote has, nor for
- * one a merged Safe Push landed, as the row shows no push arrow for either
+ * "Push Up to Here" of a commit the remote lacks as the view has it (`pushUpToIn`): the branch up to it, after the
+ * branches it is built on that have work, root first; disabled with the reason when it can't; nothing for a commit the
+ * remote has, nor for one a merged Safe Push landed, as the row shows no push arrow for either
  */
 function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
-  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, holdOf: getPushHold, landedOf: getLandedBy, parkedOf: getParkedState })
-  if (plan === null) {
+  const state = branchSyncStore.getState()
+  const hash = state.branches[branchName]?.commits.find(it => it.originalHash === commit.originalHash)?.hash
+  const plan = hash === undefined ? null : pushUpToIn(state, branchName, hash)
+  if (plan === null || hash === undefined) {
     return []
   }
   return [
     plan.ok
-      ? { id: "push-up-to", label: "Push Up to Here", icon: UploadIcon, description: describePushUpTo(plan.steps, getBranch), onSelect: () => void pushUpTo(plan.steps) }
+      ? { id: "push-up-to", label: "Push Up to Here", icon: UploadIcon, description: describePushUpTo(plan.steps, getBranch), onSelect: () => void pushUpTo(branchName, hash) }
       : { id: "push-up-to", label: "Push Up to Here", icon: UploadIcon, disabled: true, description: plan.reason, onSelect: () => {} },
   ]
 }

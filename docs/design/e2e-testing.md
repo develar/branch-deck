@@ -625,7 +625,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
 Every template has the remote a clone leaves: a bare repository at `.git/upstream.git` (`test_utils::remote_git`,
 inside `.git`, so a copy of the template has its own and no status shows it), `origin` with the usual fetch refspec,
 its `master` (`main` of `archived_branches`) at `origin/master`. The app's push reaches it through the real core
-(`guarded_push` of the bridge: the robots of the fake, the repository lock, `push_refs` with its lease and progress),
+(`execute` of the intent `Push` through the engine: the robots of the fake, the repository lock, `push_refs` with its
+lease and progress),
 and the fetches of the target conflict check and of Update Project read it; nothing of the page answers a push of a
 spec on it. A test asserts what the remote has and took, not what the page sent: `GET /repositories/{id}/remote`
 answers its branches (`repo.getRemoteBranches()`) and the pushes of the app it took, in order (`repo.getRemotePushes()`:

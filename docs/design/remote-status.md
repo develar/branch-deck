@@ -169,8 +169,8 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   never from an answer of its own. The push of a branch alone and of an unapplied branch is the intent `Push` of the
   engine (`operations::push::execute_push`): its push effect ends the push in the session (`StartHost::end_push`) with
   the statuses after it (`PreparedPush::statuses`), or the fetched ones of a push the remote refused because the remote
-  moved, and the page waits for the version its outcome names (`versionAfter`) before it says how the push went; a stack
-  push of the page (`push_branches`, until s9-13) answers the version of its patch the same way.
+  moved, and the page waits for the version its outcome names (`versionAfter`) before it says how the push went; a push
+  of a stack, up to a commit or of the stack branch of a whole stack is the same intent and ends the same way.
 - **The walks** are one `rev-list` of `crates/git-ops/src/landed_pairing.rs` (`walk_commits`, shared with the robot
   commit map): `--format=%m%x00%H%x00%an%x00%ae%x00%at%x00%s`, the caller's options, then the revs between
   `--end-of-options` and `--`; the two walks of a pushed branch read the raw messages too
@@ -315,7 +315,7 @@ restacked, landed or dropped). `sync_core::remote_status` stores it on the statu
 (`RemoteStatusUpdate::action`), so every status that reaches the page (a row, a stack branch, an unapplied branch, a
 push's outcome) and `bd` carries the one answer; `needs_push`, `drops_remote_commits` and `replaces_older_versions` are
 its parts (`bd push`, `bd safe-push`, `bd status`), `over_moved_remote` the one retry of a push over a remote that
-moved ([Git Operations](git-operations.md#app-stack-push)). A robot's restart reads the action too
+moved ([Git Operations](git-operations.md#push-and-land)). A robot's restart reads the action too
 (`domain_policy::holds::restart_action`, the view's `restarts`): a branch whose remote is not up to date is pushed first.
 
 ### Colours

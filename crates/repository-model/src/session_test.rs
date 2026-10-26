@@ -18,13 +18,12 @@ use domain_types::session::{
   BranchStatus, Demand, FactFamily, FactRefreshReason, FactState, PatronusPart, RepositoryView, SyncOutcome, SyncReason, SyncState, SyncStep, Version, ViewPatch,
 };
 use domain_types::stack::BlockReason;
-use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
+use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
-use sync_core::push::{PushBranchesOutcome, StackPushBranch};
 use sync_core::sync::{SyncDeferred, SyncOptions, SyncReport};
 use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::TestClock;
@@ -615,35 +614,22 @@ async fn a_focus_with_unchanged_inputs_reads_only_the_fingerprint() {
   }
 }
 
-/// What a push of the virtual branch `branch` sends, as its parameters name it
+/// What a push of the virtual branch `branch` sends
 fn pushing(branch: &str) -> Vec<RemoteSubject> {
-  let branch = StackPushBranch {
-    branch_name: branch.to_string(),
-    parent_branch: None,
-    expected_remote: None,
-    tip: None,
-    whole_stack: false,
-    unapplied: false,
-  };
-  vec![RemoteSubject::of(&branch)]
+  vec![RemoteSubject::Branch(branch.to_string())]
 }
 
-fn pushed(branch: &str, tip: &str) -> PushBranchesOutcome {
-  PushBranchesOutcome::Pushed {
-    remote_statuses: vec![remote_at(branch, tip)],
-    pushed_over: Vec::new(),
-  }
+/// The remote statuses a push of `branch` left: the remote at `tip`
+fn pushed(branch: &str, tip: &str) -> Vec<RemoteStatusUpdate> {
+  vec![remote_at(branch, tip)]
 }
 
-/// The push of `subjects` in the session of `key` as `operations::push` tells it: begun, then ended with what `outcome`
-/// left; answers the version of the patch of its end
-async fn push(sessions: &Sessions, key: &SessionKey, subjects: Vec<RemoteSubject>, outcome: anyhow::Result<PushBranchesOutcome>) -> anyhow::Result<Option<Version>> {
+/// The push of `subjects` in the session of `key` as the engine tells it (`operations::land_execute`): begun, then
+/// ended with the remote statuses it left, or failed; answers the version of the patch of its end
+async fn push(sessions: &Sessions, key: &SessionKey, subjects: Vec<RemoteSubject>, outcome: anyhow::Result<Vec<RemoteStatusUpdate>>) -> anyhow::Result<Option<Version>> {
   drop(sessions.begin_push(key, subjects.clone()));
-  let statuses = outcome.as_ref().ok().map(|outcome| match outcome {
-    PushBranchesOutcome::Pushed { remote_statuses, .. } | PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => remote_statuses.clone(),
-  });
-  let pushed = matches!(outcome, Ok(PushBranchesOutcome::Pushed { .. }));
-  let version = sessions.tell_push(key, subjects, statuses, pushed).version().await;
+  let pushed = outcome.is_ok();
+  let version = sessions.tell_push(key, subjects, outcome.as_ref().ok().cloned(), pushed).version().await;
   outcome.map(|_| version)
 }
 

@@ -38,7 +38,7 @@ use domain_types::session::{
 use domain_types::stack::StackBranchUpdate;
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use sync_core::push::{PUSH_REMOTE, StackPushBranch};
+use sync_core::push::PUSH_REMOTE;
 
 /// The parts of the table that a failed sync restores
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -92,8 +92,7 @@ pub enum OperationPatch {
 }
 
 /// What a push sends, as the table keys its remote status: a virtual branch by its name, the stack branch of the whole
-/// stack of a root (`StackPushBranch::whole_stack`), an unapplied branch by the branch it was
-/// (`UnappliedBranchInfo::branch`, `StackPushBranch::unapplied`)
+/// stack of a root, an unapplied branch by the branch it was (`UnappliedBranchInfo::branch`)
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RemoteSubject {
   Branch(String),
@@ -102,19 +101,6 @@ pub enum RemoteSubject {
 }
 
 impl RemoteSubject {
-  /// What the branch of a push sends
-  #[must_use]
-  pub fn of(branch: &StackPushBranch) -> Self {
-    let name = branch.branch_name.clone();
-    if branch.whole_stack {
-      Self::WholeStack(name)
-    } else if branch.unapplied {
-      Self::Unapplied(name)
-    } else {
-      Self::Branch(name)
-    }
-  }
-
   /// The remote-tracking ref a push of the subject under `branch_prefix` moves (`refs/remotes/origin/<full name>`);
   /// `None` for a name no branch can have
   #[must_use]

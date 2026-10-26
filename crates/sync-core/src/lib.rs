@@ -164,6 +164,8 @@ mod patronus_test;
 #[cfg(test)]
 mod process_budget_test;
 #[cfg(test)]
+mod push_fixture;
+#[cfg(test)]
 mod push_size_test;
 #[cfg(test)]
 mod push_test;

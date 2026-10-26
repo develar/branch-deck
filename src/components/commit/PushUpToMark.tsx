@@ -2,36 +2,28 @@ import { useState } from "react"
 import { ArrowUpIcon, UploadIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { pushUpTo } from "@/lib/git/stack-push"
-import type { PushUpToPlan } from "@/lib/push-up-to"
-import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
-import { getParkedState, useBranchSync, useStackPush } from "@/stores/branch-sync"
+import { pushUpTo } from "@/lib/push-run"
+import type { PushUpTo } from "@/presenters/push"
+import { describePushUpTo, pushUpToIn } from "@/presenters/push"
+import { useBranchSync, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useLandedBranches, usePushHolds } from "@/stores/patronus"
 import { showPushUpTo } from "@/stores/stack-view"
 
 /**
- * What Push Up to Here of the commit pushes, and in what words (`pushUpToPlan`); null for a commit the remote has or a
- * merged Safe Push landed
+ * What Push Up to Here of the commit pushes as the view has it, and in what words (`pushUpToIn`), with the copy of the
+ * commit it pushes; null for a commit the remote has or a merged Safe Push landed
  */
-function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpToPlan; description: string | null } | null {
-  const holds = usePushHolds()
-  const landed = useLandedBranches()
+function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpTo; description: string | null; hash: string } | null {
   // a string, so the store notifies only when the plan changes
   const key = useBranchSync(state => {
-    const branchOf = (name: string) => state.branches[name]
-    const plan = pushUpToPlan(branchName, originalHash, {
-      branchOf,
-      holdOf: name => holds.get(name) ?? null,
-      landedOf: name => landed.get(name) ?? null,
-      parkedOf: getParkedState,
-    })
+    const hash = state.branches[branchName]?.commits.find(commit => commit.originalHash === originalHash)?.hash
+    const plan = hash === undefined ? null : pushUpToIn(state, branchName, hash)
     if (plan === null) {
       return ""
     }
-    return JSON.stringify({ plan, description: plan.ok ? describePushUpTo(plan.steps, branchOf) : null })
+    return JSON.stringify({ plan, hash, description: plan.ok ? describePushUpTo(plan.steps, name => state.branches[name]) : null })
   })
-  return key === "" ? null : (JSON.parse(key) as { plan: PushUpToPlan; description: string | null })
+  return key === "" ? null : (JSON.parse(key) as { plan: PushUpTo; description: string | null; hash: string })
 }
 
 export interface PushUpToMarkProps {
@@ -40,7 +32,7 @@ export interface PushUpToMarkProps {
 }
 
 /**
- * The push arrow after the subject of a commit the remote lacks (`offersPushUpTo`), in the commit list of a branch: a
+ * The push arrow after the subject of a commit the remote lacks (`pushUpToCommitsIn`), in the commit list of a branch: a
  * click opens what Push Up to Here of it sends, the branches it is built on first ("Pushes 3 branches, parents first:",
  * a line per push, "login · 2 of 5 commits"), or why it can't, and the Push Up to Here button, whose hover marks the
  * nodes and the commits it sends
@@ -84,7 +76,7 @@ function PushUpToContent({ branchName, originalHash, onDone }: PushUpToMarkProps
   if (pushUp === null) {
     return <p className="text-muted-foreground">The remote has this commit.</p>
   }
-  const { plan, description } = pushUp
+  const { plan, description, hash } = pushUp
   if (!plan.ok) {
     const show = plan.show
     return (
@@ -122,8 +114,8 @@ function PushUpToContent({ branchName, originalHash, onDone }: PushUpToMarkProps
         onClick={() => {
           showPushUpTo(null)
           onDone()
-          // a sync that rebuilt the branch since gave the commit another id: the push refuses it, nothing goes out
-          void pushUpTo(plan.steps)
+          // a sync that rebuilt the branch since gave the commit another id: the plan refuses it, nothing goes out
+          void pushUpTo(branchName, hash)
         }}
         data-testid="push-up-to-button"
       >

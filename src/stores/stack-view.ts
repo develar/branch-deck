@@ -1,8 +1,8 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { PushUpToStep } from "@/lib/push-up-to"
 import { ancestorSegments } from "@/lib/stack-lanes"
 import type { LaneSegmentRow, LaneSegments } from "@/lib/stack-lanes"
+import type { PushUpToStep } from "@/presenters/push"
 import { branchSyncStore, getBranch, getPushOrders } from "@/stores/branch-sync"
 import { getPushHold } from "@/stores/patronus"
 

@@ -1,4 +1,4 @@
-use crate::channel_commands::{answer_with_progress, canceled_by, canceled_code, progress_channel, register_wait, run_waiting};
+use crate::channel_commands::{answer_with_progress, canceled_code, progress_channel, register_wait, run_waiting};
 use crate::remote_host::PAGE_CLOCK_START;
 use app_api::api_error::{IntoApiError, patronus_error, undo_error};
 use axum::{
@@ -25,7 +25,6 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
-use git_ops::revs::repository_dirs;
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::reword::{RewordRequest, reword_request_core};
@@ -727,43 +726,6 @@ pub async fn fetch_baseline(
   .await
 }
 
-/// The app's stack push, through the same push of its session (`operations::push`: the robots of the fake Patronus, then
-/// the repository lock and the refusals of parked, landed, held and not built branches, then the network push after it),
-/// to the remote of the template (`remote_git_fixtures`)
-pub async fn push_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::push::PushBranchesParams>) -> Response {
-  guarded_push(state, &headers, "push the branches", params).await
-}
-
-/// The push of `params` as the app's command runs it, an operation of the session of its key: its progress and its wait
-/// for a holder of the repository lock on the channel of the page, the wait stopped by `cancel_lock_wait`
-async fn guarded_push(state: Arc<AppState>, headers: &HeaderMap, operation: &'static str, params: sync_core::push::PushBranchesParams) -> Response {
-  let channel = progress_channel(headers);
-  answer_with_progress(channel, move |progress| async move {
-    let (common_dir, space) = push_inputs(&state, &params.repository_path, operation).await?;
-    let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-    let service = space.as_ref().map(|(host, _)| host.patronus_service());
-    // the git config of the push (its size limit) as the config commands of the test read and write it
-    let git = config_git(&state, &params.repository_path)?;
-    let host = operations::push::PushHost {
-      git,
-      git_common_dir: common_dir,
-      registry: state.registry.clone(),
-      key: SessionKey {
-        worktree: params.repository_path.clone(),
-        prefix: branch_prefix,
-      },
-      patronus: service.zip(space.map(|(_, space)| space.name)),
-      events: Arc::new(operations::events::NoEvents),
-      unknown_holder_timeout: history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT,
-    };
-    let ticket = register_wait(&state.lock_waits, channel, |_| {});
-    let canceled = canceled_by(&ticket);
-    let pushed = host.push_branches(params, move |tick| progress.send(&tick), canceled).await;
-    canceled_code(pushed.map(Json).map_err(|e| failed(operation, e)), &ticket)
-  })
-  .await
-}
-
 #[derive(Deserialize)]
 pub struct CancelLockWaitRequest {
   channel: u32,
@@ -772,22 +734,6 @@ pub struct CancelLockWaitRequest {
 /// `cancel_lock_wait` of the app: stops the wait of the command whose channel the page mock named
 pub async fn cancel_lock_wait(State(state): State<Arc<AppState>>, Json(request): Json<CancelLockWaitRequest>) -> Json<bool> {
   Json(state.lock_waits.cancel(request.channel))
-}
-
-/// What the push of the repository at `path` needs of the server, as the app's command has it: `$GIT_COMMON_DIR` (where
-/// the lock lives, in a blocking step) and the fake services of its Space repository, None while no Patronus fixture
-/// put it on Space
-async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> Result<(std::path::PathBuf, Option<(Arc<RemoteHost>, SpaceRepository)>), Rejection> {
-  ensure_repository_exists(state, path)?;
-  let (git, repository_path) = (state.git_executor.clone(), path.to_string());
-  let Json(common_dir) = run_command(operation, move || git_common_dir(&git, &repository_path)).await?;
-  Ok((common_dir, space_of(state, path)?))
-}
-
-/// `$GIT_COMMON_DIR` of the repository at `path`, where the repository lock lives
-fn git_common_dir(git_executor: &git_executor::git_command_executor::GitCommandExecutor, path: &str) -> anyhow::Result<std::path::PathBuf> {
-  let dirs = repository_dirs(git_executor, path)?.ok_or_else(|| anyhow::anyhow!("Cannot find the git directory of {path}"))?;
-  Ok(std::path::PathBuf::from(dirs.git_common_dir))
 }
 
 /// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known

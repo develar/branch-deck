@@ -1,6 +1,6 @@
 use crate::http_budget_test::TIP;
 use crate::land_execute::land_execute_test::{ALPHA, ALPHA_REMOTE, Fixture, fixture};
-use crate::land_execute::{Accepted, Planned, PushedRef, Steps, run_planned};
+use crate::land_execute::{Accepted, Planned, PushLease, PushedRef, Steps, run_planned};
 use crate::pull_request::{PullRequestFacts, create_planned, pull_request_request, retarget_request, review_planned};
 use crate::robot::robot_test::{Sources, running};
 use crate::witness::{Witness, read_refs};
@@ -298,6 +298,7 @@ fn alpha_planned(fixture: &Fixture, intent: Intent, effects: Vec<PlannedEffect>)
         whole_stack: false,
         unapplied: false,
         up_to: None,
+        lease: PushLease::Frozen,
       })
       .into_iter()
       .collect(),

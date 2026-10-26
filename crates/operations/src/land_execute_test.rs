@@ -1,4 +1,4 @@
-use crate::land_execute::{Accepted, Current, Planned, PullRequestText, PushSettings, PushedRef, StartHost, StartServices, Started, Steps, bounded_lock, execute};
+use crate::land_execute::{Accepted, Current, Planned, PullRequestText, PushLease, PushSettings, PushedRef, StartHost, StartServices, Started, Steps, bounded_lock, execute};
 use crate::push::Sent;
 use crate::witness::{Witness, read_refs};
 use domain_types::error::{ApiError, ErrorCode};
@@ -152,6 +152,7 @@ impl Fixture {
       whole_stack: false,
       unapplied: false,
       up_to: None,
+      lease: PushLease::Frozen,
     });
     Planned {
       plan: Plan {

@@ -13,11 +13,11 @@ import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { ActionId, ActionState, PullRequest } from "@/lib/bindings"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
-import { pushOrConfirm, pushWithChildren } from "@/lib/git/stack-push"
 import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
+import { pushFromButton, pushWithChildren } from "@/lib/push-run"
 import { formatPushWithChildrenLabel, stackOnFixes, stackProblemOf } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong } from "@/lib/whole-stack"
@@ -278,7 +278,7 @@ function pushOverlay(item: MenuItem, push: ActionState | undefined, { isPushing,
 
 /**
  * The push of the push button of the row, named as the button ("Push (2)", "Force Push (1)", "Push Stack (3
- * branches)", `getPushButtonNow`) and pushing as a click on it (`pushOrConfirm`: the stack while a parent has work for
+ * branches)", `getPushButtonNow`) and pushing as a click on it (`pushFromButton`: the stack while a parent has work for
  * the remote, a push that drops remote commits asks in the button's description); enabled as Rust decides the push
  * (`domain_policy::actions`) with what runs on the page over it, else with the reason. One item for the push of the
  * branch and of its stack: the menu never pushes past the confirmation the button asks for. After it, while the button
@@ -288,7 +288,7 @@ function getPushMenuItems(branch: Branch): MenuItem[] {
   const stackPushing = isStackPushing(branch.name)
   const isPushing = isBranchPushing(branch.name) || stackPushing
   const button = getPushButtonNow(branch, isPushing, pushRunsOf(branch.name))
-  const described = branchItem(branch, "push", { label: button.text, onSelect: () => pushOrConfirm(branch.name, "row") })
+  const described = branchItem(branch, "push", { label: button.text, onSelect: () => pushFromButton(branch.name, "row") })
   if (described === null) {
     return []
   }

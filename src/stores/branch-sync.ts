@@ -207,22 +207,6 @@ export interface BranchSyncState {
    */
   rows: TableRows
   branches: Record<string, Branch>
-  /**
-   * The branches a stack push of the page sends (`stack-push.ts`, until the pushes of a stack are intents of the
-   * engine), and the stack branch of the whole stack of a root under its key `stack:<root>` (`stackReadinessKey`, a name
-   * no branch has), by `pushKey` of the repository the push started in. A push of a branch alone, of an unapplied branch
-   * and the push step of another operation are operations of the session (`operations`, `pushOperationIn`). How far each
-   * is lives in `pushProgressStore`, so its ticks don't re-run the selectors of this store. Owned by push, never touched
-   * by sync: the remote status a push leaves comes in a patch of the session, which orders it against the syncs (Rust's
-   * `TableState::end_push`)
-   */
-  pushingBranches: Readonly<Record<string, true>>
-  /**
-   * The stack pushes in flight: the branch a push of several branches started from (Push Stack, Push with Children,
-   * Push Up to Here) -> the branches it sends in its one `git push`, parents first; empty while it waits for a sync.
-   * By `pushKey` of the repository the push started in, and owned by push, as `pushingBranches`.
-   */
-  stackPushes: Readonly<Record<string, readonly string[]>>
   unassignedCommits: Commit[]
   /** The fixup commits and their targets, loaded after a sync that found fixup commits; null without any */
   autosquashPlan: AutosquashPlan | null
@@ -316,8 +300,6 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   branchOrder: [],
   rows: NO_ROWS,
   branches: {},
-  pushingBranches: {},
-  stackPushes: {},
   unassignedCommits: [],
   autosquashPlan: null,
   baselineStatus: null,
@@ -331,8 +313,9 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
 }))
 
 /**
- * How far each running push is, by `pushKey` of the repository it started in, absent before git reports a stage: apart
- * from `branchSyncStore`, because a progress tick would re-run every selector of it (docs/design/rendering-performance.md)
+ * How far the push of each operation this window runs is (`setOperationPushProgress`), absent before git reports a
+ * stage: apart from `branchSyncStore`, because a progress tick would re-run every selector of it
+ * (docs/design/rendering-performance.md)
  */
 const pushProgressStore = createStore<Readonly<Record<string, PushProgress>>>(() => ({}))
 
@@ -979,12 +962,10 @@ export function useBranchRemoteStatus(name: string): RemoteStatus | null {
 
 /**
  * Whether a push of `name` (a branch, `stackReadinessKey(root)` the stack branch of a whole stack, the full name of an
- * unapplied branch) runs in the selected repository: an operation of its session that pushes it (`pushOperationIn`), or
- * a stack push of the page
+ * unapplied branch) runs in the selected repository: an operation of its session that pushes it (`pushOperationIn`)
  */
 export function useIsBranchPushing(name: string): boolean {
-  const key = pushKey(useSelectedProjectPath() ?? "", name)
-  return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, key) || pushOperationIn(state.operations, name) !== undefined)
+  return useStore(branchSyncStore, state => pushOperationIn(state.operations, name) !== undefined)
 }
 
 /** Whether the ref `ref` of an operation (`Resource.ref`, its full name) is the one a push of `name` writes */
@@ -1012,12 +993,41 @@ export function pushOperationIn(operations: Readonly<Record<OperationId, Running
 }
 
 /**
- * The branches a stack push started from the branch sends, parents first (`stackPushes`; empty while it waits for a
- * sync); null when none runs
+ * The operation of the session that pushes a stack started from the branch `startedFrom` (Push Stack and the push
+ * button that pushes the stack, Push with Children, Push Up to Here), as the view has it; undefined while none runs
+ */
+function stackPushOperationIn(operations: Readonly<Record<OperationId, RunningOperation>>, startedFrom: string): RunningOperation | undefined {
+  return Object.values(operations).find(
+    operation =>
+      operation.intent.kind === "push" &&
+      operation.intent.subject.kind === "branch" &&
+      operation.intent.subject.name === startedFrom &&
+      operation.intent.scope.kind !== "alone" &&
+      operation.intent.scope.kind !== "unapplied",
+  )
+}
+
+/** The virtual branches the refs of an operation name, in their order: what a push of a stack sends, parents first */
+function pushedBranchesOf(operation: RunningOperation): readonly string[] {
+  return operation.resources.flatMap(resource => {
+    const at = resource.kind === "ref" ? resource.name.indexOf("/virtual/") : -1
+    return resource.kind === "ref" && at >= 0 ? [resource.name.slice(at + "/virtual/".length)] : []
+  })
+}
+
+const NO_BRANCHES: readonly string[] = []
+
+/**
+ * The branches a push of a stack started from the branch sends, parents first, as its operation reserves them (its
+ * branch alone until its plan pushes some); null when none runs. A string key, so the store notifies only when they
+ * change
  */
 export function useStackPush(startedFrom: string): readonly string[] | null {
-  const key = pushKey(useSelectedProjectPath() ?? "", startedFrom)
-  return useStore(branchSyncStore, state => state.stackPushes[key] ?? null)
+  const key = useStore(branchSyncStore, state => {
+    const operation = stackPushOperationIn(state.operations, startedFrom)
+    return operation === undefined ? null : pushedBranchesOf(operation).join("\n")
+  })
+  return key === null ? null : key === "" ? NO_BRANCHES : key.split("\n")
 }
 
 /**
@@ -1038,15 +1048,8 @@ export function useStackBranchPushProgress(root: string): PushProgress | null {
  * push runs
  */
 export function useBranchPushProgress(name: string): PushProgress | null {
-  const key = pushKey(useSelectedProjectPath() ?? "", name)
   const op = useStore(branchSyncStore, state => pushOperationIn(state.operations, name)?.id ?? null)
-  return useStore(pushProgressStore, state => (op === null ? undefined : state[op]) ?? state[key] ?? null)
-}
-
-export function getBranchPushProgress(name: string, repositoryPath: string = selectedRepositoryPath()): PushProgress | null {
-  const op = repositoryPath === selectedRepositoryPath() ? pushOperationIn(branchSyncStore.getState().operations, name)?.id : undefined
-  const progress = pushProgressStore.getState()
-  return (op === undefined ? undefined : progress[op]) ?? progress[pushKey(repositoryPath, name)] ?? null
+  return useStore(pushProgressStore, state => (op === null ? undefined : state[op]) ?? null)
 }
 
 /**
@@ -1174,106 +1177,20 @@ export function getMoveTargets(sourceBranch: string | null, limit: number): stri
   return moveTargetsIn(branchSyncStore.getState(), sourceBranch, limit)
 }
 
-// ---- pushes: the spinner state of the page, the remote status is the session's ----
-
-/** The key of a push in flight (`pushingBranches`): the repository it started in and the branch */
-function pushKey(repositoryPath: string, name: string): string {
-  return `${repositoryPath}\n${name}`
-}
+// ---- pushes: each is an operation of the session, its remote status the session's ----
 
 function selectedRepositoryPath(): string {
   return getSelectedProject()?.path ?? ""
 }
 
 /** Whether a push of the branch runs in the repository (by default the selected one; its operations are of the shown one) */
-function isPushingIn(state: BranchSyncState, name: string, repositoryPath: string): boolean {
-  if (Object.hasOwn(state.pushingBranches, pushKey(repositoryPath, name))) {
-    return true
-  }
-  return repositoryPath === selectedRepositoryPath() && pushOperationIn(state.operations, name) !== undefined
-}
-
-/** Whether a push of the branch runs in the repository (by default the selected one) */
 export function isBranchPushing(name: string, repositoryPath: string = selectedRepositoryPath()): boolean {
-  return isPushingIn(branchSyncStore.getState(), name, repositoryPath)
+  return repositoryPath === selectedRepositoryPath() && pushOperationIn(branchSyncStore.getState().operations, name) !== undefined
 }
 
-/** Resolves once no push of the branch runs in the repository (the selected one by default): at once while none does */
-export function whenBranchPushed(name: string, repositoryPath: string = selectedRepositoryPath()): Promise<void> {
-  if (!isBranchPushing(name, repositoryPath)) {
-    return Promise.resolve()
-  }
-  return new Promise(resolve => {
-    const unsubscribe = branchSyncStore.subscribe(state => {
-      if (!isPushingIn(state, name, repositoryPath)) {
-        unsubscribe()
-        resolve()
-      }
-    })
-  })
-}
-
-/**
- * Marks the push of the branch in `repositoryPath`, the repository it started in, as running or ended: the rows of a
- * branch of the same name in another repository show no push of it
- */
-export function setBranchPushing(name: string, isPushing: boolean, repositoryPath: string): void {
-  const key = pushKey(repositoryPath, name)
-  branchSyncStore.setState(state => {
-    if (Object.hasOwn(state.pushingBranches, key) === isPushing) {
-      return state
-    }
-    if (isPushing) {
-      return { pushingBranches: { ...state.pushingBranches, [key]: true } }
-    }
-    const { [key]: _, ...pushingBranches } = state.pushingBranches
-    return { pushingBranches }
-  })
-  // also after a switch of the repository: the next push of the branch starts without this one's percent
-  if (!isPushing && Object.hasOwn(pushProgressStore.getState(), key)) {
-    const { [key]: _, ...progress } = pushProgressStore.getState()
-    pushProgressStore.setState(progress, true)
-  }
-}
-
-/** Whether a stack push started from `startedFrom` runs in the repository (by default the selected one) */
-export function isStackPushing(startedFrom: string, repositoryPath: string = selectedRepositoryPath()): boolean {
-  return Object.hasOwn(branchSyncStore.getState().stackPushes, pushKey(repositoryPath, startedFrom))
-}
-
-/**
- * The branches a stack push started from `startedFrom` in `repositoryPath`, the repository it started in, sends
- * (`stackPushes`); null when it ended. The row of the same name in another repository shows no push of it and pushes
- * its own stack.
- */
-export function setStackPush(startedFrom: string, names: readonly string[] | null, repositoryPath: string): void {
-  const key = pushKey(repositoryPath, startedFrom)
-  branchSyncStore.setState(state => {
-    if (names === null) {
-      if (!Object.hasOwn(state.stackPushes, key)) {
-        return state
-      }
-      const { [key]: _, ...stackPushes } = state.stackPushes
-      return { stackPushes }
-    }
-    return { stackPushes: { ...state.stackPushes, [key]: names } }
-  })
-}
-
-/**
- * Records how far the push of the branch in `repositoryPath` is, for its rows there; a message that arrives after the
- * push ended is dropped
- */
-export function setBranchPushProgress(name: string, progress: PushProgress, repositoryPath: string): void {
-  setBranchesPushProgress([name], progress, repositoryPath)
-}
-
-/** Records how far the one push of the branches is, for each of them in one update; the ones whose push ended drop it */
-export function setBranchesPushProgress(names: readonly string[], progress: PushProgress, repositoryPath: string): void {
-  const pushing = names.filter(name => isBranchPushing(name, repositoryPath))
-  if (pushing.length > 0) {
-    pushProgressStore.setState(Object.fromEntries(pushing.map(name => [pushKey(repositoryPath, name), progress])))
-  }
+/** Whether a push of a stack started from `startedFrom` runs in the selected repository (`useStackPush`) */
+export function isStackPushing(startedFrom: string): boolean {
+  return stackPushOperationIn(branchSyncStore.getState().operations, startedFrom) !== undefined
 }
 
 type RemoteStatusFields = Pick<

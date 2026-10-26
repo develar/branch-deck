@@ -468,7 +468,7 @@ export function broadcastBranchReviewState(): void {
 /**
  * Runs an action the review window asks for, in the main window, which owns the branches: brings the window to the
  * front, shows the row of the branch and asks its Safe Push (`requestSafePush`) or pushes it as the push button of the row does
- * (`pushOrConfirm`, a push that drops remote commits asks in the row). The window's "Create pull request" dialog stays
+ * (`pushFromButton`, a push that drops remote commits asks in the row). The window's "Create pull request" dialog stays
  * in the window: the main window sends its context while it is open, creates the pull request it asks for (the toast
  * goes to the window) and opens the popover of the row's Safe Push without review. One the main window can't run now
  * (the branch left, the action is disabled) is refused with the reason, shown in the window; a request of another

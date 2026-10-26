@@ -106,6 +106,19 @@ pub struct PushedRef {
   /// Push Up to Here: the copy of a commit of the branch it pushes instead of its tip, so the remote gets the branch up
   /// to it (`PushScope::UpTo`); the tip of the branch is witnessed all the same, so a sync that rebuilt it changes the plan
   pub up_to: Option<String>,
+  /// The remote head it leases on
+  pub lease: PushLease,
+}
+
+/// The remote head a ref of a push leases on
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PushLease {
+  /// The one the full witness froze under the lock (a start, a restart, a pull request: their witness names the
+  /// remote-tracking ref)
+  Frozen,
+  /// The one the plan saw (the intent `Push`: the row's, or the session's after a wait); `None`: no remote branch. A
+  /// remote that moved since refuses the push, which fetches it and goes again over it once when nothing is lost
+  Planned(Option<String>),
 }
 
 impl PushedRef {
@@ -409,7 +422,10 @@ fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<Stri
     })?;
     // a commit of the branch, which the witness of its tip keeps a commit of it
     let tip = pushed.up_to.clone().unwrap_or(tip);
-    let lease = frozen.get(&format!("refs/remotes/{}/{}", services.push.remote, pushed.full_name)).cloned().flatten();
+    let lease = match &pushed.lease {
+      PushLease::Frozen => frozen.get(&format!("refs/remotes/{}/{}", services.push.remote, pushed.full_name)).cloned().flatten(),
+      PushLease::Planned(lease) => lease.clone(),
+    };
     let source = if lease.is_some() { LeaseSource::Expected } else { LeaseSource::Absent };
     branches.push(LeasedBranch {
       name: pushed.name.clone(),
@@ -429,13 +445,12 @@ fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<Stri
     my_email: services.push.my_email.as_deref(),
     size_limit: services.push.size_limit,
   };
-  let whole_stack = pushes.iter().map(|pushed| pushed.whole_stack).collect();
   // one ref needs no `--atomic`, which a remote may not support
   let options = PushOptions {
     atomic: pushes.len() > 1,
     dry_run: false,
   };
-  Ok(Some(PreparedPush::leased(&target, branches, whole_stack, options)))
+  Ok(Some(PreparedPush::leased(&target, branches, options)))
 }
 
 /// A blocking step of a start on the blocking pool

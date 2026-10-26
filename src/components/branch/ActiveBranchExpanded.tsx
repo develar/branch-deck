@@ -14,16 +14,16 @@ import { getBranchUnstackItem } from "@/hooks/useBranchContextActions"
 import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { getCommitHash } from "@/lib/commit"
-import { offersPushUpTo } from "@/lib/push-up-to"
 import { robotRailMarks } from "@/lib/robot-coverage"
 import { blockingBranchOf, describeParentState, passedParentOf, stackProblemOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { laneContentInsetClass } from "@/lib/stack-lanes"
 import { useRowPart } from "@/model/store"
+import { pushUpToCommitsIn } from "@/presenters/push"
 import type { Branch } from "@/stores/branch-sync"
+import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useOperations } from "@/stores/operations"
-import { useLandedBy } from "@/stores/patronus"
 import { useRobotCoverage } from "@/stores/robot-coverage"
 import { usePushUpToCommits } from "@/stores/stack-view"
 
@@ -149,7 +149,7 @@ function PassedParentAlert({ branch }: { branch: Branch }) {
 /**
  * The commits of the branch; select them to move them to another branch (or drag them onto one). On the lane of a stack
  * (`oldestFirst`) time runs down with the graph: the tip of a parent sits right above the row of its child. A commit the
- * remote lacks has the push arrow of Push Up to Here (`offersPushUpTo`), and the commits its hovered button sends are
+ * remote lacks has the push arrow of Push Up to Here (`pushUpToCommitsIn`), and the commits its hovered button sends are
  * tinted.
  */
 function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch: Branch; highlightTipCommit: boolean; oldestFirst: boolean }) {
@@ -159,8 +159,8 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
   // the running robot that tests the branch: its line over the commits it covers, a marker on the ones it lacks
   const coverage = useRobotCoverage(branch.name)
   const robotMarks = useMemo(() => (coverage === null ? undefined : robotRailMarks(commits.map(getCommitHash), coverage, !oldestFirst)), [commits, coverage, oldestFirst])
-  const landedBy = useLandedBy(branch.name)
-  const pushUpTo = useMemo(() => new Set(commits.filter(commit => offersPushUpTo(branch, commit, landedBy)).map(getCommitHash)), [branch, commits, landedBy])
+  const offered = useBranchSync(state => pushUpToCommitsIn(state, branch.name))
+  const pushUpTo = useMemo(() => new Set(commits.filter(commit => commit.hash !== undefined && offered.includes(commit.hash)).map(getCommitHash)), [commits, offered])
   // by their ids in the virtual branch
   const sent = usePushUpToCommits()
   const pushedUpTo = useMemo(

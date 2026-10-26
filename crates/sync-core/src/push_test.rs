@@ -1,12 +1,10 @@
-use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, prepare_push_branches, push_branches};
+use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, prepare_push_branches, push_branches, send_prepared};
 use crate::push_size::PushTooLarge;
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
 use anyhow::Context;
 use domain_types::RemoteStatusUpdate;
-use domain_types::stack::BlockReason;
 use pretty_assertions::assert_eq;
-use std::collections::HashMap;
 use std::fmt::Write;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
@@ -76,10 +74,9 @@ impl PushOutcome {
 fn push_branch(
   git_executor: &git_executor::git_command_executor::GitCommandExecutor,
   params: &PushBranchParams,
-  not_built: &HashMap<String, BlockReason>,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> anyhow::Result<PushOutcome> {
-  PushOutcome::of_stack(push_branches(git_executor, PREFIX, &params.as_stack(), not_built, on_progress)?)
+  PushOutcome::of_stack(push_branches(git_executor, PREFIX, &params.as_stack(), on_progress)?)
 }
 
 fn path(repo: &TestRepo) -> &str {
@@ -170,7 +167,7 @@ fn push_reporting(local: &TestRepo, expected: Option<&str>, on_progress: &mut dy
     expected_remote: expected.map(str::to_string),
     tip: None,
   };
-  push_branch(local.git_executor(), &params, &HashMap::new(), on_progress).unwrap()
+  push_branch(local.git_executor(), &params, on_progress).unwrap()
 }
 
 /// The push button's push, leased on the remote head of the status the row shows
@@ -224,10 +221,10 @@ fn a_prepared_push_sends_the_commit_it_was_prepared_for() {
     expected_remote: None,
     tip: None,
   };
-  let prepared = prepare_push_branches(local.git_executor(), PREFIX, &params.as_stack(), &HashMap::new()).unwrap();
+  let prepared = prepare_push_branches(local.git_executor(), PREFIX, &params.as_stack()).unwrap();
   let moved = local.create_commit("(feature) Change feature", "feature.txt", "changed");
   set_branch(&local, &moved);
-  let status = stack_pushed(prepared.send(local.git_executor(), &mut |_| {}).unwrap());
+  let status = stack_pushed(send_prepared(local.git_executor(), &prepared, &params.as_stack(), &mut |_| {}).unwrap());
   assert_eq!(remote_tip(&remote), Some(checked.clone()));
   assert_eq!(status[0].remote_tip.as_deref(), Some(checked.as_str()));
   assert_eq!(rev_parse(&local, BRANCH), Some(moved));
@@ -269,7 +266,7 @@ fn a_push_fails_without_the_local_branch() {
     expected_remote: None,
     tip: None,
   };
-  push_branch(local.git_executor(), &params, &HashMap::new(), &mut |_| {}).unwrap_err();
+  push_branch(local.git_executor(), &params, &mut |_| {}).unwrap_err();
   assert_eq!(rev_parse(&remote, "refs/heads/prefix/virtual/missing"), None);
 }
 
@@ -395,7 +392,7 @@ fn failed_push(local: &TestRepo, first: &str) -> anyhow::Error {
     expected_remote: Some(first.to_string()),
     tip: None,
   };
-  push_branch(local.git_executor(), &params, &HashMap::new(), &mut |_| {}).unwrap_err()
+  push_branch(local.git_executor(), &params, &mut |_| {}).unwrap_err()
 }
 
 /// The lease held, but the remote refused the push (a hook, a protected branch): an error
@@ -478,60 +475,6 @@ fn a_push_the_remote_refuses_for_its_size_says_why() {
   assert_eq!(remote_tip(&remote), Some(first));
 }
 
-/// Push Up to Here: the push of the branch up to `tip`, leased on `expected`, against the baseline on the remote (the
-/// commits of the branch are on the local `master`)
-fn push_up_to(local: &TestRepo, expected: Option<&str>, tip: &str) -> anyhow::Result<PushOutcome> {
-  let params = PushBranchParams {
-    repository_path: path(local).to_string(),
-    branch_name: "feature".to_string(),
-    my_email: Some("test@example.com".to_string()),
-    baseline_branch: "origin/master".to_string(),
-    parent_branch: None,
-    expected_remote: expected.map(str::to_string),
-    tip: Some(tip.to_string()),
-  };
-  push_branch(local.git_executor(), &params, &HashMap::new(), &mut |_| {})
-}
-
-#[test]
-fn a_push_up_to_a_commit_leaves_the_commits_after_it_unpushed() {
-  let (remote, local) = local_with_bare_remote();
-  let first = local.create_commit("(feature) Add the parser", "parser.txt", "parser");
-  let second = local.create_commit("(feature) Add the printer", "printer.txt", "printer");
-  let third = local.create_commit("(feature) Add the docs", "docs.txt", "docs");
-  set_branch(&local, &third);
-
-  let status = pushed(push_up_to(&local, None, &second).unwrap());
-  assert_eq!(remote_tip(&remote), Some(second.clone()));
-  assert_eq!(status.unpushed_commits, vec![third.clone()]);
-  // the remote has the commit now: a push up to it, or to an older one, has nothing to send
-  push_up_to(&local, Some(&second), &second).unwrap_err();
-  push_up_to(&local, Some(&second), &first).unwrap_err();
-  // a newer commit fast-forwards the remote
-  pushed(push_up_to(&local, Some(&second), &third).unwrap());
-  assert_eq!(remote_tip(&remote), Some(third));
-}
-
-#[test]
-fn a_push_up_to_a_commit_refuses_one_outside_the_branch_and_a_branch_rewritten_since_its_push() {
-  let (remote, local) = local_with_bare_remote();
-  let baseline = rev_parse(&local, "origin/master").unwrap();
-  let first = local.create_commit("(feature) Add the parser", "parser.txt", "parser");
-  set_branch(&local, &first);
-  // the baseline is not the branch's own
-  push_up_to(&local, None, &baseline).unwrap_err();
-  pushed(push(&local, None));
-
-  // rebuilt: the remote head is no older commit of the branch, so a part of it would rewind the pull request
-  local.reset_hard("origin/master").unwrap();
-  let reworded = local.create_commit("(feature) Add the parser, reworded", "parser.txt", "parser");
-  let second = local.create_commit("(feature) Add the printer", "printer.txt", "printer");
-  set_branch(&local, &second);
-  let error = push_up_to(&local, Some(&first), &reworded).unwrap_err();
-  assert!(error.to_string().contains("rewritten"), "{error:#}");
-  assert_eq!(remote_tip(&remote), Some(first));
-}
-
 const AUTH: &str = "prefix/virtual/auth";
 const LOGIN: &str = "prefix/virtual/login";
 
@@ -552,12 +495,12 @@ fn push_stack(local: &TestRepo, expected: [Option<&str>; 2], tips: [Option<&str>
     baseline_branch: "origin/master".to_string(),
     branches: vec![branch("auth", None, expected[0], tips[0]), branch("login", Some("auth"), expected[1], tips[1])],
   };
-  push_branches(local.git_executor(), PREFIX, &params, &HashMap::new(), &mut |_| {}).unwrap()
+  push_branches(local.git_executor(), PREFIX, &params, &mut |_| {}).unwrap()
 }
 
 /// The remote statuses of a push of `params` that no sync refuses and whose remote branches are where it expects them
 fn stack_pushed_as_is(local: &TestRepo, params: &PushBranchesParams) -> Vec<RemoteStatusUpdate> {
-  stack_pushed(push_branches(local.git_executor(), PREFIX, params, &HashMap::new(), &mut |_| {}).unwrap())
+  stack_pushed(push_branches(local.git_executor(), PREFIX, params, &mut |_| {}).unwrap())
 }
 
 fn stack_pushed(outcome: PushBranchesOutcome) -> Vec<RemoteStatusUpdate> {
@@ -574,52 +517,6 @@ fn stack(local: &TestRepo) -> (String, String) {
   set_branch_of(local, AUTH, &auth);
   set_branch_of(local, LOGIN, &login);
   (auth, login)
-}
-
-/// A branch the last sync did not build keeps the ref of an older build, of commits it may no longer have: the push of
-/// it, alone or in a stack, pushes nothing, and says why
-#[test]
-fn a_push_of_a_branch_the_last_sync_did_not_build_is_refused() {
-  let (remote, local) = local_with_bare_remote();
-  stack(&local);
-  let params = PushBranchesParams {
-    repository_path: path(&local).to_string(),
-    my_email: Some("test@example.com".to_string()),
-    baseline_branch: "origin/master".to_string(),
-    branches: ["auth", "login"]
-      .map(|name| StackPushBranch {
-        branch_name: name.to_string(),
-        parent_branch: (name == "login").then(|| "auth".to_string()),
-        expected_remote: None,
-        tip: None,
-        whole_stack: false,
-        unapplied: false,
-      })
-      .into(),
-  };
-  let not_built = HashMap::from([("auth".to_string(), BlockReason::Conflict), ("login".to_string(), BlockReason::Blocked)]);
-
-  let error = push_branches(local.git_executor(), PREFIX, &params, &not_built, &mut |_| {}).unwrap_err();
-  assert_eq!(
-    error.to_string(),
-    "Nothing was pushed: auth is not synced (a merge conflict), login is not synced (its parent is not built)"
-  );
-  let one = PushBranchParams {
-    repository_path: path(&local).to_string(),
-    branch_name: "login".to_string(),
-    my_email: None,
-    baseline_branch: "origin/master".to_string(),
-    parent_branch: Some("auth".to_string()),
-    expected_remote: None,
-    tip: None,
-  };
-  let error = push_branch(local.git_executor(), &one, &not_built, &mut |_| {}).unwrap_err();
-  assert_eq!(error.to_string(), "Nothing was pushed: login is not synced (its parent is not built)");
-  assert_eq!((remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)), (None, None));
-
-  // once a sync built them, the same push goes
-  stack_pushed_as_is(&local, &params);
-  assert!(remote_tip_of(&remote, LOGIN).is_some());
 }
 
 /// The stack branch of the whole stack goes as one more branch of a push: `{prefix}/stack/<root>`, leased like a
@@ -654,7 +551,7 @@ fn the_whole_stack_pushes_its_stack_branch() {
 
   // its lease holds as a virtual branch's: a rebuilt stack branch pushed as if it had no remote branch is refused
   set_branch_of(&local, "prefix/stack/auth", &auth);
-  let moved = push_branches(local.git_executor(), PREFIX, &params(None), &HashMap::new(), &mut |_| {}).unwrap();
+  let moved = push_branches(local.git_executor(), PREFIX, &params(None), &mut |_| {}).unwrap();
   assert!(
     matches!(moved, PushBranchesOutcome::RemoteMoved { ref branch_name, whole_stack: true, .. } if branch_name == "auth"),
     "{moved:?}"
@@ -694,7 +591,7 @@ fn the_stack_branch_goes_with_the_branches_and_a_moved_one_is_named_as_the_stack
     branch_name,
     whole_stack,
     remote_statuses,
-  } = push_branches(local.git_executor(), PREFIX, &params(None), &HashMap::new(), &mut |_| {}).unwrap()
+  } = push_branches(local.git_executor(), PREFIX, &params(None), &mut |_| {}).unwrap()
   else {
     panic!("pushed over the remote stack branch");
   };
@@ -823,7 +720,7 @@ fn an_unapplied_branch_is_pushed_under_its_own_name() {
   let more = local.create_commit("More docs", "more.md", "more");
   set_branch_of(&local, "prefix/unapplied/docs", &more);
   assert!(matches!(
-    push_branches(local.git_executor(), PREFIX, &params(None), &HashMap::new(), &mut |_| {}).unwrap(),
+    push_branches(local.git_executor(), PREFIX, &params(None), &mut |_| {}).unwrap(),
     PushBranchesOutcome::RemoteMoved { .. }
   ));
   stack_pushed_as_is(&local, &params(Some(&tip)));

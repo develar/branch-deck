@@ -8,11 +8,10 @@ import type { ApiError, Land, LandingAllowances, LandProfiles, OperationEvent, O
 import { commands } from "@/lib/bindings"
 import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
-import { pushForAction } from "@/lib/git/stack-push"
-import { pushWholeStack } from "@/lib/git/stack-push"
 import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, openRobot } from "@/lib/patronus"
 import { openPullRequest, openPullRequestUrl } from "@/lib/pull-request"
+import { pushForAction, pushWholeStack } from "@/lib/push-run"
 import { showRobotEventToast } from "@/lib/robot-toast"
 import { pushedBefore, recordEffects } from "@/lib/run-intent"
 import type { ToastActionProps } from "@/lib/toast-message"
@@ -398,12 +397,8 @@ export async function pushAlone(branchName: string): Promise<boolean> {
   if (root !== null) {
     return pushWholeStack(root)
   }
-  const result = await pushForAction(branchName)
-  // a push stopped while it waited for the lock said so itself
-  if (!result.pushed && result.canceled !== true) {
-    notifyError(`Cannot push ${branchName}`, result.reason)
-  }
-  return result.pushed
+  // a push that failed or stopped while it waited for the lock said so itself
+  return pushForAction(branchName)
 }
 
 /**

@@ -1,24 +1,20 @@
-//! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the app's push of
-//! a stack (`push_branches`, `operations::push`; a branch alone is an intent of the engine, which freezes its own
-//! `PreparedPush::leased`), and `bd push`, all through one leased push
-//! (`push_leased`). A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched
-//! and reported, never overwritten blindly: the push goes again over what it has now, once, only when nothing of it is
-//! lost (`domain_policy::push::over_moved_remote`, `PreparedPush::over_moved`, which `operations::push::send` runs for
-//! the app and `bd push` alike). The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the same
-//! way.
+//! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the intent
+//! `Push` of the engine and the push of a start (`operations::push`, `operations::land_execute`), and `bd push`, each
+//! freezing its commits and leases (`PreparedPush::leased`) and sending them through one leased push (`push_leased`).
+//! A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched and reported,
+//! never overwritten blindly: the push goes again over what it has now, once, only when nothing of it is lost
+//! (`domain_policy::push::over_moved_remote`, `PreparedPush::over_moved`, which `operations::push::send` runs for the
+//! app and `bd push` alike). The stack branch of a whole stack (`{prefix}/stack/<root>`) goes the same way.
 
-use crate::config_snapshot::ConfigSnapshot;
-use crate::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, prepare_push_expecting, push_refs};
+use crate::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, push_refs};
 use crate::push_size::{PushTooLarge, check_push_size};
 use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_remote_statuses};
 use crate::transfer_progress::TransferProgress;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use domain_policy::push::over_moved_remote;
 use domain_types::RemoteStatusUpdate;
-use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{info, instrument, warn};
 
@@ -41,134 +37,11 @@ pub fn not_synced_refusal(name: &str, reason: BlockReason) -> String {
   format!("{name} is not synced ({})", not_built_reason(reason))
 }
 
-/// The refusal of a push before the sync whose branch table says which branches it built (`not_built_refusal`): the
-/// page shows no branch to push before it
-pub const NOT_SYNCED_YET: &str = "Nothing was pushed: the branches are not synced yet; sync first";
-
-/// The refusal of a push of `branches` while one of their virtual branches is not the build of its commits: the last
-/// sync did not build it (`not_built`, `SyncReport::not_built`), so its ref is a build of commits it may no longer have.
-/// The stack branch of a whole stack and an unapplied branch are no build of that sync; `None` when nothing refuses
-pub fn not_built_refusal(not_built: &HashMap<String, BlockReason>, branches: &[StackPushBranch]) -> Option<String> {
-  let refusals: Vec<String> = branches
-    .iter()
-    .filter(|branch| !branch.whole_stack && !branch.unapplied)
-    .filter_map(|branch| not_built.get(&branch.branch_name).map(|reason| not_synced_refusal(&branch.branch_name, *reason)))
-    .collect();
-  (!refusals.is_empty()).then(|| format!("Nothing was pushed: {}", refusals.join(", ")))
-}
-
-/// One branch of a stack push (`PushBranchesParams`)
-#[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct StackPushBranch {
-  pub branch_name: String,
-  /// The branch it is built on (`BranchStack::effective_base`): its commits are not counted as unpushed commits of
-  /// this branch
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub parent_branch: Option<String>,
-  /// The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
-  /// branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
-  pub expected_remote: Option<String>,
-  /// Push Up to Here: the commit of the virtual branch to push instead of its tip, so the remote gets the branch up to
-  /// it and the commits after it stay unpushed. It must be one of the branch's own commits (not of its parent or the
-  /// baseline), newer than `expected_remote` on the same line (`check_push_tip`)
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub tip: Option<String>,
-  /// The stack branch of the whole stack whose root `branch_name` is (`{prefix}/stack/<root>`), not its virtual branch:
-  /// the caller pushes it only while the sync built it (`StackBranchState::Built`); no parent, no tip
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub whole_stack: bool,
-  /// The unapplied branch `{prefix}/unapplied/<branch_name>`, pushed under its own name so the remote keeps a copy: no
-  /// parent, no tip; a pull request of its virtual branch stays as it was
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub unapplied: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PushBranchesParams {
-  pub repository_path: String,
-  pub my_email: Option<String>,
-  pub baseline_branch: String,
-  /// Parents first: the order of the refspecs and of the remote statuses of the outcome
-  pub branches: Vec<StackPushBranch>,
-}
-
-/// What a stack push did
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum PushBranchesOutcome {
-  /// Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches.
-  /// `pushed_over`: the remote branch of one had moved since the status the user saw, without commits it lacks, so the
-  /// push went again, once, over these statuses of every branch, fetched after the first push was refused, in the order
-  /// of the branches (`PreparedPush::over_moved`); empty when the first push went
-  #[serde(rename_all = "camelCase")]
-  Pushed {
-    remote_statuses: Vec<RemoteStatusUpdate>,
-    pushed_over: Vec<RemoteStatusUpdate>,
-  },
-  /// The remote branch of `branch_name` (the first such, parents first) was not where the user saw it, so nothing was
-  /// pushed: the push is atomic. Every branch was fetched, and `remote_statuses` show what the remote has now, in the
-  /// order of the branches; a push with the `remote_tip` of `branch_name` replaces it. `whole_stack`: the one that moved
-  /// is the stack branch of the whole stack of `branch_name` (`StackPushBranch::whole_stack`), not its virtual branch,
-  /// which may be in the same push (Push with Children of the root)
-  #[serde(rename_all = "camelCase")]
-  RemoteMoved {
-    branch_name: String,
-    whole_stack: bool,
-    remote_statuses: Vec<RemoteStatusUpdate>,
-  },
-}
-
-/// Force-pushes the virtual branches to `origin` in one atomic `git push`, each leased on the remote head the user saw
-/// (`push_lease`): the stack goes whole or not at all. The tips are read once (`prepare_push_branches`), a branch pushed
-/// up to a commit is checked (`check_push_tip`), and a remote branch that moved meanwhile is fetched, not overwritten:
-/// the outcome names it, with the remote statuses after the fetch (`PreparedPush::send`). A branch the last sync did
-/// not build (`not_built`) refuses the whole push (`not_built_refusal`). The branches are named under `branch_prefix`;
-/// `on_progress` gets how far the push is.
-#[instrument(skip(git_executor, not_built, on_progress), fields(repository_path = %params.repository_path, branches = params.branches.len()))]
-pub fn push_branches(
-  git_executor: &GitCommandExecutor,
-  branch_prefix: &str,
-  params: &PushBranchesParams,
-  not_built: &HashMap<String, BlockReason>,
-  on_progress: &mut dyn FnMut(TransferProgress),
-) -> Result<PushBranchesOutcome> {
-  prepare_push_branches(git_executor, branch_prefix, params, not_built)?.send(git_executor, on_progress)
-}
-
-/// The full names of the refs a push of `branches` writes (`{prefix}/virtual/<branch>`, `{prefix}/stack/<root>` of a
-/// whole stack, `{prefix}/unapplied/<branch>`, under `branch_prefix`), each with the virtual branch of its parent; no git
-/// process
-pub fn push_ref_names(branch_prefix: &str, params: &PushBranchesParams) -> Result<Vec<(String, Option<String>)>> {
-  params
-    .branches
-    .iter()
-    .map(|branch| {
-      if branch.whole_stack {
-        return Ok((to_stack_branch_name(branch_prefix, &branch.branch_name)?, None));
-      }
-      if branch.unapplied {
-        return Ok((qualified_branch_name(branch_prefix, BranchKind::Unapplied, &branch.branch_name)?, None));
-      }
-      let final_name = to_final_branch_name(branch_prefix, &branch.branch_name)?;
-      let parent_ref = branch.parent_branch.as_deref().map(|parent| to_final_branch_name(branch_prefix, parent)).transpose()?;
-      Ok((final_name, parent_ref))
-    })
-    .collect()
-}
-
-/// A push whose commits and leases are fixed under the repository lock (`prepare_push_branches`, or `PreparedPush::leased`
-/// on the tips a sync under the same lock left): each ref goes as the commit it was at then (`<commit>:refs/heads/<name>`),
-/// leased on the remote head the user saw, so a branch that moves before the push changes nothing of what goes. Its
-/// network part is `push`, its push again over a moved remote `over_moved` (`operations::push::send` runs both)
+/// A push whose commits and leases are fixed under the repository lock (`PreparedPush::leased`, by the engine on the
+/// frozen tips, by `bd push` on the tips a sync under the same lock left): each ref goes as the commit it was at then
+/// (`<commit>:refs/heads/<name>`), leased on the remote head the user saw, so a branch that moves before the push changes
+/// nothing of what goes. Its network part is `push`, its push again over a moved remote `over_moved`
+/// (`operations::push::send` runs both)
 #[derive(Debug, Clone)]
 pub struct PreparedPush {
   repository_path: String,
@@ -179,70 +52,14 @@ pub struct PreparedPush {
   remote: String,
   options: PushOptions,
   branches: Vec<LeasedBranch>,
-  /// `StackPushBranch::whole_stack` of each branch, in their order
-  whole_stack: Vec<bool>,
-}
-
-/// The local part of `push_branches`, for a caller that checks what goes under the repository lock and pushes after
-/// it: the refusal of a branch the last sync did not build (`not_built_refusal`), the tips read with one `for-each-ref`
-/// (`prepare_push_expecting`), the commit of a push up to it checked (`check_push_tip`). No network
-#[instrument(skip(git_executor, not_built), fields(repository_path = %params.repository_path, branches = params.branches.len()))]
-pub fn prepare_push_branches(
-  git_executor: &GitCommandExecutor,
-  branch_prefix: &str,
-  params: &PushBranchesParams,
-  not_built: &HashMap<String, BlockReason>,
-) -> Result<PreparedPush> {
-  if let Some(refusal) = not_built_refusal(not_built, &params.branches) {
-    bail!(refusal);
-  }
-  let repository_path = &params.repository_path;
-  let names = push_ref_names(branch_prefix, params)?;
-  let expected: Vec<(String, Option<String>)> = names
-    .iter()
-    .zip(&params.branches)
-    .map(|((final_name, _), branch)| (final_name.clone(), branch.expected_remote.clone()))
-    .collect();
-  let mut refs = prepare_push_expecting(git_executor, repository_path, &expected)?;
-  for ((push, branch), (_, parent_ref)) in refs.iter_mut().zip(&params.branches).zip(&names) {
-    if let Some(tip) = &branch.tip {
-      let base = parent_ref.as_deref().unwrap_or(&params.baseline_branch);
-      push.tip = check_push_tip(git_executor, repository_path, &push.tip, base, tip, branch.expected_remote.as_deref())?;
-    }
-  }
-
-  let branches: Vec<LeasedBranch> = refs
-    .into_iter()
-    .zip(&params.branches)
-    .zip(names)
-    .map(|((push, branch), (_, parent_ref))| LeasedBranch {
-      name: branch.branch_name.clone(),
-      push,
-      parent_ref,
-    })
-    .collect();
-  Ok(PreparedPush {
-    repository_path: repository_path.clone(),
-    baseline: params.baseline_branch.clone(),
-    my_email: params.my_email.clone(),
-    size_limit: ConfigSnapshot::read(git_executor, repository_path)?.push_size_limit()?,
-    remote: PUSH_REMOTE.to_string(),
-    // one ref needs no `--atomic`, which a remote may not support
-    options: PushOptions {
-      atomic: branches.len() > 1,
-      dry_run: false,
-    },
-    whole_stack: params.branches.iter().map(|branch| branch.whole_stack).collect(),
-    branches,
-  })
 }
 
 impl PreparedPush {
-  /// The push of `branches` (parents first, the stack branches of whole stacks after them, `whole_stack` of each) whose
-  /// commits and leases the caller fixed itself under the repository lock (`bd push`, on the tips of the sync it ran
-  /// under it): to `target.remote` with `options`
+  /// The push of `branches` (parents first, the stack branches of whole stacks after them) whose commits and leases the
+  /// caller fixed itself under the repository lock (the engine, `bd push` on the tips of the sync it ran under it): to
+  /// `target.remote` with `options`
   #[must_use]
-  pub fn leased(target: &PushTarget<'_>, branches: Vec<LeasedBranch>, whole_stack: Vec<bool>, options: PushOptions) -> Self {
+  pub fn leased(target: &PushTarget<'_>, branches: Vec<LeasedBranch>, options: PushOptions) -> Self {
     Self {
       repository_path: target.repository_path.to_string(),
       baseline: target.baseline.to_string(),
@@ -251,7 +68,6 @@ impl PreparedPush {
       remote: target.remote.to_string(),
       options,
       branches,
-      whole_stack,
     }
   }
 
@@ -316,37 +132,6 @@ impl PreparedPush {
   /// What git failed with
   pub fn statuses(&self, git_executor: &GitCommandExecutor) -> Result<Vec<RemoteStatusUpdate>> {
     leased_statuses(git_executor, &self.target(), &self.branches).context("Failed to compute remote status")
-  }
-
-  /// What the app's push did, of `answer` of this push: the remote statuses of the pushed branches, or, refused because
-  /// a remote branch moved, of the fetched ones; `pushed_over` the statuses a push again over a moved remote went over
-  ///
-  /// # Errors
-  /// A push the remote refused for another reason, one too large, or the statuses that failed
-  pub fn outcome(&self, git_executor: &GitCommandExecutor, answer: LeasedPush, pushed_over: Vec<RemoteStatusUpdate>) -> Result<PushBranchesOutcome> {
-    match answer {
-      LeasedPush::Pushed(_) => Ok(PushBranchesOutcome::Pushed {
-        remote_statuses: self.statuses(git_executor)?,
-        pushed_over,
-      }),
-      LeasedPush::RemoteMoved { moved, remote_statuses } => Ok(PushBranchesOutcome::RemoteMoved {
-        branch_name: self.branches[moved[0]].name.clone(),
-        whole_stack: self.whole_stack[moved[0]],
-        remote_statuses,
-      }),
-      LeasedPush::Refused { summary } => bail!("The remote rejected the push: {summary}"),
-      LeasedPush::TooLarge(too_large) => Err(anyhow::Error::new(too_large)),
-      LeasedPush::WouldReject => bail!("The remote would reject the push"),
-    }
-  }
-
-  /// The push and its outcome (`push`, `outcome`), without a push again over a moved remote
-  ///
-  /// # Errors
-  /// What `push` and `outcome` failed with
-  pub fn send(&self, git_executor: &GitCommandExecutor, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushBranchesOutcome> {
-    let answer = self.push(git_executor, on_progress)?;
-    self.outcome(git_executor, answer, Vec::new())
   }
 }
 
@@ -467,25 +252,4 @@ fn leased_statuses(git_executor: &GitCommandExecutor, target: &PushTarget<'_>, b
     })
     .collect();
   compute_remote_statuses(git_executor, target.repository_path, target.remote, &statuses, target.my_email, target.baseline)
-}
-
-/// The commit `tip` resolved, after checking that a push of the branch at `local` up to it is a prefix of the branch:
-/// `tip` is one of the commits on `local` after `base` (the parent's branch, or the baseline), and the remote head
-/// `remote` (none: the remote has no branch) is an older one of them, so the push fast-forwards the remote. A virtual
-/// branch is a line of cherry-picked commits, so the order of one `rev-list` says which commit is older
-pub fn check_push_tip(git_executor: &GitCommandExecutor, repository_path: &str, local: &str, base: &str, tip: &str, remote: Option<&str>) -> Result<String> {
-  let own = git_executor.execute_command_lines(&["rev-list", "--first-parent", "--end-of-options", local, &format!("^{base}"), "--"], repository_path)?;
-  // newest first
-  let position = |id: &str| own.iter().position(|it| it == id);
-  let Some(at) = position(tip) else {
-    bail!("{tip} is not a commit of the branch after {base}");
-  };
-  if let Some(remote) = remote {
-    match position(remote) {
-      Some(remote_at) if remote_at > at => {}
-      Some(_) => bail!("the remote branch already has {tip}"),
-      None => bail!("the branch was rewritten since its push: it pushes whole"),
-    }
-  }
-  Ok(own[at].clone())
 }

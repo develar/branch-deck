@@ -1,37 +1,22 @@
-//! The checks of the app's push of a stack (`push_branches` and its route of the E2E server, which run them in
-//! `operations::push`; the push of a branch alone decides by the same holds in its plan, `derive::alone_push_of`) in Rust, by the rules of `bd push` over the Patronus view (`derive_patronus`): under the
-//! repository lock, a branch the last sync has no row of is no branch to push, a parked branch and a branch built on one
-//! stay local, a branch a merged Safe Push landed whole has nothing left to push, a branch a running Safe Push holds (its
-//! own robot, one of a branch built on it, the whole stack on its stack branch) is not pushed (the push won't land, and a
-//! push into the robot's own branch fails it at the end), and the stack branch of a whole stack that is not `built` is no
-//! build of its commits. An unapplied branch is checked by nothing. The page checks the same before it pushes and says it
-//! in its words; these refuse a push that raced with a start (the IDE, `bd`) or came by IPC. The robots are the ones Rust
-//! read itself, never the page's: a robot the page canceled before Push and Restart is canceling and holds nothing.
+//! The facts the run of a push and of a robot action is checked on (`guard_facts`): the table of the last sync, the
+//! robots Rust read itself (never the page's: a robot the page canceled is canceling and holds nothing) and the Patronus
+//! view of both, on which the plan decides again what holds the push (`operations::push`, the holds of
+//! `domain_policy::holds` decided into the view by `derive::decide_landing`).
 //!
-//! The words of the holds are `bd`'s too (`bd push`, `bd safe-push`): `parked_words`, `landed_words`,
-//! `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`; the holds themselves are the rules'
-//! (`domain_policy::holds`, decided into the view by `derive::decide_landing`).
+//! The words of the holds are `bd`'s too (`bd push`, `bd safe-push`, the refusals of the engine): `parked_words`,
+//! `landed_words`, `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`.
 
 use crate::branch_table::BranchTable;
 use crate::facts::{PatronusOf, TableFacts, derive_patronus};
-use crate::refusal_words::{stack_conflict_words, stack_not_built_words};
-use domain_policy::parked::parked_state;
-use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
-use domain_types::reason::Reason;
-use domain_types::repository_view::{Carried, HoldKind, HoldView, PatronusView, RobotOf};
+use domain_types::repository_view::{Carried, PatronusView};
 use domain_types::session::Parked;
-use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
-use sync_core::push::StackPushBranch;
 use tracing::instrument;
-
-/// What the app's own robot hold offers instead of a push: its Push and Restart
-const APP_OWN_HOLD_REMEDY: &str = "restart it on the current branch";
 
 /// The facts the checks read (`guard_facts`): the table of the last sync, the robots Rust read, and the Patronus view of
 /// both
@@ -67,29 +52,6 @@ impl GuardFacts {
   pub fn robot(&self, id: &str) -> Option<&PatronusRobot> {
     self.robots.iter().find(|robot| robot.id == id)
   }
-
-  /// The hold of the push of `name` (`domain_policy::holds::branch_hold`)
-  pub(crate) fn hold(&self, name: &str) -> Option<&HoldView> {
-    self.view.branches.get(name)?.landing.hold.as_ref()
-  }
-
-  /// The merged robot that landed all of `name` (its hold is `Landed`), with what it ran on
-  pub(crate) fn landed_whole(&self, name: &str) -> Option<(Subject, &PatronusRobot)> {
-    let hold = self.hold(name).filter(|hold| hold.kind == HoldKind::Landed)?;
-    Some((hold.by.subject(), self.robot(&hold.by.robot_id)?))
-  }
-
-  /// The hold of the push of the stack branch of `root` (`domain_policy::holds::stack_branch_hold`)
-  pub(crate) fn stack_hold(&self, root: &str) -> Option<&Reason> {
-    self.view.stacks.get(root)?.landing.hold.as_ref()
-  }
-
-  /// "every branch of the whole auth stack landed in master with the Safe Push of oauth": the robots of a
-  /// `StackLanded` reason (`every_branch_landed`)
-  pub(crate) fn stack_landed_words(&self, root: &str, by: &[RobotOf]) -> String {
-    let landed: Vec<(Subject, &PatronusRobot)> = by.iter().filter_map(|of| Some((of.subject(), self.robot(&of.robot_id)?))).collect();
-    every_branch_landed(&Subject::whole_stack(root).words(), &landed)
-  }
 }
 
 /// "auth is parked: waits for IJPL-1", "oauth is built on parked auth": why `name` stays local
@@ -100,82 +62,6 @@ pub fn parked_words(name: &str, parked: &Parked) -> String {
     None => format!("{name} is parked{note}"),
     Some(parent) => format!("{name} is built on parked {parent}{note}"),
   }
-}
-
-/// Why the push of `branches` is refused: "Nothing was pushed: …" with every refusal, `bd push`'s words; `Ok` when
-/// nothing refuses. An unapplied branch is no branch of the table
-pub fn check_push(facts: &GuardFacts, branches: &[StackPushBranch]) -> Result<(), String> {
-  let refusals: Vec<String> = branches
-    .iter()
-    .filter(|branch| !branch.unapplied)
-    .filter_map(|branch| {
-      if branch.whole_stack {
-        stack_refusal(facts, &branch.branch_name)
-      } else {
-        branch_refusal(facts, &branch.branch_name)
-      }
-    })
-    .collect();
-  if refusals.is_empty() {
-    Ok(())
-  } else {
-    Err(format!("Nothing was pushed: {}", refusals.join("; ")))
-  }
-}
-
-/// The refusals the push and the start of a branch share: no row of the last sync, parked or built on parked, landed
-/// whole ("nothing of it is left to `left`": "push", "land")
-pub(crate) fn row_refusal(facts: &GuardFacts, name: &str, left: &str) -> Option<String> {
-  let table = facts.table();
-  if table.branch(name).is_none() {
-    return Some(format!("{name} is no branch of the last sync"));
-  }
-  if let Some(parked) = parked_state(&table.repository(), name) {
-    return Some(format!("{}; it stays local until the user unparks it", parked_words(name, &parked)));
-  }
-  let (by, robot) = facts.landed_whole(name)?;
-  Some(format!("{}: nothing of it is left to {left}", landed_words(name, &by, robot)))
-}
-
-/// No row of the last sync, else parked or built on parked, else landed whole (`row_refusal`), else held by a running
-/// Safe Push
-fn branch_refusal(facts: &GuardFacts, name: &str) -> Option<String> {
-  if let Some(refusal) = row_refusal(facts, name, "push") {
-    return Some(refusal);
-  }
-  let table = facts.table();
-  let hold = facts.hold(name)?;
-  let robot = facts.robot(&hold.by.robot_id)?;
-  Some(match hold.kind {
-    HoldKind::Landed => return None,
-    HoldKind::Own => {
-      let source = to_final_branch_name(&table.prefix, name).ok();
-      own_hold_words(name, robot, source.as_deref(), APP_OWN_HOLD_REMEDY)
-    }
-    HoldKind::Span => span_hold_words(name, &hold.by.subject(), robot, hold.carried.as_ref()),
-  })
-}
-
-/// The stack branch of the whole stack of `root`: it holds the commits of every member, so a parked member keeps it
-/// local; every member landed whole leaves nothing to push; the robot of the whole stack runs on it; and one that is not
-/// `built` is no build of its commits (`bd push` pushes only a built one), as the start of the whole stack refuses it
-/// (`domain_policy::holds::stack_branch_hold`)
-fn stack_refusal(facts: &GuardFacts, root: &str) -> Option<String> {
-  let table = facts.table();
-  let Some(stack) = table.stack(root) else {
-    return Some(format!("{} has no stack branch of the last sync", Subject::whole_stack(root).words()));
-  };
-  let branch = &stack.branch_name;
-  Some(match facts.stack_hold(root)? {
-    Reason::StackParked { member, .. } => format!("{branch} holds parked {member}; land the stack in pieces"),
-    Reason::StackLanded { by, .. } => format!("{branch}: {}: nothing of it is left to push", facts.stack_landed_words(root, by)),
-    Reason::StackHeld { robot_id, .. } => format!("{branch}: {}", stack_hold_words(root, facts.robot(robot_id)?)),
-    Reason::StackNotBuilt {
-      state: StackBranchState::Conflict,
-      ..
-    } => format!("{branch}: {}", stack_conflict_words(&table.branches, stack, &|id| git_ops::revs::short_id(id).to_string())),
-    _ => format!("{branch}: {}", stack_not_built_words(stack)),
-  })
 }
 
 /// "auth landed in master with the Safe Push of oauth (<url>)", of its own robot "auth merged into master with its Safe
@@ -241,7 +127,3 @@ pub fn stack_hold_words(root: &str, robot: &PatronusRobot) -> String {
     robot.url
   )
 }
-
-#[cfg(test)]
-#[path = "push_guard_test.rs"]
-pub(crate) mod push_guard_test;

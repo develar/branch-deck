@@ -219,27 +219,23 @@ The page's own operations declare no move.
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
 and back. The other operations pass, as a sync does: the node keeps the state they started from.
 
-### Outside the registry
+### The pushes and the start in Rust
 
-One run keeps its own record, one place for every surface of it:
-
-- **Push and stack push** (`pushingBranches`, `stackPushes` in `branch-sync.ts`, the percent in `pushProgressStore`):
-  a stack push carries the branches it sends, learned after the sync it waits for; a push of the stack branch joins a
-  stack push that takes it along instead of waiting; a push never holds its row (its menu stays open, its button shows
-  the percent). A second click joins the running push (`pushOne` by repository and branch, `pushTogether` by
-  repository, row and order), and so does the push of an action, which hears why it failed; another push of the same
-  branch waits for it, and a stack push claims its branches once it knows them, before its checks, so a push of one of
-  them meanwhile waits instead of sending it twice. A push inside an operation (the
-  creation of a pull request, a review request, a Safe Push start, a restart) is a step of it, not an operation of its
-  own; the push of a restart, a creation and a review request shows on the push button of its branch (or of its whole
-  stack) from the operation of the view in its push step and the progress its run tells its caller
-  (`operationPushProgress` of `run-intent.ts`). The push of a branch alone and of an unapplied branch is the intent
-  `Push` of the engine (`operations::push::execute_push`, s9-12): no entry of this registry, its spinner the operation
-  of the view (`pushOperationIn`). In Rust the push of a stack the page asks (`push_branches`) is already an operation of the
-  session (`operations::push`, [Push and land](git-operations.md#push-and-land)): admitted per ref it writes in the
-  registry of the operations, so a push of a ref another push of the app writes waits for it there and the pushes of
-  other refs run side by side, its steps in the view's `operations` (`Checking`, `WaitingForSync`, `WaitingForLock`,
-  `Pushing`); the page's record above stays its own until its push is an intent of the session (s9-12, s9-13).
+- **Every push** is the intent `Push` of the engine (`operations::push::execute_push`, [Push and
+  land](git-operations.md#push-and-land)): of a branch alone and of an unapplied branch (`pushBranch`,
+  `pushUnappliedBranch`), of a stack (the push button that pushes the stack, Push Stack, Push with Children, Push Up to
+  Here: `pushFromButton`, `pushStack`, `pushWithChildren`, `pushUpTo`) and of the stack branch of a whole stack alone
+  (`pushWholeStack`), all in `src/lib/push-run.ts` over `runIntent`. Rust admits it per ref it writes
+  (`Resource::Ref`, the refs its plan pushes in their order): the same intent joins it (a second click, the push of
+  an action that asks the same push), another push of one of its refs waits in the queue and is decided again on what
+  it left, the pushes of other refs run side by side. Its steps are the view's `operations` (`Checking`,
+  `WaitingForSync`, `WaitingForLock`, `Pushing`): `pushOperationIn` says which branches a running push holds (its
+  spinner on their push buttons, a stack branch under `stack:<root>`), `useStackPush` what a push of a stack started
+  from a row sends ("Pushing 3 branches 45%", `isStackPushing` for the menus), and the window that runs it shows how
+  far it is (`operationPushProgress` of `run-intent.ts`, the percent by operation in `pushProgressStore`). A push never
+  holds its row (its menu stays open, its button shows the percent). A push inside another operation (the creation of
+  a pull request, a review request, a Safe Push start, a restart) is a step of it, its `Push` effect, shown on the push
+  button of its branch (or of its whole stack) from the operation of the view in its push step.
 
 The start of a Safe Push or a Dry Run is an operation of the session (`execute`, [Push and
 land](git-operations.md#push-and-land)): its steps are the view's (`OperationStep`: checking, waiting for the lock,
@@ -269,8 +265,9 @@ operation.
 5. **Decision**: the identical error toast updates in place (`notifyError` passes an id of the title and the
    description; Base UI updates the open toast of that id).
    **Rationale**: a poll or two surfaces must not stack copies of one error; Activity still records each.
-6. **Decision**: the push and the start of a Safe Push keep their own record.
-   **Rationale**: what they hold (the branches a stack push sends, its percent, a start's step across a popover) is not
-   an operation's; their surfaces already read one record each, join a second click and show one indicator.
-   Both records are keyed by the repository the action started in and the branch: a push or a start that runs on after
-   a switch of the repository shows nothing on the branch of the same name there, nor holds its push or start back.
+6. **Decision**: the pushes and the start of a Safe Push are operations of the session in Rust, not records of the
+   page.
+   **Rationale**: what they hold (the refs a push writes, a start's step across a popover) is decided where the push and
+   the start run: a second click joins in Rust, a push of a ref another push writes waits there, every window shows the
+   same operation. The operations are of the repository the main window shows: a push or a start that runs on after a
+   switch of the repository shows nothing on the branch of the same name there, nor holds its push or start back.
