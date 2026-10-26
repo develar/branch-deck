@@ -19,6 +19,7 @@ use domain_types::operation::{Admission, Intent, OperationEvent, OperationId, Op
 use repository_model::session::{SessionHold, SessionKey, Sessions};
 use repository_model::table::{OperationPatch, TableState};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::{oneshot, watch};
 
@@ -59,6 +60,8 @@ struct Channel {
   answer: watch::Sender<Option<Answer>>,
   /// While it waits: its wake-up and the step it starts at
   waiting: Option<(oneshot::Sender<()>, OperationStep)>,
+  /// Set by `Registry::cancel`: the operation stops waiting for the lock and makes no effect after it
+  canceled: Arc<AtomicBool>,
 }
 
 /// The channels of a registry; the lock is held only for a lookup or an entry, never across a wait
@@ -96,6 +99,16 @@ impl Registry {
   #[must_use]
   pub const fn sessions(&self) -> &Arc<Sessions> {
     &self.sessions
+  }
+
+  /// Stops the operation `op` of this process (`cancel_operation`): a wait for the repository lock ends with `canceled`,
+  /// and no effect starts after it; an effect that runs (a push that sends) goes to its end. `false` for an operation
+  /// that ended, or of another process
+  pub fn cancel(&self, op: &OperationId) -> bool {
+    lock(&self.channels).get(op).is_some_and(|channel| {
+      channel.canceled.store(true, Ordering::SeqCst);
+      true
+    })
   }
 
   /// Admits `request` in the session of `key` (opened when it is not), with `events` for its caller: it runs at once,
@@ -174,7 +187,15 @@ fn decide(
   };
   let queued = waiting.is_some();
   let (answer, _) = watch::channel(None);
-  lock(channels).insert(id.clone(), Channel { key, answer, waiting });
+  lock(channels).insert(
+    id.clone(),
+    Channel {
+      key,
+      answer,
+      waiting,
+      canceled: Arc::new(AtomicBool::new(false)),
+    },
+  );
   state.apply_operation(OperationPatch::Admitted(RunningOperation {
     id,
     intent: request.intent,
@@ -267,6 +288,14 @@ impl RunningGuard {
       sessions: Arc::clone(&self.sessions),
       events: Arc::clone(&self.events),
     }
+  }
+
+  /// Whether the user stopped the operation (`Registry::cancel`), read by its steps on any thread
+  #[must_use]
+  pub fn canceled(&self) -> Arc<AtomicBool> {
+    lock(&self.channels)
+      .get(&self.id)
+      .map_or_else(|| Arc::new(AtomicBool::new(false)), |channel| Arc::clone(&channel.canceled))
   }
 
   /// The moves of rows the operation makes from now on

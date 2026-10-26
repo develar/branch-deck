@@ -1009,6 +1009,24 @@ fn a_safe_push_check() {
   assert_safe_push_processes(&context, SAFE_PUSH_CHECK);
 }
 
+/// `bd safe-push auth`, a start through the API: what `a_safe_push_check` decides on, then the run of the engine
+/// (`operations::land_execute`): the cheap witness before the lock and the full one under it, each one `for-each-ref` of
+/// the refs of the plan, the push of the commit they froze after the lock (`push`, with the size check of what it adds:
+/// `log`, `cat-file`), and the late witness of the pushed branch before the start (`for-each-ref`); the start is HTTP
+#[test]
+fn a_safe_push_start() {
+  let space = Space::new(&["(auth) Add login", "(ui) Add form"]);
+  let environment = space.environment();
+  let context = space_context(&environment);
+  let args = SafePushArgs {
+    branch: "auth".to_string(),
+    ..SafePushArgs::default()
+  };
+  let output = safe_push(&context, &args, &environment).unwrap();
+  assert!(output.robot.is_some() && output.pushed.len() == 1, "{output:?}");
+  assert_safe_push_processes(&context, &with_more(SAFE_PUSH_CHECK, &[("cat-file", 1), ("for-each-ref", 3), ("log", 1), ("push", 1)]));
+}
+
 /// `bd safe-push form --check` of a branch stacked on auth: what `a_safe_push_check` runs, and the trial build of form
 /// alone (`alone`) in the same trial session as the dangling references, so no second `log` or `for-each-ref`: its
 /// build (`merge-tree`, `fast-import`) and the changes of the commits for the names they use (`log`). The sync of the
@@ -1079,8 +1097,9 @@ fn a_safe_push_check_of_the_whole_stack() {
 /// `bd safe-push auth --whole-stack` over a stack branch someone moved back on the remote to an older build since the
 /// sync (D4): the sync of a stack it built already (no build), what the start is decided on and the review of the stack
 /// branch's commits, then the refused push of the stack branch, the fetch of what the remote has now and its remote
-/// status, the push again over it, once, each push with the size check of what it adds (`log`, `cat-file`); and the
-/// target conflict check (`TARGET_CHECK`)
+/// status, the push again over it, once, each push with the size check of what it adds (`log`, `cat-file`); the witness
+/// of the engine (one `for-each-ref` before the lock, one under it, one of the pushed stack branch before the start);
+/// and the target conflict check (`TARGET_CHECK`)
 #[test]
 fn a_safe_push_of_the_whole_stack_over_a_moved_remote() {
   let space = forking_stack();
@@ -1102,7 +1121,7 @@ fn a_safe_push_of_the_whole_stack_over_a_moved_remote() {
       ("config", 1),
       ("diff-tree", 1),
       ("fetch", 1),
-      ("for-each-ref", 3),
+      ("for-each-ref", 6),
       ("log", 11),
       ("merge-base", 1),
       ("push", 2),

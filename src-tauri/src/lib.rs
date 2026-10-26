@@ -47,7 +47,7 @@ use commands::fetch_baseline::fetch_baseline;
 use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::move_commits::move_commits_to_branch;
-use commands::operations::prepare;
+use commands::operations::{cancel_operation, execute, prepare};
 use commands::parked_branches::{park_branches, unpark_branches};
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, check_landing_gate, check_target_conflict, get_patronus_robot_status, get_patronus_target_branch, get_robot_commit_map, get_robot_failure,
@@ -141,6 +141,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
       start_patronus_robot,
       check_landing_gate,
       prepare,
+      execute,
+      cancel_operation,
       check_target_conflict,
       restart_patronus_robot,
       cancel_patronus_robot,

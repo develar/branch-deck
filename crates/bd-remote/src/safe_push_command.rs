@@ -25,12 +25,13 @@
 use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
 use crate::pull_request_retarget::{RetargetedPullRequest, refusal_warning};
 use crate::push_command::{
-  LANDED_NEXT, PullRequestDraft, PushArgs, PushedBranch, REMOTE_REFUSED_NEXT, WOULD_REJECT_NEXT, github_repository, not_synced_reason, plan_push, push_size_limit, pushed_branch,
-  refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
+  LANDED_NEXT, PullRequestDraft, PushedBranch, PushedName, REMOTE_REFUSED_NEXT, WOULD_REJECT_NEXT, github_repository, lease_rejected, not_synced_reason, pull_request_drafts,
+  push_size_limit, pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
 };
-use crate::push_hold::{PushHolds, refusing_subject, robot_command};
+use crate::push_hold::{refusing_subject, robot_command};
 use crate::robot_list::keep_listed;
-use crate::session_facts::{SessionFacts, listed_robots, robots_since};
+use crate::safe_push_run::{BdStart, cli_error, locker};
+use crate::session_facts::{SessionFacts, listed_robots};
 use bd_core::bd_command::shell_word;
 use bd_core::check_summary::{CheckConflict, CheckWarning, DanglingReferenceSummary, dangling_reference_message, dangling_references_in, session_of_sync};
 use bd_core::context::{Environment, RepoContext};
@@ -38,11 +39,10 @@ use bd_core::error::{CliError, ErrorBranch, NextStep, regroup_error};
 use bd_core::next_step_summary::NextStepSummary;
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
-use bd_core::services::{BdServices, cli_user_agent, github_service, patronus_service};
+use bd_core::services::{BdServices, cli_user_agent, github_service, patronus_service, session_key};
 use bd_core::stack_summary::{WholeStackSummary, stack_branch_of, whole_stack, whole_stack_summary};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, landed_commits, lock, sync_locked};
 use domain_policy::facts::{Repository, Robots};
-use domain_policy::holds::is_active;
 use domain_policy::land::{SubjectFacts, TargetConflictFact, allows_mode, table_blocker, unaccepted};
 use domain_policy::landed::LandedFacts;
 use domain_policy::next_step::PatronusStanding;
@@ -52,30 +52,29 @@ use domain_policy::push::needs_push;
 use domain_policy::review::{CountsIn, ReviewState, review_state};
 use domain_policy::stack::WholeStack;
 use domain_types::branch_names::to_final_branch_name;
+use domain_types::error::ApiError;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject};
-use domain_types::operation::{Intent, Plan};
+use domain_types::operation::{EffectStatus, Intent, OperationId, Plan};
 use domain_types::patronus::{
-  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
-  PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, PatronusStartOptions, Person, ReviewReadiness, ReviewerApprovalState, UnavailableReadinessReason,
-  UnknownReadinessReason,
+  LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusRobot,
+  PatronusRobotStatus, PatronusStartOptions, Person, ReviewReadiness, ReviewerApprovalState, UnavailableReadinessReason, UnknownReadinessReason,
 };
+use domain_types::pull_request::CreatedPullRequest;
 use domain_types::pull_request::{BranchRules, PullRequest, ReviewerState};
 use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState, LandedSection, ParkedMember, PullRequestsView, SubjectReadiness};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
-use github::client::GitHubError;
 use github::service::{GitHubFailure, GitHubService};
-use history_rewrite::repository_lock::RepositoryLock;
 use operations::land::{LandHost, one_shot_plan};
+use operations::land_execute::{Accepted, Planned, PullRequestText, PushSettings, StartServices, Started, Steps, execute};
 use operations::needs::{FactNeed, needs};
-use operations::push::OverMoved;
+use operations::push::Sent;
+use operations::robot_start::github_request_failure;
 use patronus::review_readiness::evaluates_pull_request;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::FactSources;
-use remote_facts::patronus_command::{post_patronus_command, read_patronus_command_reply};
-use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
-use remote_facts::pull_requests::{GitHubWriteError, failure_message};
+use remote_facts::pull_requests::GitHubWriteError;
 use repository_model::branch_table::{BranchTable, RemoteFact};
 use repository_model::derive::{LandingFacts, StepSources, grouped_rows, landed_states, next_steps, open_pull_requests_view};
 use repository_model::facts::{FactRecord, Needs};
@@ -87,25 +86,16 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_start::{join_names, push_mode_name};
-use sync_core::push::{LeasedBranch, LeasedPush, PreparedPush, PushTarget};
-use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
+use sync_core::push::LeasedPush;
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
-use sync_utils::timestamp::unix_now;
-use tokio::runtime::Runtime;
+use sync_utils::clock::SystemClock;
 use trial_check::check::{CheckSession, StackIndependence};
 use trial_check::landing_gate::check_landing_gate;
 use youtrack::client::YouTrackClient;
 use youtrack::service::YouTrackService;
-
-/// How often the answer of Patronus to a pull request comment is read, and for how long, as the app does
-const COMMENT_REPLY_INTERVAL: Duration = Duration::from_secs(3);
-const COMMENT_REPLY_TIMEOUT: Duration = Duration::from_secs(60);
-/// A robot started by a comment is listed from a little before the comment: the clocks of GitHub and Patronus differ
-const COMMENT_CLOCK_SLACK: u32 = 120;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
@@ -439,9 +429,6 @@ struct Prepared {
   /// The branch the robot runs on (for a straight chain with `--whole-stack`, its last branch), or the root of the
   /// whole stack
   name: String,
-  /// The branch Patronus starts from, without `refs/heads/`
-  full_name: String,
-  mode: PatronusPushMode,
   space: SpaceRepository,
   target: String,
   github: Option<GitHubRepository>,
@@ -463,12 +450,6 @@ struct Prepared {
   /// The open pull requests into a virtual branch of the branch and of the branches its push takes along
   retargets: Vec<RetargetedPullRequest>,
   push_needed: bool,
-  /// The branches the start pushes, root first (the decision's `Push`, `domain_policy::push::start_push`): only those, as
-  /// the app's start pushes them, so an ancestor a running Safe Push holds stays as its robot took it; of a whole stack
-  /// its root, whose stack branch is the only one pushed
-  push: Vec<String>,
-  /// The push replaces commits the remote has that the branch lacks (`--force`, the decision's `ForcePushDrops`)
-  force: bool,
   /// The remote branches the start pushes, with their remote status
   remotes: Vec<ErrorBranch>,
   /// What the robot lands: the branches it is built on, root first, then the branch; or every branch of the stack
@@ -476,22 +457,49 @@ struct Prepared {
   refusals: Vec<Refusal>,
   /// With `--check`: the next step of the subject over what the check read, as the app's row shows it, with its words
   next_step: Option<(domain_types::next_step::NextStep, NextStepSummary)>,
-  /// What `refusals`, the effects and the route above are of: the plan of the start (`operations::land`)
-  decision: Plan,
+  /// What `refusals`, the effects and the route above are of: the plan of the start (`operations::land`), with what its
+  /// run needs
+  planned: Planned,
+  /// The intent the plan is of, with the profile `--profile` chose
+  land: Land,
+  /// The one-shot session the plan read, which the run prepares it again on
+  session: OneShot,
+  /// The table of the sync the plan compared the remote with
+  table: BranchTable,
+  /// What the landing gate refuses
+  gate: Vec<LandingRefusal>,
   /// With `--check`, for a stacked branch: its trial build alone
   alone: Option<AloneBuild>,
   warnings: Vec<CheckWarning>,
-  /// The running Safe Push of an older commit that the start replaces (the decision's `CancelRobot`): a push would fail
-  /// it, and without a push the new robot would run beside it; canceled first with `--cancel-running`, as the app's
-  /// form cancels it
-  cancel: Option<PatronusRobot>,
-  /// The ids of the robots that can't be the one a `/patronus` comment starts: the user's robots that had finished when
-  /// listed before the start, and the robot the start replaces (`cancel`)
-  known_robots: HashSet<String>,
   /// The whole stack of a stack that forks: its stack branch, the only branch pushed
   stack: Option<StackPush>,
   /// The replay onto the newest target and what it means; `None` with `--create-pull-request`
   target_check: Option<(TargetCheck, TargetCheckSummary)>,
+}
+
+impl Prepared {
+  /// What the plan was decided on besides its one-shot session, to prepare it again on (`BdStart`)
+  fn land_host<'a>(&'a self, synced: &'a SyncOutput) -> LandHost<'a> {
+    LandHost {
+      table: &self.table,
+      baseline: &synced.landed_section,
+      target: &self.target,
+      github: self.github.is_some(),
+      gate: &self.gate,
+      target_conflict: conflict_fact(self.target_check.as_ref()),
+    }
+  }
+}
+
+/// The conflict of the check against the newest target, as the plan reads it
+fn conflict_fact(target_check: Option<&(TargetCheck, TargetCheckSummary)>) -> Option<TargetConflictFact<'_>> {
+  target_check.and_then(|(check, _)| match &check.outcome {
+    TargetOutcome::Conflict(conflict) => Some(TargetConflictFact {
+      commit: &conflict.commit.id,
+      files: &conflict.files,
+    }),
+    _ => None,
+  })
 }
 
 /// The `skipped_by` of the `review`: why the approvals don't hold a Safe Push back
@@ -506,10 +514,6 @@ const fn approvals_skip_name(skip: ApprovalsSkip) -> &'static str {
 struct StackPush {
   /// The branch on the remote, the same name as the local stack branch, `{prefix}/stack/<root>`
   full_name: String,
-  /// Its tip as the sync built it; `None` without one
-  tip: Option<String>,
-  /// The remote head its remote status compared with, the lease of the push; `None` without a remote branch
-  lease: Option<String>,
   /// The remote commits that landed in the baseline, which the push replaces
   replaced_landed: Vec<LandedRemoteCommitSummary>,
   /// Its pull request, as the text of the whole stack opens it
@@ -580,10 +584,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   // the target moves every minute: its remote branch is fetched for the target conflict check, before the lock, which
   // no fetch runs under; a pull request starts no robot and needs no check
   let target_fetch = (!args.create_pull_request).then(|| fetch_target(&context.git, &context.repository));
-  let lock = lock(context)?;
-  let synced = sync_locked(context)?;
-  // a check writes nothing after its sync: the trial builds and Patronus don't keep the other bd writers waiting
-  let mut lock = (!args.check).then_some(lock);
+  // the sync is the part under the lock (its merge-tree writes the virtual branches); the reads of the remote, the trial
+  // and the check against the target after it keep no other bd writer waiting, and the run takes the lock again only to
+  // witness the refs and freeze its push
+  let synced = {
+    let _lock = lock(context)?;
+    sync_locked(context)?
+  };
   let whole_stack = whole_stack_arg(context, args, &synced)?;
   let start = start_of(args, &synced, whole_stack.as_ref());
   let plan = plan(context, args, &service, &github, &synced, mode, &start, target_fetch)?;
@@ -624,17 +631,104 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     return Err(error);
   }
 
-  // the pull requests go into the target before anything is pushed or canceled: the one the robot starts from must,
-  // one of a branch taken along that GitHub refuses is a warning
+  // the PR text is read before the run: its issues come from YouTrack, and the engine runs on the runtime
+  let text = if args.create_pull_request && output.pull_request.is_none() {
+    Some(pull_request_text(context, args, &synced, &plan, &youtrack)?)
+  } else {
+    None
+  };
+  let started = {
+    let start = BdStart {
+      session: &plan.session,
+      host: plan.land_host(&synced),
+      sources: Arc::clone(&plan.sources),
+      key: session_key(context),
+      text,
+    };
+    let services = StartServices {
+      git: context.git.clone(),
+      repository_path: context.repository.clone(),
+      git_common_dir: context.git_common_dir.clone(),
+      prefix: context.prefix.clone(),
+      patronus: Arc::clone(&service),
+      space: plan.space.name.clone(),
+      github: plan.github.clone().map(|repository| (Arc::clone(&github), repository)),
+      target: plan.target.clone(),
+      push: PushSettings {
+        remote: STACK_REMOTE.to_string(),
+        baseline: synced.baseline.clone(),
+        my_email: None,
+        size_limit: push_size_limit(context)?,
+      },
+      lock: locker(context),
+      clock: Arc::new(SystemClock::new()),
+      wait_for_robot: false,
+    };
+    let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+    let accepted = Accepted {
+      fingerprint: plan.planned.plan.fingerprint.clone(),
+      confirmations: plan.planned.plan.confirmations.clone(),
+    };
+    let steps = Steps::none();
+    let execute = execute(&start, &services, &steps, op, &plan.land, &accepted);
+    runtime.block_on(execute).map_err(|error| start_error(context, args, &plan, error))?
+  };
+  tell(context, args, &synced, &plan, started, &mut output, &youtrack)?;
+  Ok(output)
+}
+
+/// The pull request `--create-pull-request` opens: the text of the whole stack, else of the branch (its issues read from
+/// YouTrack), with the reviewers and the assignee the flags name
+fn pull_request_text(context: &RepoContext, args: &SafePushArgs, synced: &SyncOutput, plan: &Prepared, youtrack: &YouTrackService) -> Result<PullRequestText, CliError> {
+  let draft = match &plan.stack {
+    Some(stack) => stack.draft.clone(),
+    None => unpushed_pull_request_draft(context, synced, &plan.name, Some(youtrack))?,
+  };
+  Ok(PullRequestText {
+    head: draft.head,
+    base: draft.base,
+    title: draft.title,
+    body: draft.body.unwrap_or_default(),
+    reviewers: args.reviewers.clone(),
+    assign_self: !args.no_assign,
+  })
+}
+
+/// What stopped the run before its first effect, in the words of `bd`: a plan that changed since the sync (another
+/// session rewrote a branch) is run again from a new sync
+fn start_error(context: &RepoContext, args: &SafePushArgs, plan: &Prepared, error: ApiError) -> CliError {
+  let code = error.code;
+  let error = cli_error(error);
+  if code == ErrorCode::PlanChanged {
+    return error.with_next_step(start_again(context, args, &plan.name, plan.stack.is_some()), false);
+  }
+  error
+}
+
+/// The outcome of the run in the output: the retargets, the robot it canceled, the push, the robot or the pull request;
+/// an effect that failed fails the command in the words of `bd`, after what the effects before it did
+fn tell(
+  context: &RepoContext,
+  args: &SafePushArgs,
+  synced: &SyncOutput,
+  plan: &Prepared,
+  started: Started,
+  output: &mut SafePushOutput,
+  youtrack: &YouTrackService,
+) -> Result<(), CliError> {
+  let Started {
+    outcome,
+    retargets,
+    canceled,
+    pushed,
+    robot,
+    commented,
+    created,
+    ..
+  } = started;
   if let Some(repository) = &plan.github {
-    for retarget in &plan.retargets {
-      match runtime.block_on(operations::pull_request::retarget(
-        &github,
-        &context.repository,
-        repository,
-        retarget.number,
-        &retarget.new_base,
-      )) {
+    for (retarget, answer) in plan.retargets.iter().zip(retargets) {
+      match answer {
         Ok(()) => output.retargeted.push(retarget.clone()),
         Err(error) if retarget.branch == plan.name => {
           let mut error = github_write_error(error);
@@ -648,73 +742,45 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       }
     }
   }
-  if let Some(robot) = &plan.cancel {
-    let canceled = runtime.block_on(service.cancel(&context.prefix, &robot.id)).map_err(patronus_error)?;
-    output.canceled = Some(robot_summary(context, &canceled));
-  }
-  // by content: a branch whose remote branch has its commits, only rebuilt on an older baseline, is not pushed; the
-  // robot takes the remote branch and Patronus rebases it, and a push would move the head of its pull request for nothing
-  let draft = match (&plan.stack, plan.push_needed) {
-    // the whole stack: only its stack branch, leased; its members stay as they are on the remote
-    (Some(stack), true) => {
-      output.pushed = vec![push_stack_branch(context, &synced, &plan.name, stack, &mut lock)?];
-      stack.draft.clone()
-    }
-    (Some(stack), false) => stack.draft.clone(),
-    (None, true) => {
-      // the robot of the branch is canceled above; the start pushes what its decision pushes, the ancestors it lands
-      // with it up to the nearest one a running Safe Push holds, each alone, as the app's start pushes them
-      let args = PushArgs {
-        branches: plan.push.clone(),
-        alone: true,
-        force: plan.force,
-        ..PushArgs::default()
-      };
-      let holds = PushHolds::default();
-      let planned = plan_push(context, &args, &synced, &holds, &HashSet::new())?;
-      // the commits and the leases are fixed: the network push holds no lock
-      drop(lock.take());
-      let pushed = planned.send(context, &args, &synced, None, Some(&youtrack))?;
-      output.pushed = pushed.branches;
-      match output.pushed.iter().find(|pushed| pushed.name == plan.name).and_then(|pushed| pushed.pull_request.clone()) {
-        Some(draft) => draft,
-        // on the remote as it is, only an ancestor pushed
-        None => unpushed_pull_request_draft(context, &synced, &plan.name, Some(&youtrack))?,
+  output.canceled = canceled.as_ref().map(|robot| robot_summary(context, robot));
+  for record in &outcome.effects {
+    match (&record.effect, &record.status) {
+      (PlannedEffect::Retarget { .. }, _) | (_, EffectStatus::Done | EffectStatus::Unknown | EffectStatus::Skipped { reason: None }) => {}
+      (PlannedEffect::Push { .. }, EffectStatus::Failed { .. }) => {
+        let sent = pushed
+          .as_ref()
+          .ok_or_else(|| CliError::new(ErrorCode::NetworkError, "The push failed before the remote answered"))?;
+        return Err(push_error(context, synced, plan, sent));
+      }
+      (_, EffectStatus::Failed { error }) => return Err(cli_error(error.clone())),
+      (_, EffectStatus::Skipped { reason: Some(reason) }) => {
+        let what = output.pushed.iter().map(|pushed| pushed.name.as_str()).collect::<Vec<_>>().join(", ");
+        let mut error = cli_error(reason.clone());
+        if !what.is_empty() {
+          error.message = format!("{}; pushed before it: {what}", error.message);
+        }
+        return Err(error.with_next_step(safe_push_again(context, &plan.name, plan.stack.is_some()), false));
       }
     }
-    (None, false) => unpushed_pull_request_draft(context, &synced, &plan.name, Some(&youtrack))?,
-  };
-  drop(lock);
-
-  if args.create_pull_request {
-    if output.pull_request.is_none() {
-      output.pull_request = Some(create_pull_request(context, args, &github, runtime, &plan, &draft)?);
+    if let (PlannedEffect::Push { .. }, Some(sent)) = (&record.effect, &pushed) {
+      output.pushed = pushed_branches(context, synced, plan, sent, youtrack)?;
     }
-    return Ok(output);
   }
-
-  if let Some(pull_request) = &plan.pull_request {
-    let (start, robot) = start_from_pull_request(context, &github, runtime, &plan, pull_request)?;
-    output.pull_request = Some(start);
-    output.robot = robot.map(|robot| robot_summary(context, &robot));
+  if let Some(created) = created {
+    output.pull_request = Some(created_pull_request(args, created));
+    return Ok(());
+  }
+  if let Some(commented) = commented {
+    if let Some(start) = output.pull_request.as_mut() {
+      start.comment_url = Some(commented.comment_url);
+      start.reply = Some(if commented.accepted { "accepted" } else { "pending" }.to_string());
+    }
     output.started_via = Some("pull_request".to_string());
-  } else {
-    let merge_request = plan.review.as_ref().and_then(|review| review.requirement.as_ref()?.merge_request.clone());
-    let robot = runtime
-      .block_on(service.start(
-        &plan.space.name,
-        &context.prefix,
-        &format!("refs/heads/{}", plan.full_name),
-        &plan.target,
-        plan.mode,
-        plan.profile.as_ref().map(|profile| profile.id.clone()),
-        merge_request,
-      ))
-      .map_err(patronus_error)?;
-    output.robot = Some(robot_summary(context, &robot));
+  } else if robot.is_some() {
     output.started_via = Some("api".to_string());
   }
-  Ok(output)
+  output.robot = robot.as_ref().map(|robot| robot_summary(context, robot));
+  Ok(())
 }
 
 /// The whole stack `--whole-stack` lands, from the sync (`whole_stack`: the rule of the app, by declared parent); a
@@ -786,7 +852,7 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
     }),
     retargeted: Vec::new(),
     retarget_warnings: Vec::new(),
-    plan: Some(plan.decision.clone()),
+    plan: Some(plan.planned.plan.clone()),
     step: None,
   }
 }
@@ -872,8 +938,6 @@ fn landing_of(context: &RepoContext, synced: &SyncOutput, table: &BranchTable, s
         remotes,
         stack: Some(StackPush {
           full_name: update.branch_name.clone(),
-          tip: update.tip.clone(),
-          lease: remote.and_then(|remote| remote.remote_tip.clone()),
           replaced_landed: remote.map_or_default(|remote| landed_commits(remote, &short)),
           draft: stack_pull_request_draft(context, &synced.report, base, update)?,
         }),
@@ -1107,7 +1171,6 @@ fn plan(
   }
   facts.read(context, &first_needs)?;
   keep_listed(context, service, &space, listed_robots(&facts.session)?);
-  let mut known_robots: HashSet<String> = facts.session.robots().iter().filter(|robot| !is_active(robot)).map(|robot| robot.id.clone()).collect();
   let landed = landed_branches(&facts.session);
   let name = landing.name.as_str();
 
@@ -1149,13 +1212,7 @@ fn plan(
     (None, Some(parent)) if args.check => Some(alone_build(context, &trial, name, parent)),
     _ => None,
   };
-  let conflict = target_check.as_ref().and_then(|(check, _)| match &check.outcome {
-    TargetOutcome::Conflict(conflict) => Some(TargetConflictFact {
-      commit: &conflict.commit.id,
-      files: &conflict.files,
-    }),
-    _ => None,
-  });
+  let conflict = conflict_fact(target_check.as_ref());
   let host = LandHost {
     table: &table,
     baseline: &synced.landed_section,
@@ -1187,9 +1244,10 @@ fn plan(
   // waits for is read next (the review of the subject with the pull request the robot starts from, of the whole stack
   // its stack branch; the rules of the target for a push into an approved pull request: one GET, only then), and it is
   // decided again
-  let decision = facts
+  let planned = facts
     .prepare(context, &land, &host)?
     .ok_or_else(|| unknown_or_unapplied(context, &landing.name, UNAPPLIED_SAFE_PUSH))?;
+  let decision = &planned.plan;
   if let Some(Reason::Unprotected { target }) = decision.blockers.iter().find(|reason| matches!(reason, Reason::Unprotected { .. })) {
     return Err(CliError::new(
       ErrorCode::PatronusRefused,
@@ -1233,22 +1291,13 @@ fn plan(
       start_pull_request: start_pull_request.as_ref(),
       pushes: decision.effects.iter().any(|effect| matches!(effect, PlannedEffect::Push { .. })),
     };
-    (told.refusals(&decision, land.allow), told.rules_summary())
+    (told.refusals(decision, land.allow), told.rules_summary())
   };
-  // what the start does once nothing refuses it: the retargets, the robot it replaces, the push, the route
-  let cancel = decision.effects.iter().find_map(|effect| match effect {
-    PlannedEffect::CancelRobot { robot_id } => session.robot(robot_id).cloned(),
+  // what the start does once nothing refuses it: the retargets, the push, the route
+  let push = decision.effects.iter().find_map(|effect| match effect {
+    PlannedEffect::Push { branches, .. } => Some(branches.clone()),
     _ => None,
   });
-  known_robots.extend(cancel.iter().map(|robot| robot.id.clone()));
-  let (push, force) = decision
-    .effects
-    .iter()
-    .find_map(|effect| match effect {
-      PlannedEffect::Push { branches, force } => Some((branches.clone(), Some(*force))),
-      _ => None,
-    })
-    .unwrap_or_default();
   let retargets = decision
     .effects
     .iter()
@@ -1265,44 +1314,38 @@ fn plan(
     Some(StartRoute::Api { profile }) => profile.clone(),
     _ => None,
   };
-  let Landing {
-    name,
-    full_name,
-    mut remotes,
-    stack,
-    ..
-  } = landing;
+  let Landing { name, mut remotes, stack, .. } = landing;
   // of the branches it lands, the ones it pushes: a held ancestor's remote stays as it is
   if stack.is_none() {
-    remotes.retain(|remote| push.contains(&remote.name));
+    remotes.retain(|remote| push.as_ref().is_some_and(|push| push.contains(&remote.name)));
   }
+  let (review, approvals_skipped_by, lands) = (readiness.and_then(|fact| fact.value.clone()), decision.approvals_skipped_by, decision.lands.clone());
+  let sources = facts.sources();
   Ok(Prepared {
     name,
-    full_name,
-    mode,
     space,
     target,
     github,
-    sources: facts.sources(),
+    sources,
     profiles,
     profile,
-    review: readiness.and_then(|fact| fact.value.clone()),
+    review,
     rules,
-    approvals_skipped_by: decision.approvals_skipped_by,
+    approvals_skipped_by,
     pull_request: start_pull_request,
     retargets,
-    push_needed: force.is_some(),
-    push,
-    force: force.unwrap_or(false),
+    push_needed: push.is_some(),
     remotes,
-    lands: decision.lands.clone(),
+    lands,
     refusals,
     next_step: next_step.flatten(),
-    decision,
+    planned,
+    land,
+    session: facts.session,
+    table,
+    gate: gate_refusals,
     alone,
     warnings,
-    cancel,
-    known_robots,
     stack,
     target_check,
   })
@@ -1835,87 +1878,97 @@ fn original_commit<'a>(synced: &'a SyncOutput, conflict: &'a TargetConflict) -> 
     .map_or(copy.id.as_str(), |commit| commit.id.as_str())
 }
 
-/// Pushes the stack branch alone, leased on the remote head its remote status compared with, as `bd push` pushes a
-/// branch (`operations::push::send`): its members stay as they are on the remote. `lock` is released before the network push, which
-/// sends the tip the sync left
-fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, stack: &StackPush, lock: &mut Option<RepositoryLock>) -> Result<PushedBranch, CliError> {
-  let tip = stack.tip.clone().ok_or_else(|| {
-    CliError::new(
-      ErrorCode::StackNotBuilt,
-      format!("Nothing was pushed or started: {} has no tip: `bd sync` builds it, then start again", stack.full_name),
-    )
-    .with_next_step(format!("{} sync", context.bd), false)
-  })?;
-  let push = PushRef {
-    full_name: stack.full_name.clone(),
-    tip,
-    lease: stack.lease.clone(),
-    source: if stack.lease.is_some() { LeaseSource::Expected } else { LeaseSource::Absent },
-  };
-  let target = PushTarget {
-    repository_path: &context.repository,
-    remote: STACK_REMOTE,
-    baseline: &synced.baseline,
-    my_email: None,
-    size_limit: push_size_limit(context)?,
-  };
-  let leased = vec![LeasedBranch {
-    name: root.to_string(),
-    push,
-    parent_ref: None,
-  }];
-  let prepared = PreparedPush::leased(&target, leased, vec![true], PushOptions { atomic: true, dry_run: false });
-  drop(lock.take());
-  // a remote stack branch that moved since the sync without commits the stack branch lacks: nobody's work is lost, so
-  // the push goes again over what the remote has now, once, as `bd push --with-children` and the app's start do (D4); a
-  // remote with someone's commits, or one that moves again, is told
-  let sent = operations::push::send(&context.git, prepared, OverMoved::Once, &mut |_| {}).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
-  let over = sent.moved_to(0).cloned();
-  let statuses = match sent.answer {
-    LeasedPush::Pushed(statuses) => statuses,
-    LeasedPush::RemoteMoved { remote_statuses, .. } => {
-      let short = context.short_ids(remote_statuses.iter().flat_map(RemoteSummary::ids));
-      let mut error = CliError::new(
+/// What a push of the start the remote refused fails with, as `bd push` tells it: of the stack branch of a whole stack,
+/// or of the branches it pushes; nothing was pushed or started
+fn push_error(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, sent: &Sent) -> CliError {
+  match &sent.answer {
+    LeasedPush::RemoteMoved { moved, remote_statuses } => {
+      if let Some(stack) = &plan.stack {
+        let short = context.short_ids(remote_statuses.iter().flat_map(RemoteSummary::ids));
+        let mut error = CliError::new(
         ErrorCode::LeaseRejected,
         format!(
-          "The remote rejected {}: it is not where the lease expects it. Nothing was pushed or started; bd fetched it, and `branches` says what the remote has now (`dropped_commits`). Show them to the user; `bd push {root} --with-children --force` replaces them, after the user approves",
-          stack.full_name
+          "The remote rejected {}: it is not where the lease expects it. Nothing was pushed or started; bd fetched it, and `branches` says what the remote has now (`dropped_commits`). Show them to the user; `bd push {} --with-children --force` replaces them, after the user approves",
+          stack.full_name, plan.name
         ),
       )
-      .with_next_step(stack_force_push(context, root), true);
-      error.branches = remote_statuses
-        .iter()
-        .map(|status| ErrorBranch {
-          name: stack.full_name.clone(),
-          remote: RemoteSummary::new(status, 0, &short),
-        })
-        .collect();
-      return Err(error);
+      .with_next_step(stack_force_push(context, &plan.name), true);
+        error.branches = remote_statuses
+          .iter()
+          .map(|status| ErrorBranch {
+            name: stack.full_name.clone(),
+            remote: RemoteSummary::new(status, 0, &short),
+          })
+          .collect();
+        error
+      } else {
+        let pushed: Vec<PushedName> = sent
+          .prepared
+          .branches()
+          .iter()
+          .map(|branch| PushedName {
+            name: branch.name.clone(),
+            commit_count: synced.branches.iter().find(|synced| synced.name == branch.name).map_or(0, |synced| synced.commit_count),
+            stack_root: None,
+          })
+          .collect();
+        lease_rejected(context, &pushed, moved, remote_statuses, "")
+      }
     }
-    LeasedPush::Refused { summary } => {
-      return Err(CliError::new(
-        ErrorCode::PushRefused,
-        format!("Nothing was pushed or started: the remote refused the push ({summary}). {REMOTE_REFUSED_NEXT}"),
-      ));
+    LeasedPush::Refused { summary } => CliError::new(
+      ErrorCode::PushRefused,
+      format!("Nothing was pushed or started: the remote refused the push ({summary}). {REMOTE_REFUSED_NEXT}"),
+    ),
+    LeasedPush::TooLarge(too_large) => CliError::from(too_large),
+    LeasedPush::WouldReject | LeasedPush::Pushed(_) => {
+      let names = sent.prepared.branches().iter().map(|branch| branch.push.full_name.as_str()).collect::<Vec<_>>().join(", ");
+      CliError::new(ErrorCode::LeaseRejected, format!("The remote would reject {names}: {WOULD_REJECT_NEXT}"))
     }
-    LeasedPush::WouldReject => {
-      return Err(CliError::new(
-        ErrorCode::LeaseRejected,
-        format!("The remote would reject {}: {WOULD_REJECT_NEXT}", stack.full_name),
-      ));
-    }
-    LeasedPush::TooLarge(too_large) => return Err(CliError::from(&too_large)),
+  }
+}
+
+/// The branches the start pushed, as `bd push` tells them: the stack branch of a whole stack with the text of its pull
+/// request, else each branch with the draft of its own
+fn pushed_branches(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, sent: &Sent, youtrack: &YouTrackService) -> Result<Vec<PushedBranch>, CliError> {
+  let LeasedPush::Pushed(statuses) = &sent.answer else {
+    return Ok(Vec::new());
   };
-  let push = &sent.prepared.branches()[0].push;
-  let short = context.short_ids(std::iter::once(push.tip.as_str()).chain(push.lease.as_deref()));
-  let replaced_landed = match &over {
+  let branches = sent.prepared.branches();
+  let short = context.short_ids(
+    branches
+      .iter()
+      .flat_map(|branch| std::iter::once(branch.push.tip.as_str()).chain(branch.push.lease.as_deref())),
+  );
+  let replaced = |index: usize, kept: Vec<LandedRemoteCommitSummary>| match sent.moved_to(index) {
     Some(moved) => landed_commits(moved, &context.short_ids(RemoteSummary::ids(moved))),
-    None => stack.replaced_landed.clone(),
+    None => kept,
   };
-  Ok(PushedBranch {
-    pushed_over: over.is_some(),
-    ..pushed_branch(root, push, &statuses, stack.draft.clone(), &short, replaced_landed)
-  })
+  if let (Some(stack), Some(branch)) = (&plan.stack, branches.first()) {
+    return Ok(vec![PushedBranch {
+      pushed_over: sent.moved_to(0).is_some(),
+      ..pushed_branch(&plan.name, &branch.push, statuses, stack.draft.clone(), &short, replaced(0, stack.replaced_landed.clone()))
+    }]);
+  }
+  let names: Vec<&str> = branches.iter().map(|branch| branch.name.as_str()).collect();
+  let drafts = pull_request_drafts(context, synced, &names, Some(youtrack))?;
+  Ok(
+    branches
+      .iter()
+      .zip(drafts)
+      .enumerate()
+      .map(|(index, (branch, draft))| {
+        let kept = plan
+          .remotes
+          .iter()
+          .find(|remote| remote.name == branch.name)
+          .map_or_default(|remote| remote.remote.landed_commits.clone());
+        PushedBranch {
+          pushed_over: sent.moved_to(index).is_some(),
+          ..pushed_branch(&branch.name, &branch.push, statuses, draft, &short, replaced(index, kept))
+        }
+      })
+      .collect(),
+  )
 }
 
 /// The service of `bd`: the token of the Safe Push CLI (`./safePush.cmd`), else `SPACE_TOKEN`; `not_logged_in` without
@@ -1946,16 +1999,9 @@ fn github_write_error(error: GitHubWriteError) -> CliError {
   }
 }
 
-/// A failed GitHub request: `not_logged_in` without a token GitHub accepts
+/// A failed GitHub request: `not_logged_in` without a token GitHub accepts, else `network_error`
 pub(crate) fn github_error(failure: &GitHubFailure) -> CliError {
-  let code = match failure {
-    GitHubFailure::SignedOut
-    | GitHubFailure::Failed {
-      error: GitHubError::Unauthorized, ..
-    } => ErrorCode::NotLoggedIn,
-    GitHubFailure::Failed { .. } => ErrorCode::NetworkError,
-  };
-  CliError::new(code, failure_message(failure))
+  cli_error(github_request_failure(failure))
 }
 
 /// The GitHub repository of the branches is not known: a pull request can't be opened, its approvals can't count
@@ -2029,34 +2075,8 @@ fn github_approvers(requirement: &PatronusReviewRequirement, pull_request: &Pull
 /// branch's with the commits of the branches it is built on, with the text of its draft (`pull_request_text`: the
 /// `bd describe` text, else the text of its commits), assigned to the user and with the `--reviewer` logins asked. A
 /// pull request that already exists is found instead and left as it is.
-fn create_pull_request(
-  context: &RepoContext,
-  args: &SafePushArgs,
-  github: &GitHubService,
-  runtime: &Runtime,
-  plan: &Prepared,
-  draft: &PullRequestDraft,
-) -> Result<PullRequestStart, CliError> {
-  let Some(repository) = &plan.github else {
-    return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
-  };
-  let (title, body) = (draft.title.clone(), draft.body.clone().unwrap_or_default());
-  let params = CreatePullRequestParams {
-    repository_path: context.repository.clone(),
-    branch_name: plan.name.clone(),
-    head: draft.head.clone(),
-    base: draft.base.clone(),
-    title,
-    body,
-    reviewers: args.reviewers.clone(),
-    assign_self: !args.no_assign,
-    // pushed right before: a mirror copies the branch to GitHub a moment later
-    wait_for_mirror: plan.push_needed,
-  };
-  let created = runtime.block_on(core_create_pull_request(github, repository, &params)).map_err(|error| match error {
-    GitHubWriteError::GitHub(failure) => github_error(&failure),
-    GitHubWriteError::Refused(message) => CliError::new(ErrorCode::PushRefused, message),
-  })?;
+/// The pull request `--create-pull-request` opened, or found open: one that existed is left as it is
+fn created_pull_request(args: &SafePushArgs, created: CreatedPullRequest) -> PullRequestStart {
   let mut warnings = created.warnings;
   if !created.created && (!args.reviewers.is_empty() || !args.no_assign) {
     warnings.push(format!(
@@ -2064,7 +2084,7 @@ fn create_pull_request(
       created.pull_request.number
     ));
   }
-  Ok(PullRequestStart {
+  PullRequestStart {
     number: created.pull_request.number,
     url: created.pull_request.url,
     created: created.created,
@@ -2077,7 +2097,7 @@ fn create_pull_request(
     },
     assignees: created.assignees,
     warnings,
-  })
+  }
 }
 
 /// "Air Plugin Release Team (requested: Ilya Korennoy)", else "(suggested: Alice)", as the Safe Push popover names a group
@@ -2100,78 +2120,6 @@ fn format_missing_group(group: &MissingReviewGroup) -> String {
 /// The full name Patronus knows, else the login
 fn person_name(person: &Person) -> String {
   person.full_name.clone().or_else(|| person.login.clone()).unwrap_or_default()
-}
-
-/// Posts `/patronus merge --keep-source-branch` (or `dry-run`) on the pull request, waits up to a minute for the answer
-/// of Patronus, then finds the robot it started
-fn start_from_pull_request(
-  context: &RepoContext,
-  github: &GitHubService,
-  runtime: &Runtime,
-  plan: &Prepared,
-  pull_request: &PullRequest,
-) -> Result<(PullRequestStart, Option<PatronusRobot>), CliError> {
-  let Some(repository) = &plan.github else {
-    return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
-  };
-  let posted_at = unix_now();
-  let comment = runtime
-    .block_on(post_patronus_command(
-      github,
-      &context.repository,
-      repository,
-      pull_request.number,
-      plan.mode,
-      PatronusCommandSubject::OwnBranch,
-    ))
-    .map_err(github_write_error)?;
-  let mut start = PullRequestStart {
-    number: pull_request.number,
-    url: pull_request.url.clone(),
-    created: false,
-    comment_url: Some(comment.url),
-    reply: Some("pending".to_string()),
-    reviewers: Vec::new(),
-    assignees: Vec::new(),
-    warnings: Vec::new(),
-  };
-  let deadline = Instant::now() + COMMENT_REPLY_TIMEOUT;
-  loop {
-    match runtime
-      .block_on(read_patronus_command_reply(github, &context.repository, repository, pull_request.number, &comment.id))
-      .map_err(github_write_error)?
-    {
-      PatronusCommandReply::Accepted => break,
-      PatronusCommandReply::Rejected { reason } => {
-        return Err(CliError::new(
-          ErrorCode::PatronusRefused,
-          format!(
-            "Patronus rejected the comment on pull request #{}: {}",
-            pull_request.number,
-            reason.unwrap_or_else(|| "no reason given yet; see the pull request".to_string())
-          ),
-        ));
-      }
-      PatronusCommandReply::Pending if Instant::now() >= deadline => return Ok((start, None)),
-      PatronusCommandReply::Pending => std::thread::sleep(COMMENT_REPLY_INTERVAL),
-    }
-  }
-  start.reply = Some("accepted".to_string());
-  let robots = robots_since(context, &*plan.sources, posted_at.saturating_sub(COMMENT_CLOCK_SLACK))?;
-  Ok((start, comment_robot(robots, pull_request.number, plan.mode, &plan.known_robots)))
-}
-
-/// The robot a `/patronus` comment on pull request `number` started in `mode`, as the app matches it
-/// (`findCommentRobot`): of that pull request, a dry run for a dry run and a Safe Push for a Safe Push, and none of
-/// `known` (the robots known before the comment: a canceled Dry Run or the replaced Safe Push of the same pull request a
-/// minute before is never the new robot); the newest of them
-pub(crate) fn comment_robot(robots: Vec<PatronusRobot>, number: u32, mode: PatronusPushMode, known: &HashSet<String>) -> Option<PatronusRobot> {
-  let dry_run = mode == PatronusPushMode::DryRun;
-  robots
-    .into_iter()
-    .filter(|robot| robot.pull_request.as_ref().is_some_and(|link| link.number == number))
-    .filter(|robot| (robot.push_mode == PatronusPushMode::DryRun) == dry_run && !known.contains(&robot.id))
-    .max_by_key(|robot| robot.start_time)
 }
 
 pub(crate) fn mode_name(mode: PatronusPushMode) -> String {

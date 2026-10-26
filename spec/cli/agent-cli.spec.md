@@ -61,6 +61,9 @@ targets:
   - ../../crates/operations/src/push.rs
   - ../../crates/operations/src/pull_request.rs
   - ../../crates/bd-remote/src/safe_push_command.rs
+  - ../../crates/bd-remote/src/safe_push_run.rs
+  - ../../crates/operations/src/land_execute.rs
+  - ../../crates/operations/src/robot_start.rs
   - ../../crates/bd-core/src/review_summary.rs
   - ../../crates/bd-remote/src/push_hold.rs
   - ../../crates/remote-facts/src/stack_pull_request.rs
@@ -1035,12 +1038,23 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--patronus-dry-run` a Dry Run: no
   `--dry-run`, which means "write nothing" for every other command) as the
-  app's start does (`startSafePush` after the same `domain_policy::land::decide`, [Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
-  pushes it, its commits fixed under the repository lock and the network push after it, then start the robot on
-  `refs/heads/<prefix>/virtual/<branch>` after the lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
-  would fail with; it must hold the repository lock for its sync only, so its trial builds and the questions to
-  Patronus and GitHub keep no other `bd` writer waiting.
-  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it`)
+  app's start does (the same `domain_policy::land::decide`, [Patronus](../branch/patronus.spec.md)): sync, then run the
+  start through the engine of the app (`operations::land_execute::execute`, [Push and
+  land](../../docs/design/git-operations.md#push-and-land)): the retargets, the cancel of the Safe Push it replaces, the
+  push of the branches it pushes with their commits frozen under the repository lock and the network push after it,
+  then the robot started on `refs/heads/<prefix>/virtual/<branch>`, never repeated. It must hold the repository lock
+  for its sync, then again only for the witness of its refs and the freeze of its push: the reads of the remote, the
+  trial, the check against the target, the retargets, the cancel, the network push and the start run without it, so
+  they keep no other `bd` writer waiting. `--check` must print the same object and push or start nothing, with the
+  `refusals` a start would fail with.
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_safe_push_frees_the_repository_lock_after_its_sync`)
+  [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan`, `the_first_effect_that_fails_stops_the_start_and_the_ones_before_it_stay_done`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_start`)
+- A rewrite of another session between the sync and the witness (a ref the plan moves or leases moved) must fail the
+  start as `plan_changed` (exit 3, `retry: after_reread`), nothing canceled, pushed or started; one while the push sends,
+  after the lock, must skip the start as `plan_changed`, naming what was pushed before it, with `bd safe-push <branch>`
+  as the next step; the push sends the commits it froze.
+  [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothing`, `a_rewrite_while_the_push_sends_skips_the_start_and_the_outcome_tells_what_was_done`)
 - `--check` must print `next_step`, the step the app's row shows of the subject (`domain_policy::next_step`, as
   `bd status` prints it) over what the check read: the robots Patronus listed, the problems of the failed robot of the
   subject (whether it failed for the approvals, as the session reads them), the pull requests, the readiness when the
@@ -1256,8 +1270,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_comments_on_it`)
   [@test] ../../crates/remote-facts/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`, `a_text_too_long_for_github_is_cut_and_names_the_members_left_out`)
 - Branches reviewed on GitHub with an open pull request into the target must start from a `/patronus` comment on it,
-  waiting up to a minute for the answer, and must refuse `--profile` there; no Space merge request is looked up.
-  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_with_an_open_pull_request_starts_from_a_comment`)
+  reading the reply of the bot every 3 s for up to a minute (`operations::robot_start`), and must refuse `--profile`
+  there; no Space merge request is looked up. The robot of the comment is the newest robot of that pull request in the
+  mode of the start that had not finished before the comment (`comment_robot`), looked for once right after the bot
+  accepted; a reply that never came is `reply: pending`, a rejection `patronus_refused` with the reason of the bot.
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_with_an_open_pull_request_starts_from_a_comment`, `the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request`)
+  [@test] ../../crates/operations/src/robot_start_test.rs (`a_comment_the_bot_accepts_starts_the_newest_robot_of_its_pull_request_nobody_knew`, `a_comment_the_bot_rejects_fails_with_its_reason_and_one_it_never_answers_is_pending_after_the_minute`)
 - An open pull request of the branch, or of a branch its push takes along, whose base is a virtual branch of the user
   must be retargeted to the target before anything is pushed or canceled, and the robot then starts from the
   branch's: `retargeted` lists them as `bd push` does, `--check` the ones a start would retarget. A retarget of the

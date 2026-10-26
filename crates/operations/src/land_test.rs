@@ -51,7 +51,7 @@ async fn a_start_is_planned_over_what_the_session_holds_and_reads_the_review_its
   let waiting = one_shot_plan(&session, &land, &host).unwrap();
   assert!(waiting.waits.iter().any(|wait| wait.fact == LandFact::Readiness), "{:?}", waiting.waits);
 
-  let plan = prepare_one_shot(&mut session, &sources, &git, &land, &host).await.unwrap();
+  let plan = prepare_one_shot(&mut session, &sources, &git, &land, &host).await.unwrap().plan;
   let mut read = first;
   read.insert("readiness", 1);
   assert_eq!(counted.calls(), read);
@@ -80,7 +80,7 @@ async fn a_start_is_planned_over_what_the_session_holds_and_reads_the_review_its
   );
   assert!(alternatives.is_some(), "a start offers its profiles");
   // the facts answer nothing it waits for: nothing more is read
-  assert_eq!(prepare_one_shot(&mut session, &sources, &git, &land, &host).await, Some(plan));
+  assert_eq!(prepare_one_shot(&mut session, &sources, &git, &land, &host).await.map(|planned| planned.plan), Some(plan));
   assert_eq!(counted.calls()["readiness"], 1);
 }
 

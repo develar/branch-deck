@@ -10,11 +10,11 @@ use bd_core::error::CliError;
 use bd_core::services::session_key;
 use domain_types::error::ErrorCode;
 use domain_types::landing::Land;
-use domain_types::operation::Plan;
 use domain_types::patronus::{PatronusAvailability, PatronusRobot, PatronusRobotsResult};
 use git_executor::git_command_executor::GitCommandExecutor;
 use operations::facts::fill;
 use operations::land::{LandHost, prepare_one_shot};
+use operations::land_execute::Planned;
 use operations::needs::FactNeed;
 use remote_facts::fact_sources::FactSources;
 use repository_model::branch_table::BranchTable;
@@ -49,7 +49,7 @@ impl SessionFacts {
 
   /// The plan of the start `land` over the facts the session holds (those of `needs(Land)`, read first) and the ones its
   /// first decision waits for, read now (`operations::land::prepare_one_shot`); `None` for a subject the table lacks
-  pub fn prepare(&mut self, context: &RepoContext, land: &Land, host: &LandHost<'_>) -> Result<Option<Plan>, CliError> {
+  pub fn prepare(&mut self, context: &RepoContext, land: &Land, host: &LandHost<'_>) -> Result<Option<Planned>, CliError> {
     Ok(context.runtime()?.block_on(prepare_one_shot(&mut self.session, &self.sources, &self.git, land, host)))
   }
 

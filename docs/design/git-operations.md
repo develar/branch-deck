@@ -2729,7 +2729,36 @@ side, one ref queued and joined, the push again over a moved remote, a push held
 branch's push, a squash under the lock and a sync finish (the commit it froze goes), no robots for an unapplied
 branch, and a push whose caller went away. "Agent push", "App stack push" and "Agent Safe Push" are the parts each caller adds.
 
-Code: `crates/operations/src/push.rs`, `crates/operations/src/pull_request.rs`, `crates/sync-core/src/push.rs`.
+A start of a Safe Push or a Dry Run (`execute` of `Intent::Land`, `operations::land_execute`) is one run for the app
+and `bd` too, its push this core's `send`. Its plan is prepared again from the facts now (`StartHost::plan`: the
+session of the app, `land_session::SessionStart`; the one-shot session of `bd`) and runs only on the fingerprint its
+caller accepted, with every confirmation of it accepted (`plan_changed` else, nothing done). Then:
+
+1. The cheap witness, before the lock: the tips of the refs the plan moves and leases (its virtual branches, a whole
+   stack's stack branch, their remote-tracking refs), one `for-each-ref`, against the tips the plan was decided on.
+2. Under the lock: the full witness, one `for-each-ref` of the same refs, which are the frozen commits and leases of
+   its push (`PreparedPush::leased`, atomic); nothing else runs under it, no HTTP. The app waits for a live holder as
+   its push does, until the user stops the start (`cancel_operation`); `bd` waits its bounded time (`locked`).
+3. After the lock, in the order of the plan: `Retarget` (GitHub refusing the pull request the robot starts from stops
+   the start before anything is canceled or pushed; one of a branch the push takes along is a warning), `CancelRobot`
+   (one that finished meanwhile is done as it is), the push of the frozen commits (its end into the session), then the
+   late witness of the pushed branches (one `for-each-ref`: a branch a rewrite moved since its push skips the start as
+   `plan_changed`, the outcome naming the cancel and the push it made), the robots and the pull requests the facts hold
+   now (no request: a robot of what it lands that started meanwhile, a pull request of the comment that closed, skip
+   it too), and the start: through the API, or a `/patronus` comment whose reply is read on the clock of the session
+   (`robot_start`, every 3 s for a minute), its robot the newest of the pull request in the mode of the start that had
+   not finished before (`comment_robot`). The robot goes into the facts of the session.
+
+Its effects each have a status in the outcome (`Done`, `Failed`, `Skipped` with the reason, `Unknown` for a comment the
+bot didn't answer within the minute). A start of the app reserves what its plan lands (`Resource::Lands`), the refs it
+pushes and the robot it cancels in the registry: the same start again joins it, one that lands a part of it waits for
+it and is decided again. `operations/src/land_execute_test.rs` pins the order of the effects, the lock free while the
+push sends, the first failure stopping the start, a rewrite while the push sends, and the refusals before the first
+effect; `remote_fixtures_test.rs` (`a_start_through_execute_asks_no_list_of_its_own`) that a start asks Patronus no list
+of its own (C2).
+
+Code: `crates/operations/src/push.rs`, `crates/operations/src/pull_request.rs`, `crates/operations/src/land_execute.rs`,
+`crates/operations/src/land_session.rs`, `crates/operations/src/robot_start.rs`, `crates/sync-core/src/push.rs`.
 
 #### Agent push (`bd push`)
 
@@ -2806,11 +2835,11 @@ Code: `crates/bd-remote/src/push_command.rs`, `crates/operations/src/push.rs`, `
 
 #### Agent Safe Push (`bd safe-push`)
 
-`bd safe-push` pushes the branch exactly as `bd push <branch>` does (`push_locked`, the same sync, refusals and
-lease), so its git side adds only reads before the push, all under the repository lock with the sync; the network
-push (also of the stack branch of a whole stack, `push_stack_branch`) and the start run after the lock. `--check` writes
-nothing after its sync and releases the lock then: its trial builds and the questions to Patronus and GitHub keep no
-other `bd` writer waiting. A stacked
+`bd safe-push` holds the repository lock for its sync only (the named exception of the lock span until s11): the
+reads of the remote, the trial and the check against the target run after it, keeping no other `bd` writer waiting,
+and a start runs through the engine as the app's does ("Push and land": the witness, the lock again only for the full
+witness and the freeze, then the effects, `safe_push_run.rs`). A rewrite of another session between the sync and the
+witness changes the plan: `plan_changed` (exit 3), nothing done; `--check` stops after the plan. A stacked
 branch lands with its ancestors in one robot ([Landing](landing.md)): the push takes the ancestors with work for the
 remote along, and the robot starts on the branch's virtual branch, which carries their commits (`lands`). A parked
 branch, one built on a parked branch and a whole stack with a parked member are refused as `parked` right after the
@@ -2830,8 +2859,8 @@ sync, before anything is asked of Patronus.
    of the subject when the list names no profile (its profile is the default), with `--check` the problems of its
    failed robot; then what the first decision waits for (`operations::needs::waits`): the review readiness of the
    subject and the rules of the target. The Patronus view of the table over the robots derives on bd's thread, as the
-   session's host derives it; the landing needs of a branch are its landing gate's (below). The reads still run under
-   the lock with the sync, as before them.
+   session's host derives it; the landing needs of a branch are its landing gate's (below). No read runs under the
+   lock.
    For the code-owner pre-check of a Safe Push, one `git log -z ^<baseline> <tip>` for the commits, their paths from
    the object cache (one `diff-tree --stdin` for the misses), and, for the groups Patronus names without paths, one
    `cat-file --batch` of the `OWNERSHIP` files of the baseline (`remote_facts::review_readiness`, shared with the app's
@@ -2852,13 +2881,16 @@ sync, before anything is asked of Patronus.
    the function the app's sessions read the rules of the approved bases with), HTTP, no process. Rules that dismiss stale reviews on push refuse
    the start where the approvals count (`push_dismisses_approvals`), and rules GitHub doesn't answer refuse it as
    `rules_unknown` (`--allow-unknown-rules`), never "keeps the approvals" (`rules_check`).
-3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
-   minute for the answer of Patronus.
+3. Then the run of the engine ("Push and land"): the plan prepared again on the same one-shot session, the witness
+   of its refs (one `for-each-ref` before the lock, one under it, which freezes the push), the retargets, the cancel,
+   the push of the branches the plan pushes in one leased atomic push, the late witness of the pushed branches (one
+   `for-each-ref`), and the start; `bd` looks for the robot of a comment once, right after the bot accepted, and
+   tells a comment it didn't answer within the minute as `reply: pending`.
    With `--whole-stack` the robot starts from the stack branch of the root (a straight chain: from its leaf, as
    above). Everything about it comes from the sync's report: its state, tip and remote status (`StackBranchUpdate`),
    the robots of the stack and of its branches, the pull request text from the descriptions the sync read
-   (`stack_pull_request.rs`). The push is one `push_leased` of the stack branch alone, leased on the remote head of
-   its remote status; the branches of the stack are not pushed. The pre-check reads the stack branch's commits as a
+   (`stack_pull_request.rs`). The push is one `push_leased` of the stack branch alone, leased on the remote head the
+   witness froze; the branches of the stack are not pushed. The pre-check reads the stack branch's commits as a
    branch's (`log`, `diff-tree`), and the dangling references take the members as the branches built.
 4. `--create-pull-request` opens the pull request with the text of the draft `bd push` prints
    (`remote_facts::pull_request_text`): the `bd describe` text, else the text of the branch's commits and of the branches
@@ -2877,7 +2909,7 @@ sync, before anything is asked of Patronus.
    (`stack_pull_request_text`); its Create pushes the stack branch alone (below, "App stack push"), then creates the
    pull request of its head.
 
-Code: `crates/bd-remote/src/safe_push_command.rs`, `crates/remote-facts/src/review_readiness.rs`,
+Code: `crates/bd-remote/src/safe_push_command.rs`, `crates/bd-remote/src/safe_push_run.rs`, `crates/remote-facts/src/review_readiness.rs`,
 `crates/remote-facts/src/branch_rules.rs`, `crates/remote-facts/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
 `crates/remote-facts/src/stack_pull_request.rs`.
 

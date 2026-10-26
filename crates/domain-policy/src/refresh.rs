@@ -59,6 +59,14 @@ pub const RATE_LIMIT_WAIT: Duration = Duration::from_mins(15);
 /// A fetch of a remote branch whose pull request shows a head the fetch didn't bring (a mirror that lags behind the
 /// remote) is tried again after each of these, then not until the pull request shows another head
 pub const MOVED_REMOTE_RETRIES: [Duration; 3] = [MINUTE, Duration::from_mins(5), Duration::from_mins(15)];
+/// The reply of the bot to a `/patronus` comment of a start is read this often, and the robot it started looked for
+pub const PATRONUS_COMMENT_REPLY_INTERVAL: Duration = Duration::from_secs(3);
+/// The bot is waited for this long after the comment; a start it accepted without a robot listed by then is a start
+/// all the same, its robot comes with a later list
+pub const PATRONUS_COMMENT_REPLY_TIMEOUT: Duration = MINUTE;
+/// The robot of a comment started at most this long (seconds) before the comment by the clock of Patronus, which may
+/// differ from this one
+pub const PATRONUS_COMMENT_CLOCK_SLACK: u32 = 120;
 
 /// Why a fact is asked for
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

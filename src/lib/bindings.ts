@@ -181,6 +181,18 @@ export const commands = {
 	 */
 	prepare: (params: PrepareParams) => typedError<Plan | null, ApiError>(__TAURI_INVOKE("prepare", { params })),
 	/**
+	 *  Runs an intent on the plan the page showed (`fingerprint`, with the confirmations the user `accepted`): the plan is
+	 *  prepared again and runs only on that fingerprint; its steps, the progress of its push and its outcome go to
+	 *  `events`. A start of a Safe Push or a Dry Run so far (`operations::engine::execute_land`); the others run through
+	 *  their own commands until their family moves here
+	 */
+	execute: (params: ExecuteParams, events: Channel<OperationEvent>) => typedError<Outcome, ApiError>(__TAURI_INVOKE("execute", { params, events })),
+	/**
+	 *  Stops the operation `op` of this app: a wait for the repository lock ends as `canceled`, and no effect starts after
+	 *  it; a push that sends goes to its end. False for an operation that ended
+	 */
+	cancelOperation: (params: CancelOperationParams) => __TAURI_INVOKE<boolean>("cancel_operation", { params }),
+	/**
 	 *  Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
 	 *  of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
 	 */
@@ -1097,6 +1109,14 @@ export type BuildProblem = {
 };
 
 /**
+ *  What a window asks to stop (`cancel_operation`): an operation of this process that waits for the repository lock, or
+ *  whose next effect has not started
+ */
+export type CancelOperationParams = {
+	op: OperationId,
+};
+
+/**
  *  The commits of a branch a running robot's commit has (`BranchSpan`): ids of the checked-out branch, newest first,
  *  and those of them it has in an earlier version
  */
@@ -1656,6 +1676,22 @@ export type DroppedCommit = {
 	authorTime: number,
 };
 
+/**  An effect of a plan and how it went */
+export type EffectRecord = {
+	effect: PlannedEffect,
+	status: EffectStatus,
+};
+
+/**
+ *  How an effect went. The first one that fails stops the operation: the effects after it are skipped, and none of the
+ *  effects before it is undone
+ */
+export type EffectStatus = { kind: "done" } | { kind: "failed"; error: ApiError } | 
+/**  The answer was lost after the request went out: whether it happened is not known */
+{ kind: "unknown" } | 
+/**  Not made: an effect before it failed (`reason` `None`), or the facts changed before it (`plan_changed`) */
+{ kind: "skipped"; reason: ApiError | null };
+
 /**  Whether the last line of each text is empty and does not count */
 export type EmptyLastLine = {
 	old: boolean,
@@ -2018,6 +2054,18 @@ export type EveryoneDelivery = {
 	robots_per_merge: number | null,
 	/**  Seconds */
 	merge_time: number,
+};
+
+/**
+ *  What a window asks to run (`execute`): the intent, the fingerprint of the plan it showed, and the confirmations the
+ *  user accepted of it; the plan is prepared again and runs only on that fingerprint with every confirmation of it
+ *  accepted
+ */
+export type ExecuteParams = {
+	repositoryPath: string,
+	intent: Intent,
+	fingerprint: Fingerprint,
+	accepted?: Confirmation[],
 };
 
 /**
@@ -3299,6 +3347,24 @@ export type NewsEvent =
  */
 { kind: "remoteCommits"; branch: string; tip: string; count: number; authors: string[] };
 
+/**
+ *  The object and the event an outcome or a news tells, one toast each (`toastKeys` of `src/lib/event-toast.ts`, which
+ *  adds the repository)
+ */
+export type NewsKey = 
+/**  A robot: started, restarted, canceling, failed, merged */
+{ kind: "robot"; robotId: string } | 
+/**  The robots of a subject in one push mode: a restart or a new start replaces the toast of the older one */
+{ kind: "robotSubject"; subject: string; mode: PatronusPushMode } | 
+/**  A push of a branch */
+{ kind: "push"; branch: string } | 
+/**  The approvals of a subject that waited for them */
+{ kind: "approval"; subject: string } | 
+/**  A pull request of someone else: the request of the user's review, the review, the Safe Push of it */
+{ kind: "review"; number: number } | 
+/**  A YouTrack issue */
+{ kind: "issue"; key: string };
+
 /**  The next step of a subject (spec/branch/next-step.spec.md, "The table"), the first row that matches */
 export type NextStep = {
 	row: StepRow,
@@ -3433,11 +3499,28 @@ export type OpenSubWindowParams = {
 	openedAt: number | null,
 };
 
+/**  What the caller of an operation hears while it runs */
+export type OperationEvent = 
+/**  It went on to `step` */
+{ kind: "step"; op: OperationId; step: OperationStep } | 
+/**  Its push sent `percent` of what it sends; `line` is what git said last */
+{ kind: "progress"; op: OperationId; percent: number; line: string } | 
+/**  It ended, or the operation it joined did */
+{ kind: "done"; outcome: Outcome };
+
 /**
  *  The id of an operation: the ULID text of `sync_utils::operation_id::OperationId`, the `operation_id` of its log
  *  lines; a string in TypeScript
  */
 export type OperationId = string;
+
+/**  What an operation cost */
+export type OperationStats = {
+	/**  The git processes it started, by subcommand */
+	gitProcesses: { [key in string]: number },
+	httpRequests: number,
+	millis: number,
+};
 
 /**  What an operation does now */
 export type OperationStep = 
@@ -3477,6 +3560,17 @@ export type OrphanFixup = {
 	subject: string,
 	/**  The virtual branch the fixup itself is grouped into; `None` if it is unassigned */
 	branch: string | null,
+};
+
+/**  How an operation ended (the contract's `Outcome`): each effect of its plan with its status, in order */
+export type Outcome = {
+	op: OperationId,
+	effects: EffectRecord[],
+	/**  The event of the object it changed, whose open toast its own replaces in place */
+	newsKey: NewsKey | null,
+	/**  The version of the view after the patch of what it changed; `None` when no session of its repository is open */
+	versionAfter: Version | null,
+	stats: OperationStats,
 };
 
 /**  A file outside the review that holds a declaration: shown by itself, at the revision of its side */
@@ -3904,6 +3998,9 @@ export type PickedRemoteCommit = {
 	newId: string,
 	/**  The subject of the copy, with the prefix of the branch */
 	subject: string,
+};
+
+/**
  *  What an intent does now, prepared over the facts of its session (the contract's `Plan`): it runs only while the facts
  *  still have its `fingerprint`
  */

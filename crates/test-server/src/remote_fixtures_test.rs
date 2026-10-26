@@ -445,6 +445,54 @@ async fn start_safe_push_of_test_branch(client: &reqwest::Client, addr: std::net
   assert_eq!(started.status, PatronusRobotStatus::Running);
 }
 
+/// A Dry Run started through `execute` (the engine, `operations::engine::execute_land`) asks Patronus no list of its own and runs
+/// no trial of its own (C2): the list of the session, asked once, serves its plan, its witness and its start, the landing
+/// needs of the session its gate; the push reaches the remote and the fake logs one start of the branch. The outcome
+/// tells each effect done
+#[tokio::test]
+async fn a_start_through_execute_asks_no_list_of_its_own() {
+  let (addr, client, id, repository_path) = synced_on_space(&[]).await;
+  let session = json!({"repositoryPath": repository_path});
+  post(&client, addr, "/invoke/subscribe_view", session.clone()).await;
+  // the facts a Dry Run is decided on, as the popover of the page asks them: the robots and the profiles
+  for family in ["robots", "profiles"] {
+    post(
+      &client,
+      addr,
+      "/invoke/refresh_facts",
+      json!({"repositoryPath": repository_path, "family": family, "reason": "manual"}),
+    )
+    .await;
+  }
+  // the plans of the view come with its Patronus view, over the robots of the session
+  view_when(&client, addr, &repository_path, |view| !view["lands"]["test-branch"].is_null()).await;
+  let intent = json!({"kind": "land", "subject": {"kind": "branch", "name": "test-branch"}, "mode": "dryRun", "profile": {"kind": "default"}});
+  // the landing needs the session computes after its sync are the gate of the start: the plan waits for nothing then
+  let mut plan = json!(null);
+  for _ in 0..2000 {
+    plan = post(&client, addr, "/invoke/prepare", json!({"repositoryPath": repository_path, "intent": intent})).await;
+    if plan["waits"] == json!([]) {
+      break;
+    }
+    tokio::task::yield_now().await;
+  }
+  assert_eq!((&plan["blockers"], &plan["waits"]), (&json!([]), &json!([])), "{plan}");
+
+  let execute = json!({"repositoryPath": repository_path, "intent": intent, "fingerprint": plan["fingerprint"], "accepted": plan["confirmations"]});
+  let outcome = post(&client, addr, "/invoke/execute", execute).await;
+  let statuses: Vec<&serde_json::Value> = outcome["effects"]
+    .as_array()
+    .unwrap_or_else(|| panic!("{outcome}"))
+    .iter()
+    .map(|record| &record["status"]["kind"])
+    .collect();
+  assert!(statuses.iter().all(|status| *status == "done"), "{outcome}");
+
+  let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
+  assert_eq!(log["requests"]["list"], 1, "the list of the session only");
+  assert_eq!(log["starts"].as_array().map(Vec::len), Some(1));
+}
+
 /// A push the IPC asks for a branch whose own Safe Push runs is refused in Rust, by the checks of the app's command on
 /// the robots the fake lists (the page knew of none: the robot started after its list), before git pushes anything
 #[tokio::test]

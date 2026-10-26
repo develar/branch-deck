@@ -28,6 +28,8 @@ use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams,
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use object_cache::cache::ObjectCache;
+use operations::land_execute::StartServices;
+use operations::land_session::{SessionStart, session_start};
 use operations::registry::Registry;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
@@ -156,6 +158,12 @@ impl SessionsState {
   /// The landing gate of the app's starts and popovers (`AppLandingGate`)
   pub const fn landing_gate(&self) -> &Arc<dyn LandingGate> {
     &self.landing_gate
+  }
+
+  /// A start in the session of `key` and what it runs on, over the services of the app (`AppServices`)
+  pub async fn start(&self, app: &AppHandle, key: &SessionKey) -> Result<(SessionStart, StartServices), ApiError> {
+    let services = AppServices { app: app.clone() };
+    session_start(&services, &self.sessions, key).await
   }
 
   fn windows(&self) -> std::sync::MutexGuard<'_, WindowSubscriptions> {

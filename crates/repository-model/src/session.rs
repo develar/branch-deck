@@ -339,6 +339,11 @@ impl Sessions {
       events: Arc::new(EventSink::default()),
     }
   }
+  /// The clock the session of `key` ages on and its facts are asked by: the timers of its operations wait on it too
+  #[must_use]
+  pub fn clock(&self, key: &SessionKey) -> Arc<dyn Clock> {
+    self.clocks.of(key)
+  }
 
   /// The events of every session from now on, for the one consumer (the scheduler of the facts); `None` once taken
   pub fn events(&self) -> Option<mpsc::UnboundedReceiver<SessionEvent>> {

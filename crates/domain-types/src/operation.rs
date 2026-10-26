@@ -281,6 +281,29 @@ pub struct PrepareParams {
   pub intent: Intent,
 }
 
+/// What a window asks to run (`execute`): the intent, the fingerprint of the plan it showed, and the confirmations the
+/// user accepted of it; the plan is prepared again and runs only on that fingerprint with every confirmation of it
+/// accepted
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteParams {
+  pub repository_path: String,
+  pub intent: Intent,
+  pub fingerprint: Fingerprint,
+  #[serde(default)]
+  pub accepted: Vec<Confirmation>,
+}
+
+/// What a window asks to stop (`cancel_operation`): an operation of this process that waits for the repository lock, or
+/// whose next effect has not started
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct CancelOperationParams {
+  pub op: OperationId,
+}
+
 /// The hash of a plan with what it was prepared on (`operations::witness`): the intent and what it decided, the tips of
 /// the refs it moves and the remote branches it leases, the pull requests and robots it reads. Equal only within one
 /// process

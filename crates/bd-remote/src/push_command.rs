@@ -1148,20 +1148,26 @@ pub(crate) fn pull_request_issues(context: &RepoContext, report: &SyncReport, yo
 /// The pull request draft of a branch whose remote branch is up to date by content, which `bd safe-push` doesn't push:
 /// what `push_locked` returns for a pushed one
 pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOutput, name: &str, youtrack: Option<&YouTrackService>) -> Result<PullRequestDraft, CliError> {
+  let mut drafts = pull_request_drafts(context, synced, &[name], youtrack)?;
+  drafts.pop().ok_or_else(|| CliError::new(ErrorCode::Internal, format!("No pull request draft of {name}")))
+}
+
+/// The pull request of each of `names` into the baseline, as `gh pr create` opens it, their issues read in one request
+pub(crate) fn pull_request_drafts(context: &RepoContext, synced: &SyncOutput, names: &[&str], youtrack: Option<&YouTrackService>) -> Result<Vec<PullRequestDraft>, CliError> {
   let (_, base_branch) = synced
     .baseline
     .split_once('/')
     .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?;
   let report = &synced.report;
-  let head = final_name(context, name)?;
-  let issues = pull_request_issues(context, report, youtrack, &[name])?;
-  Ok(pull_request_draft(
-    context,
-    report,
-    (&github_repository_option(context, report)?, base_branch.to_string()),
-    (name, &head),
-    &issues,
-  ))
+  let issues = pull_request_issues(context, report, youtrack, names)?;
+  let repository_option = github_repository_option(context, report)?;
+  names
+    .iter()
+    .map(|name| {
+      let head = final_name(context, name)?;
+      Ok(pull_request_draft(context, report, (&repository_option, base_branch.to_string()), (name, &head), &issues))
+    })
+    .collect()
 }
 
 /// Why the sync didn't build the branch (`SyncReport::not_built`, the rule of the app's push too): its error or its
@@ -1240,12 +1246,12 @@ fn resolve_expected(context: &RepoContext, rev: &str) -> Result<String, CliError
 }
 
 /// A ref of a push, as a refused push names it
-struct PushedName {
+pub(crate) struct PushedName {
   /// The branch, or the stack branch `{prefix}/stack/<root>`
-  name: String,
-  commit_count: usize,
+  pub(crate) name: String,
+  pub(crate) commit_count: usize,
   /// The root of the stack branch, which `bd push --with-children` pushes
-  stack_root: Option<String>,
+  pub(crate) stack_root: Option<String>,
 }
 
 /// What to do about a push the remote refused with every lease held (a hook, a protected branch)
@@ -1262,7 +1268,7 @@ pub(crate) const LANDED_NEXT: &str = "once the user approved, `bd update` archiv
 /// nothing was pushed. `push_leased` fetched the branches, and the error lists what each moved one has now
 /// (`remote_statuses`, in the order of `pushed`), so the user can see what a push with `--force --expect-remote` would
 /// drop; its `next_steps` are those pushes, the user's to approve. `remote_option`: ` --remote <remote>`, or empty
-fn lease_rejected(context: &RepoContext, pushed: &[PushedName], moved: &[usize], remote_statuses: &[RemoteStatusUpdate], remote_option: &str) -> CliError {
+pub(crate) fn lease_rejected(context: &RepoContext, pushed: &[PushedName], moved: &[usize], remote_statuses: &[RemoteStatusUpdate], remote_option: &str) -> CliError {
   let names = moved.iter().map(|index| pushed[*index].name.as_str()).collect::<Vec<_>>().join(", ");
   let short = context.short_ids(moved.iter().flat_map(|index| RemoteSummary::ids(&remote_statuses[*index])));
   let mut error = CliError::new(

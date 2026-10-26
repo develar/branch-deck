@@ -115,7 +115,10 @@ The specs are the contract of each part:
   the branch's.
 - **bd.** `bd safe-push <branch>` lands the same piece: no refusal and no flag (the old `stack_not_landed` and
   `--land-stack` are gone, the flag is accepted and ignored), the ancestors with work for the remote pushed first, the
-  robot started on the branch's virtual branch. `lands` names root..branch, in the start and in `--check`; only
+  robot started on the branch's virtual branch. Its start is the run of the app's start (`operations::land_execute`,
+  [Push and land](git-operations.md#push-and-land)): the same plan, the same effects in the same order (the retargets,
+  the cancel of the Safe Push it replaces, the push, the start), the same witness of the refs before the first effect;
+  only where the facts live differs (the one-shot session of the command, the session of the app's window). `lands` names root..branch, in the start and in `--check`; only
   `--check` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
   the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
   bd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a

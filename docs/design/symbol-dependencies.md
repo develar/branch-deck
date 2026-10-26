@@ -905,7 +905,9 @@ anyway: an override of another branch's overload (2026-10-17), and `lane-run`, w
 edges (141 of 141) is the precision of a refusal, so since 2026-10-21 a missing declaration fails `bd check` (result
 `missing_declaration`) and refuses the start of a Safe Push, in `bd` and in the app (the landing gate,
 [Git Operations](git-operations.md#landing-gate)), and the user overrides it for a false alarm (`--allow-missing`, Start
-Anyway).
+Anyway). The gate is a blocker of the plan of the start (`Reason::LandingRefused`, `domain_policy::land::decide`),
+which the run of the start (`operations::land_execute`) refuses before its first effect; `--allow-missing`,
+`--allow-dangling` and Start Anyway are allowances of the intent, so the plan lifts it, never the run.
 
 A refusal at the press came too late on 2026-10-22: the robot of `stills-codec` ran, the user started
 `ui-perf-nightly` (built on `lane-run`) beside it, and nothing on the row had said that `lane-run` needs

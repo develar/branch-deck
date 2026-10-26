@@ -54,7 +54,7 @@
       "bd": [
         "crates/bd-remote/src/push_command.rs#the pull requests of the branches it pushes go into the baseline first (D3a)",
         "crates/bd-remote/src/safe_push_test.rs#fn push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget",
-        "crates/bd-remote/src/safe_push_command.rs#the pull requests go into the target before anything is pushed or canceled"
+        "crates/operations/src/land_execute.rs#3. `Retarget`: a pull request into a virtual branch goes into the target; GitHub refusing the one the robot starts"
       ]
     },
     "closed": "s9-engine-remote"
@@ -120,7 +120,7 @@
     "discrepancy": "D6",
     "today": {
       "app": ["src/lib/create-pull-request-context.ts#const result = await commands.waitForGithubBranch("],
-      "bd": ["crates/bd-remote/src/safe_push_command.rs#wait_for_mirror: plan.push_needed"]
+      "bd": ["crates/operations/src/land_execute.rs#wait_for_mirror: self.pushed.is_some()"]
     }
   },
   {
@@ -241,10 +241,7 @@
     ],
     "discrepancy": "D12",
     "today": {
-      "app": [
-        "crates/repository-model/src/derive.rs#pub fn lands_of",
-        "src/presenters/land.ts#const blocker = plan.blockers.find(reason => reason.code !== \"landingRefused\")"
-      ],
+      "app": ["crates/repository-model/src/derive.rs#pub fn lands_of", "src/presenters/land.ts#const blocker = plan.blockers.find(reason => reason.code !== \"landingRefused\")"],
       "bd": [
         "crates/domain-policy/src/land.rs#decision.blockers.push(Reason::DropsRemote {",
         "crates/bd-remote/src/safe_push_command.rs#the remote branch has {behind} commits the branch doesn't, and the baseline neither"

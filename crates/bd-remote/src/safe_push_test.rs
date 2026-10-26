@@ -1634,8 +1634,11 @@ fn the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_commen
   assert_eq!((exit_code, output.get("pull_request")), (0, None), "{output}");
 }
 
+/// The sync is the part of a Safe Push under the repository lock: while bd asks Patronus for the start options, another
+/// bd writer takes the lock, in a check and in a start alike; the start takes it again only to witness its refs and freeze
+/// its push, and starts after it
 #[test_log::test]
-fn a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it() {
+fn a_safe_push_frees_the_repository_lock_after_its_sync() {
   let space = Space::new(&["(auth) Add auth"]);
   // while bd asks Patronus for the start options, another bd writer tries the lock
   let taken = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1653,8 +1656,8 @@ fn a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it() {
   let (exit_code, output) = space.run(&["auth"]);
   assert_eq!(exit_code, 0, "{output}");
 
-  // the check writes nothing after its sync; the start pushes after the options, under the lock it synced with
-  assert_eq!(*taken.lock().unwrap(), [true, false]);
+  // neither holds the lock past its sync: the reads of the remote run after it
+  assert_eq!(*taken.lock().unwrap(), [true, true]);
 }
 
 /// The target moved after the last sync with a change of the lines a commit of the branch changes: Patronus could not

@@ -24,8 +24,8 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use domain_types::ProgressReporter;
-use domain_types::error::ApiError;
-use domain_types::operation::{Plan, PrepareParams};
+use domain_types::error::{ApiError, ErrorCode};
+use domain_types::operation::{CancelOperationParams, ExecuteParams, Intent, Plan, PrepareParams};
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
@@ -334,7 +334,10 @@ impl ServiceHost for TestServices {
       let Some(state) = self.state.upgrade() else {
         return;
       };
-      let moved = repository_by_path(&state, &key.worktree).ok().and_then(|repository| repository.existing_remote()).is_some_and(|host| host.remote_moved_behind());
+      let moved = repository_by_path(&state, &key.worktree)
+        .ok()
+        .and_then(|repository| repository.existing_remote())
+        .is_some_and(|host| host.remote_moved_behind());
       if moved {
         fetch_in_session(&state.sessions, &state.git_executor, key, asks).await;
       } else {
@@ -391,6 +394,51 @@ pub async fn get_snapshot(State(state): State<Arc<AppState>>, Json(request): Jso
 pub async fn prepare(State(state): State<Arc<AppState>>, Json(params): Json<PrepareParams>) -> CommandResult<Option<Plan>> {
   let key = session_key(&state, &params.repository_path).await?;
   Ok(Json(operations::engine::prepare(&state.sessions, &key, params.intent).await?))
+}
+
+/// The events of an operation to the event stream of the call that runs it
+struct StreamEvents(Progress);
+
+impl operations::events::EventSink for StreamEvents {
+  fn send(&self, event: domain_types::operation::OperationEvent) {
+    self.0.send(&event);
+  }
+}
+
+/// Runs an intent on the plan the page showed, as the app's `execute`: the same engine (`execute_land`) over the
+/// services of the test repository (its fake Patronus and fake GitHub, `TestServices`); its steps, the progress of its
+/// push and its outcome go to the event stream of its channel as `{"progress": <OperationEvent>}`, the answer last
+pub async fn execute(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<ExecuteParams>) -> Response {
+  answer_with_progress(progress_channel(&headers), move |progress| async move {
+    let key = session_key(&state, &params.repository_path).await?;
+    let Intent::Land(land) = params.intent else {
+      return Err(failed(
+        "execute",
+        ApiError::new(ErrorCode::InvalidArguments, "Only a Safe Push or a Dry Run runs through execute so far"),
+      ));
+    };
+    let services = TestServices {
+      state: Arc::downgrade(&state),
+      git: state.git_executor.clone(),
+    };
+    let (host, run) = operations::land_session::session_start(&services, &state.sessions, &key)
+      .await
+      .map_err(|error| failed("execute", error))?;
+    let events: Arc<dyn operations::events::EventSink> = Arc::new(StreamEvents(progress));
+    let accepted = operations::land_execute::Accepted {
+      fingerprint: params.fingerprint,
+      confirmations: params.accepted,
+    };
+    let outcome = operations::engine::execute_land(&state.registry, &key, land, accepted, &host, &run, events).await;
+    Ok(Json(outcome.map_err(|error| failed("execute", error))?))
+  })
+  .await
+  .into_response()
+}
+
+/// Stops an operation of the server, as the app's `cancel_operation`
+pub async fn cancel_operation(State(state): State<Arc<AppState>>, Json(params): Json<CancelOperationParams>) -> Json<bool> {
+  Json(state.registry.cancel(&params.op))
 }
 
 /// The stream of a window's subscription: its answer, then the patches. A call without a channel (a test of this crate

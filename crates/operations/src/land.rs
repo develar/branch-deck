@@ -19,6 +19,7 @@
 //! fingerprint (`witness::check`).
 
 use crate::facts::fill;
+use crate::land_execute::{Planned, PushedRef};
 use crate::needs::{FactNeed, waits};
 use crate::witness::Witness;
 use domain_policy::land::TargetConflictFact;
@@ -68,9 +69,9 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, land: Land) -> Optio
 /// The plan of `land` over the one-shot session of a command: decided over what it holds, then over the facts that
 /// decision waits for, read through `sources` (the rules of the target only for branches on GitHub); `None` for a
 /// subject the table lacks
-pub async fn prepare_one_shot(session: &mut OneShot, sources: &Arc<dyn FactSources>, git: &GitCommandExecutor, land: &Land, host: &LandHost<'_>) -> Option<Plan> {
-  let first = one_shot_plan(session, land, host)?;
-  let then: Vec<FactNeed> = waits(&first.waits, &land.subject, host.target)
+pub async fn prepare_one_shot(session: &mut OneShot, sources: &Arc<dyn FactSources>, git: &GitCommandExecutor, land: &Land, host: &LandHost<'_>) -> Option<Planned> {
+  let first = one_shot_planned(session, land, host)?;
+  let then: Vec<FactNeed> = waits(&first.plan.waits, &land.subject, host.target)
     .into_iter()
     .filter(|need| host.github || !matches!(need, FactNeed::Rules { .. }))
     .collect();
@@ -78,12 +79,18 @@ pub async fn prepare_one_shot(session: &mut OneShot, sources: &Arc<dyn FactSourc
     return Some(first);
   }
   fill(session, sources, git, &then).await;
-  one_shot_plan(session, land, host)
+  one_shot_planned(session, land, host)
 }
 
 /// The plan of `land` over the one-shot session of a command as it is now: no read
 #[must_use]
 pub fn one_shot_plan(session: &OneShot, land: &Land, host: &LandHost<'_>) -> Option<Plan> {
+  one_shot_planned(session, land, host).map(|planned| planned.plan)
+}
+
+/// `one_shot_plan` with what its run needs (`planned_of`)
+#[must_use]
+pub fn one_shot_planned(session: &OneShot, land: &Land, host: &LandHost<'_>) -> Option<Planned> {
   let facts = session.facts();
   let readiness = |key: &str| -> Option<&Fact<SubjectReadiness>> { facts.readiness.fact(key) };
   let sources = LandSources {
@@ -103,15 +110,73 @@ pub fn one_shot_plan(session: &OneShot, land: &Land, host: &LandHost<'_>) -> Opt
     gate: Some(host.gate),
     target_conflict: host.target_conflict,
   };
-  plan_of(&sources, land)
+  planned_of(&sources, land)
 }
 
 /// The plan of `land` over `sources`; `None` for a subject the table lacks, or a whole stack that doesn't fork
 #[must_use]
 pub fn plan_of(sources: &LandSources<'_>, land: &Land) -> Option<Plan> {
+  planned_of(sources, land).map(|planned| planned.plan)
+}
+
+/// The plan of `land` over `sources` with what its run needs (`land_execute::execute`): the witness it was decided on,
+/// the branches its push sends with their parents, the ref the robot starts from, the merge request whose approvals
+/// count; `None` for a subject the table lacks, or a whole stack that doesn't fork
+#[must_use]
+pub fn planned_of(sources: &LandSources<'_>, land: &Land) -> Option<Planned> {
   let (decision, profiles) = land_decision(sources, land)?;
   let witness = witness_of(sources, land, &decision);
-  Some(plan(land, decision, profiles, &witness))
+  let (pushes, source_ref) = pushes_of(sources, land, &decision)?;
+  let merge_request = (sources.readiness)(&land.subject.key()).and_then(|fact| fact.value.as_ref()?.requirement.as_ref()?.merge_request.clone());
+  let plan = plan(land, decision, profiles, &witness);
+  Some(Planned {
+    plan,
+    witness,
+    pushes,
+    source_ref,
+    merge_request,
+  })
+}
+
+/// The branches the push of `decision` sends, root first, and the ref the robot starts from: of a whole stack its stack
+/// branch, of a branch its virtual branch with the branch each pushed one is built on
+fn pushes_of(sources: &LandSources<'_>, land: &Land, decision: &LandDecision) -> Option<(Vec<PushedRef>, String)> {
+  let pushed = decision.effects.iter().find_map(|effect| match effect {
+    PlannedEffect::Push { branches, .. } => Some(branches.as_slice()),
+    _ => None,
+  });
+  match &land.subject {
+    Subject::WholeStack { root } => {
+      let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root)?;
+      let pushes = pushed
+        .map(|_| PushedRef {
+          name: root.clone(),
+          full_name: stack.branch_name.clone(),
+          parent_ref: None,
+          whole_stack: true,
+        })
+        .into_iter()
+        .collect();
+      Some((pushes, format!("refs/heads/{}", stack.branch_name)))
+    }
+    Subject::Branch { name } => {
+      let full = |branch: &str| to_final_branch_name(sources.prefix, branch).ok();
+      let pushes = pushed
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|branch| {
+          let base = sources.table.branch(branch)?.stack.as_ref().and_then(|stack| stack.effective_base.as_deref());
+          Some(PushedRef {
+            name: branch.clone(),
+            full_name: full(branch)?,
+            parent_ref: base.and_then(full),
+            whole_stack: false,
+          })
+        })
+        .collect();
+      Some((pushes, format!("refs/heads/{}", full(name)?)))
+    }
+  }
 }
 
 /// `decision` of `land` as its plan, fingerprinted on `witness`

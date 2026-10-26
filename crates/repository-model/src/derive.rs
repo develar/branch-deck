@@ -670,6 +670,20 @@ pub fn lands_of(state: &TableState, facts: &FactStore, prefix: &str) -> BTreeMap
 /// `decide` over the sources of the session: its table, its Patronus view while it stands, its facts; `None` before
 /// its Patronus view
 pub fn with_land_sources<T>(state: &TableState, facts: &FactStore, prefix: &str, decide: impl FnOnce(&LandSources<'_>) -> T) -> Option<T> {
+  with_checked_land_sources(state, facts, prefix, &StartChecks::default(), decide)
+}
+
+/// What a start checked itself besides the facts of its session: the refusals of the landing gate it ran on the refs of
+/// the last sync (`None`: the landing needs of the view decide), and the commit that conflicts with the newest target
+#[derive(Debug, Clone, Default)]
+pub struct StartChecks {
+  pub gate: Option<Vec<LandingRefusal>>,
+  /// The commit (a copy of the virtual branch) and its files
+  pub target_conflict: Option<(String, Vec<String>)>,
+}
+
+/// `with_land_sources` with what the start checked itself (`StartChecks`)
+pub fn with_checked_land_sources<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &StartChecks, decide: impl FnOnce(&LandSources<'_>) -> T) -> Option<T> {
   let part = facts.patronus.part();
   if !matches!(part.state, FactState::Fresh | FactState::Stale { .. }) {
     return None;
@@ -692,8 +706,8 @@ pub fn with_land_sources<T>(state: &TableState, facts: &FactStore, prefix: &str,
     rules: facts.rules.get(target).map(FactRecord::fact),
     landing_needs: &part.landing_needs,
     baseline: &state.parts.sections.landed,
-    gate: None,
-    target_conflict: None,
+    gate: checks.gate.as_deref(),
+    target_conflict: checks.target_conflict.as_ref().map(|(commit, files)| TargetConflictFact { commit, files }),
   };
   Some(decide(&sources))
 }

@@ -22,6 +22,7 @@ pub mod robot_command;
 pub mod robot_list;
 pub mod robot_stats_command;
 pub mod safe_push_command;
+pub mod safe_push_run;
 pub mod session_facts;
 pub mod status;
 
