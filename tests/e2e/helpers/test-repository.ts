@@ -20,7 +20,7 @@ import { TEST_SERVER_URL } from "./test-server-url"
  * requests, the review requests, the list of the robots, the pre-check of the code-owner review, the answer of the
  * computation of the landing needs, why a robot failed (its problems, of every robot), the rules of a branch, the merge
  * profiles of the target, the view of the robots, the statuses of Settings (the GitHub and the YouTrack sign-in, the
- * tools)
+ * tools), a push to the remote of the repository (which has its pack then, and moves no ref until the release)
  */
 export type HeldAnswer =
   | "pullRequests"
@@ -35,6 +35,15 @@ export type HeldAnswer =
   | "gitHubAuth"
   | "youTrackAuth"
   | "cliTools"
+  | "push"
+
+/** A commit someone else pushed onto a branch of the remote: its author (`Name <email>`), time and files */
+export interface RemoteCommit {
+  subject: string
+  author: string
+  timestamp: number
+  files: Record<string, string>
+}
 import type { YouTrackFixture, YouTrackLog } from "./youtrack-helpers"
 
 /** What reached the fake Patronus: the requests by kind, the robots whose problems and progress were asked, in order */
@@ -253,20 +262,35 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * Someone else pushes a commit of `file` onto `branch` (`user-name/virtual/<name>`) of the remote of the repository
-   * from a clone of their own (`POST …/remote-commit`), which the repository has not fetched: the first one gives the
-   * repository a bare remote with the branch as it is here. Answers the commit, the head its pull request shows
+   * The branches of the remote of the repository (`.git/upstream.git`, its `origin`), by name without `refs/heads/`:
+   * what the app's pushes left there (docs/design/e2e-testing.md#the-remote-of-a-repository)
    */
-  async pushFromElsewhere(branch: string, commit: { author: string; file: string; content: string; timestamp: number }): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/remote-commit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branch, ...commit }),
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to push the commit of someone else: ${response.status} ${await response.text()}`)
-    }
-    return ((await response.json()) as { id: string }).id
+  async getRemoteBranches(): Promise<Record<string, string>> {
+    return (await this.getFixture<{ branches: Record<string, string> }>("remote")).branches
+  }
+
+  /**
+   * Pushes `revision` (a ref or a commit of the repository, `branch` by default) to `branch` of the remote behind the
+   * app's back, as `git push --force origin <revision>:<branch>` in a terminal: the remote branch and the
+   * remote-tracking ref move, so the next sync shows the branch pushed. With `earlierBuild`, a copy of the commits of
+   * `revision` after `origin/master` instead, each committed a day earlier: the remote has the commits by content
+   * under other ids, as after the sync rebuilt a pushed branch. Returns the commit pushed
+   */
+  async pushInTerminal(branch: string, { revision = branch, earlierBuild = false }: { revision?: string; earlierBuild?: boolean } = {}): Promise<string> {
+    return this.postForCommit("remote/push", { branch, revision, earlierBuild })
+  }
+
+  /**
+   * Writes `commit` onto `branch` of the remote, as someone else's push does: the remote-tracking ref stays where it
+   * was, so the app finds the branch moved when it pushes (or fetches). Returns the new commit
+   */
+  async commitOnRemote(branch: string, commit: RemoteCommit): Promise<string> {
+    return this.postForCommit("remote/commit", { branch, ...commit, files: Object.entries(commit.files) })
+  }
+
+  /** The remote refuses every push from now on with `message` (git shows it as `remote: <message>`), or takes them (`null`) */
+  async refuseRemotePushes(message: string | null): Promise<void> {
+    await this.setFixture("remote/refusal", { message })
   }
 
   /**
@@ -501,6 +525,16 @@ export class TestRepositoryBuilder {
   }
 
   private async setFixture(name: string, value: unknown): Promise<void> {
+    await this.postFixture(name, value)
+  }
+
+  /** POSTs `value` to the fixture `name`, which answers the commit it wrote or pushed */
+  private async postForCommit(name: string, value: unknown): Promise<string> {
+    return ((await (await this.postFixture(name, value)).json()) as { commitId: string }).commitId
+  }
+
+  /** POSTs `value` to the fixture `name` of the repository, which must answer 2xx: the response, whose JSON the caller reads */
+  private async postFixture(name: string, value: unknown): Promise<Response> {
     const response = await fetch(`${this.baseUrl}/repositories/${this.id}/${name}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -509,6 +543,7 @@ export class TestRepositoryBuilder {
     if (!response.ok) {
       throw new Error(`Failed to set the ${name} fixture: ${response.status} ${await response.text()}`)
     }
+    return response
   }
 
   private async getFixture<T>(name: string): Promise<T> {

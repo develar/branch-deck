@@ -2855,7 +2855,7 @@ of `bd safe-push` and of the app (`sync_core::target_conflict`, one core for bot
 A conflict refuses the start: `target_conflict` (exit 4) in `bd`, the error toast "Cannot start the Safe Push" with
 Update Project in the app; nothing is pushed or started. Update Project resolves the conflict locally (a resolve
 session), and the next start replays cleanly. A replay that fails for another reason holds nothing back (`NotRun`).
-The E2E server checks without the fetch: most templates name the repository itself as `origin`. The check replays a
+The E2E server runs the same check, its fetch from the remote of the template (`.git/upstream.git`). The check replays a
 `fixup!` commit as a commit of its own, but `REBASE_AUTOSQUASH` folds it into its target first. In a rare case the fold
 removes the conflict (the fixup undoes the conflicting change); then the check refuses a start that Patronus would
 take. `bd fold` (Squash Fixups in the app) before the start removes the difference.

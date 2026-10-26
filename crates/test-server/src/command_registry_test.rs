@@ -122,12 +122,11 @@ const ROUTED_IN_PAGE: &[(&str, usize)] = &[
   ("prefetch_branch_review", 1),
 ];
 
-/// The pushes that E2E tests answer in the page, counted per call of `routePush`, `routePushBranches` and
-/// `routeHeldPush` of push-helpers.ts (each answers both commands) and of `routePushNotingPatronus` of
-/// patronus-actions.spec.ts: the templates name the repository itself as `origin` (`.`), so a test of a rejected or
-/// moved remote, or of the progress, has no remote to push to. The one exception to [`MUTATING`]; the numbers only go
-/// down
-const PUSHES_IN_PAGE: &[(&str, usize)] = &[("push_branch", 107), ("push_branches", 101)];
+/// The pushes that E2E tests still answer in the page, counted per call of `routePush`, `routePushBranches` and
+/// `routeHeldPush` of push-helpers.ts (each answers both commands): the specs not yet moved to the remote of the
+/// repository, which the pushes of every other spec reach and assert (`remote_git_fixtures`,
+/// docs/design/e2e-testing.md#the-remote-of-a-repository). The one exception to [`MUTATING`]; the numbers only go down
+const PUSHES_IN_PAGE: &[(&str, usize)] = &[("push_branch", 53), ("push_branches", 53)];
 
 fn read_workspace_file(path: &str) -> String {
   let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(path);

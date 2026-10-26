@@ -1,5 +1,7 @@
 import type { Locator, Page, Request } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
+import { syncFromMenu } from "./sync-helpers"
+import type { TestRepositoryBuilder } from "./test-repository"
 import { TEST_SERVER_URL } from "./test-server-url"
 import { sendProgress } from "./wait-helpers"
 
@@ -51,6 +53,80 @@ export interface PushRequest {
   wholeStack?: boolean
   /** The unapplied branch `{prefix}/unapplied/<branchName>` (`push_branches` only) */
   unapplied?: boolean
+}
+
+/** How a push helper names the stack branch of a whole stack: `stack:<root>` */
+const STACK_KEY = "stack:"
+
+/** The virtual branch of `name` under the branch prefix of the templates, `user-name/virtual/<name>` */
+export function virtualBranch(name: string, prefix = "user-name"): string {
+  return `${prefix}/virtual/${name}`
+}
+
+/**
+ * The branch a push helper names `name`: `stack:<root>` (`wholeStackResultKey`) the stack branch of the whole stack of
+ * `root`, `user-name/stack/<root>`, any other name its virtual branch
+ */
+export function branchOf(name: string, prefix = "user-name"): string {
+  const root = name.startsWith(STACK_KEY) ? name.slice(STACK_KEY.length) : null
+  return root === null ? virtualBranch(name, prefix) : `${prefix}/stack/${root}`
+}
+
+/**
+ * The branches of `prefix` the remote of `repo` has, sorted, named as `branchOf` names them (a virtual branch by its
+ * name, a stack branch as `stack:<root>`): what the pushes left there
+ */
+export async function pushedBranches(repo: TestRepositoryBuilder, prefix = "user-name"): Promise<string[]> {
+  const names: Record<string, string> = { [`${prefix}/virtual/`]: "", [`${prefix}/stack/`]: STACK_KEY }
+  return Object.keys(await repo.getRemoteBranches())
+    .flatMap(branch => Object.entries(names).flatMap(([start, key]) => (branch.startsWith(start) ? [key + branch.slice(start.length)] : [])))
+    .sort()
+}
+
+/**
+ * Waits until the remote of `repo` has the branches `names` (`branchOf`) at the commits their local branches are at:
+ * the push of each reached the remote (docs/design/e2e-testing.md#the-remote-of-a-repository)
+ */
+export async function expectPushedToRemote(repo: TestRepositoryBuilder, names: readonly string[], prefix = "user-name"): Promise<void> {
+  const tips = Object.fromEntries(await Promise.all(names.map(async name => [name, await repo.revision(branchOf(name, prefix))] as const)))
+  await expect
+    .poll(async () => {
+      const remote = await repo.getRemoteBranches()
+      return Object.fromEntries(names.map(name => [name, remote[branchOf(name, prefix)] ?? null]))
+    })
+    .toEqual(tips)
+}
+
+/**
+ * The branches `names` (`branchOf`) pushed before the test, behind the app's back (`pushInTerminal`), each as the sync
+ * built it, without its newest `lacking` commits, or (`earlierBuild`) as an earlier build of the same commits; then a
+ * sync, so the rows show them on the remote. The commits pushed, by name
+ */
+export async function pushedBefore(
+  page: Page,
+  repo: TestRepositoryBuilder,
+  names: readonly string[],
+  { earlierBuild = false, lacking = 0 }: { earlierBuild?: boolean; lacking?: number } = {},
+): Promise<Record<string, string>> {
+  const pushed: Record<string, string> = {}
+  for (const name of names) {
+    pushed[name] = await repo.pushInTerminal(branchOf(name), { revision: `${branchOf(name)}~${lacking}`, earlierBuild })
+  }
+  await syncFromMenu(page)
+  return pushed
+}
+
+/**
+ * Holds the pushes at the remote of `repo` from now on (the held answer `push`): a push reaches the remote, which has
+ * its pack, and moves no ref until the release, so a test sees the push running. `arrived` waits until one reached
+ * the remote and waits there; `release` lets it and the later ones through
+ */
+export async function holdRemotePushes(repo: TestRepositoryBuilder): Promise<{ arrived: () => Promise<void>; release: () => Promise<void> }> {
+  await repo.holdRemoteAnswers({ hold: ["push"] })
+  return {
+    arrived: () => expect.poll(() => repo.getArrivedAnswers()).toContain("push"),
+    release: () => repo.holdRemoteAnswers({ release: ["push"] }),
+  }
 }
 
 /** The time of the newest commit of the templates: the page runs on a fixed clock */
@@ -150,7 +226,7 @@ export type PushResults = Record<string, PushResult | PushResult[]>
 
 /** The key of the results of the stack branch of the whole stack of `root` (`PushRequest.wholeStack`), apart from its root's */
 export function wholeStackResultKey(root: string): string {
-  return `stack:${root}`
+  return `${STACK_KEY}${root}`
 }
 
 function resultKey(request: PushRequest): string {

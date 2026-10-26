@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { availableRobots, expectPatronusStarts, startRequest } from "../helpers/patronus-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { expectPushedToRemote, pushedBranches } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, slotSafePush } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
@@ -120,7 +120,6 @@ test.describe("Landing needs", () => {
   test("should start anyway from the Safe Push popover with the override of what refuses it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupNeeds(page, setupRepo, syncAndWaitForBranches)
     const starts = await recordCommand(page, "start_patronus_robot")
-    const pushes = await routePush(page, {})
 
     await openSafePushWithKey(page, "lane-run")
     await expect(popoverStart(page)).toHaveText("Start Anyway")
@@ -130,6 +129,8 @@ test.describe("Landing needs", () => {
     expect(starts).toEqual([expect.objectContaining({ branchName: "lane-run", allow: { allowDangling: false, allowMissing: true } })])
     // Patronus got the start of lane-run, past the gate that refused it
     await expectPatronusStarts(repo, [startRequest("lane-run")])
-    expect(pushes.map(push => push.branchName)).toEqual(["lane-run"])
+    // it pushed lane-run alone, before the start
+    await expectPushedToRemote(repo, ["lane-run"])
+    expect(await pushedBranches(repo)).toEqual(["lane-run"])
   })
 })

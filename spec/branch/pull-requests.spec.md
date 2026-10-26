@@ -635,8 +635,11 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   ([Remote services](../../docs/design/e2e-testing.md#remote-services)); `POST /repositories/{id}/pull-requests` sets
   what it holds (an empty `headRefOid` means the local tip; `availablePullRequests` answers for `acme/monorepo`), and
   `GET` returns how often the app asked and every request GitHub got. The opener plugin is mocked and records the
-  opened URLs in `window.__OPENED_URLS__`. The E2E repositories have no remote: a push answered in the page
-  (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
+  opened URLs in `window.__OPENED_URLS__`. A push goes to the remote of the test repository, a bare
+  `.git/upstream.git` ([The remote of a repository](../../docs/design/e2e-testing.md#the-remote-of-a-repository)): a
+  branch pushed before is a push there behind the app's back (`pushInTerminal`, an earlier build of its commits for a
+  pull request that shows one), and a push these tests still answer in the page (`routePush`) gives a branch its
+  remote tip.
   No test answers a GitHub write in the page (`routeCommand`, a fulfilling `page.route`): the registry test fails it,
   and the page answers of the reads are pinned and only go down (`ROUTED_IN_PAGE`).
   [@test] ../../crates/test-server/src/command_registry_test.rs (`no_e2e_test_answers_a_write_in_the_page`)

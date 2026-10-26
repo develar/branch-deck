@@ -1,6 +1,7 @@
 //! What a test changes of the next sync of its repository (`POST /repositories/{id}/sync-overrides`,
-//! docs/design/e2e-testing.md): what the server can't compute from a template, which has no remote of its own (the
-//! remote statuses of the branches and the stack branches, as a push or a pull request left them) and the issue links of
+//! docs/design/e2e-testing.md): what the remote fixtures don't make (`remote_git_fixtures`: a push in a terminal, an
+//! earlier build, someone else's commit), the remote statuses of the branches and the stack branches as a test writes
+//! them, and the issue links of
 //! a repository of a YouTrack user. The next run of the repository's session takes them
 //! (`TestSessionEnvironment::reporter` puts `OverridingReporter` around the run's reporter), so the table of the
 //! session, its patches to the page and the table of the views are what a sync of such a repository makes; the runs
@@ -8,9 +9,6 @@
 //! repository is at, which such a test compares with what the page shows (the copy of a commit the sync built).
 //! `POST /repositories/{id}/rebase-in-progress` (`{"inProgress": bool}`) leaves the repository as an interrupted rebase
 //! does (`.git/rebase-merge`), so its syncs are deferred (`SyncDeferred`) by the real check, until it is set back.
-//! `POST /repositories/{id}/remote-commit` (`{"branch", "author", "file", "content", "timestamp"}`) pushes a commit of
-//! someone else onto a pushed branch from a clone of their own (`push_from_elsewhere`), which the repository has not
-//! fetched; it answers `{"id"}`, the head its pull request shows from then on (`setPullRequests`).
 //! `POST /repositories/{id}/branch-prefix` (`{"prefix": "team"}`) sets `branchdeck.branchPrefix` of `.git/config` as
 //! `git config` in a terminal does: no command of the app was asked, so the server's prefixes still name the old one
 
@@ -215,40 +213,6 @@ pub async fn set_rebase_in_progress(Path(id): Path<String>, State(state): State<
       StatusCode::INTERNAL_SERVER_ERROR
     }
   }
-}
-
-/// `POST /repositories/{id}/remote-commit`: the commit someone else pushes
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RemoteCommitRequest {
-  /// The full name of the branch (`user-name/virtual/auth`)
-  branch: String,
-  /// `Name <email>`
-  author: String,
-  file: String,
-  content: String,
-  timestamp: i64,
-}
-
-/// Pushes a commit of someone else onto a branch of the remote of the repository, which the repository has not fetched
-pub async fn push_remote_commit(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(request): Json<RemoteCommitRequest>) -> Result<Json<Value>, StatusCode> {
-  let path = repository_path(&state, &id)?;
-  let pushed = tokio::task::spawn_blocking(in_current_span(move || {
-    test_utils::git_test_utils::push_from_elsewhere(
-      std::path::Path::new(&path),
-      &request.branch,
-      &request.author,
-      &request.file,
-      &request.content,
-      request.timestamp,
-    )
-  }))
-  .await
-  .unwrap_or_else(|error| Err(error.to_string()));
-  pushed.map(|commit| Json(serde_json::json!({ "id": commit }))).map_err(|error| {
-    tracing::warn!("Cannot push the commit of someone else: {error}");
-    StatusCode::INTERNAL_SERVER_ERROR
-  })
 }
 
 /// The path of the test repository `id`; an unknown one is unprocessable

@@ -13,11 +13,13 @@ const THEIR_TIME = Date.parse("2024-01-02T07:00:00Z") / 1000
 
 /** Lev pushes a commit onto the remote branch of `test-branch` and its pull request #800 shows it, then a sync lists it */
 async function levPushes(page: Page, repo: TestRepositoryBuilder): Promise<string> {
-  const theirs = await repo.pushFromElsewhere("user-name/virtual/test-branch", {
+  // the branch as it is here reaches the remote, then Lev pushes a commit onto it, which this clone has not fetched
+  await repo.pushInTerminal("user-name/virtual/test-branch")
+  const theirs = await repo.commitOnRemote("user-name/virtual/test-branch", {
+    subject: "Change fix.txt",
     author: "Lev Leontev <lev@example.com>",
-    file: "fix.txt",
-    content: "fix\n",
     timestamp: THEIR_TIME,
+    files: { "fix.txt": "fix\n" },
   })
   await repo.setPullRequests(availablePullRequests(pullRequest("test-branch", 800, { headRefOid: theirs })))
   // a sync reads the remote branch as pushed; its listing of the pull requests shows the head the remote moved to

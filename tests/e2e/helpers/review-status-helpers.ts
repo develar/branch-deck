@@ -1,19 +1,16 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow, pushFromRowMenu } from "./branch-helpers"
-import type { PushResult } from "./push-helpers"
-import { expectPushedToast, routePush } from "./push-helpers"
+import { expectPushedToast } from "./push-helpers"
 
 /** The commit the review took (a robot's source, a pull request's head) that the local branch no longer is at */
 export const EARLIER_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 /**
- * Pushes the branch with the push of its row's menu and waits for it; the remote answers with `result` (`routePush`),
- * e.g. the remote status of a branch whose remote is at `EARLIER_COMMIT`. The menu, not the push button: the first push
- * of a branch whose landing pushes it has no button on the row (`isFirstPushInLanding`).
+ * Pushes the branch to the remote of the repository with the push of its row's menu and waits for it. The menu, not the
+ * push button: the first push of a branch whose landing pushes it has no button on the row (`isFirstPushInLanding`).
  */
-export async function pushBranchFromRow(page: Page, branchName: string, result: PushResult = {}): Promise<void> {
-  await routePush(page, { [branchName]: result })
+export async function pushBranchFromRow(page: Page, branchName: string): Promise<void> {
   await pushFromRowMenu(page, branchName)
   await expectPushedToast(page, branchName)
   // a branch with a push button on the row shows the progress, then the result, in its description until Escape or a

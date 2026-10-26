@@ -263,10 +263,16 @@ pub struct RemoteGatesFixture {
 
 /// Holds or releases answers of the fakes (`RemoteGatesFixture`): a held request reaches its fake and waits there
 pub async fn set_remote_gates(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<RemoteGatesFixture>) -> FixtureResult {
+  if fixture.fail.contains(&HeldAnswer::Push) {
+    return Err((
+      StatusCode::BAD_REQUEST,
+      "a push fails as the remote refuses it: POST /repositories/{id}/remote/refusal".to_string(),
+    ));
+  }
   let (host, _) = host_of(&state, &id)?;
   host.set_failing(&fixture.fail, &fixture.release);
   host.release_answers(&fixture.release);
-  host.hold_answers(&fixture.hold);
+  host.hold_answers(&fixture.hold).map_err(|e| (StatusCode::CONFLICT, format!("{e:#}")))?;
   Ok(StatusCode::OK)
 }
 

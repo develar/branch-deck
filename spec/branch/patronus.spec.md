@@ -1669,8 +1669,11 @@ explicit choice of the user, offered only where the approvals count in a pull re
   their subjects and `recheck`), which answers per branch what `POST /repositories/{id}/review-answers` sets (with
   `mergeRequest` the Space merge request found open for every branch and the answers asked with its review), else by the code owners of the branch's paths
   (none without `OWNERSHIP` files). The `/patronus` comment goes to the fake GitHub, whose bot replies as `…/patronus-replies` says
-  (👍 by default); a test asserts the comment GitHub got. The E2E repositories
-  have no remote: a push answered in the page (`routePush`, `pushBranchFromRow`) gives a branch its remote tip.
+  (👍 by default); a test asserts the comment GitHub got. A push of a Safe Push, a restart or a row goes to the remote
+  of the test repository, a bare `.git/upstream.git`, and the test asserts what it has (`expectPushedToRemote`): a
+  push held there shows its progress, a test reads what Patronus had done when it came, and a branch pushed before or
+  moved by someone else is a push or a commit there behind the app's back
+  ([The remote of a repository](../../docs/design/e2e-testing.md#the-remote-of-a-repository)).
   No test answers a Patronus write in the page (`routeCommand`, a fulfilling `page.route`): the registry test fails it,
   and the page answers of the reads are pinned and only go down (`ROUTED_IN_PAGE`).
   [@test] ../../crates/test-server/src/command_registry_test.rs (`no_e2e_test_answers_a_write_in_the_page`)

@@ -761,8 +761,8 @@ pub async fn fetch_baseline(
   .await
 }
 
-/// The target conflict check of a Safe Push start, on the same core but without its fetch: most templates name the
-/// repository itself as `origin` (`.`), and a fetch would put the baseline on the checked out branch
+/// The target conflict check of a Safe Push start, on the app's core: the fetch of the target from the remote of the
+/// template, then the replay
 pub async fn check_target_conflict(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::target_conflict::TargetConflictParams>,
@@ -770,20 +770,19 @@ pub async fn check_target_conflict(
   let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
   let git_executor = state.git_executor.clone();
   run_command("check the target", move || {
-    anyhow::Ok(sync_core::target_conflict::check_branch_target(&git_executor, &branch_prefix, &params, None))
+    anyhow::Ok(sync_core::target_conflict::target_conflict_core(&git_executor, &branch_prefix, &params))
   })
   .await
 }
 
 /// The app's push of one branch, through the same guarded push (`push_guard`: the robots of the fake Patronus, then the
-/// repository lock and the refusals of parked, landed, held and not built branches, then the core). A test of a push
-/// answers it in the page (`routePush`) unless it tests the push itself
+/// repository lock and the refusals of parked, landed, held and not built branches, then the core), to the remote of
+/// the template (`remote_git_fixtures`)
 pub async fn push_branch(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::push::PushBranchParams>) -> Response {
   guarded_push(state, &headers, "push the branch", params.as_stack(), sync_core::push::PushOutcome::of_stack).await
 }
 
-/// The app's stack push, through the same guarded push. Most templates name the repository itself as `origin` (`.`), so
-/// a test of a push answers it in the page (`routePushBranches`); the progress stays there too
+/// The app's stack push, through the same guarded push, to the remote of the template
 pub async fn push_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::push::PushBranchesParams>) -> Response {
   guarded_push(state, &headers, "push the branches", params, Ok).await
 }

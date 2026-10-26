@@ -9,6 +9,7 @@
 //! test fetches as the browser would.
 
 use crate::remote_fixtures::{PatronusProfilesFixture, fixture_start_options};
+use crate::remote_git_fixtures::FakeRemote;
 use crate::review_fixtures::{ReviewAnswers, review_check_answer};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
@@ -58,7 +59,8 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::RepositoryView
     | HeldAnswer::GitHubAuth
     | HeldAnswer::YouTrackAuth
-    | HeldAnswer::CliTools => None,
+    | HeldAnswer::CliTools
+    | HeldAnswer::Push => None,
   }
 }
 
@@ -95,6 +97,11 @@ pub struct RemoteHost {
   /// The app's YouTrack service on the token file of `app_data`; a fixture of the sign-in makes it read the file again
   youtrack_service: YouTrackService,
   youtrack_sign_in: YouTrackSignInSession,
+  /// The remote of the repository (`.git/upstream.git`) as its pre-receive hook asks it: held and refused pushes
+  git_remote: FakeRemote,
+  /// A test wrote someone else's commit onto the remote (`POST …/remote/commit`): only then the session fetches the
+  /// branches whose pull request moved past what it knows (`TestFactSources::fetch_moved_remotes`)
+  remote_moved_behind: std::sync::atomic::AtomicBool,
   git: GitCommandExecutor,
   /// The answers a test holds at the fakes (`hold_answers`), each until it releases it or the repository is deleted
   held: Mutex<HashMap<HeldAnswer, Arc<FakeGate>>>,
@@ -132,6 +139,9 @@ pub enum HeldAnswer {
   YouTrackAuth,
   /// The statuses of the command-line tools of Settings → Tools (`cli_tools_status`, in the bridge)
   CliTools,
+  /// A push to the remote of the repository (its pre-receive hook, `remote_git_fixtures`): the remote has the pack and
+  /// moves no ref until the release
+  Push,
 }
 
 impl RemoteHost {
@@ -164,7 +174,8 @@ impl RemoteHost {
       clock: PAGE_CLOCK_START,
       ..RepositoryState::default()
     });
-    // the remote of a test repository is the repository itself (`origin` is `.`): GitHub has its branches
+    // GitHub has the branches of the repository itself, not only those a push gave its remote (`.git/upstream.git`): a
+    // pull request of a branch whose push a spec answers in the page still finds its head
     let (git_of_tip, path_of_tip) = (git.clone(), repository_path.to_string());
     repository.set_branch_tip(Box::new(move |branch| {
       resolve_commit(&git_of_tip, &path_of_tip, &format!("refs/heads/{branch}")).ok().flatten()
@@ -196,6 +207,8 @@ impl RemoteHost {
       youtrack_server,
       youtrack_service,
       youtrack_sign_in: YouTrackSignInSession::default(),
+      git_remote: FakeRemote::start(repository_path),
+      remote_moved_behind: std::sync::atomic::AtomicBool::new(false),
       git,
       held: Mutex::default(),
       failing: Mutex::default(),
@@ -206,6 +219,21 @@ impl RemoteHost {
 
   pub fn patronus(&self) -> &FakePatronus {
     &self.patronus
+  }
+
+  /// The fake remote the pre-receive hook of the repository's remote asks
+  pub const fn git_remote(&self) -> &FakeRemote {
+    &self.git_remote
+  }
+
+  /// A test wrote someone else's commit onto the remote of the repository
+  pub fn note_remote_moved_behind(&self) {
+    self.remote_moved_behind.store(true, Ordering::SeqCst);
+  }
+
+  /// Whether a test moved the remote behind the app's back, so the session fetches the moved branches of pull requests
+  pub fn remote_moved_behind(&self) -> bool {
+    self.remote_moved_behind.load(Ordering::SeqCst)
   }
 
   pub fn patronus_service(&self) -> Arc<PatronusService> {
@@ -340,10 +368,11 @@ impl RemoteHost {
   }
 
   /// Holds `answers` at their fakes from now on: a request waits there until `release_answers`
-  pub fn hold_answers(&self, answers: &[HeldAnswer]) {
-    let mut held = self.held.lock().expect("held answers lock");
+  pub fn hold_answers(&self, answers: &[HeldAnswer]) -> anyhow::Result<()> {
+    let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     for answer in answers {
       let gate = match answer {
+        HeldAnswer::Push => self.git_remote.hold()?,
         HeldAnswer::PullRequests => self.github.hold_with_body("POST", "/graphql", "author:@me"),
         HeldAnswer::Robots | HeldAnswer::Readiness | HeldAnswer::RobotProblems => {
           let (method, path) = patronus_route(*answer).expect("a route of the fake Patronus");
@@ -362,6 +391,7 @@ impl RemoteHost {
         before.open();
       }
     }
+    Ok(())
   }
 
   /// Fails `fail` from now on (an answer the bridge gives, a route of the fake Patronus), and `released` no more; before
@@ -399,6 +429,15 @@ impl RemoteHost {
     let gate = self.held.lock().expect("held answers lock").get(&answer).cloned();
     if let Some(gate) = gate {
       gate.pass().await;
+    }
+  }
+
+  /// Resolves once a request reached the held answer `answer`, at once while it is not held
+  #[cfg(test)]
+  pub async fn arrival(&self, answer: HeldAnswer) {
+    let gate = self.held.lock().expect("held answers lock").get(&answer).cloned();
+    if let Some(gate) = gate {
+      gate.arrived().await;
     }
   }
 

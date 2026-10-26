@@ -1,7 +1,7 @@
 // @spec spec/branch/pull-requests.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned, expectGap } from "../helpers/column-helpers"
 import {
@@ -16,7 +16,7 @@ import {
   reviewer,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
-import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
+import { expectPushedToast, pushedToast, routePush, virtualBranch } from "../helpers/push-helpers"
 import {
   EARLIER_COMMIT,
   clickStatusChipAfterHover,
@@ -24,7 +24,6 @@ import {
   openBranchPreview,
   landingRow,
   openLandingOverview,
-  pushBranchFromRow,
   switchBranchPreview,
 } from "../helpers/review-status-helpers"
 import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
@@ -140,9 +139,15 @@ test.describe("Pull request chip", () => {
     await expect(popover.getByTestId("pull-request-outdated")).toHaveText("Shows 01234567; the branch has changed since: push to update the pull request.")
   })
 
-  test("should say only quietly that the pull request shows an earlier build of the same commits", async ({ page }) => {
-    // the remote branch is at the head and has the commits of the branch, which the sync rebuilt on a newer baseline
-    await pushBranchFromRow(page, "feature-api", { remoteTip: EARLIER_COMMIT })
+  test("should say only quietly that the pull request shows an earlier build of the same commits", async ({ page, repo, syncAndWaitForBranches }) => {
+    // the remote branch is an earlier build of the commits of the branch, which the sync rebuilt since, and the pull
+    // request shows it; the app starts again, so its session lists the pull requests anew
+    const earlier = await repo.pushInTerminal(virtualBranch("feature-api"), { earlierBuild: true })
+    await repo.setPullRequests({ ...ALL, ...availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, { ...OUTDATED, headRefOid: earlier }) })
+    await repo.closeSessions()
+    await page.reload()
+    await syncAndWaitForBranches()
+    await expectNothingToPush(findBranchRow(page, "feature-api"))
     await expect(getChip(page, "feature-api").getByTestId("pull-request-outdated-dot")).toHaveCount(0)
     const popover = await hoverChip(page, "feature-api")
     await expect(popover.getByTestId("pull-request-rebased")).toHaveText("Shows an earlier build of the same commits.")

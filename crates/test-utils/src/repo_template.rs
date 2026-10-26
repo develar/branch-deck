@@ -1,5 +1,6 @@
 use crate::git_test_utils::{NO_BACKGROUND_MAINTENANCE, append_config, git_command};
 use crate::history::{HistoryCommit, HistoryStream};
+use crate::remote_git::add_bare_origin;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
@@ -128,10 +129,8 @@ impl RepoTemplate {
     }
     history.write(output_path)?;
 
-    // a fake origin remote pointing to self for testing, as `git remote add origin .` writes it
-    append_config(output_path, &[("remote.origin.url", "."), ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")]);
-
-    Ok(())
+    // the remote a clone came from, its `master` at `origin/master`: a push reaches it, a fetch reads it
+    add_bare_origin(output_path, "master")
   }
 }
 
@@ -139,6 +138,7 @@ impl RepoTemplate {
 pub mod templates {
   use super::RepoTemplate;
   use crate::git_test_utils::{disable_background_maintenance, git_command};
+  use crate::remote_git::{BARE_ORIGIN, add_bare_origin};
   use anyhow::Result;
   use std::fmt::Write;
   use std::fs;
@@ -1328,9 +1328,9 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       }
       commit("Initial commit", &initial_files, 1704117600)?;
 
-      git(&["init", "-q", "--bare", "--initial-branch=master", ".git/upstream.git"], None)?;
-      disable_background_maintenance(&output_path.join(".git/upstream.git"));
-      git(&["remote", "add", "origin", ".git/upstream.git"], None)?;
+      git(&["init", "-q", "--bare", "--initial-branch=master", BARE_ORIGIN], None)?;
+      disable_background_maintenance(&output_path.join(BARE_ORIGIN));
+      git(&["remote", "add", "origin", BARE_ORIGIN], None)?;
       git(&["push", "-q", "origin", "master"], None)?;
       git(&["branch", "-q", "--set-upstream-to=origin/master", "master"], None)?;
 
@@ -1376,7 +1376,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
           anyhow::ensure!(output.status.success(), "robot commit failed: {}", String::from_utf8_lossy(&output.stderr));
         }
       }
-      git(&["push", "-q", ".git/upstream.git", "HEAD:refs/heads/master"], None)?;
+      git(&["push", "-q", BARE_ORIGIN, "HEAD:refs/heads/master"], None)?;
       git(&["checkout", "-q", "master"], None)?;
 
       commit("(feature-auth) Add login", &[("src/auth.txt", "login\n")], 1704118500)?;
@@ -1472,14 +1472,14 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       git_add_all()?;
       git_commit("partial step 1", t3)?;
 
-      // Add origin remote and set origin/main to HEAD (current state with all commits)
-      git_command().args(["remote", "add", "origin", "."]).current_dir(output_path).output()?;
+      // origin/main at HEAD (current state with all commits), and the remote that has it
       let current_head = String::from_utf8(git_command().args(["rev-parse", "HEAD"]).current_dir(output_path).output()?.stdout)?;
       let current_head = current_head.trim();
       git_command()
         .args(["update-ref", "refs/remotes/origin/main", current_head])
         .current_dir(output_path)
         .output()?;
+      add_bare_origin(output_path, "main")?;
 
       // Create archived branches with their own histories, starting from the initial commit
       let date = "2025-01-11";

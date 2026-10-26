@@ -23,6 +23,7 @@ use tower_http::trace::TraceLayer;
 pub mod channel_commands;
 pub mod cli_tools_fixtures;
 pub mod remote_fixtures;
+pub mod remote_git_fixtures;
 pub mod remote_host;
 pub mod review_fixtures;
 pub mod session_routes;
@@ -63,6 +64,8 @@ mod review_requests_test;
 
 #[cfg(test)]
 mod remote_fixtures_test;
+#[cfg(test)]
+mod remote_git_fixtures_test;
 
 #[cfg(test)]
 mod reword_test;
@@ -180,7 +183,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/revision", get(sync_overrides::get_revision))
     .route("/repositories/{id}/rebase-in-progress", post(sync_overrides::set_rebase_in_progress))
     .route("/repositories/{id}/branch-prefix", post(sync_overrides::set_branch_prefix_in_terminal))
-    .route("/repositories/{id}/remote-commit", post(sync_overrides::push_remote_commit))
     .route(
       "/repositories/{id}/pull-requests",
       post(remote_fixtures::set_pull_requests).get(remote_fixtures::get_github_log),
@@ -213,6 +215,10 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       post(review_fixtures::set_review_answers).get(review_fixtures::get_review_answers),
     )
     .route("/repositories/{id}/patronus-replies", post(review_fixtures::set_patronus_replies))
+    .route("/repositories/{id}/remote", get(remote_git_fixtures::get_remote))
+    .route("/repositories/{id}/remote/push", post(remote_git_fixtures::push_in_terminal_route))
+    .route("/repositories/{id}/remote/commit", post(remote_git_fixtures::commit_on_remote_route))
+    .route("/repositories/{id}/remote/refusal", post(remote_git_fixtures::set_remote_refusal))
     .route("/repositories/{id}/github-answer", post(review_fixtures::set_github_answer))
     .route("/repositories/{id}/update", post(updater::set_update))
     .route(

@@ -1148,7 +1148,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   ошибка, число `routeCommand` каждой читающей команды закреплено и только падает; `routeCommandError` остаётся путём
   ошибки. Ответом страницы считается и `page.route` на `/invoke/<name>`, который отвечает без `route.fetch()`.
   Исключение среди записей — push (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`): origin шаблонов — `.`, отказ
-  или сдвиг remote взять неоткуда; его число тоже закреплено и только падает. R12 (переизобретения в test-server)
+  или сдвиг remote взять неоткуда; его число тоже закреплено и только падает (с s9-1 origin шаблонов — bare
+  `.git/upstream.git`, Safe Push-спеки утверждают его, `PUSHES_IN_PAGE` 53/53; s9-2 доводит до 0). R12 (переизобретения в test-server)
   удаляется из реестра расхождений.
 - **Модель размещения (уточнено по коду при планировании):**
   - fakes — по одному на `TestRepository`, лениво, каждый на своём loopback-порту через общий
@@ -2150,8 +2151,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `git/push.ts`, `git/stack-push.ts`, `git/new-pull-request.ts`, `git/unapplied-push.ts`, `usePushButton.ts`,
   `push_branch`, `push_branches`, `push_hold.rs`, `bd push`; (5) `SetIssueState`.
   **Порядок приземления (уточнено при планировании, 2026-10-26):** (0) до движка — реальный remote в e2e: origin
-  шаблонов становится bare `.git/upstream.git` (как у `behind_upstream`), fixture-маршруты держат push на pre-receive
-  fifo, отказывают ему или сдвигают remote-ветку, спеки утверждают refs remote и журналы fakes вместо ответа страницы;
+  шаблонов становится bare `.git/upstream.git` (как у `behind_upstream`), fixture-маршруты держат push в pre-receive
+  hook у gate fake-remote хоста (held answer `push`), отказывают ему или сдвигают remote-ветку, спеки утверждают refs
+  remote и журналы fakes вместо ответа страницы (s9-1: Safe Push-спеки, `PUSHES_IN_PAGE` 53/53; s9-2: остальные);
   `PUSHES_IN_PAGE` падает до 0 и `pushed_in_page` удаляется — иначе push внутри `execute(Land)` в e2e ответить нечем.
   Ядро push (`push_guarded` + `push_locked` → `operations::push`: допуск по ref, lock на проверки и заморозку, сеть
   после unlock) извлекается **до** `Land`, потому что `Land` пушит внутри плана; тела `push_branch(es)` и `bd push`

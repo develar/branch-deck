@@ -189,10 +189,10 @@ Mock implementation:
   count. The page answers of the read commands are pinned per command (`ROUTED_IN_PAGE`, five commands: a refused landing
   gate, a conflict of the target, the repository config, the status of the agent CLI and the read ahead of a branch
   review, states that neither the fixtures of the fakes nor the templates make yet; no fact of a session is among them),
-  and the pushes
-  (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`/`routeHeldPush`: the templates name the repository itself as
-  `origin`, so a rejected or moved remote has nowhere to come from) are the one exception among the writes. Only the
-  remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the end of
+  and the pushes of the specs not yet moved to the remote of the repository
+  (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`/`routeHeldPush`; every other push goes to that remote and the
+  test asserts what it has, [The remote of a repository](#the-remote-of-a-repository)) are the one exception among
+  the writes. Only the remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the end of
   the app's push writes it into the table (`answeredInSession` posts its remote statuses to `POST
   /sessions/pushed-in-page`, the server's `TableState::end_push` through `Sessions::apply`; unlike the app's push it
   moved no remote-tracking ref, so the inputs the session knows stay; one that pushed (no `remoteMoved`) lists the pull
@@ -273,9 +273,10 @@ Mock implementation:
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_subscription_answers_its_view_then_the_patches_up_to_the_version_a_sync_answers`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app`)
   [@test] ../../crates/test-server/src/repository_lifecycle_test.rs (`deleting_a_repository_closes_its_sessions`)
-- **What a sync reports differently**: a template has no remote of its own, so a test that needs a branch on the
-  remote, a stack branch as a push or a pull request left it, or the issue links of a YouTrack user sets them for the
-  next run of the repository's session: `POST /repositories/{id}/sync-overrides` (`setSyncOverrides`, or the
+- **What a sync reports differently**: a branch on the remote comes from the remote of the repository (a push in a
+  terminal, [The remote of a repository](#the-remote-of-a-repository)); a test that needs a remote status that remote
+  does not make (a stack branch as a test writes it), or the issue links of a YouTrack user, sets it for the next run
+  of the repository's session: `POST /repositories/{id}/sync-overrides` (`setSyncOverrides`, or the
   `syncOverrides` option of `setupRepo` for the first sync) with `remote` (branch -> the fields of its
   `RemoteStatusUpdate` that replace the computed ones, `keepUnpushed: n` for the newest `n` of the commits the sync
   found the remote lacking; null: no status of the branch), `stacks` (root -> the fields of its `StackBranchUpdate`)
@@ -455,12 +456,11 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`PatronusClient::with_web_url`), so a robot links where the app links it. The service is replaced on each Patronus
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
   so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
-- **Remote branches**: a template's `origin` is the repository itself (`.`), whose virtual branches a sync rewrites and
-  whose remote statuses a test sets (`sync-overrides`), so the fetch of a branch whose pull request moved
-  ([Remote Status](remote-status.md#moved-remote-branches)) runs only in a repository with a remote of its own
-  (`OWN_REMOTE`, `.git/upstream.git`): `TestFactSources::fetch_moved_remotes` ends the others unfetched
-  (`skip_in_session`). `POST /repositories/{id}/remote-commit` (`pushFromElsewhere`) gives a repository that remote, with
-  what it has of `origin` and the branch as it is here, and pushes someone else's commit onto the branch there; its id
+- **Remote branches**: the fetch of a branch whose pull request moved ([Remote Status](remote-status.md#moved-remote-branches))
+  runs only in a repository whose remote a test moved behind the app's back (`POST …/remote/commit`,
+  `repo.commitOnRemote`, [The remote of a repository](#the-remote-of-a-repository)): the other tests set the remote
+  statuses of their branches (`sync-overrides`) and their pull requests show heads that no fetch may bring in, so
+  `TestFactSources::fetch_moved_remotes` ends their asks unfetched (`skip_in_session`). The id `commitOnRemote` answers
   is the head the test's pull request then shows.
 - **Bridge**: the reads of the session's robots (`TestFactSources`: `list_robots`, `poll_robots`, `failing_robots`,
   `robot_problems` and `robot_details_of` of the bridge, the merge profiles, `profiles_of`, and the review readiness,
@@ -514,8 +514,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `refs/heads/user-name/stack/<root>`, `expectPatronusStarts` waits for them), `restarts`, `cancels` and `statusReads`,
   robot ids. A Safe Push test asserts the start Patronus got, not the parameters the page sent, and no test answers a
   start, a restart, a cancel, the start options, a robot status or the target branch in the page; the order of a push
-  answered in the page and the robot actions around it is the log the push's route reads when it comes
-  (`routePushNotingPatronus` in `patronus-actions.spec.ts`)
+  and the robot actions around it is the log a test reads while the push waits at the remote (`patronusAtPush` in
+  `patronus-actions.spec.ts`, [The remote of a repository](#the-remote-of-a-repository))
 - **GitHub**: the host holds `FakeGitHub` with a `FakeGitHubRepository` (`crates/github/src/fake_repository.rs`) and
   the `GitHubService` of the app on it, whose token chain asks only the token file of the host's own app data directory
   (`<test root>/<id>.app-data`, beside the repository, deleted with it)
@@ -528,7 +528,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `assignees`, `GET issues/comments/<id>` (its reactions), `GET issues/<n>/comments?since`, `GET branches/<b>` and
   `GET rules/branches/<b>`; a write changes what the next read answers. Its Patronus bot answers a `/patronus` comment
   at once: 👍, or 👎 and a `⚠️` comment of the reason, as `patronus_replies` says (accepted by default). A branch
-  is on GitHub when the test repository has it (its `origin` is itself). The service is replaced on each fixture.
+  is on GitHub when the test repository has it, not only when a push gave it to the remote of the repository: a pull
+  request of a branch whose push a spec still answers in the page finds its head. The service is replaced on each fixture.
 - **GitHub bridge**: the reads of the session's pull requests, of the rules of their bases and of the review requests
   of others (`TestFactSources`: `list_pull_requests_of`, counted, `branch_rules_of` of the bridge, each holding the
   repository as a command does, and `review_requests_of`, counted, which answers the fixture of the review requests),
@@ -620,6 +621,46 @@ log of the fake). No test answers a remote write in the page: the registry test 
   and not ended, as the session holds it), and what reached the fake in order: `commands` (`query`, `issues`), the keys
   of the issue `lookups`, and `meTokens`, the token of each `GET api/users/me`. A test asserts these, and no test
   answers a YouTrack command in the page.
+
+#### The remote of a repository
+
+Every template has the remote a clone leaves: a bare repository at `.git/upstream.git` (`test_utils::remote_git`,
+inside `.git`, so a copy of the template has its own and no status shows it), `origin` with the usual fetch refspec,
+its `master` (`main` of `archived_branches`) at `origin/master`. The app's push reaches it through the real core
+(`guarded_push` of the bridge: the robots of the fake, the repository lock, `push_refs` with its lease and progress),
+and the fetches of the target conflict check and of Update Project read it; nothing of the page answers a push of a
+spec on it. A test asserts what the remote has, not what the page sent: `GET /repositories/{id}/remote`
+(`repo.getRemoteBranches()`) answers its branches, `expectPushedToRemote(repo, names)` of `push-helpers.ts` waits
+until the remote has each branch at the commit of the local one (a virtual branch by its name, a stack branch as
+`stack:<root>`, `branchOf`), and `pushedBranches(repo)` lists what is there, the anchor of a "nothing was pushed"
+after a step that would have pushed.
+
+- **Behind the app's back** (`remote_git_fixtures.rs`): `POST …/remote/push` (`repo.pushInTerminal(branch, {
+  revision, earlierBuild })`, `pushedBefore(page, repo, names, { lacking, earlierBuild })` with the sync after it)
+  pushes a commit of the repository as `git push --force` in a terminal does, the remote-tracking ref moved too: a
+  branch pushed before, without its newest `lacking` commits, or an earlier build of the same commits (a copy of the
+  commits after `origin/master`, each committed a day earlier: the same commits by content under other ids, what a
+  robot or a pull request took before the sync rebuilt the branch). `POST …/remote/commit`
+  (`repo.commitOnRemote(branch, { subject, author, timestamp, files })`) writes someone else's commit onto a branch of
+  the remote, the remote-tracking ref left where it was: the next push finds the branch moved, with that commit to
+  drop. A robot that ran on what the remote has names its commit (`sourceRevision`, `~1` of its source branch for one
+  the sync rebuilt with a commit more); a fixture known only after a push in a terminal starts the app again
+  (`closeSessions`, a reload), so the new session lists the robots and the pull requests anew.
+- **Held and refused**: the held answer `push` (`holdRemotePushes(repo)`: `holdRemoteAnswers({ hold: ["push"] })`,
+  `arrived`, `release`) holds every push at the remote: its pre-receive hook (written on the first hold or refusal)
+  posts the refs of the push with `curl` to the fake remote of the host (`FakeRemote`, a loopback server of its own),
+  which waits at the gate.
+  The remote has the pack by then and no ref moved, so the page shows the push running with the progress git reported
+  (a percent and its line, never a fixed one), and a test reads what the fakes had done when the push came
+  (`patronusAtPush`); the deletion of the repository releases it, as every held answer. `POST …/remote/refusal`
+  (`repo.refuseRemotePushes(message)`) makes the remote refuse every push with that message, which git shows as
+  `remote: <message>` (`fail: ["push"]` of the gates is refused for it); no ref moves. The barrier is the hook and the
+  gate, never a sleep or a timer.
+  [@test] ../../crates/test-server/src/remote_git_fixtures_test.rs (`a_push_of_the_app_reaches_the_remote_of_the_template`)
+  [@test] ../../crates/test-server/src/remote_git_fixtures_test.rs (`a_refused_push_moves_nothing_and_a_held_one_waits_at_the_remote`)
+  [@test] ../../crates/test-server/src/remote_git_fixtures_test.rs (`a_commit_on_the_remote_is_what_the_next_push_finds`)
+  [@test] ../../crates/test-utils/src/remote_git_test.rs (`a_template_has_its_own_remote_which_a_terminal_and_someone_else_push_to`)
+  [@test] ../../crates/test-utils/src/remote_git_test.rs (`an_earlier_build_is_the_same_commits_under_other_ids`)
 
 ## Alternatives Considered
 

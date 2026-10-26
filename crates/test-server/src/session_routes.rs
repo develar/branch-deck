@@ -4,8 +4,8 @@
 //! `{"result": …}` first, then each patch as `{"progress": <ViewPatch>}` until `unsubscribe_view` or the deletion of the
 //! repository (`delete_repository` closes its sessions, so the stream ends and the deletion does not wait for it); a
 //! failure answers `{"result": {"status": "error", "error": <ApiError>}}` on the stream, the JSON of the app. The next run
-//! of a session takes the overrides a test set for its repository (`sync_overrides`). A push the page answered (the
-//! templates have no remote) reaches the session through `pushed_in_page`. The clock of the sessions of a repository stands
+//! of a session takes the overrides a test set for its repository (`sync_overrides`). A push the page answered (a spec
+//! not yet moved to the remote of the repository, `remote_git_fixtures`) reaches the session through `pushed_in_page`. The clock of the sessions of a repository stands
 //! still until its test moves it (`POST /repositories/{id}/clock/advance`, `advance_clock`). The facts of the sessions are read by the scheduler of the
 //! facts, as the app reads them, over the fakes of each test repository (`TestFactSources`); a window asks one again with
 //! `refresh_facts`.
@@ -216,15 +216,15 @@ impl FactSources for TestFactSources {
     Box::pin(async move { vec![None; asks.len()] })
   }
 
-  /// Only a repository with a remote of its own (`OWN_REMOTE`, `pushFromElsewhere`): the `origin` of a template is the
-  /// repository itself, whose virtual branches a sync rewrites and whose remote statuses its tests set
-  /// (`sync-overrides`), so a pull request there shows a head that no fetch of `origin` may bring in
+  /// Only a repository whose remote a test moved behind the app's back (`commitOnRemote`): the others set the remote
+  /// statuses of their branches (`sync-overrides`), and their pull requests show heads that no fetch may bring in
   fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
     Box::pin(async move {
       let Some(state) = self.state.upgrade() else {
         return;
       };
-      if std::path::Path::new(&key.worktree).join(test_utils::git_test_utils::OWN_REMOTE).exists() {
+      let moved = repository_by_path(&state, &key.worktree).ok().and_then(|repository| repository.existing_remote()).is_some_and(|host| host.remote_moved_behind());
+      if moved {
         fetch_in_session(&state.sessions, &state.git_executor, key, asks).await;
       } else {
         skip_in_session(&state.sessions, key, asks).await;
@@ -379,8 +379,8 @@ pub struct PushedInPageRequest {
   moved: bool,
 }
 
-/// A push the page answered (`routePush` of push-helpers.ts: the templates name the repository itself as `origin`, so a
-/// test of a moved remote or of the progress fakes the remote there): its outcome goes into the table of the session
+/// A push the page answered (`routePush` of push-helpers.ts, in a spec not yet moved to the remote of the repository,
+/// `remote_git_fixtures`): its outcome goes into the table of the session
 /// of the repository as the end of the app's push writes it (`TableState::end_push`), and the answer is the version of
 /// the view whose patch has it (`None`: no window shows the repository), which the page's answer names as the app's
 /// command does, with the statuses as the app's push answers them (their action derived). Unlike the app's push

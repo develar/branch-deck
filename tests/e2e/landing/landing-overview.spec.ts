@@ -20,7 +20,7 @@ import {
   willFail,
 } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls } from "../helpers/pull-request-helpers"
-import { pushedToast, routePush } from "../helpers/push-helpers"
+import { expectPushedToRemote, pushedToast, pushedBranches } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { holdToast } from "../helpers/toast-helpers"
@@ -187,7 +187,6 @@ test.describe("Landing overview", () => {
     const repo = await setupRepo("stacked_branches", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
     await repo.setReviewAnswers({ answers: { docs: NO_REVIEW_NEEDED, "stack:auth": AWAITING_CODE_OWNER } })
     await syncAndWaitForBranches()
-    await routePush(page, {})
     let popover = await openLandingOverview(page)
     await expect(landingRow(popover, "auth").getByText("4 branches · 4 commits")).toBeVisible()
     await expect(landingRow(popover, "login")).toHaveCount(0)
@@ -200,6 +199,9 @@ test.describe("Landing overview", () => {
     await runAndWaitForAnswer(page, "start_patronus_robot", () => docs.getByTestId("next-step").click())
     await expect(popover).toBeHidden()
     await expectPatronusStarts(repo, [startRequest("docs")])
+    // it pushed docs alone, before the start
+    await expectPushedToRemote(repo, ["docs"])
+    expect(await pushedBranches(repo)).toEqual(["docs"])
     await expect(findBranchRow(page, "docs")).toBeInViewport()
     await page.mouse.move(0, 0)
 
@@ -241,14 +243,14 @@ test.describe("Landing overview", () => {
   })
 
   test("should be hidden while nothing is on the way to master and nothing ran in the last day", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("simple")
+    const repo = await setupRepo("simple")
     await syncAndWaitForBranches()
-    await routePush(page, {})
     const indicator = page.getByTestId("landing-indicator")
     // not on Space, no pull requests GitHub lists: the push is the step
     await expect(indicator).toHaveAccessibleName("On the way to master: 1 move is yours")
     await getPushButton(findBranchRow(page, "test-branch")).click()
     await expect(pushedToast(page, "test-branch")).toBeVisible()
+    await expectPushedToRemote(repo, ["test-branch"])
     // pushed: it lands through its pull request, which nobody opened; the work still waits
     await expect(indicator).toHaveAccessibleName("On the way to master: 1 waiting")
   })

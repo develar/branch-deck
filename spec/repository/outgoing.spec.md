@@ -413,8 +413,8 @@ branch on GitHub, so the session fetches a branch whose open pull request shows 
 
 - `pnpm test:unit` covers the words and the colours of a push (`src/lib/push-summary.test.ts`).
 - `pnpm e2e` covers the commits of others on a remote branch (`tests/e2e/outgoing/remote-commits.spec.ts`) against a
-  bare remote the test gives the repository (`pushFromElsewhere`), the only repository whose moved remotes the server
-  fetches.
+  the remote of the template, where the test writes their commit (`commitOnRemote`): the only kind of repository whose
+  moved remotes the server fetches.
 - `pnpm e2e` covers the push (`tests/e2e/outgoing`). The E2E server has no remote:
   the tests answer `push_branch` in the page (`routePush`) to turn branches into a plain push, a force push, up to
   date or a remote that moved, and read the `expectedRemote` the pushes sent. A result can send progress to the push's
