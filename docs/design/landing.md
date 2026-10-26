@@ -124,7 +124,8 @@ The specs are the contract of each part:
   `--check` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
   the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
   bd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a
-  robot bd started included, so after a bd landing they stay open while the app doesn't run, and the agent says so.
+  robot bd started included (`CloseLandedPullRequests`, an operation of the session of the robot's repository, D7), so
+  after a bd landing they stay open while the app doesn't run, and the agent says so.
   What merged Safe Pushes landed, bd decides as the rows do (below): `bd status` names it (`landed_by`), `bd push`
   leaves a branch landed whole out (`skipped`), `bd safe-push` refuses it (`landed`), and both land only the rest of a
   piece or the whole stack.
@@ -260,8 +261,10 @@ The whole stack is an object of its own in the app, beside its branches, named "
   branch's tip, or the remote branch has no commit the branch lacks. A head compared by hash alone left a pull request
   of a branch the sync had only rebuilt on a newer baseline open, though all of it landed. Which branches it landed is
   one rule, in Rust for the app and `bd` (`repository_model::patronus_view`, `landedByRobot` of the repository view),
-  and so is which pull requests the merge closes (`domain_policy::landed::pull_requests_to_close`: the app closes them,
-  `bd robot` lists them as `closes` and closes none): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
+  and so is which pull requests the merge closes (`domain_policy::landed::pull_requests_to_close`: the session of the
+  app tells them with the news of the merge and closes them when the page asks, `CloseLandedPullRequests` in
+  `operations::close`, each with the comment Rust words and holding the state of its pull request, in the robot's
+  repository whichever one the main window shows by then; `bd robot` lists them as `closes` and closes none): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
   same commits rebuilt, or one the branch built new commits on since: the copies below are the same objects, so the
   ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is; after a change
   below its commit, by content (below): the merge toast waits for that answer (the view the session derives after the

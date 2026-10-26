@@ -49,11 +49,6 @@ export const commands = {
 	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
 	/**  The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one */
 	getPullRequestHead: (params: GetPullRequestHeadParams) => typedError<string, ApiError>(__TAURI_INVOKE("get_pull_request_head", { params })),
-	/**
-	 *  Closes a pull request of the virtual branches with a comment: an ancestor a Safe Push of a stacked branch landed
-	 *  with it. The session of the repository has it closed at once; the version of the view after its patch
-	 */
-	closePullRequest: (params: ClosePullRequestParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("close_pull_request", { params })),
 	/**  The app's own sign-in and where the token comes from, for Settings */
 	getGithubAuthStatus: () => typedError<GitHubAuthStatus, ApiError>(__TAURI_INVOKE("get_github_auth_status")),
 	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
@@ -1206,13 +1201,6 @@ export type CliToolStatus = {
 	 *  of it; None for `teamcity`, or when the app is signed in to no YouTrack
 	 */
 	signInWith: string | null,
-};
-
-export type ClosePullRequestParams = {
-	repositoryPath: string,
-	pullRequestNumber: number,
-	/**  Why it is closed, posted with the close */
-	comment: string,
 };
 
 /**  Struct to hold commit data returned by git CLI */
@@ -3996,7 +3984,12 @@ export type PlannedEffect =
  */
 { kind: "waitForMirror"; branch: string } | 
 /**  `reviewers` (logins) are asked to review the open pull request `number` (`Intent::RequestReview`) */
-{ kind: "requestReviewers"; number: number; reviewers: string[] };
+{ kind: "requestReviewers"; number: number; reviewers: string[] } | 
+/**
+ *  The open pull request `number` of `branch` (a virtual branch, or the root of a whole stack) is closed with
+ *  `comment`, which says why (`Intent::ClosePullRequest`, `Intent::CloseLandedPullRequests`)
+ */
+{ kind: "closePullRequest"; branch: string; number: number; comment: string };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {

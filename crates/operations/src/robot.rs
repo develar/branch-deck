@@ -19,7 +19,7 @@
 //! a restart and a cancel of one robot run one after the other, a second click of the same joins it; a restart holds
 //! what its robot lands too (`Resource::Lands`) and the ref it pushes (`Resource::Ref`).
 
-use crate::engine::{run, run_planned_in};
+use crate::engine::{outcome_of, run, run_planned_in};
 use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushedRef};
 use crate::land_session::session_start;
@@ -32,7 +32,7 @@ use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
 use domain_types::operation::{
-  EffectRecord, EffectStatus, Fingerprint, Intent, NewsKey, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, Resource, RobotResult, RunningMove,
+  EffectRecord, EffectStatus, Fingerprint, Intent, NewsKey, OperationId, OperationResult, OperationStep, Outcome, Plan, Resource, RobotResult, RunningMove,
 };
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{PullRequestBase, PullRequestState};
@@ -360,17 +360,8 @@ fn cancel_outcome(op: OperationId, plan: Plan, canceled: Result<Canceled, ApiErr
     ),
     Err(error) => (EffectStatus::Failed { error }, RobotResult::default(), None),
   };
-  Outcome {
-    op,
-    effects: plan.effects.into_iter().map(|effect| EffectRecord { effect, status: status.clone() }).collect(),
-    news_key: Some(NewsKey::Robot { robot_id }),
-    version_after: version,
-    result: OperationResult::Robot(Box::new(result)),
-    stats: OperationStats {
-      millis: u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX),
-      ..OperationStats::default()
-    },
-  }
+  let effects = plan.effects.into_iter().map(|effect| EffectRecord { effect, status: status.clone() }).collect();
+  outcome_of(op, effects, Some(NewsKey::Robot { robot_id }), version, OperationResult::Robot(Box::new(result)), began)
 }
 
 #[cfg(test)]

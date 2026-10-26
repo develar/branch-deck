@@ -83,7 +83,8 @@ targets:
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../crates/domain-policy/src/robot_match.rs
   - ../../src/lib/patronus-stack.ts
-  - ../../src/lib/landed-stack.ts
+  - ../../crates/operations/src/close.rs
+  - ../../src/presenters/news.ts
   - ../../crates/domain-policy/src/landed.rs
   - ../../crates/domain-policy/src/news.rs
   - ../../src/lib/whole-stack.ts
@@ -1024,12 +1025,15 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   branch's tip, or it is the remote branch and that has no commit the branch lacks (older versions of commits amended
   here included: their newer versions landed). The pull request the robot started from is Patronus'. The session tells
   the merge once that view stands, with the pull requests it closes (`RobotMerged.closes`), so the toast names them at
-  once. A failed close is an error toast "Cannot close pull request #5". A robot first seen merged closes nothing. Only
-  the robot's repository closes: the pull requests are of the repository the main window shows, so a merge of a
-  repository no longer shown closes nothing there, and the toast says "the pull requests of the branches it landed stay
-  open: idea-1 is no longer the open repository" (when it closes any).
-  [@test] ../../src/stores/patronus.test.ts (`closes no pull request of the repository shown when the merged robot's repository is not the one shown`)
-  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests the news of the merge says its landing closes, each with a comment of the robot, and says so`, `closes the pull requests of the branches the whole stack landed`)
+  once. The page asks the session of the robot's repository to close them (`CloseLandedPullRequests`, an operation of
+  that session, `crates/operations/src/close.rs`): Rust plans them again from the merge in its facts, the comment of
+  each its own, each close holding the state of its pull request, and the session has each closed at once; a failed
+  close is an error toast "Cannot close pull request #5", and the others go on. A robot first seen merged closes
+  nothing. The closes are of the robot's repository, also when the main window shows another one by then.
+  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests in the robot's repository when the main window shows another one`)
+  [@test] ../../src/stores/patronus.test.ts (`closes in the session of the robot's repository the pull requests the news of the merge says its landing closes, and says so`, `closes the pull requests of the branches the whole stack landed`)
+  [@test] ../../src/presenters/news.test.ts (`says which pull requests the merge closes: of the branches, or how many the whole stack landed`)
+  [@test] ../../crates/operations/src/close_test.rs (`the_closes_of_a_merged_robot_close_what_its_landing_closes_with_a_comment_of_the_robot`, `a_close_closes_an_open_pull_request_with_its_comment_and_nothing_else`)
   [@test] ../../crates/domain-policy/src/landed_test.rs (`closes_the_pull_requests_of_the_branches_a_merged_robot_landed_whole_not_of_its_own_branch`, `leaves_a_pull_request_with_a_commit_the_branch_lacks_one_of_a_branch_with_work_left_and_one_the_table_lacks`)
   [@test] ../../crates/repository-model/src/facts_test.rs (`a_merge_waits_for_the_view_of_its_robots_and_names_the_pull_requests_its_landing_closes`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none`)

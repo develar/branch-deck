@@ -526,8 +526,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
 - **GitHub bridge**: the reads of the session's pull requests, of the rules of their bases and of the review requests
   of others (`TestFactSources`: the pull requests, counted, and the rules of a base, each holding the
   repository as a command does, and `review_requests_of`, counted, which answers the fixture of the review requests),
-  `close_pull_request` (which gives what it wrote to the session of the repository and answers the version of its
-  patch, as the app's command does), `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request`
+  `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request`
   (the text of the real core, the viewer GitHub answers), `search_github_users` and `submit_pull_request_review` call the
   cores as `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real
   `resolve_github_repository` reads (or the one the page names); `post_patronus_command` and `read_patronus_command_reply` as `commands/patronus.rs` does.

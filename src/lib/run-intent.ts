@@ -92,6 +92,11 @@ export function failedEffect(outcome: Outcome): { readonly effect: Outcome["effe
   return null
 }
 
+/** Each effect of `outcome` that failed, with its error, in their order: of an operation whose effects go on after one fails (the closes) */
+export function failedEffects(outcome: Outcome): readonly { readonly effect: Outcome["effects"][number]["effect"]; readonly error: ApiError }[] {
+  return outcome.effects.flatMap(({ effect, status }) => (status.kind === "failed" ? [{ effect, error: status.error }] : []))
+}
+
 /** Why an effect of `outcome` was skipped because the facts changed before it (`plan_changed`); null when none was */
 export function skippedReason(outcome: Outcome): ApiError | null {
   for (const { status } of outcome.effects) {

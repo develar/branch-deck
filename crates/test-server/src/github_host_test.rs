@@ -124,6 +124,16 @@ fn refresh(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, path:
 }
 
 /// The pull requests of the session at `path` after the refresh button, as a listing names them
+/// `intent` prepared in the session of `path` with `effects`, then run on its plan: its outcome, its first effect done
+async fn planned_and_done(client: &reqwest::Client, addr: std::net::SocketAddr, path: &str, intent: Value, effects: Value) -> Value {
+  let plan = post(client, addr, "/invoke/prepare", json!({"repositoryPath": path, "intent": intent})).await;
+  assert_eq!(plan["effects"], effects, "{plan}");
+  let execute = json!({"repositoryPath": path, "intent": intent, "fingerprint": plan["fingerprint"], "accepted": []});
+  let outcome = post(client, addr, "/invoke/execute", execute).await;
+  assert_eq!(outcome["effects"][0]["status"]["kind"], "done", "{outcome}");
+  outcome
+}
+
 async fn listed(client: &reqwest::Client, addr: std::net::SocketAddr, path: &str) -> Value {
   post(
     client,
@@ -194,19 +204,14 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   until_listings(&client, addr, &id, 3).await;
   // the retarget moves the pull request into the target the sync names
   let intent = json!({"kind": "retarget", "number": 7});
-  let plan = post(&client, addr, "/invoke/prepare", json!({"repositoryPath": repository_path, "intent": intent})).await;
-  assert_eq!(
-    plan["effects"],
-    json!([{"kind": "retarget", "branch": "login", "number": 7, "from": "user-name/virtual/auth", "to": "master"}]),
-    "{plan}"
-  );
-  let execute = json!({"repositoryPath": repository_path, "intent": intent, "fingerprint": plan["fingerprint"], "accepted": []});
-  let outcome = post(&client, addr, "/invoke/execute", execute).await;
-  assert_eq!(outcome["effects"][0]["status"]["kind"], "done", "{outcome}");
+  let effects = json!([{"kind": "retarget", "branch": "login", "number": 7, "from": "user-name/virtual/auth", "to": "master"}]);
+  let outcome = planned_and_done(&client, addr, &repository_path, intent, effects).await;
   assert!(outcome["versionAfter"].is_object(), "{outcome}");
   until_listings(&client, addr, &id, 4).await;
-  let close = json!({"repositoryPath": repository_path, "pullRequestNumber": 8, "comment": "Landed with login"});
-  post(&client, addr, "/invoke/close_pull_request", close).await;
+  // the close of the pull request goes through the engine too, into the session at once
+  let intent = json!({"kind": "closePullRequest", "number": 8, "comment": "Landed with login"});
+  let effects = json!([{"kind": "closePullRequest", "branch": "test-branch", "number": 8, "comment": "Landed with login"}]);
+  planned_and_done(&client, addr, &repository_path, intent, effects).await;
   let view = post(&client, addr, "/invoke/get_snapshot", json!({"repositoryPath": repository_path})).await;
   assert_eq!(
     view["facts"]["pullRequests"]["pullRequests"]["test-branch"]["state"], "closed",

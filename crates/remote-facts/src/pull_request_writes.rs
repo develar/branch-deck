@@ -20,16 +20,6 @@ use tracing::instrument;
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct ClosePullRequestParams {
-  pub repository_path: String,
-  pub pull_request_number: u32,
-  /// Why it is closed, posted with the close
-  pub comment: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
 pub struct SubmitPullRequestReviewParams {
   pub repository_path: String,
   /// `owner/name` when the review requests already resolved it: skips resolving the repository again

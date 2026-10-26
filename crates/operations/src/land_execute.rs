@@ -593,6 +593,8 @@ impl<'a> Run<'a> {
           PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
+          // a close is an operation of its own (`close`), never a step of a start
+          PlannedEffect::ClosePullRequest { .. } => self.fail(ApiError::internal("A start closes no pull request")),
         }
       };
       self.records.push(EffectRecord { effect, status });

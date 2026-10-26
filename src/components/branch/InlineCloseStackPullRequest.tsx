@@ -2,15 +2,15 @@ import { GitPullRequestClosedIcon } from "lucide-react"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { notifyError } from "@/lib/errors"
 import { openPullRequest } from "@/lib/pull-request"
+import { closePullRequest } from "@/lib/pull-request-run"
 import { showToast } from "@/lib/toast-message"
 import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
 import { recordPullRequestClosed } from "@/stores/activity"
 import { useStackBranch } from "@/stores/branch-sync"
-import { closeInline, inlineSurface, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
+import { closeInline, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { useStackLandedBy } from "@/stores/landed-stacks"
-import { runOperation } from "@/stores/operations"
-import { closeStackPullRequest, useStackPullRequest } from "@/stores/pull-requests"
-import { getFullStackBranchName } from "@/stores/repository"
+import { useStackPullRequest } from "@/stores/pull-requests"
+import { getFullStackBranchName, getSelectedProject } from "@/stores/repository"
 
 /**
  * Asks before closing the pull request of the whole stack of `root` that no longer matches the stack
@@ -38,8 +38,10 @@ export function InlineCloseStackPullRequest({ root }: { root: string }) {
         if (reason === null || pullRequest === undefined) {
           return
         }
+        // the repository the user asked in: a switch meanwhile closes nothing there (`ClosePullRequest` holds its state)
+        const repositoryPath = getSelectedProject()?.path ?? ""
         const close = () =>
-          closeStackPullRequest(root, `Closed in Branch Deck: ${reason}.`).then(
+          closePullRequest(repositoryPath, pullRequest.number, `Closed in Branch Deck: ${reason}.`).then(
             () => {
               const title = `Closed pull request #${pullRequest.number}`
               showToast({ title, description: reason, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
@@ -51,15 +53,7 @@ export function InlineCloseStackPullRequest({ root }: { root: string }) {
               return false
             },
           )
-        const operation = {
-          id: "close-stack-pull-request",
-          kind: "remote",
-          subject: `pr:${pullRequest.number}`,
-          objects: [root],
-          label: `Closing pull request #${pullRequest.number}`,
-          surface: inlineSurface(root),
-        } as const
-        void withRowProgress(root, () => runOperation(operation, close).then(done => done === true), { keepFormOnFailure: true })
+        void withRowProgress(root, close, { keepFormOnFailure: true })
       }}
     >
       {null}

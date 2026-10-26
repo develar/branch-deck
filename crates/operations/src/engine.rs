@@ -12,11 +12,12 @@ use crate::events::EventSink;
 use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Steps};
 use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
-use crate::{land, pull_request, robot};
+use crate::{close, land, pull_request, robot};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Land, PlannedEffect, Subject};
-use domain_types::operation::{Intent, OperationEvent, OperationStep, Plan, Resource, RunningMove};
+use domain_types::operation::{EffectRecord, Intent, NewsKey, OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, Resource, RunningMove};
+use domain_types::session::Version;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::session::{SessionKey, Sessions};
 use std::sync::Arc;
@@ -57,6 +58,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::CancelRobot { robot_id } => Ok(robot::prepare_cancel(sessions, key, &robot_id).await.map(|(plan, _)| plan)),
     Intent::Retarget { number } => Ok(pull_request::prepare_retarget(sessions, key, number).await),
     Intent::CreatePullRequest(_) | Intent::RequestReview { .. } => Ok(pull_request::prepare_planned(sessions, key, &intent).await.map(|planned| planned.plan)),
+    Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. } => Ok(close::prepare_close(sessions, key, &intent).await),
     _ => Err(not_yet()),
   }
 }
@@ -65,7 +67,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
 fn not_yet() -> ApiError {
   ApiError::new(
     ErrorCode::InvalidArguments,
-    "Only a start, a restart and a cancel of a robot, a retarget, the creation of a pull request and a review request run through prepare and execute so far",
+    "Only a start, a restart and a cancel of a robot, a retarget, the creation of a pull request, a review request and the closes of pull requests run through prepare and execute so far",
   )
 }
 
@@ -87,6 +89,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     Intent::CancelRobot { robot_id } => robot::execute_cancel(registry, key, &robot_id, accepted, services, events).await,
     Intent::Retarget { number } => pull_request::execute_retarget(registry, key, number, accepted, services, events).await,
     intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. }) => Box::pin(pull_request::execute_pull_request(registry, key, intent, accepted, services, events)).await,
+    intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::execute_close(registry, key, intent, accepted, services, events).await,
     _ => Err(not_yet()),
   }
 }
@@ -166,4 +169,27 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
     }
   }
   resources
+}
+
+/// The outcome of the operation `op` that ran `effects`, telling the event of `news_key`, with what it answered
+/// (`result`) and the version of the view after what it changed; its time since `began`
+pub(crate) fn outcome_of(
+  op: OperationId,
+  effects: Vec<EffectRecord>,
+  news_key: Option<NewsKey>,
+  version_after: Option<Version>,
+  result: OperationResult,
+  began: std::time::Instant,
+) -> Outcome {
+  Outcome {
+    op,
+    effects,
+    news_key,
+    version_after,
+    result,
+    stats: OperationStats {
+      millis: u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX),
+      ..OperationStats::default()
+    },
+  }
 }

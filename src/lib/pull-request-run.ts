@@ -4,7 +4,8 @@
 // spec/branch/pull-requests.spec.md). Each pushes first what the remote lacks of the subject (the push of its push button,
 // the stack branch of a whole stack), in the repository the user asked in, whichever the main window shows meanwhile;
 // the creation waits for a mirror that copies the pushed branch a moment later, "Continue on GitHub" until GitHub has the
-// branch, whose form the page opens then. The page only words how it went.
+// branch, whose form the page opens then. The close of a pull request the user asks (`ClosePullRequest`). The page only
+// words how it went.
 import type { Intent, PullRequest, RequestedReviewers, RunningOperation, Subject } from "@/lib/bindings"
 import { formatCreatedToast } from "@/lib/create-pull-request"
 import { commandFailure } from "@/lib/errors"
@@ -131,4 +132,16 @@ export function pullRequestOperationIn(
     const intent = operation.intent
     return (intent.kind === "createPullRequest" || intent.kind === "requestReview") && intent.kind === kind && keyOf(intent.subject) === key
   })
+}
+
+/**
+ * Closes the pull request `number` of `repositoryPath` with `comment` (`ClosePullRequest`: one already closed gets no
+ * second comment), the session has it closed once this resolves. Throws why it was not closed, what GitHub said
+ */
+export async function closePullRequest(repositoryPath: string, number: number, comment: string): Promise<void> {
+  const run = await runIntent(repositoryPath, { kind: "closePullRequest", number, comment })
+  const failure = failureOf(run, `The repository lists no pull request #${number}`)
+  if (failure !== null) {
+    throw failure
+  }
 }

@@ -33,11 +33,15 @@
 //! - `robot`: the restart of a robot of the user, with its push first while the branch has work the remote lacks, run as
 //!   a start runs, and its cancel (`cancel`: one that finished is as it ended, the cancel of a start too)
 //! - `pull_request`: the writes of pull requests an operation makes: the retarget into the target, a step of a start and
-//!   a push, and the retarget the user asks of a pull request (`Intent::Retarget`)
+//!   a push, the retarget the user asks of a pull request (`Intent::Retarget`), the creation of the pull request of a
+//!   subject and a review request of its open one, each with the push it needs first
+//! - `close`: the closes of pull requests: the one the user asks with its reason, and those of the pull requests a merged
+//!   robot landed with it (D7), each with its comment, one GitHub refuses stopping none of the others
 //! - `witness`: what a plan was prepared on (`Witness`, its `Fingerprint`): the tips of the refs it moves and leases
 //!   from one `for-each-ref`, the pull requests and the robots it reads, and the check before the first effect
 //!   (`plan_changed`)
 
+pub mod close;
 pub mod engine;
 pub mod events;
 pub mod facts;

@@ -37,10 +37,9 @@ use remote_facts::patronus_command::{
   UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
 };
 use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
-use remote_facts::pull_request_writes::{ClosePullRequestParams, GetPullRequestHeadParams, close_pull_request as core_close_pull_request, read_pull_request_head};
+use remote_facts::pull_request_writes::{GetPullRequestHeadParams, read_pull_request_head};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
-use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::SessionKey;
 use repository_model::table::TableState;
 use serde::Deserialize;
@@ -64,7 +63,6 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::remote_host::HeldAnswer;
 use crate::remote_host::RemoteHost;
-use crate::session_routes::write_pull_request;
 use crate::state::AppState;
 
 use crate::state::TestRepository;
@@ -877,18 +875,6 @@ pub async fn sign_out_of_github(State(state): State<Arc<AppState>>, headers: Hea
   let host = requesting_repository(&state, &headers)?.remote(&state.git_executor);
   let signed_out = host.github_sign_in().sign_out(&host.github_service()).await;
   signed_out.map(Json).map_err(|e| failed("sign out of GitHub", e))
-}
-
-/// Closes a pull request with a comment, as the app does: the session of the repository has it at once
-pub async fn close_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<ClosePullRequestParams>) -> CommandResult<Option<Version>> {
-  let operation = "close the pull request";
-  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
-  let close = core_close_pull_request(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.comment).await;
-  close.map_err(|e| failed(operation, e.to_string()))?;
-  let write = PullRequestWrite::Closed {
-    number: params.pull_request_number,
-  };
-  Ok(Json(write_pull_request(&state, &params.repository_path, write).await))
 }
 
 /// The commit a pull request shows now on GitHub, as the app reads it

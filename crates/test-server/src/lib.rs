@@ -288,7 +288,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/sign_out_of_youtrack", post(tauri_command_bridge::sign_out_of_youtrack))
     .route("/invoke/get_youtrack_issue", post(tauri_command_bridge::get_youtrack_issue))
     .route("/invoke/set_youtrack_issue_state", post(tauri_command_bridge::set_youtrack_issue_state))
-    .route("/invoke/close_pull_request", post(tauri_command_bridge::close_pull_request))
     .route("/invoke/get_pull_request_head", post(tauri_command_bridge::get_pull_request_head))
     .route("/invoke/get_new_pull_request", post(tauri_command_bridge::get_new_pull_request))
     .route("/invoke/search_github_users", post(tauri_command_bridge::search_github_users))

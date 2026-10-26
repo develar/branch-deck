@@ -2,14 +2,13 @@ import { useEffect } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { BranchRules, Fact, FactsChanges, FactsView, PullRequest, PullRequestAvailability } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import type { BranchRulesAnswer } from "@/lib/branch-rules"
 import { isRulesUnknown, rulesAnswerOf } from "@/lib/branch-rules"
 import { commandFailure } from "@/lib/errors"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { runFailure, runIntent } from "@/lib/run-intent"
-import { refreshSessionFacts, whenSessionViewAt } from "@/model/store"
+import { refreshSessionFacts } from "@/model/store"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 
 /**
@@ -238,40 +237,6 @@ export async function retargetPullRequest(branchName: string): Promise<void> {
   if (failure !== null) {
     throw typeof failure === "string" ? new Error(failure) : commandFailure(failure)
   }
-}
-
-/**
- * Closes the pull request of a branch on GitHub with `comment`, of the repository of `key` (`repositoryKey`), by default
- * the selected one; resolves once the session has it closed. Throws what GitHub said.
- */
-export async function closePullRequest(branchName: string, comment: string, key: string | null = currentKey()): Promise<void> {
-  const pullRequest = key === null ? undefined : pullRequestsStore.getState().repositories[key]?.pullRequests[branchName]
-  if (key === null || pullRequest === undefined) {
-    return
-  }
-  await closeOnGitHub(key, pullRequest, comment)
-}
-
-/**
- * Closes the pull request of the whole stack of `root` on GitHub with `comment` (the user asked: one that no longer
- * matches the stack is never closed by itself); resolves once the session has it closed. Throws what GitHub said.
- */
-export async function closeStackPullRequest(root: string, comment: string): Promise<void> {
-  const key = currentKey()
-  const pullRequest = getStackPullRequest(root)
-  if (key === null || pullRequest === undefined) {
-    return
-  }
-  await closeOnGitHub(key, pullRequest, comment)
-}
-
-async function closeOnGitHub(key: string, pullRequest: PullRequest, comment: string): Promise<void> {
-  const repositoryPath = pathOf(key)
-  const result = await commands.closePullRequest({ repositoryPath, pullRequestNumber: pullRequest.number, comment })
-  if (result.status === "error") {
-    throw commandFailure(result.error)
-  }
-  await whenSessionViewAt(repositoryPath, result.data)
 }
 
 // ---- the rules of the bases ----

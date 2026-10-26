@@ -545,7 +545,8 @@ impl FactStore {
   }
 
   /// The pull requests the merge of `robot_id` closes, as the Patronus view names what it landed; none without a view
-  fn closes(&self, state: &TableState, robot_id: &str) -> Vec<LandedPullRequest> {
+  #[must_use]
+  pub fn closes(&self, state: &TableState, robot_id: &str) -> Vec<LandedPullRequest> {
     let part = self.patronus.part();
     let (Some(robot), true, Some(table)) = (
       self.robots.view().robots.get(robot_id),

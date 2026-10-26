@@ -157,10 +157,10 @@ const { notices } = vi.hoisted(() => ({
     pullRequestRefreshes: [] as string[],
     /** The pull requests GitHub lists, by branch */
     pullRequests: {} as Record<string, { number: number; state: string; headRefOid: string }>,
-    /** "<branch> <comment>" of each close of a pull request */
+    /** "<repository> <robot>" of each `CloseLandedPullRequests` the page ran */
     closed: [] as string[],
-    /** The repository key of each close */
-    closedIn: [] as string[],
+    /** The closes that fail in the outcome, by number */
+    closeFailures: [] as number[],
     /** The pull requests of the whole stacks GitHub lists, by root */
     stackPullRequests: {} as Record<string, { number: number; state: string; headRefOid: string }>,
   },
@@ -180,9 +180,18 @@ vi.mock("@/stores/pull-requests", () => ({
   },
   getPullRequest: (name: string) => notices.pullRequests[name],
   getStackPullRequest: (root: string) => notices.stackPullRequests[root],
-  closePullRequest: async (name: string, comment: string, key: string) => {
-    notices.closed.push(`${name} ${comment}`)
-    notices.closedIn.push(key)
+}))
+
+vi.mock("@/lib/run-intent", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/lib/run-intent")>()),
+  // the closes of a merged robot: Rust plans them in the session of the robot's repository, with their comments
+  runIntent: async (repositoryPath: string, intent: { kind: string; robotId?: string }) => {
+    notices.closed.push(`${repositoryPath} ${intent.kind} ${intent.robotId}`)
+    const effects = notices.closeFailures.map(number => ({
+      effect: { kind: "closePullRequest", branch: "auth", number, comment: "c" },
+      status: { kind: "failed", error: { code: "networkError", message: "GitHub is down" } },
+    }))
+    return { kind: "ran", plan: {}, outcome: { effects, result: { kind: "none" } } }
   },
 }))
 
@@ -568,7 +577,7 @@ beforeEach(() => {
   notices.pullRequests = {}
   notices.stackPullRequests = {}
   notices.closed = []
-  notices.closedIn = []
+  notices.closeFailures = []
   branches.stacks = {}
   branches.syncCount = 0
   branches.tableRevision = 0
@@ -860,19 +869,24 @@ describe("merges", () => {
     expect(shownToasts.map(it => it.title)).toEqual(["auth merged into master"])
   })
 
-  it("closes the pull requests the news of the merge says its landing closes, each with a comment of the robot, and says so", async () => {
+  it("closes in the session of the robot's repository the pull requests the news of the merge says its landing closes, and says so", async () => {
     const oauth = await listOauthStack()
     patronus.view = landedOauthStack()
     patronus.closes = { r1: [{ branch: "auth", number: 5 }] }
+    notices.closeFailures = [5]
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
     await poll()
-    await vi.waitFor(() => expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."]))
-    // the pull request of the robot's repository
-    expect(notices.closedIn).toEqual(["/repo\nuser"])
-    expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
+    // which pull requests, and the comment of each, are Rust's
+    await vi.waitFor(() => expect(notices.closed).toEqual(["/repo closeLandedPullRequests r1"]))
+    await vi.waitFor(() =>
+      expect(shownToasts.map(it => [it.title, it.description])).toEqual([
+        ["oauth merged into master", "Safe Push · closes the pull request of auth: it landed with oauth"],
+        ["Cannot close pull request #5", "GitHub is down"],
+      ]),
+    )
   })
 
-  it("closes no pull request of the repository shown when the merged robot's repository is not the one shown", async () => {
+  it("closes the pull requests in the robot's repository when the main window shows another one", async () => {
     const oauth = await listOauthStack()
     await answerView(landedOauthStack())
     patronus.closes = { r1: [{ branch: "auth", number: 5 }] }
@@ -882,8 +896,8 @@ describe("merges", () => {
     await poll()
 
     await vi.waitFor(() => expect(shownToasts).toHaveLength(1))
-    expect(notices.closed).toEqual([])
-    expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · the pull requests of the branches it landed stay open: repo is no longer the open repository"])
+    expect(notices.closed).toEqual(["/repo closeLandedPullRequests r1"])
+    expect(shownToasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
   })
 
   it("closes the pull requests of the branches the whole stack landed", async () => {
@@ -912,8 +926,7 @@ describe("merges", () => {
     // the session polls the robot of the whole stack: no branch has it
     patronus.poll = available({ ...whole, status: "success", finishTime: 200 })
     await poll()
-    const comment = "Landed in master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."
-    await vi.waitFor(() => expect(notices.closed).toEqual([`air ${comment}`, `bazel ${comment}`]))
+    await vi.waitFor(() => expect(notices.closed).toEqual(["/repo closeLandedPullRequests r1"]))
     expect(shownToasts.map(it => [it.title, it.description])).toEqual([
       ["Whole air stack merged into master", "Safe Push · closes the pull requests of air and bazel: they landed with the whole stack"],
     ])

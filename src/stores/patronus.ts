@@ -22,10 +22,9 @@ import type {
   TableChanges,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { commandFailure, getErrorDetails } from "@/lib/errors"
+import { commandFailure, getErrorDetails, notifyError } from "@/lib/errors"
 import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
-import { closeLandedPullRequests, describeLandedLeftOpen } from "@/lib/landed-stack"
 import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
 import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
@@ -35,12 +34,16 @@ import type { RobotEstimate } from "@/lib/robot-eta"
 import { estimateRobotDuration, robotSample } from "@/lib/robot-eta"
 import type { RowRobots } from "@/lib/robot-overview"
 import { NO_ROW_ROBOTS } from "@/lib/robot-overview"
+import { failedEffects, runFailure, runIntent } from "@/lib/run-intent"
+import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
 import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
+import { describeLandedCloses } from "@/presenters/news"
 import { recordRobot } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
-import { branchSyncStore, structureIn, whenSynced } from "@/stores/branch-sync"
-import { refreshPullRequests } from "@/stores/pull-requests"
+import { branchSyncStore, getStackAncestors, getStackBranch, structureIn, whenSynced } from "@/stores/branch-sync"
+import { rememberLandedStackRoot } from "@/stores/landed-stacks"
+import { getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
@@ -806,7 +809,8 @@ const announcedMerges = new Set<string>()
  * A stacked branch landed its ancestors too, the whole stack every branch of it: the open pull requests its landing
  * closes come with the news (`closes`, `domain_policy::landed::pull_requests_to_close`), which the session tells once
  * the view of the robots it merged in stands, so the toast names what it landed (`landedByRobot` of that view) at once
- * and closes them (`closeLandedPullRequests`).
+ * and what it closes (`describeLandedCloses`); the session of the robot's repository closes them
+ * (`CloseLandedPullRequests`, the comment of each Rust's), whichever repository the main window shows meanwhile.
  */
 export function announceMerge(key: string, robot: PatronusRobot, closes: readonly LandedPullRequest[]): void {
   if (announcedMerges.has(robot.id)) {
@@ -819,16 +823,53 @@ export function announceMerge(key: string, robot: PatronusRobot, closes: readonl
   }
   const [repositoryPath] = key.split("\n") as [string, string]
   const landed = patronusStore.getState().repositories[key]?.view?.landedByRobot[robot.id] ?? []
-  // the pull requests of the table are of the shown repository: a merge of another one closes nothing there, and its
-  // toast says so
-  const closed = currentKey() === key ? closeLandedPullRequests(robot, closes, key) : describeLandedLeftOpen(closes, repositoryPath)
-  const description = closed === null ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed}`
+  if (closes.length > 0) {
+    void closeLanded(repositoryPath, robot.id)
+  }
+  // the stacks of the table are of the shown repository: only a merge there tells a pull request of a whole stack that no longer matches it
+  const closed = [describeLandedCloses(robot, closes), currentKey() === key ? rememberLandedRoot(robot) : null].filter((part): part is string => part !== null)
+  const description = closed.length === 0 ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed.join(" · ")}`
   const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
   recordRobot(title, description, robot, repositoryPath)
   // the toast's button picks it up (Update Project fetches first): the notification says what merged, as the toast
   const notification = { title, body: description }
   const landedBranches = landed.map(branch => branch.branch)
   announce("patronusMerges", notification, () => showMergeToast(repositoryPath, robot, title, description, landedBranches))
+}
+
+/**
+ * Closes the pull requests the merged robot `robotId` landed with it, in the session of `repositoryPath`, the robot's
+ * repository (`CloseLandedPullRequests`: which, and the comment of each, are Rust's); each close that failed is an error
+ * toast "Cannot close pull request #5". A session that lists the robot no longer closes nothing
+ */
+async function closeLanded(repositoryPath: string, robotId: string): Promise<void> {
+  const run = await runIntent(repositoryPath, { kind: "closeLandedPullRequests", robotId })
+  if (run.kind === "ran") {
+    for (const { effect, error } of failedEffects(run.outcome)) {
+      notifyError(effect.kind === "closePullRequest" ? `Cannot close pull request #${effect.number}` : "Cannot close the pull requests the Safe Push landed", error)
+    }
+  } else if (run.kind !== "noPlan") {
+    notifyError("Cannot close the pull requests the Safe Push landed", runFailure(run, ""))
+  }
+}
+
+/**
+ * A merged robot of a branch landed the root of its stack: an open pull request of the whole stack no longer matches it
+ * (`rememberLandedStackRoot`); the user decides on it, nothing closes it. What the toast says of it ("#12 no longer
+ * matches the air stack: oauth landed"), null when there is none.
+ */
+function rememberLandedRoot(robot: PatronusRobot): string | null {
+  const name = robot.branchName
+  if (name === null || robot.pushMode === "dryRun") {
+    return null
+  }
+  const root = getStackAncestors(name)[0] ?? name
+  const pullRequest = getStackPullRequest(root)
+  if (pullRequest?.state !== "open") {
+    return null
+  }
+  rememberLandedStackRoot(root, name)
+  return describeOrphanedStackPullRequest(root, pullRequest, getStackBranch(root), name)
 }
 
 // ---- the robots of the session ----

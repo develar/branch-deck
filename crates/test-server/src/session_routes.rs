@@ -39,7 +39,6 @@ use remote_facts::fact_sources::{FactSources, Read};
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session, skip_in_session};
-use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::runtime::{RunSetup, SessionEnvironment};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
 use serde::Deserialize;
@@ -349,13 +348,6 @@ impl ServiceHost for TestServices {
 
 fn stopped() -> ApiError {
   ApiError::internal("The test server stopped")
-}
-
-/// The write of the app to a pull request goes into the session of its repository, as the app's commands write it:
-/// the version of the view after its patch, none when no session of the repository is open
-pub(crate) async fn write_pull_request(state: &AppState, repository_path: &str, write: PullRequestWrite) -> Option<Version> {
-  let key = session_key(state, repository_path).await.ok()?;
-  state.sessions.write_pull_request(&key, write).await
 }
 
 /// The patches of a session to the event stream of `subscribe_view`

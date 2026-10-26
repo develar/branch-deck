@@ -43,7 +43,7 @@ targets:
   - ../../src/stores/patronus.ts
   - ../../src/stores/pull-requests.ts
   - ../../src/stores/landed-stacks.ts
-  - ../../src/lib/landed-stack.ts
+  - ../../crates/operations/src/close.rs
   - ../../crates/domain-policy/src/landed.rs
   - ../../src/lib/robot-run.ts
   - ../../src/presenters/actions.ts

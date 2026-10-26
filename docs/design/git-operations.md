@@ -3758,8 +3758,8 @@ each robot keeps the number of the read or the write that wrote it, and a failed
 each answer the scheduler asks which running robots of the poll a failed required check dooms and the problems of the
 failed robots of the table not known yet, and a robot known running that an answer shows merged or failed is news: a
 merge once the Patronus view of the robots it merged in stands (no derivation runs after it; at once without a table),
-with the open pull requests its landing closes (`domain_policy::landed::pull_requests_to_close`, which the page closes
-and `bd robot` lists), a failure once its problems say whether for missing approvals. The details of a robot (`facts.robotDetails`: its checks,
+with the open pull requests its landing closes (`domain_policy::landed::pull_requests_to_close`, which the page has the
+session close, `CloseLandedPullRequests`, and `bd robot` lists), a failure once its problems say whether for missing approvals. The details of a robot (`facts.robotDetails`: its checks,
 the build progress of the running ones, its profile) are read while a surface of a window demands them, again when its
 status changes and every 61 s while it runs, and dropped when no window demands them; a details answer puts on the
 robot what a list doesn't name (`RobotsFact::details_answer`: the profile, failing while it runs). The page stores what

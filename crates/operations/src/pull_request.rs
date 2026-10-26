@@ -20,7 +20,7 @@
 //! request the reviewers of its pull request (`PullRequestField::Reviewers`), so a retarget of it runs beside, unless its
 //! push retargets the pull request too, which holds its base.
 
-use crate::engine::{run, run_planned_in};
+use crate::engine::{outcome_of, run, run_planned_in};
 use crate::events::EventSink;
 use crate::land::{LandHost, with_one_shot_sources};
 use crate::land_execute::{Accepted, Planned, PushedRef};
@@ -35,8 +35,7 @@ use domain_types::branch_names::{baseline_on_remote, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
 use domain_types::operation::{
-  CreatePullRequest, EffectRecord, EffectStatus, Fingerprint, Intent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, PullRequestField, Resource,
-  RunningMove,
+  CreatePullRequest, EffectRecord, EffectStatus, Fingerprint, Intent, OperationId, OperationResult, OperationStep, Outcome, Plan, PullRequestField, Resource, RunningMove,
 };
 use domain_types::patronus::{PatronusPushMode, PatronusRobot};
 use domain_types::pull_request::{PullRequest, PullRequestBase, PullRequestState};
@@ -76,7 +75,7 @@ pub async fn retarget_each(github: &GitHubService, repository_path: &str, reposi
 
 /// The pull request `number` among `pull_requests` (of a virtual branch, or of the stack branch of a whole stack) with
 /// the branch or the root it is of
-fn find(pull_requests: &PullRequestsView, number: u32) -> Option<(&str, &PullRequest)> {
+pub(crate) fn find(pull_requests: &PullRequestsView, number: u32) -> Option<(&str, &PullRequest)> {
   pull_requests
     .pull_requests
     .iter()
@@ -104,8 +103,21 @@ pub fn retarget_plan(pull_requests: &PullRequestsView, number: u32, target: &str
     }),
     PullRequestState::Open => {}
   }
+  Some(write_plan(Intent::Retarget { number }, effects, blockers, Some(number), [pull_request], []))
+}
+
+/// A plan of writes of pull requests that pushes nothing (a retarget, closes, a review), its fingerprint over the pull
+/// requests and the robots it read; `pull_request` the one it is of
+pub(crate) fn write_plan<'a>(
+  intent: Intent,
+  effects: Vec<PlannedEffect>,
+  blockers: Vec<Reason>,
+  pull_request: Option<u32>,
+  pull_requests: impl IntoIterator<Item = &'a PullRequest>,
+  robots: impl IntoIterator<Item = &'a PatronusRobot>,
+) -> Plan {
   let mut plan = Plan {
-    intent: Intent::Retarget { number },
+    intent,
     fingerprint: Fingerprint(String::new()),
     lands: Vec::new(),
     effects,
@@ -113,11 +125,11 @@ pub fn retarget_plan(pull_requests: &PullRequestsView, number: u32, target: &str
     blockers,
     waits: Vec::new(),
     alternatives: None,
-    pull_request: Some(number),
+    pull_request,
     approvals_skipped_by: None,
   };
-  plan.fingerprint = Witness::of(BTreeMap::new(), [pull_request], std::iter::empty::<&PatronusRobot>()).fingerprint(&plan);
-  Some(plan)
+  plan.fingerprint = Witness::of(BTreeMap::new(), pull_requests, robots).fingerprint(&plan);
+  plan
 }
 
 /// The plan of the retarget of the pull request `number` in the open session of `key`, into the branch of origin its
@@ -198,33 +210,30 @@ pub async fn execute_retarget(registry: &Registry, key: &SessionKey, number: u32
   .await
 }
 
-/// The `PATCH` of the retarget with the GitHub service and repository of the session of `key`
-async fn write_retarget(services: &dyn ServiceHost, key: &SessionKey, number: u32, base: &str) -> Result<(), ApiError> {
+/// The GitHub service of the session of `key` and the GitHub repository its branches are mirrored to
+///
+/// # Errors
+/// No GitHub repository of the branches, a host without GitHub
+pub(crate) async fn github_of(services: &dyn ServiceHost, key: &SessionKey) -> Result<(Arc<GitHubService>, GitHubRepository), ApiError> {
   let repository = services
     .github_repository(key)
     .await?
     .ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, "The GitHub repository of the branches is unknown"))?;
-  let github = services.github(key)?;
+  Ok((services.github(key)?, repository))
+}
+
+/// The `PATCH` of the retarget with the GitHub service and repository of the session of `key`
+async fn write_retarget(services: &dyn ServiceHost, key: &SessionKey, number: u32, base: &str) -> Result<(), ApiError> {
+  let (github, repository) = github_of(services, key).await?;
   retarget(&github, &key.worktree, &repository, number, base).await.map_err(|error| {
     let failure = github_failure(error);
     ApiError::new(failure.code, format!("Cannot retarget pull request #{number} to {base}: {}", failure.message))
   })
 }
 
-/// The outcome of a retarget
+/// The outcome of a retarget: the retarget of the user's own pull request is no event of an object with a toast of its own
 fn retarget_outcome(op: OperationId, effects: Vec<EffectRecord>, version: Option<domain_types::session::Version>, began: std::time::Instant) -> Outcome {
-  Outcome {
-    op,
-    effects,
-    // the retarget of the user's own pull request is no event of an object with a toast of its own
-    news_key: None,
-    version_after: version,
-    result: OperationResult::None,
-    stats: OperationStats {
-      millis: u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX),
-      ..OperationStats::default()
-    },
-  }
+  outcome_of(op, effects, None, version, OperationResult::None, began)
 }
 
 /// What the plan of a pull request or a review request reads: the sources of the session, and the push the branch of

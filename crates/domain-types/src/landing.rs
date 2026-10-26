@@ -409,6 +409,9 @@ pub enum PlannedEffect {
   WaitForMirror { branch: String },
   /// `reviewers` (logins) are asked to review the open pull request `number` (`Intent::RequestReview`)
   RequestReviewers { number: u32, reviewers: Vec<String> },
+  /// The open pull request `number` of `branch` (a virtual branch, or the root of a whole stack) is closed with
+  /// `comment`, which says why (`Intent::ClosePullRequest`, `Intent::CloseLandedPullRequests`)
+  ClosePullRequest { branch: String, number: u32, comment: String },
 }
 
 impl PlannedEffect {
