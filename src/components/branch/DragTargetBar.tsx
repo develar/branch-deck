@@ -34,7 +34,7 @@ function DragTargetBarContent() {
           ref={barRef}
           data-testid="drag-target-bar"
           data-armed="true"
-          className="pointer-events-auto flex max-w-full flex-col gap-2 rounded-lg bg-popover p-2 text-popover-foreground shadow-lg ring-1 ring-foreground/5 not-has-[[data-drop-target],p]:hidden data-[armed=false]:pointer-events-none"
+          className="pointer-events-auto flex max-w-full flex-col gap-2 rounded-xl bg-popover p-2 text-popover-foreground shadow-lg ring-1 ring-foreground/5 not-has-[[data-drop-target],p]:hidden data-[armed=false]:pointer-events-none"
         >
           {/* above the zones: a refusal that shows moves no zone from under the pointer */}
           {refusal !== null && (

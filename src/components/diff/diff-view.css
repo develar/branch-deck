@@ -59,7 +59,7 @@
   overflow: clip;
   background: var(--card);
   border: 1px solid var(--diff-card-border);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-4xl);
 }
 
 /*
@@ -92,7 +92,7 @@
   background: var(--card);
   border: 1px solid var(--diff-card-border);
   border-bottom-color: var(--border);
-  border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  border-radius: var(--radius-4xl) var(--radius-4xl) 0 0;
 }
 
 /* a collapsed file is its header alone: the bottom border of the card closes it under the header */

@@ -1,13 +1,13 @@
 # UI Theme: Islands Layering, Palette and the Radius Scale
 
 **Status:** Implemented  
-**Updated:** 2026-10-25  
+**Updated:** 2026-10-19  
 **Tags:** [ui, theme, shadcn, tailwind, radius, palette]
 
 ## Problem
 
-Branch Deck runs inside a JetBrains-centric workflow, and the stock shadcn Rhea preset, its first style, looked foreign
-next to IntelliJ. The preset had two problems:
+Branch Deck runs inside a JetBrains-centric workflow, and the stock shadcn Rhea preset looked foreign next to IntelliJ.
+The preset had two problems:
 
 - **Corners too round.** At `--radius: 0.625rem`, cards were 24px, popovers 22px, and buttons, inputs and badges 18px.
 - **No shared container style.** The main window mixed three container styles:
@@ -33,37 +33,9 @@ base colour, `zinc`, has the lightness and chroma of the IntelliJ greys, but its
 
 **Coherence over copying.** We take the proportions, the layering and the colours of Islands and express them only
 through shadcn tokens. We do not copy IntelliJ pixel values into individual components. Every radius comes from one
-token, every colour of the palette maps a variable of the Islands themes (`src/islands.generated.css`), and every
-top-level block is the same `Card`.
+token, every colour is an IntelliJ value in `src/index.css`, and every top-level block is the same `Card`.
 
 ## Design
-
-### Style
-
-The ui primitives come from the shadcn style `base-mira` (`components.json`), with the local changes each file names in
-its `// local customisation` header. It was `base-rhea` until October 2026. Mira has the geometry of the IDE, Rhea had
-not (measured on the same page, Islands Light, 13px Inter):
-
-| Style | Field | Button, `sm` | A field is | Its edge on the island |
-| --- | --- | --- | --- | --- |
-| IntelliJ Islands | 28px | 28px, 24px | a 1px border | 1.5:1 (`control-border`) |
-| `base-mira` without its fill (ours) | 28px | 28px, 24px | a 1px border | 1.5:1 (`--input`, `control-border`) |
-| `base-rhea` | 32px | 32px, 28px | a fill, no border | 1.2:1 (`bg-input/50`) |
-| `base-nova` | 32px | 32px, 28px | a 1px border | 4.6:1 |
-
-Two local changes apply to every primitive:
-
-- **No text size.** The stock Mira sets 10 and 12px (`text-xs/relaxed`, `text-[0.625rem]`) on its parts. Branch Deck's
-  UI text is 13px: `body` is `text-sm`, and a container sets another step of the type scale where it needs one. A chip
-  (`Badge`), a key hint (`Kbd`), an `xs` button, the group label and the shortcut of a menu, the group label of a select
-  and the labels of a chart keep `text-xs`, their step of the type scale; a 20px chip clips the descenders of 13px text. A tooltip is 13px, the UI font,
-  as in the IDE. The icons of a button are one step larger than the stock for the 13px text.
-- **No field fill.** Mira fills a field with `bg-input/20` (`dark:bg-input/30`) inside its border. Here `--input` is the
-  border, the IDE control border, and a field is its edge and the island under it, as in the IDE ([Palette](#palette)).
-
-An `xs` control is 24px, the compact size of the IDE (`Button.minimumSize.compact`), not the 20px of the stock; `sm` is
-24px too, the default 28px. So a branch row stays 36px around its 24px folder button (`icon-xs`), and the names and the
-commit subjects under them stay where they were.
 
 ### Layering
 
@@ -91,94 +63,46 @@ flowchart TD
 
 ### Palette
 
-The palette comes from the Islands themes of the IDE, not from hand-copied values:
+`src/index.css` holds the IntelliJ Islands values (`ManyIslandsLight.theme.json`, `ManyIslandsDark.theme.json`), each
+with its IntelliJ key in a comment:
 
-- **The source.** The IntelliJ monorepo writes `community/tools/docs-site/styles/islands.generated.css` from
-  `ManyIslandsLight.theme.json` and `ManyIslandsDark.theme.json`: every palette step (`--islands-gray-70`) and every
-  semantic colour of each theme (`--islands-text-link-light`, `--islands-text-link-dark`). The docs sites of the
-  monorepo map the same file.
-- **The copy.** `node scripts/sync-islands-theme.mjs` writes `src/islands.generated.css`: the file at a commit, with a
-  header that names the repository and the commit. It reads a local monorepo checkout (`--monorepo <path> [--ref
-  <rev>]` or `INTELLIJ_MONOREPO`) or intellij-community on GitHub at a pinned commit (`--github <commit>`, the path
-  without `community/`). The copy is committed, so a build needs no monorepo. Never edit it; run the script again.
-- **The mapping.** `src/index.css` imports the copy and maps the `-light` variables in its light `:root` block and the
-  `-dark` variables in its `prefers-color-scheme: dark` block. A token names its Islands key; a palette step names a
-  value outside the keys, and its comment gives the reason.
-- **The check.** `src/lib/theme-contrast.test.ts` resolves the mapping in both themes and checks the pairs: text at
-  4.5:1 on the island, on a popup and on the canvas, a status text on the 10% tint of its colour, the text on a fill,
-  `primary` and `--control-edge` as marks at 3:1. A change of a theme that breaks a pair fails `pnpm test:unit`.
-
-| Token | Islands key | Light | Dark |
+| Token | Light | Dark | IntelliJ key |
 | --- | --- | --- | --- |
-| `--canvas` | `main-window-bg` (`MainWindow.background`) | `#E9EAEE` | `#26282C` |
-| `--card`, `--background` | `tool-window-bg` (`ToolWindow.background`), the island | `#FFFFFF` | `#191A1C` |
-| `--popover` | `popup-bg` | `#FFFFFF` | `#26282C` |
-| `--foreground` | `text-default` | `#000000` | `#D1D3D9` |
-| `--muted-foreground` | `text-muted` | `#5F6269` | `#9FA2A8` |
-| `--border` | `separatorColor`: `dialog-border`, `popup-border` | `#E9EAEE` | `#33353B` |
-| `--input` | `control-border` (`Component.borderColor`, `Button.startBorderColor`) | `#D1D3D9` | `#40434A` |
-| `--control-edge` | `gray-80`; `gray-90` | `#73767C` | `#8B8E94` |
-| `--primary` | `text-link` | `#2F5EB9` | `#71A1FE` |
-| `--success` | `green-70`; `text-success` | `#2A6E47` | `#6DB083` |
-| `--warning` | `yellow-70`; `text-warning` | `#875817` | `#D59637` |
-| `--destructive` | `red-70`; `text-error` | `#A4414A` | `#F57E84` |
-| `--info` | `purple-70`; `purple-100` | `#6C4EBB` | `#A894F6` |
-
-The text on a fill (`*-foreground`) is `text-over-accent` (white) in light and the island in dark.
+| `--canvas` | `#E9EAEE` | `#26282C` | `MainWindow.background` |
+| `--card`, `--background` | `#FFFFFF` | `#191A1C` | `ToolWindow.background`, the island |
+| `--popover` | `#FFFFFF` | `#26282C` | `Popup.background` |
+| `--foreground` | `#000000` | `#D1D3D9` | text-default |
+| `--muted-foreground` | `#5F6269` | `#9FA2A8` | muted text |
+| `--border` | `#E9EAEE` | `#33353B` | `*.separatorColor` |
+| `--input` | `#D1D3D9` | `#40434A` | `Component.borderColor` |
+| `--primary` | `#3871E1` | `#71A1FE` | `Button.default`; the dark-theme link |
+| `--success` | `#338555` | `#6DB083` | success text |
+| `--warning` | `#A56906` | `#D59637` | warning text |
+| `--destructive` | `#C54E58` | `#F57E84` | error text |
+| `--info` | `#8250DF` | `#AB7DF8` | none: GitHub's merged violet |
 
 - **`muted`, `secondary` and `accent`** are one translucent tint of the foreground, 5% in light and 7% in dark
   (`--bd-tint`), as the IntelliJ hovers are (`#00000008` on a list, `#00000012` on a toolbar) and as the JetBrains genui
   mapping does. One hover then reads on a white island and on the canvas.
-- **The accent** is one token, `--primary`, with no choice in the app; `--ring` follows it.
-
-Where the tokens leave the Islands keys, and why (the ratios measured on the values above):
-
-- **`--primary` in light is the link blue, `blue-70`, not `Button.default` (`blue-80`, `#3871E1`).** Primary is a text
-  colour here too: the shown view in the toolbar, the status of a file, a selected row. `#3871E1` had 4.6:1 on the
-  island, 3.8:1 on the canvas and 4.0:1 on its own 10% tint. `#2F5EB9` has 6.1:1, 5.1:1 and 5.3:1, white on it 6.1:1.
-  The primary button is one step darker than the IDE's.
-- **The light statuses are palette step 70, not the `text-*` step 80.** Step 80 had 4.5:1 on the island, 3.8:1 on the
-  canvas and 4.0:1 on the 10% tint of a `Callout`, a `Badge` or an `Alert`. Step 70 has 6.1:1, 5.1:1 and 5.3:1 at
-  least. The dark statuses stay at the `text-*` step 100: 6.8:1 on the island, 5.8:1 on a popup, 5.8:1 on the tint.
-- **`--info` is the purple of the palette.** Islands has no info key, and its brand blue is the primary. It was
-  GitHub's merged violet (`#8250DF`, `#AB7DF8`); the palette steps have the same hue and the contrast of the statuses.
-- **Fields and buttons have the IDE border; toggles have a 3:1 edge.**
-  - `--input` is the border of a field (`Input`, `Select`, `Textarea`, `InputGroup`, `Combobox`) and of an outline
-    button: `control-border`, the border IntelliJ draws around both. A field and a button are identified by their label
-    and their place, so WCAG 1.4.11 asks for no 3:1 boundary. The border has 1.5:1 on the island and 1.3:1 on the canvas
-    in light, 1.8:1 and 1.5:1 in dark; on the canvas it shows a white field or button, whose fill alone is 1.2:1.
-  - A field and the button joined to it (the repository selector, an `InputGroup`, a `FieldGroup`) share the one border
-    colour and one radius join (`FieldGroup`: the inner corners square, the borders overlapping by 1px). A darker field
-    border beside a lighter button border read as two controls that do not belong together.
-  - `--control-edge` is the edge of a control that only its edge shows, at 3:1: an unchecked `Checkbox` (the edge, no
-    fill) and the track of an unchecked `Switch` (the track filled with it). A radio would take it too. They lie on an
-    island (Settings, the find bar of a diff), in a popup (a dialog, the review request) and on the hover of a row in a
-    popup (the code owners of a review request), never on the canvas. `gray-80` in light: 4.6:1 on the island and in a
-    popup, 4.1:1 on the hover. `gray-90` in dark: `gray-80` has 2.7:1 on the hover, `gray-90` 5.3:1 on the island, 4.5:1
-    in a popup and 3.8:1 on the hover.
-- **An `Alert` mixes the tint of its tone with the card** (`color-mix(in srgb, var(--destructive) 10%, var(--card))`),
-  and its description has the full tone. An alert lies on the canvas: the translucent tint over `#E9EAEE` gave its title
-  3.4:1 and its description, at 90% of the tone, 3.0:1. On the card colour they have 5.3:1. A `Callout` and a `Badge`
-  lie on an island or a popup and keep the translucent tint.
-- **Not checked, below 4.5:1:** the soft primary of the shown view lies on the canvas (`bg-primary/10`, 4.47:1; its
-  hover `bg-primary/20`, 3.9:1), and a dark `destructive` button or badge in a popup (`dark:bg-destructive/20`, 4.1:1).
+- **The accent** is one token, `--primary` in `src/index.css`, with no choice in the app: `Button.default` `#3871E1`
+  of ManyIslandsLight in light (white text), the dark-theme link `#71A1FE` in dark (dark text). `--ring` follows it.
+- Contrast on the island: `primary` 4.6:1 with white text, the status colours 4.5:1 and more, muted text 6.1:1
+  (light) and 6.8:1 (dark).
 
 ### Radius scale
 
-The Mira style names a radius step for each kind of part. The multipliers in the `@theme inline` block of
-`src/index.css` put the Islands arcs on these steps. `--radius` is `0.25rem`:
+The Rhea preset derives all radii from `--radius` through the multipliers in the `@theme inline` block of
+`src/index.css`. `--radius` is `0.25rem`:
 
 | Utility | Multiplier | Value | Used by | Islands counterpart |
 | --- | --- | --- | --- | --- |
-| `rounded-2xl` | 2.5× | 10px | `Card`, the file cards of a diff | `Island.arc` 20, a 10px radius |
-| `rounded-xl` | 2× | 8px | `Dialog` | |
-| `rounded-lg` | 1.5× | 6px | `Popover`, menus, `Alert`, inner panels in app code | `Banner.arc` 12, a 6px radius |
-| `rounded-md` | 1× | 4px | button, input, select, checkbox, tooltip, toast, menu items, status chip | `Button.arc` and `Component.arc` 8, a 4px radius |
-| `rounded-sm` | 0.6× | 2.4px | `xs` button | |
-| `rounded-full` | | | badge, switch | |
+| `rounded-4xl`, capped at 24px | 2.6× | 10.4px | `Card`, `Dialog` | `Island.arc` 20, a 10px radius |
+| `rounded-3xl` | 2.2× | 8.8px | `Popover` | popup |
+| `rounded-2xl` | 1.8× | 7.2px | button, input, select, badge, status chip, toast, menu | `Button.arc` 8, a 4px radius |
+| `rounded-xl` | 1.4× | 5.6px | menu items, tooltip | `Banner.arc` 12, a 6px radius |
+| `rounded-lg` | 1× | 4px | `kbd`, inner panels in app code | `Component.arc` 8, a 4px radius |
 
-Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 10px radius. The stock Mira card is
-`rounded-lg`; `card.tsx` makes it `rounded-2xl`, so an island is 10px and an inner panel (6px) stays less round.
+Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 10px radius.
 
 ### Diffs
 
@@ -226,9 +150,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
    **Rationale**: The scale stays proportional across all components and survives `shadcn add --overwrite`. The
    `// local customisation` list in the ui files does not grow.
 
-2. **Decision**: The radius steps of the Mira style carry the Islands arcs: 4px controls, 6px popups, 10px islands.
-   **Rationale**: Mira gives each kind of part its own step, so the multipliers alone reach the IntelliJ values. Only
-   the `Card` changes its step (`rounded-2xl`), because the stock card is the size of a popup.
+2. **Decision**: Accept controls at about 7px instead of the 4px of IntelliJ buttons.
+   **Rationale**: Matching IntelliJ exactly would need per-component overrides. A consistent scale matters more than
+   pixel parity.
 
 3. **Decision**: The canvas is its own token, `--canvas`, and `muted` is a translucent tint.
    **Rationale**: The IntelliJ canvas is darker than any hover on an island. A solid `muted` equal to the canvas would
@@ -243,15 +167,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
    **Rationale**: `zinc` is close in lightness and chroma but warmer (hue 286 instead of 265); next to the IDE the
    difference shows. The values are tokens either way, so the ui files don't change.
 
-6. **Decision**: The IntelliJ blue is the one primary, and `info` is purple.
+6. **Decision**: The IntelliJ blue is the one primary, and `info` is violet.
    **Rationale**: One accent as in Islands, readable with white text, and no longer the hue of `success`. Blue would
-   have collided with the old blue `info` (merged, landed), so `info` takes the purple of the palette, the hue GitHub
-   uses for merged.
-
-7. **Decision**: The values come from the file the monorepo generates from the Islands themes, copied by a script.
-   **Rationale**: Hand-copied values drifted apart in three places (the docs sites, the GenUI catalog, Branch Deck).
-   One generated file gives every consumer the same values; each consumer keeps only its mapping. The copy keeps the
-   build of Branch Deck free of the monorepo.
+   have collided with the old blue `info` (merged, landed), so `info` takes the violet GitHub uses for merged.
 
 ### Rules for UI changes
 
@@ -283,7 +201,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   header that shows a file (one menu each, never around a diff), and ⌘C on a focused row.
 - **Don't recolour a top-level `Card` or `Alert`** with `bg-muted`. A `bg-muted` override makes the island invisible on the
   canvas.
-- **Nested panels inside a card** use `rounded-lg` (6px): `InfoCard`, code boxes, diff frames and warning boxes.
+- **Nested panels inside a card** use `rounded-lg` (4px): `InfoCard`, code boxes, diff frames and warning boxes.
   `rounded-xl` is the most they get. They must stay visibly less round than the 10px island around them.
   - A section with a header inside an island (the conflict viewer and the amend preview in the expanded row) is a
     `NestedPanel` (`src/components/shared/NestedPanel.tsx`): `rounded-lg border border-border bg-card`, without the ring
@@ -308,8 +226,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - a `size-4` lead icon (the tone's icon, or `icon` for a concept such as `FileDiffIcon`), the `title` in the tone's
     colour, muted details as children; a one-sentence callout passes only the `title`.
 - **The state of a whole block is an `Alert`**: the repository path error, a branch that failed to sync or is blocked,
-  the empty window. Its `destructive` variant is tinted like `success`, `warning` and `info`, the tint mixed with the
-  card, so an alert on the canvas is an island ([Palette](#palette)); call sites add no colour overrides.
+  the empty window. Its `destructive` variant is tinted like `success`, `warning` and `info`; call sites add no colour
+  overrides.
 - **Code inside a sentence is an `InlineCode`** (`src/components/shared/InlineCode.tsx`, the chip of `LinkedText`), at
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
@@ -370,8 +288,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   matches Inter's metrics (SF Mono is 4% lower and exists only on macOS), and is the font of the IntelliJ editor the
   code comes from.
 - **Density** is the IntelliJ list density:
-  - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px) around the 24px
-    folder button (`icon-sm`, the other controls of a row are 20px), which the lanes
+  - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px), which the lanes
     of the graph and the family guide span (`StackLanes`, `FamilyGuide`);
   - the dividers of the branch table group its rows: full width between the top-level units (a stack, a lone branch,
     an issue family), from the tree (`--bd-tree-x`) inside one, so a long stack reads as one block and still has a
@@ -426,9 +343,6 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 - **Anything that opens on hover or click is a button**: a help icon, a hash or a time with a popover, the AI toggle.
   Base UI triggers render a `button` by default; never a `span` trigger with `nativeButton={false}`, which the keyboard
   cannot reach.
-- **A sidebar selects as an IDE list** (the pages of Settings, the `list` variant of `TabsList`): the selected page is
-  `bg-primary/15`, and `bg-primary/25` while the list has the focus, without a focus ring. With `activateOnFocus` the
-  focus is always on the selected page, and the window focuses it when it opens.
 - **Focus ring**: `outline-none focus-visible:ring-3 focus-visible:ring-ring/30` with a radius (`rounded-sm` on inline
   text, `rounded-lg` on a row or a header), as the shadcn controls draw it.
 - **`data-state` is Base UI's open/closed vocabulary** (set by hand where E2E reads it); the domain state of a component
@@ -572,11 +486,8 @@ Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review tha
 - **Copy IntelliJ values per component** (4px buttons, 10px cards):
   - Why not: it means per-component overrides in `src/components/ui/*`, which are lost on every `--overwrite`, and the
     proportions drift apart over time.
-- **Stay on the Rhea style** (`base-rhea`, the first style):
-  - Why not: its 32px controls are larger than the 28px of the IDE, and its fields are a fill of 1.2:1 without a border;
-    the IDE draws a field by its border.
-- **The Nova style** (`base-nova`):
-  - Why not: it has the borders, but its controls are 32px like Rhea's. Mira has the 28px and 24px of the IDE.
+- **Switch to the Nova style** (`base-nova`, like the JetBrains genui renderer):
+  - Why not: Rhea was chosen for its compact density and Inter, and the radius token alone reaches the target.
 - **shadcn preset radius "small"** (~0.45rem):
   - Why not: it still gives 19px cards and 13px controls, far rounder than Islands.
 - **Stock `zinc` base colour** (`baseColor: zinc`):
@@ -592,9 +503,6 @@ Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review tha
 
 - Tokens and scale: `src/index.css` (`--radius`, the `@theme inline` radius multipliers, the palette, `body` in the base
   layer).
-- Palette source: `src/islands.generated.css`, written by `scripts/sync-islands-theme.mjs` from
-  `community/tools/docs-site/styles/islands.generated.css` of the IntelliJ monorepo
-  (`community/tools/docs-site/scripts/islandsTheme.ts` writes it); the contrast check `src/lib/theme-contrast.test.ts`.
 - Islands containers:
   - `src/components/ui/card.tsx`;
   - `src/components/shared/CollapsibleCard.tsx`;

@@ -3,18 +3,18 @@
     <h1 class="text-sm font-semibold text-foreground outline-none" tabindex="-1">
       Safe Push Statistics
     </h1>
-    <button aria-expanded="false" aria-haspopup="listbox" aria-label="Period" class="flex w-fit items-center justify-between gap-1.5 rounded-md border border-input px-2 py-1.5 whitespace-nowrap transition-colors outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-7 data-[size=sm]:h-6 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5" data-size="sm" data-slot="select-trigger" data-testid="landing-period" id="base-ui-[ID]" role="combobox" tabindex="0" type="button">
+    <button aria-expanded="false" aria-haspopup="listbox" aria-label="Period" class="flex w-fit items-center justify-between gap-1.5 rounded-2xl border border-transparent bg-input/50 px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] duration-200 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4" data-size="sm" data-slot="select-trigger" data-testid="landing-period" id="base-ui-[ID]" role="combobox" tabindex="0" type="button">
       <span class="flex flex-1 text-left" data-slot="select-value">
         Last 30 days
       </span>
-      <svg aria-hidden="true" class="lucide lucide-chevron-down pointer-events-none size-3.5 text-muted-foreground" />
+      <svg aria-hidden="true" class="lucide lucide-chevron-down pointer-events-none size-4 text-muted-foreground" />
     </button>
     <input aria-hidden="true" id="base-ui-[ID]-hidden-input" style="clip-path: inset(50%);  overflow: hidden;  white-space: nowrap;  border: 0px;  padding: 0px;  width: 1px;  height: 1px;  margin: 0px;  position: fixed;  top: 0px;  left: 0px" tabindex="-1" value="30d" />
     <span class="min-w-0 truncate text-xs text-muted-foreground" data-testid="landing-window">
       Into master · UTC
     </span>
     <div class="ml-auto flex items-center gap-2">
-      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-md border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 gap-1 px-2 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5" data-slot="button" data-testid="landing-refresh" tabindex="0" type="button">
+      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2" data-slot="button" data-testid="landing-refresh" tabindex="0" type="button">
         <svg aria-hidden="true" class="lucide lucide-refresh-cw" data-icon="inline-start" />
         Refresh
       </button>
@@ -22,7 +22,7 @@
   </div>
   <div class="transition-opacity" data-period="30d" data-testid="landing-numbers">
     <div class="grid gap-2 @4xl:grid-cols-2">
-      <div class="group/card flex flex-col overflow-hidden rounded-2xl bg-card text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(4)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-2xl *:[img:last-child]:rounded-b-2xl gap-0 py-0 @4xl:col-span-2" data-size="default" data-slot="card" data-testid="landing-delivery">
+      <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0 @4xl:col-span-2" data-size="default" data-slot="card" data-testid="landing-delivery">
         <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
           <h2 class="shrink-0 text-sm font-semibold whitespace-nowrap text-foreground">
             Into master
@@ -302,7 +302,7 @@
           </section>
         </div>
       </div>
-      <div class="group/card flex flex-col overflow-hidden rounded-2xl bg-card text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(4)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-2xl *:[img:last-child]:rounded-b-2xl gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-weeks">
+      <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-weeks">
         <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
           <h2 class="shrink-0 text-sm font-semibold whitespace-nowrap text-foreground">
             Robots per week
@@ -329,7 +329,7 @@
                 <div style="width: 0px;  height: 0px;  overflow: visible">
                   <div class="recharts-wrapper" height="160" style="position: relative;  cursor: default;  width: 580px;  height: 160px" width="580">
                     <div class="recharts-tooltip-wrapper recharts-tooltip-wrapper-left recharts-tooltip-wrapper-top" style="visibility: visible;  position: absolute;  top: 0px;  left: 0px;  transition: transform 400ms;  transform: translate(366.4px, 16px)" tabindex="-1" xmlns="http://www.w3.org/1999/xhtml">
-                      <div class="grid min-w-32 items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+                      <div class="grid min-w-32 items-start gap-1.5 rounded-xl bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/10">
                         <div class="font-medium">
                           This week, so far
                         </div>
@@ -608,7 +608,7 @@
           </figure>
         </div>
       </div>
-      <div class="group/card flex flex-col overflow-hidden rounded-2xl bg-card text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(4)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-2xl *:[img:last-child]:rounded-b-2xl gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-merge-times">
+      <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-merge-times">
         <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
           <h2 class="shrink-0 text-sm font-semibold whitespace-nowrap text-foreground">
             Time to merge by week
@@ -834,7 +834,7 @@
           </figure>
         </div>
       </div>
-      <div aria-busy="false" class="group/card flex flex-col overflow-hidden rounded-2xl bg-card text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(4)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-2xl *:[img:last-child]:rounded-b-2xl gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-failures">
+      <div aria-busy="false" class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-failures">
         <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
           <h2 class="shrink-0 text-sm font-semibold whitespace-nowrap text-foreground">
             Why robots failed
@@ -930,7 +930,7 @@
           </div>
         </div>
       </div>
-      <div class="group/card flex flex-col overflow-hidden rounded-2xl bg-card text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(4)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-2xl *:[img:last-child]:rounded-b-2xl gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-hours">
+      <div class="group/card flex flex-col overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] gap-0 py-0" data-size="default" data-slot="card" data-testid="landing-hours">
         <div class="flex items-center gap-2 px-4 py-2.5 sm:px-6">
           <h2 class="shrink-0 text-sm font-semibold whitespace-nowrap text-foreground">
             When robots run fastest

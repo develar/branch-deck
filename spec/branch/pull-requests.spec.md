@@ -609,7 +609,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 ## User Experience
 
 - The chip is text-sized (`text-xs`, `size-3.5` icon, tabular figures), a plain button that underlines on hover, with
-  the `rounded-md` focus ring of buttons. No chip has an outline: a draft shows by its icon and its muted
+  the `rounded-2xl` focus ring of buttons and badges. No chip has an outline: a draft shows by its icon and its muted
   hue. The dots are `size-1.5 rounded-full shrink-0`, as the status dot of the row.
 - The notice of a changed branch is `text-xs text-warning` after the warning triangle; the line of a rebuilt one is
   `text-xs text-muted-foreground`, without an icon (`ReviewCommitNotice`, shared with the Patronus details).

@@ -319,7 +319,7 @@ Renaming and ungrouping a branch are moves of all its commits.
 - The chips of the form are `xs` buttons (`ChoiceChip`) in one style for the existing branches and the AI suggestions:
   the chip whose name the input holds is soft primary (`bg-primary/10 text-primary`, `aria-pressed`), the others
   `secondary`. A suggestion still being generated is a disabled `secondary` chip with a spinner and "Generating…".
-- The drag bar is a popover surface (`bg-popover`, `shadow-lg`, `rounded-lg`) centred over the bottom of the window,
+- The drag bar is a popover surface (`bg-popover`, `shadow-lg`, `rounded-xl`) centred over the bottom of the window,
   24 px above its edge. Its zones are dashed `border-primary/50` panels (`rounded-lg`) in one row: Move to New Branch
   (`GitBranchPlus`), Park ‹names› (`CirclePause`), Unpark ‹names› (`CirclePlay`), Unstack ‹name› (`Layers2`). A refused
   zone is `border-border` and `text-muted-foreground`; the reason of the target under the pointer is a muted `xs` line

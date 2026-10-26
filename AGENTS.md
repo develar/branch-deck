@@ -468,17 +468,15 @@ The checklist:
 
 ### Code Style
 - **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
-  `text-destructive`) plus the custom `canvas`, `success`, `warning`, `info` (`text-success`, `bg-warning/10`) and `control-edge` (the edge of an
-  unchecked checkbox or switch); the one
+  `text-destructive`) plus the custom `canvas`, `success`, `warning`, `info` (`text-success`, `bg-warning/10`); the one
   exception is the `window-button-*` palette of the Linux window buttons (IntelliJ's icons, `WindowControls`). **Never** use
-  `dark:` variants; the theme is handled by the tokens, which map the IntelliJ Islands values (`src/index.css` on
-  `src/islands.generated.css`, copied by `scripts/sync-islands-theme.mjs`; never edit the copy).
+  `dark:` variants; the theme is handled by the tokens, which are the IntelliJ Islands values (`src/index.css`).
 - **Window and cards** (Islands layering, see [UI Theme](docs/design/ui-theme.md)):
   - the page canvas is `bg-canvas`; `bg-muted` is a translucent tint (hover, chips, code), not a surface;
   - top-level blocks (tables, collapsible sections, alerts) are `Card` islands, or `CollapsibleCard`; the toolbar
     (`ConfigurationHeader`) lies on the canvas as the title bar ([Title Bar](spec/repository/title-bar.spec.md));
   - never put `bg-muted`/`bg-background` divs on the canvas, and never recolour a top-level `Card` with `bg-muted`;
-  - nested panels inside a card use `rounded-lg` (6px, `rounded-xl` at most), the island is `rounded-2xl` (10px).
+  - nested panels inside a card use `rounded-lg` (`rounded-xl` at most).
 - **Radii** come only from `--radius` (`0.25rem`) in `src/index.css`. Never add radius classes to `src/components/ui/*`
   or hardcode `rounded-[…]`. To change the feel, change the token. Prefer a coherent token-driven scale over copying
   IntelliJ pixel values.
@@ -517,14 +515,13 @@ The checklist:
   appropriate (`p-debounce`).
 - **Base UI**: compose with the `render` prop (`<TooltipTrigger render={<Button />} />`), not `asChild`. Base UI emits
   `data-open`/`data-closed`; set `data-state` manually where E2E tests read it.
-- **shadcn workflow**: components are generated into `src/components/ui/` (`components.json`, style `base-mira`). Run
+- **shadcn workflow**: components are generated into `src/components/ui/` (`components.json`, style `base-rhea`). Run
   the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt the files.
   `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3 API and
   pnpm dlx resolves zod 4.
-- **Locally customised ui files**: every file of `src/components/ui/` but `collapsible`, `resizable`, `separator`
-  carries a `// local customisation: …` header naming the edits; they drop the text sizes of the stock (`badge`, `kbd`
-  and `chart` keep `text-xs`), and the fields drop the `bg-input` fill ([UI Theme](docs/design/ui-theme.md#style)). After `add --overwrite` (e.g. a style
-  switch), re-apply them; `git diff HEAD -- src/components/ui` shows what was lost.
+- **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `chart`, `checkbox`, `input`, `popover`, `spinner`, `tabs`,
+  `textarea`, `tooltip`, `toast` in `src/components/ui/` carry a `// local customisation: …` header naming the edits. After
+  `add --overwrite` (e.g. a style switch), re-apply them; `git diff HEAD -- src/components/ui` shows what was lost.
 - **Toolchain** (Vite+, `vite-plus`, the `vp` CLI): one pinned toolchain of Vite 8, Vitest, Oxlint and Oxfmt,
   configured in `vite.config.ts` (`lint`, `fmt`); Tailwind CSS v4 through `@tailwindcss/vite`, its theme tokens in
   `src/index.css`. Oxlint is type-aware through tsgolint (TypeScript 7, the Go compiler, strict, checked with `tsc` on

@@ -27,7 +27,7 @@ export interface StatusChipProps {
  * A text-sized status after the branch status (pull request, Patronus robot, landed commits): a plain button that
  * underlines on hover, opens its details on hover and the item on click, which leaves the details as they are
  * (`HoverDescription`); a chip without an item opens them on a click. A click does not toggle the row. No chip has an
- * outline: the icon and the hue tell the state; the focus ring follows the `rounded-md` of buttons.
+ * outline: the icon and the hue tell the state; the focus ring follows the `rounded-2xl` of buttons and badges.
  */
 export function StatusChip({ label, color, data, children, details, detailsTestId, onActivate, onOpenChange, className }: StatusChipProps) {
   const Root = onActivate === undefined ? Popover : HoverDescription
@@ -42,7 +42,7 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
             {...data}
             aria-label={label}
             className={cn(
-              "inline-flex h-5 shrink-0 items-center gap-1 rounded-md px-1 text-xs tabular-nums outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
+              "inline-flex h-5 shrink-0 items-center gap-1 rounded-2xl px-1 text-xs tabular-nums outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
               statusChipTextColors[color],
               className,
             )}

@@ -12,8 +12,6 @@
 @import "@fontsource-variable/jetbrains-mono";
 /* its real italic faces: the comments of the IntelliJ schemes are italic, not an oblique the browser makes */
 @import "@fontsource-variable/jetbrains-mono/wght-italic.css";
-/* the --islands-* variables of the IntelliJ Islands themes, which the token blocks below map (scripts/sync-islands-theme.mjs) */
-@import "./islands.generated.css";
 
 /* The colour scheme follows the OS; there is no manual toggle */
 @custom-variant dark (@media (prefers-color-scheme: dark));
@@ -50,7 +48,7 @@
 /*
  * The tree of the branch table (BranchNameCell, StackLanes, ActiveBranchExpanded, BranchRow). Every cell has the
  * vertical padding --bd-cell-y, which the lines span to run over the whole row: a 36px row around the 24px folder
- * button (`icon-sm`).
+ * button.
  *
  * Stacks are a graph (StackLanes): a column of --bd-lane-count lanes, --bd-lane-width each, starts at --bd-lane-start
  * in the name cell; the table sets the count and `bd-lanes`. The folder button of a row follows at --bd-tree-x, so
@@ -257,7 +255,6 @@
   --color-success: var(--success);
   --color-ring: var(--ring);
   --color-input: var(--input);
-  --color-control-edge: var(--control-edge);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -283,55 +280,51 @@
   --color-window-button-kde-on-circle: var(--window-button-kde-on-circle);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  /*
-   * The radii of the Islands arcs on the steps of the Mira style (docs/design/ui-theme.md, "Radius scale"): a control
-   * `rounded-md` 4px (Button.arc, Component.arc), a popup, an alert and a nested panel `rounded-lg` 6px (Banner.arc), a
-   * dialog `rounded-xl` 8px, an island `rounded-2xl` 10px (Island.arc)
-   */
   --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) * 1.5);
-  --radius-xl: calc(var(--radius) * 2);
-  --radius-2xl: calc(var(--radius) * 2.5);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 :root {
   /*
-   * The neutrals and the accents map the IntelliJ Islands themes: the --islands-* variables of islands.generated.css,
-   * a copy of the file the monorepo writes from ManyIslandsLight/Dark.theme.json (docs/design/ui-theme.md, "Palette").
-   * Each token names its Islands key; a palette step names a value outside the keys, and its comment gives the reason.
-   * src/lib/theme-contrast.test.ts checks the contrast of the pairs.
-   *
-   * muted, secondary and accent are a translucent tint of the foreground (the IntelliJ hover is #00000008 on a list,
-   * #00000012 on a toolbar), so one hover reads on an island and on the canvas.
+   * The neutrals and status colours are the IntelliJ Islands values (ManyIslandsLight/Dark.theme.json), see
+   * docs/design/ui-theme.md. muted, secondary and accent are a translucent tint of the foreground (the IntelliJ hover is
+   * #00000008 on a list, #00000012 on a toolbar), so one hover reads on an island and on the canvas.
    */
   --bd-tint: 5%;
-  --canvas: var(--islands-main-window-bg-light);
-  --background: var(--islands-tool-window-bg-light);
-  --foreground: var(--islands-text-default-light);
-  /* the island */
-  --card: var(--islands-tool-window-bg-light);
+  /* MainWindow.background #E9EAEE */
+  --canvas: oklch(0.937 0.005 275);
+  --background: oklch(1 0 0);
+  /* text-default #000000 */
+  --foreground: oklch(0 0 0);
+  /* ToolWindow.background, the island */
+  --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
-  --popover: var(--islands-popup-bg-light);
+  --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
-  /* the link blue, not Button.default (blue-80): blue-70 keeps 5:1 on the canvas and on its own 10% tint */
-  --primary: var(--islands-text-link-light);
-  --primary-foreground: var(--islands-text-over-accent-light);
+  /* Button.default #3871E1 of ManyIslandsLight */
+  --primary: oklch(0.572 0.181 262.1);
+  --primary-foreground: oklch(1 0 0);
   --secondary: color-mix(in oklab, var(--foreground) var(--bd-tint), transparent);
   --secondary-foreground: var(--foreground);
   --muted: var(--secondary);
-  --muted-foreground: var(--islands-text-muted-light);
+  /* muted text #5F6269 */
+  --muted-foreground: oklch(0.496 0.012 267.3);
   --accent: var(--secondary);
   --accent-foreground: var(--foreground);
-  /* the statuses at step 70, not the text-* step 80: the text keeps 5:1 on the 10% tint of its colour */
-  --destructive: var(--islands-red-70);
-  --destructive-foreground: var(--islands-text-over-accent-light);
-  --success: var(--islands-green-70);
-  --success-foreground: var(--islands-text-over-accent-light);
-  --warning: var(--islands-yellow-70);
-  --warning-foreground: var(--islands-text-over-accent-light);
-  /* merged, landed, integrated: the purple of the palette (Islands has no info key), the blue being the primary */
-  --info: var(--islands-purple-70);
+  /* error #C54E58, success #338555, warning #A56906 */
+  --destructive: oklch(0.584 0.152 18.1);
+  --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.553 0.11 154.6);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.572 0.122 70.1);
+  --warning-foreground: oklch(1 0 0);
+  /* merged, landed, integrated: violet (GitHub merged #8250DF), the blue being the primary */
+  --info: oklch(0.563 0.207 295);
   /* the series of the charts (Landing): slots 1, 2 and 4 of the dataviz reference palette and, as the third, a neutral
      for what ended without an outcome (canceled), which a hue would make read as success; in this order the adjacent
      marks pass the colour-blind and normal-vision checks (validate_palette.js, light on the card), the chroma floor of
@@ -343,21 +336,11 @@
   /* the context of an emphasis chart (everyone else beside the user, the hours that are not the fastest): a lighter
      step of the blue of slot 1 (the dataviz reference ramp, step 250), so it is no second hue and no second grey */
   --chart-context: #86b6ef;
-  --info-foreground: var(--islands-text-over-accent-light);
-  /* separatorColor: dialog-border */
-  --border: var(--islands-dialog-border-light);
-  /*
-   * The border of a field and of an outline button (`border-input`): control-border, the border IDE fields and buttons
-   * draw (Component.borderColor, Button.startBorderColor). A field and a button are identified by their label and their
-   * place, so they need no 3:1 edge (WCAG 1.4.11); the border shows them on the canvas, where a white fill alone is 1.2:1
-   */
-  --input: var(--islands-control-border-light);
-  /*
-   * The edge of a control that only its edge shows: an unchecked checkbox, the track of an unchecked switch, 3:1 on every
-   * surface they lie on (WCAG 1.4.11), the hover of a row in a popup too (the code owners of a review request): gray-80
-   * here, 4.1:1 there
-   */
-  --control-edge: var(--islands-gray-80);
+  --info-foreground: oklch(1 0 0);
+  /* separatorColor #E9EAEE */
+  --border: oklch(0.937 0.005 275);
+  /* Component.borderColor #D1D3D9 */
+  --input: oklch(0.867 0.009 271.3);
   --ring: var(--primary);
   --radius: 0.25rem;
   /*
@@ -461,25 +444,27 @@
     color-scheme: dark;
     /* the IntelliJ hover is #FFFFFF10 on a list, #FFFFFF17 on a toolbar */
     --bd-tint: 7%;
-    /* in Islands Dark the window is lighter than the islands */
-    --canvas: var(--islands-main-window-bg-dark);
-    --background: var(--islands-tool-window-bg-dark);
-    --card: var(--islands-tool-window-bg-dark);
-    /* lighter than the island under it */
-    --popover: var(--islands-popup-bg-dark);
-    --foreground: var(--islands-text-default-dark);
-    --muted-foreground: var(--islands-text-muted-dark);
-    /* with the island as its text */
-    --primary: var(--islands-text-link-dark);
-    --primary-foreground: var(--islands-tool-window-bg-dark);
-    /* the text-* step 100 keeps 4.8:1 on the 10% tint of its colour */
-    --destructive: var(--islands-text-error-dark);
-    --destructive-foreground: var(--islands-tool-window-bg-dark);
-    --success: var(--islands-text-success-dark);
-    --success-foreground: var(--islands-tool-window-bg-dark);
-    --warning: var(--islands-text-warning-dark);
-    --warning-foreground: var(--islands-tool-window-bg-dark);
-    --info: var(--islands-purple-100);
+    /* MainWindow.background #26282C: in Islands Dark the window is lighter than the islands */
+    --canvas: oklch(0.276 0.008 264.4);
+    /* ToolWindow.background #191A1C */
+    --background: oklch(0.218 0.004 264.5);
+    --card: oklch(0.218 0.004 264.5);
+    /* Popup.background #26282C, lighter than the island under it */
+    --popover: oklch(0.276 0.008 264.4);
+    /* text-default #D1D3D9, muted #9FA2A8 */
+    --foreground: oklch(0.867 0.009 271.3);
+    --muted-foreground: oklch(0.712 0.009 264.5);
+    /* the dark-theme link #71A1FE, with dark text */
+    --primary: oklch(0.716 0.146 262.6);
+    --primary-foreground: oklch(0.218 0.004 264.5);
+    /* error #F57E84, success #6DB083, warning #D59637, violet #AB7DF8 */
+    --destructive: oklch(0.729 0.146 18.2);
+    --destructive-foreground: oklch(0.218 0.004 264.5);
+    --success: oklch(0.7 0.095 153.9);
+    --success-foreground: oklch(0.218 0.004 264.5);
+    --warning: oklch(0.719 0.131 73.5);
+    --warning-foreground: oklch(0.218 0.004 264.5);
+    --info: oklch(0.688 0.178 298.9);
     /* the same slots stepped for the dark card */
     --chart-1: #3987e5;
     --chart-2: #d95926;
@@ -487,12 +472,10 @@
     --chart-4: #c98500;
     /* step 550 of the same ramp */
     --chart-context: #1c5cab;
-    --info-foreground: var(--islands-tool-window-bg-dark);
-    /* separatorColor: popup-border */
-    --border: var(--islands-popup-border-dark);
-    --input: var(--islands-control-border-dark);
-    /* gray-90, not gray-80: gray-80 has 2.7:1 on the hover of a row in a popup, gray-90 3.8:1 */
-    --control-edge: var(--islands-gray-90);
+    --info-foreground: oklch(0.218 0.004 264.5);
+    /* separatorColor #33353B, Component.borderColor #40434A */
+    --border: oklch(0.329 0.011 271.1);
+    --input: oklch(0.383 0.013 267.2);
     --window-button-glyph: #ced0d6;
     --window-button-shade: #ffffff;
     --window-button-kde-glyph: #ced0d6;
@@ -572,11 +555,8 @@
     @apply border-border outline-ring/50;
   }
   body {
-    /*
-     * Islands layering: the window is the canvas, top-level blocks are `Card` islands. The UI text is 13px (`text-sm`):
-     * the primitives carry no text size, so a row, a control and a popup take it from here or from their container
-     */
-    @apply bg-canvas text-sm text-foreground antialiased;
+    /* Islands layering: the window is the canvas, top-level blocks are `Card` islands */
+    @apply bg-canvas text-foreground antialiased;
   }
   html {
     @apply font-sans;

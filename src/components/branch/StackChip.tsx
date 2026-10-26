@@ -87,7 +87,7 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
             aria-label={`Stack of ${root}: ${size}`}
             data-testid="stack-chip"
             data-stack={collapsed ? "collapsed" : "expanded"}
-            className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md px-1 text-xs text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
+            className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-2xl px-1 text-xs text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
             onClick={event => {
               // the row toggles its commits on click
               event.stopPropagation()
