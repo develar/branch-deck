@@ -7,6 +7,7 @@
 //! with `option no-deref`. The check needs no lock: its caller checks before the repository lock and, under it, only
 //! the witness (`recheck_pick`) before the moves.
 
+use crate::commit_writer::{NewCommit, NewParent, read_raw_commits, write_commits};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
 use crate::landed_pairing::pair_by_patch_id;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, changed_paths, parse_commits};
@@ -31,6 +32,18 @@ pub enum PickSource<'a> {
   Worktree(&'a str),
   /// One commit, `<rev>`, or a range, `<a>..<b>`
   Revisions(&'a str),
+  /// These commits, full ids, oldest first, each child after its parent: the commits of someone else a remote branch has
+  /// that its virtual branch lacks (`bd pick --remote`), which need not be one range
+  Commits(&'a [String]),
+}
+
+/// The `(group)` prefix the copies of `commits` get in their subject, so they land in the branch of `group` on the
+/// target (`bd pick --remote`: a colleague's commit on a remote virtual branch has no prefix of it)
+#[derive(Debug, Clone, Copy)]
+pub struct SubjectPrefix<'a> {
+  pub group: &'a str,
+  /// The commits of the pick (by their original ids) whose copies take it; the others keep their message
+  pub commits: &'a [String],
 }
 
 /// What to pick, and where from
@@ -45,6 +58,8 @@ pub struct PickRequest<'a> {
   /// The branch the target must have checked out (`bd lease pick`: the branch the lease was cut from); another one is
   /// refused as `PickRefusal::BranchSwitched`
   pub expect_branch: Option<&'a str>,
+  /// The prefix some copies take in their subject; their messages are rewritten after the replay, before the move
+  pub prefix: Option<SubjectPrefix<'a>>,
 }
 
 /// A commit of the range, oldest first
@@ -202,6 +217,12 @@ pub enum PickRefusal {
   /// The target has another branch checked out than `PickRequest::expect_branch`
   #[error("{0}")]
   BranchSwitched(String),
+  /// `bd pick --remote`: the fetched remote branch is not at the head the caller saw; nothing was picked
+  #[error("{0}")]
+  RemoteMoved(String),
+  /// `bd pick --remote`: the remote branch has no commit the branch lacks
+  #[error("{0}")]
+  NothingToPick(String),
 }
 
 /// Check, writing nothing but git objects, whether the commits of `request` apply onto the branch checked out at
@@ -258,22 +279,38 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
       });
       (source_head, base, follow)
     }
+    PickSource::Revisions(_) | PickSource::Commits(_) if request.follow => {
+      return Err(anyhow::Error::new(PickRefusal::InvalidSource(
+        "Only the worktree of --from can follow the pick".to_string(),
+      )));
+    }
     PickSource::Revisions(text) => {
-      if request.follow {
-        return Err(anyhow::Error::new(PickRefusal::InvalidSource(
-          "Only the worktree of --from can follow the pick".to_string(),
-        )));
-      }
       let (from, to) = resolve_revisions(git_executor, target, text)?;
       (to, from, None)
     }
+    PickSource::Commits(ids) => {
+      let (Some(first), Some(last)) = (ids.first(), ids.last()) else {
+        return Err(anyhow::Error::new(PickRefusal::InvalidSource("No commit to pick".to_string())));
+      };
+      (last.clone(), first.clone(), None)
+    }
   };
 
-  let mut excluded = vec![head.as_str(), base.as_str()];
-  excluded.extend(upstream_head.as_deref());
-  ensure_no_merges(git_executor, target, &source_head, &excluded)?;
-  let negated: Vec<String> = excluded.iter().map(|rev| format!("^{rev}")).collect();
-  let range = range_of(git_executor, target, &head, &source_head, &negated[1..])?;
+  let (range, negated) = if let PickSource::Commits(ids) = request.source {
+    // the listed commits only: the target's HEAD is excluded, so a commit it has is never replayed again
+    (listed_commits(git_executor, target, &head, ids)?, vec![format!("^{head}")])
+  } else {
+    let mut excluded = vec![head.as_str(), base.as_str()];
+    excluded.extend(upstream_head.as_deref());
+    ensure_no_merges(git_executor, target, &source_head, &excluded)?;
+    let negated: Vec<String> = excluded.iter().map(|rev| format!("^{rev}")).collect();
+    (range_of(git_executor, target, &head, &source_head, &negated[1..])?, negated)
+  };
+  // a listed commit's parent is the base of its range
+  let base = match request.source {
+    PickSource::Commits(_) => range.first().map_or(base, |oldest| oldest.parent.clone()),
+    PickSource::Worktree(_) | PickSource::Revisions(_) => base,
+  };
 
   let mut check = PickCheck {
     branch,
@@ -288,7 +325,10 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
     state: PickState::Clean,
   };
   let by_patch_id: Vec<PickCommit> = range.iter().filter(|commit| commit.same_patch).map(|commit| pick_commit(&commit.commit)).collect();
-  if range.first().is_some_and(|oldest| oldest.parent == head) {
+  // a fast-forward lands the range as it is: never listed commits, which need not be one line from HEAD, nor copies
+  // that take a prefix
+  let fast_forward = !matches!(request.source, PickSource::Commits(_)) && request.prefix.is_none();
+  if fast_forward && range.first().is_some_and(|oldest| oldest.parent == head) {
     // the target is an ancestor of the source: it has no commit of its own to share a patch id with one of the range
     check.picked = range
       .iter()
@@ -327,7 +367,10 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
     }
     let kept: Vec<UpdateCommit> = range.iter().filter(|commit| !commit.same_patch).map(|commit| commit.commit.clone()).collect();
     let replayed = commits_of(git_executor, target, &[tip.clone(), format!("^{head}")])?;
-    let (picked, dropped) = match_replayed(&kept, &replayed);
+    let (mut picked, dropped) = match_replayed(&kept, &replayed);
+    if let Some(prefix) = request.prefix {
+      tip = prefix_subjects(git_executor, target, &head, &replayed, &mut picked, prefix)?;
+    }
     let present: Vec<PickCommit> = range
       .iter()
       .filter(|commit| commit.same_patch || dropped.iter().any(|dropped| dropped.id == commit.commit.id))
@@ -565,6 +608,11 @@ fn range_of(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, sour
   args.extend(excluded.iter().map(String::as_str));
   args.push("--");
   let output = git_executor.execute_command(&args, repo_path)?;
+  parse_range(&output)
+}
+
+/// The records of `COMMIT_FORMAT%x00%P%x00%cd%x00%m` of a `log -z --date=raw`
+fn parse_range(output: &str) -> Result<Vec<RangeCommit>> {
   output
     .split('\x01')
     .filter(|record| !record.is_empty())
@@ -586,7 +634,32 @@ fn range_of(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, sour
     .collect()
 }
 
-/// The runs of the range between the commits left out by patch id, as `(first, last)` indices, oldest first
+/// The listed commits `ids` (oldest first) as a range of a pick: one `log --no-walk=unsorted` with their parents and
+/// committer dates. None is marked as the target's by patch id: the replay drops one whose change the target has. A
+/// merge, or a commit `head` has, is refused
+fn listed_commits(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, ids: &[String]) -> Result<Vec<RangeCommit>> {
+  // the mark of `parse_range`: `-`, none of the target's by patch id (a trailing empty field would go with the NUL of
+  // `-z`)
+  let format = format!("{COMMIT_FORMAT}%x00%P%x00%cd%x00-");
+  let mut args = vec!["log", "--no-walk=unsorted", "-z", "--date=raw", &format];
+  args.extend(ids.iter().map(String::as_str));
+  args.push("--");
+  let output = git_executor.execute_command(&args, repo_path)?;
+  let range = parse_range(&output)?;
+  if let Some(merge) = range.iter().find(|commit| commit.parent.contains(' ')) {
+    return Err(crate::rewrite_guard::merge_refusal(&merge.commit.id));
+  }
+  if ids.iter().any(|id| id == head) {
+    return Err(anyhow::Error::new(PickRefusal::InvalidSource(format!(
+      "{} is the target's HEAD already",
+      crate::revs::short_id(head)
+    ))));
+  }
+  Ok(range)
+}
+
+/// The runs of the range between the commits left out by patch id, and between listed commits that are no parent and
+/// child, as `(first, last)` indices, oldest first: each run is one `git replay` of `<last> ^<parent of first>`
 fn segments(range: &[RangeCommit]) -> Vec<(usize, usize)> {
   let mut segments: Vec<(usize, usize)> = Vec::new();
   for (index, commit) in range.iter().enumerate() {
@@ -594,7 +667,7 @@ fn segments(range: &[RangeCommit]) -> Vec<(usize, usize)> {
       continue;
     }
     match segments.last_mut() {
-      Some((_, last)) if *last + 1 == index => *last = index,
+      Some((_, last)) if *last + 1 == index && commit.parent == range[*last].commit.id => *last = index,
       _ => segments.push((index, index)),
     }
   }
@@ -612,12 +685,13 @@ struct Replay<'a> {
 }
 
 impl Replay<'_> {
-  /// Replay the commits `first..=last` of the range onto `onto`; `None` on a conflict
+  /// Replay the commits `first..=last` of the range onto `onto`; `None` on a conflict. The run starts after the parent of
+  /// its first commit: in a range of one line the commit before it, in listed commits the one it was made on
   fn segment(&self, onto: &str, first: usize, last: usize) -> Result<Option<String>> {
     let mut revs: Vec<&str> = vec![&self.range[last].commit.id];
     revs.extend(self.negated.iter().map(String::as_str));
-    let before = first.checked_sub(1).map(|before| format!("^{}", self.range[before].commit.id));
-    revs.extend(before.as_deref());
+    let before = format!("^{}", self.range[first].parent);
+    revs.push(&before);
     Ok(replay_range_with_env(self.git_executor, self.target, onto, &revs, self.env)?)
   }
 
@@ -641,6 +715,65 @@ impl Replay<'_> {
       file_count,
     })
   }
+}
+
+/// The copies of `replayed` (the replay onto `head`, oldest first) again, those of `prefix.commits` with `(group) ` in
+/// front of their subject: one `cat-file --batch` of the copies, one `fast-import` of the new chain, whose temporary ref
+/// goes at once (the copies stay unreferenced until the move, as the replay's do). The trees, the authors and the
+/// committers stay, so the same pick writes the same commits. `picked` gets the new ids and subjects; answers the new tip
+fn prefix_subjects(
+  git_executor: &GitCommandExecutor,
+  target: &str,
+  head: &str,
+  replayed: &[UpdateCommit],
+  picked: &mut [PickedCommit],
+  prefix: SubjectPrefix<'_>,
+) -> Result<String> {
+  let ids: Vec<&str> = replayed.iter().map(|commit| commit.id.as_str()).collect();
+  let raw = read_raw_commits(git_executor, target, &ids)?;
+  let prefixed: Vec<bool> = replayed
+    .iter()
+    .map(|copy| picked.iter().any(|commit| commit.new_id == copy.id && prefix.commits.contains(&commit.commit)))
+    .collect();
+  let messages: Vec<Vec<u8>> = replayed
+    .iter()
+    .zip(&prefixed)
+    .map(|(copy, prefixed)| {
+      let message = &raw[copy.id.as_str()].message;
+      if *prefixed {
+        [format!("({}) ", prefix.group).into_bytes(), message.clone()].concat()
+      } else {
+        message.clone()
+      }
+    })
+    .collect();
+  let commits: Vec<NewCommit<'_>> = replayed
+    .iter()
+    .zip(&messages)
+    .enumerate()
+    .map(|(index, (copy, message))| {
+      let commit = &raw[copy.id.as_str()];
+      NewCommit {
+        tree: &commit.tree,
+        parent: Some(if index == 0 { NewParent::Existing(head) } else { NewParent::Written(index - 1) }),
+        author: &commit.author,
+        committer: &commit.committer,
+        encoding: if messages[index] == commit.message { commit.encoding.as_deref() } else { None },
+        message,
+      }
+    })
+    .collect();
+  let written = write_commits(git_executor, target, &commits)?;
+  written.discard(git_executor, target);
+  for ((copy, new_id), prefixed) in replayed.iter().zip(&written.ids).zip(&prefixed) {
+    if let Some(commit) = picked.iter_mut().find(|commit| commit.new_id == copy.id) {
+      commit.new_id.clone_from(new_id);
+      if *prefixed {
+        commit.subject = format!("({}) {}", prefix.group, commit.subject);
+      }
+    }
+  }
+  written.ids.last().cloned().ok_or_else(|| anyhow!("no copy was written"))
 }
 
 /// The committer date of the copies, as `GIT_COMMITTER_DATE`: the newest committer date of the range and of `head`,

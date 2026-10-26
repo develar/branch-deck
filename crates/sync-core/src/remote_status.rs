@@ -10,7 +10,7 @@ use domain_types::landed::LandedBranch;
 use domain_types::{DroppedCommit, LandedRemoteCommit, ProgressReporter, PushAction, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::{CommitKey, WalkedCommit, ids_by_key, same_changes, walk_commits, walk_commits_with_messages};
-use git_ops::revs::is_object_id;
+use git_ops::revs::{is_object_id, ref_tips};
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -486,6 +486,18 @@ struct CachedDroppedCommit {
   author_time: u32,
 }
 
+impl CachedDroppedCommit {
+  fn into_dropped(self) -> DroppedCommit {
+    DroppedCommit {
+      id: self.id,
+      subject: self.subject,
+      author: self.author,
+      author_email: self.author_email,
+      author_time: self.author_time,
+    }
+  }
+}
+
 /// A landed commit in the object cache (`LandedRemoteCommit`)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CachedLandedCommit {
@@ -523,17 +535,7 @@ impl CachedStatus {
       unpushed_commits: self.unpushed_commits,
       commits_behind: self.commits_behind,
       others_behind: self.others_behind,
-      dropped_commits: self
-        .dropped_commits
-        .into_iter()
-        .map(|commit| DroppedCommit {
-          id: commit.id,
-          subject: commit.subject,
-          author: commit.author,
-          author_email: commit.author_email,
-          author_time: commit.author_time,
-        })
-        .collect(),
+      dropped_commits: self.dropped_commits.into_iter().map(CachedDroppedCommit::into_dropped).collect(),
       commits_amended: self.commits_amended,
       commits_restacked: self.commits_restacked,
       commits_landed: self.commits_landed,
@@ -709,6 +711,53 @@ struct BranchCommits<'a> {
 
 /// The status of `branch` without its name and its push time
 fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &BranchCommits<'_>, my_email: Option<&str>, parent: Option<StackParent<'_>>) -> Result<CachedStatus> {
+  compute_listing(git_executor, repository_path, branch, my_email, parent, DROPPED_COMMITS_LIMIT)
+}
+
+/// The commits of a remote branch a push of the branch would drop (`commits_behind`), all of them
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteDropped {
+  /// The tip of the remote-tracking ref they were read against; `None` without one
+  pub remote_tip: Option<String>,
+  /// Oldest first, a parent before its child
+  pub commits: Vec<DroppedCommit>,
+}
+
+/// The commits the remote branch of `branch` has that the branch lacks and a push would drop, by the walks of its
+/// status (amended, restacked, reworded and landed ones are not among them), all of them: what `bd pick --remote`
+/// takes in. One `for-each-ref` of the tips, then the walks of `compute`
+pub fn dropped_commits(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  remote: &str,
+  branch: StatusBranch<'_>,
+  my_email: Option<&str>,
+  baseline_branch: &str,
+) -> Result<RemoteDropped> {
+  let remote_ref = format!("refs/remotes/{remote}/{}", branch.local_ref);
+  let branch_ref = format!("refs/heads/{}", branch.local_ref);
+  let tips = ref_tips(git_executor, repository_path, &[remote_ref.as_str(), branch_ref.as_str()])?;
+  let commits = BranchCommits {
+    local: tips.get(&branch_ref).map_or(branch.local_ref, String::as_str),
+    baseline: baseline_branch,
+    remote_tip: tips.get(&remote_ref).map(String::as_str),
+  };
+  let status = compute_listing(git_executor, repository_path, &commits, my_email, branch.parent, usize::MAX)?;
+  Ok(RemoteDropped {
+    remote_tip: status.remote_tip,
+    commits: status.dropped_commits.into_iter().rev().map(CachedDroppedCommit::into_dropped).collect(),
+  })
+}
+
+/// `compute`, listing at most `dropped_limit` dropped commits (all of them when only one more)
+fn compute_listing(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch: &BranchCommits<'_>,
+  my_email: Option<&str>,
+  parent: Option<StackParent<'_>>,
+  dropped_limit: usize,
+) -> Result<CachedStatus> {
   let BranchCommits {
     local,
     baseline: baseline_branch,
@@ -819,7 +868,7 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
     others_behind,
     dropped_commits: dropped
       .into_iter()
-      .take(kept(dropped_count, DROPPED_COMMITS_LIMIT))
+      .take(kept(dropped_count, dropped_limit))
       .map(|behind| CachedDroppedCommit {
         id: behind.commit.id,
         subject: behind.commit.subject,

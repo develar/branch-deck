@@ -7,7 +7,8 @@
 //!   landing needs, why the robot failed, the readiness): never a step a later answer turns into another. A reason of
 //!   the subject (a sync, a failure, a block, parked, landed, a robot of a branch below) outranks it, a known landing
 //!   need too. A read that failed is an answer, never "no": the step is what helps (`StepHelp`), the starts disabled.
-//! - Row 1 has nothing to start: the Status cell says why. Row 1′ needs a branch outside what the Safe Push lands. Rows
+//! - Row 1 has nothing to start: the Status cell says why. Row 1′ needs a branch outside what the Safe Push lands. Row 1″
+//!   takes in the commits someone else pushed to the remote branch, which a push would drop. Rows
 //!   2 and 3 restart a failed robot; 5 and 5′ a pull request into another base; 6 a draft; 7 to 10 the approvals that
 //!   count are missing; 8′ and 10′ the wait GitHub tells while Patronus can't judge them; 11 "Safe Push".
 //! - A stale answer of the readiness keeps its step, its action waits for the new one (`stale_readiness`).
@@ -494,11 +495,16 @@ fn decide(facts: &StepFacts<'_>, slot: Slot, general: Option<StepBlocker>, dry_r
       return unavailable(facts, &failed, general, dry_run);
     }
   }
-  match needs {
+  if let Some(refusals) = needs {
     // row 1′: the Safe Push stays enabled, its popover says why before the start
-    Some(refusals) => step(StepRow::OnePrime, StepKind::NeedsBranch { refusals: refusals.to_vec() }, general, dry_run),
-    None => Rows::of(facts, slot, general, dry_run).decide(),
+    return step(StepRow::OnePrime, StepKind::NeedsBranch { refusals: refusals.to_vec() }, general, dry_run);
   }
+  // row 1″: the work of someone else on the remote branch comes in before any push drops it; the Safe Push stays
+  // enabled, its start asks before a push that drops it
+  if let Some(count) = facts.remote.map(|remote| remote.others).filter(|others| *others > 0) {
+    return step(StepRow::OneDoublePrime, StepKind::PickRemoteCommits { count }, general, dry_run);
+  }
+  Rows::of(facts, slot, general, dry_run).decide()
 }
 
 /// The readiness of a subject as the step reads it: none while it loads or nobody asked; a failed read is

@@ -2,6 +2,7 @@ use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::{LockSpanGit, hold_the_lock, subcommand};
 use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
+use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
@@ -534,4 +535,45 @@ fn a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack() {
   assert_eq!(exit_code, 0, "{restacked}");
   let (exit_code, sync) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{sync}");
+}
+
+/// Someone else pushed to the remote branch of auth: `bd pick --remote auth` fetches it and picks their commit onto the
+/// checked out branch with the `(auth)` prefix, so it lands in auth; the push then drops nothing, and a pick again finds
+/// nothing to pick
+#[test_log::test]
+fn a_remote_pick_takes_in_the_commit_someone_pushed_and_the_push_then_drops_nothing() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let theirs = push_from_elsewhere_to(&remote, AUTH, "Their fix");
+
+  let (exit_code, output) = run_in(&repo, &["--full-ids", "pick", "--remote", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["state"], json!("picked"));
+  let picked = &output["picked"][0];
+  assert_eq!(
+    (&picked["commit"], &picked["subject"], &picked["group"], &picked["grouped_by"]),
+    (&json!(theirs), &json!("(auth) Their fix"), &json!("auth"), &json!("prefix"))
+  );
+  assert_eq!(git(&repo, &["log", "-1", "--format=%s|%ae"]), "(auth) Their fix|other@example.com");
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "a push without --force: {output}");
+  let (exit_code, output) = run_in(&repo, &["pick", "--remote", "auth"]);
+  assert_error(&output, exit_code, (4, "nothing_to_pick"));
+}
+
+/// The remote moved again since the head the user saw: `--expect-remote` picks nothing
+#[test_log::test]
+fn a_remote_pick_from_another_head_than_the_one_seen_picks_nothing() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let seen = push_from_elsewhere_to(&remote, AUTH, "Their fix");
+  push_from_elsewhere_to(&remote, AUTH, "Their second fix");
+  let head = repo.head();
+
+  let (exit_code, output) = run_in(&repo, &["pick", "--remote", "auth", "--expect-remote", &seen]);
+  assert_error(&output, exit_code, (4, "lease_rejected"));
+  assert_eq!(repo.head(), head, "nothing was picked");
 }

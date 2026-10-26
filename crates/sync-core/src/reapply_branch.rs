@@ -145,6 +145,7 @@ pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBr
       upstream: upstream.as_deref(),
       follow: false,
       expect_branch: None,
+      prefix: None,
     },
   )
   .inspect_err(|_| chain.discard(git_executor, repo))?;

@@ -202,15 +202,15 @@
   {
     "id": "remote-behind",
     "group": "landing",
-    "title": "the remote branch has a commit of someone else that the branch lacks: a push would drop it",
-    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "title": "the remote branch has a commit of someone else that the branch lacks: a push would drop it, so the step takes it in first",
+    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push", "spec/branch/next-step.spec.md#the-table:1″"],
     "given": {
       "remote": "behind"
     },
     "expect": {
       "step": {
-        "row": "11",
-        "kind": "safePush"
+        "row": "1″",
+        "kind": "pickRemoteCommits"
       },
       "land": {
         "blockers": ["dropsRemote"],

@@ -91,6 +91,11 @@ pub enum ErrorCode {
   /// `bd pick --from`: the worktree stands on a newer baseline than the branch; the branch is updated first
   /// (`bd update`, by the session that owns it)
   SourceOnNewerBaseline,
+  /// `bd pick --remote`: the remote branch has no commit the branch lacks; nothing was picked
+  NothingToPick,
+  /// The app's Pick Remote Commits: a commit of the remote branch conflicts with the checked out branch (`details`: the
+  /// commit and its files); nothing was picked
+  PickConflict,
   /// `bd lease pick`: the checkout the lease was cut from has another branch checked out than at the get; nothing was
   /// changed. Ask the user: they switched it, and the pick waits until the branch is back
   HomeBranchSwitched,
@@ -276,6 +281,8 @@ impl ErrorCode {
       | Self::HunkConflict
       | Self::RangeUnknown
       | Self::SourceOnNewerBaseline
+      | Self::NothingToPick
+      | Self::PickConflict
       | Self::HomeBranchSwitched
       | Self::NoHomeBranch
       | Self::LeaseFollowsHome

@@ -31,6 +31,7 @@ import type { Operation, Operations } from "@/stores/operations"
 import { getObjectBusy, getOperations, operationLabel, runOperation, useObjectOperation, useOperationsWhile } from "@/stores/operations"
 import { getRobot, getRobotProblemsFailure, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, retargetPullRequest } from "@/stores/pull-requests"
+import { requestPushConfirm } from "@/stores/push-confirm"
 import { getSelectedProject, isSelectedRepository, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import type { SafePushStarting } from "@/stores/safe-push"
@@ -178,6 +179,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     fixLanding,
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
+    pickRemoteCommits: () => requestPushConfirm(key, "row"),
     restart: robot === undefined || running === null ? null : (getRobotActionItems(robot, running, null, inputs.robotActions).find(isRestart) ?? null),
     requestReview: inputs.pullRequest === undefined ? null : getRequestReviewItem(key),
   }

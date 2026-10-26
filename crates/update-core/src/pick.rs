@@ -5,13 +5,16 @@
 //! is not built on the branches they need.
 
 use anyhow::{Result, anyhow};
+use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list_at;
-use git_ops::pick::{AppliedPick, PickCheck, PickPlan, PickRequest, PickSource, PickState, PickedCommit, apply_pick, check_pick, check_pick_undo, recheck_pick};
-use git_ops::revs::{git_common_dir, is_object_id, with_dirs_of};
-use git_ops::update_branch::UndoBlocked;
+use git_ops::pick::{
+  AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, apply_pick, check_pick, check_pick_undo, recheck_pick,
+};
+use git_ops::revs::{git_common_dir, is_object_id, short_id, with_dirs_of};
+use git_ops::update_branch::{FilesBlocked, UndoBlocked};
 use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update, pending_update};
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of};
 use history_rewrite::repository_lock::{RewriteOptions, lock_repository};
@@ -22,6 +25,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::baseline_tracking_ref;
+use sync_core::push_lease::fetch_remote_branches;
+use sync_core::remote_status::{AncestorCommits, StackParent, StatusBranch, dropped_commits};
 use sync_utils::commit_subject::parse_subject;
 use tracing::{debug, info, instrument, warn};
 use trial_check::dependencies::compute_dependencies;
@@ -34,6 +39,26 @@ pub enum PickFrom {
   Worktree(String),
   /// `<rev>` or `<a>..<b>`
   Revisions(String),
+  /// The commits a remote virtual branch has that the branch lacks (`bd pick --remote`, Pick Remote Commits)
+  Remote(RemotePick),
+}
+
+/// The virtual branch whose remote commits a pick takes in: someone else pushed to it (spec/cli/pick.spec.md, "Remote
+/// commits"). The pick fetches it, takes the commits a push would drop (`commits_behind`, all of them), and gives the
+/// copies of those that group elsewhere the `(group)` prefix, so they land in the branch
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemotePick {
+  /// `<name>` of `{prefix}/virtual/<name>`
+  pub group: String,
+  /// `{prefix}/virtual/<name>`
+  pub full_name: String,
+  /// The full name of the virtual branch it is built on (`BranchStack::effective_base`)
+  pub parent: Option<String>,
+  /// The author whose commits are the branch's (`GroupedBranchInfo::my_email`)
+  pub my_email: Option<String>,
+  /// The remote head the caller saw: a fetch that finds another one takes nothing (`PickRefusal::RemoteMoved`), as the
+  /// lease of a push. `None` takes what the fetch finds
+  pub expected_remote: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +155,9 @@ impl PickResult {
   }
 }
 
+/// The remote the virtual branches are pushed to and fetched from
+const REMOTE: &str = "origin";
+
 /// How many times a pick checks without the repository lock: a writer that moves the target or the source between the
 /// check and the lock sends it back to check again, and after these the check runs under the lock, where neither moves
 const CHECKS_WITHOUT_THE_LOCK: usize = 2;
@@ -148,15 +176,28 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
   // the steps on the target take its directories from here; those on the source worktree read its own
   let git_executor = &with_dirs_of(git_executor, target)?;
   let (baseline, upstream) = baseline_tracking_ref(git_executor, target)?;
-  let source = match &params.from {
-    PickFrom::Worktree(dir) => PickSource::Worktree(dir),
-    PickFrom::Revisions(text) => PickSource::Revisions(text),
+  let remote = match &params.from {
+    PickFrom::Remote(remote) => Some(remote_commits(git_executor, target, baseline.as_deref(), remote)?),
+    PickFrom::Worktree(_) | PickFrom::Revisions(_) => None,
+  };
+  let source = match (&params.from, &remote) {
+    (PickFrom::Worktree(dir), _) => PickSource::Worktree(dir),
+    (PickFrom::Revisions(text), _) => PickSource::Revisions(text),
+    (PickFrom::Remote(_), Some(remote)) => PickSource::Commits(&remote.ids),
+    (PickFrom::Remote(_), None) => unreachable!("the commits of a remote pick are read above"),
   };
   let request = PickRequest {
     source,
     upstream: upstream.as_deref(),
     follow: params.follow,
     expect_branch: params.expect_branch.as_deref(),
+    prefix: match (&params.from, &remote) {
+      (PickFrom::Remote(pick), Some(remote)) if !remote.prefixed.is_empty() => Some(SubjectPrefix {
+        group: &pick.group,
+        commits: &remote.prefixed,
+      }),
+      _ => None,
+    },
   };
   let (plan, applied) = if params.dry_run {
     let plan = check_pick(git_executor, target, &request)?;
@@ -189,6 +230,176 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     dependencies: landing.dependencies,
     reparented: landing.reparented,
     applied,
+  })
+}
+
+/// The app's Pick Remote Commits of a virtual branch (`pick_remote_commits`, spec/repository/outgoing.spec.md, "Remote
+/// commits of others"): the branch as the row shows it, and the remote head the row's status was computed against
+#[derive(Debug, Clone, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PickRemoteCommitsParams {
+  pub repository_path: String,
+  pub branch_name: String,
+  /// The branch it is built on (`BranchStack::effective_base`)
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub parent_branch: Option<String>,
+  /// The author whose commits are the branch's
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub my_email: Option<String>,
+  /// The remote tip of the row's status: a fetch that finds another one picks nothing
+  pub expected_remote: Option<String>,
+}
+
+/// A commit Pick Remote Commits took in: the remote commit and its copy on the checked out branch
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PickedRemoteCommit {
+  pub commit: String,
+  pub new_id: String,
+  /// The subject of the copy, with the prefix of the branch
+  pub subject: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct PickRemoteCommitsResult {
+  pub previous_head: String,
+  pub new_head: String,
+  pub picked: Vec<PickedRemoteCommit>,
+  /// `pick:<previous>..<new>` (`bd undo`); none when nothing moved
+  pub undo_token: Option<String>,
+}
+
+/// A commit of a remote pick that conflicts with the checked out branch: nothing was changed
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{subject} ({}) does not apply onto the branch: {} conflict. Nothing was picked", short_id(commit), files.join(", "))]
+pub struct RemotePickConflict {
+  pub commit: String,
+  pub subject: String,
+  pub files: Vec<String>,
+}
+
+/// Pick Remote Commits of the app: `pick_core` of `PickFrom::Remote` for the branch of `params` under `branch_prefix`; a
+/// conflict (`RemotePickConflict`) or local changes in the way (`FilesBlocked`) change nothing and are errors here
+pub fn pick_remote_commits_core(
+  git_executor: &GitCommandExecutor,
+  params: &PickRemoteCommitsParams,
+  branch_prefix: &str,
+  options: &RewriteOptions<'_>,
+  cache: &ObjectCache,
+  file_diffs: &FileDiffs,
+) -> Result<PickRemoteCommitsResult> {
+  let full_name = |name: &str| to_final_branch_name(branch_prefix, name);
+  let pick = PickParams {
+    repository_path: params.repository_path.clone(),
+    from: PickFrom::Remote(RemotePick {
+      group: params.branch_name.clone(),
+      full_name: full_name(&params.branch_name)?,
+      parent: params.parent_branch.as_deref().map(full_name).transpose()?,
+      my_email: params.my_email.clone(),
+      expected_remote: params.expected_remote.clone(),
+    }),
+    follow: false,
+    dry_run: false,
+    expect_branch: None,
+  };
+  let result = pick_core(git_executor, &pick, options, cache, file_diffs)?;
+  match &result.check.state {
+    PickState::Clean => {}
+    PickState::Conflict(conflict) => {
+      return Err(anyhow::Error::new(RemotePickConflict {
+        commit: conflict.commit.id.clone(),
+        subject: conflict.commit.subject.clone(),
+        files: conflict.files.clone(),
+      }));
+    }
+    PickState::Blocked { paths, .. } => return Err(anyhow::Error::new(FilesBlocked { paths: paths.clone() })),
+  }
+  let new_head = result.applied.as_ref().map_or_else(|| result.check.new_head.clone(), |applied| applied.new_head.clone());
+  Ok(PickRemoteCommitsResult {
+    previous_head: result.check.head.clone(),
+    new_head,
+    picked: result
+      .check
+      .picked
+      .iter()
+      .map(|commit| PickedRemoteCommit {
+        commit: commit.commit.clone(),
+        new_id: commit.new_id.clone(),
+        subject: commit.subject.clone(),
+      })
+      .collect(),
+    undo_token: result.undo_token().map(|token| token.to_string()),
+  })
+}
+
+/// The undo of Pick Remote Commits (`undo_pick_remote_commits`): the undo token its result named
+#[derive(Debug, Clone, serde::Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UndoPickRemoteCommitsParams {
+  pub repository_path: String,
+  pub undo_token: String,
+}
+
+/// The undo of the app's Pick Remote Commits: `undo_pick_core` of its token (`bd undo` of it does the same)
+pub fn undo_pick_remote_commits_core(git_executor: &GitCommandExecutor, params: &UndoPickRemoteCommitsParams, lock_timeout: Duration) -> Result<()> {
+  let token = PickUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow!("Not an undo token of a pick: {}", params.undo_token))?;
+  undo_pick_core(git_executor, &params.repository_path, &token, lock_timeout).map(drop)
+}
+
+/// The commits of a remote pick: the commits a push of the branch would drop, oldest first, and those of them whose
+/// subject groups elsewhere (they take the prefix of the branch)
+struct RemoteCommits {
+  ids: Vec<String>,
+  prefixed: Vec<String>,
+}
+
+/// Fetches the remote branch of `remote` (before the lock: a fetch never runs under it) and reads what it has that the
+/// branch lacks: the commits a push would drop, by the walk of the remote status (`sync_core::remote_status`). A fetched
+/// head that is not `expected_remote` refuses the pick, as it refuses a push; none to take refuses it too
+fn remote_commits(git_executor: &GitCommandExecutor, target: &str, baseline: Option<&str>, remote: &RemotePick) -> Result<RemoteCommits> {
+  let baseline = baseline.ok_or_else(|| anyhow::Error::new(PickRefusal::InvalidSource("The repository has no baseline on a remote".to_string())))?;
+  fetch_remote_branches(git_executor, target, REMOTE, std::slice::from_ref(&remote.full_name))?;
+  let branch = StatusBranch {
+    local_ref: &remote.full_name,
+    branch_name: &remote.group,
+    parent: remote.parent.as_deref().map(|base| StackParent {
+      base,
+      ancestors: AncestorCommits::ReadWhenNeeded,
+    }),
+  };
+  let behind = dropped_commits(git_executor, target, REMOTE, branch, remote.my_email.as_deref(), baseline)?;
+  if let Some(expected) = &remote.expected_remote
+    && behind.remote_tip.as_ref() != Some(expected)
+  {
+    return Err(anyhow::Error::new(PickRefusal::RemoteMoved(format!(
+      "{} moved on the remote since: it is at {} now. Nothing was picked; look at what it has, then pick again",
+      remote.group,
+      behind.remote_tip.as_deref().map_or("no commit", short_id)
+    ))));
+  }
+  if behind.commits.is_empty() {
+    return Err(anyhow::Error::new(PickRefusal::NothingToPick(format!(
+      "The remote branch of {} has no commit the branch lacks: nothing to pick",
+      remote.group
+    ))));
+  }
+  let grouping = read_grouping_inputs(git_executor, target)?;
+  let prefixed = behind
+    .commits
+    .iter()
+    .filter(|commit| grouping.branch_of(&commit.subject).as_deref() != Some(remote.group.as_str()))
+    .map(|commit| commit.id.clone())
+    .collect();
+  Ok(RemoteCommits {
+    ids: behind.commits.into_iter().map(|commit| commit.id).collect(),
+    prefixed,
   })
 }
 

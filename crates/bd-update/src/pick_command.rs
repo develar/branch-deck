@@ -8,6 +8,8 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::suggest_plan::SuggestPlan;
+use bd_core::sync_command::sync;
+use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
@@ -15,16 +17,23 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use update_core::pick::{DependencyFix, GroupedBy, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, UndonePick, pick_core, undo_pick_core};
+use update_core::pick::{DependencyFix, GroupedBy, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, RemotePick, UndonePick, pick_core, undo_pick_core};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct PickArgs {
   /// A directory of the worktree whose commits land here: those its HEAD has that this branch lacks
-  #[arg(long, value_name = "DIR", conflicts_with = "revisions", required_unless_present = "revisions")]
+  #[arg(long, value_name = "DIR", conflicts_with_all = ["revisions", "remote"], required_unless_present_any = ["revisions", "remote"])]
   pub from: Option<PathBuf>,
   /// One commit, `<rev>`, or a range, `<a>..<b>`, instead of --from
-  #[arg(value_name = "REVISIONS")]
+  #[arg(value_name = "REVISIONS", conflicts_with = "remote")]
   pub revisions: Option<String>,
+  /// The virtual branch whose remote branch has commits it lacks (someone else pushed to it): bd fetches it and picks
+  /// those commits here, with the branch's `(name)` prefix on the ones that group elsewhere
+  #[arg(long, value_name = "BRANCH")]
+  pub remote: Option<String>,
+  /// With --remote: pick only if the fetched remote branch is at this commit, the one the user saw
+  #[arg(long, value_name = "ID", requires = "remote")]
+  pub expect_remote: Option<String>,
   /// Move the worktree of --from onto the new tip too, its files following; its local changes on other paths stay
   #[arg(long, requires = "from")]
   pub follow: bool,
@@ -258,10 +267,16 @@ pub struct HomePick {
 
 /// `bd pick`, or with `home` the pick of `bd lease pick` (`args.from` the lease, `args.follow` set)
 pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>) -> Result<PickOutput, CliError> {
-  let from = match (&args.from, &args.revisions) {
-    (Some(dir), _) => PickFrom::Worktree(environment.cwd.join(dir).to_string_lossy().into_owned()),
-    (None, Some(revisions)) => PickFrom::Revisions(revisions.clone()),
-    (None, None) => return Err(CliError::new(ErrorCode::InvalidArguments, "Name the commits: --from <worktree dir> or <rev>, <a>..<b>")),
+  let from = match (&args.from, &args.revisions, &args.remote) {
+    (Some(dir), _, _) => PickFrom::Worktree(environment.cwd.join(dir).to_string_lossy().into_owned()),
+    (None, Some(revisions), _) => PickFrom::Revisions(revisions.clone()),
+    (None, None, Some(branch)) => PickFrom::Remote(remote_pick(context, branch, args.expect_remote.clone())?),
+    (None, None, None) => {
+      return Err(CliError::new(
+        ErrorCode::InvalidArguments,
+        "Name the commits: --from <worktree dir>, <rev>, <a>..<b> or --remote <branch>",
+      ));
+    }
   };
   let params = PickParams {
     repository_path: context.repository.clone(),
@@ -279,6 +294,27 @@ pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environme
   output(context, &result, args.dry_run, home)
 }
 
+/// The branch of `bd pick --remote` as the sync places it: its full name, the branch it is built on and its author. The
+/// sync runs first, as for `bd push`, so the branch is built and its remote status is the one bd shows
+fn remote_pick(context: &RepoContext, branch: &str, expected_remote: Option<String>) -> Result<RemotePick, CliError> {
+  let synced = sync(context)?;
+  let info = synced
+    .report
+    .branches
+    .iter()
+    .find(|info| info.name == branch)
+    .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No virtual branch {branch}: `bd status` lists them")))?;
+  let full_name = |name: &str| to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::UnknownBranch, format!("{e:#}")));
+  let parent = info.stack.as_ref().and_then(|stack| stack.effective_base.as_deref()).map(full_name).transpose()?;
+  Ok(RemotePick {
+    group: branch.to_string(),
+    full_name: full_name(branch)?,
+    parent,
+    my_email: info.my_email.clone(),
+    expected_remote,
+  })
+}
+
 /// The code of a failed pick: a refusal of `git_ops::pick`, else as for an update (`core_error`)
 fn pick_error(error: anyhow::Error) -> CliError {
   let code = match error.downcast_ref::<PickRefusal>() {
@@ -286,6 +322,8 @@ fn pick_error(error: anyhow::Error) -> CliError {
     Some(PickRefusal::RangeUnknown(_)) => ErrorCode::RangeUnknown,
     Some(PickRefusal::SourceOnNewerBaseline(_)) => ErrorCode::SourceOnNewerBaseline,
     Some(PickRefusal::BranchSwitched(_)) => ErrorCode::HomeBranchSwitched,
+    Some(PickRefusal::RemoteMoved(_)) => ErrorCode::LeaseRejected,
+    Some(PickRefusal::NothingToPick(_)) => ErrorCode::NothingToPick,
     None => return core_error(error),
   };
   CliError::new(code, format!("{error:#}"))

@@ -6,8 +6,8 @@ pub mod install;
 pub mod schema;
 
 use crate::agent_help::{
-  AGENT_HELP, CHECK_HELP, FOLD_HELP, GROUP_HELP, MOVE_HUNK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP, STATUS_HELP,
-  SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
+  AGENT_HELP, CHECK_HELP, FOLD_HELP, GROUP_HELP, MOVE_HUNK_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP,
+  STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::install::{InstallArgs, install};
 use crate::schema::{SchemaArgs, schema};
@@ -123,7 +123,9 @@ enum Command {
   ///
   /// From --from <dir>, or <rev>, <a>..<b>; without a cherry-pick: replayed in memory, a commit the branch has already
   /// left out, the files following; --follow moves that worktree onto the new tip too. A conflict changes nothing
-  /// (exit 1); `uncommitted_overlap` (exit 4) when local changes sit on files it writes
+  /// (exit 1); `uncommitted_overlap` (exit 4) when local changes sit on files it writes; --remote <branch> takes in the
+  /// commits someone else pushed to a virtual branch
+  #[command(after_help = "Outputs and refusals: `bd pick --help`", after_long_help = PICK_HELP)]
   Pick(PickArgs),
   /// The worktrees of the lease pool, one per agent session: get, return, status, adopt, clean (`bd help worktrees`)
   ///

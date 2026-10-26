@@ -53,6 +53,7 @@ import type { Operations } from "@/stores/operations"
 import { branchSubject, getOperations, isObjectBusy, operationItem, operationsStore } from "@/stores/operations"
 import { getBranchRobot, getLandingBranchCount, getPushHold, isPatronusAvailable, isPatronusPending, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest, isPullRequestsLoading, pullRequestsStore } from "@/stores/pull-requests"
+import { requestPushConfirm } from "@/stores/push-confirm"
 import { getReadinessTarget, recheckReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { safePushStore } from "@/stores/safe-push"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
@@ -127,6 +128,15 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   landingActions.push(...robotActions, ...present(getPatronusMenuItem(branch, nextStep)), ...getPushMenuItems(branch))
   // the push of the branches stacked on it, beside the push of the branch: offered on every branch with children
   landingActions.push(...present(getPushWithChildrenItem(branch.name)))
+  // the commits someone else pushed to its remote branch: the question of the push button lists them with the pick
+  landingActions.push(
+    ...present(
+      branchItem(branch, "pick-remote-commits", {
+        description: "The remote has commits your branch doesn't: take them into the branch instead of dropping them",
+        onSelect: () => requestPushConfirm(branch.name, "row"),
+      }),
+    ),
+  )
   // the issue of the branch, once its work landed: the backend refuses an issue resolved already
   const youTrackKey = getYouTrackKeyOfIssue(branch.issueKey)
   if (youTrackKey !== null) {

@@ -1395,7 +1395,7 @@ moves (steps 6 and 7): the files of both worktrees, the index and the refs chang
    pick writes, a pick a second later too), a copy is never older than its parent, and the worktree's dates carry
    over. A commit marked `=` is left out before the replay (`already_present`, `by: patch_id`): the target has it in a
    form that may no longer apply. The rest replays in segments between the left out commits, each `--onto` the tip
-   the one before printed (`<last> ^<target HEAD> ^<base> ^<upstream> ^<the left out commit before it>`): `git replay
+   the one before printed (`<last> ^<target HEAD> ^<base> ^<upstream> ^<the parent of its first commit>`): `git replay
    --cherry-pick` is no fit, it replays the child of a filtered commit onto `--onto`, and the chain forks without a
    word. One `replay` without a left out commit, one per segment otherwise. A commit whose change the target has in
    another form becomes empty and drops: the copies are matched back to the kept commits by author, author time and
@@ -1444,8 +1444,25 @@ detached, must be `branch-deck: pick` to N with the value before it at H or S; t
 then both move back (`branch-deck: undo pick`). The source moves back too, so it has its commits again; the undone
 move is no fork point (step 3), so the next pick picks them. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
 
+**Remote commits** (`bd pick --remote <branch>`, the app's Pick Remote Commits: `PickFrom::Remote`,
+`pick_remote_commits_core`; [bd pick](../../spec/cli/pick.spec.md#remote-commits)): someone else pushed to the remote
+branch of a virtual branch, and a push would drop the commits. Before the lock the branch alone is fetched
+(`fetch_remote_branches`; never under the lock), a fetched tip that is not `expected_remote` refuses the pick as it
+refuses a push (`RemoteMoved`), and the walks of its remote status list the commits a push would drop, all of them
+(`remote_status::dropped_commits`, oldest first: no older version of a commit the branch has, no landed one). The
+source is that list (`PickSource::Commits`): one `log --no-walk=unsorted` of the commits with their parents, a merge
+refused; each run of commits that are parent and child replays after the parent of its first (`^<parent>`), never a
+fast-forward, so a commit between two of them stays out. The copies of those whose subject the grouping puts elsewhere
+(`GroupingInputs::branch_of`) get `(<branch>) ` in front of their subject (`SubjectPrefix`), after the replay and the
+match of the copies, inside the check: one `cat-file --batch` of the copies and one `fast-import` of the chain again,
+trees, authors and committers as the replay wrote them, its temporary ref deleted at once, so the copies stay
+unreferenced until the move, the dry run names the commit the pick writes, and `CommitKey` (the subject without the
+prefix) pairs each copy with its remote original: the push that follows replaces nothing it lacks. The rest is a pick:
+the lock, the witness, the one guarded move, the undo token (`undo_pick_remote_commits` in the app).
+
 Code: `crates/git-ops/src/pick.rs`, `crates/git-ops/src/update_branch.rs` (the moves, `HeadRef`, the undo check by
-operation), `crates/update-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token), `crates/bd-update/src/pick_command.rs`.
+operation), `crates/update-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token, the remote
+commits), `crates/bd-update/src/pick_command.rs`, `src-tauri/src/commands/pick_remote_commits.rs`.
 
 #### Lease
 

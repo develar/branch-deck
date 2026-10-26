@@ -98,6 +98,22 @@ describe("the words of the next step", () => {
     expect(opens.landingFix).toBeNull()
   })
 
+  it("row 1″: takes in the commits someone else pushed to the remote branch, which a push would drop", () => {
+    const calls: string[] = []
+    const step = presentNextStep(testStep({ kind: "pickRemoteCommits", count: 1 }), testContext({ actions: testActions(calls) }))
+    expect(step).toMatchObject({ kind: "pickRemoteCommits", safePushBlocker: null })
+    expect(step.item).toMatchObject({
+      id: "next-step-pick-remote",
+      label: "Pick Remote Commits",
+      description: "The remote has 1 commit of someone else that auth doesn't: a push drops it",
+    })
+    step.item!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["pickRemoteCommits"])
+    expect(presentNextStep(testStep({ kind: "pickRemoteCommits", count: 2 }), testContext()).item?.description).toBe(
+      "The remote has 2 commits of someone else that auth doesn't: a push drops them",
+    )
+  })
+
   it("rows 2 and 3: restarts the robot, or the pull request that collects the approvals, or a Safe Push where it can't restart", () => {
     const restart = { id: "push-and-restart-robot", label: "Restart Safe Push", onSelect: () => {} }
     expect(presentNextStep(testStep({ kind: "restart", robotId: "r" }), testContext({ actions: testActions([], { restart }) })).item).toBe(restart)

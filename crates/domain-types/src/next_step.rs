@@ -79,6 +79,8 @@ pub enum StepRow {
   One,
   #[serde(rename = "1′")]
   OnePrime,
+  #[serde(rename = "1″")]
+  OneDoublePrime,
   #[serde(rename = "2")]
   Two,
   #[serde(rename = "3")]
@@ -114,6 +116,7 @@ impl StepRow {
       Self::Zero => "0",
       Self::One => "1",
       Self::OnePrime => "1′",
+      Self::OneDoublePrime => "1″",
       Self::Two => "2",
       Self::Three => "3",
       Self::Five => "5",
@@ -162,6 +165,9 @@ pub enum StepKind {
   /// Row 1′: the build of what the Safe Push lands needs a commit of a branch outside it, as the landing gate refuses
   /// the start
   NeedsBranch { refusals: Vec<LandingRefusal> },
+  /// Row 1″: someone else pushed `count` commits to the remote branch that the branch lacks (`others_behind`): a push,
+  /// also the one before a start, drops them, so they come in first (Pick Remote Commits)
+  PickRemoteCommits { count: u32 },
   /// Rows 2 and 3: restart the robot `robot_id` (`RepositoryView.patronus.view.restarts` says how)
   Restart { robot_id: String },
   /// Row 3 while nobody can tell whether the approvals count: the pull request collects them, a restart may fail

@@ -125,7 +125,7 @@ Other tasks
   a resolve session (exit 1), which `bd help update` explains.
 - Several sessions on one branch: `bd lease get` leases a worktree, `bd lease pick` in it lands its commits where it
   was cut from, `bd lease return` gives it back; `bd pick --from <worktree> --follow` (or `bd pick <rev>`,
-  `<a>..<b>`; --expect-head, --dry-run), never `git cherry-pick`; `bd help worktrees` explains it.
+  `<a>..<b>`, --remote; --expect-head, --dry-run: `bd pick --help`), never `git cherry-pick` (`bd help worktrees`).
 - Fixups: `bd fold` folds the fixup!, squash! and amend! commits into their targets (`bd fold --help`).
 - A message to change: `bd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
   or plumbing for it (`bd reword --help`).
@@ -431,6 +431,20 @@ descriptions stay, and the virtual branches change with the next sync.
 ";
 
 /// `bd push --help`: what it pushes, its refusals and the stack branches
+/// The outputs and refusals of `bd pick` beyond `bd help worktrees` (spec/cli/pick.spec.md, "Remote commits")
+pub const PICK_HELP: &str = "\
+Outputs and refusals: `bd help worktrees` for the pick of a worktree or of revisions, and for `bd pick --remote <branch>`:
+- --remote <branch>: someone else pushed to the remote branch of a virtual branch (`remote.others_behind` of its
+  status). bd syncs, fetches that branch and picks the commits a push would drop onto the checked out branch, with
+  the `(branch)` prefix on those that group elsewhere: they land in the branch, and its push then drops nothing.
+  `picked[]` as for any pick. Show the user what the remote has first.
+- --expect-remote <id>: only from the remote head the user saw; another one is `lease_rejected` (exit 4), nothing
+  picked: show what the remote has now and ask again. --dry-run fetches the branch and writes nothing else.
+- `nothing_to_pick` (exit 4): the remote branch has no commit the branch lacks.
+- `state: conflict` (exit 1): nothing changed; resolve it in a lease cut from HEAD (cherry-pick the commits there),
+  then `bd lease pick`, or ask the user whether a force push may drop them. `bd undo <undo_token>` takes a pick back.
+";
+
 pub const PUSH_HELP: &str = "\
 `bd push` pushes branches. Show the result to the user; once approved, `bd push <branch>...` (or --all --yes; --with-children adds the
 branches stacked on them) syncs, takes the parents along that have commits for the remote (--alone does not: the
@@ -451,7 +465,8 @@ its `body` into it. An open pull request into a virtual branch (a parent's) is r
 - `pushed_over: true` on a pushed branch: its remote had moved without commits it lacks; bd pushed again over it.
 - `lease_rejected` (exit 4): the remote changed; bd fetched it. For a branch behind or rejected,
   `error.branches[].remote.dropped_commits` lists what a push drops: show it; once approved, --force
-  --expect-remote <remote.head> for that one branch.
+  --expect-remote <remote.head> for that one branch. Commits of someone else (`remote.others_behind`): offer
+  `bd pick --remote <branch>` first, which takes them into the branch, then `bd push` again.
 - `robot_running` (exit 4): a Safe Push runs on the branch (the push would fail it at the end), or on a branch
   built on it whose commit has commits of it (the message names them; a parent restacked below it after its start
   is pushed). Wait until it merges, or, once approved, --restart-running cancels the branch's own robot, pushes and

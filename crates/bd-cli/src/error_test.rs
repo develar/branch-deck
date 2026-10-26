@@ -39,6 +39,8 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::UndoStale, 4, false),
   (ErrorCode::RangeUnknown, 4, false),
   (ErrorCode::SourceOnNewerBaseline, 4, false),
+  (ErrorCode::NothingToPick, 4, false),
+  (ErrorCode::PickConflict, 4, false),
   (ErrorCode::HomeBranchSwitched, 4, false),
   (ErrorCode::NoHomeBranch, 4, false),
   (ErrorCode::LeaseFollowsHome, 4, false),

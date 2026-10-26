@@ -180,6 +180,7 @@ fn command_helps() -> Vec<(String, String)> {
 const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
   match code {
     ErrorCode::InvalidArguments
+    | ErrorCode::PickConflict
     | ErrorCode::NotARepository
     | ErrorCode::NoBranchPrefix
     | ErrorCode::UnknownBranch
@@ -230,6 +231,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     ErrorCode::RobotRunning => &["help agent", "push", "safe-push"],
     ErrorCode::DanglingReference | ErrorCode::MissingDeclaration => &["help agent", "check", "safe-push"],
     ErrorCode::UncommittedOverlap => &["help agent", "help update", "help worktrees"],
+    ErrorCode::NothingToPick => &["pick"],
     ErrorCode::OperationInProgress
     | ErrorCode::RangeUnknown
     | ErrorCode::SourceOnNewerBaseline

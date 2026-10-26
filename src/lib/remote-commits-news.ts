@@ -7,6 +7,7 @@ import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { joinNames } from "@/lib/text"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { getPullRequest, pullRequestsStore } from "@/stores/pull-requests"
+import { requestPushConfirm } from "@/stores/push-confirm"
 import { getRepositorySwitchReason, repositoryStore } from "@/stores/repository"
 
 /** Someone else pushed to the remote branch of a pull request, which the session fetched (`remoteCommits`) */
@@ -39,8 +40,9 @@ export function describeRemoteCommitsNews(news: RemoteCommitsNews): { title: str
 
 /**
  * Tells the commits of others the session fetched, one toast per branch, which stays until the user acts. It is the toast
- * of the pushes of the branch (`toastKeys.push`): a push of it since takes its place. It opens the pull request, while
- * the main window shows the repository of the news; it closes once the branch is gone
+ * of the pushes of the branch (`toastKeys.push`): a push or a pick of it since takes its place. While the main window
+ * shows the repository of the news it offers Pick Remote Commits… (the question of the push button, which lists the
+ * commits) and opens the pull request; it closes once the branch is gone
  */
 export function tellRemoteCommitsNews(repositoryPath: string, news: readonly News[]): void {
   for (const item of remoteCommitsNewsOf(news)) {
@@ -55,7 +57,9 @@ export function tellRemoteCommitsNews(repositoryPath: string, news: readonly New
         if (getBranch(item.branchName) === undefined) {
           return null
         }
-        return { type: "warning", title, description, action: openPullRequestAction(item.branchName), timeout: 0 }
+        // the question of the push button lists the commits, with the pick and the force push
+        const pick: EventToastAction = { label: "Pick Remote Commits…", onClick: () => requestPushConfirm(item.branchName, "row") }
+        return { type: "warning", title, description, action: pick, secondaryAction: openPullRequestAction(item.branchName), timeout: 0 }
       },
     })
   }

@@ -58,6 +58,7 @@ const fn kind_name(kind: &StepKind) -> &'static str {
     StepKind::Pending { .. } => "pending",
     StepKind::Unavailable { .. } => "unavailable",
     StepKind::NeedsBranch { .. } => "needs_branch",
+    StepKind::PickRemoteCommits { .. } => "pick_remote_commits",
     StepKind::Restart { .. } => "restart",
     StepKind::RobotPullRequest { .. } => "robot_pull_request",
     StepKind::Retarget { .. } => "retarget",
@@ -108,6 +109,7 @@ fn pull_request_of(kind: &StepKind) -> Option<u32> {
     | StepKind::Pending { .. }
     | StepKind::Unavailable { .. }
     | StepKind::NeedsBranch { .. }
+    | StepKind::PickRemoteCommits { .. }
     | StepKind::Restart { .. }
     | StepKind::SafePush => None,
   }
@@ -158,6 +160,10 @@ fn step_words(kind: &StepKind, what: &str) -> String {
     StepKind::Awaiting { number, groups } => {
       let people: Vec<&Person> = groups.iter().flat_map(|group| &group.requested).collect();
       format!("Waits for the approval of {}: {} requested on #{number}", group_names(groups), person_names(&people))
+    }
+    StepKind::PickRemoteCommits { count } => {
+      let commits = if *count == 1 { "1 commit".to_owned() } else { format!("{count} commits") };
+      format!("The remote branch has {commits} of someone else that {what} lacks: `bd pick --remote {what}` takes them in, a push drops them")
     }
     StepKind::Hidden
     | StepKind::Settled

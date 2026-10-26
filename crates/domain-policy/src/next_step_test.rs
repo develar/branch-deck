@@ -35,6 +35,8 @@ pub(crate) struct Fixture {
   pub tip: Option<String>,
   /// The remote tip, and whether it has what the subject has
   pub remote: Option<(Option<String>, bool)>,
+  /// Of the remote commits a push drops, those of someone else (`others_behind`)
+  pub others: u32,
   /// The robot, why it failed (`needs_review`), why Patronus didn't tell, whether it offers a restart
   pub robot: Option<(PatronusRobot, Option<bool>, Option<String>, bool)>,
   pub own_robot_landed: bool,
@@ -105,6 +107,7 @@ impl Fixture {
       landed: None,
       tip: Some("t1".to_string()),
       remote: Some((Some("t1".to_string()), true)),
+      others: 0,
       robot: None,
       own_robot_landed: false,
       listing: listed(),
@@ -142,8 +145,8 @@ impl Fixture {
       remote: self.remote.as_ref().map(|(tip, up_to_date)| RemoteBranch {
         tip: tip.as_deref(),
         up_to_date: *up_to_date,
-        drops: 0,
-        others: 0,
+        drops: self.others,
+        others: self.others,
       }),
       robot: self.robot.as_ref().map(|(robot, needs_review, problems_failed, restart)| StepRobot {
         robot,
@@ -526,6 +529,24 @@ fn row_1_prime_needs_a_branch_outside_what_the_safe_push_lands_and_keeps_the_sta
     refusals: vec![missing_declaration()],
   };
   assert_eq!(shape(&needs.step()), (StepRow::OnePrime, kind, None, None));
+}
+
+/// Row 1″: someone else pushed to the remote branch commits the branch lacks: they come in first, before a restart or a
+/// Safe Push, whose push would drop them; the Safe Push stays enabled (its start asks before that push)
+#[test]
+fn row_1_double_prime_takes_in_the_commits_of_others_on_the_remote_before_a_start() {
+  let theirs = Fixture::branch().with(|it| {
+    it.remote = Some((Some("theirs".to_string()), false));
+    it.others = 1;
+  });
+  assert_eq!(shape(&theirs.step()), (StepRow::OneDoublePrime, StepKind::PickRemoteCommits { count: 1 }, None, None));
+  let failed_too = theirs.with(failed(Some(false), true));
+  assert_eq!(failed_too.step().kind, StepKind::PickRemoteCommits { count: 1 }, "before the restart, which pushes first");
+  let parked = Fixture::branch().with(|it| {
+    it.others = 1;
+    it.parked = Some(Parked { note: String::new(), with: None });
+  });
+  assert_eq!(parked.step().row, StepRow::One, "a parked branch starts nothing");
 }
 
 /// Rows 2 and 3: a robot that failed (or was canceled) not for the approvals restarts, or offers Safe Push where Patronus

@@ -7,6 +7,7 @@
     "safe-push-without-review",
     "push",
     "push-with-children",
+    "pick-remote-commits",
     "review-changes",
     "open-pull-request",
     "request-review",

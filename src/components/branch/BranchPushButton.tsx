@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { ArrowUpIcon, UploadIcon } from "lucide-react"
+import { ArrowUpIcon, DownloadIcon, UploadIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -13,12 +13,14 @@ import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { getRobotItems, useRobotParts } from "@/hooks/useBranchNextStep"
 import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton, useStackBranchPushAlone } from "@/hooks/usePushButton"
+import { pickRemoteCommits } from "@/lib/git/pick-remote"
 import { pushBranch, pushFromButton } from "@/lib/git/push"
 import { blockingBranchOf, formatStackPushing, stackPushSubject } from "@/lib/stack"
 import type { PushProgress } from "@/lib/transfer-progress"
 import { stopWaitingPushItem, transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
+import { useRowPart } from "@/model/store"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -86,6 +88,8 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const progress = useBranchPushProgress(stackBranchPush ? stackReadinessKey(branch.name) : (stackPush?.[0] ?? branch.name))
   const processing = useObjectBusy(branch.name) !== null
   const push = usePushButton(branch, isPushing)
+  // Rust offers it while the remote has commits the branch lacks (`domain_policy::actions`)
+  const pick = useRowPart(branch.name, "actions")?.find(action => action.id === "pick-remote-commits")
   const request = usePushConfirmRequest(branch.name, confirmTarget)
   const disabled = push.disabled || processing || starting !== null || (waits !== null && !isPushing)
 
@@ -209,11 +213,31 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
                 {push.retarget.text}
               </div>
             )}
-            {confirming && (
-              <Button variant="destructive" size="xs" className="self-start" data-testid="push-confirm" disabled={disabled} onClick={confirmPush}>
-                <UploadIcon data-icon="inline-start" />
-                {push.text}
-              </Button>
+            {(confirming || (push.dropped !== null && pick !== undefined)) && (
+              <div className="flex flex-wrap gap-1.5">
+                {confirming && (
+                  <Button variant="destructive" size="xs" data-testid="push-confirm" disabled={disabled} onClick={confirmPush}>
+                    <UploadIcon data-icon="inline-start" />
+                    {push.text}
+                  </Button>
+                )}
+                {/* the commits a push would drop come into the branch instead: a push then drops nothing */}
+                {push.dropped !== null && pick !== undefined && (
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    data-testid="push-pick-remote"
+                    disabled={disabled || pick.availability.kind === "disabled"}
+                    onClick={() => {
+                      close()
+                      void pickRemoteCommits(branch.name, request?.options?.expectedRemote ?? null)
+                    }}
+                  >
+                    <DownloadIcon data-icon="inline-start" />
+                    Pick Remote Commits
+                  </Button>
+                )}
+              </div>
             )}
             {push.disabled && <PushHeldActions branch={branch} close={close} />}
             {push.action !== null && <PushAlternative action={push.action} disabled={disabled} close={close} />}

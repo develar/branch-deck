@@ -148,6 +148,7 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::SafePushWithoutReview
       | ActionId::Push
       | ActionId::PushWithChildren
+      | ActionId::PickRemoteCommits
       | ActionId::ReviewChanges
       | ActionId::OpenPullRequest
       | ActionId::RequestReview

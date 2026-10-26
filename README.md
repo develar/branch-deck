@@ -121,7 +121,9 @@ publisher: choose More info → Run anyway.
   ([stack parents](spec/branch/stack-parents.spec.md)). A stack that forks is also one branch of all its commits,
   with its own pull request into master, so the whole stack, side branches included, lands at once from its header
   ([whole stack](spec/branch/whole-stack.spec.md)).
-- **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; the pull
+- **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; a commit a
+  colleague pushed to your pull request shows up before you push and comes into the branch with Pick Remote Commits
+  ([Outgoing Commits](spec/repository/outgoing.spec.md#remote-commits-of-others)); the pull
   request, its review state and checks from GitHub; Create Pull Request into master with the suggested code owners
   asked to review. Each row shows its next step, such as the review it waits for, and never offers a push that is
   known to fail; the header says which moves on the way to master are yours
@@ -170,6 +172,7 @@ bd group --expect-head <head> --sync --plan plan.json   # rewrite the prefixes a
 bd push auth ABC-123                                    # push, parents first
 bd update                                               # onto the baseline; a conflict opens a resolve session
 bd pick --from ../lane --follow                         # land another worktree's commits here, no cherry-pick
+bd pick --remote auth                                   # take in the commits someone else pushed to auth
 bd lease get --holder lane-1                            # a worktree of its own for an agent session, from a pool
 ```
 

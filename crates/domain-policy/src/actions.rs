@@ -109,6 +109,10 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   if let Some(children) = &facts.children {
     offer(ActionId::PushWithChildren, children_blocker(facts, children));
   }
+  // the remote has commits the branch lacks, a push would drop them: they can come in instead
+  if facts.remote.is_some_and(|remote| remote.commits_behind > 0) {
+    offer(ActionId::PickRemoteCommits, pick_remote_blocker(facts));
+  }
   offer(ActionId::ReviewChanges, review_blocker(row));
   if facts.pull_request.is_some() {
     offer(ActionId::OpenPullRequest, None);
@@ -192,11 +196,8 @@ fn landed_whole(landed: Option<&Landed>) -> Option<ActionBlocker> {
 /// date. A sync that only runs is no reason: the push waits for it
 fn push_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
   let row = &facts.row;
-  if let Some(parked) = row.parked {
-    return Some(parked_reason(row.name, parked));
-  }
-  if let Some(blocked) = blocked(row) {
-    return Some(blocked);
+  if let Some(aside) = set_aside(row) {
+    return Some(aside);
   }
   // the last sync did not build it: its virtual branch is an older build, which no push takes
   if row.sync_failed {
@@ -214,6 +215,20 @@ fn push_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
     return Some(ActionBlocker::Syncing);
   }
   facts.remote.is_some_and(|remote| remote.action == PushAction::UpToDate).then_some(ActionBlocker::UpToDate)
+}
+
+/// Why the commits of the remote branch can't come into the branch: parked, blocked, a sync rebuilds it (the branch it
+/// groups them into is not what the user saw), held by a running Safe Push
+fn pick_remote_blocker(facts: &BranchFacts<'_>) -> Option<ActionBlocker> {
+  let row = &facts.row;
+  set_aside(row)
+    .or_else(|| facts.hold.map(|hold| ActionBlocker::Rule { reason: hold.clone() }))
+    .or_else(|| fix_blocker(row))
+}
+
+/// The branch is set aside: parked (or built on a parked branch), or blocked by the branch it is built on
+fn set_aside(row: &Row<'_>) -> Option<ActionBlocker> {
+  row.parked.map(|parked| parked_reason(row.name, parked)).or_else(|| blocked(row))
 }
 
 fn parked_reason(name: &str, parked: &Parked) -> ActionBlocker {

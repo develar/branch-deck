@@ -429,6 +429,14 @@ export const commands = {
 	 *  sync's view of the repository has
 	 */
 	unapplyBranch: (params: UnapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<UnapplyBranchResult, ApiError>(__TAURI_INVOKE("unapply_branch", { params, wait })),
+	/**
+	 *  Pick Remote Commits: fetches the remote branch of a virtual branch someone else pushed to and picks the commits a
+	 *  push would drop onto the checked out branch, with the prefix of the branch (`bd pick --remote`); the branch is named
+	 *  with the prefix Rust resolves for the repository (`PrefixInputs`)
+	 */
+	pickRemoteCommits: (params: PickRemoteCommitsParams, wait: Channel<LockWaitEvent>) => typedError<PickRemoteCommitsResult, ApiError>(__TAURI_INVOKE("pick_remote_commits", { params, wait })),
+	/**  The undo of Pick Remote Commits: the branch and its files back from the copies to the head before the pick */
+	undoPickRemoteCommits: (params: UndoPickRemoteCommitsParams, wait: Channel<LockWaitEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("undo_pick_remote_commits", { params, wait })),
 	undoUnapplyBranch: (params: UndoUnapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneUnapply, ApiError>(__TAURI_INVOKE("undo_unapply_branch", { params, wait })),
 	/**  Reapplies an unapplied branch of the repository, named with the prefix Rust resolves for it (`PrefixInputs`) */
 	reapplyBranch: (params: ReapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<ReapplyBranchResult, ApiError>(__TAURI_INVOKE("reapply_branch", { params, wait })),
@@ -552,7 +560,9 @@ export type ActionBlocker =
 { code: "landed"; landed: Landed };
 
 /**  An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface */
-export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | "push" | "push-with-children" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request";
+export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | "push" | "push-with-children" | 
+/**  The commits someone else pushed to its remote branch, taken into the branch (`bd pick --remote`) */
+"pick-remote-commits" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request";
 
 /**  An action a subject offers now, and whether it can run */
 export type ActionState = {
@@ -1761,6 +1771,13 @@ export type ErrorCode =
  *  (`bd update`, by the session that owns it)
  */
 "source_on_newer_baseline" | 
+/**  `bd pick --remote`: the remote branch has no commit the branch lacks; nothing was picked */
+"nothing_to_pick" | 
+/**
+ *  The app's Pick Remote Commits: a commit of the remote branch conflicts with the checked out branch (`details`: the
+ *  commit and its files); nothing was picked
+ */
+"pick_conflict" | 
 /**
  *  `bd lease pick`: the checkout the lease was cut from has another branch checked out than at the get; nothing was
  *  changed. Ask the user: they switched it, and the pick waits until the branch is back
@@ -3769,6 +3786,37 @@ export type Person = {
 	fullName: string | null,
 };
 
+/**
+ *  The app's Pick Remote Commits of a virtual branch (`pick_remote_commits`, spec/repository/outgoing.spec.md, "Remote
+ *  commits of others"): the branch as the row shows it, and the remote head the row's status was computed against
+ */
+export type PickRemoteCommitsParams = {
+	repositoryPath: string,
+	branchName: string,
+	/**  The branch it is built on (`BranchStack::effective_base`) */
+	parentBranch?: string | null,
+	/**  The author whose commits are the branch's */
+	myEmail?: string | null,
+	/**  The remote tip of the row's status: a fetch that finds another one picks nothing */
+	expectedRemote: string | null,
+};
+
+export type PickRemoteCommitsResult = {
+	previousHead: string,
+	newHead: string,
+	picked: PickedRemoteCommit[],
+	/**  `pick:<previous>..<new>` (`bd undo`); none when nothing moved */
+	undoToken: string | null,
+};
+
+/**  A commit Pick Remote Commits took in: the remote commit and its copy on the checked out branch */
+export type PickedRemoteCommit = {
+	commit: string,
+	newId: string,
+	/**  The subject of the copy, with the prefix of the branch */
+	subject: string,
+};
+
 /**  What a start does, in the order of its effects (the contract's `PlannedEffect`) */
 export type PlannedEffect = 
 /**  The open pull request `number` of `branch` goes from the virtual branch `from` into the target `to` (D11) */
@@ -5516,6 +5564,11 @@ export type StepKind =
  *  the start
  */
 { kind: "needsBranch"; refusals: LandingRefusal[] } | 
+/**
+ *  Row 1″: someone else pushed `count` commits to the remote branch that the branch lacks (`others_behind`): a push,
+ *  also the one before a start, drops them, so they come in first (Pick Remote Commits)
+ */
+{ kind: "pickRemoteCommits"; count: number } | 
 /**  Rows 2 and 3: restart the robot `robot_id` (`RepositoryView.patronus.view.restarts` says how) */
 { kind: "restart"; robotId: string } | 
 /**
@@ -5562,7 +5615,7 @@ export type StepRetarget = {
  *  The row of the table that decided the step (spec/branch/next-step.spec.md, "The table"); `NoSlot` a repository that
  *  is not on Space, which has no slot
  */
-export type StepRow = "noSlot" | "0" | "1" | "1′" | "2" | "3" | "5" | "5′" | "6" | "7" | "8" | "9" | "10" | "8′" | "10′" | "11";
+export type StepRow = "noSlot" | "0" | "1" | "1′" | "1″" | "2" | "3" | "5" | "5′" | "6" | "7" | "8" | "9" | "10" | "8′" | "10′" | "11";
 
 /**  What the page of a sub-window gets when it loaded (`sub_window_loaded`) */
 export type SubWindowLoaded = {
@@ -5981,6 +6034,12 @@ export type UncommittedFileChange = {
 	status: string,
 	staged: boolean,
 	unstaged: boolean,
+};
+
+/**  The undo of Pick Remote Commits (`undo_pick_remote_commits`): the undo token its result named */
+export type UndoPickRemoteCommitsParams = {
+	repositoryPath: string,
+	undoToken: string,
 };
 
 export type UndoReapplyParams = {

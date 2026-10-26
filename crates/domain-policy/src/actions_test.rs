@@ -273,6 +273,37 @@ fn the_push_waits_for_parked_blocked_failed_held_a_rebuild_and_nothing_to_push_i
   assert_eq!(reason_of(&branch_actions(&created), Push), None, "no remote status yet: the push creates the branch");
 }
 
+/// Pick Remote Commits is offered only while the remote has commits the branch lacks, enabled unless the branch is
+/// parked, blocked, held or rebuilt by a sync
+#[test]
+fn pick_remote_commits_is_offered_while_the_remote_has_commits_the_branch_lacks() {
+  let step = ready_step();
+  let pushed = remote(PushAction::Push);
+  assert!(!ids(&branch_actions(&facts(&step, &pushed))).contains(&ActionId::PickRemoteCommits), "nothing to take in");
+  let theirs = RemoteStatusUpdate {
+    commits_behind: 1,
+    others_behind: 1,
+    ..remote(PushAction::Force { drops: true, replaces: false })
+  };
+  let base = || facts(&step, &theirs);
+  let own = held(HoldKind::Own);
+  let cases: Vec<(&str, BranchFacts<'_>, Option<ActionBlocker>)> = vec![
+    ("ready", base(), None),
+    (
+      "the sync rebuilds it",
+      BranchFacts {
+        row: Row { syncing: true, ..row("auth") },
+        ..base()
+      },
+      Some(ActionBlocker::Syncing),
+    ),
+    ("held", BranchFacts { hold: Some(&own), ..base() }, Some(ActionBlocker::Rule { reason: own.clone() })),
+  ];
+  for (case, facts, expected) in cases {
+    assert_eq!(reason_of(&branch_actions(&facts), ActionId::PickRemoteCommits), expected, "{case}");
+  }
+}
+
 fn problem(fixes: Vec<StackFix>) -> StackProblemView {
   StackProblemView {
     problem: StackProblem::Cycle(vec!["auth".to_string(), "core".to_string()]),

@@ -3,7 +3,9 @@
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
 use crate::fixture_test::{EMPTY_GLOBAL_CONFIG, PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
-use crate::remote_fixture_test::{AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, repo_with_remote, robot as robot_json, stack_remote_moved_back};
+use crate::remote_fixture_test::{
+  AUTH, STACK, Space, auth_remote_moved_back, forking_stack, needs_code_owner, push_from_elsewhere_to, repo_with_remote, robot as robot_json, stack_remote_moved_back,
+};
 use crate::{Cli, Command};
 use bd_core::context::{RepoContext, RepoOptions, counted_git};
 use bd_core::sync_command::sync;
@@ -569,6 +571,47 @@ fn a_pick() {
   commit_subjects(&repo, &["(own) Add c"]);
   let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
   assert_followed_pick(&context, &output);
+}
+
+/// `bd pick --remote auth` of a commit someone else pushed: the sync of `bd sync` first, then the fetch of the branch
+/// before the lock, the walks of its remote status (the commits it lacks), the grouping inputs (whose subject groups
+/// elsewhere), the check (the listed commits, one `replay`, the copies, one `cat-file` and one `fast-import` of the
+/// prefixed copies, whose temporary ref goes at once), then the move under the lock and the grouping of the picked commit
+#[test]
+fn a_remote_pick() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  push_from_elsewhere_to(&remote, AUTH, "Their fix");
+  let context = context(&repo);
+  let args = PickArgs {
+    remote: Some("auth".to_string()),
+    ..PickArgs::default()
+  };
+  let output = pick(&context, &args, &environment(repo.path())).unwrap();
+  assert_eq!(output.picked.len(), 1);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 5),
+      ("config", 3),
+      ("diff-tree", 1),
+      ("fast-import", 1),
+      ("fetch", 1),
+      ("for-each-ref", 3),
+      ("log", 9),
+      ("merge-base", 1),
+      ("read-tree", 2),
+      ("reflog", 1),
+      ("remote", 2),
+      ("replay", 1),
+      ("rev-list", 3),
+      ("rev-parse", 6),
+      ("symbolic-ref", 6),
+      ("update-index", 3),
+      ("update-ref", 3),
+    ],
+  );
 }
 
 /// The environment of bd in `repo` with the lease pool in a temporary home, which lives as long as the guard

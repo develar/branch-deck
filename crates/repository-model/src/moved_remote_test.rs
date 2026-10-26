@@ -61,17 +61,19 @@ const fn at(minutes: u64) -> Duration {
   Duration::from_secs(minutes * 60)
 }
 
+/// The fetches after the first listing, which shows auth at `theirs`: it asks the fetch of auth alone
+fn asked_first(table: &BranchTable, state: &TableState) -> MovedFetches {
+  let mut fetches = MovedFetches::default();
+  assert_eq!(fetches.asks(at(0), table, state, &listed("theirs")), [ask("theirs")], "login's pull request is at its tip");
+  fetches
+}
+
 /// A listing that shows the pull request of a branch at a head its remote branch lacks asks its fetch once; another
 /// listing of the same head asks nothing while it runs or once it brought the head, and a new head asks again
 #[test]
 fn a_moved_head_is_asked_once_and_a_new_head_again() {
   let (table, state) = (table(), TableState::new());
-  let mut fetches = MovedFetches::default();
-  assert_eq!(
-    fetches.asks(at(0), &table, &state, &listed("theirs")),
-    [ask("theirs")],
-    "login's pull request is at its tip"
-  );
+  let mut fetches = asked_first(&table, &state);
   assert_eq!(fetches.asks(at(1), &table, &state, &listed("theirs")), [], "in flight");
 
   fetches.answered(["auth"], &[answer("theirs", "theirs", true)]);
@@ -116,8 +118,7 @@ fn a_pushed_branch_and_a_closed_pull_request_are_not_fetched() {
 #[test]
 fn an_ask_the_host_did_not_fetch_is_asked_again() {
   let (table, state) = (table(), TableState::new());
-  let mut fetches = MovedFetches::default();
-  assert_eq!(fetches.asks(at(0), &table, &state, &listed("theirs")), [ask("theirs")]);
+  let mut fetches = asked_first(&table, &state);
   fetches.answered(["auth"], &[]);
   assert_eq!(fetches.asks(at(0), &table, &state, &listed("theirs")), [], "the wait of a retry");
   assert_eq!(fetches.asks(at(1), &table, &state, &listed("theirs")), [ask("theirs")]);

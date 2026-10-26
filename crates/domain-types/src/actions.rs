@@ -24,6 +24,8 @@ pub enum ActionId {
   SafePushWithoutReview,
   Push,
   PushWithChildren,
+  /// The commits someone else pushed to its remote branch, taken into the branch (`bd pick --remote`)
+  PickRemoteCommits,
   // its review
   ReviewChanges,
   OpenPullRequest,
@@ -62,7 +64,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 36] = [
+  pub const ALL: [Self; 37] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -70,6 +72,7 @@ impl ActionId {
     Self::SafePushWithoutReview,
     Self::Push,
     Self::PushWithChildren,
+    Self::PickRemoteCommits,
     Self::ReviewChanges,
     Self::OpenPullRequest,
     Self::RequestReview,

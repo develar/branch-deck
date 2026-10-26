@@ -328,7 +328,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`the_needs_of_a_branch_are_the_refusals_of_its_start`)
 - Each branch, and in `stacks` each whole stack of a stack that forks, must show `next_step`: the step the app's row
   shows by the same rule (`domain_policy::next_step`, [Next Step](../branch/next-step.spec.md#the-table)) over what
-  `bd status` read: `row` of the table (`0` waits for a fact, `1` has nothing to start, … `11` a Safe Push), `step`,
+  `bd status` read: `row` of the table (`0` waits for a fact, `1` has nothing to start, `1″` `pick_remote_commits`:
+  someone else pushed to the remote branch, `bd pick --remote` takes it in, … `11` a Safe Push), `step`,
   `waits_for` (the fact without an answer, or whose read failed), `pull_request`, and why a Safe
   Push or a Dry Run can't start now (`safe_push_blocked`, `dry_run_blocked`, `null` when it can). `bd status` lists no
   pull request, asks no readiness and no problem of a failed robot: a step that needs them waits for them (row 0,

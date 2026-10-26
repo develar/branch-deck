@@ -1,4 +1,4 @@
-use crate::pick::{FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, apply_pick, check_pick, check_pick_undo};
+use crate::pick::{FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, SubjectPrefix, apply_pick, check_pick, check_pick_undo};
 use crate::revs::ref_exists;
 use crate::rewrite_guard::HeadMoved;
 use crate::update_branch::{GuardRefusal, PENDING_UPDATE_PREFIX, ReflogEntry, UndoCheck, apply_update_undo, finish_pending_update, undone_move_base};
@@ -15,6 +15,7 @@ fn from(worktree: &TestWorktree, follow: bool) -> PickRequest<'_> {
     upstream: None,
     follow,
     expect_branch: None,
+    prefix: None,
   }
 }
 
@@ -290,6 +291,7 @@ fn without_a_fork_point_a_local_shared_history_is_refused_and_a_range_names_the_
       upstream: Some(TRACKING_REF),
       follow: false,
       expect_branch: None,
+      prefix: None,
     };
     let plan = check_pick(repo.git_executor(), repo.path_str(), &request).unwrap();
     assert_eq!(
@@ -695,6 +697,7 @@ fn the_source_is_another_worktree_of_this_repository() {
     upstream: None,
     follow: false,
     expect_branch: None,
+    prefix: None,
   };
   let error = check_pick(repo.git_executor(), repo.path_str(), &request(PickSource::Worktree(repo.path_str()))).unwrap_err();
   assert!(matches!(error.downcast_ref::<PickRefusal>(), Some(PickRefusal::InvalidSource(_))), "{error:#}");
@@ -706,4 +709,71 @@ fn the_source_is_another_worktree_of_this_repository() {
 
   let error = check_pick(repo.git_executor(), repo.path_str(), &request(PickSource::Revisions("HEAD...HEAD"))).unwrap_err();
   assert!(matches!(error.downcast_ref::<PickRefusal>(), Some(PickRefusal::InvalidSource(_))), "{error:#}");
+}
+
+/// The commits of someone else on a remote branch: `theirs` on top of `older`, a commit of the branch as it was pushed,
+/// committed in `worktree` as Lev on a side line of `repo`; returns both
+fn remote_line(repo: &TestRepo, worktree: &TestWorktree) -> (String, String) {
+  let older = commit_at(repo, worktree, "(feature) older version", "feature.txt", 1_700_000_100);
+  worktree.git(&["config", "user.name", "Lev Leontev"]);
+  worktree.git(&["config", "user.email", "lev@example.com"]);
+  let theirs = commit_at(repo, worktree, "fix ultimate opened as JPS", "fix.txt", 1_700_000_200);
+  (older, theirs)
+}
+
+fn listed<'a>(ids: &'a [String], prefix: Option<SubjectPrefix<'a>>) -> PickRequest<'a> {
+  PickRequest {
+    source: PickSource::Commits(ids),
+    upstream: None,
+    follow: false,
+    expect_branch: None,
+    prefix,
+  }
+}
+
+/// `bd pick --remote`: only the listed commits are replayed (not the older commit they were made on), and their copies
+/// take the prefix of the branch; the author stays, and the dry run names the commit the pick writes
+#[test]
+fn listed_commits_land_alone_with_the_prefix_of_their_branch() {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  let (_older, theirs) = remote_line(&repo, &worktree);
+  repo.create_commit("(feature) the branch as it is here", "feature.txt", "feature here\n");
+
+  let ids = vec![theirs.clone()];
+  let prefix = SubjectPrefix { group: "feature", commits: &ids };
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &listed(&ids, Some(prefix))).unwrap();
+  assert_eq!(plan.check.state, PickState::Clean);
+  assert_eq!(plan.check.picked.len(), 1);
+  assert_eq!(plan.check.picked[0].commit, theirs);
+  assert_eq!(plan.check.picked[0].subject, "(feature) fix ultimate opened as JPS");
+  let again = check_pick(repo.git_executor(), repo.path_str(), &listed(&ids, Some(prefix))).unwrap();
+  assert_eq!(again.check.new_head, plan.check.new_head, "the same pick writes the same commit");
+
+  apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  assert_eq!(repo.head(), plan.check.new_head);
+  assert_eq!(
+    repo.git(&["log", "-1", "--format=%s|%an <%ae>"]),
+    "(feature) fix ultimate opened as JPS|Lev Leontev <lev@example.com>"
+  );
+  assert_eq!(read(&repo, "fix.txt"), "lane\n");
+  assert_eq!(read(&repo, "feature.txt"), "feature here\n", "the older commit it was made on is not picked");
+}
+
+/// Listed commits that are no parent and child replay each on its own, after its own parent
+#[test]
+fn listed_commits_apart_replay_each_after_its_parent() {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  let first = commit_at(&repo, &worktree, "first", "first.txt", 1_700_000_100);
+  commit_at(&repo, &worktree, "skipped", "skipped.txt", 1_700_000_200);
+  let third = commit_at(&repo, &worktree, "third", "third.txt", 1_700_000_300);
+
+  let ids = vec![first, third];
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &listed(&ids, None)).unwrap();
+  apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  assert_eq!(subjects(&repo, "HEAD~2..HEAD"), ["first", "third"]);
+  assert!(!repo.path().join("skipped.txt").exists());
 }

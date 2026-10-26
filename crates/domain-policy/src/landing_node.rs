@@ -165,9 +165,12 @@ fn of_step(facts: &NodeFacts<'_>) -> LandingNode {
   });
   let kind = match &step.kind {
     StepKind::SafePush | StepKind::Restart { .. } => return ready(facts),
-    StepKind::Retarget { .. } | StepKind::Draft { .. } | StepKind::NeedsBranch { .. } | StepKind::RobotPullRequest { .. } | StepKind::RequestReview { .. } => {
-      LandingNodeKind::YourStep
-    }
+    StepKind::Retarget { .. }
+    | StepKind::Draft { .. }
+    | StepKind::NeedsBranch { .. }
+    | StepKind::PickRemoteCommits { .. }
+    | StepKind::RobotPullRequest { .. }
+    | StepKind::RequestReview { .. } => LandingNodeKind::YourStep,
     // "In #12": its approvals count in the pull request of the whole stack, whose step is in the island header
     StepKind::CreatePullRequest { stack, .. } => {
       if stack.is_some() {

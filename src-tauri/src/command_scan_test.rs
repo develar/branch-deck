@@ -343,10 +343,12 @@ fn the_span_of_a_command_records_no_argument_that_holds_a_collection() {
   );
 }
 
-/// The byte ranges of the arguments of each `run_blocking(…)` call of `body`
+/// The byte ranges of the arguments of each `run_blocking(…)` call of `body`, and of each `run_waiting(…)` and
+/// `run_waiting_with_prefix(…)`, which run their step in one (`lock_wait::run_waiting`)
 fn blocking_spans(body: &str) -> Vec<std::ops::Range<usize>> {
-  body
-    .match_indices("run_blocking(")
+  ["run_blocking(", "run_waiting(", "run_waiting_with_prefix("]
+    .iter()
+    .flat_map(|call| body.match_indices(call))
     .filter_map(|(start, call)| {
       let open = start + call.len() - 1;
       let mut depth = 0;
@@ -362,7 +364,8 @@ fn blocking_spans(body: &str) -> Vec<std::ops::Range<usize>> {
     .collect()
 }
 
-/// The lines of an async `body` that open the object cache on the worker: neither inside a `run_blocking(…)` nor in a
+/// The lines of an async `body` that open the object cache on the worker: neither inside a `run_blocking(…)` (or a
+/// `run_waiting…(…)` of a rewrite) nor in a
 /// `move ||` closure a core runs off the workers (`RemoteActions::start_robot`)
 fn object_cache_on_the_worker(body: &str) -> Vec<String> {
   let spans = blocking_spans(body);

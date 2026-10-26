@@ -249,6 +249,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/park_branches", post(tauri_command_bridge::park_branches))
     .route("/invoke/unpark_branches", post(tauri_command_bridge::unpark_branches))
     .route("/invoke/unapply_branch", post(tauri_command_bridge::unapply_branch))
+    .route("/invoke/pick_remote_commits", post(tauri_command_bridge::pick_remote_commits))
+    .route("/invoke/undo_pick_remote_commits", post(tauri_command_bridge::undo_pick_remote_commits))
     .route("/invoke/undo_unapply_branch", post(tauri_command_bridge::undo_unapply_branch))
     .route("/invoke/reapply_branch", post(tauri_command_bridge::reapply_branch))
     .route("/invoke/undo_reapply_branch", post(tauri_command_bridge::undo_reapply_branch))

@@ -455,6 +455,42 @@ pub async fn unapply_branch(
   .await
 }
 
+/// Pick Remote Commits, as the app's command runs it (`pick_remote_commits_core`), without the object cache
+pub async fn pick_remote_commits(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+  Json(params): Json<update_core::pick::PickRemoteCommitsParams>,
+) -> Result<Response, Rejection> {
+  let repository_path = params.repository_path.clone();
+  run_waiting_with_prefix(&state, &headers, &repository_path, "pick the remote commits", move |git, branch_prefix, lock_wait| {
+    update_core::pick::pick_remote_commits_core(
+      git,
+      &params,
+      branch_prefix,
+      &RewriteOptions::waiting(lock_wait),
+      &ObjectCache::disabled(),
+      &FileDiffs::default(),
+    )
+  })
+  .await
+}
+
+/// The undo of Pick Remote Commits, as the app's command runs it
+pub async fn undo_pick_remote_commits(
+  State(state): State<Arc<AppState>>,
+  headers: HeaderMap,
+  Json(params): Json<update_core::pick::UndoPickRemoteCommitsParams>,
+) -> Result<Response, Rejection> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  Ok(
+    run_waiting(&state, &headers, "undo the pick of the remote commits", move |_lock_wait| {
+      update_core::pick::undo_pick_remote_commits_core(&git_executor, &params, history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT).map_err(undo_error)
+    })
+    .await,
+  )
+}
+
 /// `step` of a rewrite of the test repository at `repository_path` under `run_waiting`, with git and the prefix the
 /// app's commands name its branches with (`branch_prefix_of`); an error for an unknown repository
 async fn run_waiting_with_prefix<T, F>(state: &AppState, headers: &HeaderMap, repository_path: &str, operation: &'static str, step: F) -> Result<Response, Rejection>

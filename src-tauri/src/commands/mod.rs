@@ -15,6 +15,7 @@ pub mod parked_branches;
 pub mod patronus;
 #[cfg(test)]
 mod patronus_test;
+pub mod pick_remote_commits;
 pub mod pull_requests;
 pub mod push;
 pub mod repository_browser;

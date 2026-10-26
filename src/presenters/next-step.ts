@@ -7,6 +7,7 @@
 import {
   ClipboardCopyIcon,
   ClockIcon,
+  DownloadIcon,
   FileTextIcon,
   GitPullRequestArrowIcon,
   Layers2Icon,
@@ -17,6 +18,7 @@ import {
   UserPlusIcon,
 } from "lucide-react"
 import type { LandingFix, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind } from "@/lib/bindings"
+import { formatCommitCount } from "@/lib/commit"
 import { getErrorDetails } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import { describeLandingCheck, formatLandingFix, neededCommit } from "@/lib/landing-gate"
@@ -37,6 +39,7 @@ export type NextStepKind =
   | "none"
   | "pending"
   | "needsBranch"
+  | "pickRemoteCommits"
   | "restart"
   | "pullRequest"
   | "retarget"
@@ -77,6 +80,8 @@ export interface NextStepActions {
   /** Copies the login command of the Safe Push CLI; null without a repository */
   readonly copyLoginCommand: (() => void) | null
   readonly refreshPatronus: () => void
+  /** Pick Remote Commits… of the subject: the question of its push button, which lists the commits with the pick */
+  readonly pickRemoteCommits: () => void
   /** "Restart Safe Push" of the robot of the subject (`getRobotActions`); null when it can't restart */
   readonly restart: MenuItem | null
   /**
@@ -468,6 +473,13 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
     }
     case "needsBranch":
       return needsBranch(kind, context)
+    case "pickRemoteCommits": {
+      // row 1″: a push, also the one before a start, would drop the work of someone else on the remote branch
+      const commits = formatCommitCount(kind.count)
+      const reason = `The remote has ${commits} of someone else that ${subject} doesn't: a push drops ${kind.count === 1 ? "it" : "them"}`
+      const item: MenuItem = { id: "next-step-pick-remote", label: "Pick Remote Commits", icon: DownloadIcon, description: reason, onSelect: actions.pickRemoteCommits }
+      return { kind: "pickRemoteCommits", item, own: reason, notice: { title: `${subject} lacks ${commits} of the remote`, description: reason } }
+    }
     case "restart":
       return actions.restart === null ? { kind: "safePush", item: safePushItem(step, context, general) } : { kind: "restart", item: actions.restart }
     case "robotPullRequest": {

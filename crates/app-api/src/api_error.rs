@@ -12,6 +12,7 @@ use domain_types::landing::{LandingRefusal, LandingRefused};
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_command_executor::StoppedCommand;
 use git_ops::index_lock::IndexLocked;
+use git_ops::pick::PickRefusal;
 use git_ops::revs::DetachedHead;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::{DropRefused, MoveBlocked};
@@ -26,6 +27,7 @@ use sync_core::push_size::PushTooLarge;
 use sync_core::reapply_branch::ReapplyRefusal;
 use sync_core::sync::SyncDeferred;
 use sync_core::unapply_branch::UnapplyRefusal;
+use update_core::pick::RemotePickConflict;
 use update_core::update_project::{FetchFailed, NoUpstream};
 use youtrack::sign_in::SignInError;
 
@@ -228,7 +230,27 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   if let Some(SettingsError::Invalid { .. } | SettingsError::NotAnObject { .. }) = error.downcast_ref::<SettingsError>() {
     return code(ErrorCode::InvalidArguments);
   }
-  classify_branch_moves(error).or_else(|| classify_landing(error))
+  classify_branch_moves(error).or_else(|| classify_pick(error)).or_else(|| classify_landing(error))
+}
+
+/// A pick of the commits of a remote branch: a refusal of `git_ops::pick`, or a commit that conflicts
+fn classify_pick(error: &anyhow::Error) -> Option<Classified> {
+  if let Some(conflict) = error.downcast_ref::<RemotePickConflict>() {
+    let details = ErrorDetails::Conflict {
+      commits: vec![conflict.commit.clone()],
+      paths: conflict.files.clone(),
+    };
+    return Some((ErrorCode::PickConflict, Some(details)));
+  }
+  let code = match error.downcast_ref::<PickRefusal>()? {
+    PickRefusal::RemoteMoved(_) => ErrorCode::LeaseRejected,
+    PickRefusal::NothingToPick(_) => ErrorCode::NothingToPick,
+    PickRefusal::BranchSwitched(_) => ErrorCode::HomeBranchSwitched,
+    PickRefusal::RangeUnknown(_) => ErrorCode::RangeUnknown,
+    PickRefusal::SourceOnNewerBaseline(_) => ErrorCode::SourceOnNewerBaseline,
+    PickRefusal::InvalidSource(_) => ErrorCode::InvalidArguments,
+  };
+  Some((code, None))
 }
 
 /// The user ended what `error` stopped: the wait for the repository lock, a sign-in, an action of a CLI tool, a symbol

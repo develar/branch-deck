@@ -16,6 +16,9 @@ targets:
   - ../../crates/git-ops/src/update_branch.rs
   - ../../crates/git-ops/src/ref_transaction.rs
   - ../../crates/git-ops/src/replay.rs
+  - ../../crates/sync-core/src/remote_status.rs
+  - ../../src-tauri/src/commands/pick_remote_commits.rs
+  - ../../src/lib/git/pick-remote.ts
 ---
 
 # bd pick
@@ -53,7 +56,9 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
 - A `(cherry picked from commit …)` trailer: the output maps every commit to its copy, and the undo token names both
   heads.
 - Merges in the range: refused, as for an update.
-- A command of the app: the app sees the moved branch through its watcher and syncs.
+- A command of the app for the pick of a worktree: the app sees the moved branch through its watcher and syncs. Only
+  the pick of the remote commits of a branch is the app's too (Pick Remote Commits, [Outgoing
+  Commits](../repository/outgoing.spec.md#remote-commits-of-others)).
 
 ## Requirements
 
@@ -157,6 +162,27 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
   the picked commits as a peer's.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_during_an_open_update_session_is_carried_by_its_finish`)
 
+### Remote commits
+
+Someone else pushed to the remote branch of a virtual branch (a fix of a reviewer, a commit of a colleague): a push
+would drop it. `bd pick --remote <branch>` takes it into the checked out branch instead.
+
+- `bd pick --remote <branch>` must sync, fetch the remote branch of `<branch>` alone (before the lock) and pick the
+  commits a push of it would drop (`commits_behind`, all of them: no older version of a commit the branch has, no
+  landed one), oldest first, onto the checked out branch; the copies of those whose subject groups elsewhere get the
+  `(<branch>)` prefix, so they land in `<branch>` and its push then drops nothing (no `--force`). The author stays.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_remote_pick_takes_in_the_commit_someone_pushed_and_the_push_then_drops_nothing`)
+  [@test] ../../crates/git-ops/src/pick_test.rs (`listed_commits_land_alone_with_the_prefix_of_their_branch`)
+- Only the listed commits are replayed, each run of them after its own parent, never the commits they were made on:
+  a commit between two listed ones stays out.
+  [@test] ../../crates/git-ops/src/pick_test.rs (`listed_commits_apart_replay_each_after_its_parent`)
+- `--expect-remote <id>`: a fetched remote branch at another commit must pick nothing, `lease_rejected` (exit 4), as
+  the lease of a push. A remote branch with no commit the branch lacks is `nothing_to_pick` (exit 4).
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_remote_pick_from_another_head_than_the_one_seen_picks_nothing`, `a_remote_pick_takes_in_the_commit_someone_pushed_and_the_push_then_drops_nothing`)
+- Its processes are one sync, one `fetch`, the walks of the remote status, one `cat-file` and one `fast-import` of the
+  prefixed copies besides those of a pick.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_remote_pick`)
+
 ### The lock
 
 - The check (the range, the replay, the dry runs of both worktrees on copies of their index) must run before the
@@ -218,7 +244,7 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
 | 1 | a commit conflicts (`state: "conflict"`): an output, not an error |
 | 2 | `invalid_arguments` |
 | 3 | `head_moved`, `locked` (retryable) |
-| 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale` |
+| 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale`; with --remote `lease_rejected`, `nothing_to_pick` |
 
 - The outputs must match `bd schema` (`pick`, `undo`).
   [@test] ../../crates/bd-update/src/pick_test.rs (`pick_outputs_match_the_schema`)
