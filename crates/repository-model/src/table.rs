@@ -20,11 +20,17 @@
 //! computed before the push, an archived branch it listed before the deletion); a failed run restores the table with it. While a push of a branch runs
 //! (`begin_push`), a sync shows no remote status of it: the status it computed is kept aside and shown only when the
 //! push fails, as the newest the session knows; a push that waits for a sync is not running yet.
+//!
+//! Beside the table the state keeps the operations of the remote that run or wait in the session (`operations`, in the
+//! order they were admitted), the `operations` part of the view: `operations::registry` admits them by
+//! `domain_policy::admission` and changes them through `apply_operation` on the actor of the session
+//! (`Sessions::apply_with`), the one writer of that part.
 
 use crate::derive;
 use crate::facts::{Seq, Sequence};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
+use domain_types::operation::{OperationId, OperationStep, RunningMove, RunningOperation};
 use domain_types::session::{
   ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchStructure, BranchSync, BranchView, CommitSync, LandedSection, SyncState, SyncStep, TableHeader,
   TableSections,
@@ -67,6 +73,22 @@ pub struct TableState {
   sequence: Sequence,
   /// The number of the run in flight: the writes after it win over its events
   run: Seq,
+  /// The operations of the remote that run or wait, in the order they were admitted (`apply_operation`); no part of the
+  /// table, so no sync restores or drops one
+  operations: Vec<RunningOperation>,
+}
+
+/// A change of the operations of a session, which `operations::registry` makes (the module's header)
+#[derive(Clone, Debug)]
+pub enum OperationPatch {
+  /// An operation was admitted, to run or to wait: it comes after the others
+  Admitted(RunningOperation),
+  /// An operation went on to another step
+  Step { id: OperationId, step: OperationStep },
+  /// The moves of rows an operation makes now
+  Moves { id: OperationId, moves: Vec<RunningMove> },
+  /// An operation ended, or stopped waiting
+  Ended(OperationId),
 }
 
 /// What a push sends, as the table keys its remote status: a virtual branch by its name, the stack branch of the whole
@@ -413,6 +435,30 @@ impl TableState {
       if let Some(remote) = remote {
         self.write(OwnWrite::Remote(subject.clone(), remote));
       }
+    }
+  }
+
+  /// The operations of the remote that run or wait, in the order they were admitted
+  #[must_use]
+  pub fn operations(&self) -> &[RunningOperation] {
+    &self.operations
+  }
+
+  /// Changes the operations as `patch` says; a step, moves or an end of an operation the session lacks change nothing
+  pub fn apply_operation(&mut self, patch: OperationPatch) {
+    match patch {
+      OperationPatch::Admitted(operation) => self.operations.push(operation),
+      OperationPatch::Step { id, step } => {
+        if let Some(operation) = self.operations.iter_mut().find(|operation| operation.id == id) {
+          operation.step = step;
+        }
+      }
+      OperationPatch::Moves { id, moves } => {
+        if let Some(operation) = self.operations.iter_mut().find(|operation| operation.id == id) {
+          operation.moves = moves;
+        }
+      }
+      OperationPatch::Ended(id) => self.operations.retain(|operation| operation.id != id),
     }
   }
 

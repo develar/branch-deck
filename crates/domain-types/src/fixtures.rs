@@ -158,3 +158,26 @@ pub fn remote_status(branch: &str) -> crate::RemoteStatusUpdate {
     action: crate::PushAction::UpToDate,
   }
 }
+
+/// The push of the branch `branch` alone, as the remote status showed no remote branch
+pub fn push_intent(branch: &str) -> crate::operation::Intent {
+  crate::operation::Intent::Push(crate::operation::Push {
+    subject: crate::landing::Subject::branch(branch),
+    scope: crate::operation::PushScope::Alone,
+    expect_remote: None,
+    force: false,
+    restart_running: false,
+  })
+}
+
+/// A start of a robot of `mode` on the branch `branch`, with the default profile and nothing allowed
+pub fn land_intent(branch: &str, mode: PatronusPushMode) -> crate::operation::Intent {
+  crate::operation::Intent::Land(crate::landing::Land {
+    subject: crate::landing::Subject::branch(branch),
+    mode,
+    profile: crate::landing::ProfileChoice::Default,
+    without_approvals: false,
+    create_pull_request: false,
+    allow: crate::patronus::LandingAllowances::default(),
+  })
+}

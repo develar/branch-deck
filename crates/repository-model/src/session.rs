@@ -498,6 +498,33 @@ impl Sessions {
     Applied(sent.then_some(version))
   }
 
+  /// Runs `change` on the table state of the session of `key` on its actor, opening the session when it is not open (as
+  /// a sync does); the windows get the patch of what it changed at once, after the events the session got before.
+  /// Answers what `change` answered; `None` when the actor went away before it ran. What runs on the actor is atomic
+  /// with every other change of the session: `operations::registry` admits an operation over the ones the state holds
+  /// and adds it in one change
+  pub async fn apply_with<T: Send + 'static>(&self, key: &SessionKey, change: impl FnOnce(&mut TableState) -> T + Send + 'static) -> Option<T> {
+    let (answer, answered) = oneshot::channel();
+    self.with_entry(key, |entry| {
+      let (reply, _version) = oneshot::channel();
+      let change = Box::new(move |state: &mut TableState| {
+        // a caller that stopped waiting has nothing to hear; the change stands
+        let _ = answer.send(change(state));
+      });
+      // a send fails only when the actor is gone: the dropped change closes the answer
+      let _ = entry.mailbox.send(Message::Apply { change, reply });
+    });
+    answered.await.ok()
+  }
+
+  /// Keeps the session of `key` while the hold lives, opening it when it is not open: an operation of it runs or waits,
+  /// so `sweep` doesn't remove it
+  pub fn hold(&self, key: &SessionKey) -> SessionHold {
+    let mut hold = None;
+    self.with_entry(key, |entry| hold = Some(SessionHold { _busy: Busy::new(&entry.life) }));
+    hold.unwrap_or_else(|| unreachable!("with_entry runs its action"))
+  }
+
   /// The push of `subjects` (`RemoteSubject::of` each branch of its parameters, in their order) in the session of
   /// `key`, `push` being the host's guarded push: from now on a sync shows no remote status of them, and at the end the
   /// remote statuses the push left (pushed, or fetched when the remote moved) go into the table
@@ -652,12 +679,23 @@ impl Sessions {
   }
 }
 
+/// What keeps a session while an operation of it runs or waits (`Sessions::hold`)
+pub struct SessionHold {
+  _busy: Busy,
+}
+
 /// The change of `Sessions::apply` on its way to the session's actor
 #[derive(Debug)]
 #[must_use = "dropped, the change still applies; `version` waits for its patch"]
 pub struct Applied(Option<oneshot::Receiver<Version>>);
 
 impl Applied {
+  /// The change went to the actor of an open session, which runs it
+  #[must_use]
+  pub const fn is_sent(&self) -> bool {
+    self.0.is_some()
+  }
+
   /// The version of the view after the patch of the change; `None` when the session was not open or closed first
   pub async fn version(self) -> Option<Version> {
     match self.0 {

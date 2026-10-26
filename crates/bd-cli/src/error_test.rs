@@ -24,6 +24,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::StacksMoved, 3, true),
   (ErrorCode::ParkedMoved, 3, true),
   (ErrorCode::PrefixChanged, 3, true),
+  (ErrorCode::PlanChanged, 3, true),
   (ErrorCode::NotParked, 2, false),
   (ErrorCode::Parked, 4, false),
   (ErrorCode::BranchNotBuilt, 4, false),

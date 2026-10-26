@@ -1,14 +1,14 @@
 # Adding a Git Operation
 
 **Status:** Active  
-**Updated:** 2026-10-24  
+**Updated:** 2026-10-26  
 **Tags:** [git, rust, bd, tauri]
 
 ## Summary
 
 Read this before you add or change a git operation in `crates/git-ops`, `crates/history-rewrite`, `crates/sync-core`,
 `crates/update-core`, `crates/trial-check`, `crates/lease-pool`, `crates/remote-facts`, `crates/repository-model`,
-`crates/bd-*` or `src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
+`crates/operations`, `crates/bd-*` or `src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
 in its "Git Operations", the flows and the reasons in [Git Operations](../design/git-operations.md).
 
 ## Layers
@@ -16,7 +16,8 @@ in its "Git Operations", the flows and the reasons in [Git Operations](../design
 An operation keeps one name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`). The `//!`
 headers of `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
 `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs`,
-`crates/remote-facts/src/lib.rs` and `crates/repository-model/src/lib.rs` map the modules by area; the layers are the
+`crates/remote-facts/src/lib.rs`, `crates/repository-model/src/lib.rs` and `crates/operations/src/lib.rs` map the
+modules by area; the layers are the
 [Architecture](../design/git-operations.md#architecture) of Git Operations.
 - **git-ops** (`crates/git-ops/src/<op>.rs`): the git, functions of `(git, repo_path, …)`, one process per phase (many
   ids or paths on stdin, `cat-file --batch`, `fast-import`, one `RefTransaction`), through `git.cmd(&args, repo)` with
@@ -41,6 +42,16 @@ headers of `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `cr
   `Snapshot` or the `SyncReport` hold instead of reading them again, the baseline with its upstream comes from one
   `read_baseline` (with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`), and an operation that reads the directories in several steps takes them once at its entry
   (`with_dirs_of`); only HEAD and the guards are read again under the lock. A remote only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
+- **The operation** (`crates/operations/src/<family>.rs`, for an action on the remote: a push, a start, a restart or a
+  cancel of a robot, a write to a pull request or an issue): the intent of its family (`domain_types::operation::Intent`)
+  runs in the frame of `operations::engine::run`, admitted by the in-process registry (`operations::registry`, by the
+  rule `domain_policy::admission` over the resources it names: the refs it pushes, what its robot lands, the robots and
+  the fields of the pull requests it writes) and ended with its `Outcome`; its steps go into the `operations` part of the
+  view, its progress to the caller (`EventSink`). The cores it orders are the ones above; before its first effect it
+  checks the facts its plan was prepared on (`operations::witness`: one `for-each-ref` of the refs, the pull requests
+  and the robots from the session, `plan_changed` when they moved). The families move here one by one
+  (docs/design/rust-domain-authority.md, s9-engine-remote); the app and `bd` call the operation, never the cores of a
+  family that has one.
 - **bd** (usually `<op>_command.rs` in the crate of its area, e.g. `crates/bd-rewrite/src/`, and a variant of `Command`
   in `crates/bd-cli/src/lib.rs`): clap arguments, one JSON object with
   `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
@@ -52,8 +63,8 @@ headers of `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `cr
   command to the same core (`crates/test-server/src/lib.rs`, `tauri_command_bridge.rs`).
 - **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test of the
   operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, of `history-rewrite` too;
-  `crates/update-core/src/`, `crates/trial-check/src/`, `crates/remote-facts/src/` and `crates/branch-integration/src/`
-  for theirs; `crates/bd-cli/src/` for a `bd` command)
+  `crates/update-core/src/`, `crates/trial-check/src/`, `crates/remote-facts/src/`, `crates/operations/src/` and
+  `crates/branch-integration/src/` for theirs; `crates/bd-cli/src/` for a `bd` command)
   that pins its processes by subcommand; the scan tests stay green (`worktree_safety_test.rs`,
   `git_usage_scan_test.rs`, "Scan tests" of AGENTS.md), an exemption added only with its reason and its number of hits.
 

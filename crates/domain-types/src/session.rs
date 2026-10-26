@@ -11,8 +11,9 @@
 //! answers is a `Fact` with its `FactState` (the rule of a fact without an answer), and the facts of the remote services
 //! are parts of the view beside the table (`FactsView`: the robots of Patronus by id), as is what the session derives
 //! of them and the table (`PatronusPart`: the robot of each row and what the robots land, landed and hold, with the
-//! landing needs, keyed by branch and stack); a window tells the session what it shows and needs (`Demand`) and asks it
-//! to read a fact again (`RefreshFactsParams`).
+//! landing needs, keyed by branch and stack), and so are the operations of the remote that run or wait in the session
+//! (`RunningOperation`, by id); a window tells the session what it shows and needs (`Demand`) and asks it to read a fact
+//! again (`RefreshFactsParams`).
 
 use crate::actions::ActionState;
 use crate::branch_integration::BranchIntegrationInfo;
@@ -23,6 +24,7 @@ use crate::issue_navigation::IssueNavigationConfig;
 use crate::landed::LandedBranch;
 use crate::landing::{LandDecisions, Landed, LandedPullRequest};
 use crate::next_step::NextStepView;
+use crate::operation::{OperationId, RunningOperation};
 use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, Person, ReviewReadiness, ReviewReadinessBranch};
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView};
 use crate::reason::Reason;
@@ -360,6 +362,8 @@ pub struct RepositoryView {
   /// and whether each can run now, as `domain_policy::actions` decides them over the table, its next steps and the facts;
   /// none before the first sync
   pub actions: BTreeMap<String, Vec<ActionState>>,
+  /// The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them
+  pub operations: BTreeMap<OperationId, RunningOperation>,
   pub sections: TableSections,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
@@ -1007,6 +1011,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_actions: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub operations: BTreeMap<OperationId, RunningOperation>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_operations: Vec<OperationId>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub unassigned: Option<Vec<Commit>>,

@@ -10,6 +10,7 @@ import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
 import type { LandingNode } from "@/presenters/landing-node"
 import { presentLandingNode, presentNodeKind } from "@/presenters/landing-node"
+import { presentOperationMoves } from "@/presenters/running-move"
 import {
   branchSyncStore,
   getBranch,
@@ -27,13 +28,17 @@ import { getSafePushStarts, safePushStore } from "@/stores/safe-push"
 /*
  * The node of a row as Rust decides it (`nextSteps` of the view, `domain_policy::landing_node`) in the page's words
  * (`presentLandingNode`): a row reads its part of the view (`useRowPart(key, "landing")`, one kept reference) and what
- * the words read beside it, each a narrow selector; the move that runs on the row (its push too) is laid over it, the
- * page's local state until the operations move into Rust (s10).
+ * the words read beside it, each a narrow selector; the move that runs on the row (its push too) is laid over it: the
+ * moves of the operations of the session (`RepositoryView.operations`), and the page's own until their families move
+ * into Rust (s9).
  */
 
-/** The moves that run: of the operations that declare one, and of the starts of a Safe Push or a Dry Run */
+/**
+ * The moves that run: of the operations of the session, of the page's operations that declare one, and of the page's
+ * starts of a Safe Push or a Dry Run
+ */
 function runningMoves(): readonly RunningMove[] {
-  return [...getOperationMoves(), ...safePushStartMoves(getSafePushStarts())]
+  return [...presentOperationMoves(branchSyncStore.getState().operations), ...getOperationMoves(), ...safePushStartMoves(getSafePushStarts())]
 }
 
 /** The branches a Safe Push of `key` lands beside it: the members of a whole stack, the ancestors of a branch */
@@ -147,9 +152,9 @@ export function getStackNodeKindNow(root: string): LandingNodeKind | null {
 }
 
 /**
- * Renders again with `select` when a store a node reads changes: the view, and the moves that run (the operations, the
- * starts of a Safe Push), the page's until s10. For what reads the nodes of many rows: the filter chips, the states of a
- * stack, the overview
+ * Renders again with `select` when a store a node reads changes: the view with the operations of the session, and the
+ * page's moves that run (its operations, the starts of a Safe Push) until s9 moves them. For what reads the nodes of
+ * many rows: the filter chips, the states of a stack, the overview
  */
 export function useNodeStores<T>(select: () => T): T {
   useStore(branchSyncStore, select)

@@ -16,10 +16,12 @@ import type {
   LandDecisions,
   Landed,
   NextStepView,
+  OperationId,
   PullRequestView,
   PushAction,
   Reason,
   RemoteStatusUpdate,
+  RunningOperation,
   StackBranchAlong,
   StackBranchConflict,
   StackBranchState,
@@ -278,16 +280,25 @@ export interface BranchSyncState {
    * now, as Rust decides them (`RepositoryView.actions`, `domain_policy::actions`); presented by `src/presenters/actions.ts`
    */
   actions: Readonly<Record<string, readonly ActionState[]>>
+  /**
+   * The operations of the remote that run or wait in the session, by id (`RepositoryView.operations`, written by
+   * `operations::registry`): the moves of rows they make are laid over the nodes (`src/presenters/running-move.ts`)
+   */
+  operations: Readonly<Record<OperationId, RunningOperation>>
 }
 
-/** The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`, `nextSteps`, `actions`) */
-export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions"> = {
+/**
+ * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
+ * `nextSteps`, `actions`), and its operations
+ */
+export const NO_SUBJECT_PARTS: Pick<BranchSyncState, "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "operations"> = {
   pushes: {},
   openPullRequests: {},
   lands: {},
   landedStates: {},
   nextSteps: {},
   actions: {},
+  operations: {},
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({

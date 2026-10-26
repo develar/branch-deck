@@ -1433,6 +1433,16 @@ export type Coverage = {
 	weeks_missing: number,
 };
 
+/**  A pull request to open for a subject */
+export type CreatePullRequest = {
+	subject: Subject,
+	title: string,
+	body: string,
+	draft: boolean,
+	/**  Logins; the author's own is left out, GitHub refuses it */
+	reviewers: string[],
+};
+
 export type CreatePullRequestParams = {
 	repositoryPath: string,
 	/**
@@ -1711,6 +1721,12 @@ export type ErrorCode =
  *  never answers it
  */
 "prefix_changed" | 
+/**
+ *  An operation of the remote was prepared over facts that changed before its first effect (a rewrite of another
+ *  session, a pull request, a robot, a remote branch): its plan is another one now, and nothing was done. Read the
+ *  plan again (`bd safe-push --check`), then retry
+ */
+"plan_changed" | 
 /**  `bd unpark`: the branch is not parked */
 "not_parked" | 
 /**
@@ -2668,6 +2684,46 @@ export type HourTime = {
 /**  Confidence level for integration detection */
 export type IntegrationConfidence = "Exact" | "High";
 
+/**  What the user or an agent asks of the remote (the contract's `Intent`, the families of `s9-engine-remote`) */
+export type Intent = 
+/**  A Safe Push or a Dry Run of a subject: retarget, cancel, push and the start, as its plan orders them */
+{
+	kind: "land",
+} & Land | 
+/**  A push of a subject and of what its scope takes along */
+{
+	kind: "push",
+} & Push | 
+/**  A restart of a robot of the user, with the push before it when the branch moved past its commit */
+({ kind: "restartRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**  A cancel of a running robot of the user */
+({ kind: "cancelRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**  The open pull request `number` goes into the base its rule names (`domain_policy::pull_request::base_of`) */
+({ kind: "retarget"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**  The pull request of a subject is opened, after the push it needs */
+{
+	kind: "createPullRequest",
+} & CreatePullRequest | 
+/**
+ *  The code owners (or `reviewers`) are asked to review the pull request of a subject, `push_first` when its branch
+ *  has work for the remote
+ */
+({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; robotId?: never; state?: never; thenLand?: never; verdict?: never } | 
+/**  The pull request `number` is closed with `comment` */
+({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; commit?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**
+ *  The open pull requests of the branches a merged robot landed whole besides its own are closed
+ *  (`domain_policy::landed::pull_requests_to_close`)
+ */
+({ kind: "closeLandedPullRequests"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**
+ *  A review of the pull request `number` of someone else on the commit the user reviewed, and the Safe Push of it
+ *  after an approval (`then_land`)
+ */
+({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never } | 
+/**  The YouTrack issue `key` goes into `state` (Mark Fixed, its undo), while it is in `expected` */
+({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; comment?: never; commit?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; subject?: never; thenLand?: never; verdict?: never };
+
 export type IssueNavigationConfig = {
 	links: IssueNavigationLink[],
 };
@@ -3382,6 +3438,44 @@ export type OpenSubWindowParams = {
 	openedAt: number | null,
 };
 
+/**
+ *  The id of an operation: the ULID text of `sync_utils::operation_id::OperationId`, the `operation_id` of its log
+ *  lines; a string in TypeScript
+ */
+export type OperationId = string;
+
+/**  What an operation does now */
+export type OperationStep = 
+/**
+ *  Waits for the operation `behind`, which holds a resource it needs, and is admitted again after it, in the order
+ *  the waiting ones came
+ */
+{ kind: "queued"; behind: OperationId } | 
+/**  Waits for the sync that brings the tip of its subject into the table */
+{ kind: "waitingForSync" } | 
+/**  Waits for the repository lock another process holds */
+{ kind: "waitingForLock" } | 
+/**  Reads the facts it needs and checks what it lands (the target, the landing gate) */
+{ kind: "checking" } | 
+/**  Moves the pull request of its subject into the base its rule names */
+{ kind: "retargeting" } | 
+/**  Cancels the robot its start replaces */
+{ kind: "cancelingRobot" } | { kind: "pushing" } | 
+/**  Starts or restarts a robot */
+{ kind: "starting" } | 
+/**  Writes to GitHub or YouTrack: a pull request, its reviewers, a review, its close, the state of an issue */
+{ kind: "writing" };
+
+/**  Where an operation runs */
+export type Origin = 
+/**  In the process of the session: a request of it joins or waits for the operation */
+{ kind: "thisProcess" } | 
+/**
+ *  In another process (the registry file of `s10-registry-journal`): a request of it is busy, it can't wait for a
+ *  process
+ */
+{ kind: "otherProcess"; tool: HolderTool; pid: number };
+
 /**  A fixup without a target among the older commits of the range: it is not squashed */
 export type OrphanFixup = {
 	commitId: string,
@@ -3971,6 +4065,13 @@ export type PullRequestBase =
 /**  Into another base (a release branch), which may be meant: its approvals count only for a Safe Push into `base` */
 { kind: "other"; base: string };
 
+/**  A field of a pull request an operation writes */
+export type PullRequestField = "base" | "reviewers" | 
+/**  Open or closed */
+"state" | 
+/**  A review of the user */
+"review";
+
 /**  What a review of the user says */
 export type PullRequestReviewEvent = "approve" | 
 /**  Needs a body: GitHub refuses a request for changes without one */
@@ -4023,6 +4124,21 @@ export type PullRequestsView = {
 	pullRequests: { [key in string]: PullRequest },
 	/**  By the root of the stack whose stack branch (`{prefix}/stack/<root>`) is the head; never a branch's */
 	stackPullRequests: { [key in string]: PullRequest },
+};
+
+/**  A push of a subject: of a branch, the stack branch of a whole stack, an unapplied branch (`PushScope::Unapplied`) */
+export type Push = {
+	subject: Subject,
+	scope: PushScope,
+	/**
+	 *  The remote tip of the subject the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote branch
+	 *  only while it is there; `None`: the status showed no remote branch
+	 */
+	expectRemote: string | null,
+	/**  It replaces commits of the remote the branch lacks, someone's work (`bd push --force`) */
+	force: boolean,
+	/**  The Safe Push that holds the push is canceled first and restarted on the pushed commit (`--restart-running`) */
+	restartRunning: boolean,
 };
 
 /**
@@ -4106,6 +4222,19 @@ export type PushOutcome =
  *  and `remote_status` shows what the remote has now; a push with its `remote_tip` replaces that
  */
 { type: "remoteMoved"; remoteStatus: RemoteStatusUpdate };
+
+/**  What a push takes along with its subject (`domain_policy::push::push_plan` orders it) */
+export type PushScope = 
+/**  The subject alone */
+{ kind: "alone" } | 
+/**  The branches it is built on that have work for the remote, root first (Push Stack, the button) */
+{ kind: "withAncestors" } | 
+/**  The branches built on it, in one atomic push, parents first (Push with Children) */
+{ kind: "withChildren" } | 
+/**  The branch up to `commit` (Push Up to Here) */
+{ kind: "upTo"; commit: string } | 
+/**  The unapplied branch of that name, under its own name, so the remote keeps a copy */
+{ kind: "unapplied" };
 
 export type ReadPatronusCommandReplyParams = {
 	repositoryPath: string,
@@ -4443,6 +4572,8 @@ export type RepositoryView = {
 	 *  none before the first sync
 	 */
 	actions: { [key in string]: ActionState[] },
+	/**  The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them */
+	operations: { [key in OperationId]: RunningOperation },
 	sections: TableSections,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
@@ -4482,6 +4613,22 @@ export type ResolvedFileSummary = {
 	path: string,
 	conflicts: number,
 };
+
+/**
+ *  What an operation holds while it runs or waits, which a new one that needs it waits for
+ *  (`domain_policy::admission`): two resources are one when they are equal
+ */
+export type Resource = 
+/**  A branch it pushes or moves, by its full name (`{prefix}/virtual/auth`, `{prefix}/stack/air`) */
+{ kind: "ref"; name: string } | 
+/**  A branch a robot it starts lands (a `Land` reserves what its plan lands), by name */
+{ kind: "lands"; branch: string } | 
+/**  A robot it restarts or cancels */
+{ kind: "robot"; id: string } | 
+/**  A field of a pull request it writes: two writes of one pull request wait for each other only on the same field */
+{ kind: "pullRequest"; number: number; field: PullRequestField } | 
+/**  A YouTrack issue whose state it sets */
+{ kind: "issue"; key: string };
 
 export type RestackBranchParams = {
 	repositoryPath: string,
@@ -5000,6 +5147,35 @@ export type RunCliToolActionParams = {
 	server: string | null,
 	/**  An install brings the agent skill along */
 	withSkill: boolean,
+};
+
+/**
+ *  The move of a row that an operation makes while it runs (docs/design/landing.md): the node of the row leaves the
+ *  user's moves at once, not when GitHub or Patronus answer. The subject is a branch, or `stack:<root>` a whole stack
+ */
+export type RunningMove = 
+/**  A robot of `mode` starts: a Safe Push comes to land the row with what it lands beside, a Dry Run only checks it */
+{ kind: "starting"; subject: string; mode: PatronusPushMode } | 
+/**  The robot of the row restarts */
+{ kind: "restarting"; subject: string; mode: PatronusPushMode } | 
+/**  The pull request of the row is being opened: the reviewers or Patronus answer next */
+{ kind: "creatingPullRequest"; subject: string } | 
+/**  A review of the pull request `number` of the row is being requested: the reviewers answer next */
+{ kind: "requestingReview"; subject: string; number: number };
+
+/**
+ *  An operation of a session that runs or waits (the `operations` part of the view), as `operations::registry` admitted
+ *  it
+ */
+export type RunningOperation = {
+	id: OperationId,
+	intent: Intent,
+	/**  What it holds while it runs or waits */
+	resources: Resource[],
+	step: OperationStep,
+	origin: Origin,
+	/**  The moves of rows it makes while it runs */
+	moves: RunningMove[],
 };
 
 /**  A declaration of a text: its lines and its label, `Outer › inner` */
@@ -5784,6 +5960,8 @@ export type TableChanges = {
 	removedNextSteps?: string[],
 	actions?: { [key in string]: ActionState[] },
 	removedActions?: string[],
+	operations?: { [key in OperationId]: RunningOperation },
+	removedOperations?: OperationId[],
 	unassigned?: Commit[] | null,
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,

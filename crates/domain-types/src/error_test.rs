@@ -21,6 +21,9 @@ fn an_error_without_data_is_its_snake_case_code_with_null_details_and_operation(
 fn an_error_carries_the_retry_of_its_code() {
   assert_eq!(ApiError::new(ErrorCode::Locked, "").retry, Retry::Same);
   assert_eq!(ApiError::new(ErrorCode::HeadMoved, "").retry, Retry::AfterReread);
+  // a plan prepared over facts that changed is prepared again, never run as it was
+  assert_eq!(ApiError::new(ErrorCode::PlanChanged, "").retry, Retry::AfterReread);
+  assert_eq!(ErrorCode::PlanChanged.exit_code(), 3);
   assert_eq!(ApiError::new(ErrorCode::LeaseRejected, "").retry, Retry::No);
   assert_eq!(serde_json::to_value(Retry::AfterReread).unwrap(), json!("after_reread"));
 }

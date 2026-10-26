@@ -8,7 +8,7 @@
 
 use crate::pull_requests::GitHubWriteError;
 
-use domain_types::pull_request::{RefusedReviewer, RequestedReviewers};
+use domain_types::pull_request::{PullRequestReviewEvent, RefusedReviewer, RequestedReviewers};
 use git_ops::revs::is_object_id;
 use github::client::{GitHubClient, GitHubError};
 use github::service::{GitHubService, RequestKind};
@@ -35,16 +35,6 @@ pub struct ClosePullRequestParams {
   pub pull_request_number: u32,
   /// Why it is closed, posted with the close
   pub comment: String,
-}
-
-/// What a review of the user says
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub enum PullRequestReviewEvent {
-  Approve,
-  /// Needs a body: GitHub refuses a request for changes without one
-  RequestChanges,
 }
 
 #[derive(Debug, Deserialize)]

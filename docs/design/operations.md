@@ -1,7 +1,7 @@
 # Running Operations
 
 **Status:** Implemented  
-**Updated:** 2026-10-24  
+**Updated:** 2026-10-26  
 **Tags:** [frontend, actions, ux, concurrency]
 
 ## Problem
@@ -200,6 +200,12 @@ surface that starts the action, not when Patronus or GitHub answer ([Landing](la
 
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
 and back. The other operations pass, as a sync does: the node keeps the state they started from.
+
+The operations of the remote move into Rust family by family ([Rust as the Domain Authority](rust-domain-authority.md),
+s9-engine-remote): the registry of a session there (`operations::registry`, admitted by `domain_policy::admission`) is
+a part of its view (`RepositoryView.operations`), and the moves its operations declare (`RunningOperation.moves`) are
+laid over the nodes beside the page's own (`presentOperationMoves`, `src/presenters/running-move.ts`). A family that
+moved is no operation of this registry any more; until then the page keeps its own.
 
 ### Outside the registry
 

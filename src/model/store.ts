@@ -412,6 +412,9 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
   if (changes === null || Object.keys(changes.actions ?? {}).length > 0 || (changes.removedActions?.length ?? 0) > 0) {
     update.actions = next.actions
   }
+  if (changes === null || Object.keys(changes.operations ?? {}).length > 0 || (changes.removedOperations?.length ?? 0) > 0) {
+    update.operations = next.operations
+  }
   if (changes === null || changes.unassigned != null) {
     update.unassignedCommits = next.sections.unassigned
   }
@@ -453,7 +456,8 @@ function changesTable(previous: RepositoryView | null, changes: TableChanges | n
   if (changes === null) {
     return true
   }
-  const { sync: _sync, branches, ...parts } = changes
+  // the operations that run are no part of the table
+  const { sync: _sync, branches, operations: _operations, removedOperations: _removedOperations, ...parts } = changes
   if (Object.values(parts).some(part => !isEmptyPart(part))) {
     return true
   }

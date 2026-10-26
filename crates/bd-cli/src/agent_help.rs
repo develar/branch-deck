@@ -53,7 +53,7 @@ Rules
 - Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update.
 - Branch on `error.code` and the exit code, never on the message. 0 ok. 1 a conflict, never an error object: the
   output says what conflicts (`state: \"conflict\"`, a branch not built, `ok: false`). 2 invalid input: fix the
-  arguments or the plan. 3 stale (`head_moved`, `locked`): read again and retry. 4 refused: do what the table below or
+  arguments or the plan. 3 stale (`head_moved`, `locked`, `plan_changed`): read again and retry. 4 refused: do what the table below or
   the `--help` of the command says for the code, else stop and show `message` to the user. 5 git or network error:
   show it. Retry when `retryable` is true, whatever the exit code, and never when it is false. A `git_error` \"not
   updating refs/branch-deck/tmp/chain (… does not contain …)\": a ref of Branch Deck 0.21 or older; `git update-ref -d

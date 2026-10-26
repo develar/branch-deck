@@ -1,7 +1,7 @@
 /**
  * The view of a session after a patch, as `repository_model::patch::apply_patch` makes it in Rust: the parts the patch
- * names replace theirs, the keyed parts (branches, stacks, the integration of the archived branches, the branches and the
- * stacks of the Patronus view) only for the keys
+ * names replace theirs, the keyed parts (branches, stacks, the operations, the integration of the archived branches, the
+ * branches and the stacks of the Patronus view) only for the keys
  * it names. The page's store (`src/model/store.ts`) applies the patches of its session with it, the fake sessions of
  * the store tests (`src/test-support/fake-sessions.ts`) keep their views with it
  */
@@ -63,6 +63,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
   if (Object.keys(changes.actions ?? {}).length > 0 || (changes.removedActions?.length ?? 0) > 0) {
     actions = { ...withoutKeys(actions, changes.removedActions ?? []), ...changes.actions }
   }
+  const operations = keyed(view.operations, changes.operations, changes.removedOperations)
   const sections = view.sections
   const archived = changes.archived
   return {
@@ -78,6 +79,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
     landedStates,
     nextSteps,
     actions,
+    operations,
     sections: {
       unassigned: changes.unassigned ?? sections.unassigned,
       unapplied: changes.unapplied ?? sections.unapplied,

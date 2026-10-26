@@ -448,13 +448,14 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 ### Adding a git operation
 Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
 you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/update-core/`,
-`crates/trial-check/`, `crates/lease-pool/`, `crates/remote-facts/`, `crates/repository-model/`, `crates/bd-*/` or
-`src-tauri/src/commands/`.
+`crates/trial-check/`, `crates/lease-pool/`, `crates/remote-facts/`, `crates/repository-model/`, `crates/operations/`,
+`crates/bd-*/` or `src-tauri/src/commands/`.
 The checklist:
 - One name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`); the `//!` headers of
   `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
   `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs`,
-  `crates/remote-facts/src/lib.rs` and `crates/repository-model/src/lib.rs` map the modules by area.
+  `crates/remote-facts/src/lib.rs`, `crates/repository-model/src/lib.rs` and `crates/operations/src/lib.rs` map the
+  modules by area.
 - **git-ops** has the git: one process per phase, `-z` output, full ids, `--end-of-options` before a revision from
   outside, `--literal-pathspecs` for paths after `--`; no lock and no policy.
 - **The core** `<op>_core` in `crates/history-rewrite/` (a rewrite that needs no sync, GitHub or Patronus),
@@ -465,6 +466,9 @@ The checklist:
   `crates/sync-core/` (the sync, the pushes and the rest, with no remote service but git's) is the one
   entry of every caller: a rewrite of the checked-out branch
   takes `&RewriteOptions` and the lock before it reads anything, then checks the expected HEAD.
+- **operations**: an action on the remote is an intent of its family in `crates/operations/` (s9 moves them one by
+  one): it runs in `engine::run`, admitted by `registry` over the resources it names (`domain_policy::admission`), its
+  steps the `operations` part of the view, and checks its `witness` before the first effect (`plan_changed`).
 - **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
   JSON object with `schema`, errors as `CliError` with an `ErrorCode`; a Tauri command is `run_blocking` of the core,
   and the E2E server routes it to the same core.
@@ -647,6 +651,7 @@ session](docs/design/git-operations.md#the-landing-of-a-session)), which the pag
 | The actions of a branch, a whole stack and a robot, each enabled or disabled with its reason | `actions.rs` | `RepositoryView.actions` (`action_view::actions_of`); `bd`: none yet |
 | The news of a session (a robot merged or failed, approvals arrived, review requests) | `news.rs` | `RepositoryView.news` |
 | When a fact of the remote is asked again | `refresh.rs` | `remote_facts::scheduler` |
+| How a new operation of the remote is admitted: it joins the same intent, waits behind the newest one that holds a resource it needs, runs beside the rest; busy over another process | `admission.rs` | `RepositoryView.operations` (`operations::registry`); `bd`: none yet |
 | The reasons the rules give: codes with their facts, no words | `reasons.rs` (types: `domain_types::reason`) | words: `src/presenters/reasons.ts`, `repository_model::start_guard::start_refusal_text`, `bd-core/src/next_step_summary.rs` |
 
 Outside `domain-policy`: the grouping of the commits (`crates/history-rewrite/src/commit_grouper.rs`), what a robot
@@ -728,8 +733,9 @@ crates/
 ├── lease-pool/      # The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)
 ├── remote-facts/    # What GitHub and Patronus know of the branches, over HTTP: pull requests, review requests, branch rules, review readiness, the Patronus command, the Safe Push statistics; the scheduler of the session facts (`scheduler`, read through the hosts' `FactSources`)
 ├── repository-model/ # The model of a repository for the page and bd: the sessions (the table state, its syncs and patches, their facts), the table of the last sync, the Patronus view the session derives (one rule, the robot of each row) with the landing needs the host computes, what the rules decide of them for the view (`derive`, `action_view`), the guards of the app's push and robot actions; no trial check
+├── operations/      # The engine of the operations of the remote: the in-process registry (the `operations` part of the view, admitted by `domain_policy::admission`), the frame every family runs in, the witness of a plan; the families move in through s9
 ├── domain-types/    # The types that cross a process or window boundary (the cores, bd, the app): the commits, conflicts and update checks that git-ops builds, the branch names and the stack prefix syntax, `ErrorCode`, the landing refusals; serde, specta and schemars behind features, no IO; git-ops depends on it
-├── domain-policy/   # The pure rules of the domain, one file per rule ([Rule Index](#rule-index): `facts`, `robot_match`, `push`, `stack`, `parked`, `holds`, `land`, `landed`, `pull_request`, `review`, `readiness`, `landing_needs`, `next_step`, `landing_node`, `actions`, `news`, `refresh`, `reasons`), only domain-types: no git, no IO, no runtime; `cases/` holds the scenario table both sides answer, `reasons.json` and `actions.json` the catalogs the presenters word
+├── domain-policy/   # The pure rules of the domain, one file per rule ([Rule Index](#rule-index): `facts`, `robot_match`, `push`, `stack`, `parked`, `holds`, `land`, `landed`, `pull_request`, `review`, `readiness`, `landing_needs`, `next_step`, `landing_node`, `actions`, `admission`, `news`, `refresh`, `reasons`), only domain-types: no git, no IO, no runtime; `cases/` holds the scenario table both sides answer, `reasons.json` and `actions.json` the catalogs the presenters word
 ├── app-api/         # The adapters' crate of the app and the e2e server, only theirs: `api_error`, a core's error as the `ApiError` of a command (one downcast chain)
 ├── app-settings/    # The settings of the app for the app and bd: the one writer of `settings.json` and `repository-state.json` (`SettingsService`: patches, versions, a debounced atomic save), the tolerant load, the keys of each window, the order of the branch prefixes with its source (`resolve_branch_prefix`, `BranchPrefixes`); no Tauri, no git
 ├── cli-tools/       # The teamcity and youtrack CLIs of Settings → Tools: status, install and update through Homebrew; no git, no service

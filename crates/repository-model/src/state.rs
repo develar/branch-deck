@@ -9,6 +9,7 @@ use crate::derive::{landed_states_of, lands_of, next_steps_of, push_view, sessio
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
 use crate::table::TableState;
+use domain_types::operation::{OperationId, RunningOperation};
 use domain_types::session::{
   ArchivedChanges, Fact, FactsChanges, FactsView, News, PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, RobotsChange, RobotsView, SyncState,
   TableChanges, Version, ViewPatch,
@@ -90,6 +91,7 @@ impl View {
       landed: &landed,
     };
     let (actions, removed_actions) = diff_keyed(&last.actions, &actions_of(state, facts, &sources));
+    let (operations, removed_operations) = operations_change(&last.operations, state.operations());
     let (last_archived, archived) = (&last.sections.archived, &parts.sections.archived);
     let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
     let archived_changes = ArchivedChanges {
@@ -118,6 +120,8 @@ impl View {
       removed_next_steps,
       actions,
       removed_actions,
+      operations,
+      removed_operations,
       unassigned: changed_commits(&last.sections.unassigned, &parts.sections.unassigned),
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),
@@ -140,6 +144,17 @@ impl View {
     }
     Some(patch)
   }
+}
+
+/// The operations of `now` that the view sent last lacks or has otherwise, and the ids of the ones that ended
+fn operations_change(last: &BTreeMap<OperationId, RunningOperation>, now: &[RunningOperation]) -> (BTreeMap<OperationId, RunningOperation>, Vec<OperationId>) {
+  let changed = now
+    .iter()
+    .filter(|operation| last.get(&operation.id) != Some(*operation))
+    .map(|operation| (operation.id.clone(), operation.clone()))
+    .collect();
+  let removed = last.keys().filter(|id| !now.iter().any(|operation| operation.id == **id)).cloned().collect();
+  (changed, removed)
 }
 
 /// What changed of the facts of the remote services, by part

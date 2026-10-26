@@ -22,6 +22,9 @@
 //! - `issue_navigation`: the issue links of the IntelliJ IDEA configuration
 //! - `landed`: the landed commits and branches
 //! - `landing`: what refuses a Safe Push or a Dry Run before the push, and the fix of each refusal
+//! - `operation`: the operations of the remote: what is asked (`Intent`), what it would do (`Plan`), how it ended
+//!   (`Outcome`), what its caller hears (`OperationEvent`), the operations of a session that run or wait
+//!   (`RunningOperation`) with the resources they hold and the admission of a new one (`Admission`)
 //! - `patronus`: the Patronus robots of the virtual branches, the parameters of their start, the review readiness
 //! - `pull_request`: the pull requests of the branches, their checks and reviews
 //! - `repository_view`: what Rust derives of the branch table for the page and `bd`
@@ -62,6 +65,7 @@ pub mod issue_navigation;
 pub mod landed;
 pub mod landing;
 pub mod next_step;
+pub mod operation;
 pub mod patronus;
 pub mod pull_request;
 pub mod reason;

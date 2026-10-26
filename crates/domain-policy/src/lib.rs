@@ -3,6 +3,8 @@
 //! architecture test keeps the crate away from git, the network, tokio, Tauri and clap). One file per rule, each tested
 //! by tables of its own:
 //!
+//! - `admission`: how a new operation of the remote is admitted over those that run or wait (`admit`): it joins the same
+//!   intent, waits behind the newest one that holds a resource it needs, runs beside the rest; busy over another process
 //! - `actions`: the actions a branch, a whole stack or a robot offers and whether each can run now, disabled with the
 //!   reason (`branch_actions`, `stack_actions`, `robot_actions`), for every surface of the app
 //! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
@@ -54,6 +56,7 @@
 //!   (`whole_stack_of`), its branches as a sentence names them and what is left of it to land (`whole_stack_rest`)
 
 pub mod actions;
+pub mod admission;
 pub mod facts;
 pub mod holds;
 pub mod land;

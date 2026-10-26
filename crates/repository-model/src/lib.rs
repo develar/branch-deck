@@ -51,7 +51,8 @@
 //!   in the session of its key)
 //! - `session`: the sessions of the process by worktree and branch prefix (`Sessions`, `SessionKey`): open, subscribe,
 //!   snapshot, focus, the demand of each window (`set_demand`), sync tickets, `apply` and `push` (the result of an
-//!   operation, with the version of its patch), and their removal once idle (`sweep`, on the session clock); the
+//!   operation, with the version of its patch), `apply_with` (a change on the actor that answers, as the registry of the
+//!   operations admits one) and `hold` (a session kept while an operation runs), and their removal once idle (`sweep`, on the session clock); the
 //!   timers of a session wait on its clock (`runtime::sleep_until`); the events of the sessions for the scheduler of the
 //!   facts (`events`, `SessionEvent`), which reads with `begin` and applies with `apply_facts`; `write_robot`,
 //!   `write_pull_request`
@@ -65,8 +66,9 @@
 //!   chain for a focus, one silent retry
 //! - `table`: the branch table of a session as the events of its syncs leave it (`TableState::apply`), in the parts of
 //!   `domain_types::session`, and what its own operations wrote, which no older run undoes: the outcome of a push
-//!   (`begin_push`, `end_push`), a deleted archived or unapplied branch; `bd sync` folds its events into one too and
-//!   summarizes it
+//!   (`begin_push`, `end_push`), a deleted archived or unapplied branch; the operations of the remote that run or wait
+//!   (`operations`, `apply_operation`), which only `operations::registry` changes; `bd sync` folds its events into one
+//!   too and summarizes it
 
 pub mod action_view;
 pub mod actions;

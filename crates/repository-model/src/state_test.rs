@@ -1,8 +1,10 @@
 use crate::facts::FactStore;
 use crate::patch::{PatchRejected, apply_patch};
 use crate::state::{View, new_epoch};
-use crate::table::TableState;
 use crate::table::table_test::{grouped, grouping, remote_status, run_sync, sync_events};
+use crate::table::{OperationPatch, TableState};
+use domain_types::landing::Subject;
+use domain_types::operation::{Intent, OperationId, OperationStep, Origin, Resource, RunningOperation};
 use domain_types::session::{BranchChange, BranchRemote, RepositoryView, SyncState, SyncStep, TableChanges, Version, ViewPatch};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -79,6 +81,55 @@ fn a_patch_applies_only_to_the_view_at_its_base_in_its_epoch() {
   apply_patch(&mut window, second).unwrap();
   assert_eq!(window, view.snapshot());
   assert_ne!(new_epoch(), new_epoch(), "each session has its own epoch");
+}
+
+fn operation(id: &str, number: u32) -> RunningOperation {
+  RunningOperation {
+    id: OperationId(id.to_string()),
+    intent: Intent::RequestReview {
+      subject: Subject::branch("auth"),
+      reviewers: Vec::new(),
+      push_first: false,
+    },
+    resources: vec![Resource::Ref { name: format!("pr-{number}") }],
+    step: OperationStep::Checking,
+    origin: Origin::ThisProcess,
+    moves: Vec::new(),
+  }
+}
+
+/// The operations of the session are a part of the view by id: a patch carries the one that came or changed its step,
+/// and the id of the one that ended; a sync never touches them
+#[test]
+fn a_patch_carries_the_operations_that_came_changed_or_ended_by_id() {
+  let mut state = TableState::new();
+  let mut view = View::new(7, "user");
+  let facts = FactStore::new();
+  let mut patches = vec![view.diff(&state, &facts)].into_iter().flatten().collect::<Vec<_>>();
+  state.apply_operation(OperationPatch::Admitted(operation("a", 1)));
+  state.apply_operation(OperationPatch::Admitted(operation("b", 2)));
+  let admitted = view.diff(&state, &facts).unwrap();
+  assert_eq!(admitted.changes.operations.keys().map(|id| id.0.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+
+  let step = OperationStep::Queued {
+    behind: OperationId("a".to_string()),
+  };
+  state.apply_operation(OperationPatch::Step {
+    id: OperationId("b".to_string()),
+    step: step.clone(),
+  });
+  let stepped = view.diff(&state, &facts).unwrap();
+  let b = RunningOperation { step, ..operation("b", 2) };
+  assert_eq!(stepped.changes.operations, BTreeMap::from([(b.id.clone(), b.clone())]));
+
+  state.apply_operation(OperationPatch::Ended(OperationId("a".to_string())));
+  run_sync(&mut state, sync_events(CommitSyncStatus::Created, BranchSyncStatus::Created));
+  let ended = view.diff(&state, &facts).unwrap();
+  assert_eq!(ended.changes.removed_operations, [OperationId("a".to_string())]);
+  assert_eq!(ended.changes.operations, BTreeMap::new());
+  patches.extend([admitted, stepped, ended]);
+  assert_eq!(fold(7, patches).operations, BTreeMap::from([(b.id.clone(), b)]));
+  assert_eq!(view.snapshot().operations.len(), 1);
 }
 
 /// A table synced once with every commit and branch unchanged, and the view of a window that has it

@@ -1,0 +1,30 @@
+[package]
+name = "operations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The engine of the operations of the remote: an intent of the user or an agent, admitted over the operations that run in its session, run as its plan orders the effects, with the witness of the facts its plan was prepared on"
+publish = false
+
+[dependencies]
+repository-model = { path = "../repository-model" }
+domain-types = { path = "../domain-types" }
+domain-policy = { path = "../domain-policy" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+sync-utils = { path = "../sync-utils" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+domain-types = { path = "../domain-types", features = ["fixtures"] }
+# the inputs of a sync, which the session host of the tests answers
+sync-core = { path = "../sync-core" }
+test-utils = { path = "../test-utils" }
+pretty_assertions.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

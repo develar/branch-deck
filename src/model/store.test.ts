@@ -2,7 +2,7 @@
 // applies the patches of the session it subscribed to, and asks a sync of it
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
-import type { StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
+import type { RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
 import { resetDemand } from "@/model/demand"
 import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
 import { branchSyncStore, getBranch, getStackBranch, setBranchPushing, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
@@ -588,6 +588,29 @@ describe("the table of the view", () => {
     expect(getStackBranch("x")).toBeUndefined()
     closeSession()
     expect(getStackBranch("a")).toBeUndefined()
+  })
+
+  it("keeps the operations of the session by id, the ones a patch leaves alone the same objects, and no table change counts them", async () => {
+    await open()
+    await send(grouping("a"))
+    const revision = branchSyncStore.getState().tableRevision
+    const operation = (id: string, step: RunningOperation["step"]): RunningOperation => ({
+      id,
+      intent: { kind: "retarget", number: 12 },
+      resources: [{ kind: "pullRequest", number: 12, field: "base" }],
+      step,
+      origin: { kind: "thisProcess" },
+      moves: [],
+    })
+    await send({ operations: { x: operation("x", { kind: "checking" }), y: operation("y", { kind: "queued", behind: "x" }) } })
+    const before = branchSyncStore.getState().operations
+    expect(Object.keys(before)).toEqual(["x", "y"])
+    await send({ operations: { y: operation("y", { kind: "writing" }) }, removedOperations: ["x"] })
+    const after = branchSyncStore.getState().operations
+    expect(after).toEqual({ y: operation("y", { kind: "writing" }) })
+    await send({ branches: { a: { sync: { status: "Unchanged", processedCount: 1, hasError: false } } } })
+    expect(branchSyncStore.getState().operations).toBe(after)
+    expect(branchSyncStore.getState().tableRevision).toBe(revision)
   })
 
   it("splits the order into the rows of each section by the section of each branch's structure, the view sends no second list", async () => {

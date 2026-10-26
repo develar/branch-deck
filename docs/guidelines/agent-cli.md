@@ -134,7 +134,7 @@ branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `cr
 | 0 | ok | |
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
-| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `locked` |
+| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `plan_changed` (the facts a remote action was planned on changed before its first effect; nothing was done), `locked` |
 | 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
@@ -165,9 +165,9 @@ review fetch: `LockWaitCanceled`, `SignInError::Canceled`, `DeviceFlowError::Can
 prints a failure of git or IO as `git_error`.
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
-`retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `locked` and `network_error`: retry when it is
+`retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `plan_changed`, `locked` and `network_error`: retry when it is
 true, whatever the exit code. It is the `retry` class of the code other than `no`: `same` (`locked`, `network_error`) runs
-the same command again, `after_reread` (`head_moved` and the other `*_moved`) builds it again from a new read. The message of `locked` names the holder when it wrote its record (`` `bd check --fix` (pid 4242, for 12
+the same command again, `after_reread` (`head_moved` and the other `*_moved`, `plan_changed`) builds it again from a new read. The message of `locked` names the holder when it wrote its record (`` `bd check --fix` (pid 4242, for 12
 min 3 s) holds …/branch-deck.lock (waited 10.0 s); retry when it is done``), else "Another Branch Deck operation".
 
 A write whose step after the write failed (the descriptions or the sync of `bd group --sync`, the sync of

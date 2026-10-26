@@ -51,6 +51,10 @@ pub enum ErrorCode {
   /// was built; resolve the prefix again and sync the session under it. `bd` resolves the prefix once per command and
   /// never answers it
   PrefixChanged,
+  /// An operation of the remote was prepared over facts that changed before its first effect (a rewrite of another
+  /// session, a pull request, a robot, a remote branch): its plan is another one now, and nothing was done. Read the
+  /// plan again (`bd safe-push --check`), then retry
+  PlanChanged,
   /// `bd unpark`: the branch is not parked
   NotParked,
   /// `bd unapply`: the virtual branch is not the copies of its commits now (a conflict, no sync since a new commit):
@@ -269,7 +273,7 @@ impl ErrorCode {
       | Self::NotASlot
       | Self::SlotInPool
       | Self::NotParked => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::Locked => 3,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged | Self::Locked => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
@@ -335,7 +339,7 @@ impl ErrorCode {
   pub const fn retry(self) -> Retry {
     match self {
       Self::Locked | Self::NetworkError => Retry::Same,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved => Retry::AfterReread,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged => Retry::AfterReread,
       _ => Retry::No,
     }
   }

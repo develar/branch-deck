@@ -13,6 +13,7 @@ members = [
   "crates/lease-pool",
   "crates/remote-facts",
   "crates/repository-model",
+  "crates/operations",
   "crates/history-rewrite",
   "crates/domain-types",
   "crates/domain-policy",

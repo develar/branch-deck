@@ -6,7 +6,8 @@ import type { SafePushStarting } from "@/stores/safe-push"
  * An action of the user that is the move of a row while it runs ([Landing](../../docs/design/landing.md)): the start or
  * the restart of a robot, the creation of a pull request, a review request. The move is made when the user
  * makes it: the node of its row leaves the user's moves at once, not when GitHub or Patronus answer. An operation of the
- * registry declares it (`OperationSpec.move`), a running start of a Safe Push is one (`safePushStartMoves`).
+ * registry declares it (`OperationSpec.move`), a running start of a Safe Push is one (`safePushStartMoves`), and so is
+ * a move an operation of the session makes (`RunningOperation.moves`, `src/presenters/running-move.ts`).
  */
 export interface RunningMove {
   /** The row whose move it is: a branch, or the whole stack of a root (`stackReadinessKey`) */
@@ -51,7 +52,12 @@ function robotMove(key: string, mode: PatronusPushMode, landing: string, checkin
  * in its popover, and nothing started yet.
  */
 export function safePushStartMoves(starting: Readonly<Record<string, SafePushStarting>>): RunningMove[] {
-  return Object.entries(starting).flatMap(([key, start]) => (start.step === "checking" ? [] : [robotMove(key, start.mode, "Landing: Safe Push starting", "Dry Run starting")]))
+  return Object.entries(starting).flatMap(([key, start]) => (start.step === "checking" ? [] : [robotStartMove(key, start.mode)]))
+}
+
+/** A start of a robot: a Safe Push comes to land the row, a Dry Run only checks it */
+export function robotStartMove(key: string, mode: PatronusPushMode): RunningMove {
+  return robotMove(key, mode, "Landing: Safe Push starting", "Dry Run starting")
 }
 
 /** A restart of a robot, with the push before it when the branch moved past its commit */

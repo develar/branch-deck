@@ -249,7 +249,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   true only where the same command again can succeed: never for `lease_rejected` (a push
   again with `--force` would drop what the remote has now) nor for a stale undo token (`undo_stale`). It must be the
   `retry` class of the code other than `no`, the one the app's `ApiError` carries: `same` for `locked` and
-  `network_error`, `after_reread` for the stale reads. The codes are one registry with the app: `canceled` (an action
+  `network_error`, `after_reread` for the stale reads, `plan_changed` among them (a remote action planned over facts
+  that changed before its first effect did nothing, and its plan is read again). The codes are one registry with the app: `canceled` (an action
   the user stopped) exits with 4, `internal` (a failure without a code of its own, which the app answers; `bd` prints a
   failure of git or IO as `git_error`) with 5.
   [@test] ../../crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)

@@ -36,6 +36,8 @@ const FIXTURES: &str = "fixtures";
 const TEST_FEATURES: &[&str] = &["fake", FIXTURES];
 /// Tauri and its plugins; a name that ends in `*` is a prefix
 const TAURI: &str = "tauri*";
+/// The engine of the operations of the remote, above the model and the facts: what it builds on never reaches it
+const OPERATIONS: &str = "operations";
 
 /// What `from` never reaches over its normal dependencies, also transitively
 struct Unreachable {
@@ -77,33 +79,38 @@ const UNREACHABLE: &[Unreachable] = &[
   },
   Unreachable {
     from: "sync-core",
-    forbidden: &["github", "patronus", "youtrack", "file-diffs", "code-symbols"],
+    forbidden: &["github", "patronus", "youtrack", "file-diffs", "code-symbols", OPERATIONS],
     why: "the sync reads no remote service, no file diff and no symbol",
   },
   Unreachable {
     from: "update-core",
-    forbidden: &["github", "patronus", "youtrack"],
+    forbidden: &["github", "patronus", "youtrack", OPERATIONS],
     why: "Update Project, the pick and the resolve sessions read no remote service: the fetch is git's",
   },
   Unreachable {
     from: "trial-check",
-    forbidden: &["github", "patronus", "youtrack"],
+    forbidden: &["github", "patronus", "youtrack", OPERATIONS],
     why: "a trial check builds and reads the commits of the repository, never a remote service",
   },
   Unreachable {
     from: "lease-pool",
-    forbidden: &["github", "patronus", "youtrack", "trial-check", "update-core", "file-diffs", "code-symbols"],
+    forbidden: &["github", "patronus", "youtrack", "trial-check", "update-core", "file-diffs", "code-symbols", OPERATIONS],
     why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check or a diff",
   },
   Unreachable {
     from: "remote-facts",
-    forbidden: &["trial-check", "update-core", "lease-pool", "file-diffs", "code-symbols"],
-    why: "the remote facts are what GitHub and Patronus answer, never a trial check, an update, a lease or a diff",
+    forbidden: &["trial-check", "update-core", "lease-pool", "file-diffs", "code-symbols", OPERATIONS],
+    why: "the remote facts are what GitHub and Patronus answer, never a trial check, an update, a lease, a diff or an operation",
   },
   Unreachable {
     from: "repository-model",
-    forbidden: &["trial-check", "remote-facts", "update-core", "lease-pool", "patronus", "github", "youtrack"],
-    why: "the model holds what the checks and the remote services found: it runs no check, asks no service, updates and leases nothing",
+    forbidden: &["trial-check", "remote-facts", "update-core", "lease-pool", "patronus", "github", "youtrack", OPERATIONS],
+    why: "the model holds what the checks and the remote services found: it runs no check, asks no service, updates and leases nothing, runs no operation",
+  },
+  Unreachable {
+    from: OPERATIONS,
+    forbidden: &[TAURI, APP, APP_API, "clap"],
+    why: "the engine of the operations serves the app and bd alike: no Tauri, no adapter, no CLI",
   },
 ];
 

@@ -317,3 +317,13 @@ pub struct PullRequestView {
   /// The code owners Request Review… offers, of the review readiness of the subject; empty without missing approvals
   pub candidates: Vec<ReviewCandidate>,
 }
+
+/// What a review of the user says
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum PullRequestReviewEvent {
+  Approve,
+  /// Needs a body: GitHub refuses a request for changes without one
+  RequestChanges,
+}
