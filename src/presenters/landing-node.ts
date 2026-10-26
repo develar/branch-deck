@@ -1,8 +1,8 @@
 // The page's words and look of the node of a row as Rust decides it (`LandingNode` of the view's `nextSteps`,
 // `domain_policy::landing_node`; [Landing](../../docs/design/landing.md)): its kind, the hover in the words the row uses
 // elsewhere, the robot its hover shows, the branch it offers to show. It decides nothing: a running move of the row (a
-// start, a review request: `FoundMove`) is the page's local state until the operations move into Rust (s10), and shows
-// in place of a node that says so (`moveShows`).
+// start, a review request: `FoundMove`; without Patronus its push) is the page's local state until the operations move
+// into Rust (s10), and shows in place of a node that says so (`moveShows`; the push in place of `pushIt`).
 import type { LandingNode as NodeView, LandingNodeKind, NodeLabel } from "@/lib/bindings"
 import { formatParkedLabel } from "@/lib/parked"
 import { formatLandingSubject } from "@/lib/patronus"
@@ -56,6 +56,8 @@ export interface NodeContext {
   readonly statusText: string
   /** A running move of the row, or of a row whose Safe Push lands it (`findRunningMove`): the move is made */
   readonly move: FoundMove | null
+  /** A push of the row runs (`isBranchPushing`): without Patronus the push made, its node that of the pushed branch */
+  readonly pushing: boolean
 }
 
 /** The node of a running move: Landing for a robot that lands the row, else Waiting, what others answer next */
@@ -165,6 +167,10 @@ function stepWords(step: Extract<NodeLabel, { kind: "step" }>["step"], context: 
 export function presentLandingNode(node: NodeView, context: NodeContext): LandingNode {
   if (context.move !== null && node.moveShows) {
     return moveNode(context.move)
+  }
+  // a node that asks for the push leaves the user's moves at the click of the push, not when the remote has it
+  if (context.pushing && node.label.kind === "pushIt") {
+    return { kind: "waiting", label: labelWords({ kind: "pushed" }, context) }
   }
   return {
     kind: node.kind,

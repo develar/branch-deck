@@ -11,7 +11,7 @@ function nodeView(kind: NodeView["kind"], label: NodeLabel, extra: Partial<NodeV
 }
 
 function present(view: NodeView, move: FoundMove | null = null, statusText = ""): ReturnType<typeof presentLandingNode> {
-  return presentLandingNode(view, { step: testContext(), statusText, move })
+  return presentLandingNode(view, { step: testContext(), statusText, move, pushing: false })
 }
 
 const START: FoundMove = { move: { key: "auth", lands: true, label: "Landing: Safe Push starting" }, with: null }
@@ -116,5 +116,13 @@ describe("the words of the node of a row", () => {
     expect(present(nodeView("needsFix", { kind: "checksFail", number: 7 }))).toMatchObject({ label: "Checks fail on #7" })
     expect(present(nodeView("waiting", { kind: "waitsFor", number: 7, reviewers: ["alice", "bob"] }))).toMatchObject({ label: "Waits for alice and bob on #7" })
     expect(present(nodeView("waiting", { kind: "landsThrough", number: 7 }))).toMatchObject({ label: "Lands through #7" })
+  })
+
+  it("is the pushed branch from the click of its push where it asks for the push, in a repository that is not on Space", () => {
+    const pushing = { step: testContext(), statusText: "", move: null, pushing: true }
+    expect(presentLandingNode(nodeView("yourStep", { kind: "pushIt" }), pushing)).toEqual({ kind: "waiting", label: "Pushed: it lands through its pull request" })
+    // where the push is no move of it, the node stays
+    expect(presentLandingNode(nodeView("yourStep", { kind: "noPullRequest" }), pushing)).toEqual({ kind: "yourStep", label: "Not in a pull request" })
+    expect(presentLandingNode(nodeView("ready", { kind: "ready", lands: 1 }), pushing)).toEqual({ kind: "ready", label: "Ready to land: Safe Push" })
   })
 })

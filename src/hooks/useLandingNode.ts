@@ -8,14 +8,14 @@ import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart } from "@/model/store"
 import type { LandingNode } from "@/presenters/landing-node"
 import { presentLandingNode } from "@/presenters/landing-node"
-import { branchSyncStore, getBranch, getStackAncestors, getStackBranch, getWholeStack } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackAncestors, getStackBranch, getWholeStack, isBranchPushing } from "@/stores/branch-sync"
 import { getOperationMoves, operationsStore } from "@/stores/operations"
 import { getSafePushStarts, safePushStore } from "@/stores/safe-push"
 
 /*
  * The node of a row as Rust decides it (`nextSteps` of the view, `domain_policy::landing_node`) in the page's words
- * (`presentLandingNode`), with the move that runs on the row laid over it: the page's local state until the operations
- * move into Rust (s10).
+ * (`presentLandingNode`), with the move that runs on the row laid over it (its push too): the page's local state until
+ * the operations move into Rust (s10).
  */
 
 /** The moves that run: of the operations that declare one, and of the starts of a Safe Push or a Dry Run */
@@ -48,10 +48,14 @@ function nodeOf(key: string, view: NextStepView): LandingNode {
     },
     statusText: root === null ? (getBranch(key)?.statusText ?? "") : "",
     move,
+    pushing: root === null && isBranchPushing(key),
   })
 }
 
-/** The states of the stores a node reads: the view (its parts, the rows), the operations and the starts that run (the move) */
+/**
+ * The states of the stores a node reads: the view (its parts, the rows, the pushes that run), the operations and the
+ * starts that run (the move)
+ */
 export function nodeSources(): readonly unknown[] {
   return [branchSyncStore.getState(), operationsStore.getState(), safePushStore.getState()]
 }

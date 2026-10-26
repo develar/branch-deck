@@ -26,7 +26,9 @@ pub struct NodeFacts<'a> {
   pub blocked_by: Option<&'a str>,
   /// A running Safe Push (not a Dry Run) of a branch built on it, or of the whole stack, lands it
   pub lands_with: Option<&'a RobotOf>,
-  /// The remote lacks work of it: the step a repository without Patronus and GitHub shows
+  /// The remote lacks work of it: the step a repository without Patronus and GitHub shows. A push of it that runs is
+  /// the page's until the operations move into Rust (s10): the page shows the pushed branch from its click on
+  /// (`presentLandingNode`)
   pub push_pending: bool,
 }
 
