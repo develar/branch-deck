@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.33.1](https://github.com/develar/branch-deck/compare/v0.33.0...v0.33.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **bd:** the push over a moved remote checks its output against the whole schema, as bd schema --all prints it since the index ([50ee1a9](https://github.com/develar/branch-deck/commit/50ee1a9fefff7b5a96f36b1d433b2487cea3ee5a))
+* **e2e:** the create pull request test that GitHub refuses fills the title once the dialog has the text of the branch ([69f62f4](https://github.com/develar/branch-deck/commit/69f62f4ea3dab9f0cc2780920ffd34f70eda52a9))
+* **policy:** a start pushes what its decision pushes, one rule for the app, the guard and bd (s8-15) ([35ac987](https://github.com/develar/branch-deck/commit/35ac987089b90d4df054caea6730d7e792a4ee46))
+* **policy:** a start that skips the approvals waits for the reasons of the subject, its gate passes what the baseline landed (s8-15 review) ([74ece17](https://github.com/develar/branch-deck/commit/74ece1714aab89c25442dc6b7d34e0ab5afc7da9))
+* **policy:** the pushes of the rows read what the table of the sync has in the baseline, as a start's decision and its gate (s8-15 review) ([8f85968](https://github.com/develar/branch-deck/commit/8f85968f9607026e9b410b94a9823941822f9b5e))
+* **session:** the view sends the order once, the page splits it into the rows of each section by the structure ([e1f2b98](https://github.com/develar/branch-deck/commit/e1f2b98939214cb24063b67277741563c63a75ee))
+* **test:** a view derived again after its failure is waited for with its landing needs, which give each branch its entry ([f856a0e](https://github.com/develar/branch-deck/commit/f856a0e95e21a32951d84ac8ff108e3bdc3112b7))
+* **ui:** a field draws the IDE control border as the button joined to it, only a toggle keeps the 3:1 edge ([21e7e18](https://github.com/develar/branch-deck/commit/21e7e1835040e3dd708c88741cf21b595d95fb85))
+* **ui:** without Patronus a running push is the push made, the node of its row waits from the click ([4b0e5f4](https://github.com/develar/branch-deck/commit/4b0e5f465dd064758da3ee83da2690f9bae80103))
+
+
+### Reverts
+
+* **ui:** the look goes back to 0.32.0, before the six theme commits of October 25 ([3ae0eae](https://github.com/develar/branch-deck/commit/3ae0eae1830b2ca470e221bf2347979724d7a83d))
+
 ## [0.33.0](https://github.com/develar/branch-deck/compare/v0.32.0...v0.33.0) (2026-10-25)
 
 
