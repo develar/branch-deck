@@ -144,10 +144,6 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
     AppState {
       repositories: DashMap::new(),
       path_to_id: DashMap::new(),
-      landing_gate: Arc::new(state::TestLandingGate {
-        git_executor: git_executor.clone(),
-        kept: trial_check::landing_gate::KeptChecks::default(),
-      }),
       git_executor,
       test_root_dir,
       templates,
@@ -315,12 +311,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/submit_pull_request_review", post(tauri_command_bridge::submit_pull_request_review))
     .route("/invoke/request_pull_request_reviewers", post(tauri_command_bridge::request_pull_request_reviewers))
     .route("/invoke/get_patronus_target_branch", post(tauri_command_bridge::get_patronus_target_branch))
-    .route("/invoke/start_patronus_robot", post(tauri_command_bridge::start_patronus_robot))
     .route("/invoke/restart_patronus_robot", post(tauri_command_bridge::restart_patronus_robot))
     .route("/invoke/cancel_patronus_robot", post(tauri_command_bridge::cancel_patronus_robot))
     .route("/invoke/get_patronus_robot_status", post(tauri_command_bridge::get_patronus_robot_status))
-    .route("/invoke/check_target_conflict", post(tauri_command_bridge::check_target_conflict))
-    .route("/invoke/check_landing_gate", post(tauri_command_bridge::check_landing_gate))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/get_archived_branch_commits", post(tauri_command_bridge::get_archived_branch_commits))
     .route("/invoke/get_unapplied_branch_commits", post(tauri_command_bridge::get_unapplied_branch_commits))
@@ -504,6 +497,8 @@ pub enum RepositoryTemplate {
   StackUsesParent,
   #[serde(rename = "landing_needs")]
   LandingNeeds,
+  #[serde(rename = "landing_needs_fork")]
+  LandingNeedsFork,
   #[serde(rename = "stack_problems")]
   StackProblems,
   #[serde(rename = "branch_filter")]
@@ -569,6 +564,7 @@ impl RepositoryTemplate {
       Self::StackPushAlone => "stack_push_alone",
       Self::StackUsesParent => "stack_uses_parent",
       Self::LandingNeeds => "landing_needs",
+      Self::LandingNeedsFork => "landing_needs_fork",
       Self::StackProblems => "stack_problems",
       Self::BranchFilter => "branch_filter",
       Self::ArchivedBranches => "archived_branches",

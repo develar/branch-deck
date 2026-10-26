@@ -6,18 +6,14 @@ import type {
   Fact,
   FactState,
   LandedPullRequest,
-  LandingAllowances,
   LandingRefusal,
   PatronusAvailability,
-  PatronusCommandSubject,
-  PatronusMergeRequest,
   PatronusPart,
   PatronusPushMode,
   PatronusRobot,
   PatronusRobotStatus,
   PatronusStartOptions,
   PatronusView,
-  PullRequestStartBranch,
   RepositoryView,
   RobotOf,
   RobotRestart,
@@ -1137,118 +1133,23 @@ export function upsertPatronusRobot(robot: PatronusRobot, key: string | null = c
   }
 }
 
-/**
- * Starts a Safe Push or a Dry Run of the pushed virtual branch (the caller pushes it first when the remote does not have
- * its tip), or with `stack` of the pushed stack branch of the whole stack of the root `branchName`, with the merge request
- * whose approvals its review check counts. Resolves to the robot, now
- * polled while it runs, with the profile it was started with; throws what Patronus said. The caller announces it
- * (`announceRobot`, with the profile name).
- */
-export async function startPatronusRobot(
-  branchName: string,
-  mode: PatronusPushMode,
-  profileId: string | null,
-  mergeRequest: PatronusMergeRequest | null,
-  profileName: string | null = null,
-  stack = false,
-  allow: LandingAllowances = {},
-  repository: StartRepository | null = null,
-): Promise<PatronusRobot> {
-  const request = repository?.request ?? patronusRequest()
-  const key = robotsKeyOf(request.repositoryPath)
-  const result = await commands.startPatronusRobot({
-    repositoryPath: request.repositoryPath,
-    baselineBranch: repository?.baselineBranch ?? branchSyncStore.getState().baselineBranch ?? "",
-    branchName,
-    ...(stack && { stack: true }),
-    mode,
-    profileId,
-    mergeRequest,
-    allow,
-  })
-  if (result.status === "error") {
-    throw commandFailure(result.error)
-  }
-  // the form knows the name of the profile Patronus may not have written into the robot yet
-  const robot =
-    result.data.profile?.name == null && profileId !== null
-      ? { ...result.data, profile: { id: profileId, name: profileName, skipsReview: result.data.profile?.skipsReview ?? null } }
-      : result.data
-  upsertPatronusRobot(robot, key)
-  return robot
-}
-
-/** The repository a start runs in, as it was when the start was asked, and its baseline then */
-export interface StartRepository {
-  readonly request: VcsRequest
-  readonly baselineBranch: string
-}
-
-/** The branch of the user a comment on its pull request starts, checked in Rust before the comment as a start is */
-export type OwnPullRequestStart = PullRequestStartBranch
-
-/** A start from a pull request the bot accepted: its robot, or null while Patronus lists none yet; the posted comment */
-export interface CommentStart {
-  readonly robot: PatronusRobot | null
-  readonly commentUrl: string
-  /**
-   * The robot once Patronus lists it: `robot`, or for a start accepted without one what the look in the background
-   * finds, null when it found none within `LATE_ROBOT_WAIT_MS`
-   */
-  readonly listed: Promise<PatronusRobot | null>
-}
-
-/**
- * The accepted comment starts of the user's branches whose robot Patronus lists not yet, by repository, pull request
- * and mode (`lateStartKey`), until the look in the background ends: a repeat joins it and posts no second comment
- */
-const lateCommentStarts = new Map<string, CommentStart>()
-
-function lateStartKey(key: string, pullRequestNumber: number, mode: PatronusPushMode): string {
-  return `${key}\0${pullRequestNumber}\0${mode}`
-}
-
-/** After a minute without the robot of an accepted comment, it is looked for in the background this long */
-export const LATE_ROBOT_WAIT_MS = 5 * 60_000
-/** How often the robot of an accepted comment is looked for after the first minute */
-export const LATE_ROBOT_INTERVAL_MS = 15_000
-
-/**
- * Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) of the pushed branch `start` (or whole
- * stack) from its GitHub pull request: Patronus links the robot to the pull request only from its comment, so the
- * approvals of the pull request count and Patronus closes it once merged. Rust checks the start before the comment, as
- * `start_patronus_robot` checks it (parked, landed, not built, a robot in its way, the landing gate). Posts the comment,
- * then waits up to a minute for the bot: 👎 throws its reason, no answer throws; after 👍 the start is made, and the new
- * robot of the pull request is listed, stored and returned (polled while it runs). A robot Patronus doesn't list within
- * the minute is null: the 👍 started it, and it is looked for in the background for `LATE_ROBOT_WAIT_MS` more; a
- * repeat meanwhile (the same pull request and mode) joins that start and posts no second comment.
- */
-export async function startPatronusFromPullRequest(
-  pullRequestNumber: number,
-  mode: PatronusPushMode,
-  start: OwnPullRequestStart,
-  request: VcsRequest | null = null,
-): Promise<CommentStart> {
-  return askPatronusOnPullRequest(pullRequestNumber, mode, "ownBranch", null, Number.POSITIVE_INFINITY, request, start)
-}
-
 /** After the 👍 on a pull request of someone else, its robot is looked for this long: it may not be the user's */
 export const REVIEWED_ROBOT_WAIT_MS = 10_000
 
 /**
  * Starts a Safe Push of a pull request of someone else the user reviewed (`/patronus merge`, which deletes its branch
  * once merged), in `githubRepository` (`owner/name`). The 👍 of the bot is the start; the robot is returned if the
- * user's robots list it soon after (Patronus may count it as the author's), else null. 👎 throws its reason.
+ * user's robots list it soon after (Patronus may count it as the author's), else null. 👎 throws its reason. The start
+ * of the user's own branch is `execute` of a `Land`, whose engine comments and reads the reply itself.
  */
 export async function startPatronusFromReviewedPullRequest(pullRequestNumber: number, githubRepository: string | null): Promise<PatronusRobot | null> {
-  return (await askPatronusOnPullRequest(pullRequestNumber, "rebaseAutosquash", "reviewedPullRequest", githubRepository, REVIEWED_ROBOT_WAIT_MS)).robot
+  return askPatronusOnPullRequest(pullRequestNumber, "rebaseAutosquash", githubRepository, REVIEWED_ROBOT_WAIT_MS)
 }
 
 /**
  * The robot a `/patronus` comment on pull request `pullRequestNumber` started in `mode`, as `bd safe-push` matches it:
  * of that pull request, a dry run for a dry run and a Safe Push for a Safe Push, started since shortly before the
- * comment, and none of `known` (the robots listed before the comment: a canceled Dry Run of the same pull request a
- * minute before is never the new robot); the newest of them
+ * comment, and none of `known` (the robots listed before the comment); the newest of them
  */
 export function findCommentRobot(
   robots: Readonly<Record<string, PatronusRobot>>,
@@ -1272,43 +1173,21 @@ export function findCommentRobot(
 }
 
 /**
- * Posts the command, waits up to a minute from the comment (the checks before it take none of it) for the reaction of
- * the bot (👎 throws its reason, no answer throws), then, within that minute and for up to `robotWait` after the 👍,
- * asks the session to list the robots (`refresh_facts`, `afterWrite`) for the one it started (`findCommentRobot`):
- * returned, polled by the session while it runs; null when none came, then looked for in the background with an
- * infinite `robotWait` (the user's own robot).
+ * Posts the command, waits up to a minute from the comment for the reaction of the bot (👎 throws its reason, no
+ * answer throws), then, within that minute and for up to `robotWait` after the 👍, asks the session to list the robots
+ * (`refresh_facts`, `afterWrite`) for the one it started (`findCommentRobot`): returned, polled by the session while it
+ * runs; null when none came
  */
-async function askPatronusOnPullRequest(
-  pullRequestNumber: number,
-  mode: PatronusPushMode,
-  subject: PatronusCommandSubject,
-  githubRepository: string | null,
-  robotWait: number,
-  request: VcsRequest | null = null,
-  start: OwnPullRequestStart | null = null,
-): Promise<CommentStart> {
+async function askPatronusOnPullRequest(pullRequestNumber: number, mode: PatronusPushMode, githubRepository: string | null, robotWait: number): Promise<PatronusRobot | null> {
   // the repository the start was asked in: the answer of the bot applies there, also after a switch
-  const { repositoryPath } = request ?? patronusRequest()
+  const { repositoryPath } = patronusRequest()
   const key = robotsKeyOf(repositoryPath)
-  const late = lateStartKey(key ?? repositoryPath, pullRequestNumber, mode)
-  const joined = start === null ? undefined : lateCommentStarts.get(late)
-  if (joined !== undefined) {
-    return joined
-  }
   const known = new Set(Object.keys((key === null ? undefined : patronusStore.getState().repositories[key])?.robots ?? {}))
-  const posted = await commands.postPatronusCommand({
-    repositoryPath,
-    pullRequestNumber,
-    mode,
-    subject,
-    githubRepository,
-    start,
-  })
+  const posted = await commands.postPatronusCommand({ repositoryPath, pullRequestNumber, mode, githubRepository })
   if (posted.status === "error") {
     throw commandFailure(posted.error)
   }
-  // the comment is posted once the command answers, after the checks of the start in Rust (the list, the landing gate):
-  // the minute of the bot counts from here, not from before the checks
+  // the minute of the bot counts from the comment
   const postedAt = Date.now()
   const replyParams = { repositoryPath, pullRequestNumber, commentId: posted.data.id, githubRepository }
   // the session lists the robots started since shortly before its last list, and once more after a list in flight
@@ -1344,37 +1223,11 @@ async function askPatronusOnPullRequest(
     }
     const robot = await lookUp()
     if (robot !== undefined) {
-      return { robot, commentUrl: posted.data.url, listed: Promise.resolve(robot) }
+      return robot
     }
   }
   if (acceptedAt === null) {
     throw new Error(`Patronus did not answer the comment within a minute: see pull request #${pullRequestNumber}`)
-  }
-  if (start === null) {
-    return { robot: null, commentUrl: posted.data.url, listed: Promise.resolve(null) }
-  }
-  const pending: CommentStart = { robot: null, commentUrl: posted.data.url, listed: lookUpLate(lookUp) }
-  lateCommentStarts.set(late, pending)
-  void pending.listed.then(() => {
-    if (lateCommentStarts.get(late) === pending) {
-      lateCommentStarts.delete(late)
-    }
-  })
-  return pending
-}
-
-/**
- * Looks for the robot of an accepted comment every `LATE_ROBOT_INTERVAL_MS` for `LATE_ROBOT_WAIT_MS`, until listed;
- * resolves to it, null when none came
- */
-async function lookUpLate(lookUp: () => Promise<PatronusRobot | undefined>): Promise<PatronusRobot | null> {
-  const until = Date.now() + LATE_ROBOT_WAIT_MS
-  while (Date.now() < until) {
-    await new Promise(resolve => setTimeout(resolve, LATE_ROBOT_INTERVAL_MS))
-    const robot = await lookUp()
-    if (robot !== undefined) {
-      return robot
-    }
   }
   return null
 }
@@ -1439,7 +1292,6 @@ export async function fetchPatronusRobotStatus(robot: PatronusRobot): Promise<Pa
 
 /** Forgets the data (tests) */
 export function resetPatronus(): void {
-  lateCommentStarts.clear()
   resetOsNotification()
   announcedMerges.clear()
   lastFacts = NO_FACTS

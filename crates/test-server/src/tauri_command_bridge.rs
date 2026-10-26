@@ -14,7 +14,7 @@ use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
 use domain_types::patronus::{
   GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobot, PatronusRobotParams,
-  PatronusRobotStatus, PatronusRobotsResult, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
+  PatronusRobotStatus, PatronusRobotsResult, PostPatronusCommandParams, ReadPatronusCommandReplyParams,
 };
 use domain_types::pull_request::{CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, RequestedReviewers};
 use domain_types::review_request::ReviewRequestsResult;
@@ -546,18 +546,6 @@ pub async fn undo_reapply_branch(
   )
 }
 
-/// `check_landing_gate` of the app: the same check (`RemoteActions::check_landing`, on the robots of the fake Patronus,
-/// through the landing gate of the server, without the object cache)
-pub async fn check_landing_gate(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<domain_types::landing::LandingGateParams>,
-) -> CommandResult<domain_types::landing::LandingCheck> {
-  let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
-  let actions = inputs.actions(&state);
-  let check = actions.check_landing(&params).await;
-  check.map(Json).map_err(|e| failed("check the landing gate", e))
-}
-
 /// Without the object cache, as every command of the mock server
 pub async fn get_stack_independence(
   State(state): State<Arc<AppState>>,
@@ -756,20 +744,6 @@ pub async fn fetch_baseline(
   .await
 }
 
-/// The target conflict check of a Safe Push start, on the app's core: the fetch of the target from the remote of the
-/// template, then the replay
-pub async fn check_target_conflict(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::target_conflict::TargetConflictParams>,
-) -> CommandResult<sync_core::target_conflict::TargetCheck> {
-  let branch_prefix = branch_prefix_of(&state, &params.repository_path).await?;
-  let git_executor = state.git_executor.clone();
-  run_command("check the target", move || {
-    anyhow::Ok(sync_core::target_conflict::target_conflict_core(&git_executor, &branch_prefix, &params))
-  })
-  .await
-}
-
 /// The app's push of one branch, through the same push of its session (`operations::push`: the robots of the fake
 /// Patronus, then the repository lock and the refusals of parked, landed, held and not built branches, then the network
 /// push after it), to the remote of the template (`remote_git_fixtures`)
@@ -842,11 +816,10 @@ async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> R
   Ok((common_dir, space_of(state, path)?))
 }
 
-/// What the app's actions on the remote run on (`repository_model::actions`), as the app's commands have it: the fake's
-/// service with the Space repository (none while no Patronus fixture put the repository on Space), the sessions and the
-/// landing gate of the server
+/// What the app's actions on the robots run on (`repository_model::actions`), as the app's commands have it: the fake's
+/// service with the Space repository (none while no Patronus fixture put the repository on Space) and the sessions
 fn remote_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>, branch_prefix: &'a str) -> RemoteActions<'a> {
-  RemoteActions::new(service.zip(space), &state.git_executor, &state.sessions, &state.landing_gate, branch_prefix)
+  RemoteActions::new(service.zip(space), &state.git_executor, &state.sessions, branch_prefix)
 }
 
 /// What the `RemoteActions` of a command on the test repository are built of, owned by the command: the prefix resolved
@@ -1345,25 +1318,19 @@ pub(crate) fn rejected(rejection: Rejection) -> ApiError {
   }
 }
 
-/// Starts a Safe Push or a Dry Run from the pull request's comment, as the app does: the checks of a start of the
-/// user's own branch first (`RemoteActions::check_start_from_pull_request`, the landing gate without the object cache), then the fake
-/// GitHub posts it and its Patronus bot answers (`POST /repositories/{id}/patronus-replies`)
+/// Starts a Safe Push or a Dry Run of a pull request of someone else from its comment, as the app does: the fake GitHub
+/// posts it and its Patronus bot answers (`POST /repositories/{id}/patronus-replies`); the user's own branch starts
+/// through `execute`
 pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(params): Json<PostPatronusCommandParams>) -> CommandResult<PatronusCommandComment> {
   let operation = "post the Patronus command";
   let (host, repository) = commented_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
-  if params.subject == PatronusCommandSubject::OwnBranch {
-    let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
-    let actions = inputs.actions(&state);
-    let checked = actions.check_start_from_pull_request(&params).await;
-    checked.map_err(|e| failed(operation, e))?;
-  }
   let posted = core_post_patronus_command(
     &host.github_service(),
     &params.repository_path,
     &repository,
     params.pull_request_number,
     params.mode,
-    params.subject,
+    PatronusCommandSubject::ReviewedPullRequest,
   )
   .await;
   posted.map(Json).map_err(|e| failed(operation, e.to_string()))
@@ -1393,18 +1360,6 @@ pub async fn get_patronus_target_branch(State(state): State<Arc<AppState>>, Json
     find_target_branch(&git_executor, &params.repository_path, &params.baseline_branch)
   })
   .await
-}
-
-/// Starts a robot as the app does (`RemoteActions::start_robot`: the robots, the checks of the kept table, the landing
-/// gate without the object cache and the target, then the real service): the fake Patronus of the repository lists it
-/// and logs the request (`GET …/patronus`)
-pub async fn start_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<StartPatronusRobotParams>) -> CommandResult<PatronusRobot> {
-  let operation = "start the Patronus robot";
-  let inputs = RemoteInputs::of(&state, &params.repository_path).await?;
-  let actions = inputs.actions(&state);
-  let robot = actions.start_robot(&params).await.map_err(|e| failed(operation, e))?;
-  write_robot(&state, &params.repository_path, inputs.branch_prefix.clone(), &robot).await;
-  Ok(Json(robot))
 }
 
 /// The robot an action answered goes into the robots of the session of the repository, as the app's commands write it

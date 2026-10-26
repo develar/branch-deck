@@ -20,6 +20,7 @@ pub struct Carried {
 
 /// A robot of another branch, or of the whole stack of a root, and what it does to a branch
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RobotOf {

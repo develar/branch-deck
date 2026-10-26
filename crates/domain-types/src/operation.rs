@@ -6,7 +6,7 @@
 
 use crate::error::{ApiError, HolderTool};
 use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, PlannedEffect, StartRoute, Subject};
-use crate::patronus::PatronusPushMode;
+use crate::patronus::{PatronusPushMode, PatronusRobot};
 use crate::pull_request::PullRequestReviewEvent;
 use crate::reason::Reason;
 use crate::session::Version;
@@ -323,7 +323,61 @@ pub struct Outcome {
   pub news_key: Option<NewsKey>,
   /// The version of the view after the patch of what it changed; `None` when no session of its repository is open
   pub version_after: Option<Version>,
+  /// What its effects answered, by its family
+  pub result: OperationResult,
   pub stats: OperationStats,
+}
+
+/// What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OperationResult {
+  /// Nothing besides its effects
+  #[default]
+  None,
+  /// A start of a Safe Push or a Dry Run
+  Land(Box<LandResult>),
+}
+
+/// What a start of a Safe Push or a Dry Run answered: the toast and the Activity entry of the page name it
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandResult {
+  /// The robot it started through the API, or the one its comment started once Patronus listed it
+  pub robot: Option<PatronusRobot>,
+  /// The running Safe Push it canceled, as Patronus answered (or as listed when it had finished meanwhile)
+  pub canceled: Option<PatronusRobot>,
+  /// The `/patronus` comment it posted on the pull request of the subject
+  pub comment: Option<StartComment>,
+  /// What the checks before the effects could not do in full
+  pub notes: Vec<StartNote>,
+}
+
+/// The `/patronus` comment of a start
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StartComment {
+  /// The pull request it is on
+  pub number: u32,
+  pub url: String,
+  /// The bot accepted it; false: it did not react within the wait, see the pull request
+  pub accepted: bool,
+}
+
+/// What a check before the effects of a start could not do in full: the start went on
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum StartNote {
+  /// The fetch of `target` ("origin/master") failed: the check replayed what lands onto the target fetched last
+  TargetFetchFailed { target: String, error: String },
+  /// Whether Patronus can rebase what lands onto `target` was not checked
+  TargetNotChecked { target: String, error: String },
+  /// Whether the whole stack uses a name only a branch outside it adds was not checked
+  LandingNotChecked { error: String },
 }
 
 /// An effect of a plan and how it went
@@ -374,7 +428,7 @@ pub enum OperationEvent {
   /// Its push sent `percent` of what it sends; `line` is what git said last
   Progress { op: OperationId, percent: u32, line: String },
   /// It ended, or the operation it joined did
-  Done { outcome: Outcome },
+  Done { outcome: Box<Outcome> },
 }
 
 /// The object and the event an outcome or a news tells, one toast each (`toastKeys` of `src/lib/event-toast.ts`, which

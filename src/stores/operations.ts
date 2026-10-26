@@ -5,7 +5,7 @@ import { createStore } from "zustand/vanilla"
 import type { LockWaitEvent, TransferProgress } from "@/lib/bindings"
 import { stopLockWait } from "@/lib/lock-wait"
 import type { MenuItem } from "@/lib/menu"
-import type { RunningMove } from "@/lib/running-move"
+import type { RunningMove } from "@/presenters/running-move"
 import { getSelectedProject } from "@/stores/repository"
 
 /**

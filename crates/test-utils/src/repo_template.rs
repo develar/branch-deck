@@ -861,7 +861,12 @@ pub mod templates {
   /// commit of `stills-codec`, a branch it is not built on, adds; `ui-perf-nightly` is built on `lane-run`. git merges
   /// either, the build of its Safe Push fails: both need `stills-codec` (the landing needs of the repository view)
   pub fn landing_needs() -> RepoTemplate {
-    RepoTemplate::new("landing_needs")
+    landing_needs_named("landing_needs")
+  }
+
+  /// The commits of `landing_needs`, under `name`
+  fn landing_needs_named(name: &str) -> RepoTemplate {
+    RepoTemplate::new(name)
       .branch_prefix("user-name")
       .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Lanes\n")], Some(1704117600))
@@ -880,6 +885,12 @@ pub mod templates {
         &[("perf/src/Nightly.kt", "package perf\n\nfun nightly() = 1\n")],
         Some(1704123000),
       )
+  }
+
+  /// `landing_needs` with a fork: `lane-docs` is built on `lane-run` too, so the stack of `lane-run` forks and lands
+  /// whole from its stack branch, whose build needs `stills-codec` outside it (the landing gate of the whole stack)
+  pub fn landing_needs_fork() -> RepoTemplate {
+    landing_needs_named("landing_needs_fork").commit_with_timestamp("(lane-run/lane-docs) Document the lanes", &[("docs/lanes.md", "# Lanes\n")], Some(1704124800))
   }
 
   /// Stacked branches on, with a stack problem of each kind the app offers a fix for: `publish-viewer` declares

@@ -21,7 +21,7 @@ use anyhow::{Result, anyhow};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
-use domain_types::operation::{EffectRecord, EffectStatus, Intent, NewsKey, OperationStats, OperationStep, Outcome, Push, PushScope, Resource};
+use domain_types::operation::{EffectRecord, EffectStatus, Intent, NewsKey, OperationResult, OperationStats, OperationStep, Outcome, Push, PushScope, Resource};
 use domain_types::patronus::PatronusRobot;
 use domain_types::session::{SyncReason, SyncState, ViewAnswer};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -429,6 +429,7 @@ fn answer_of(guard: &RunningGuard, names: &[String], pushed: &Result<PushBranche
     }],
     news_key: names.last().map(|branch| NewsKey::Push { branch: branch.clone() }),
     version_after: version,
+    result: OperationResult::None,
     stats: OperationStats::default(),
   })
 }

@@ -22,7 +22,6 @@ use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
-use domain_types::landing::{LandingCheck, LandingGateParams};
 use domain_types::patronus::PatronusRobot;
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -36,7 +35,6 @@ use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
 use repository_model::facts::Needs;
-use repository_model::landing::LandingGate;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{OneClock, SessionClocks, SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
@@ -52,19 +50,17 @@ use sync_utils::clock::SystemClock;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Webview};
 use tracing::instrument;
-use trial_check::landing_gate::{KeptChecks, landing_needs_of};
+use trial_check::landing_gate::landing_needs_of;
 
 /// How often the app removes the sessions idle for `IDLE_LIMIT`
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 
-/// The sessions of the app, the subscriptions of each window, by label, and the landing gate the actions on the remote
-/// check a start through
+/// The sessions of the app, the operations of the remote that run in them, and the subscriptions of each window, by label
 pub struct SessionsState {
   sessions: Arc<Sessions>,
   /// The operations of the remote that run or wait in the sessions (`operations::registry`)
   registry: Registry,
   windows: Mutex<WindowSubscriptions>,
-  landing_gate: Arc<dyn LandingGate>,
 }
 
 /// The page a window shows, as a command of it saw it start: another page (a reload, a window opened again under the same
@@ -138,10 +134,6 @@ impl SessionsState {
       registry: Registry::new(Arc::clone(&sessions)),
       sessions,
       windows: Mutex::new(WindowSubscriptions::default()),
-      landing_gate: Arc::new(AppLandingGate {
-        app: app.clone(),
-        kept: KeptChecks::default(),
-      }),
     }
   }
 
@@ -153,11 +145,6 @@ impl SessionsState {
   /// The registry of the operations of the remote in the sessions: the app's push runs there
   pub const fn registry(&self) -> &Registry {
     &self.registry
-  }
-
-  /// The landing gate of the app's starts and popovers (`AppLandingGate`)
-  pub const fn landing_gate(&self) -> &Arc<dyn LandingGate> {
-    &self.landing_gate
   }
 
   /// A start in the session of `key` and what it runs on, over the services of the app (`AppServices`)
@@ -229,21 +216,6 @@ impl SessionEnvironment for AppEnvironment {
     let git = self.app.state::<GitCommandExecutor>();
     let cache = self.app.state::<RepositoryStateCache>().object_cache(&git, &key.worktree);
     Ok(landing_needs_of(&git, &cache, &key.worktree, &key.prefix, landed)?)
-  }
-}
-
-/// The landing gate of the app (`repository_model::landing::LandingGate`): the trial check of the repository through its
-/// object cache, the check of the same inputs kept for the start after its popover
-struct AppLandingGate {
-  app: AppHandle,
-  kept: KeptChecks,
-}
-
-impl LandingGate for AppLandingGate {
-  fn check(&self, branch_prefix: &str, params: &LandingGateParams, landed: &HashSet<String>) -> anyhow::Result<LandingCheck> {
-    let git = self.app.state::<GitCommandExecutor>();
-    let cache = self.app.state::<RepositoryStateCache>().object_cache(&git, &params.repository_path);
-    self.kept.check(&git, &cache, branch_prefix, params, landed)
   }
 }
 

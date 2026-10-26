@@ -1,16 +1,6 @@
 // @spec spec/branch/patronus.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type {
-  LandingAllowances,
-  LandingCheck,
-  LandingRefusal,
-  PatronusMergeRequest,
-  PatronusProfile,
-  PatronusReviewRequirement,
-  PatronusRobot,
-  PullRequest,
-  TargetCheck,
-} from "../../../src/lib/bindings"
+import type { PatronusMergeRequest, PatronusProfile, PatronusReviewRequirement, PatronusRobot, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import {
   expandBranch,
@@ -45,7 +35,7 @@ import {
   pullRequest,
   repoPath,
   reviewer,
-  skipCommandReplyWait,
+  stepSessionClockUntil,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, pushedToast, virtualBranch } from "../helpers/push-helpers"
@@ -58,7 +48,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { nextAnswer, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommandCalls, holdWithProgress, recordCommand, routeCommand, routeCommandError } from "../helpers/wait-helpers"
+import { holdWithProgress, recordCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 /** Whom a push waits for while another process holds the repository lock: here the test server */
@@ -88,16 +78,6 @@ function toastWith(page: Page, text: string): Locator {
 async function safePushFromMenu(page: Page, branchName: string) {
   await findBranchRow(page, branchName).click({ button: "right" })
   await page.getByRole("menuitem", { name: "Safe Push S", exact: true }).click()
-}
-
-/**
- * The robots of the `issue_links` template, the default checks: a start of a refusal test. `starts` are the params of
- * the start commands the page sent, the fake's log says what reached Patronus, the remote what was pushed
- */
-async function setupStart(page: Page, setupRepo: Parameters<typeof setupRobots>[1], syncAndWaitForBranches: Parameters<typeof setupRobots>[2]) {
-  const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
-  const starts = await recordCommand(page, "start_patronus_robot")
-  return { repo, starts }
 }
 
 /** The commit someone else pushed onto the remote branch of JIRA-456, which a push of the branch would drop */
@@ -139,9 +119,6 @@ async function setupStartsWith(...[page, setupRepo, syncAndWaitForBranches, opti
 const REPLACED = { cancels: [OLDER.id], restarts: [], starts: [startRequest("JIRA-456").sourceBranch] }
 
 /** What the next sync reports: the commits of JIRA-456 on its remote branch, rebuilt since on a newer baseline; a start pushes nothing */
-const REMOTE_HAS_COMMITS_OF_JIRA: SyncOverrides = {
-  remote: { "JIRA-456": { remoteExists: true, remoteTip: "JIRA-456-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: false } },
-}
 
 /**
  * A Safe Push of an older commit of JIRA-456 runs; the remote branch has its commits, an earlier build of them: the sync
@@ -168,11 +145,11 @@ async function remoteTipOfJira(repo: TestRepositoryBuilder): Promise<string | un
  */
 async function safePushWhileLocked(page: Page, setupRepo: Parameters<typeof setupRobots>[1], syncAndWaitForBranches: Parameters<typeof setupRobots>[2]) {
   const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
-  const pushes = await recordCommand(page, "push_branch")
+  const executes = await recordCommand(page, "execute")
   await repo.holdRepositoryLock(true)
   const button = slotSafePush(page, "JIRA-456")
   await button.click()
-  return { repo, pushes, button }
+  return { repo, executes, button }
 }
 
 /** JIRA-456 shown running, after Patronus got one start of it: `patch` of the default start request */
@@ -240,9 +217,8 @@ test.describe("Patronus actions", () => {
   test("should start a Safe Push from the branch menu, pushing the branch first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     const held = await holdRemotePushes(repo)
-    // the merge profiles the session reads for the start answer when the test says
-    await repo.holdRemoteAnswers({ hold: ["profiles"] })
-    const starts = await holdCommandCalls(page, "start_patronus_robot")
+    // the merge profiles the session reads for the start, and the start at Patronus, answer when the test says
+    await repo.holdRemoteAnswers({ hold: ["profiles", "start"] })
 
     // a lone branch, the default checks, no review needed: nothing to say, the click starts
     const button = slotSafePush(page, "JIRA-456")
@@ -265,21 +241,19 @@ test.describe("Patronus actions", () => {
     await expect(button).toHaveText(/^\d+%$/)
     await expect(button).toHaveAccessibleName(/^Pushing \d+%$/)
     await expectInPlace()
-    // the push button of the row doesn't repeat the push
-    const rowPush = getPushButton(findBranchRow(page, "JIRA-456"))
-    await expect(rowPush).toBeDisabled()
-    await expect(rowPush.getByRole("status")).toHaveCount(0)
+    // the row offers no push of its own meanwhile: the button of the start is the one indicator of its push
+    await expect(getPushButton(findBranchRow(page, "JIRA-456"))).toHaveCount(0)
+    await expect(findBranchRow(page, "JIRA-456").getByRole("status")).toHaveCount(1)
     await held.release()
     await expect(button).toHaveText("Starting…")
     await expectInPlace()
-    starts.release()
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["start"] }))
 
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
     await expectPushedToRemote(repo, ["JIRA-456"])
     expect(await pushedBranches(repo)).toEqual(["JIRA-456"])
     // Patronus got one start of the pushed virtual branch with the default checks
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
-    expect(starts.calls).toHaveLength(1)
     // it started without the popover
     await expect(safePushPopover(page)).toHaveCount(0)
 
@@ -301,19 +275,20 @@ test.describe("Patronus actions", () => {
 
   test("should start the Safe Pushes of two branches pressed one after the other, side by side", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
-    const pushes = await recordCommand(page, "push_branch")
-    // both pushes go to the backend, which holds the repository lock only while it decides each one: the second never
+    const executes = await recordCommand(page, "execute")
+    // both starts go to the backend, which holds the repository lock only while it freezes each push: the second never
     // waits for the network push of the first, nor is it refused with the app as the holder of the lock
-    const started = nextAnswer(page, "start_patronus_robot", 2)
+    const started = nextAnswer(page, "execute", 2)
     await slotSafePush(page, "JIRA-456").click()
     await slotSafePush(page, "ABC-123").click()
-    // each start is a chain (the landing gate, the target, the push, the start): its answer, then what it shows
+    // each start is one operation (the checks, the push, the start): its answer, then what it shows
     await started
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
     await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
-    // the two starts run side by side: either push may reach the backend first
-    expect(pushes.map(push => push.branchName)).toEqual(expect.arrayContaining(["JIRA-456", "ABC-123"]))
-    expect(pushes).toHaveLength(2)
+    // the two starts run side by side: either may reach the backend first
+    const subjects = executes.map(execute => (execute.intent as { subject: { name: string } }).subject.name)
+    expect(subjects).toEqual(expect.arrayContaining(["JIRA-456", "ABC-123"]))
+    expect(subjects).toHaveLength(2)
     await expectPushedToRemote(repo, ["ABC-123", "JIRA-456"])
     const starts = (await repo.getPatronusLog()).starts
     expect(starts).toHaveLength(2)
@@ -322,17 +297,17 @@ test.describe("Patronus actions", () => {
   })
 
   test("should wait for another holder of the repository lock as long as it lives, and then start", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const { repo, pushes, button } = await safePushWhileLocked(page, setupRepo, syncAndWaitForBranches)
-    // the push reached the backend and waits there, its step busy and named by whom it waits for, told again as the
-    // time grows (no bound while the holder lives: push_guard_test.rs); Stop Waiting beside it; nothing starts meanwhile
-    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
+    const { repo, executes, button } = await safePushWhileLocked(page, setupRepo, syncAndWaitForBranches)
+    // the start reached the backend and waits there for the lock, its step busy and named by whom it waits for, told
+    // again as the time grows (no bound while the holder lives); Stop Waiting beside it; nothing starts meanwhile
+    await expect.poll(() => executes.length).toBe(1)
     await expect(button).toHaveAttribute("aria-busy", "true")
     await expect(button).toHaveAccessibleName(WAITING_FOR_HOLDER)
     await expect(findBranchRow(page, "JIRA-456").getByRole("button", { name: "Stop Waiting" })).toBeVisible()
     expect((await repo.getPatronusLog()).starts).toEqual([])
     await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
     // the holder is done: the push goes and the robot starts
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => repo.holdRepositoryLock(false))
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRepositoryLock(false))
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
     await expectPushedToRemote(repo, ["JIRA-456"])
@@ -343,20 +318,20 @@ test.describe("Patronus actions", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const { repo, pushes, button } = await safePushWhileLocked(page, setupRepo, syncAndWaitForBranches)
+    const { repo, executes, button } = await safePushWhileLocked(page, setupRepo, syncAndWaitForBranches)
     await expect(button).toHaveAccessibleName(WAITING_FOR_HOLDER)
 
-    await findBranchRow(page, "JIRA-456").getByRole("button", { name: "Stop Waiting" }).click()
-    await expect(toastWith(page, "Canceled the push of JIRA-456 before it started")).toBeVisible()
+    await runAndWaitForAnswer(page, "execute", () => findBranchRow(page, "JIRA-456").getByRole("button", { name: "Stop Waiting" }).click())
+    await expect(toastWith(page, "Canceled the Safe Push of JIRA-456 before it started")).toBeVisible()
     await expect(button).not.toHaveAttribute("aria-busy", "true")
     await expect(toastWith(page, "Cannot start the Safe Push")).toHaveCount(0)
     expect((await repo.getPatronusLog()).starts).toEqual([])
     expect(await pushedBranches(repo)).toEqual([])
     // nothing was pushed or started: once the holder is done, the same step pushes and starts
     await repo.holdRepositoryLock(false)
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => button.click())
+    await runAndWaitForAnswer(page, "execute", () => button.click())
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
-    expect(pushes).toHaveLength(2)
+    expect(executes).toHaveLength(2)
     await expectPushedToRemote(repo, ["JIRA-456"])
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
   })
@@ -381,7 +356,7 @@ test.describe("Patronus actions", () => {
     await expect(page.getByText(/^Cannot /)).toHaveCount(0)
 
     // the holder is done: both pushes go, both robots start, and the move runs
-    const started = nextAnswer(page, "start_patronus_robot", 2)
+    const started = nextAnswer(page, "execute", 2)
     await repo.holdRepositoryLock(false)
     await started
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
@@ -393,85 +368,29 @@ test.describe("Patronus actions", () => {
   })
 
   test("should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const { repo, starts } = await setupStart(page, setupRepo, syncAndWaitForBranches)
-    // the target moved after the last sync with a change of the lines a commit of the branch changes
-    const conflict: TargetCheck = {
-      baseline: "origin/master",
-      fetchError: null,
-      outcome: {
-        kind: "conflict",
-        targetTip: "faebba53ecd77000",
-        commit: { id: "e90c2bf606405000", author: "Test User", authorTime: 1, subject: "Change the palette popup" },
-        files: ["src/PalettePopup.kt"],
-        fileCount: 1,
-        targetCommits: [{ id: "6fddca13ab01cd02", author: "Alice", authorTime: 2, subject: "IJAI-4233 Change the popup" }],
-      },
-    }
-    const checks = await routeCommand(page, "check_target_conflict", () => conflict)
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    // the target moved after the last sync with a file the first commit of JIRA-456 adds too: Patronus can't rebase it
+    await repo.commitOnRemote("master", {
+      subject: "IJAI-4233 Tune the pool",
+      author: "Alice <alice@example.com>",
+      timestamp: 1704139200,
+      files: { "db/pool.js": "// the pool of Alice\n" },
+    })
     const update = await holdWithProgress(page, "update_project")
 
-    await safePushFromMenu(page, "JIRA-456")
-    // the error of a failed start, with the way out: Patronus would fail the robot before any check
-    const refused = toastWith(page, "Cannot start the Safe Push")
+    // the start fetches the target and replays what lands onto it before its first effect
+    await runAndWaitForAnswer(page, "execute", () => safePushFromMenu(page, "JIRA-456"))
+    // the error of a refused start, with the way out: Patronus would fail the robot before any check
+    const refused = toastWith(page, "Cannot start the Safe Push of JIRA-456")
     await expect(refused.locator("[data-slot=toast-description]")).toHaveText(
-      "Patronus can't rebase JIRA-456 onto origin/master: e90c2bf6 (Change the palette popup) conflicts in src/PalettePopup.kt, which origin/master changed after the base of JIRA-456: 6fddca13 (Alice: IJAI-4233 Change the popup). Update Project resolves it locally; then start again.",
+      "Nothing was pushed or started: JIRA-456 conflicts with the newest target in db/pool.js: Patronus would fail it at once",
     )
-    expect(checks).toEqual([expect.objectContaining({ branchName: "JIRA-456", baselineBranch: "origin/master" })])
-    expect({ pushed: await pushedBranches(repo), starts, started: (await repo.getPatronusLog()).starts }).toEqual({ pushed: [], starts: [], started: [] })
+    expect({ pushed: await pushedBranches(repo), started: (await repo.getPatronusLog()).starts }).toEqual({ pushed: [], started: [] })
     await expect(slotSafePush(page, "JIRA-456")).toHaveText("Safe Push")
 
     await refused.getByRole("button", { name: "Update Project" }).click()
     await expect(page.getByTestId("update-project-button")).toHaveAttribute("aria-busy", "true")
     update.release()
-  })
-
-  test("should refuse a Safe Push whose branch uses a name another branch adds, with the restack and Start Anyway", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const { repo, starts } = await setupStart(page, setupRepo, syncAndWaitForBranches)
-    // the robot of 2026-10-21: a commit of the branch imports a name that a commit of ABC-123 adds, outside what lands
-    const refusal: LandingRefusal = {
-      kind: "missingDeclaration",
-      branch: "JIRA-456",
-      identifier: "Stills",
-      file: "src/lane/BuildLog.kt",
-      line: 7,
-      usedBy: { id: "a25430833a277000", subject: "Show each scenario", branch: "JIRA-456" },
-      declaredBy: { id: "ecebf00037b41000", subject: "Name lossy stills", branch: "ABC-123" },
-      fix: { kind: "restack", branch: "JIRA-456", onto: "ABC-123" },
-    }
-    const checks = await routeCommand(page, "check_landing_gate", params =>
-      (params.allow as LandingAllowances | undefined)?.allowMissing === true ? ({ refusals: [] } satisfies LandingCheck) : ({ refusals: [refusal] } satisfies LandingCheck),
-    )
-    await routeCommandError(page, "restack_branch", { code: "internal", message: "Stacked branches are off" })
-    const restacks = await recordCommand(page, "restack_branch")
-    const reason =
-      "“Show each scenario” of JIRA-456 uses Stills (src/lane/BuildLog.kt:7), which “Name lossy stills” of ABC-123 adds: git merges it, but the build of JIRA-456 fails. Stack JIRA-456 on ABC-123 to land it too."
-
-    // the restack the refusal offers reaches the backend; nothing was pushed or started
-    await safePushFromMenu(page, "JIRA-456")
-    let refused = toastWith(page, "Cannot start the Safe Push")
-    await expect(refused.locator("[data-slot=toast-description]")).toHaveText(reason)
-    expect(checks).toEqual([expect.objectContaining({ branchName: "JIRA-456", allow: {} })])
-    expect({ pushed: await pushedBranches(repo), starts, started: (await repo.getPatronusLog()).starts }).toEqual({ pushed: [], starts: [], started: [] })
-    await expect(slotSafePush(page, "JIRA-456")).toHaveText("Safe Push")
-    await refused.getByRole("button", { name: "Stack JIRA-456 on ABC-123" }).click()
-    await expect.poll(() => restacks).toEqual([expect.objectContaining({ branchName: "JIRA-456", parent: "ABC-123" })])
-    const restackFailed = toastWith(page, "Cannot stack JIRA-456 on ABC-123")
-    await expect(restackFailed).toBeVisible()
-    // the newest toast lies on top of the stack: closed, the refusal is on top again
-    await restackFailed.getByRole("button", { name: "Close toast" }).click()
-    await expect(restackFailed).toHaveCount(0)
-
-    // Start Anyway starts the same start with the override of what refused it, which the start command gets too; the
-    // refusal of the first start is still open, so the gate of this one answers before its toast is pressed
-    await safePushFromMenu(page, "JIRA-456")
-    await expect.poll(() => checks.length).toBe(2)
-    refused = toastWith(page, "Cannot start the Safe Push")
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => refused.getByRole("button", { name: "Start Anyway" }).click())
-    await expect(toastWith(page, "Safe Push started")).toBeVisible()
-    expect(checks.at(-1)).toMatchObject({ branchName: "JIRA-456", allow: { allowDangling: false, allowMissing: true } })
-    // the start runs the gate again with the override, then Patronus starts the branch
-    expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", allow: { allowDangling: false, allowMissing: true } })])
-    expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
   })
 
   test("should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -517,7 +436,7 @@ test.describe("Patronus actions", () => {
     await expect(popover.getByTestId("safe-push-profile-source")).toHaveText("The profile of the last Safe Push of ABC-123.")
     await chooseProfile(page, "Default checks")
     await expect(popover.getByTestId("safe-push-profile-source")).toHaveCount(0)
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
+    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
 
     await expect(toastWith(page, "Safe Push started").locator("[data-slot=toast-description]")).toHaveText("ABC-123 → master")
     // a new robot with the default checks, not a restart of the last one
@@ -532,7 +451,7 @@ test.describe("Patronus actions", () => {
     await expectNothingToPush(findBranchRow(page, "JIRA-456"))
 
     // Patronus rebases the remote branch itself: a push would only replace it with copies of the same commits
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => slotSafePush(page, "JIRA-456").click())
+    await runAndWaitForAnswer(page, "execute", () => slotSafePush(page, "JIRA-456").click())
 
     await expectJiraStarted(page, repo)
     expect(await remoteTipOfJira(repo)).toBe(earlier)
@@ -553,7 +472,7 @@ test.describe("Patronus actions", () => {
     const description = page.getByRole("tooltip").filter({ hasText: "Lands ABC-123" })
     await expect(description).toHaveText("Lands ABC-123 into master once the checks passS")
     await expect(description.locator("kbd")).toHaveText("S")
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => button.click())
+    await runAndWaitForAnswer(page, "execute", () => button.click())
     await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(await startedBranches(repo)).toEqual(["ABC-123"])
 
@@ -564,7 +483,7 @@ test.describe("Patronus actions", () => {
     await expect(rowMenu.getByRole("menuitem", { name: "Copy", exact: true })).toBeVisible()
     // the approvals go into the GitHub pull request: no Space merge request is created (deprecated)
     await expect(rowMenu.getByRole("menuitem", { name: "Create Space Merge Request…" })).toHaveCount(0)
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => rowMenu.getByRole("menuitem", { name: "Safe Push S", exact: true }).click())
+    await runAndWaitForAnswer(page, "execute", () => rowMenu.getByRole("menuitem", { name: "Safe Push S", exact: true }).click())
     await expect(chip(page, "feature-auth")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(await startedBranches(repo)).toEqual(["ABC-123", "feature-auth"])
 
@@ -585,7 +504,7 @@ test.describe("Patronus actions", () => {
     await setupStarts(page, setupRepo, syncAndWaitForBranches)
     const row = findBranchRow(page, "ABC-123")
     await verifyBranchState(row, "closed")
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => slotSafePush(page, "ABC-123").click())
+    await runAndWaitForAnswer(page, "execute", () => slotSafePush(page, "ABC-123").click())
     await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
     // the button starts, it doesn't toggle the row
     await verifyBranchState(row, "closed")
@@ -641,7 +560,7 @@ test.describe("Patronus actions", () => {
     await expect(popover).toHaveAttribute("data-decision", "confirm")
     await expect(popover.getByTestId("safe-push-replaces")).toHaveText("Cancels the Safe Push of JIRA-456 running on older-co.")
     expect(await patronusActions(repo)).toEqual({ cancels: [], restarts: [], starts: [] })
-    const started = nextAnswer(page, "start_patronus_robot")
+    const started = nextAnswer(page, "execute")
     await popoverStart(page).click()
     const atPush = await patronusAtPush(repo, held)
     await started
@@ -658,7 +577,7 @@ test.describe("Patronus actions", () => {
 
     await safePushFromMenu(page, "JIRA-456")
     await expect(safePushPopover(page).getByTestId("safe-push-replaces")).toHaveText("Cancels the Safe Push of JIRA-456 running on older-co.")
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
+    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
     // no push: the start cancels the robot itself, and never restarts it; the remote has its earlier build still
     await expect.poll(() => patronusActions(repo)).toEqual(REPLACED)
     expect(await remoteTipOfJira(repo)).toBe(earlier)
@@ -667,26 +586,19 @@ test.describe("Patronus actions", () => {
   test("should start the Safe Push in its repository when another repository opens during its checks", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links", { patronus: availableRobots() })
     await addRecentProject(page)
-    // the remote branch has the commits of JIRA-456: the start pushes nothing
-    await repo.setSyncOverrides(REMOTE_HAS_COMMITS_OF_JIRA)
     await syncAndWaitForBranches()
+    // the remote branch has the commits of JIRA-456: the start pushes nothing
+    await pushedBefore(page, repo, ["JIRA-456"])
     await expect(page.getByTestId("next-step-slot").first()).toBeAttached()
-    const check = await holdCommandCalls(page, "check_target_conflict")
-    // each step of the start waits for the answer of its own command: under load each takes seconds
-    const answered = (command: string) => page.waitForResponse(response => response.url().endsWith(`/invoke/${command}`))
-    const landingChecked = answered("check_landing_gate")
+    // the start waits at Patronus, after its checks: a switch of the repository meanwhile leaves it to its own
+    await repo.holdRemoteAnswers({ hold: ["start"] })
+    const started = nextAnswer(page, "execute")
 
     await safePushFromMenu(page, "JIRA-456")
-    await expect(slotSafePush(page, "JIRA-456")).toHaveText("Checking…")
-    // the user opens another repository while the start checks the target: "Checking…" is also the read of the facts
-    // before the start, whose decision a switch would leave to the other repository's stores
-    await landingChecked
-    await expect.poll(() => check.calls.length).toBe(1)
+    await expect.poll(async () => (await repo.getArrivedAnswers()).includes("start")).toBe(true)
+    await expect(slotSafePush(page, "JIRA-456")).toHaveText("Starting…")
     await switchRepository(page, OTHER_REPOSITORY)
-    const targetChecked = answered("check_target_conflict")
-    const started = answered("start_patronus_robot")
-    check.release()
-    await targetChecked
+    await repo.holdRemoteAnswers({ release: ["start"] })
     await started
 
     // the start goes on in the repository it was asked in: Patronus got it, and the toast says it
@@ -704,7 +616,7 @@ test.describe("Patronus actions", () => {
     await expect(safePushPopover(page).getByTestId("safe-push-replaces")).toHaveText("Cancels the Safe Push of JIRA-456 running on older-co.")
     // the robot fails while the popover is open: the page still has it running, Patronus lists it finished
     await repo.setPatronus({ availability: { status: "available" }, robots: [{ ...OLDER, status: "failure", finishTime: 1704142800 }] })
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
+    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
     // nothing is left to cancel: the start goes on, never "Cannot cancel the Safe Push: … not running"
     await expect(toastWith(page, "Safe Push started")).toBeVisible()
     expect(await patronusActions(repo)).toEqual({ ...REPLACED, cancels: [] })
@@ -728,7 +640,7 @@ test.describe("Patronus actions", () => {
     await expect(popoverStart(page)).toBeEnabled()
     // the start enabled later takes the focus: Enter starts it now, once
     await expect(popoverStart(page)).toBeFocused()
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => page.keyboard.press("Enter"))
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
     await expectJiraStarted(page, repo)
   })
 
@@ -853,7 +765,7 @@ test.describe("Patronus actions", () => {
       expect((await repo.getPatronusLog()).starts).toEqual([])
 
       // nothing to say any more: the click starts at once, with the merge request whose approvals count
-      await runAndWaitForAnswer(page, "start_patronus_robot", () => slotSafePush(page, "JIRA-456").click())
+      await runAndWaitForAnswer(page, "execute", () => slotSafePush(page, "JIRA-456").click())
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
       // the branch isn't on the remote yet: the start pushes it first, without a toast of its own
       await expectPushedToRemote(repo, ["JIRA-456"])
@@ -887,7 +799,7 @@ test.describe("Patronus actions", () => {
       // "Dry Run" of the menu: the code owners don't check it, nothing to say, it starts
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
       await openSubmenu(page, "Patronus")
-      await runAndWaitForAnswer(page, "start_patronus_robot", () => page.getByRole("menuitem", { name: "Dry Run", exact: true }).click())
+      await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Dry Run", exact: true }).click())
       await expect(toastWith(page, "Dry Run started").locator("[data-slot=toast-description]")).toHaveText("JIRA-456 → master")
       expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456", { mode: "DRY_RUN" })])
       expect(await repo.getReviewChecks()).toEqual({ calls: [], checks: [] })
@@ -895,7 +807,7 @@ test.describe("Patronus actions", () => {
 
       // "Dry Run" of the Safe Push popover: it closes, and the dry run starts as the menu's does
       const popover = await openSafePushWithKey(page, "ABC-123")
-      await runAndWaitForAnswer(page, "start_patronus_robot", () => popover.getByTestId("safe-push-dry-run").click())
+      await runAndWaitForAnswer(page, "execute", () => popover.getByTestId("safe-push-dry-run").click())
       await expect(popover).toHaveCount(0)
       await expect(toastWith(page, "Dry Run started").filter({ hasText: "ABC-123 → master" })).toBeVisible()
       expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456", { mode: "DRY_RUN" }), startRequest("ABC-123", { mode: "DRY_RUN" })])
@@ -925,7 +837,7 @@ test.describe("Patronus actions", () => {
         "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a new Safe Push from it: a restart has no pull request to count them in.",
       )
       await expect(popover.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)
-      await runAndWaitForAnswer(page, "start_patronus_robot", () => popover.getByRole("button", { name: "Safe Push", exact: true }).click())
+      await runAndWaitForAnswer(page, "execute", () => popover.getByRole("button", { name: "Safe Push", exact: true }).click())
       await expect(toastWith(page, "Safe Push started").locator("[data-slot=toast-description]")).toHaveText("ABC-123 → master")
       expect(await patronusActions(repo)).toEqual({ cancels: [], restarts: [], starts: [startRequest("ABC-123").sourceBranch] })
     })
@@ -935,7 +847,7 @@ test.describe("Patronus actions", () => {
       await expect(chip(page, "ABC-123")).toHaveText("Needs review")
 
       const preview = await openBranchPreview(page, "ABC-123")
-      await runAndWaitForAnswer(page, "start_patronus_robot", () => preview.getByTestId("branch-preview-patronus").getByRole("button", { name: "Safe Push", exact: true }).click())
+      await runAndWaitForAnswer(page, "execute", () => preview.getByTestId("branch-preview-patronus").getByRole("button", { name: "Safe Push", exact: true }).click())
       // the start is the row's: the modal preview closes first, its progress shows in the row
       await expect(preview).toHaveCount(0)
       await expect(toastWith(page, "Safe Push started").locator("[data-slot=toast-description]")).toHaveText("ABC-123 → master")
@@ -1050,17 +962,16 @@ test.describe("Patronus actions", () => {
     }
 
     /**
-     * The comment posted, then the fake clock over the app's wait before it reads the bot's reply (`COMMAND_REPLY_INTERVAL_MS`,
-     * 3 s, in src/stores/patronus.ts) until it read it, instead of waiting it out
+     * The comment posted, then `listed` the robot Patronus lists from now on, and the clock of the session over the
+     * engine's wait between its reads of the bot's reply and of the robots until the start answered (`answered`)
      */
-    async function skipReplyWait(page: Page, repo: TestRepositoryBuilder, listed?: PatronusRobot) {
+    async function skipReplyWait(repo: TestRepositoryBuilder, answered: Promise<unknown>, listed?: PatronusRobot) {
       await expect.poll(async () => (await comments(repo)).length).toBe(1)
-      // Patronus lists the robot the bot started from now on: the list the app asks after the 👍 has it
+      // Patronus lists the robot the bot started from now on: a read of the list after the 👍 has it
       if (listed !== undefined) {
         await repo.setPatronus(availableRobots(listed))
       }
-      // the wait starts once the app has the posted comment, so a step can come before it: step until the read
-      await skipCommandReplyWait(page, repo)
+      await stepSessionClockUntil(repo, answered)
     }
 
     test("should start a Safe Push from the pull request with a /patronus merge comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1080,8 +991,9 @@ test.describe("Patronus actions", () => {
       await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #7: Patronus reports there and closes it once merged.")
       await expect(popover.getByTestId("safe-push-review")).toHaveText("No code-owner review needed.")
       await expect(popover.getByTestId("safe-push-profile-field")).toHaveCount(0)
+      const answered = nextAnswer(page, "execute")
       await popoverStart(page).click()
-      await skipReplyWait(page, repo, started)
+      await skipReplyWait(repo, answered, started)
 
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
       // the own branch stays: the sync archives it once merged
@@ -1090,8 +1002,8 @@ test.describe("Patronus actions", () => {
       const posted = (await repo.getGitHubLog()).requests.findIndex(it => it.method === "POST" && it.path === repoPath("issues", 7, "comments"))
       const reads = (await repo.getGitHubLog()).requests.slice(posted + 1).filter(it => it.method === "GET" && it.path.startsWith(repoPath("issues", "comments")))
       expect(reads.length).toBeGreaterThan(0)
-      // the session listed it after the 👍
-      expect((await repo.getPatronusLog()).robots["pr-robot"]?.pullRequest?.number).toBe(7)
+      // the start found it after the 👍, and the toast of the start names it
+      await expect(toastWith(page, "Safe Push started").getByRole("button", { name: "Open in Patronus" })).toBeVisible()
       // the comment started it: no start through the API
       expect((await repo.getPatronusLog()).starts).toEqual([])
 
@@ -1100,21 +1012,25 @@ test.describe("Patronus actions", () => {
       expect(await getOpenedUrls(page)).toContain("https://github.com/acme/monorepo/pull/7")
     })
 
-    /** Starts the Safe Push of JIRA-456 from #7: the 👍 comes, the minute of the list after it runs out without the robot */
+    /**
+     * Starts the Safe Push of JIRA-456 from #7: the 👍 comes, the minute of the reply runs out without the robot, and the
+     * start holds its subject while the robot is looked for (every 15 s on the clock of the session)
+     */
     async function startAcceptedWithoutRobot(page: Page, repo: TestRepositoryBuilder): Promise<void> {
       await openSafePushWithKey(page, "JIRA-456")
       await popoverStart(page).click()
-      await skipReplyWait(page, repo)
-      await page.clock.fastForward(60_000)
-      const toast = toastWith(page, "Safe Push started")
-      await expect(toast.locator("[data-slot=toast-description]")).toHaveText("Patronus accepted the comment on #7: the robot shows once Patronus lists it")
+      await expect.poll(async () => (await comments(repo)).length).toBe(1)
+      await expect.poll(async () => (await gitHubRequests(repo, "GET", "issues", "comments", "*")).length).toBeGreaterThan(0)
+      await repo.advanceBackendClock(60_000)
       await expect(slotSafePush(page, "JIRA-456")).toHaveText("Starting…")
       await expect(slotSafePush(page, "JIRA-456")).toHaveAttribute("aria-busy", "true")
+      await expect(toastWith(page, "Safe Push started")).toHaveCount(0)
     }
 
     /**
      * The held start of #7: a second start opens no popover and posts nothing (the press that opened the popover of
-     * `startAcceptedWithoutRobot`); then the look in the background finds the robot, which takes the slot of the start
+     * `startAcceptedWithoutRobot`); then the engine finds the robot, which takes the slot of the start, and its toast
+     * says it started
      */
     async function expectHeldUntilListed(page: Page, repo: TestRepositoryBuilder): Promise<void> {
       await findBranchRow(page, "JIRA-456").focus()
@@ -1122,16 +1038,19 @@ test.describe("Patronus actions", () => {
       await expect(safePushPopover(page)).toHaveCount(0)
       expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
 
+      const answered = nextAnswer(page, "execute")
       await repo.setPatronus({ ...availableRobots(robotOfComment()), githubRepository: "acme/monorepo" })
-      await page.clock.fastForward(15_000)
+      await stepSessionClockUntil(repo, answered, 15_000)
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
       await expect(slotSafePush(page, "JIRA-456")).toHaveCount(0)
+      await expect(toastWith(page, "Safe Push started")).toBeVisible()
       expect(await comments(repo)).toEqual([{ body: "/patronus merge --keep-source-branch" }])
     }
 
     test("should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupGitHubWith(page, setupRepo, syncAndWaitForBranches, {}, pullRequest("JIRA-456", 7))
       // nothing to push: the start is the comment alone
-      const repo = await setupGitHubWith(page, setupRepo, syncAndWaitForBranches, { syncOverrides: REMOTE_HAS_COMMITS_OF_JIRA }, pullRequest("JIRA-456", 7))
+      await pushedBefore(page, repo, ["JIRA-456"])
       // the 👍 comes, the fake Patronus lists the robot only later
       await startAcceptedWithoutRobot(page, repo)
       await expectHeldUntilListed(page, repo)
@@ -1143,9 +1062,9 @@ test.describe("Patronus actions", () => {
         pullRequests: availablePullRequests(pullRequest("JIRA-456", 7)),
       })
       await addRecentProject(page)
-      // nothing to push: the start is the comment alone
-      await repo.setSyncOverrides(REMOTE_HAS_COMMITS_OF_JIRA)
       await syncAndWaitForBranches()
+      // nothing to push: the start is the comment alone
+      await pushedBefore(page, repo, ["JIRA-456"])
       await expect(findBranchRow(page, "JIRA-456").getByTestId("pull-request-chip")).toBeVisible()
       await startAcceptedWithoutRobot(page, repo)
 
@@ -1164,9 +1083,8 @@ test.describe("Patronus actions", () => {
       // the bot answers 👎 and says why in a comment of its own
       await repo.setPatronusReplies({ 7: { status: "rejected", reason: "Patronus did not start the robot due to an error. A robot is already running for the branch." } })
 
-      // nothing to say: the click comments at once
-      await slotSafePush(page, "JIRA-456").click()
-      await skipReplyWait(page, repo)
+      // nothing to say: the click comments at once, and the engine reads the reply right after the comment
+      await runAndWaitForAnswer(page, "execute", () => slotSafePush(page, "JIRA-456").click())
       const error = toastWith(page, "Cannot start the Safe Push")
       await expect(error).toContainText("A robot is already running for the branch.")
       await expect(chip(page, "JIRA-456")).toHaveCount(0)

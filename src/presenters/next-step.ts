@@ -21,12 +21,12 @@ import type { LandingFix, MissingReviewGroup, NextStep, Person, StepBlocker, Ste
 import { formatCommitCount } from "@/lib/commit"
 import { getErrorDetails } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
-import { describeLandingCheck, formatLandingFix, neededCommit } from "@/lib/landing-gate"
 import type { MenuItem } from "@/lib/menu"
 import { describeStart, formatPatronusAvailabilityHint, formatStartLabel } from "@/lib/patronus"
 import { formatAvailabilityHint } from "@/lib/pull-request"
 import { joinNames } from "@/lib/text"
 import { formatWholeStack } from "@/lib/whole-stack"
+import { describeLandingRefusals, formatLandingFix, neededCommit } from "@/presenters/landing"
 import { formatLandedWhole, formatReason } from "@/presenters/reasons"
 
 /**
@@ -381,11 +381,11 @@ function helpItem(help: Extract<StepKind, { kind: "unavailable" }>["help"], reas
  * the Safe Push popover, which says it and starts anyway
  */
 function needsBranch(kind: Extract<StepKind, { kind: "needsBranch" }>, context: StepContext): Shown {
-  const decision = describeLandingCheck({ refusals: [...kind.refusals] }, context.subject, {})
+  const decision = describeLandingRefusals(kind.refusals, context.subject)
   const needed = neededCommit(kind.refusals[0]!)
   const label = `Needs ${needed.branch === "" ? formatShortHash(needed.id) : needed.branch}`
-  const reason = decision.kind === "refuse" ? decision.reason : ""
-  const fix = decision.kind === "refuse" ? decision.fix : null
+  const reason = decision?.reason ?? ""
+  const fix = decision?.fix ?? null
   const fixLabel = formatLandingFix(fix)
   const landingFix: MenuItem | null =
     fix === null || fixLabel === null ? null : { id: "landing-fix", label: fixLabel, icon: Layers2Icon, description: reason, onSelect: () => context.actions.fixLanding(fix) }

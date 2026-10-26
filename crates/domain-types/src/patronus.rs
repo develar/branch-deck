@@ -265,30 +265,6 @@ pub struct PatronusRobotParams {
   pub replaced: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct StartPatronusRobotParams {
-  pub repository_path: String,
-  pub baseline_branch: String,
-  /// The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed. With `stack`, the root of the
-  /// stack
-  pub branch_name: String,
-  /// The whole stack of the root `branch_name`: the robot starts from its stack branch `{prefix}/stack/<root>`, which
-  /// must be pushed, and lands every branch of the stack
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub stack: bool,
-  pub mode: PatronusPushMode,
-  pub profile_id: Option<String>,
-  /// The merge request whose approvals the review check of the robot counts; null without one
-  pub merge_request: Option<PatronusMergeRequest>,
-  /// What the user started anyway (Start Anyway); without it the refusals of `trial_check::landing_gate` fail the start
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub allow: LandingAllowances,
-}
-
 /// What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
 /// `domain_policy::land::decide`), each by the user: the flags of `bd safe-push` (`--allow-dangling`, `--allow-missing`,
 /// `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`), Start Anyway of the app for the
@@ -615,7 +591,9 @@ pub enum PatronusCommandSubject {
   ReviewedPullRequest,
 }
 
-/// Starts a robot from a GitHub pull request: the `/patronus` comment
+/// Starts a robot from a GitHub pull request of someone else the user reviewed: the `/patronus` comment, whose merge
+/// deletes its branch (`PatronusCommandSubject::ReviewedPullRequest`); the start of the user's own branch is
+/// `execute(Land)`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -624,32 +602,9 @@ pub struct PostPatronusCommandParams {
   pub pull_request_number: u32,
   /// `rebaseAutosquash` (`/patronus merge`) or `dryRun` (`/patronus dry-run`)
   pub mode: PatronusPushMode,
-  #[serde(default)]
-  pub subject: PatronusCommandSubject,
   /// `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository
   #[serde(default)]
   pub github_repository: Option<String>,
-  /// The branch of the user the comment starts (`OwnBranch`, required there): the checks of `start_patronus_robot` run
-  /// on it before the comment (`RemoteActions::check_start_from_pull_request`)
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub start: Option<PullRequestStartBranch>,
-}
-
-/// The branch of the user a `/patronus` comment on its pull request starts, as `start_patronus_robot` names it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PullRequestStartBranch {
-  /// The virtual branch, without the `{prefix}/virtual/` namespace; with `stack`, the root of the whole stack
-  pub branch_name: String,
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub stack: bool,
-  /// What the user started anyway (Start Anyway)
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub allow: LandingAllowances,
 }
 
 /// The posted command comment

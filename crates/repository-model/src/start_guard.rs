@@ -1,91 +1,37 @@
-//! The checks of the app's start, restart and cancel of a robot (`start_patronus_robot`, `restart_patronus_robot`,
-//! `cancel_patronus_robot` and the E2E server's routes of them) in Rust, by the rules of `bd safe-push` over the
-//! Patronus view (`derive_patronus`) and the robots Rust read itself, never the page's: a parked subject (a branch, a
-//! branch built on parked, a whole stack with a parked member) stays local, a subject merged Safe Pushes landed whole
-//! has nothing left to land, a subject the last sync did not build (a stack branch that is not `built`) is no build of
-//! its commits, and a robot that runs on its last commit or lands a part of it refuses a second one, a running Safe Push
-//! that lands the branch the push of a Dry Run too (`domain_policy::land::start_refusal`, as the view decides it). The
-//! page checks the same before it asks and says it in its words; these refuse a start that raced with another one (the
-//! IDE, `bd`) or came by IPC.
+//! The checks of the app's restart and cancel of a robot (`restart_patronus_robot`, `cancel_patronus_robot` and the E2E
+//! server's routes of them) in Rust, by the rules of `bd safe-push` over the Patronus view (`derive_patronus`) and the
+//! robots Rust read itself, never the page's. A restart is a start of the robot's subject that the robot itself does not
+//! refuse: a parked subject (a branch, a branch built on parked, a whole stack with a parked member) stays local, a
+//! subject merged Safe Pushes landed whole has nothing left to land, a subject the last sync did not build (a stack
+//! branch that is not `built`) is no build of its commits, and a robot that runs on its last commit or lands a part of
+//! it refuses a second one (`domain_policy::land::start_refusal`, as the view decides it); a robot of a temporary ref
+//! (the IDE, the CLI) is not restarted: it would test its old commit. A cancel needs a running robot of the user; the
+//! cancel of the robot a push replaces answers one that finished meanwhile as it is (`CancelCheck::AlreadyFinished`).
+//! The start of a Safe Push or a Dry Run is an operation of the engine (`operations::land_execute`), refused by its plan.
 //!
-//! A restart is a start of the robot's subject that the robot itself does not refuse; a robot of a temporary ref (the
-//! IDE, the CLI) is not restarted: it would test its old commit. A cancel needs a running robot of the user; the cancel
-//! of the robot a start or a push replaces answers one that finished meanwhile as it is (`CancelCheck::AlreadyFinished`).
-//!
-//! `RemoteActions::start_robot`, `restart_robot` and `cancel_robot` (`actions`) are the whole sequence of both hosts, and
-//! `check_start_from_pull_request` the same checks before the `/patronus` comment of the other route of a start: one
-//! list of the robots asked now (a failed list fails the action), the checks, then the landing gate and the target
-//! (`prepare_robot_start`) and the call of Patronus; `check_landing` is the landing check of the popover on the same
-//! robots. Both checks go through the landing gate of the host (`LandingGate`, which keeps the check of the same inputs),
-//! so a start right after the check of its popover reuses it while the refs, the config and the landed commits are the
-//! same. The words of the robot refusals are `bd`'s too (`start_refusal_text`).
+//! `RemoteActions::restart_robot` and `cancel_robot` (`actions`) are the whole sequence of both hosts: one list of the
+//! robots asked now (a failed list fails the action), the checks, then the call of Patronus. The words of the robot
+//! refusals are `bd`'s and the engine's too (`start_refusal_text`).
 
 use crate::actions::RemoteActions;
 use crate::derive::LandingFacts;
-use crate::landing::LandingGate;
-use crate::patronus_view::landed_commits;
 use crate::push_guard::{GuardFacts, guard_facts, parked_words, row_refusal};
 use crate::push_guard::{own_hold_words, span_hold_words};
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use domain_policy::holds::is_active;
 use domain_policy::land::{BranchStart, StackStart, Start, start_refusal as robot_refusal};
 use domain_policy::parked::whole_stack_parked;
 use domain_types::GroupedBranchInfo;
-use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
-use domain_types::landing::{LandingCheck, LandingGateParams, Subject, ensure_landing_starts};
-use domain_types::patronus::{PatronusCommandSubject, PatronusPushMode, PatronusRobot, PatronusRobotParams, PostPatronusCommandParams, StartPatronusRobotParams};
+use domain_types::landing::Subject;
+use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotParams};
 use domain_types::reason::Reason;
 use domain_types::repository_view::HoldKind;
 use domain_types::session::{Parked, ParkedMember};
 use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
-use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::HashSet;
-use std::sync::Arc;
-use sync_core::patronus::required_target_branch;
 use sync_core::patronus_start::{carried_ids, carried_words, join_names, push_mode_name};
 use sync_core::push::not_synced_refusal;
 use sync_utils::span::in_current_span;
 use tracing::instrument;
-
-/// The branches of a start Patronus is asked for
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RobotStartBranches {
-  /// `refs/heads/{prefix}/virtual/<name>`, or `refs/heads/{prefix}/stack/<root>` for the whole stack
-  pub source_branch: String,
-  /// The branch of origin the baseline tracks
-  pub target_branch: String,
-}
-
-/// What the app checks before it asks Patronus to start `params`, after the checks of the Patronus view
-/// (`check_start`): the landing gate, as `bd safe-push` refuses it (`ensure_landing_starts`), with `landed_commits`, the
-/// commits (original ids) merged Safe Pushes landed as the view names them, whose names the target has, through `gate`
-/// (the check of the popover when its inputs are the same); then the branch the robot pushes into. The full ref of the
-/// pushed virtual branch, or of the stack branch with `stack`, under `branch_prefix`. Blocking
-pub fn prepare_robot_start(
-  git_executor: &GitCommandExecutor,
-  gate: &dyn LandingGate,
-  branch_prefix: &str,
-  params: &StartPatronusRobotParams,
-  landed_commits: &HashSet<String>,
-) -> Result<RobotStartBranches> {
-  let start = LandingGateParams {
-    repository_path: params.repository_path.clone(),
-    branch_name: params.branch_name.clone(),
-    stack: params.stack,
-    allow: params.allow,
-  };
-  ensure_landing_starts(&start, gate.check(branch_prefix, &start, landed_commits)?)?;
-  let target_branch = required_target_branch(git_executor, &params.repository_path, &params.baseline_branch)?;
-  let source = if params.stack {
-    to_stack_branch_name(branch_prefix, &params.branch_name)?
-  } else {
-    to_final_branch_name(branch_prefix, &params.branch_name)?
-  };
-  Ok(RobotStartBranches {
-    source_branch: format!("refs/heads/{source}"),
-    target_branch,
-  })
-}
 
 /// Why a start of `subject` ("auth", "the whole auth stack") is not possible, in the words of `bd` and of the guards
 /// of the app, for the robot part of the decision (`domain_policy::land::start_refusal`): the commits a descendant lands
@@ -139,19 +85,6 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::LandingRefused { refusal } => format!("{subject} would not build: {}", refusal.reason()),
     Reason::TargetConflict { files, .. } => format!("{subject} conflicts with the newest target in {}: Patronus would fail it at once", join_names(files)),
   }
-}
-
-/// Why a start of `subject` in `mode` is refused: "Nothing was started: …"; `Ok` when nothing refuses
-pub fn check_start(facts: &GuardFacts, subject: &Subject, mode: PatronusPushMode) -> Result<(), String> {
-  match start_refusal(facts, subject, mode == PatronusPushMode::DryRun, None) {
-    Some(refusal) => Err(format!("Nothing was started: {refusal}")),
-    None => Ok(()),
-  }
-}
-
-/// The subject a start names: the branch, or with `stack` the whole stack of the root `name`
-fn start_subject(name: &str, stack: bool) -> Subject {
-  if stack { Subject::whole_stack(name) } else { Subject::branch(name) }
 }
 
 /// Why the restart of `robot_id` is refused: "Nothing was restarted: …". A robot the list lacks or of a temporary ref is
@@ -331,93 +264,6 @@ impl RemoteActions<'_> {
       .ok_or_else(|| anyhow!("{nothing}: the branches are not synced yet; sync first"))?;
     let (git, path) = (self.git_executor.clone(), repository_path.to_string());
     tokio::task::spawn_blocking(in_current_span(move || then(&guard_facts(&git, &path, &table, robots)))).await?
-  }
-
-  /// Starts a Safe Push or a Dry Run of `params` as the app does: the checks (`check_start`), then the landing gate with
-  /// the commits merged Safe Pushes landed as the view names them (`landed_commits`) and the target
-  /// (`prepare_robot_start`), then the start
-  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, mode = ?params.mode))]
-  pub async fn start_robot(&self, params: &StartPatronusRobotParams) -> Result<PatronusRobot> {
-    let (service, repository) = self.patronus()?;
-    let (git, gate, start, prefix) = (self.git_executor.clone(), Arc::clone(self.gate), params.clone(), self.branch_prefix.to_owned());
-    let branches = self
-      .with_facts(&params.repository_path, "Nothing was started", move |facts| {
-        if let Err(refusal) = check_start(facts, &start_subject(&start.branch_name, start.stack), start.mode) {
-          bail!(refusal);
-        }
-        prepare_robot_start(&git, &*gate, &prefix, &start, &landed_commits(&facts.view))
-      })
-      .await?;
-    service
-      .start(
-        repository,
-        self.branch_prefix,
-        &branches.source_branch,
-        &branches.target_branch,
-        params.mode,
-        params.profile_id.clone(),
-        params.merge_request.clone(),
-      )
-      .await
-      .map_err(|e| anyhow!(e))
-  }
-
-  /// The checks of a start from the pull request of the user's branch (the `/patronus` comment, `post_patronus_command`
-  /// of both hosts), before the comment: those of `start_robot` before it asks Patronus, on one list of the user's
-  /// robots: `check_start` (parked, landed whole, not built, a robot of the last commit or one that lands a part of it),
-  /// then the landing gate with the commits the view names landed; the pull request names the target. A comment on a
-  /// pull request of someone else (`ReviewedPullRequest`) has no branch of the table to check; an `OwnBranch` comment
-  /// without its branch is refused
-  #[instrument(skip_all, fields(repository_path = %params.repository_path, pull_request = params.pull_request_number, mode = ?params.mode))]
-  pub async fn check_start_from_pull_request(&self, params: &PostPatronusCommandParams) -> Result<()> {
-    if params.subject == PatronusCommandSubject::ReviewedPullRequest {
-      return Ok(());
-    }
-    let Some(start) = &params.start else {
-      bail!(
-        "Nothing was started: the comment on pull request #{} names no branch of the user",
-        params.pull_request_number
-      );
-    };
-    let (gate, path, mode, prefix, start) = (
-      Arc::clone(self.gate),
-      params.repository_path.clone(),
-      params.mode,
-      self.branch_prefix.to_owned(),
-      start.clone(),
-    );
-    self
-      .with_facts(&params.repository_path, "Nothing was started", move |facts| {
-        if let Err(refusal) = check_start(facts, &start_subject(&start.branch_name, start.stack), mode) {
-          bail!(refusal);
-        }
-        let check = LandingGateParams {
-          repository_path: path,
-          branch_name: start.branch_name,
-          stack: start.stack,
-          allow: start.allow,
-        };
-        Ok(ensure_landing_starts(&check, gate.check(&prefix, &check, &landed_commits(&facts.view))?)?)
-      })
-      .await
-  }
-
-  /// The landing gate as the popover asks it before a start (`check_landing_gate`), with the commits merged Safe Pushes
-  /// landed as the view names them (`landed_commits`) on the robots Rust reads now (`robots_for_landing_check`: the list
-  /// of a robot action, the same input the start gives its own gate, `start_robot`): the page's robots never decide it.
-  /// A list Patronus doesn't give fails the check instead of counting nothing landed, which would refuse a start whose
-  /// need a merged Safe Push landed; the page then says "Not checked whether …" and the start checks again. Off Space or
-  /// before the first sync nothing landed
-  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
-  pub async fn check_landing(&self, params: &LandingGateParams) -> Result<LandingCheck> {
-    let robots = self.robots_for_landing_check().await?;
-    let table = self.table(&params.repository_path).await;
-    let (git, gate, params, prefix) = (self.git_executor.clone(), Arc::clone(self.gate), params.clone(), self.branch_prefix.to_owned());
-    tokio::task::spawn_blocking(in_current_span(move || {
-      let landed: HashSet<String> = table.map_or_default(|table| landed_commits(&guard_facts(&git, &params.repository_path, &table, robots).view));
-      gate.check(&prefix, &params, &landed)
-    }))
-    .await?
   }
 
   /// Restarts the robot of `params` as the app does: the checks (`check_restart`), then the restart

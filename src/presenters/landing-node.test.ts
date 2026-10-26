@@ -2,8 +2,8 @@
 // @spec spec/repository/landing-overview.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingNode as NodeView, NodeLabel } from "@/lib/bindings"
-import type { FoundMove } from "@/lib/running-move"
 import { presentLandingNode, presentNodeKind } from "@/presenters/landing-node"
+import type { FoundMove } from "@/presenters/running-move"
 import { missingGroup, testContext, testStep } from "@/test-support/next-step"
 
 function nodeView(kind: NodeView["kind"], label: NodeLabel, extra: Partial<NodeView> = {}): NodeView {

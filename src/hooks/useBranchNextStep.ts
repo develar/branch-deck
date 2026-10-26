@@ -34,8 +34,8 @@ import { getPullRequest, getStackPullRequest, retargetPullRequest } from "@/stor
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getSelectedProject, isSelectedRepository, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
 import { getReadinessTarget } from "@/stores/review-readiness"
-import type { SafePushStarting } from "@/stores/safe-push"
-import { getSafePushStarting, useSafePushStarting } from "@/stores/safe-push"
+import type { LandRun } from "@/stores/safe-push"
+import { getLandRun, useLandRun } from "@/stores/safe-push"
 
 /**
  * Retargets the open pull request of the branch to the target of Patronus, as a pull request names it ("master"), as
@@ -92,8 +92,8 @@ export interface StepInputs {
   readonly target: string
   /** The operation that works on the row */
   readonly operation: Operation | undefined
-  /** The start of a Safe Push of the row that runs */
-  readonly starting: SafePushStarting | null
+  /** The start of a Safe Push or a Dry Run of the row that runs, or the click that waits for its plan */
+  readonly starting: LandRun | null
   /** The robot the step restarts; undefined while the step restarts none */
   readonly robot: PatronusRobot | undefined
   /** The actions Rust offers of that robot (`robot:<id>`), its restart among them */
@@ -123,7 +123,7 @@ export function useStepInputs(key: string, step: NextStep | undefined): StepInpu
   return {
     target: useBranchSync(state => baselineOnRemote(state.baselineBranch ?? "")),
     operation: useObjectOperation(key),
-    starting: useSafePushStarting(key),
+    starting: useLandRun(key),
     robot: useStore(patronusStore, () => (robotId === null ? undefined : getRobot(robotId))),
     robotActions: useRowPart(robotId === null ? "" : `robot:${robotId}`, "actions"),
     running: useOperationsWhile(robotId !== null),
@@ -138,7 +138,7 @@ export function getStepInputs(key: string, step: NextStep | undefined): StepInpu
   return {
     target: getReadinessTarget(),
     operation: getObjectBusy(key),
-    starting: getSafePushStarting(key),
+    starting: getLandRun(key),
     robot: robotId === null ? undefined : getRobot(robotId),
     robotActions: robotId === null ? undefined : getRowPart(`robot:${robotId}`, "actions"),
     running: robotId === null ? null : getOperations(),

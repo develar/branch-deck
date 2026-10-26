@@ -18,17 +18,7 @@ import {
   startRequest,
   setupApprovalsDismissedByPush,
 } from "../helpers/patronus-helpers"
-import {
-  availablePullRequests,
-  createPullRequestDialog,
-  getOpenedUrls,
-  gitHubRequests,
-  gitHubWrites,
-  pullRequest,
-  repoPath,
-  reviewer,
-  skipCommandReplyWait,
-} from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, gitHubWrites, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, pushedBefore, pushedToast, pushedBranches } from "../helpers/push-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
@@ -116,14 +106,23 @@ const SAFE_PUSH_ITEM = { name: /^Safe Push( S)?$/ }
 
 /**
  * The start of JIRA-456 from #1078 (`/patronus merge`): the comment reached the fake GitHub, whose bot answers it with
- * 👍, and Patronus lists the robot it started from then on, so the list the app asks after the 👍 has it; the app read
- * the bot's reply over its wait; then the toast of the started robot, with Open in Patronus and Cancel Safe Push
+ * 👍, and Patronus lists the robot it started from then on, so a list the engine asks after the 👍 has it; the engine
+ * reads the bot's reply and the robots on the clock of the session, which the test moves until the start answered;
+ * then the toast of the started robot, with Open in Patronus and Cancel Safe Push
  */
 async function expectStartedFromPullRequest(page: Page, repo: TestRepositoryBuilder) {
   await expect.poll(() => gitHubRequests(repo, "POST", "issues", 1078, "comments")).toEqual([{ body: "/patronus merge --keep-source-branch" }])
   const started = robot(BRANCH, "pr-robot", { sourceRevision: null, startTime: Math.floor(Date.now() / 1000), pullRequest: { number: 1078, url: AWAITED.url } })
   await repo.setPatronus(availableRobots(started))
-  await skipCommandReplyWait(page, repo)
+  const toast = page.locator("[data-slot=toast]", { hasText: "Safe Push started" })
+  await expect
+    .poll(async () => {
+      if ((await toast.count()) === 0) {
+        await repo.advanceBackendClock(3000)
+      }
+      return toast.count()
+    })
+    .toBe(1)
   await expectStartedToast(page)
 }
 

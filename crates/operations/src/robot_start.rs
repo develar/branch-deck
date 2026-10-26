@@ -4,11 +4,13 @@
 //! reply is read on the clock of the session (`domain_policy::refresh::PATRONUS_COMMENT_REPLY_INTERVAL`, never a timer
 //! of the page) until `PATRONUS_COMMENT_REPLY_TIMEOUT` after the comment; once it accepted, the robot it started is the
 //! newest robot of that pull request in the mode of the start that nobody knew before the comment (`comment_robot`),
-//! looked for in the robots started since shortly before the comment, each tick until the same deadline. A comment the
-//! bot accepted whose robot Patronus doesn't list yet is a start all the same: its robot comes with a later list of the
-//! session.
+//! looked for in the robots started since shortly before the comment, each tick until the same deadline, and for the app
+//! less often for `PATRONUS_COMMENT_ROBOT_WAIT` more, while its start holds the subject. A comment the bot accepted whose
+//! robot Patronus doesn't list by then is a start all the same: its robot comes with a later list of the session.
 
-use domain_policy::refresh::{PATRONUS_COMMENT_CLOCK_SLACK, PATRONUS_COMMENT_REPLY_INTERVAL, PATRONUS_COMMENT_REPLY_TIMEOUT};
+use domain_policy::refresh::{
+  PATRONUS_COMMENT_CLOCK_SLACK, PATRONUS_COMMENT_REPLY_INTERVAL, PATRONUS_COMMENT_REPLY_TIMEOUT, PATRONUS_COMMENT_ROBOT_INTERVAL, PATRONUS_COMMENT_ROBOT_WAIT,
+};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot};
 use github::client::GitHubError;
@@ -94,7 +96,8 @@ pub struct CommentStart<'a> {
   /// The robots known before the comment (those that had finished when listed before it, and the one the start
   /// canceled): never its robot
   pub known: HashSet<String>,
-  /// The robot is looked for each tick until the end of the wait (the app, whose session shows it at once); else once,
+  /// The robot is looked for each tick until it is listed, `PATRONUS_COMMENT_ROBOT_WAIT` past the minute of the reply
+  /// at most (the app, whose start holds its subject meanwhile and whose session shows the robot at once); else once,
   /// right after the bot accepted (`bd`, which says the robot isn't listed yet)
   pub until_listed: bool,
 }
@@ -116,7 +119,8 @@ pub type RobotsSince<'a> = &'a (dyn Fn(u32) -> Read<'a, Result<Vec<PatronusRobot
 
 /// Posts `/patronus merge --keep-source-branch` (or `dry-run`) on the pull request, reads the reply of the bot on
 /// `clock` until it accepted or `PATRONUS_COMMENT_REPLY_TIMEOUT` passed, and looks for the robot it started in what
-/// `robots_since` lists, each tick until the same deadline
+/// `robots_since` lists, each tick until the same deadline, and with `until_listed` every
+/// `PATRONUS_COMMENT_ROBOT_INTERVAL` after it for `PATRONUS_COMMENT_ROBOT_WAIT` more
 ///
 /// # Errors
 /// A comment GitHub refused, a reply it failed to answer, a comment the bot rejected (`patronus_refused`, with its
@@ -162,11 +166,17 @@ pub async fn start_by_comment(start: CommentStart<'_>, clock: &dyn Clock, robots
         return Ok(commented);
       }
     }
-    let next = clock.now() + PATRONUS_COMMENT_REPLY_INTERVAL;
-    if next > deadline {
+    let now = clock.now();
+    let next = now + PATRONUS_COMMENT_REPLY_INTERVAL;
+    let next = if next <= deadline {
+      next
+    } else if commented.accepted && start.until_listed && now + PATRONUS_COMMENT_ROBOT_INTERVAL <= deadline + PATRONUS_COMMENT_ROBOT_WAIT {
+      // accepted, the robot not listed within the minute: looked for less often, while the start holds its subject
+      now + PATRONUS_COMMENT_ROBOT_INTERVAL
+    } else {
       debug!(accepted = commented.accepted, "the wait for the reply and the robot of the comment ended");
       return Ok(commented);
-    }
+    };
     sleep_until(clock, next).await;
   }
 }

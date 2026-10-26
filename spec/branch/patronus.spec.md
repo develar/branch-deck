@@ -26,7 +26,7 @@ targets:
   - ../../src-tauri/src/commands/patronus.rs
   - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
-  - ../../src/lib/landing-gate.ts
+  - ../../src/presenters/landing.ts
   - ../../crates/remote-facts/src/patronus_review.rs
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus-failing.ts
@@ -54,7 +54,11 @@ targets:
   - ../../src/components/branch/SafePushPopover.tsx
   - ../../src/hooks/useSafePush.ts
   - ../../src/presenters/land.ts
-  - ../../src/lib/safe-push-start.ts
+  - ../../src/presenters/outcome.ts
+  - ../../crates/operations/src/land_execute.rs
+  - ../../crates/operations/src/land_session.rs
+  - ../../crates/operations/src/robot_start.rs
+  - ../../crates/operations/src/engine.rs
   - ../../crates/domain-policy/src/push.rs
   - ../../crates/domain-policy/src/holds.rs
   - ../../crates/domain-policy/src/land.rs
@@ -64,7 +68,6 @@ targets:
   - ../../crates/domain-types/src/reason.rs
   - ../../crates/repository-model/src/derive.rs
   - ../../src/presenters/reasons.ts
-  - ../../src/lib/target-conflict.ts
   - ../../crates/sync-core/src/target_conflict.rs
   - ../../crates/git-ops/src/trial_rebase.rs
   - ../../src/stores/safe-push.ts
@@ -217,12 +220,12 @@ reports in it and closes it once merged.
 - The first list (after the first sync of a session a window shows) and the refresh button ask for the last 7 days;
   every other list asks only for the robots started since 2 minutes before the previous list started. A full list asked again within 10 s (a second window of the
   repository) is answered from the last one, unless the robots changed since (a start, a restart, a cancel, a poll
-  that saw a change). The list of a check before an action of the app (its push, the landing check of the popover, a
-  start, a restart, a cancel) is asked anew every time, never answered from a kept one: a robot the IDE or `bd`
-  started since the page's list must hold, and the list it fetched answers the page's next list. So a start from the
-  popover asks three lists (the landing check, the push, then the start; a fourth cancels the robot it replaces), each
-  a full window: the cost of a check that sees what the page's list can't.
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_from_the_popover_asks_three_full_lists`)
+  that saw a change). The list of a check before an action of the app's page (its push, a restart, a cancel) is asked
+  anew every time, never answered from a kept one: a robot the IDE or `bd` started since the page's list must hold, and
+  the list it fetched answers the page's next list. A start of a Safe Push or a Dry Run asks none of its own (C2): it
+  is an operation of the session (`execute`), whose plan, witness, push and start read the robots the session holds,
+  and whose robot goes into them at once.
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_through_execute_asks_no_list_of_its_own`)
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`lists_the_last_days_first_then_only_the_robots_started_since_shortly_before_the_last_list`)
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`lists_the_full_window_on_the_refresh_button_asked_by_the_user`)
   [@test] ../../crates/patronus/src/service_test.rs (`reuses_a_fresh_full_list_but_not_an_incremental_one`, `the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere`, `a_poll_that_sees_a_change_drops_the_kept_full_list`)
@@ -591,10 +594,29 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   doesn't list the pull requests) or couldn't answer the review (`unavailable`, `ReviewUnknown`), the push dismisses
   approvals Patronus doesn't count, the rules of the repository can't be read for a push into an approved pull
   request, a start without review. S, "Safe Push With Profile…" and the start without review always confirm. What the
-  start does then is Rust's too (`PlannedEffect`, run in order by `startSafePush`): the retarget of a pull request
+  start does then is Rust's too (`PlannedEffect`, run in order by the engine): the retarget of a pull request
   into a virtual branch into the target (D11, the popover says it: "Retargets #8 of oauth from user/virtual/login to
-  master first: every pull request of a virtual branch goes into master."), the push with the cancel of the Safe Push
-  it replaces, then the robot, from the pull request or through the API with the profile.
+  master first: every pull request of a virtual branch goes into master."), the cancel of the Safe Push it replaces,
+  the push, then the robot, from the pull request or through the API with the profile.
+- The page runs the plan it showed (`execute` of its intent on the plan's fingerprint, every confirmation of it
+  accepted, `startPlanned` of `src/hooks/useSafePush.ts`): one operation of the session of the repository
+  (`operations::engine::execute_land`, the run `bd safe-push` runs, `operations::land_execute`), admitted over the
+  operations that run there (a second start of the same subject joins it, one that lands a part of it waits for it),
+  the plan prepared again from the facts now; a fingerprint or a confirmation the plan no longer has refuses it as
+  `plan_changed` before any effect. The operation is in the view from its admission on (`RepositoryView.operations`),
+  so every window shows its step in the slot ("Checking…", "Waiting…" for another holder of the repository lock with
+  Stop Waiting beside it, "Pushing 45%" with the progress its channel tells the window that asked, "Starting…") and the
+  node of the row leaves the user's moves at once (`RunningMove::Starting`). Before the effects the engine checks what
+  lands against the newest target and, of a whole stack, its landing gate (`operations::land_session`), takes the
+  repository lock only to read the witness and freeze the commits and the leases of the push, then runs the effects
+  in order: each with its status in the outcome, the first that fails stops the rest, and a rewrite after the push
+  (the virtual branch moved off the pushed commit), a robot of what it lands started meanwhile or a closed pull request
+  of its comment skip the start as `plan_changed`: the toast says what changed and what was done ("the Safe Push it
+  replaced was canceled and the push stays"), with "Start Safe Push" (a new plan, without the push and the cancel it
+  made) and Open in Patronus of the robot it canceled.
+  [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan`, `the_first_effect_that_fails_stops_the_start_and_the_ones_before_it_stay_done`, `a_rewrite_while_the_push_sends_skips_the_start_and_the_outcome_tells_what_was_done`, `a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothing`, `a_robot_of_what_it_lands_started_meanwhile_skips_the_start`)
+  [@test] ../../src/presenters/outcome.test.ts (`says the robot it started with the profile of its plan, and the checks that ran on the last fetched target`, `offers the start again when the facts changed after the push, naming the robot it canceled; a failed effect says its error`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_its_plan_refuses_is_refused_before_patronus_or_github_is_asked`)
   [@test] ../../src/presenters/land.test.ts (`starts at once when Rust decided there is nothing to say, and waits for its decision before it`, `opens the popover for a key and for each confirmation of the decision: a stack, a profile, a running Safe Push it cancels, a review Patronus judges only at the start, a piece of a stack whose pull request is open`, `refuses with the reason of the next step first, the reason every surface says`, `waits for the facts Rust waits for, each saying what it waits for, and refuses with why a read failed`, `refuses with the words of the first blocker, offering the push or the object it names: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `lets a start without review wait for its profile, and confirm the one that skips the review`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_with_nothing_in_its_way_pushes_what_it_lands_root_first_then_starts`, `every_fact_without_an_answer_waits_or_confirms_and_never_refuses`, `the_table_refuses_first_then_the_target_then_a_push_that_drops_remote_commits_unless_allowed`, `the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`, `a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`, `missing_approvals_refuse_unless_skipped_and_approvals_judged_at_the_start_confirm`, `the_pull_request_decides_the_route_a_draft_refuses_and_another_base_refuses_only_counted_approvals`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_profile_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
@@ -672,14 +694,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the push into the target is left out.
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_with_nothing_in_its_way_pushes_what_it_lands_root_first_then_starts`, `every_fact_without_an_answer_waits_or_confirms_and_never_refuses`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`, `should wait to start until the remote status of the branch is loaded`)
-- A start belongs to the repository it was asked in: the click freezes the repository and its baseline (Rust resolves
-  the branch prefix of that repository for each step), and every step names them (the landing gate, the target conflict check, the cancel of the robot it
-  replaces, the start or the comment on the pull request, Activity), so a switch of the repository during the start
-  starts nothing in the other one, and its robot lands in the store of its own repository, which shows it on return.
-  The step of a start shows only in its repository: the branch of the same name in the other one shows no step and
-  starts on its own. The push reads the branches of the table: a switch before it starts nothing, "Cannot start the
-  Safe Push" says "idea-1 is no longer the open repository"; a push already sent ends there and the robot starts.
-  [@test] ../../src/lib/safe-push-start.test.ts (`starts the robot in the repository it was asked in when the switch comes during its push`, `pushes nothing of the other repository when the switch comes before its push, and says why`)
+- A start belongs to the repository it was asked in: the click plans it in the session of that repository and runs it
+  there (`execute` names the repository; Rust resolves its branch prefix), so a switch of the repository during the
+  start starts nothing in the other one, and its robot lands in the session of its own repository, which shows it on
+  return. The step of a start shows only in its repository (the operations of its session): the branch of the same
+  name in the other one shows no step and starts on its own. A plan read before the switch starts nothing: "Cannot
+  start the Safe Push" says "idea-1 is no longer the open repository".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start the Safe Push in its repository when another repository opens during its checks`)
 - A push before the start of a branch with an open pull request into the target that someone approved, in a
   repository whose GitHub rules dismiss stale reviews on push (a `pull_request` rule with `dismiss_stale_reviews_on_push`
@@ -714,33 +734,33 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/repository-model/src/pull_request_facts_test.rs (`the_rules_are_of_the_bases_of_the_approved_open_pull_requests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - git merges a branch that uses a name only another branch adds, and the robot's build fails (the robots of
-  2026-10-17 and 2026-10-21). So a start first asks the landing gate, the rule of `bd safe-push` in Rust
-  (`checkLandingBeforeStart`, `check_landing_gate`, `trial_check::landing_gate`): a trial check of what lands, with the
-  proven dangling references and, with `branchdeck.symbols on`, the missing declarations, the uses by a commit of what
-  lands of a name that a commit outside it adds, which no merged Safe Push landed (the commits the repository view
-  names landed, on the robots Rust reads for the check, one full list asked now as for the start itself: the same
-  input as the start's own gate, never the page's robots; a list Patronus doesn't give fails the check, never counts
-  nothing landed). Meanwhile the slot
-  button says "Checking…". A refusal starts nothing and pushes nothing: the error toast "Cannot start the Safe Push"
-  says "“Show each scenario” of JIRA-456 uses Stills (src/lane/BuildLog.kt:7), which “Name lossy stills” of ABC-123
-  adds: git merges it, but the build of JIRA-456 fails. Stack JIRA-456 on ABC-123 to land it too." (one more refusal:
-  "One more name breaks it too: bd check lists them."), with the fix as its action, "Stack JIRA-456 on ABC-123", a
-  restack of the root of what lands, so the next start lands that branch too, and "Start Anyway" below it, the same
-  start with the override of what refused it (a name the user knows is a false alarm). A commit unassigned, stacked
-  branches off or a restack that would close a cycle: the text names the move of the commit, and "Start Anyway" is the
-  only action. The start command checks again, with the override, before it asks Patronus, so no surface starts past
-  the gate; the start from a pull request asks the gate first too. A check that can't run (the robots can't be read:
-  no token, a rejected one, Patronus down) holds nothing back, and the start's toast says "Not checked whether JIRA-456
-  uses a name only another branch adds: …".
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse a Safe Push whose branch uses a name another branch adds, with the restack and Start Anyway`)
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_landing_check_counts_what_the_robots_rust_reads_landed`, `a_landing_check_without_the_robots_fails_instead_of_refusing`)
+  2026-10-17 and 2026-10-21). So no start runs past the landing gate, the rule of `bd safe-push` in Rust
+  (`trial_check::landing_gate`): a trial check of what lands, with the proven dangling references and, with
+  `branchdeck.symbols on`, the missing declarations, the uses by a commit of what lands of a name that a commit outside
+  it adds, which no merged Safe Push landed (the commits the repository view names landed, on the robots of the
+  session, never the page's). The gate of a branch is its landing needs, which the session computes after its sync
+  (below); the gate of a whole stack the engine checks before the effects of its start (`operations::land_session`,
+  through the object cache of the repository). A refusal starts nothing and pushes nothing (`missing_declaration`,
+  `dangling_reference`, with every refusal and its fix, `ErrorDetails::Landing`): the error toast "Cannot start the
+  Safe Push of the whole lane-run stack" says "“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3),
+  which “Name lossy stills” of stills-codec adds: git merges it, but the build of the whole lane-run stack fails. Stack
+  lane-run on stills-codec to land it too." (one more refusal: "One more name breaks it too: bd check lists them."),
+  with the fix as its action, "Stack lane-run on stills-codec", a restack of the root of what lands, so the next start
+  lands that branch too, and "Start Anyway" below it, the same start with the override of what refused it (a name the
+  user knows is a false alarm), planned again. A commit unassigned, stacked branches off or a restack that would close
+  a cycle: the text names the move of the commit, and "Start Anyway" is the only action. A gate of a whole stack that
+  can't run holds nothing back, and the start's toast says "Not checked whether the whole lane-run stack uses a name
+  only another branch adds: …".
+  [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should refuse the Safe Push of a whole stack whose build needs a branch outside it, with the restack and Start Anyway`)
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_whose_build_needs_a_branch_outside_it_is_refused_with_the_fix`)
+  [@test] ../../src/presenters/outcome.test.ts (`offers the fix and Start Anyway of the landing gate, Update Project of a conflict with the target, the start again of a changed plan`)
 - The row knows it before the press: after a sync Rust computes the refusals of every branch's start by the same rule
   (the landing needs, [Next Step](next-step.spec.md#what-the-safe-push-needs)), and the slot says "Needs ABC-123" with
   the restack. The popover of the start (S, a click, Dry Run) then opens first (a confirm reason, `landing`) and shows the
   reason before the start, in the words of the toast, with the fix as its button ("Stack JIRA-456 on ABC-123", which
   restacks and leaves the popover open to read the start again); its start is "Start Anyway", the start with the
-  overrides of what refused it, which the gate of the start and the start command get. Start Anyway is offered only
-  there and in the refusal's toast, never by the row. A dangling reference has the same fix: the restack onto the
+  overrides of what refused it, planned again with them (`allow` of its `Land`). Start Anyway is offered only there
+  and in the refusal's toast, never by the row. A dangling reference has the same fix: the restack onto the
   branch of the commit that changes the use, or its move. While the branch that adds the name is landing in a running
   Safe Push (its own, of a branch built on it, of its whole stack: `landingIn`), the reason says so: "ABC-123 is landing
   in its Safe Push, which tests it without this start: a start beside it fails too." Its robot tests ABC-123 without
@@ -748,74 +768,67 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should say in the Safe Push popover why the build fails before the start, and stack the branch from it`, `should start anyway from the Safe Push popover with the override of what refuses it`)
   [@test] ../../src/presenters/land.test.ts (`opens the popover when the build of what it lands needs a branch outside it: the reason, the fix and Start Anyway before the start`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`the_landing_gate_refuses_unless_allowed_then_a_conflict_with_the_target`)
-  [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
+  [@test] ../../src/presenters/landing.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
-  [@test] ../../src/lib/landing-gate.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
+  [@test] ../../src/presenters/landing.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once
   ("Rebase … onto master is impossible"). A branch is built on the base of the checked out branch, not on the newest
-  target, and the target moves every minute. So the start checks the rebase first, before the push
-  (`checkTargetBeforeStart`, the core of `bd safe-push`, `check_target_conflict`). It fetches only the target's remote
-  branch, as Update Project does, then replays what lands onto its tip as a plain `git rebase` does, with no resolution
-  by words, because Patronus can't resolve by words. Meanwhile the slot button says "Checking…". A conflict starts
-  nothing and pushes nothing: the error toast "Cannot start the Safe Push" says "Patronus can't rebase auth onto
-  origin/master: 1a2b3c4d (Add auth) conflicts in a.txt, which origin/master changed after the base of auth: 9e8d7c6b
-  (Alice: Change a). Update Project resolves it locally; then start again.", with "Update Project" as its action, of the
-  repository of the start (a fetch only, once the main window shows another one, `runUpdateProjectOf`). The
-  commit is the one of the row, the target commits are the newest 10 that change the files. A failed fetch doesn't
-  stop the check: it replays onto the last fetched tip, and the start's toast says so after its description ("The
-  fetch of origin/master failed, so the check used the last fetched origin/master: …"). A check that can't run holds
-  nothing back, and the toast says "Not checked whether Patronus can rebase auth onto origin/master: …".
+  target, and the target moves every minute. So the engine checks the rebase before the effects of a start, on its
+  own thread, outside the repository lock (`operations::land_session`, the check of `bd safe-push`,
+  `sync_core::target_conflict`). It fetches only the target's remote branch, as Update Project does, then replays what
+  lands onto its tip as a plain `git rebase` does, with no resolution by words, because Patronus can't resolve by words.
+  Meanwhile the slot button says "Checking…". A conflict starts nothing and pushes nothing (`target_conflict`, the
+  commit and its files in `ErrorDetails::Conflict`): the error toast "Cannot start the Safe Push of auth" says "Nothing
+  was pushed or started: auth conflicts with the newest target in a.txt: Patronus would fail it at once", with "Update
+  Project" as its action, of the repository of the start (a fetch only, once the main window shows another one,
+  `runUpdateProjectOf`). A failed fetch doesn't stop the check: it replays onto the last fetched tip, and the start's
+  toast says so after its description ("The fetch of origin/master failed, so the check used the last fetched
+  origin/master: …", `StartNote`). A check that can't run holds nothing back, and the toast says "Not checked whether
+  Patronus can rebase auth onto origin/master: …".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project`)
-  [@test] ../../src/lib/safe-push-start.test.ts (`updates the repository of the start from its toast, also after a switch of the repository`)
-  [@test] ../../src/lib/target-conflict.test.ts (`refuses a conflict with the commit as the row shows it, its files, the target commits that change them, and Update Project`, `starts a clean one without a word, and says when the check used the last fetched target or did not run`, `names the files beyond the first ones by their count, and the target without commits that change them`)
   [@test] ../../crates/sync-core/src/target_conflict_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_conflicts`, `a_target_that_moved_without_a_conflict_is_clean`, `a_failed_fetch_checks_the_last_fetched_target_and_says_so`)
-- The push is a step of the start (`startSafePush`): it has no toast of its own (Activity records it), the start's
-  toast is the one toast of the action. A failed push starts nothing. The push is `pushForAction`, the push of every action
-  that needs the remote (the pull request dialog, Request Review): it never drops someone's remote commits for the
-  user, and a branch, or an ancestor it pushes, whose remote branch has commits the branch lacks refuses the start: "The
-  remote branch of auth has 2 commits that auth lacks: push it from its row, which shows them". A Safe Push of the branch still running on
-  an older commit is canceled for that push, not restarted ([below](#pushing-into-a-branch-whose-safe-push-runs)). Then
-  `POST /robots` starts the robot on the pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch
-  `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart takes the newest commit of the
-  branch; the request names the profile chosen (`mergeProfileId`, null for the default checks), the mode
-  (`REBASE_AUTOSQUASH`, `DRY_RUN`) and the Space merge request whose approvals count (`spaceReview`). The robot shows
-  at once and is polled.
-- The start command checks the start in Rust before it asks Patronus, by the rules of `bd safe-push`
-  (`repository_model::start_guard`), on the table of the last sync and the user's robots it lists itself (one request; a
-  list Patronus doesn't give fails the start, never the robots the page knows): a parked branch, one built on parked
-  and a whole stack with a parked member ("Nothing was started: login is parked: IJPL-1; it stays local until the user
-  unparks it"), a branch or a whole stack merged Safe Pushes landed whole ("…: nothing of it is left to land"), a branch
-  the sync did not build and a stack branch that is not built or conflicts as one branch, then the robot part of the
-  repository view, in the words of the page ("A Safe Push of the last commit is running", "A Safe Push of login is
-  running: wait until it merges"; a Dry Run waits only for a robot on the last commit). Then the landing gate, with the
-  commits the view names landed (`landedBy`, the page sends none), and the target (`prepare_robot_start`). The page
-  checks the same before it asks; the command refuses a start that raced with another one (the IDE, `bd`) or came by
-  IPC, and the E2E server runs the same sequence (`start_robot`). A start from the pull request of the user's branch
-  (the `/patronus` comment, `post_patronus_command` with the branch it starts) runs the same checks and the landing
-  gate before the comment, in the same words (`check_start_from_pull_request`); a refused one posts nothing. A comment
-  on a pull request of someone else the user reviewed has no branch of the table to check.
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_from_the_pull_request_runs_the_checks_of_a_start_before_the_comment`)
-  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_parked_branch_a_branch_built_on_parked_and_a_whole_stack_with_a_parked_member_are_refused`, `a_branch_and_a_whole_stack_merged_safe_pushes_landed_whole_are_refused`)
-  [@test] ../../crates/repository-model/src/start_guard_test.rs (`a_branch_and_a_stack_branch_the_sync_did_not_build_are_refused`, `a_robot_on_the_last_commit_or_one_that_lands_a_part_of_the_subject_is_refused`)
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_of_a_parked_branch_is_refused_before_patronus_is_asked`)
+- The push is an effect of the start: it has no toast of its own (Activity records it, with the operation), the
+  start's toast is the one toast of the action. A failed push starts nothing. It is the push core of every push
+  (`operations::push::send`): the commits and the leases frozen under the lock, the network push after it, once more
+  over a remote that moved without commits the branch lacks; it never drops someone's remote commits for the user (a
+  branch, or an ancestor it pushes, whose remote branch has commits the branch lacks refuses the start before it: "The
+  remote branch of auth has 2 commits that auth lacks: push it from its row, which shows them"). A Safe Push of the
+  branch still running on an older commit is canceled before that push, not restarted
+  ([below](#pushing-into-a-branch-whose-safe-push-runs)). Then `POST /robots` starts the robot on the pushed virtual
+  branch, as the web UI does (`ROBOT_WEB_UI`, the source branch `refs/heads/{prefix}/virtual/{name}`, kept: delete
+  policy `NEVER`), so a restart takes the newest commit of the branch; the request names the profile chosen
+  (`mergeProfileId`, null for the default checks), the mode (`REBASE_AUTOSQUASH`, `DRY_RUN`) and the Space merge request
+  whose approvals count (`spaceReview`). The robot goes into the session at once and is polled.
+- `execute` decides the start again in Rust before any effect, by the rules of `bd safe-push`, over the facts of the
+  session, never the page's: what its plan refuses refuses it, in the words of `bd` (`start_refusal_text`): a parked
+  branch, one built on parked and a whole stack with a parked member ("Nothing was pushed or started: login is parked:
+  IJPL-1"), a branch or a whole stack merged Safe Pushes landed whole, a branch the sync did not build and a stack
+  branch that is not built or conflicts as one branch, then the robot part of the repository view ("A Safe Push of the
+  last commit is running", "A Safe Push of login is running: wait until it merges"; a Dry Run waits only for a robot on
+  the last commit). A start that raced with another one (the IDE, `bd`) or came by IPC is refused the same way, and a
+  refused one comments on no pull request either.
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_its_plan_refuses_is_refused_before_patronus_or_github_is_asked`)
+  [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothing`)
   [@test] ../../crates/patronus/src/actions_test.rs (`an_action_without_a_token_tells_how_to_log_in`)
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`, `should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`, `should name the approvals a Safe Push needs on Space, and start with the merge request found open`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_restart_and_cancel_run_the_real_service_against_the_fake`)
-  [@test] ../../src/lib/git/push.test.ts (`pushes the branch for the action without a toast, Activity records it`, `pushes the ancestors with work for the remote first, root first`, `refuses a push that drops remote commits of the branch or of an ancestor: the row asks first`, `returns the reason of a hold instead of a toast`)
 - A started robot is a `success` toast "Safe Push started" ("Dry Run started") that names the branch, the target and
   the profile, never the ref the robot runs on ("auth → master · profile Large Scale Change", `describeRobot`), with
   "Open in Patronus" (the robot page) and below the text "Cancel Safe Push": a start asked by mistake costs only the
-  robot (the push and the comment stay), for 10 s; Activity records it in the same words. A failed start is an error
-  toast "Cannot start the Safe Push" with what Patronus said. It is the toast of the robot
+  robot (the push and the comment stay), for 10 s; Activity records it in the same words, with the operation (its log
+  lines). The toast and the entry are the outcome of `execute` in the page's words (`presentLandOutcome` of
+  `src/presenters/outcome.ts`, the robot of `LandResult`). A failed start is an error toast "Cannot start the Safe Push
+  of auth" with what Patronus said. It is the toast of the robot
   ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event), `showRobotEventToast`): its Cancel
   only while the robot can be canceled, and its later states take its place (its failure, its merge, its cancel, a
   restart); it takes the place of the toast of the robot it restarts and of the approvals it starts on
   ([Review Requests](../repository/review-requests.spec.md#approval-news)).
   [@test] ../../src/lib/patronus.test.ts (`describes a robot by its branch and target, with the profile it was started with`)
+  [@test] ../../src/presenters/outcome.test.ts (`says the robot it started with the profile of its plan, and the checks that ran on the last fetched target`)
   [@test] ../../src/stores/patronus.test.ts (`takes the place of the toast of the robot's start: one toast of the robot`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should turn the toast of the approval into the start of the branch, in place, when the row starts it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
@@ -842,7 +855,6 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_start_pushes_the_ancestors_with_work_up_to_the_nearest_held_one_past_what_landed`, `a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_built`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_push_of_a_start_is_the_push_of_its_row_past_an_ancestor_that_landed`)
-  [@test] ../../src/lib/safe-push-start.test.ts (`pushes the branches its decision pushes and no other: base below a landed parent, not the parent`)
   [@test] ../../src/lib/git/push.test.ts (`pushes the branches a start decided and no other: the ancestor of a branch the remote has, alone`, `pushes the branches a start decided in one push: base and the branch past a parent that landed, not the parent`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe_push_holds`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
@@ -913,34 +925,30 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   "Draft" that opens it ([Next Step](next-step.spec.md)). A dry run of a draft can.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the pull request with a /patronus merge comment`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs`)
-- The bot answers the comment with a reaction: 👍 started, 👎 not, with a comment starting `⚠️` that says why. After the
-  comment, every 3 s for up to a minute counted from the comment (the checks of the start before it take none of it),
-  the app reads the reactions of its comment (`GET
-  repos/<owner>/<name>/issues/comments/<id>`, conditional: a poll that sees no change costs no rate limit); after 👎 the first later `⚠️` comment of a bot is the reason, looked for
-  once more if it isn't there yet; after 👍 an incremental list (`since` shortly before the comment) finds the robot of
-  the pull request (`githubPrUrl`), which shows at once and is polled: of that pull request, a Dry Run for a Dry Run and
-  a Safe Push for a Safe Push, none the app listed before the comment, the newest (`findCommentRobot`; `bd safe-push`
-  matches it the same way, `comment_robot`, leaving out the robots that had finished and the one it replaces), so a
-  Dry Run of #7 canceled a minute before is never the new robot. The loading toast says "Asking Patronus on pull
-  request #7…". A refusal is the error toast "Cannot start the Safe Push" with the bot's reason; no answer within a
-  minute is "Patronus did not answer the comment within a minute: see pull request #7". A 👍 is the start: when
-  Patronus lists no robot of it within the minute, the toast is "Safe Push started", "Patronus accepted the comment on
-  #7: the robot shows once Patronus lists it", with "Open Pull Request #7", and the robot is looked for every 15 s for 5
-  minutes more in the background. Until it is listed (or the 5 minutes end) the start holds: the slot says "Starting…",
-  a second click or key starts nothing, and a repeat of the same pull request and mode joins the start instead of
-  posting a second comment, which Patronus would answer with a second robot or 👎. The hold is the repository's own: a
-  switch to another repository shows nothing on its branch of the same name, and back in the repository the slot still
-  says "Starting…" while the look in the background goes on there.
+- The bot answers the comment with a reaction: 👍 started, 👎 not, with a comment starting `⚠️` that says why. The
+  engine of the start reads it (`operations::robot_start`, the same for `bd safe-push`): right after the comment, then
+  every 3 s on the clock of the session (`domain_policy::refresh`, never a timer of the page) for up to a minute counted
+  from the comment (the checks of the start before it take none of it), the reactions of its comment (`GET
+  repos/<owner>/<name>/issues/comments/<id>`, conditional: a poll that sees no change costs no rate limit); after 👎 the
+  first later `⚠️` comment of a bot is the reason, looked for once more if it isn't there yet; after 👍 an incremental
+  list (`since` shortly before the comment) finds the robot of the pull request (`githubPrUrl`), which goes into the
+  session and is polled: of that pull request, a Dry Run for a Dry Run and a Safe Push for a Safe Push, none the
+  session listed finished before the comment nor the one the start replaced, the newest (`comment_robot`, as `bd
+  safe-push` matches it), so a Dry Run of #7 canceled a minute before is never the new robot. A refusal is the error
+  toast "Cannot start the Safe Push of auth" with the bot's reason; no answer within a minute is "Patronus did not
+  answer the comment within a minute: see pull request #7" with Open Pull Request. A 👍 is the start: when Patronus
+  lists no robot of it within the minute, the start of the app goes on looking for it every 15 s for 5 minutes more,
+  and holds its subject meanwhile: the slot says "Starting…" in every window, a second click or key starts nothing, and
+  a repeat of the same start joins it instead of posting a second comment, which Patronus would answer with a second
+  robot or 👎. The hold is the session's: a switch to another repository shows nothing on its branch of the same name,
+  and back in the repository the slot still says "Starting…". Once listed, the toast is "Safe Push started" of the
+  robot; none within the 5 minutes, it is "Safe Push started", "Patronus accepted the comment on #7: the robot shows
+  once Patronus lists it", with "Open Pull Request #7", and the robot comes with a later list of the session.
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_comment_without_reactions_is_pending_and_a_thumbs_up_is_accepted`)
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_thumbs_down_reads_the_reason_from_the_bot_comment`)
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`the_reason_is_a_later_bot_comment_and_a_user_warning_is_not_one`)
-  [@test] ../../src/stores/patronus.test.ts (`posts the command, waits for the thumbs up and returns the robot of the pull request`)
-  [@test] ../../src/stores/patronus.test.ts (`throws the reason the bot gave with its thumbs down`)
-  [@test] ../../src/stores/patronus.test.ts (`gives up after a minute without an answer`)
-  [@test] ../../src/stores/patronus.test.ts (`counts the minute of the bot from the comment, not from the checks before it`)
-  [@test] ../../src/stores/patronus.test.ts (`never takes an earlier robot of the pull request: one listed before the comment or of the other mode, the newest of the rest`)
-  [@test] ../../src/stores/patronus.test.ts (`resolves an accepted comment without a listed robot as started, and looks for the robot in the background`)
-  [@test] ../../src/stores/patronus.test.ts (`joins a repeat of an accepted comment whose robot Patronus lists not yet, and posts no second comment`)
+  [@test] ../../crates/operations/src/robot_start_test.rs (`a_comment_the_bot_accepts_starts_the_newest_robot_of_its_pull_request_nobody_knew`, `a_comment_the_bot_rejects_fails_with_its_reason_and_one_it_never_answers_is_pending_after_the_minute`, `an_accepted_comment_looks_for_its_robot_after_the_minute_until_patronus_lists_it`)
+  [@test] ../../src/presenters/outcome.test.ts (`says a comment Patronus accepted whose robot it lists not yet, and a comment it never answered as a failure that opens it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should keep holding a start Patronus accepted through a switch to another repository and back`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request`)

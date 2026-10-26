@@ -5,8 +5,6 @@
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 /// The id of the main worktree; a linked one is named by its directory under `$GIT_COMMON_DIR/worktrees`
 const MAIN_WORKTREE: &str = "main";
@@ -232,30 +230,6 @@ pub fn ref_tips(git_executor: &GitCommandExecutor, repo_path: &str, namespaces: 
       .map(|(reference, tip)| (reference.to_string(), tip.to_string()))
       .collect(),
   )
-}
-
-/// The refs and the config of `repo_path` as one hash: the checked-out branch and the tip of every branch,
-/// remote-tracking branch, store and notes ref (one `for-each-ref`), and every config value (one `config --list -z`).
-/// What a session of the current grouping reads and can change is among them (HEAD, the baseline, the virtual and
-/// stack branches, the stores, the mapping notes, the keys of Branch Deck), so two reads with one hash name the same
-/// commits, the same grouping and the same config. Equal only within one process
-pub fn refs_and_config_hash(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<u64> {
-  let mut hasher = DefaultHasher::new();
-  git_executor
-    .execute_command(
-      &[
-        "for-each-ref",
-        "--format=%(HEAD)%(objectname) %(refname)",
-        "refs/heads/",
-        "refs/remotes/",
-        "refs/branch-deck/",
-        "refs/notes/",
-      ],
-      repo_path,
-    )?
-    .hash(&mut hasher);
-  git_executor.execute_command(&["config", "--list", "-z"], repo_path)?.hash(&mut hasher);
-  Ok(hasher.finish())
 }
 
 /// The tips of `tips` (of `ref_tips`) under `namespace`, by the name after it

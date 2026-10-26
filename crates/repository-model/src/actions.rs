@@ -1,27 +1,23 @@
-//! What the app's actions on the robots run on, the same for the app's commands and the E2E server's routes: the landing
-//! check of the popover, the start, the restart and the cancel of a robot (`start_guard`; the push is
-//! `operations::push`). Each host builds one `RemoteActions` per command (`RemoteActions::new`); every flow is a method of
-//! it, in the module of its checks, and reads the user's robots itself: never the page's, never a list kept before. The
-//! table the checks read is the one of the last sync of the repository's session (`Sessions::table`), the landing gate
-//! the host's (`LandingGate`). The branch prefix is the one the host resolved for the command (`BranchPrefixes`), never
-//! one the page sent.
+//! What the app's actions on the robots run on, the same for the app's commands and the E2E server's routes: the
+//! restart and the cancel of a robot (`start_guard`; a start is `operations::land_execute`, the push `operations::push`).
+//! Each host builds one `RemoteActions` per command (`RemoteActions::new`); every flow is a method of it, in the module of
+//! its checks, and reads the user's robots itself: never the page's, never a list kept before. The table the checks read
+//! is the one of the last sync of the repository's session (`Sessions::table`). The branch prefix is the one the host
+//! resolved for the command (`BranchPrefixes`), never one the page sent.
 
 use crate::facts::TableFacts;
-use crate::landing::LandingGate;
 use crate::session::{SessionKey, Sessions};
 use anyhow::{Result, anyhow};
 use domain_types::patronus::PatronusRobot;
 use git_executor::git_command_executor::GitCommandExecutor;
 use patronus::service::PatronusService;
-use std::sync::Arc;
 use sync_core::patronus::SpaceRepository;
 
 /// Why an action that needs Patronus is refused off Space, in the words of both hosts
 pub const NOT_ON_SPACE: &str = "The repository is not on Space: Patronus can't push it";
 
-/// What the app's actions on the remote run on: the Patronus service with the Space repository (none off Space), git,
-/// the sessions with the tables of their last syncs, the landing gate and the prefix the branches of the repository are
-/// named under
+/// What the app's actions on the robots run on: the Patronus service with the Space repository (none off Space), git,
+/// the sessions with the tables of their last syncs and the prefix the branches of the repository are named under
 pub struct RemoteActions<'a> {
   /// The service and the Space repository Patronus names the repository by (`ultimate`); `None` off Space: no robot
   /// holds a push, and a robot action is refused
@@ -29,7 +25,6 @@ pub struct RemoteActions<'a> {
   pub(crate) git_executor: &'a GitCommandExecutor,
   /// The session of the repository under `branch_prefix` holds the table of its last sync
   pub(crate) sessions: &'a Sessions,
-  pub(crate) gate: &'a Arc<dyn LandingGate>,
   /// The prefix the host resolved for the command: the branches of a push and of a robot, the key of the session
   pub(crate) branch_prefix: &'a str,
 }
@@ -37,18 +32,11 @@ pub struct RemoteActions<'a> {
 impl<'a> RemoteActions<'a> {
   /// `patronus`: the service and the Space repository of the repository; `None` off Space, or when the host can't read it.
   /// `branch_prefix`: the prefix the host resolved for the repository of the command
-  pub fn new(
-    patronus: Option<(&'a PatronusService, &'a SpaceRepository)>,
-    git_executor: &'a GitCommandExecutor,
-    sessions: &'a Sessions,
-    gate: &'a Arc<dyn LandingGate>,
-    branch_prefix: &'a str,
-  ) -> Self {
+  pub fn new(patronus: Option<(&'a PatronusService, &'a SpaceRepository)>, git_executor: &'a GitCommandExecutor, sessions: &'a Sessions, branch_prefix: &'a str) -> Self {
     Self {
       patronus: patronus.map(|(service, space)| (service, space.name.as_str())),
       git_executor,
       sessions,
-      gate,
       branch_prefix,
     }
   }
@@ -65,17 +53,6 @@ impl<'a> RemoteActions<'a> {
   /// is not open or never synced
   pub(crate) async fn table(&self, repository_path: &str) -> Option<TableFacts> {
     self.sessions.table(&self.key(repository_path)).await
-  }
-
-  /// The user's robots for the landing check of the popover: the list of a robot action
-  /// (`PatronusService::robots_for_action`, one full list asked now, past the backoff), as the start's own gate gets it,
-  /// so both gates count the same commits landed; a list Patronus doesn't give fails the check, which holds nothing back
-  /// (the page says "Not checked whether …", and the start checks again). Off Space none: no Safe Push landed anything
-  pub(crate) async fn robots_for_landing_check(&self) -> Result<Vec<PatronusRobot>> {
-    match self.patronus {
-      Some((service, repository)) => service.robots_for_action(repository, self.branch_prefix).await.map_err(|e| anyhow!(e)),
-      None => Ok(Vec::new()),
-    }
   }
 
   /// The service and the Space repository of a robot action; off Space the action is refused

@@ -50,8 +50,8 @@ use commands::move_commits::move_commits_to_branch;
 use commands::operations::{cancel_operation, execute, prepare};
 use commands::parked_branches::{park_branches, unpark_branches};
 use commands::patronus::{
-  PatronusState, cancel_patronus_robot, check_landing_gate, check_target_conflict, get_patronus_robot_status, get_patronus_target_branch, get_robot_commit_map, get_robot_failure,
-  get_robot_stats, post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
+  PatronusState, cancel_patronus_robot, get_patronus_robot_status, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_stats, post_patronus_command,
+  read_patronus_command_reply, restart_patronus_robot,
 };
 use commands::pick_remote_commits::{pick_remote_commits, undo_pick_remote_commits};
 use commands::pull_requests::{
@@ -138,12 +138,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
       get_file_owners,
       prefetch_branch_review,
       get_robot_stats,
-      start_patronus_robot,
-      check_landing_gate,
       prepare,
       execute,
       cancel_operation,
-      check_target_conflict,
       restart_patronus_robot,
       cancel_patronus_robot,
       get_patronus_robot_status,

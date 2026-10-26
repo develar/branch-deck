@@ -83,6 +83,7 @@ impl Subject {
 
 /// A commit ahead of the baseline, as `StackIndependence` and the refusals of the landing gate name it
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StackCommit {
@@ -95,6 +96,7 @@ pub struct StackCommit {
 
 /// Why a start is refused
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LandingRefusal {
@@ -132,6 +134,7 @@ pub enum LandingRefusal {
 
 /// What a branch does to the declaration of a dangling reference
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum ReferenceKind {
@@ -142,6 +145,7 @@ pub enum ReferenceKind {
 
 /// How the user gets the missing declaration, or the change of a dangling use, into what lands
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LandingFix {
@@ -207,72 +211,6 @@ impl LandingRefusal {
       }
     }
   }
-}
-
-/// What the app asks before a start (`check_landing_gate`), and the start itself (`start_patronus_robot`)
-#[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct LandingGateParams {
-  pub repository_path: String,
-  /// The branch that starts; with `stack` the root of the whole stack
-  pub branch_name: String,
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub stack: bool,
-  /// What the user starts anyway
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub allow: LandingAllowances,
-}
-
-impl LandingGateParams {
-  /// What the start lands: `branch_name`, or with `stack` the whole stack of that root
-  pub fn subject(&self) -> Subject {
-    let name = self.branch_name.clone();
-    if self.stack { Subject::WholeStack { root: name } } else { Subject::Branch { name } }
-  }
-}
-
-/// The refusals that hold a start back after the user's overrides; empty: it starts
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct LandingCheck {
-  pub refusals: Vec<LandingRefusal>,
-}
-
-/// The start of `subject` is refused: the first refusal names why
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("{}", refused_message(.subject, .refusals))]
-pub struct LandingRefused {
-  pub subject: String,
-  pub refusals: Vec<LandingRefusal>,
-}
-
-/// `check` of the start `params`, refused as `LandingRefused` when a refusal holds the start back: the start of the app
-/// checks it before it asks Patronus
-///
-/// # Errors
-/// `LandingRefused` with the refusals of `check`
-pub fn ensure_landing_starts(params: &LandingGateParams, check: LandingCheck) -> Result<(), LandingRefused> {
-  if check.refusals.is_empty() {
-    return Ok(());
-  }
-  Err(LandingRefused {
-    subject: params.subject().words(),
-    refusals: check.refusals,
-  })
-}
-
-/// "auth would not build: … (2 more)"
-fn refused_message(subject: &str, refusals: &[LandingRefusal]) -> String {
-  let Some(first) = refusals.first() else { return format!("{subject} builds") };
-  let more = match refusals.len() - 1 {
-    0 => String::new(),
-    rest => format!(" ({rest} more)"),
-  };
-  format!("{subject} would not build: {}{more}", first.reason())
 }
 
 /// The merge profile a start asks for

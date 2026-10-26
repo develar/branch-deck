@@ -48,11 +48,7 @@ import {
   patronusStore,
   resetPatronus,
   findCommentRobot,
-  LATE_ROBOT_INTERVAL_MS,
-  LATE_ROBOT_WAIT_MS,
-  startPatronusFromPullRequest,
   startPatronusFromReviewedPullRequest,
-  startPatronusRobot,
   watchRobot,
   whenRepositoryViewCurrent,
 } from "@/stores/patronus"
@@ -84,7 +80,6 @@ const { patronus, branches } = vi.hoisted(() => ({
     detailCalls: [] as string[],
     commands: [] as PostPatronusCommandParams[],
     /** What a start of a robot and a post of a command fail with; a post succeeds while it is null */
-    startFailure: { code: "internal", message: "start refused", details: null, retry: "no", operation_id: null } as ApiError,
     postFailure: null as ApiError | null,
     replies: [] as PatronusCommandReply[],
     replyCalls: 0,
@@ -119,7 +114,6 @@ vi.mock("@/lib/bindings", async importOriginal => ({
   // the constants of the bindings (the defaults of the settings Rust reads); the commands are the test's
   ...(await importOriginal<typeof import("@/lib/bindings")>()),
   commands: {
-    startPatronusRobot: async () => ({ status: "error", error: patronus.startFailure }),
     postPatronusCommand: async (params: PostPatronusCommandParams) => {
       await new Promise(resolve => setTimeout(resolve, patronus.checkMs))
       patronus.commands.push(params)
@@ -952,34 +946,6 @@ describe("merges", () => {
 
 describe("pull request start", () => {
   const ofPullRequest = robot({ id: "pr", startTime: START / 1000, pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } })
-  const auth = { branchName: "auth" }
-  const COMMENT_URL = "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133"
-
-  it("posts the command, waits for the thumbs up and returns the robot of the pull request", async () => {
-    patronus.replies = [{ status: "pending" }, { status: "accepted" }]
-    patronus.list = available(ofPullRequest)
-    const started = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
-    await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
-    const { listed, ...answer } = await started
-    expect(answer).toEqual({ robot: ofPullRequest, commentUrl: COMMENT_URL })
-    expect(await listed).toBe(ofPullRequest)
-    // the merge of an own branch keeps it, in the GitHub repository of the Space mirror; Rust checks the start of the
-    // branch before the comment
-    expect(patronus.commands).toEqual([
-      {
-        repositoryPath: "/repo",
-        pullRequestNumber: 7,
-        mode: "rebaseAutosquash",
-        subject: "ownBranch",
-        githubRepository: null,
-        start: { branchName: "auth" },
-      },
-    ])
-    expect(patronus.replyCalls).toBe(2)
-    // the session lists the robots for the start (incremental, from shortly before its last list)
-    expect(patronus.refreshes).toEqual(["afterWrite"])
-    expect(getBranchRobot("auth")?.id).toBe("pr")
-  })
 
   it("never takes an earlier robot of the pull request: one listed before the comment or of the other mode, the newest of the rest", async () => {
     const pullRequest = { number: 7, url: "https://github.com/acme/monorepo/pull/7" }
@@ -993,9 +959,9 @@ describe("pull request start", () => {
     const older = robot({ id: "older", startTime: START / 1000, pullRequest })
     const started = robot({ id: "started", startTime: (START + 2000) / 1000, pullRequest })
     patronus.list = available(canceledDryRun, dryRunNotKnown, started, older)
-    const asked = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    const asked = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
-    expect((await asked).robot?.id).toBe("started")
+    expect((await asked)?.id).toBe("started")
 
     const known = new Set(["dry"])
     const robots = { dry: canceledDryRun, "dry-2": dryRunNotKnown, older, started }
@@ -1003,57 +969,15 @@ describe("pull request start", () => {
     expect(findCommentRobot(robots, 8, "rebaseAutosquash", START + 1000, known)).toBeUndefined()
   })
 
-  it("resolves an accepted comment without a listed robot as started, and looks for the robot in the background", async () => {
-    patronus.replies = [{ status: "accepted" }]
-    patronus.list = available()
-    const asked = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
-    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
-    const { listed, ...answer } = await asked
-    expect(answer).toEqual({ robot: null, commentUrl: COMMENT_URL })
-    const asks = patronus.refreshes.length
-
-    patronus.list = available(ofPullRequest)
-    await vi.advanceTimersByTimeAsync(LATE_ROBOT_INTERVAL_MS)
-    expect(getBranchRobot("auth")?.id).toBe("pr")
-    expect(await listed).toBe(ofPullRequest)
-    // found: no more lists for it
-    await vi.advanceTimersByTimeAsync(LATE_ROBOT_WAIT_MS)
-    expect(patronus.refreshes).toHaveLength(asks + 1)
-  })
-
-  it("joins a repeat of an accepted comment whose robot Patronus lists not yet, and posts no second comment", async () => {
-    patronus.replies = [{ status: "accepted" }]
-    patronus.list = available()
-    const first = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
-    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
-    const accepted = await first
-    expect(accepted.robot).toBeNull()
-
-    // a second Safe Push of #7 while the robot is looked for joins the first start
-    const repeat = await startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
-    expect(repeat).toBe(accepted)
-    expect(patronus.commands).toHaveLength(1)
-
-    // none came within the wait: the start is over, the next one posts its own comment
-    await vi.advanceTimersByTimeAsync(LATE_ROBOT_WAIT_MS + LATE_ROBOT_INTERVAL_MS)
-    expect(await accepted.listed).toBeNull()
-    patronus.replies = [{ status: "accepted" }]
-    patronus.list = available(robot({ id: "pr-2", startTime: Date.now() / 1000, pullRequest: ofPullRequest.pullRequest }))
-    const next = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
-    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
-    expect((await next).robot?.id).toBe("pr-2")
-    expect(patronus.commands).toHaveLength(2)
-  })
-
-  it("counts the minute of the bot from the comment, not from the checks before it", async () => {
-    // the list and the landing gate take 50 s before the comment, the 👍 comes 30 s after it
+  it("counts the minute of the bot from the comment, not from the post before it", async () => {
+    // the post of the comment takes 50 s, the 👍 comes 30 s after it
     patronus.checkMs = 50_000
     patronus.replies = [...Array.from({ length: 30_000 / COMMAND_REPLY_INTERVAL_MS - 1 }, () => ({ status: "pending" }) as const), { status: "accepted" }]
     const commented = START + patronus.checkMs
     patronus.list = available({ ...ofPullRequest, startTime: (commented + 30_000) / 1000 })
-    const asked = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    const asked = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
     await vi.advanceTimersByTimeAsync(patronus.checkMs + 30_000)
-    expect((await asked).robot?.id).toBe("pr")
+    expect((await asked)?.id).toBe("pr")
     expect(patronus.commands).toHaveLength(1)
     // one list of the session after the thumbs up
     expect(patronus.refreshes).toEqual(["afterWrite"])
@@ -1064,7 +988,7 @@ describe("pull request start", () => {
       { status: "rejected", reason: null },
       { status: "rejected", reason: "Pull request #7 is a draft and cannot be merged." },
     ]
-    const started = startPatronusFromPullRequest(7, "rebaseAutosquash", auth)
+    const started = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
     const failed = expect(started).rejects.toThrow("Pull request #7 is a draft and cannot be merged.")
     await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
     await failed
@@ -1072,21 +996,22 @@ describe("pull request start", () => {
   })
 
   it("gives up after a minute without an answer", async () => {
-    const started = startPatronusFromPullRequest(7, "dryRun", auth)
+    const started = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
     const failed = expect(started).rejects.toThrow("Patronus did not answer the comment within a minute: see pull request #7")
     await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
     await failed
   })
 
   it("starts a reviewed pull request of someone else with its thumbs up, the robot only if the user's robots list it", async () => {
-    patronus.replies = [{ status: "accepted" }]
+    patronus.replies = [{ status: "pending" }, { status: "accepted" }]
     patronus.list = available(ofPullRequest)
     const found = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
-    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
+    await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
     expect(await found).toEqual(ofPullRequest)
-    expect(patronus.commands).toEqual([
-      { repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", subject: "reviewedPullRequest", githubRepository: "acme/monorepo", start: null },
-    ])
+    expect(patronus.commands).toEqual([{ repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", githubRepository: "acme/monorepo" }])
+    expect(patronus.replyCalls).toBe(2)
+    // the session lists the robots for the start (incremental, from shortly before its last list)
+    expect(patronus.refreshes).toEqual(["afterWrite"])
 
     // Patronus may count the robot as the author's: the thumbs up is the start all the same
     patronus.replies = [{ status: "accepted" }]
@@ -1110,35 +1035,23 @@ describe("pull request start", () => {
 describe("a failed start", () => {
   const OPERATION_ID = "01K8ZQ3V6Y4M2N7P9R1S5T0W2X"
 
-  /** The error entries of Activity and the backend log lines of what `run` threw, told with `notifyError` as the caller does */
-  async function tellFailure(title: string, run: () => Promise<unknown>): Promise<{ recorded: unknown[]; logged: unknown[] }> {
+  it("keeps the operation the failed post of a command on the pull request names, for Activity and the log line", async () => {
     const recorded: unknown[] = []
     setErrorRecorder((recordedTitle, description, operationId) => recorded.push({ title: recordedTitle, description, operationId }))
     vi.spyOn(console, "error").mockImplementation(() => {})
     logged.length = 0
-    const settled = run().then(
+    patronus.postFailure = { ...internalError("GitHub answered 403"), code: "patronus_error", operation_id: OPERATION_ID }
+    const settled = startPatronusFromReviewedPullRequest(9, "acme/monorepo").then(
       () => null,
       (error: unknown) => error,
     )
-    // the checks of a start in Rust answer after `checkMs`
+    // the post answers after `checkMs`
     await vi.advanceTimersByTimeAsync(patronus.checkMs)
     const failure = await settled
     expect(failure, "the start throws").not.toBeNull()
-    notifyError(title, failure)
-    return { recorded, logged: [...logged] }
-  }
-
-  it("keeps the operation the failed start of a robot names, for Activity and the log line", async () => {
-    patronus.startFailure = { ...internalError("Patronus answered 503"), code: "patronus_error", operation_id: OPERATION_ID }
-    const told = await tellFailure("Cannot start the Safe Push", () => startPatronusRobot("auth", "rebaseAutosquash", null, null))
-    expect(told.recorded).toEqual([{ title: "Cannot start the Safe Push", description: "Patronus answered 503", operationId: OPERATION_ID }])
-    expect(told.logged).toEqual([{ title: "Cannot start the Safe Push", keyValues: { error: "Patronus answered 503", operation_id: OPERATION_ID } }])
-  })
-
-  it("keeps the operation the failed post of a command on the pull request names", async () => {
-    patronus.postFailure = { ...internalError("GitHub answered 403"), code: "patronus_error", operation_id: OPERATION_ID }
-    const told = await tellFailure("Cannot start the Safe Push", () => startPatronusFromPullRequest(9, "rebaseAutosquash", { branchName: "auth" }))
-    expect(told.recorded).toEqual([{ title: "Cannot start the Safe Push", description: "GitHub answered 403", operationId: OPERATION_ID }])
+    notifyError("Cannot start the Safe Push", failure)
+    expect(recorded).toEqual([{ title: "Cannot start the Safe Push", description: "GitHub answered 403", operationId: OPERATION_ID }])
+    expect(logged).toEqual([{ title: "Cannot start the Safe Push", keyValues: { error: "GitHub answered 403", operation_id: OPERATION_ID } }])
   })
 })
 

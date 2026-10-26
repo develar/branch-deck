@@ -11,6 +11,8 @@ repository-model = { path = "../repository-model" }
 remote-facts = { path = "../remote-facts" }
 sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
+trial-check = { path = "../trial-check" }
+object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
 github = { path = "../github" }
 domain-types = { path = "../domain-types" }

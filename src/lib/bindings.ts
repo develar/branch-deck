@@ -158,22 +158,6 @@ export const commands = {
 	 */
 	getRobotStats: (params: GetRobotStatsParams, events: Channel<RobotStatsEvent>) => typedError<RobotStatsResult, ApiError>(__TAURI_INVOKE("get_robot_stats", { params, events })),
 	/**
-	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-	 *  stack; the frontend pushes it first. The whole sequence is `RemoteActions::start_robot` (`start_guard`), which the test
-	 *  server runs too: the user's robots (one list; a failed list fails the start), the checks of the kept table (parked,
-	 *  landed whole, not built, a robot on its last commit or one that lands a part of it), the landing gate with the
-	 *  commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot, which the
-	 *  session of the repository polls from now on (`SessionsState::write_robot`).
-	 */
-	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, ApiError>(__TAURI_INVOKE("start_patronus_robot", { params })),
-	/**
-	 *  What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`trial_check::landing_gate`): the
-	 *  refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository, with
-	 *  the commits merged Safe Pushes landed as the repository view names them on the robots Rust reads
-	 *  (`RemoteActions::check_landing`; none off Space, or when the Space repository can't be read)
-	 */
-	checkLandingGate: (params: LandingGateParams) => typedError<LandingCheck, ApiError>(__TAURI_INVOKE("check_landing_gate", { params })),
-	/**
 	 *  The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
 	 *  does now (`operations::land::prepare`, the rule `bd safe-push` decides by), what the user accepts first, what refuses
 	 *  it, the facts it waits for and the profiles it offers. A read: no lock, no effect. Null while the session is not open,
@@ -192,11 +176,6 @@ export const commands = {
 	 *  it; a push that sends goes to its end. False for an operation that ended
 	 */
 	cancelOperation: (params: CancelOperationParams) => __TAURI_INVOKE<boolean>("cancel_operation", { params }),
-	/**
-	 *  Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
-	 *  of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
-	 */
-	checkTargetConflict: (params: TargetConflictParams) => typedError<TargetCheck, ApiError>(__TAURI_INVOKE("check_target_conflict", { params })),
 	/**
 	 *  Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
 	 *  a start (`RemoteActions::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
@@ -217,10 +196,10 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) from the GitHub pull request of the
-	 *  branch: Patronus links the robot to the pull request only from its comment. The comment of the user's own branch
-	 *  comes after the checks of `start_patronus_robot` (`RemoteActions::check_start_from_pull_request`), which the test
-	 *  server runs too. The posted comment; the bot answers with a reaction (`read_patronus_command_reply`).
+	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) of a pull request of someone else the user
+	 *  reviewed: the comment whose merge deletes its branch, as a merge on GitHub does. The start of the user's own branch
+	 *  is `execute` of a `Land`, whose engine comments and reads the reply itself. The posted comment; the bot answers with
+	 *  a reaction (`read_patronus_command_reply`)
 	 */
 	postPatronusCommand: (params: PostPatronusCommandParams) => typedError<PatronusCommandComment, ApiError>(__TAURI_INVOKE("post_patronus_command", { params })),
 	/**
@@ -2046,7 +2025,9 @@ export type ErrorDetails =
 /**  The ids of the blocks the file has now: `block_not_found` */
 { type: "blocks"; blocks: string[] } | 
 /**  Who holds the repository lock: `locked`; `None` when the holder wrote no record */
-{ type: "locked"; holder: LockHolderInfo | null };
+{ type: "locked"; holder: LockHolderInfo | null } | 
+/**  What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference` */
+{ type: "landing"; refusals: LandingRefusal[] };
 
 /**  Everyone else as the median person: the median of each person's value, of the people with at least `MIN_MERGES` */
 export type EveryoneDelivery = {
@@ -2865,6 +2846,18 @@ export type LandProfiles = {
 	default: string | null,
 };
 
+/**  What a start of a Safe Push or a Dry Run answered: the toast and the Activity entry of the page name it */
+export type LandResult = {
+	/**  The robot it started through the API, or the one its comment started once Patronus listed it */
+	robot: PatronusRobot | null,
+	/**  The running Safe Push it canceled, as Patronus answered (or as listed when it had finished meanwhile) */
+	canceled: PatronusRobot | null,
+	/**  The `/patronus` comment it posted on the pull request of the subject */
+	comment: StartComment | null,
+	/**  What the checks before the effects could not do in full */
+	notes: StartNote[],
+};
+
 /**
  *  What landed a subject (`domain_policy::landed::landed_state`): the fetched baseline, merged Safe Pushes, or GitHub
  *  merging its pull request; nothing of it is left to land while `after` is empty
@@ -2975,11 +2968,6 @@ export type LandingAllowances = {
 	cancelRunning?: boolean,
 };
 
-/**  The refusals that hold a start back after the user's overrides; empty: it starts */
-export type LandingCheck = {
-	refusals: LandingRefusal[],
-};
-
 /**  How the user gets the missing declaration, or the change of a dangling use, into what lands */
 export type LandingFix = 
 /**  Stack `branch`, the root of what lands, on `onto`, the branch of the commit it needs: the start lands it too */
@@ -2989,16 +2977,6 @@ export type LandingFix =
  *  or its branch is built on what lands, so a restack would close a cycle
  */
 { kind: "moveCommit"; commit: StackCommit; into: string };
-
-/**  What the app asks before a start (`check_landing_gate`), and the start itself (`start_patronus_robot`) */
-export type LandingGateParams = {
-	repositoryPath: string,
-	/**  The branch that starts; with `stack` the root of the whole stack */
-	branchName: string,
-	stack?: boolean,
-	/**  What the user starts anyway */
-	allow?: LandingAllowances,
-};
 
 /**
  *  What the Safe Push of a branch needs before it starts (`trial_check::landing_gate::landing_needs`): the refusals its
@@ -3514,6 +3492,15 @@ export type OperationEvent =
  */
 export type OperationId = string;
 
+/**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
+export type OperationResult = 
+/**  Nothing besides its effects */
+{ kind: "none" } | 
+/**  A start of a Safe Push or a Dry Run */
+{
+	kind: "land",
+} & LandResult;
+
 /**  What an operation cost */
 export type OperationStats = {
 	/**  The git processes it started, by subcommand */
@@ -3570,6 +3557,8 @@ export type Outcome = {
 	newsKey: NewsKey | null,
 	/**  The version of the view after the patch of what it changed; `None` when no session of its repository is open */
 	versionAfter: Version | null,
+	/**  What its effects answered, by its family */
+	result: OperationResult,
 	stats: OperationStats,
 };
 
@@ -3706,13 +3695,6 @@ export type PatronusCommandReply =
 { status: "rejected"; 
 /**  The text of the bot's `⚠️` comment, null if it is not there yet */
 reason: string | null };
-
-/**  Whose pull request a `/patronus` comment starts: the text of a merge depends on it */
-export type PatronusCommandSubject = 
-/**  The pull request of a virtual branch of the user: the merge keeps the branch, the sync archives it once merged */
-"ownBranch" | 
-/**  A pull request of someone else the user reviewed: the merge deletes its branch, as a merge on GitHub does */
-"reviewedPullRequest";
 
 export type PatronusMergeRequest = {
 	/**  e.g. `IJ` */
@@ -4060,20 +4042,18 @@ export type PlannedGroup = {
 	folded: PlannedFixup[],
 };
 
-/**  Starts a robot from a GitHub pull request: the `/patronus` comment */
+/**
+ *  Starts a robot from a GitHub pull request of someone else the user reviewed: the `/patronus` comment, whose merge
+ *  deletes its branch (`PatronusCommandSubject::ReviewedPullRequest`); the start of the user's own branch is
+ *  `execute(Land)`
+ */
 export type PostPatronusCommandParams = {
 	repositoryPath: string,
 	pullRequestNumber: number,
 	/**  `rebaseAutosquash` (`/patronus merge`) or `dryRun` (`/patronus dry-run`) */
 	mode: PatronusPushMode,
-	subject?: PatronusCommandSubject,
 	/**  `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository */
 	githubRepository?: string | null,
-	/**
-	 *  The branch of the user the comment starts (`OwnBranch`, required there): the checks of `start_patronus_robot` run
-	 *  on it before the comment (`RemoteActions::check_start_from_pull_request`)
-	 */
-	start?: PullRequestStartBranch | null,
 };
 
 export type PrefetchBranchReviewParams = {
@@ -4199,15 +4179,6 @@ export type PullRequestField = "base" | "reviewers" |
 export type PullRequestReviewEvent = "approve" | 
 /**  Needs a body: GitHub refuses a request for changes without one */
 "requestChanges";
-
-/**  The branch of the user a `/patronus` comment on its pull request starts, as `start_patronus_robot` names it */
-export type PullRequestStartBranch = {
-	/**  The virtual branch, without the `{prefix}/virtual/` namespace; with `stack`, the root of the whole stack */
-	branchName: string,
-	stack?: boolean,
-	/**  What the user started anyway (Start Anyway) */
-	allow?: LandingAllowances,
-};
 
 export type PullRequestState = "open" | "closed" | "merged";
 
@@ -5740,6 +5711,15 @@ export type StackUse = {
 	declaredBy: StackCommit,
 };
 
+/**  The `/patronus` comment of a start */
+export type StartComment = {
+	/**  The pull request it is on */
+	number: number,
+	url: string,
+	/**  The bot accepted it; false: it did not react within the wait, see the pull request */
+	accepted: boolean,
+};
+
 export type StartHour = {
 	/**  Local, 0–23 */
 	hour: number,
@@ -5751,26 +5731,14 @@ export type StartHour = {
 	level: number | null,
 };
 
-export type StartPatronusRobotParams = {
-	repositoryPath: string,
-	baselineBranch: string,
-	/**
-	 *  The virtual branch, without the `{prefix}/virtual/` namespace; it must be pushed. With `stack`, the root of the
-	 *  stack
-	 */
-	branchName: string,
-	/**
-	 *  The whole stack of the root `branch_name`: the robot starts from its stack branch `{prefix}/stack/<root>`, which
-	 *  must be pushed, and lands every branch of the stack
-	 */
-	stack?: boolean,
-	mode: PatronusPushMode,
-	profileId: string | null,
-	/**  The merge request whose approvals the review check of the robot counts; null without one */
-	mergeRequest: PatronusMergeRequest | null,
-	/**  What the user started anyway (Start Anyway); without it the refusals of `trial_check::landing_gate` fail the start */
-	allow?: LandingAllowances,
-};
+/**  What a check before the effects of a start could not do in full: the start went on */
+export type StartNote = 
+/**  The fetch of `target` ("origin/master") failed: the check replayed what lands onto the target fetched last */
+{ kind: "targetFetchFailed"; target: string; error: string } | 
+/**  Whether Patronus can rebase what lands onto `target` was not checked */
+{ kind: "targetNotChecked"; target: string; error: string } | 
+/**  Whether the whole stack uses a name only a branch outside it adds was not checked */
+{ kind: "landingNotChecked"; error: string };
 
 /**  How a robot starts */
 export type StartRoute = 
@@ -6120,60 +6088,6 @@ export type TableSections = {
 	unapplied: UnappliedBranchInfo[],
 	landed: LandedSection,
 };
-
-/**  What the check found */
-export type TargetCheck = {
-	/**  The baseline the commits were replayed onto, e.g. `origin/master` */
-	baseline: string,
-	/**  Why the fetch of the target failed; the check then used the last fetched tip. `None` after a fetch */
-	fetchError: string | null,
-	outcome: TargetOutcome,
-};
-
-export type TargetCommit = {
-	id: string,
-	author: string,
-	/**  Unix seconds */
-	authorTime: number,
-	subject: string,
-};
-
-/**  The first commit whose replay onto the target conflicts */
-export type TargetConflict = {
-	/**  The tip of the target the commits were replayed onto */
-	targetTip: string,
-	/**  The commit of the branch the robot starts from: a copy of the virtual branch, its subject without the prefix */
-	commit: TargetCommit,
-	/**  The conflicting files, at most 50 (all of them when only one more) */
-	files: string[],
-	/**  How many files conflict */
-	fileCount: number,
-	/**  The commits of the target after the base of the branch that change `files`, the newest 10, oldest first */
-	targetCommits: TargetCommit[],
-};
-
-export type TargetConflictParams = {
-	repositoryPath: string,
-	/**  As the sync detected it, e.g. `origin/master`: the robot pushes into the branch it tracks */
-	baselineBranch: string,
-	/**
-	 *  The virtual branch the robot starts from, without the `{prefix}/virtual/` namespace; with `stack`, the root of the
-	 *  stack
-	 */
-	branchName: string,
-	/**  The whole stack of the root `branch_name`: the robot starts from its stack branch `{prefix}/stack/<root>` */
-	stack?: boolean,
-};
-
-export type TargetOutcome = 
-/**  Every commit applies onto the target tip */
-({ kind: "clean" }) & { error?: never } | 
-/**  A commit conflicts: Patronus fails the robot before any check */
-{
-	kind: "conflict",
-} & TargetConflict | 
-/**  The check did not run to its end: nothing is known */
-{ kind: "notRun"; error: string };
 
 /**  The diff of two texts */
 export type TextDiff = {

@@ -19,7 +19,7 @@ import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import { setRequestReviewOpen, useRequestReviewOpen } from "@/stores/request-review-popover"
 import { useReviewReadiness } from "@/stores/review-readiness"
 import type { SafePushAsk } from "@/stores/safe-push"
-import { useSafePushAsk, useSafePushStarting } from "@/stores/safe-push"
+import { useLandRun, useSafePushAsk } from "@/stores/safe-push"
 
 const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover").then(it => ({ default: it.SafePushPopover })))
 
@@ -59,7 +59,7 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
   const wholeStackAsk = useSafePushAsk(stackReadinessKey(branch.name), "row")
   // the start of the whole stack of a small stack runs: its steps show here, where it was asked, as the header of an
   // island shows them ("Checking…", "Pushing 45%", "Starting…"), in place of the root's own step
-  const startsWholeStack = useSafePushStarting(stackHeader === undefined && !wholeStackInHeader ? stackReadinessKey(branch.name) : "") !== null
+  const startsWholeStack = useLandRun(stackHeader === undefined && !wholeStackInHeader ? stackReadinessKey(branch.name) : "") !== null
   const slotRef = useRef<HTMLDivElement>(null)
   if (step === null || step.kind === "hidden") {
     // no step where Patronus doesn't answer; Request Review… of an open pull request asks GitHub, from the menus

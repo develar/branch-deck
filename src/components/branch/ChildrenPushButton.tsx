@@ -13,13 +13,14 @@ import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatAskFirst, formatPushWithChildrenLabel, stackPushSubject } from "@/lib/stack"
 import { transferLabel, transferPercent } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
-import { STACK_BRANCH_PUSHING, formatStackBranchPushLine, formatWholeStackBranch } from "@/lib/whole-stack"
+import { STACK_BRANCH_PUSHING, formatStackBranchPushLine, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import { actionBlocker } from "@/presenters/actions"
 import { formatPushHoldReason } from "@/presenters/reasons"
 import type { StackBranch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useBranchSync, useIsStackBranchPushing, useStackBranch, useStackBranchPushProgress, useStackPush } from "@/stores/branch-sync"
 import { usePushHold } from "@/stores/patronus"
+import { useLandRun } from "@/stores/safe-push"
 
 /** Why the push of a stack without branches to land is disabled: Rust offers no Push with Children of its root */
 const NOTHING_TO_PUSH = "Nothing to push: the stack is on the remote"
@@ -59,7 +60,9 @@ export function ChildrenPushButton({ root, push, held, testId, descriptionTestId
   // the push of the stack branch alone (a step of the restart of its robot, of Request Review…, of the creation of its
   // pull request) shows here as the stack's pushes do; the Safe Push of the whole stack shows it in its own button, the
   // step of its start: one indicator, decided where the root's push button decides it
-  const stackBranchPushing = useIsStackBranchPushing(root)
+  // the start of the whole stack pushes its stack branch as a step: no second push of the stack meanwhile
+  const startPushes = useLandRun(stackReadinessKey(root))?.step === "pushing"
+  const stackBranchPushing = useIsStackBranchPushing(root) || startPushes
   const pushAlone = useStackBranchPushAlone(root)
   const alone = stackPush === null && pushAlone
   const busy = current !== null || alone

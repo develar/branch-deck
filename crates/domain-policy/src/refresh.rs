@@ -64,6 +64,11 @@ pub const PATRONUS_COMMENT_REPLY_INTERVAL: Duration = Duration::from_secs(3);
 /// The bot is waited for this long after the comment; a start it accepted without a robot listed by then is a start
 /// all the same, its robot comes with a later list
 pub const PATRONUS_COMMENT_REPLY_TIMEOUT: Duration = MINUTE;
+/// The robot of a comment the bot accepted is looked for this long after the minute of the reply, while the start holds
+/// its subject (the app: a second start joins it and posts no second comment)
+pub const PATRONUS_COMMENT_ROBOT_WAIT: Duration = Duration::from_mins(5);
+/// How often the robot of an accepted comment is looked for after the minute of the reply
+pub const PATRONUS_COMMENT_ROBOT_INTERVAL: Duration = Duration::from_secs(15);
 /// The robot of a comment started at most this long (seconds) before the comment by the clock of Patronus, which may
 /// differ from this one
 pub const PATRONUS_COMMENT_CLOCK_SLACK: u32 = 120;

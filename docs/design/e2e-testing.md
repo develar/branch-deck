@@ -456,13 +456,14 @@ log of the fake). No test answers a remote write in the page: the registry test 
   is the head the test's pull request then shows.
 - **Bridge**: the reads of the session's robots (`TestFactSources`: the app's reads, `ServiceFactSources`, over the
   services of each test repository, `TestServices`, the lists, polls and details counted; the merge profiles and the
-  review readiness held as the tests hold them), `get_robot_failure`, `get_patronus_target_branch`, `start_patronus_robot`,
+  review readiness held as the tests hold them), `get_robot_failure`, `get_patronus_target_branch`,
   `restart_patronus_robot`, `cancel_patronus_robot` and `get_patronus_robot_status` call the service as
-  `src-tauri/src/commands/patronus.rs` does (a start, a restart and a cancel give their robot to the session, as the
-  app's commands do): the list answers `notPatronus` while the repository is not on Space and names the GitHub
-  repository by the real `resolve_github_repository`; the start options and the start need Space and the target branch of the baseline
-  (`required_target_branch`), and the start runs the app's `prepare_robot_start` first (the landing gate, without the
-  object cache, then the source ref of the virtual or the stack branch).
+  `src-tauri/src/commands/patronus.rs` does (a restart and a cancel give their robot to the session, as the app's
+  commands do): the list answers `notPatronus` while the repository is not on Space and names the GitHub repository by
+  the real `resolve_github_repository`; the start options need Space and the target branch of the baseline
+  (`required_target_branch`). A start is `execute` of the engine over the services of the test repository
+  (`operations::land_session::session_start`, its landing gate without the object cache), its events on the stream of
+  its channel; the held answer `start` holds its `POST /robots` at the fake, so a test sees "Starting…".
 - **Actions**: in `state_only` the fake acts as Patronus does: a start (`POST /robots`) lists a new running robot
   `started-<n>` built from its body (source and target branch, mode), on the commit its source branch is at then
   (`robots_hook`, pinned: a later change of the branch doesn't move it), dated by `clock`, which the host sets to the
@@ -706,8 +707,9 @@ branch at the commit it was pushed up to.
   wait per step: at a load of 150-220 on 18 cores each of them takes 2-5 s, and a 5 s assertion after the press that
   starts the chain failed. Update Project is a fetch, then the update, then its sync: `runAndWaitForUpdate` waits for
   the answer of `update_project` (`nextAnswer`, the page's next answer of a command, with the test's timeout), then the
-  toast and the button are an assertion's; a start of a robot, the answer of `start_patronus_robot`
-  (`runAndWaitForAnswer`, `nextAnswer(page, command, count)` for two starts side by side); a restart of a robot that
+  toast and the button are an assertion's; a start of a robot, the end of `execute` (`runAndWaitForAnswer`,
+  `nextAnswer(page, command, count)` for two starts side by side: the request finished, the last event of its stream,
+  so an `execute` that waits for the lock before the call counts too); a restart of a robot that
   runs on an older commit, the answers of its cancel, its push and its restart in turn (`runAndWaitForRestart` of
   `patronus-actions.spec.ts`). The press is the action of the wait: a wait that began after it missed the answer of a
   restart that came 90 ms before it (traced on the Studio) and held the test 30 s. The step of a row waits for
@@ -715,8 +717,8 @@ branch at the commit it was pushed up to.
   approvals): "Checking…" names the fact it waits for (`data-waits-for` of the slot), and `waitForStepFacts`
   (`safe-push-helpers.ts`) gives each fact an assertion's time of its own before the step is asserted. The steps
   measured in the traces of the failed waits (2026-10-24):
-  `fetch_baseline` 2-4 s, `check_landing_gate` 2-3.5 s (a start runs the gate again in `start_patronus_robot`, 2-2.7 s:
-  the test server has no object cache), the landing needs 2-5 s (then the page's `wait_landing_needs`, the session's since s7-4), the readiness 1-5 s
+  `fetch_baseline` 2-4 s, the landing gate 2-3.5 s (the gate of a whole stack in `execute`: the test server has no
+  object cache), the landing needs 2-5 s (then the page's `wait_landing_needs`, the session's since s7-4), the readiness 1-5 s
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,
   which is until the toast times out (5 s, 10 s with an action). A test closes a toast it has read with its close

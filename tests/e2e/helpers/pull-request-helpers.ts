@@ -51,8 +51,28 @@ export async function gitHubRequests(repo: { getGitHubLog(): Promise<GitHubLog> 
 }
 
 /**
- * Runs the fake clock over the app's wait before it reads the reply of the Patronus bot to its comment
- * (`COMMAND_REPLY_INTERVAL_MS`, 3 s) until it read it from the fake GitHub
+ * Moves the clock of the backend's sessions of `repo` by `stepMs` at a time until `settled` resolves: the engine of a
+ * start reads the reply of the Patronus bot to its comment and the robots it started on that clock
+ * (`PATRONUS_COMMENT_REPLY_INTERVAL`, 3 s; after the minute every 15 s), never on a timer of the page
+ */
+export async function stepSessionClockUntil(repo: { advanceBackendClock(ms: number): Promise<void> }, settled: Promise<unknown>, stepMs = 3000): Promise<void> {
+  let done = false
+  void settled.then(() => {
+    done = true
+  })
+  await expect
+    .poll(async () => {
+      if (!done) {
+        await repo.advanceBackendClock(stepMs)
+      }
+      return done
+    })
+    .toBe(true)
+}
+
+/**
+ * Runs the fake clock over the page's wait before it reads the reply of the Patronus bot to its comment on a pull
+ * request of someone else (`COMMAND_REPLY_INTERVAL_MS`, 3 s) until it read it from the fake GitHub
  */
 export async function skipCommandReplyWait(page: Page, repo: { getGitHubLog(): Promise<GitHubLog> }): Promise<void> {
   await expect

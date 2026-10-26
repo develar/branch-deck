@@ -48,6 +48,7 @@ pub const PAGE_CLOCK_START: u32 = 1_704_189_600;
 const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)> {
   match answer {
     HeldAnswer::Robots => Some(("GET", "/app/rest/v1/robots")),
+    HeldAnswer::Start => Some(("POST", "/app/rest/v1/robots")),
     HeldAnswer::Readiness => Some(("POST", "/app/rest/v1/pre-merge-approval-required-check")),
     // of every robot
     HeldAnswer::RobotProblems => Some(("GET", "/app/rest/v1/robots/*/problems")),
@@ -120,6 +121,9 @@ pub enum HeldAnswer {
   ReviewRequests,
   /// The list of the robots (the session's list, `GET /app/rest/v1/robots`)
   Robots,
+  /// The start of a robot through the API (`POST /app/rest/v1/robots`): the start of a Safe Push waits at its last
+  /// effect, its slot "Starting…"
+  Start,
   /// The pre-check of the code-owner review (the readiness reads of the sessions, `TestFactSources::readiness`)
   Readiness,
   /// The computation of the landing needs of a session (`TestSessionEnvironment::landing_needs`): held there
@@ -374,7 +378,7 @@ impl RemoteHost {
       let gate = match answer {
         HeldAnswer::Push => self.git_remote.hold()?,
         HeldAnswer::PullRequests => self.github.hold_with_body("POST", "/graphql", "author:@me"),
-        HeldAnswer::Robots | HeldAnswer::Readiness | HeldAnswer::RobotProblems => {
+        HeldAnswer::Robots | HeldAnswer::Start | HeldAnswer::Readiness | HeldAnswer::RobotProblems => {
           let (method, path) = patronus_route(*answer).expect("a route of the fake Patronus");
           self.patronus.hold(method, path)
         }

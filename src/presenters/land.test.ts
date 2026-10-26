@@ -4,6 +4,7 @@ import { internalError } from "@/lib/api-error"
 import type { LandingRefusal, Plan, Reason } from "@/lib/bindings"
 import type { LandAsk } from "@/presenters/land"
 import { presentLand } from "@/presenters/land"
+import { MISSING_STILLS } from "@/test-support/landing-refusal"
 
 /** The plan of a Safe Push of auth through the API with the default checks: nothing in its way */
 function decision(patch: Partial<Plan> = {}): Plan {
@@ -27,17 +28,7 @@ function decision(patch: Partial<Plan> = {}): Plan {
 
 const CLICK: LandAsk = { subject: "auth", via: "click", stepBlocker: null, withoutReview: false }
 
-const MISSING: LandingRefusal = {
-  kind: "missingDeclaration",
-  branch: "lane-run",
-  identifier: "Stills",
-  file: "lane/src/BuildLog.kt",
-  line: 3,
-  usedBy: { id: "c1", subject: "Show each scenario", branch: "lane-run" },
-  declaredBy: { id: "c2", subject: "Name lossy stills", branch: "stills-codec" },
-  fix: { kind: "restack", branch: "lane-run", onto: "stills-codec" },
-  landingIn: null,
-}
+const MISSING: LandingRefusal = MISSING_STILLS
 
 describe("presentLand", () => {
   it("starts at once when Rust decided there is nothing to say, and waits for its decision before it", () => {

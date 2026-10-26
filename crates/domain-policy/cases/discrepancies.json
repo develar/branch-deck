@@ -205,7 +205,7 @@
     "closed": "s1-holes",
     "today": {
       "app": [
-        "crates/repository-model/src/start_guard.rs#if let Err(refusal) = check_start(facts, &start_subject(&start.branch_name, start.stack), start.mode) {",
+        "crates/operations/src/land_execute.rs#return Err(refusal(blocker, &planned.plan.blockers, &land.subject, &host.current().await.robots));",
         "crates/repository-model/src/start_guard.rs#check_restart(facts, &robot_id)",
         "crates/repository-model/src/start_guard.rs#check_cancel(&robots, &params.robot_id, params.replaced)",
         "crates/operations/src/push.rs#check_push(&facts, &params.branches).map_err(|refusal| anyhow!(refusal))?;"
@@ -224,7 +224,10 @@
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:5", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D11",
     "today": {
-      "app": ["src/lib/safe-push-start.ts#async function retargetForStart", "crates/domain-policy/src/pull_request.rs#pub fn start_pull_request"],
+      "app": [
+        "crates/operations/src/land_execute.rs#async fn retarget(&mut self, branch: &str, number: u32, to: &str) -> EffectStatus",
+        "crates/domain-policy/src/pull_request.rs#pub fn start_pull_request"
+      ],
       "bd": ["crates/domain-policy/src/land.rs#matches!(base_of(pull_request, facts.target, facts.prefix), PullRequestBase::Virtual { .. }).then(|| PlannedEffect::Retarget {"]
     },
     "closed": "s8-policy"

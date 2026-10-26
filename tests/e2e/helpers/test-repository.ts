@@ -26,6 +26,7 @@ export type HeldAnswer =
   | "pullRequests"
   | "reviewRequests"
   | "robots"
+  | "start"
   | "readiness"
   | "landingNeeds"
   | "robotProblems"

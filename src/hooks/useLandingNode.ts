@@ -3,14 +3,13 @@ import { useStore } from "zustand"
 import type { StepInputs } from "@/hooks/useBranchNextStep"
 import { getStepInputs, stepActionsOf, useStepInputs } from "@/hooks/useBranchNextStep"
 import type { LandingNodeKind, NextStep, NextStepView, WholeStackView } from "@/lib/bindings"
-import type { FoundMove, RunningMove } from "@/lib/running-move"
-import { findRunningMove, safePushStartMoves } from "@/lib/running-move"
 import { formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
 import type { LandingNode } from "@/presenters/landing-node"
 import { presentLandingNode, presentNodeKind } from "@/presenters/landing-node"
-import { presentOperationMoves } from "@/presenters/running-move"
+import type { FoundMove, RunningMove } from "@/presenters/running-move"
+import { findRunningMove, presentOperationMoves } from "@/presenters/running-move"
 import {
   branchSyncStore,
   getBranch,
@@ -23,22 +22,19 @@ import {
   useWholeStack,
 } from "@/stores/branch-sync"
 import { getOperationMoves, operationsStore } from "@/stores/operations"
-import { getSafePushStarts, safePushStore } from "@/stores/safe-push"
 
 /*
  * The node of a row as Rust decides it (`nextSteps` of the view, `domain_policy::landing_node`) in the page's words
  * (`presentLandingNode`): a row reads its part of the view (`useRowPart(key, "landing")`, one kept reference) and what
  * the words read beside it, each a narrow selector; the move that runs on the row (its push too) is laid over it: the
- * moves of the operations of the session (`RepositoryView.operations`), and the page's own until their families move
- * into Rust (s9).
+ * moves of the operations of the session (`RepositoryView.operations`: a start of a Safe Push or a Dry Run from its
+ * admission on), and the page's own until their families move into Rust (s9: a restart, a pull request, a review
+ * request).
  */
 
-/**
- * The moves that run: of the operations of the session, of the page's operations that declare one, and of the page's
- * starts of a Safe Push or a Dry Run
- */
+/** The moves that run: of the operations of the session, and of the page's operations that declare one */
 function runningMoves(): readonly RunningMove[] {
-  return [...presentOperationMoves(branchSyncStore.getState().operations), ...getOperationMoves(), ...safePushStartMoves(getSafePushStarts())]
+  return [...presentOperationMoves(branchSyncStore.getState().operations), ...getOperationMoves()]
 }
 
 /** The branches a Safe Push of `key` lands beside it: the members of a whole stack, the ancestors of a branch */
@@ -153,18 +149,17 @@ export function getStackNodeKindNow(root: string): LandingNodeKind | null {
 
 /**
  * Renders again with `select` when a store a node reads changes: the view with the operations of the session, and the
- * page's moves that run (its operations, the starts of a Safe Push) until s9 moves them. For what reads the nodes of
- * many rows: the filter chips, the states of a stack, the overview
+ * page's operations that run until s9 moves their families. For what reads the nodes of many rows: the filter chips,
+ * the states of a stack, the overview
  */
 export function useNodeStores<T>(select: () => T): T {
   useStore(branchSyncStore, select)
-  useStore(safePushStore, select)
   return useStore(operationsStore, select)
 }
 
 /** The states of the stores a node reads (`useNodeStores`), for what keeps the nodes of many rows it computed */
 export function nodeSources(): readonly unknown[] {
-  return [branchSyncStore.getState(), operationsStore.getState(), safePushStore.getState()]
+  return [branchSyncStore.getState(), operationsStore.getState()]
 }
 
 /** The running move of the row of `key` (`runningMoveNow`), re-rendering only when it changes: a selector of its text */

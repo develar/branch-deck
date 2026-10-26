@@ -1,34 +1,42 @@
 //! The facts of a start of the app (and of the E2E server): the session of its repository (`SessionStart`). The plan
 //! is prepared again on the actor of the session over the facts its scheduler holds, the landing needs of the view
-//! among them (the landing gate the session ran in the background after its sync, the one trial of a start, C2), with
-//! the replay of what lands onto the newest target, fetched on its own thread; nothing of it holds the lock. The robots
-//! and the pull requests after the push are the session's as they are; the robot a comment started is looked for in a
-//! list of the robots started since shortly before the comment, and every robot the start starts or cancels goes into
-//! the session, so every window shows it at once.
+//! among them (the landing gate of a branch the session ran in the background after its sync, the one trial of a start,
+//! C2), with the replay of what lands onto the newest target, fetched on its own thread, and for a whole stack its
+//! landing gate, a trial check of the session's grouping through the object cache of the repository; nothing of it holds
+//! the lock. A check that could not run in full holds nothing back: the outcome says so (`StartNote`). The robots and
+//! the pull requests after the push are the session's as they are; the robot a comment started is looked for in a list
+//! of the robots started since shortly before the comment, and every robot the start starts or cancels goes into the
+//! session, so every window shows it at once.
 
 use crate::land::planned_of;
 use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices};
 use crate::push::Sent;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{Land, Subject};
+use domain_types::landing::{Land, LandingRefusal, Subject};
+use domain_types::operation::StartNote;
 use domain_types::patronus::{PatronusAvailability, PatronusRobot};
 use domain_types::session::Version;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{git_common_dir, resolve_commit};
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, LockWaitCanceled, RepositoryLocked, lock_repository_while_held};
+use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::derive::{StartChecks, with_checked_land_sources};
 use repository_model::facts::listed_robots;
+use repository_model::patronus_view::landed_commits;
 use repository_model::session::{SessionKey, Sessions};
 use repository_model::table::RemoteSubject;
+use std::collections::HashSet;
 use std::sync::Arc;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::push::LeasedPush;
 use sync_core::target_conflict::{TargetOutcome, check_target, fetch_target};
 use sync_utils::span::in_current_span;
 use tracing::warn;
+use trial_check::check::CheckSession;
+use trial_check::landing_gate::check_landing_gate;
 
 /// A start in the open session of `key`
 pub struct SessionStart {
@@ -39,13 +47,16 @@ pub struct SessionStart {
   pub patronus: Arc<PatronusService>,
   pub space: String,
   pub new_api: bool,
+  /// The object cache of the repository, which the landing gate of a whole stack checks through
+  pub cache: ObjectCache,
 }
 
-/// What the plan of a start reads of the session before its check against the target: the tip of what lands and the
-/// baseline it is replayed onto
+/// What the plan of a start reads of the session before its checks: the tip of what lands and the baseline it is
+/// replayed onto, and for a whole stack the commits merged Safe Pushes landed, which its landing gate counts as landed
 struct Inputs {
   tip: Option<String>,
   baseline: String,
+  landed: Option<HashSet<String>>,
 }
 
 impl SessionStart {
@@ -55,43 +66,96 @@ impl SessionStart {
       .sessions
       .read(&self.key, move |state, facts| {
         let table = facts.table_facts(state)?;
-        let tip = match &subject {
-          Subject::Branch { name } => table.table.tip_of(name).map(str::to_string),
-          Subject::WholeStack { root } => table.table.stack_branches.iter().find(|stack| stack.root == *root).and_then(|stack| stack.tip.clone()),
+        let (tip, landed) = match &subject {
+          Subject::Branch { name } => (table.table.tip_of(name).map(str::to_string), None),
+          Subject::WholeStack { root } => (
+            table.table.stack_branches.iter().find(|stack| stack.root == *root).and_then(|stack| stack.tip.clone()),
+            Some(landed_commits(&facts.patronus.part().view)),
+          ),
         };
         Some(Inputs {
           tip,
           baseline: table.table.baseline.clone(),
+          landed,
         })
       })
       .await
       .flatten()
   }
 
-  /// The check against the newest target on the blocking pool: the target fetched first (a failed fetch replays onto
-  /// the tip fetched last), then the replay of the tip onto it
-  async fn checks(&self, inputs: Inputs) -> Result<StartChecks, ApiError> {
+  /// The checks of the start on the blocking pool, side by side: against the newest target (the target fetched first, a
+  /// failed fetch replays onto the tip fetched last), and of a whole stack its landing gate; what did not run in full is
+  /// a note, never a refusal
+  async fn checks(&self, subject: &Subject, inputs: Inputs) -> Result<(StartChecks, Vec<StartNote>), ApiError> {
     let (git, path, baseline, tip) = (self.git.clone(), self.key.worktree.clone(), inputs.baseline, inputs.tip);
-    let target_conflict = tokio::task::spawn_blocking(in_current_span(move || {
-      let tip = tip?;
-      let fetch_error = fetch_target(&git, &path).into_error();
-      let target_tip = match resolve_commit(&git, &path, &baseline) {
-        Ok(Some(target_tip)) => target_tip,
-        Ok(None) => return None,
-        Err(error) => {
-          warn!(error = format!("{error:#}"), "the target of the start can't be read: no check against it");
-          return None;
-        }
-      };
-      match check_target(&git, &path, &baseline, &target_tip, &tip, fetch_error).outcome {
-        TargetOutcome::Conflict(conflict) => Some((conflict.commit.id, conflict.files)),
-        _ => None,
+    let target = tokio::task::spawn_blocking(in_current_span(move || target_check(&git, &path, &baseline, tip)));
+    let gate = match (subject, inputs.landed) {
+      (Subject::WholeStack { .. }, Some(landed)) => {
+        let (git, path, prefix, cache, subject) = (self.git.clone(), self.key.worktree.clone(), self.key.prefix.clone(), self.cache.clone(), subject.clone());
+        Some(tokio::task::spawn_blocking(in_current_span(move || {
+          let session = CheckSession::open(&git, &path, &prefix, &cache)?;
+          let gate = check_landing_gate(&session, &subject, &landed)?;
+          anyhow::Ok(gate.refusals(&session))
+        })))
       }
-    }))
-    .await
-    .map_err(|error| ApiError::internal(format!("The target check failed: {error}")))?;
-    // the landing gate is the landing needs of the view, which the session keeps for the refs of its last sync
-    Ok(StartChecks { gate: None, target_conflict })
+      // the landing gate of a branch is the landing needs of the view, which the session keeps for the refs of its sync
+      _ => None,
+    };
+    let failed = |error: tokio::task::JoinError| ApiError::internal(format!("A check of the start failed: {error}"));
+    let (target_conflict, mut notes) = target.await.map_err(failed)?;
+    let gate = match gate {
+      None => None,
+      Some(gate) => Some(gate_refusals(gate.await.map_err(failed)?, &mut notes)),
+    };
+    Ok((StartChecks { gate, target_conflict }, notes))
+  }
+}
+
+/// The refusals of the landing gate of a whole stack; one that could not run refuses nothing, and the note says so
+fn gate_refusals(checked: anyhow::Result<Vec<LandingRefusal>>, notes: &mut Vec<StartNote>) -> Vec<LandingRefusal> {
+  checked.unwrap_or_else(|error| {
+    warn!(error = format!("{error:#}"), "the landing gate of the whole stack did not run: it holds nothing back");
+    notes.push(StartNote::LandingNotChecked { error: format!("{error:#}") });
+    Vec::new()
+  })
+}
+
+/// The check of `tip` against the newest `baseline`: its fetch, then the replay of what lands onto its tip, as Patronus
+/// rebases it; the conflict (a copy of the virtual branch and its files), and what did not run in full
+fn target_check(git: &GitCommandExecutor, path: &str, baseline: &str, tip: Option<String>) -> (Option<(String, Vec<String>)>, Vec<StartNote>) {
+  let Some(tip) = tip else {
+    return (None, Vec::new());
+  };
+  let fetch_error = fetch_target(git, path).into_error();
+  let mut notes: Vec<StartNote> = fetch_error
+    .iter()
+    .map(|error| StartNote::TargetFetchFailed {
+      target: baseline.to_string(),
+      error: error.clone(),
+    })
+    .collect();
+  let target_tip = match resolve_commit(git, path, baseline) {
+    Ok(Some(target_tip)) => target_tip,
+    Ok(None) => return (None, notes),
+    Err(error) => {
+      warn!(error = format!("{error:#}"), "the target of the start can't be read: no check against it");
+      notes.push(StartNote::TargetNotChecked {
+        target: baseline.to_string(),
+        error: format!("{error:#}"),
+      });
+      return (None, notes);
+    }
+  };
+  match check_target(git, path, baseline, &target_tip, &tip, fetch_error).outcome {
+    TargetOutcome::Conflict(conflict) => (Some((conflict.commit.id, conflict.files)), notes),
+    TargetOutcome::Clean => (None, notes),
+    TargetOutcome::NotRun { error } => {
+      notes.push(StartNote::TargetNotChecked {
+        target: baseline.to_string(),
+        error,
+      });
+      (None, notes)
+    }
   }
 }
 
@@ -101,7 +165,7 @@ impl StartHost for SessionStart {
       let Some(inputs) = self.inputs(&land.subject).await else {
         return Ok(None);
       };
-      let checks = self.checks(inputs).await?;
+      let (checks, notes) = self.checks(&land.subject, inputs).await?;
       let (prefix, land) = (self.key.prefix.clone(), land.clone());
       let planned = self
         .sessions
@@ -109,7 +173,7 @@ impl StartHost for SessionStart {
           with_checked_land_sources(state, facts, &prefix, &checks, |sources| planned_of(sources, &land))
         })
         .await;
-      Ok(planned.flatten().flatten())
+      Ok(planned.flatten().flatten().map(|planned| Planned { notes, ..planned }))
     })
   }
 
@@ -217,15 +281,11 @@ pub async fn session_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>,
     patronus: Arc::clone(&patronus),
     space: space.name.clone(),
     new_api: services.new_api(key),
+    cache: services.object_cache(key).await,
   };
   let lock_dir = common_dir.clone();
   let lock: Locker = Arc::new(move |on_wait, canceled| {
-    let mut waited = false;
-    let mut on_holder = |_: &LockHolder| {
-      if !std::mem::replace(&mut waited, true) {
-        on_wait();
-      }
-    };
+    let mut on_holder = |holder: &LockHolder| on_wait(Some(holder));
     lock_repository_while_held(&lock_dir, DEFAULT_LOCK_TIMEOUT, &mut on_holder, canceled).map_err(|error| {
       if error.downcast_ref::<LockWaitCanceled>().is_some() {
         return ApiError::new(ErrorCode::Canceled, "The start was stopped while it waited for the repository lock; nothing was done");

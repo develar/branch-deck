@@ -51,6 +51,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("stack_push_alone", |path| templates::stack_push_alone().build(path)),
   ("stack_uses_parent", |path| templates::stack_uses_parent().build(path)),
   ("landing_needs", |path| templates::landing_needs().build(path)),
+  ("landing_needs_fork", |path| templates::landing_needs_fork().build(path)),
   ("stack_problems", |path| templates::stack_problems().build(path)),
   ("branch_filter", |path| templates::branch_filter().build(path)),
   ("empty-non-git", |path| templates::empty_non_git().build(path)),

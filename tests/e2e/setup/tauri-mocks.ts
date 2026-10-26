@@ -201,10 +201,11 @@ export const tauriMockScript = () => {
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload
-    // a progress channel (`push_branch`, `update_project`, the `wait` of a rewrite, the `patches` of `subscribe_view`)
+    // a progress channel (`push_branch`, `update_project`, the `wait` of a rewrite, the `patches` of `subscribe_view`,
+    // the `events` of an operation of `execute`)
     // stays in the page: the server sends its messages as SSE events before the answer (`channel_commands.rs`), a test
     // route by its key (`window.__progressChannels`, `sendProgress` of wait-helpers.ts)
-    const channel = payload?.progress ?? payload?.wait ?? payload?.patches
+    const channel = payload?.progress ?? payload?.wait ?? payload?.patches ?? payload?.events
     const channelId = registerProgressChannel(channel)
 
     const init = {

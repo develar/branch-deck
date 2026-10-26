@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 122;
+const COMMAND_COUNT: usize = 119;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -43,7 +43,6 @@ const MUTATING: &[&str] = &[
   "execute",
   "cancel_operation",
   // Patronus
-  "start_patronus_robot",
   "restart_patronus_robot",
   "cancel_patronus_robot",
   "post_patronus_command",
@@ -115,15 +114,9 @@ const MUTATING: &[&str] = &[
 
 /// The read commands that E2E tests still answer in the page, with the number of answers in `tests/e2e` (a call of a
 /// helper that answers counts as its answers): a state that neither the fixtures of the fakes nor the templates make
-/// yet (a refused landing gate, a conflict of the target). The numbers only go down: a new
-/// answer of a command in the page fails, so it comes from a fixture of the fake; a removed one lowers its number
-const ROUTED_IN_PAGE: &[(&str, usize)] = &[
-  ("agent_cli_status", 2),
-  ("check_landing_gate", 1),
-  ("check_target_conflict", 1),
-  ("get_repository_config", 3),
-  ("prefetch_branch_review", 1),
-];
+/// yet. The numbers only go down: a new answer of a command in the page fails, so it comes from a fixture of the fake;
+/// a removed one lowers its number
+const ROUTED_IN_PAGE: &[(&str, usize)] = &[("agent_cli_status", 2), ("get_repository_config", 3), ("prefetch_branch_review", 1)];
 
 fn read_workspace_file(path: &str) -> String {
   let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(path);

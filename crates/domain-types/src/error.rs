@@ -2,6 +2,7 @@
 //! answers (`ApiError`), with the exit code and the retry of its class. Agents and the page branch on the code (and
 //! the exit code), never on the message.
 
+use crate::landing::LandingRefusal;
 use serde::{Deserialize, Serialize};
 
 /// A stable error code. Agents branch on the code and the exit code, never on the message
@@ -452,6 +453,8 @@ pub enum ErrorDetails {
   Blocks { blocks: Vec<String> },
   /// Who holds the repository lock: `locked`; `None` when the holder wrote no record
   Locked { holder: Option<LockHolderInfo> },
+  /// What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference`
+  Landing { refusals: Vec<LandingRefusal> },
 }
 
 /// The holder of the repository lock as the page names it: "`bd push auth` (pid 4242) has held the repository for 40 s"

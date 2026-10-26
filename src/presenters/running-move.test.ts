@@ -1,7 +1,28 @@
 // @spec spec/branch/branch-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { RunningOperation } from "@/lib/bindings"
-import { presentOperationMoves } from "@/presenters/running-move"
+import type { RunningMove } from "@/presenters/running-move"
+import { findRunningMove, presentOperationMoves, presentRunningMove, robotRestartMove } from "@/presenters/running-move"
+
+describe("findRunningMove", () => {
+  const landsBeside = (key: string): readonly string[] => ({ oauth: ["auth"], "stack:air": ["air", "bazel"] })[key] ?? []
+
+  it("finds the own move of the row, else a move of a row whose Safe Push lands it beside", () => {
+    const request: RunningMove = { key: "auth", lands: false, label: "Requesting a review on #12" }
+    const restart = robotRestartMove("oauth", "rebaseAutosquash")
+    expect(findRunningMove("auth", [restart, request], landsBeside)).toEqual({ move: request, with: null })
+    expect(findRunningMove("auth", [restart], landsBeside)).toEqual({ move: restart, with: "oauth" })
+    const stack = [presentRunningMove({ kind: "starting", subject: "stack:air", mode: "rebaseAutosquash" })]
+    expect(findRunningMove("bazel", stack, landsBeside)).toEqual({ move: stack[0], with: "the whole air stack" })
+    expect(findRunningMove("stack:air", stack, landsBeside)).toEqual({ move: stack[0], with: null })
+  })
+
+  it("finds none for a move that lands nothing beside, or of a row that doesn't land it", () => {
+    expect(findRunningMove("auth", [robotRestartMove("oauth", "dryRun")], landsBeside)).toBeNull()
+    expect(findRunningMove("auth", [{ key: "oauth", lands: false, label: "Requesting a review on #12" }], landsBeside)).toBeNull()
+    expect(findRunningMove("login", [robotRestartMove("oauth", "rebaseAutosquash")], landsBeside)).toBeNull()
+  })
+})
 
 /** An operation of the session that makes `moves` */
 function operation(id: string, moves: RunningOperation["moves"]): RunningOperation {

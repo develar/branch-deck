@@ -188,11 +188,20 @@ others wait with its busy state.
 
 ### Moves
 
-An action that is the move of a row says so in its spec: `move` (`RunningMove`, `src/lib/running-move.ts`) names the
-row (a branch, or `stack:<root>` of a whole stack), whether a robot comes that lands it (`lands`), and the hover of its
-node meanwhile. The node of the row reads the moves that run (`getOperationMoves`, and the starts of a Safe Push past
-their checks, `safePushStartMoves`) before the next step, so a row leaves the user's moves at the click, on every
-surface that starts the action, not when Patronus or GitHub answer ([Landing](landing.md)):
+An action that is the move of a row says so: the node of the row reads the moves that run before the next step, so a
+row leaves the user's moves at the click, on every surface that starts the action, not when Patronus or GitHub answer
+([Landing](landing.md)). A move (`RunningMove` of `src/presenters/running-move.ts`) names the row (a branch, or
+`stack:<root>` of a whole stack), whether a robot comes that lands it (`lands`), and the hover of its node meanwhile.
+
+The operations of the remote move into Rust family by family ([Rust as the Domain Authority](rust-domain-authority.md),
+s9-engine-remote): the registry of a session there (`operations::registry`, admitted by `domain_policy::admission`) is
+a part of its view (`RepositoryView.operations`), and the moves its operations declare (`RunningOperation.moves`) are
+laid over the nodes (`presentOperationMoves`), in every window, from the admission of the operation:
+
+- the start of a Safe Push or a Dry Run (`RunningMove::Starting`, `operations::engine::execute_land`; `lands`:
+  Landing, and the branches its Safe Push lands beside; a Dry Run waits).
+
+Until their families move, the page's operations declare theirs (`OperationSpec.move`, read by `getOperationMoves`):
 
 - the restart and the push and restart of a robot (`lands`: Landing, and the branches its Safe Push lands beside; a Dry
   Run waits);
@@ -201,15 +210,9 @@ surface that starts the action, not when Patronus or GitHub answer ([Landing](la
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
 and back. The other operations pass, as a sync does: the node keeps the state they started from.
 
-The operations of the remote move into Rust family by family ([Rust as the Domain Authority](rust-domain-authority.md),
-s9-engine-remote): the registry of a session there (`operations::registry`, admitted by `domain_policy::admission`) is
-a part of its view (`RepositoryView.operations`), and the moves its operations declare (`RunningOperation.moves`) are
-laid over the nodes beside the page's own (`presentOperationMoves`, `src/presenters/running-move.ts`). A family that
-moved is no operation of this registry any more; until then the page keeps its own.
-
 ### Outside the registry
 
-Two runs keep their own record, each one place for every surface of it:
+One run keeps its own record, one place for every surface of it:
 
 - **Push and stack push** (`pushingBranches`, `stackPushes` in `branch-sync.ts`, the percent in `pushProgressStore`):
   a stack push carries the branches it sends, learned after the sync it waits for; a push of the stack branch joins a
@@ -224,11 +227,14 @@ Two runs keep their own record, each one place for every surface of it:
   registry of the operations, so a push of a ref another push of the app writes waits for it there and the pushes of
   other refs run side by side, its steps in the view's `operations` (`Checking`, `WaitingForSync`, `WaitingForLock`,
   `Pushing`); the page's record above stays its own until its push is an intent of the session (s9-12, s9-13).
-- **The start of a Safe Push or a Dry Run** (`safePushStore.starting`): its steps (checking, pushing, starting) span
-  the check, the popover the user answers, and the start; the next step reads it as the row's busy state
-  (`busyFact`), the slot shows its step.
 
-Both are read where the registry is: the next step, the menus and the keys see a push or a start as they see an
+The start of a Safe Push or a Dry Run is an operation of the session (`execute`, [Push and
+land](git-operations.md#push-and-land)): its steps are the view's (`OperationStep`: checking, waiting for the lock,
+pushing, starting), which the slot and the next step read (`useLandRun` of `src/stores/safe-push.ts`), with the percent
+of its push and whom a wait is for from the channel of the window that asked; before it, the click that waits for its
+plan says "Checking…" (`asking`), the popover the user answers is the page's own (`ask`).
+
+The push is read where the registry is: the next step, the menus and the keys see a push or a start as they see an
 operation.
 
 ## Key Decisions

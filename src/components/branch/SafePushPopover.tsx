@@ -20,7 +20,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import type { SafePushRead } from "@/hooks/useSafePush"
-import { pushAlone, requestSafePush, useSafePushRead } from "@/hooks/useSafePush"
+import { pushAlone, requestSafePush, startPlanned, useSafePushRead } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
@@ -30,15 +30,12 @@ import { openBranchReviewWindow, openWholeStackReviewWindow, toReviewGroups } fr
 import { isRulesUnknown } from "@/lib/branch-rules"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
-import type { LandingDecision } from "@/lib/landing-gate"
-import { describeLandingCheck, formatLandingFix } from "@/lib/landing-gate"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import type { StackAlone } from "@/lib/patronus-stack"
 import { describeStackLanding } from "@/lib/patronus-stack"
-import { startSafePush } from "@/lib/safe-push-start"
 import { openSettings } from "@/lib/settings-window"
 import { joinNames } from "@/lib/text"
 import {
@@ -50,6 +47,8 @@ import {
   stackRootOfReadinessKey,
 } from "@/lib/whole-stack"
 import { landingRefusalsOf } from "@/presenters/land"
+import type { LandingRefused } from "@/presenters/landing"
+import { describeLandingRefusals, formatLandingFix } from "@/presenters/landing"
 import { formatPerson } from "@/presenters/next-step"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
 import { useIndicatorClaim, useObjectBusy } from "@/stores/operations"
@@ -151,15 +150,15 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   // the build of what it lands needs a branch outside it (the landing gate's blockers): the reason, the fix, and the start
   // anyway
   const landingRefusals = read?.plan == null ? [] : landingRefusalsOf(read.plan).map(reason => reason.refusal)
-  const landingCheck = landingRefusals.length === 0 ? null : describeLandingCheck({ refusals: landingRefusals }, subject, {})
-  const landingRefused = landingCheck?.kind === "refuse" ? landingCheck : null
+  const landingRefused = describeLandingRefusals(landingRefusals, subject)
   const close = () => closeSafePushPopover(branchName)
   const start = () => {
-    if (read === null || !canStart) {
+    if (read?.plan == null || !canStart) {
       return
     }
     close()
-    void startSafePush(landingRefused === null ? read.start : { ...read.start, allow: landingRefused.anyway })
+    // the plan the popover showed, every confirmation of it accepted; Start Anyway with the overrides of the gate
+    void startPlanned(read.plan, landingRefused?.anyway)
   }
   const dryRun = () => {
     close()
@@ -255,11 +254,11 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
 }
 
 /**
- * Why the build of what the start lands fails (`describeLandingCheck` of the landing needs): the name a branch outside
- * it adds, with the fix as a button ("Stack lane-run on stills-codec"), which restacks and leaves the popover open to
- * read the start again; the start below is Start Anyway
+ * Why the build of what the start lands fails (`describeLandingRefusals` of the landing needs): the name a branch
+ * outside it adds, with the fix as a button ("Stack lane-run on stills-codec"), which restacks and leaves the popover
+ * open to read the start again; the start below is Start Anyway
  */
-function LandingNeedsLine({ refused, disabled, surface }: { refused: Extract<LandingDecision, { kind: "refuse" }>; disabled: boolean; surface: string }) {
+function LandingNeedsLine({ refused, disabled, surface }: { refused: LandingRefused; disabled: boolean; surface: string }) {
   const fix = refused.fix
   const label = formatLandingFix(fix)
   return (
@@ -318,7 +317,7 @@ function Lines({
   const rules = rulesUnknown === undefined ? null : peekBranchRules(read.target)
   return (
     <>
-      {read.start.effects.map(effect =>
+      {(read.plan?.effects ?? []).map(effect =>
         effect.kind === "retarget" ? (
           <Line key={effect.number} testId="safe-push-retarget">
             {`Retargets #${effect.number} of ${effect.branch} from ${effect.from} to ${effect.to} first: every pull request of a virtual branch goes into ${effect.to}.`}
@@ -337,7 +336,7 @@ function Lines({
         read.wholeStack !== null &&
         read.review.kind === "loaded" &&
         read.review.readiness.kind !== "notRequired" && <Line testId="safe-push-whole-stack-approvals">{`${formatWholeStackApprovals(fromPullRequest.number)}.`}</Line>}
-      {read.wholeStack !== null && read.start.effects.some(effect => effect.kind === "push") && (
+      {read.wholeStack !== null && read.plan?.effects.some(effect => effect.kind === "push") === true && (
         <Line testId="safe-push-stack-branch">{describeStackBranchPush(read.wholeStack.stackBranch, read.wholeStack.members, read.wholeStack.onRemote)}</Line>
       )}
       {read.wholeStackPullRequest !== null && (

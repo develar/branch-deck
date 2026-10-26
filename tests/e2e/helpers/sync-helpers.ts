@@ -140,11 +140,14 @@ export async function runAndWaitForSync(page: Page, action: () => Promise<unknow
  * The `count`-th answer of the page's next `command` (`/invoke/<command>`), however long the test lets it take; ask for it before
  * the action that starts the command. It is the event of one step of a chain of commands, each of which takes seconds
  * under load (Update Project: the fetch, the update, then the sync), so the assertion after it waits only for the page
- * to show the answer, never for the whole chain within its 5 s
+ * to show the answer, never for the whole chain within its 5 s. A command with a channel (`execute`, a push) answers as
+ * a stream of its events with its answer last: the answer is the end of that stream, not its first bytes, so a stream
+ * that began before the call (an `execute` that waits for the lock) counts too
  */
 export function nextAnswer(page: Page, command: string, count = 1): Promise<unknown> {
   let answered = 0
-  return page.waitForResponse(response => response.url().endsWith(`/invoke/${command}`) && ++answered === count, { timeout: 0 })
+  // the request finishes with the last byte of its answer: a stream that began before this call ends after it too
+  return page.waitForEvent("requestfinished", { predicate: request => request.url().endsWith(`/invoke/${command}`) && ++answered === count, timeout: 0 })
 }
 
 /** Runs `action`, which starts `command` at the end of a chain of commands, and waits for the answer of that command */

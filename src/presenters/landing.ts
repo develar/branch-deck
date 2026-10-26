@@ -1,66 +1,33 @@
-import type { LandingAllowances, LandingCheck, LandingFix, LandingRefusal, RobotOf, StackCommit } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
-import { getErrorDetails } from "@/lib/errors"
+// The page's words of the refusals of the landing gate (`trial_check::landing_gate`, the rule of `bd safe-push`): the
+// landing needs of a row and the plan of a start (`Reason::LandingRefused`), the refusal `execute` answers of a whole
+// stack (`ErrorDetails::Landing`). The reason of the first, the count of the others, its fix and the overrides of Start
+// Anyway; it decides nothing.
+import type { LandingAllowances, LandingFix, LandingRefusal, RobotOf, StackCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
-import type { StartRepository } from "@/stores/patronus"
-import { patronusRequest } from "@/stores/patronus"
 
-/**
- * What the landing gate means for a start: `refuse` when a refusal holds it back (the build of what lands would fail),
- * with the fix of the first one and the overrides that start anyway; else `start`, with a sentence for the start's toast
- * when the check did not run
- */
-export type LandingDecision =
-  | { readonly kind: "refuse"; readonly reason: string; readonly fix: LandingFix | null; readonly anyway: LandingAllowances }
-  | { readonly kind: "start"; readonly note: string | null }
-
-/**
- * Asks what refuses the start of `branchName`, or of the whole stack of the root `wholeStack` (`check_landing_gate`, the
- * rule of `bd safe-push`): a dangling reference a commit proves, a name a branch outside what lands adds; the commits
- * merged Safe Pushes landed count as in the target, as Rust names them on the robots it reads. `allow` holds what the user
- * started anyway. A failed check holds nothing back: the note says so, and the start command checks again.
- */
-export async function checkLandingBeforeStart(
-  branchName: string,
-  wholeStack: string | null,
-  allow: LandingAllowances,
-  repository: StartRepository | null = null,
-): Promise<LandingDecision> {
-  const subject = wholeStack === null ? branchName : `the whole ${wholeStack} stack`
-  try {
-    const result = await commands.checkLandingGate({
-      ...(repository?.request ?? patronusRequest()),
-      branchName: wholeStack ?? branchName,
-      ...(wholeStack !== null && { stack: true }),
-      allow,
-    })
-    if (result.status === "error") {
-      return { kind: "start", note: notRunNote(subject, result.error.message) }
-    }
-    return describeLandingCheck(result.data, subject, allow)
-  } catch (error) {
-    return { kind: "start", note: notRunNote(subject, getErrorDetails(error)) }
-  }
+/** Why the build of what a start lands fails, the fix of the first refusal, and the overrides that start it anyway */
+export interface LandingRefused {
+  readonly reason: string
+  readonly fix: LandingFix | null
+  readonly anyway: LandingAllowances
 }
 
-/** The decision of a check of `subject` ("auth", "the whole auth stack") after the overrides `allow` */
-export function describeLandingCheck(check: LandingCheck, subject: string, allow: LandingAllowances): LandingDecision {
-  const [first] = check.refusals
+/**
+ * The refusals of a start of `subject` ("auth", "the whole auth stack") in the page's words, the overrides `allow` the
+ * user gave already kept in its Start Anyway; null when nothing refuses it
+ */
+export function describeLandingRefusals(refusals: readonly LandingRefusal[], subject: string, allow: LandingAllowances = {}): LandingRefused | null {
+  const [first] = refusals
   if (first === undefined) {
-    return { kind: "start", note: null }
+    return null
   }
-  const more = check.refusals.length - 1
+  const more = refusals.length - 1
   const rest = more === 0 ? "" : ` ${more === 1 ? "One more name breaks" : `${more} more names break`} it too: bd check lists them.`
   const anyway: LandingAllowances = {
-    allowDangling: allow.allowDangling === true || check.refusals.some(refusal => refusal.kind === "danglingReference"),
-    allowMissing: allow.allowMissing === true || check.refusals.some(refusal => refusal.kind === "missingDeclaration"),
+    allowDangling: allow.allowDangling === true || refusals.some(refusal => refusal.kind === "danglingReference"),
+    allowMissing: allow.allowMissing === true || refusals.some(refusal => refusal.kind === "missingDeclaration"),
   }
-  return {
-    kind: "refuse",
-    reason: `${describeLandingRefusal(first, subject)}${rest}`,
-    fix: first.fix,
-    anyway,
-  }
+  return { reason: `${describeLandingRefusal(first, subject)}${rest}`, fix: first.fix, anyway }
 }
 
 /**
@@ -113,8 +80,4 @@ function describeFix(fix: LandingFix): string {
 /** "“Name lossy stills” of stills-codec", an unassigned commit by its hash */
 function describeCommit(commit: StackCommit): string {
   return commit.branch === "" ? `${formatShortHash(commit.id)} (“${commit.subject}”, unassigned)` : `“${commit.subject}” of ${commit.branch}`
-}
-
-function notRunNote(subject: string, error: string): string {
-  return `Not checked whether ${subject} uses a name only another branch adds: ${error}`
 }

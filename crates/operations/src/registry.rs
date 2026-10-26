@@ -308,7 +308,9 @@ impl RunningGuard {
   /// ones that waited behind it are admitted again
   pub fn finish(mut self, answer: Answer) {
     if let Ok(outcome) = &answer {
-      self.events.send(OperationEvent::Done { outcome: outcome.clone() });
+      self.events.send(OperationEvent::Done {
+        outcome: Box::new(outcome.clone()),
+      });
     }
     self.end(answer);
   }

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react"
+import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { getBranchNextStep } from "@/hooks/useBranchNextStep"
+import { restackBranch } from "@/hooks/useStackActions"
 import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
-import type { Land, LandProfiles, PatronusProfile, PatronusRobot, Plan, ReviewReadiness } from "@/lib/bindings"
+import type { ApiError, Land, LandingAllowances, LandProfiles, OperationEvent, OperationId, Outcome, PatronusProfile, PatronusRobot, Plan, ReviewReadiness } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure, notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
@@ -10,17 +12,21 @@ import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, openRobot } from "@/lib/patronus"
-import { openPullRequest } from "@/lib/pull-request"
-import type { SafePushStart } from "@/lib/safe-push-start"
-import { admitStart, startSafePush } from "@/lib/safe-push-start"
+import { getRobotActionItems } from "@/lib/patronus-actions"
+import { openPullRequest, openPullRequestUrl } from "@/lib/pull-request"
+import { showRobotEventToast } from "@/lib/robot-toast"
 import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
-import { formatReadinessSubject, formatWholeStack, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import { formatReadinessSubject, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
 import type { LandPrompt } from "@/presenters/land"
 import { presentLand, startRouteOf } from "@/presenters/land"
+import { formatLandingFix } from "@/presenters/landing"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP, startStepBlocker } from "@/presenters/next-step"
+import { presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
+import { recordActivity, recordPush, recordRetarget, recordRobot } from "@/stores/activity"
+import type { RemoteStatus } from "@/stores/branch-sync"
 import {
   branchSyncStore,
   getBranch,
@@ -46,13 +52,14 @@ import {
   patronusStore,
 } from "@/stores/patronus"
 import { askBranchRulesAgain, getPullRequest, getPullRequestListing, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
-import { getRepositorySwitchReason, getSelectedRepositoryPath } from "@/stores/repository"
+import { getRepositorySwitchReason, getSelectedRepositoryPath, isSelectedRepository } from "@/stores/repository"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
 import { readRobotDetails } from "@/stores/robot-details"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
-import { getSafePushStarting, openSafePushPopover, safePushStore, setSafePushStarting } from "@/stores/safe-push"
+import { getLandRun, openSafePushPopover, safePushStore, setLandAsking, setLandProgress } from "@/stores/safe-push"
 import { getShownBranchTableOrder } from "@/stores/stack-collapse"
+import { runUpdateProjectOf } from "@/stores/update-project"
 
 /** What asks a start: its mode, how (a click, a key), where its popover opens, a profile chosen where it was asked */
 export interface SafePushRequest {
@@ -98,7 +105,6 @@ export interface SafePushRead {
   readonly withoutReview: boolean
   /** The running Safe Push of an older commit it cancels */
   readonly replaces: PatronusRobot | null
-  readonly start: SafePushStart
   /** The branches it is built on that it lands with it, root first (`Plan.lands`) */
   readonly ancestors: readonly string[]
   /** The branches built on it: they stay */
@@ -297,14 +303,6 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
     fromPullRequest: route?.kind === "comment" ? { number: route.number, command: mode === "dryRun" ? "/patronus dry-run" : "/patronus merge" } : null,
     withoutReview,
     replaces: cancel?.kind === "cancelRobot" ? (getRobot(cancel.robotId) ?? null) : null,
-    start: {
-      branchName,
-      mode,
-      effects: plan?.effects ?? [],
-      profile: profile === null ? null : { id: profile.id, name: profile.name },
-      mergeRequest: readiness?.requirement?.mergeRequest ?? null,
-      wholeStack: root,
-    },
     ancestors,
     children: root === null ? structureIn(state, branchName).descendants : [],
     commitCount: root === null ? [...ancestors, branchName].reduce((sum, name) => sum + (state.branches[name]?.commitCount ?? 0), 0) : wholeStackRestOf(root).commitCount,
@@ -464,7 +462,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   // the row of the start: the branch, the root for the whole stack
   const row = root ?? branchName
   const branch = getBranch(row)
-  if (branch === undefined || !isPatronusAvailable() || getSafePushStarting(branchName) !== null) {
+  if (branch === undefined || !isPatronusAvailable() || getLandRun(branchName) !== null) {
     return
   }
   const { mode } = request
@@ -509,13 +507,10 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     openSafePushPopover(ask)
     return
   }
-  // the start is admitted in the repository of the click: what it reads meanwhile decides on it, and it starts there
-  const admitted = admitStart(`Cannot start the ${formatPushMode(mode)}`)
-  if (admitted === null) {
-    return
-  }
-  const repositoryPath = admitted.request.repositoryPath
-  setSafePushStarting(branchName, { mode, step: "checking" }, repositoryPath)
+  // the start is planned and run in the repository of the click: what it reads meanwhile decides on it, and it starts
+  // there; its button says "Checking…" while it waits for its plan
+  const repositoryPath = getSelectedRepositoryPath()
+  setLandAsking(branchName, mode, repositoryPath)
   const release = mode === "rebaseAutosquash" ? demandReviewReadiness(branchName) : () => {}
   let read: SafePushRead | null
   try {
@@ -525,9 +520,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     return
   } finally {
     release()
-    if (getSafePushStarting(branchName, repositoryPath)?.step === "checking") {
-      setSafePushStarting(branchName, null, repositoryPath)
-    }
+    setLandAsking(branchName, null, repositoryPath)
   }
   if (read === null) {
     return
@@ -541,7 +534,9 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   const decision = read.prompt
   switch (decision.kind) {
     case "start":
-      await startSafePush(read.start, admitted)
+      if (read.plan !== null) {
+        await startPlanned(read.plan, undefined, repositoryPath)
+      }
       return
     case "refuse": {
       // the answer the click waited for may be the step's own reason (the approvals): its notice says it, with its action
@@ -560,6 +555,218 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     case "choose":
     case "confirm":
       openSafePushPopover(ask)
+  }
+}
+
+// ---- the run ----
+
+/** The subject of a start: the branch, or the key of the whole stack of a root (`stackReadinessKey`) */
+function landKey(land: Land): string {
+  return land.subject.kind === "branch" ? land.subject.name : stackReadinessKey(land.subject.root)
+}
+
+/** The plan of `land` in the session of `repositoryPath` (`prepare`); null without an answer, said under its title */
+async function prepareIn(repositoryPath: string, land: Land): Promise<Plan | null> {
+  const result = await commands.prepare({ repositoryPath, intent: { kind: "land", ...land } })
+  if (result.status === "error" || result.data === null) {
+    notifyError(
+      `Cannot start the ${formatPushMode(land.mode)} of ${formatReadinessSubject(landKey(land))}`,
+      result.status === "error" ? result.error : "The repository has no plan of it yet",
+    )
+    return null
+  }
+  return result.data
+}
+
+/** The remote status of each branch the push of `plan` sends, before it: what Activity says the push changed */
+function pushedBefore(plan: Plan): ReadonlyMap<string, RemoteStatus | null> {
+  const push = plan.effects.find(effect => effect.kind === "push")
+  return new Map(push?.kind === "push" ? push.branches.map(name => [name, getBranch(name)?.remoteStatus ?? null] as const) : [])
+}
+
+/**
+ * Runs the start Rust planned (`execute` of the intent of `plan` on its fingerprint, every confirmation of it accepted:
+ * the popover showed them, or the click had none) in `repositoryPath`, the repository it was planned in: the session
+ * admits it and shows its steps in the slot of every window (`RepositoryView.operations`), the progress of its push and
+ * whom it waits for come on its channel; then its toast and Activity from the outcome (`presentLandOutcome`), or the
+ * refusal before its first effect (`presentLandRefusal`). `allow`: Start Anyway, the same start with the overrides of
+ * what the landing gate refused, planned again first. Resolves to whether its robot started
+ */
+export async function startPlanned(plan: Plan, allow?: LandingAllowances, repositoryPath: string = getSelectedRepositoryPath()): Promise<boolean> {
+  const { intent } = plan
+  if (intent.kind !== "land") {
+    return false
+  }
+  // "Checking…" until the session admits its operation, whose step the slot shows then
+  const key = landKey(intent)
+  setLandAsking(key, intent.mode === "dryRun" ? "dryRun" : "rebaseAutosquash", repositoryPath)
+  return runPlanned(plan, intent, allow, repositoryPath).finally(() => setLandAsking(key, null, repositoryPath))
+}
+
+/** `startPlanned` of the start `intent` of `plan` */
+async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | undefined, repositoryPath: string): Promise<boolean> {
+  const planned = allow === undefined ? plan : await prepareIn(repositoryPath, { ...intent, allow: { ...intent.allow, ...allow } })
+  if (planned === null) {
+    return false
+  }
+  const before = pushedBefore(planned)
+  const events = new Channel<OperationEvent>()
+  let op: OperationId | null = null
+  events.onmessage = event => {
+    if (event.kind === "progress") {
+      op = event.op
+      setLandProgress(event.op, { percent: event.percent, line: event.line, transferred: null, speed: null })
+    }
+  }
+  const params = { repositoryPath, intent: planned.intent, fingerprint: planned.fingerprint, accepted: planned.confirmations }
+  const result = await commands.execute(params, events).finally(() => {
+    if (op !== null) {
+      setLandProgress(op, null)
+    }
+  })
+  if (result.status === "error") {
+    tellStartRefusal(result.error, planned, repositoryPath)
+    return false
+  }
+  setLandProgress(result.data.op, null)
+  recordEffects(result.data, repositoryPath, before)
+  return tellOutcome(result.data, planned, repositoryPath)
+}
+
+/**
+ * Activity of the effects of a start before its robot, each with the operation: the retargets of the pull requests
+ * into a virtual branch (D11) and the push, which has no toast of its own
+ */
+function recordEffects(outcome: Outcome, repositoryPath: string, before: ReadonlyMap<string, RemoteStatus | null>): void {
+  for (const { effect, status } of outcome.effects) {
+    if (status.kind !== "done") {
+      continue
+    }
+    if (effect.kind === "retarget") {
+      const url = getPullRequest(effect.branch)?.url
+      if (url !== undefined) {
+        recordRetarget(`Retargeted #${effect.number} to ${effect.to}`, `${effect.branch} · it went into ${effect.from}`, url)
+      }
+    } else if (effect.kind === "push") {
+      for (const name of effect.branches) {
+        recordPush(repositoryPath, name, before.get(name) ?? null, null)
+      }
+    }
+  }
+}
+
+/**
+ * The toast of how a start ended (`presentLandOutcome`), the next state of the event of the robots of its subject: the
+ * robot it started (Open in Patronus, Cancel Safe Push), the comment Patronus accepted, or why the robot did not start,
+ * "Start Safe Push" again when the facts changed after the push. Resolves to whether its robot started
+ */
+function tellOutcome(outcome: Outcome, plan: Plan, repositoryPath: string): boolean {
+  const land = plan.intent.kind === "land" ? plan.intent : null
+  if (land === null) {
+    return false
+  }
+  const key = landKey(land)
+  const toast = presentLandOutcome(outcome, plan, formatReadinessSubject(key))
+  const subjectKey = toastKeys.robotSubject(repositoryPath, key, land.mode)
+  switch (toast.kind) {
+    case "started":
+      recordRobot(toast.title, toast.description, toast.robot, repositoryPath, outcome.op)
+      // a start asked by mistake costs only the robot: its toast cancels it while it can be canceled
+      showRobotEventToast({
+        repositoryPath,
+        robot: toast.robot,
+        type: "success",
+        title: toast.title,
+        description: toast.description,
+        stepLast: true,
+        stepOf: current => getRobotActionItems(current).find(action => action.id === "cancel-robot") ?? null,
+      })
+      return true
+    case "commented":
+      recordActivity({
+        repositoryPath,
+        kind: "patronus",
+        title: toast.title,
+        description: toast.description,
+        details: { type: "pullRequest", url: toast.url },
+        operationId: outcome.op,
+      })
+      showEventToast({
+        key: subjectKey,
+        supersedes: land.mode === "dryRun" ? [] : [toastKeys.approval(repositoryPath, key)],
+        render: () => ({
+          type: "success",
+          title: toast.title,
+          description: toast.description,
+          action: { label: `Open Pull Request #${toast.number}`, onClick: () => openPullRequestUrl(toast.url) },
+        }),
+      })
+      return true
+    case "stopped":
+      showEventToast({ key: subjectKey, render: () => ({ type: "info", title: toast.title, description: toast.description }) })
+      return false
+    case "failed": {
+      const error: ApiError | string = toast.error === null ? toast.description : { ...toast.error, message: toast.description }
+      const canceled = toast.canceled
+      const opens = canceled === null ? undefined : { label: "Open in Patronus", onClick: () => openRobot(canceled) }
+      if (toast.again) {
+        notifyError(toast.title, error, { children: `Start ${formatPushMode(land.mode)}`, onClick: () => void startAgain(key, land, repositoryPath) }, opens)
+      } else if (toast.url !== null) {
+        const url = toast.url
+        notifyError(toast.title, error, { children: "Open Pull Request", onClick: () => openPullRequestUrl(url) })
+      } else {
+        notifyError(toast.title, error, opens === undefined ? undefined : { children: opens.label, onClick: opens.onClick })
+      }
+      return false
+    }
+  }
+}
+
+/** "Start Safe Push" of a start the facts changed under: a new start of the subject, planned on the table as it is now */
+function startAgain(key: string, land: Land, repositoryPath: string): Promise<void> {
+  if (!isSelectedRepository(repositoryPath)) {
+    notifyError(`Cannot start the ${formatPushMode(land.mode)} of ${formatReadinessSubject(key)}`, getRepositorySwitchReason(repositoryPath))
+    return Promise.resolve()
+  }
+  return requestSafePush(key, { mode: land.mode === "dryRun" ? "dryRun" : "rebaseAutosquash", via: "click" })
+}
+
+/**
+ * The toast of a start refused before its first effect (`presentLandRefusal`): the landing gate with its fix ("Stack
+ * lane-run on stills-codec") and Start Anyway, a conflict with the newest target with Update Project of the repository
+ * of the start (a fetch only, once the main window shows another one), a plan the facts changed with the start again
+ */
+function tellStartRefusal(error: ApiError, plan: Plan, repositoryPath: string): void {
+  const land = plan.intent.kind === "land" ? plan.intent : null
+  if (land === null) {
+    return
+  }
+  const key = landKey(land)
+  const refusal = presentLandRefusal(error, land.mode, formatReadinessSubject(key), land.allow ?? {})
+  switch (refusal.kind) {
+    case "landing": {
+      const anyway = { label: "Start Anyway", onClick: () => void startPlanned(plan, refusal.anyway, repositoryPath) }
+      const fix = refusal.fix
+      const fixLabel = formatLandingFix(fix)
+      const failure = { ...error, message: refusal.reason }
+      if (fix?.kind === "restack" && fixLabel !== null) {
+        notifyError(refusal.title, failure, { children: fixLabel, onClick: () => void restackBranch(fix.branch, fix.onto) }, anyway)
+      } else {
+        notifyError(refusal.title, failure, { children: anyway.label, onClick: anyway.onClick })
+      }
+      return
+    }
+    case "target":
+      notifyError(refusal.title, refusal.error, { children: "Update Project", onClick: () => void runUpdateProjectOf(repositoryPath) })
+      return
+    case "changed":
+      notifyError(refusal.title, refusal.error, { children: `Start ${formatPushMode(land.mode)}`, onClick: () => void startAgain(key, land, repositoryPath) })
+      return
+    case "stopped":
+      showEventToast({ key: toastKeys.robotSubject(repositoryPath, key, land.mode), render: () => ({ type: "info", title: refusal.title, description: refusal.description }) })
+      return
+    case "error":
+      notifyError(refusal.title, refusal.error)
   }
 }
 

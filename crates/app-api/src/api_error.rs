@@ -8,7 +8,6 @@
 use app_settings::service::SettingsError;
 use cli_tools::install::ActionError;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo};
-use domain_types::landing::{LandingRefusal, LandingRefused};
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_command_executor::StoppedCommand;
 use git_ops::index_lock::IndexLocked;
@@ -230,7 +229,7 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   if let Some(SettingsError::Invalid { .. } | SettingsError::NotAnObject { .. }) = error.downcast_ref::<SettingsError>() {
     return code(ErrorCode::InvalidArguments);
   }
-  classify_branch_moves(error).or_else(|| classify_pick(error)).or_else(|| classify_landing(error))
+  classify_branch_moves(error).or_else(|| classify_pick(error))
 }
 
 /// A pick of the commits of a remote branch: a refusal of `git_ops::pick`, or a commit that conflicts
@@ -294,16 +293,6 @@ fn classify_branch_moves(error: &anyhow::Error) -> Option<Classified> {
   error.downcast_ref::<FilesBlocked>().and_then(|blocked| paths(&blocked.paths))
 }
 
-/// A start refused by the landing gate: the code of its first refusal, the one its message names
-fn classify_landing(error: &anyhow::Error) -> Option<Classified> {
-  let refused = error.downcast_ref::<LandingRefused>()?;
-  let code = match refused.refusals.first()? {
-    LandingRefusal::DanglingReference { .. } => ErrorCode::DanglingReference,
-    LandingRefusal::MissingDeclaration { .. } => ErrorCode::MissingDeclaration,
-  };
-  Some((code, None))
-}
-
 /// The `ApiError` JSON of each of `contract_cases`, by its name: what the app and the e2e server answer for it
 #[cfg(any(test, feature = "fixtures"))]
 pub const CONTRACT_JSON: &str = include_str!("../fixtures/api_errors.json");
@@ -318,7 +307,6 @@ const CONTRACT_HOLDER_SINCE: u64 = 4_102_444_800;
 #[cfg(any(test, feature = "fixtures"))]
 pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
   use anyhow::anyhow;
-  use domain_types::landing::{LandingFix, StackCommit};
   use std::path::PathBuf;
   use std::time::Duration;
 
@@ -332,11 +320,6 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
     path: PathBuf::from("/repo/.git/branch-deck.lock"),
     waited: Duration::from_secs(10),
     holder,
-  };
-  let commit = |id: &str, subject: &str, branch: &str| StackCommit {
-    id: id.to_string(),
-    subject: subject.to_string(),
-    branch: branch.to_string(),
   };
   vec![
     ("internal", anyhow!("git cat-file exited with 128").context("Cannot read the commits ahead of the baseline")),
@@ -405,26 +388,6 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
       FetchFailed {
         upstream: "origin/master".to_string(),
         message: "Could not resolve host: github.com".to_string(),
-      }
-      .into(),
-    ),
-    (
-      "missing_declaration",
-      LandingRefused {
-        subject: "auth".to_string(),
-        refusals: vec![LandingRefusal::MissingDeclaration {
-          branch: "auth".to_string(),
-          identifier: "TokenCheck".to_string(),
-          file: "src/auth.rs".to_string(),
-          line: 12,
-          used_by: commit("4444444444444444444444444444444444444444", "Check the token", "auth"),
-          declared_by: commit("5555555555555555555555555555555555555555", "Add TokenCheck", "tokens"),
-          fix: LandingFix::Restack {
-            branch: "auth".to_string(),
-            onto: "tokens".to_string(),
-          },
-          landing_in: None,
-        }],
       }
       .into(),
     ),

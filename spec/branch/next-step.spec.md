@@ -28,6 +28,7 @@ targets:
   - ../../src/presenters/landing-node.ts
   - ../../src/hooks/useLandingNode.ts
   - ../../src/components/branch/SafePushButton.tsx
+  - ../../src/stores/safe-push.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/hooks/usePatronusReviewRequirement.ts
@@ -51,7 +52,7 @@ targets:
   - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
   - ../../crates/repository-model/src/facts.rs
-  - ../../src/lib/landing-gate.ts
+  - ../../src/presenters/landing.ts
 ---
 
 # Next Step
@@ -286,7 +287,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../crates/repository-model/src/facts_test.rs (`the_landing_needs_are_computed_one_at_a_time_the_newest_wanted_next`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`a_branch_that_uses_a_name_of_a_branch_outside_it_needs_that_branch_and_so_does_a_branch_built_on_it`, `the_needs_of_a_branch_are_the_refusals_of_its_start`, `a_landed_declaration_is_needed_by_nobody`, `a_running_safe_push_of_the_branch_that_adds_the_name_is_named_in_the_reason`)
   [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_landing_needs_of_every_branch`)
-  [@test] ../../src/lib/landing-gate.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
+  [@test] ../../src/presenters/landing.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
 - The decision of the start reads the same needs (`domain_policy::land::decide` over the view, `RepositoryView.lands`):
   each a blocker of the landing gate that only Start Anyway lifts (`LandingAllowances`), the popover's reason and fix;
   needs not computed yet are a wait ("Checking what lane-run needs to land…"), a failed computation none.
@@ -549,9 +550,11 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
 
 - The slot is as wide as the widest step of the view, at most 10rem, its step a ghost `xs` button with its
   `compactLabel` ("Retarget #7", "Awaiting Review", "Create Pull Request…" of the whole stack), every label of a step
-  within the 10rem; a start that runs keeps the width the step had at rest ("Checking…", the spinner and "45%" of its
-  push, "Starting…"; "Pushing 45%" and the branches it pushes in its name and hover), so nothing moves under the pointer
-  ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
+  within the 10rem; a start that runs keeps the width the step had at rest ("Checking…", "Waiting…" for another holder
+  of the repository lock, the spinner and "45%" of its push, "Starting…"; "Pushing 45%" and the branches it pushes in
+  its name and hover), so nothing moves under the pointer ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
+  The step of a start is the step of its operation in the view (`RepositoryView.operations`, `useLandRun`): every
+  window of the repository shows it; the percent and whom a wait is for come on the channel of the window that asked.
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`fits every label of a step in its column, so none truncates`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_5_retargets_a_pull_request_into_a_virtual_branch_and_5_prime_opens_one_into_another_base`, `rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`)

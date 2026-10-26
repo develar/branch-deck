@@ -897,7 +897,7 @@ test.describe("Whole stack", () => {
     await openWholeStackSubmenu(page, "auth")
     await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
     await expect(safePushPopover(page)).toHaveAttribute("aria-label", "Safe Push of the whole auth stack")
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
+    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
     await expectPatronusStarts(repo, [wholeStackStartRequest("auth")])
     // it pushed the stack branch alone, which the robot runs on
     await expectPushedToRemote(repo, [stackBranchOf("auth")])
@@ -961,7 +961,7 @@ test.describe("Whole stack", () => {
     const popover = safePushPopover(page)
     await expect(popover).toHaveAttribute("aria-label", "Safe Push of the whole auth stack")
     await expect(popover.getByTestId("safe-push-lands")).toHaveText(`${rest}.`)
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
+    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
     await expectPatronusStarts(repo, [wholeStackStartRequest("auth")])
     await expectPushedToRemote(repo, [stackBranchOf("auth")])
 

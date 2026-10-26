@@ -11,13 +11,13 @@ import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useClosePreview } from "@/hooks/useClosePreview"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
+import type { MenuItem } from "@/lib/menu"
 import { formatStackPushing } from "@/lib/stack"
-import { stopWaitingPushItem, transferLabel } from "@/lib/transfer-progress"
+import { transferLabel } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useStackPush } from "@/stores/branch-sync"
 import type { SafePushPlacement } from "@/stores/safe-push"
-import { useSafePushStarting } from "@/stores/safe-push"
+import { stopStart, useLandProgress, useLandRun } from "@/stores/safe-push"
 
 export interface SafePushButtonProps {
   branch: Branch
@@ -50,6 +50,11 @@ export interface SafePushButtonProps {
 /** A click right after the button took the place of another step under the pointer is a click meant for that step */
 const STEP_CHANGE_GUARD_MS = 700
 
+/** Stop Waiting of a start that waits for another holder of the repository lock (`waiting` names whom for) */
+function stopStartItem(op: string, waiting: string): MenuItem {
+  return { id: "stop-waiting", label: "Stop Waiting", description: `${waiting}; stop and push nothing`, onSelect: () => void stopStart(op) }
+}
+
 /**
  * "Safe Push" ("Safe Push · 3" for a stacked branch, which lands with the branches it is built on), the start of the
  * branch's next step (`getBranchNextStep`): a click starts at once when there is nothing to say, else opens the popover
@@ -79,30 +84,31 @@ export function SafePushButton({
   const step = wholeStack === undefined ? branchStep : stackStep?.leaf === null ? stackStep.step : null
   // the start of the whole stack runs under its key, and pushes its stack branch alone
   const key = wholeStack === undefined ? branch.name : stackReadinessKey(wholeStack)
-  const starting = useSafePushStarting(key)
-  const stackPush = useStackPush(wholeStack === undefined ? branch.name : "")
-  // the push of a branch's start reports its progress for each branch of it; the whole stack's under its key
-  const pushProgress = useBranchPushProgress(wholeStack === undefined ? (stackPush?.[0] ?? branch.name) : key)
+  const starting = useLandRun(key)
+  // how far its push is, or whom it waits for, as the channel of this window's start tells it
+  const progress = useLandProgress(starting?.op ?? null)
   // until when a click is ignored: the button took the place of another step under a pointer that stayed (null: not mounted yet)
   const guardUntil = useRef<number | null>(null)
   const item = step?.item?.id === "safe-push" ? step.item : null
   const blocker = step?.safePushBlocker ?? null
   const disabled = blocker !== null || starting !== null
-  const pushing = starting?.step === "pushing" ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, stackPush) : "Pushing", pushProgress) : null
+  const pushing = starting?.step === "pushing" ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, starting.pushes) : "Pushing", progress) : null
+  // whom its wait for the repository lock is for: the caller's channel names the holder
+  const waiting = starting?.step === "waiting" ? (progress?.line ?? "Waiting for another holder of the repository lock") : null
   const label =
     starting === null
       ? (item?.label ?? "Safe Push")
       : pushing !== null
         ? compact
-          ? pushProgress === null
+          ? progress === null
             ? null
-            : pushProgress.waiting === true
-              ? "Waiting…"
-              : `${pushProgress.percent}%`
+            : `${progress.percent}%`
           : pushing
-        : starting.step === "checking" || starting.step === "target"
-          ? "Checking…"
-          : "Starting…"
+        : starting.step === "waiting"
+          ? "Waiting…"
+          : starting.step === "checking"
+            ? "Checking…"
+            : "Starting…"
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const restWidth = useRef<number | null>(null)
   const busy = starting !== null
@@ -120,8 +126,8 @@ export function SafePushButton({
       restWidth.current = button.getBoundingClientRect().width
     }
   }, [compact, busy, label])
-  // its push waits for another holder of the repository lock: Stop Waiting beside it, the hover says whom for
-  const stopWaiting = starting?.step === "pushing" ? stopWaitingPushItem(pushProgress) : null
+  // it waits for another holder of the repository lock: Stop Waiting beside it, the hover says whom for
+  const stopWaiting = waiting !== null && starting?.op != null ? stopStartItem(starting.op, waiting) : null
   const button = (
     <Tooltip>
       <TooltipTrigger
@@ -133,8 +139,8 @@ export function SafePushButton({
             // the hover says why; Base UI keeps the button focusable, so the dimming is ours
             focusableWhenDisabled
             aria-busy={starting !== null || undefined}
-            // the push a compact label says by its percent only
-            aria-label={compact && pushing !== null ? pushing : undefined}
+            // the push a compact label says by its percent only, the wait by whom it is for
+            aria-label={waiting ?? (compact && pushing !== null ? pushing : undefined)}
             className={cn("tabular-nums", compact && "min-w-26 justify-start", disabled && starting === null && "opacity-50", className)}
             data-testid="safe-push-button"
             ref={element => {
@@ -159,8 +165,8 @@ export function SafePushButton({
         {label}
       </TooltipTrigger>
       <TooltipContent>
-        {/* the branches a compact label leaves out: "Pushing 2 branches 45%" */}
-        {pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description)}
+        {/* the branches a compact label leaves out: "Pushing 2 branches 45%"; whom the wait is for */}
+        {waiting ?? (pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description))}
         {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>

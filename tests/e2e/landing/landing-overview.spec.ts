@@ -196,7 +196,7 @@ test.describe("Landing overview", () => {
     // the Safe Push of docs has nothing to ask: it pushes and starts at once, the row shown
     const docs = landingRow(popover, "docs")
     await expect(docs).toHaveAttribute("data-kind", "ready")
-    await runAndWaitForAnswer(page, "start_patronus_robot", () => docs.getByTestId("next-step").click())
+    await runAndWaitForAnswer(page, "execute", () => docs.getByTestId("next-step").click())
     await expect(popover).toBeHidden()
     await expectPatronusStarts(repo, [startRequest("docs")])
     // it pushed docs alone, before the start

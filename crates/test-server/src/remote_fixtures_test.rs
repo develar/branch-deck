@@ -266,27 +266,118 @@ async fn synced_on_space(parked: &[(&str, &str)]) -> (std::net::SocketAddr, reqw
   (addr, client, id, repository_path)
 }
 
-/// A start the IPC asks for a parked branch is refused in Rust, by the checks of the app's command, before Patronus is
-/// asked: the fake logs no start
-#[tokio::test]
-async fn a_start_of_a_parked_branch_is_refused_before_patronus_is_asked() {
-  let (addr, client, id, repository_path) = synced_on_space(&[("test-branch", "IJPL-1")]).await;
-  let start = json!({"repositoryPath": repository_path, "baselineBranch": "origin/master", "branchName": "test-branch",
-    "mode": "rebaseAutosquash", "profileId": null, "mergeRequest": null});
-  let answer = post(&client, addr, "/invoke/start_patronus_robot", start).await;
-  assert_eq!(answer["status"], "error");
-  let refusal = answer["error"]["message"].as_str().unwrap();
-  assert!(
-    refusal.ends_with("Nothing was started: test-branch is parked: IJPL-1; it stays local until the user unparks it"),
-    "{refusal}"
-  );
+/// The plan of `intent` in the session of the repository as the popover of the page asks it: a window subscribed, the
+/// robots and the profiles read, then `prepare` again until `settled` holds of the plan (the landing needs the session
+/// computes after its sync come a little later)
+async fn plan_when(
+  client: &reqwest::Client,
+  addr: std::net::SocketAddr,
+  repository_path: &str,
+  intent: &serde_json::Value,
+  settled: impl Fn(&serde_json::Value) -> bool,
+) -> serde_json::Value {
+  post(client, addr, "/invoke/subscribe_view", json!({"repositoryPath": repository_path})).await;
+  for family in ["robots", "profiles"] {
+    let refresh = json!({"repositoryPath": repository_path, "family": family, "reason": "manual"});
+    post(client, addr, "/invoke/refresh_facts", refresh).await;
+  }
+  let mut plan = json!(null);
+  for _ in 0..2000 {
+    plan = post(client, addr, "/invoke/prepare", json!({"repositoryPath": repository_path, "intent": intent})).await;
+    if plan.is_object() && settled(&plan) {
+      return plan;
+    }
+    tokio::task::yield_now().await;
+  }
+  panic!("the plan never settled: {plan}");
+}
 
-  let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
-  assert_eq!(log["starts"], json!([]));
+/// `execute` of `intent` on `plan`, every confirmation of it accepted, as the popover starts it: the outcome, or the
+/// error the command answered
+async fn execute_plan(client: &reqwest::Client, addr: std::net::SocketAddr, repository_path: &str, intent: &serde_json::Value, plan: &serde_json::Value) -> serde_json::Value {
+  let execute = json!({"repositoryPath": repository_path, "intent": intent, "fingerprint": plan["fingerprint"], "accepted": plan["confirmations"]});
+  post(client, addr, "/invoke/execute", execute).await
+}
+
+/// The intent of a start of the branch `name` in `mode` with `profile` (`{"kind": "default"}`, `{"kind": "id", …}`)
+fn land(name: &str, mode: &str, profile: &serde_json::Value) -> serde_json::Value {
+  json!({"kind": "land", "subject": {"kind": "branch", "name": name}, "mode": mode, "profile": profile})
+}
+
+/// A Dry Run of `test-branch` started through `execute`, as the popover starts it: the outcome tells each effect done
+async fn start_dry_run_of_test_branch(client: &reqwest::Client, addr: std::net::SocketAddr, repository_path: &str) -> serde_json::Value {
+  let intent = land("test-branch", "dryRun", &json!({"kind": "default"}));
+  let plan = plan_when(client, addr, repository_path, &intent, |plan| plan["waits"] == json!([])).await;
+  let outcome = execute_plan(client, addr, repository_path, &intent, &plan).await;
+  let statuses: Vec<&serde_json::Value> = outcome["effects"]
+    .as_array()
+    .unwrap_or_else(|| panic!("{outcome}"))
+    .iter()
+    .map(|record| &record["status"]["kind"])
+    .collect();
+  assert!(statuses.iter().all(|status| *status == "done"), "{outcome}");
+  outcome
+}
+
+/// A start its plan refuses is refused by `execute` in Rust before Patronus or GitHub is asked, in the words of the
+/// refusal, the page's plan or not: a parked branch, then a branch whose Safe Push runs on its last commit (the robot
+/// started after the plan the page showed); its pull request gets no `/patronus` comment, the fake logs no start
+#[tokio::test]
+async fn a_start_its_plan_refuses_is_refused_before_patronus_or_github_is_asked() {
+  let (addr, client, id, repository_path) = synced_on_space(&[("test-branch", "IJPL-1")]).await;
+  let github = json!({"availability": {"status": "available", "owner": "acme", "name": "monorepo"}, "pullRequests": {}, "stackPullRequests": {}});
+  post(&client, addr, &format!("/repositories/{id}/pull-requests"), github).await;
+  let intent = land("test-branch", "dryRun", &json!({"kind": "default"}));
+  let refused = |answer: serde_json::Value| {
+    assert_eq!(answer["status"], "error", "{answer}");
+    (
+      answer["error"]["code"].as_str().unwrap().to_string(),
+      answer["error"]["message"].as_str().unwrap().to_string(),
+    )
+  };
+
+  let parked = plan_when(&client, addr, &repository_path, &intent, |plan| plan["blockers"] != json!([])).await;
+  let (code, message) = refused(execute_plan(&client, addr, &repository_path, &intent, &parked).await);
+  assert_eq!(code, "parked");
+  assert!(message.ends_with("Nothing was pushed or started: test-branch is parked: IJPL-1"), "{message}");
+
+  post(
+    &client,
+    addr,
+    "/invoke/unpark_branches",
+    json!({"repositoryPath": repository_path, "branchNames": ["test-branch"]}),
+  )
+  .await;
+  sync(&client, addr, &repository_path).await;
+  let free = plan_when(&client, addr, &repository_path, &intent, |plan| plan["blockers"] == json!([]) && plan["waits"] == json!([])).await;
+  post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
+  let refresh = json!({"repositoryPath": repository_path, "family": "robots", "reason": "manual"});
+  post(&client, addr, "/invoke/refresh_facts", refresh).await;
+  let (code, message) = refused(execute_plan(&client, addr, &repository_path, &intent, &free).await);
+  assert_eq!(code, "robot_running");
+  assert!(message.ends_with("Nothing was pushed or started: A Safe Push of the last commit is running"), "{message}");
+
+  let patronus: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
+  assert_eq!(patronus["starts"], json!([]));
+  let github: serde_json::Value = client
+    .get(format!("http://{addr}/repositories/{id}/pull-requests"))
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+  let writes: Vec<&serde_json::Value> = github["requests"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .filter(|request| request["method"] == "POST" && request["path"] != "/graphql")
+    .collect();
+  assert_eq!(writes, Vec::<&serde_json::Value>::new(), "no comment reached GitHub");
 }
 
 /// The merge profiles of the fixture, written as `robot-start-supported` answers them, read back through the real
-/// service as the fixture; a start, a restart and a cancel run the app's core and the real service against the fake,
+/// service as the fixture; a start (`execute`), a restart and a cancel run the app's core and the real service against the fake,
 /// which lists the robots they started, answers their status, and logs each request (`GET …/patronus`)
 #[tokio::test]
 async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
@@ -332,9 +423,10 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
     ("master", vec![lsc], vec![emergency])
   );
 
-  let start = json!({"repositoryPath": repository_path, "baselineBranch": "origin/master", "branchName": "test-branch",
-    "mode": "rebaseAutosquash", "profileId": "lsc", "mergeRequest": null});
-  let started: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/start_patronus_robot", start).await).unwrap();
+  let intent = land("test-branch", "dryRun", &json!({"kind": "id", "id": "lsc"}));
+  let plan = plan_when(&client, addr, &repository_path, &intent, |plan| plan["waits"] == json!([])).await;
+  let outcome = execute_plan(&client, addr, &repository_path, &intent, &plan).await;
+  let started: PatronusRobot = serde_json::from_value(outcome["result"]["robot"].clone()).unwrap_or_else(|error| panic!("{error}: {outcome}"));
   assert_eq!(
     (started.id.as_str(), started.status, started.branch_name.as_deref(), started.source_revision.as_deref()),
     ("started-1", PatronusRobotStatus::Running, Some("test-branch"), Some(tip.as_str()))
@@ -351,7 +443,7 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
     (log["starts"].clone(), log["restarts"].clone(), log["cancels"].clone(), log["statusReads"].clone()),
     (
       json!([{"type": "ROBOT_WEB_UI", "repository": "repository", "sourceBranch": "refs/heads/user-name/virtual/test-branch", "targetBranch": "master",
-        "mode": "REBASE_AUTOSQUASH", "sourceBranchDeletePolicy": "NEVER", "mergeProfileId": "lsc"}]),
+        "mode": "DRY_RUN", "sourceBranchDeletePolicy": "NEVER", "mergeProfileId": "lsc"}]),
       json!(["started-1"]),
       json!(["started-1"]),
       json!(["restarted-1"]),
@@ -359,62 +451,9 @@ async fn a_start_restart_and_cancel_run_the_real_service_against_the_fake() {
   );
 }
 
-/// A start from the pull request of the user's branch (the `/patronus merge` comment) runs the checks of
-/// `start_patronus_robot` before the comment, refused in its words: a parked branch, a branch whose Safe Push runs on
-/// its last commit (the page knew of none: the robot started after its list), and a comment that names no branch; the
-/// fake GitHub logs no comment
-#[tokio::test]
-async fn a_start_from_the_pull_request_runs_the_checks_of_a_start_before_the_comment() {
-  let (addr, client, id, repository_path) = synced_on_space(&[("test-branch", "IJPL-1")]).await;
-  let github = json!({"availability": {"status": "available", "owner": "acme", "name": "monorepo"}, "pullRequests": {}, "stackPullRequests": {}});
-  post(&client, addr, &format!("/repositories/{id}/pull-requests"), github).await;
-  let comment = |start: serde_json::Value| {
-    json!({"repositoryPath": repository_path, "pullRequestNumber": 7, "mode": "rebaseAutosquash", "subject": "ownBranch",
-      "githubRepository": "acme/monorepo", "start": start})
-  };
-  let test_branch = json!({"branchName": "test-branch"});
-  let refusal = |answer: serde_json::Value| {
-    assert_eq!(answer["status"], "error", "{answer}");
-    answer["error"]["message"].as_str().unwrap().to_string()
-  };
-
-  let parked = refusal(post(&client, addr, "/invoke/post_patronus_command", comment(test_branch.clone())).await);
-  assert!(
-    parked.ends_with("Nothing was started: test-branch is parked: IJPL-1; it stays local until the user unparks it"),
-    "{parked}"
-  );
-  post(
-    &client,
-    addr,
-    "/invoke/unpark_branches",
-    json!({"repositoryPath": repository_path, "branchNames": ["test-branch"]}),
-  )
-  .await;
-  sync(&client, addr, &repository_path).await;
-  post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
-  let running = refusal(post(&client, addr, "/invoke/post_patronus_command", comment(test_branch)).await);
-  assert!(running.ends_with("Nothing was started: A Safe Push of the last commit is running"), "{running}");
-  let nameless = refusal(post(&client, addr, "/invoke/post_patronus_command", comment(serde_json::Value::Null)).await);
-  assert!(
-    nameless.ends_with("Nothing was started: the comment on pull request #7 names no branch of the user"),
-    "{nameless}"
-  );
-
-  let log: serde_json::Value = client
-    .get(format!("http://{addr}/repositories/{id}/pull-requests"))
-    .send()
-    .await
-    .unwrap()
-    .json()
-    .await
-    .unwrap();
-  let comments: Vec<&serde_json::Value> = log["requests"].as_array().unwrap().iter().filter(|request| request["method"] == "POST").collect();
-  assert_eq!(comments, Vec::<&serde_json::Value>::new(), "no comment reached GitHub");
-}
-
-/// A Safe Push that replaces the failing robot of its branch, which finished while the page checked (the landing gate,
-/// the target): the cancel of the replaced robot answers it as Patronus lists it, finished, instead of "not running",
-/// Patronus is asked no cancel, and the start goes on; an explicit Cancel of the same robot still says "not running"
+/// The robot a push or a restart replaces, which finished meanwhile: the cancel of the replaced robot (`replaced`)
+/// answers it as Patronus lists it, finished, instead of "not running", Patronus is asked no cancel, and a start goes on;
+/// an explicit Cancel of the same robot still says "not running"
 #[tokio::test]
 async fn a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel() {
   let (addr, client, id, repository_path) = synced_on_space(&[]).await;
@@ -427,7 +466,7 @@ async fn a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel() {
   let cancel = json!({"repositoryPath": repository_path, "robotId": "r1", "replaced": true});
   let replaced: PatronusRobot = serde_json::from_value(post(&client, addr, "/invoke/cancel_patronus_robot", cancel).await).unwrap();
   assert_eq!((replaced.id.as_str(), replaced.status), ("r1", PatronusRobotStatus::Failure));
-  start_safe_push_of_test_branch(&client, addr, &repository_path).await;
+  start_dry_run_of_test_branch(&client, addr, &repository_path).await;
 
   let explicit = post(&client, addr, "/invoke/cancel_patronus_robot", json!({"repositoryPath": repository_path, "robotId": "r1"})).await;
   assert_eq!(explicit["status"], "error", "{explicit}");
@@ -437,14 +476,6 @@ async fn a_start_replaces_a_robot_that_finished_meanwhile_without_a_cancel() {
   assert_eq!((log["cancels"].clone(), log["starts"].as_array().map(Vec::len)), (json!([]), Some(1)));
 }
 
-/// A Safe Push of `test-branch` started through `start_patronus_robot`, as the popover starts it: running
-async fn start_safe_push_of_test_branch(client: &reqwest::Client, addr: std::net::SocketAddr, repository_path: &str) {
-  let start = json!({"repositoryPath": repository_path, "baselineBranch": "origin/master", "branchName": "test-branch",
-    "mode": "rebaseAutosquash", "profileId": null, "mergeRequest": null});
-  let started: PatronusRobot = serde_json::from_value(post(client, addr, "/invoke/start_patronus_robot", start).await).unwrap();
-  assert_eq!(started.status, PatronusRobotStatus::Running);
-}
-
 /// A Dry Run started through `execute` (the engine, `operations::engine::execute_land`) asks Patronus no list of its own and runs
 /// no trial of its own (C2): the list of the session, asked once, serves its plan, its witness and its start, the landing
 /// needs of the session its gate; the push reaches the remote and the fake logs one start of the branch. The outcome
@@ -452,41 +483,9 @@ async fn start_safe_push_of_test_branch(client: &reqwest::Client, addr: std::net
 #[tokio::test]
 async fn a_start_through_execute_asks_no_list_of_its_own() {
   let (addr, client, id, repository_path) = synced_on_space(&[]).await;
-  let session = json!({"repositoryPath": repository_path});
-  post(&client, addr, "/invoke/subscribe_view", session.clone()).await;
-  // the facts a Dry Run is decided on, as the popover of the page asks them: the robots and the profiles
-  for family in ["robots", "profiles"] {
-    post(
-      &client,
-      addr,
-      "/invoke/refresh_facts",
-      json!({"repositoryPath": repository_path, "family": family, "reason": "manual"}),
-    )
-    .await;
-  }
-  // the plans of the view come with its Patronus view, over the robots of the session
-  view_when(&client, addr, &repository_path, |view| !view["lands"]["test-branch"].is_null()).await;
-  let intent = json!({"kind": "land", "subject": {"kind": "branch", "name": "test-branch"}, "mode": "dryRun", "profile": {"kind": "default"}});
-  // the landing needs the session computes after its sync are the gate of the start: the plan waits for nothing then
-  let mut plan = json!(null);
-  for _ in 0..2000 {
-    plan = post(&client, addr, "/invoke/prepare", json!({"repositoryPath": repository_path, "intent": intent})).await;
-    if plan["waits"] == json!([]) {
-      break;
-    }
-    tokio::task::yield_now().await;
-  }
-  assert_eq!((&plan["blockers"], &plan["waits"]), (&json!([]), &json!([])), "{plan}");
-
-  let execute = json!({"repositoryPath": repository_path, "intent": intent, "fingerprint": plan["fingerprint"], "accepted": plan["confirmations"]});
-  let outcome = post(&client, addr, "/invoke/execute", execute).await;
-  let statuses: Vec<&serde_json::Value> = outcome["effects"]
-    .as_array()
-    .unwrap_or_else(|| panic!("{outcome}"))
-    .iter()
-    .map(|record| &record["status"]["kind"])
-    .collect();
-  assert!(statuses.iter().all(|status| *status == "done"), "{outcome}");
+  // the plans of the view come with its Patronus view, over the robots of the session, the landing needs of the session
+  // its gate: the plan waits for nothing then
+  start_dry_run_of_test_branch(&client, addr, &repository_path).await;
 
   let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
   assert_eq!(log["requests"]["list"], 1, "the list of the session only");
@@ -521,100 +520,57 @@ async fn a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes(
   assert_eq!(log["requests"]["list"], 1, "one full list of the user's robots");
 }
 
-/// The landing check of the popover (`check_landing_gate`) counts as landed what the merged Safe Pushes of the robots
-/// Rust reads landed, never the page's robots: `lane-run` of the `landing_needs` template uses a name only
-/// `stills-codec` adds, so its start is refused with the restack while no robot landed `stills-codec`; a merged Safe
-/// Push of `stills-codec` the fake lists counts the commits of `stills-codec` as landed (`landedBy` of the view: the
-/// target itself never gets the commit here), so nothing is left to refuse, and nothing of the page said so
+/// A start whose build needs a branch outside what it lands is refused by `execute` with every refusal of the landing
+/// gate and its fix (`ErrorDetails::Landing`, which the toast offers): `lane-run` of the `landing_needs` template uses a
+/// name only `stills-codec` adds, while no robot landed `stills-codec`. Start Anyway is the same start with the override
+/// (`allow`), whose plan has nothing left to refuse. A merged Safe Push of `stills-codec` the fake lists counts its
+/// commits as landed (`landedBy` of the view: the target itself never gets the commit here), so the plan of the start
+/// refuses nothing either: the robots are the session's, never the page's
 #[tokio::test]
-async fn the_landing_check_counts_what_the_robots_rust_reads_landed() {
-  let (addr, client, fixture, check) = synced_landing_needs(json!({"availability": {"status": "available"}, "robots": []})).await;
-  let refused = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
-  assert_eq!(refused["refusals"].as_array().map(Vec::len), Some(1), "{refused}");
-  assert_eq!(refused["refusals"][0]["kind"], "missingDeclaration");
-  assert_eq!(refused["refusals"][0]["identifier"], "Stills");
-  assert_eq!(refused["refusals"][0]["fix"], json!({"kind": "restack", "branch": "lane-run", "onto": "stills-codec"}));
+async fn a_start_whose_build_needs_a_branch_outside_it_is_refused_with_the_fix() {
+  let (addr, client, fixture, repository_path) = synced_landing_needs(json!({"availability": {"status": "available"}, "robots": []})).await;
+  let intent = land("lane-run", "dryRun", &json!({"kind": "default"}));
+  let plan = plan_when(&client, addr, &repository_path, &intent, |plan| plan["blockers"] != json!([])).await;
+  let refused = execute_plan(&client, addr, &repository_path, &intent, &plan).await;
+  assert_eq!(refused["error"]["code"], "missing_declaration", "{refused}");
+  let refusals = &refused["error"]["details"]["refusals"];
+  assert_eq!(
+    (refused["error"]["details"]["type"].as_str(), refusals.as_array().map(Vec::len)),
+    (Some("landing"), Some(1)),
+    "{refused}"
+  );
+  assert_eq!((&refusals[0]["kind"], &refusals[0]["identifier"]), (&json!("missingDeclaration"), &json!("Stills")));
+  assert_eq!(refusals[0]["fix"], json!({"kind": "restack", "branch": "lane-run", "onto": "stills-codec"}));
+
+  let mut anyway = intent.clone();
+  anyway["allow"] = json!({"allowMissing": true});
+  let allowed = plan_when(&client, addr, &repository_path, &anyway, |plan| plan["waits"] == json!([])).await;
+  assert_eq!(allowed["blockers"], json!([]), "{allowed}");
 
   // the Safe Push of stills-codec merged: the view counts its commits as landed (the target is unchanged), so lane-run's
   // start has what it needs
-  post(&client, addr, &fixture, stills_codec_merged("available")).await;
-  let landed = post(&client, addr, "/invoke/check_landing_gate", check).await;
-  assert_eq!(landed, json!({"refusals": []}));
-  let log: serde_json::Value = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json().await.unwrap();
-  assert_eq!(log["requests"]["list"], 2, "each check asked the fake for the user's robots");
+  post(&client, addr, &fixture, stills_codec_merged()).await;
+  let landed = plan_when(&client, addr, &repository_path, &intent, |plan| plan["blockers"] == json!([]) && plan["waits"] == json!([])).await;
+  assert_eq!(landed["lands"], json!(["lane-run"]), "{landed}");
 }
 
 /// A server with a repository of the `landing_needs` template, its Patronus fixture `patronus` set, synced: the server,
-/// its client, the fixture path of the repository and the `check_landing_gate` params of `lane-run`
-async fn synced_landing_needs(patronus: serde_json::Value) -> (std::net::SocketAddr, reqwest::Client, String, serde_json::Value) {
+/// its client, the fixture path of the repository and its path
+async fn synced_landing_needs(patronus: serde_json::Value) -> (std::net::SocketAddr, reqwest::Client, String, String) {
   let addr = start_test_server().await;
   let client = reqwest::Client::new();
   let (id, repository_path) = create_repository_from(&client, addr, "landing_needs").await;
   let fixture = format!("/repositories/{id}/patronus");
   post(&client, addr, &fixture, patronus).await;
   sync(&client, addr, &repository_path).await;
-  let check = json!({"repositoryPath": repository_path, "branchName": "lane-run"});
-  (addr, client, fixture, check)
+  (addr, client, fixture, repository_path)
 }
 
-/// The Patronus fixture of the merged Safe Push of `stills-codec` of the `landing_needs` template, with the availability
-/// `status` (`error` with a message)
-fn stills_codec_merged(status: &str) -> serde_json::Value {
-  let availability = if status == "error" {
-    json!({"status": status, "message": "down"})
-  } else {
-    json!({"status": status})
-  };
-  json!({"availability": availability, "robots": [{
+/// The Patronus fixture of the merged Safe Push of `stills-codec` of the `landing_needs` template
+fn stills_codec_merged() -> serde_json::Value {
+  json!({"availability": {"status": "available"}, "robots": [{
     "id": "landed", "name": "Safe Push of stills-codec", "status": "success", "pushMode": "rebaseAutosquash", "branchName": "stills-codec",
     "sourceRevision": "", "targetBranch": "master", "startTime": 1_704_139_200, "finishTime": 1_704_142_800, "cancellationReason": null,
     "url": "ignored",
   }]})
-}
-
-/// A list Patronus doesn't give fails the landing check instead of counting nothing landed: `lane-run` needs what the
-/// merged Safe Push of `stills-codec` landed, and with the token rejected (401) or Patronus down (500) that robot can't
-/// be read, so the check is an error in the words of a failed action (the page says "Not checked whether …", and the
-/// start checks again), not a refusal with the restack. The list of the check is a foreground request, as the start's:
-/// Patronus is asked although its requests back off
-#[tokio::test]
-async fn a_landing_check_without_the_robots_fails_instead_of_refusing() {
-  let (addr, client, fixture, check) = synced_landing_needs(stills_codec_merged("available")).await;
-
-  post(&client, addr, &fixture, stills_codec_merged("notLoggedIn")).await;
-  let rejected = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
-  assert_eq!(rejected["status"], "error", "{rejected}");
-  assert_eq!(rejected["error"]["message"], "Run ./safePush.cmd once to log in to Patronus");
-
-  // the fake answers every request with 500 and the description "no such repository", which the error carries
-  post(&client, addr, &fixture, stills_codec_merged("error")).await;
-  let down = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
-  assert_eq!(down["status"], "error", "{down}");
-  assert_eq!(down["error"]["message"], "no such repository");
-  let again = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
-  assert_eq!(again["status"], "error", "{again}");
-
-  post(&client, addr, &fixture, stills_codec_merged("available")).await;
-  assert_eq!(post(&client, addr, "/invoke/check_landing_gate", check).await, json!({"refusals": []}));
-  let log: serde_json::Value = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json().await.unwrap();
-  // the two checks against a 500 asked twice each: a transient failure of a GET is asked again once (`GET_RETRY_DELAY`)
-  assert_eq!(log["requests"]["list"], 6, "every check asked, the two while Patronus was down too, past the backoff");
-}
-
-/// A start from the popover asks Patronus three full lists of the user's robots, one per check and never a kept one:
-/// the landing check, the push, then the start (a fourth would cancel the robot the start replaces); the fake logs them
-#[tokio::test]
-async fn a_start_from_the_popover_asks_three_full_lists() {
-  let (addr, client, id, repository_path) = synced_on_space(&[]).await;
-  let check = json!({"repositoryPath": repository_path, "branchName": "test-branch"});
-  assert_eq!(post(&client, addr, "/invoke/check_landing_gate", check).await, json!({"refusals": []}));
-  let push = json!({"repositoryPath": repository_path, "branchName": "test-branch", "myEmail": null,
-    "baselineBranch": "origin/master", "parentBranch": null, "expectedRemote": null, "tip": null});
-  let pushed = post(&client, addr, "/invoke/push_branch", push).await;
-  assert_ne!(pushed["status"], "error", "{pushed}");
-  start_safe_push_of_test_branch(&client, addr, &repository_path).await;
-
-  let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
-  assert_eq!(log["requests"]["list"], 3, "the landing check, the push and the start each asked once");
-  assert_eq!(log["starts"].as_array().map(Vec::len), Some(1));
 }

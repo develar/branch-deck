@@ -264,10 +264,10 @@ export function recordLanded(repositoryPath: string, report: readonly LandedBran
 /**
  * A robot started, restarted, canceled or merged, in the words of its toast: "Safe Push started" / "feature-auth →
  * master · profile Large Scale Change" (`describeRobot`), "feature-auth merged into master" / "Safe Push"; with the
- * robot page.
+ * robot page, and the operation that started it (`operationId`, its log lines).
  */
-export function recordRobot(title: string, description: string, robot: PatronusRobot, repositoryPath?: string): void {
-  recordActivity({ repositoryPath, kind: "patronus", title, description, details: { type: "robot", url: robot.url } })
+export function recordRobot(title: string, description: string, robot: PatronusRobot, repositoryPath?: string, operationId?: string): void {
+  recordActivity({ repositoryPath, kind: "patronus", title, description, details: { type: "robot", url: robot.url }, ...(operationId !== undefined && { operationId }) })
 }
 
 /**

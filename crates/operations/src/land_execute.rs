@@ -27,9 +27,11 @@ use crate::robot_start::{ApiStart, CommentStart, Commented, patronus_failure, st
 use crate::witness::{Witness, check, read_refs};
 use domain_policy::holds::is_active;
 
-use domain_types::error::{ApiError, ErrorCode};
+use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use domain_types::landing::{Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
-use domain_types::operation::{EffectRecord, EffectStatus, Fingerprint, NewsKey, OperationId, OperationStats, OperationStep, Outcome, Plan};
+use domain_types::operation::{
+  EffectRecord, EffectStatus, Fingerprint, LandResult, NewsKey, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, StartComment, StartNote,
+};
 use domain_types::patronus::{PatronusMergeRequest, PatronusRobot};
 use domain_types::pull_request::CreatedPullRequest;
 use domain_types::pull_request::{PullRequest, PullRequestState};
@@ -38,7 +40,7 @@ use domain_types::session::Version;
 use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
-use history_rewrite::repository_lock::{RepositoryLock, RepositoryLocked, lock_repository_in};
+use history_rewrite::repository_lock::{LockHolder, RepositoryLock, RepositoryLocked, lock_repository_in};
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_request};
@@ -70,6 +72,8 @@ pub struct Planned {
   pub source_ref: String,
   /// The merge request the pre-check of the review named (a start through the API counts its approvals)
   pub merge_request: Option<PatronusMergeRequest>,
+  /// What the checks of the host before the plan could not do in full (the outcome tells them)
+  pub notes: Vec<StartNote>,
 }
 
 /// A branch a start pushes, before its commit and lease are frozen
@@ -141,15 +145,15 @@ pub struct PullRequestText {
 }
 
 /// The repository lock of a start, blocking: `bd` waits a bounded time (`locked`), the app as long as the holder lives
-/// and until the user stops the start (`canceled`, the second argument); `on_wait` (the first) is called once when
-/// another holds it
-pub type Locker = Arc<dyn Fn(&dyn Fn(), &dyn Fn() -> bool) -> Result<RepositoryLock, ApiError> + Send + Sync>;
+/// and until the user stops the start (`canceled`, the second argument); `on_wait` (the first) is called while another
+/// holds it, with the holder each time it is read again (`None`: a wait that names nobody)
+pub type Locker = Arc<dyn Fn(&dyn Fn(Option<&LockHolder>), &dyn Fn() -> bool) -> Result<RepositoryLock, ApiError> + Send + Sync>;
 
 /// The lock of `git_common_dir` waited for at most `timeout` (`bd`): another holder refuses the start as `locked`
 #[must_use]
 pub fn bounded_lock(git_common_dir: std::path::PathBuf, timeout: std::time::Duration) -> Locker {
   Arc::new(move |on_wait, _canceled| {
-    lock_repository_in(&git_common_dir, timeout, on_wait).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
+    lock_repository_in(&git_common_dir, timeout, &|| on_wait(None)).map_err(|error| match error.downcast_ref::<RepositoryLocked>() {
       Some(locked) => ApiError::new(ErrorCode::Locked, locked.to_string()),
       None => ApiError::internal(format!("{error:#}")),
     })
@@ -261,7 +265,7 @@ pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Ste
   let planned = host.plan(land).await?.ok_or_else(|| unknown_subject(&land.subject))?;
   // what refuses it now is told as itself, a refusal the check against the newest target found too
   if let Some(blocker) = planned.plan.blockers.first() {
-    return Err(refusal(blocker, &land.subject, &host.current().await.robots));
+    return Err(refusal(blocker, &planned.plan.blockers, &land.subject, &host.current().await.robots));
   }
   check(&accepted.fingerprint, &planned.plan.fingerprint)?;
   if planned.plan.confirmations.iter().any(|confirmation| !accepted.confirmations.contains(confirmation)) {
@@ -293,9 +297,14 @@ async fn frozen_under_lock(services: &StartServices, steps: &Steps, witness: &Wi
   let (git, path, lock, steps) = (services.git.clone(), services.repository_path.clone(), Arc::clone(&services.lock), steps.clone());
   blocking(move || {
     let waited = AtomicBool::new(false);
-    let on_wait = || {
-      waited.store(true, Ordering::SeqCst);
-      steps.step(OperationStep::WaitingForLock);
+    // the step once, and whom it waits for each time the holder is read (the slot of the caller names it)
+    let on_wait = |holder: Option<&LockHolder>| {
+      if !waited.swap(true, Ordering::SeqCst) {
+        steps.step(OperationStep::WaitingForLock);
+      }
+      if let Some(holder) = holder {
+        (steps.progress)(&TransferProgress::waiting_for(holder));
+      }
     };
     let canceled = || steps.canceled();
     let held = lock(&on_wait, &canceled)?;
@@ -383,8 +392,10 @@ fn unknown_subject(subject: &Subject) -> ApiError {
   ApiError::new(ErrorCode::UnknownBranch, format!("The last sync has no {}: nothing was pushed or started", subject.words()))
 }
 
-/// The first blocker of a plan as the start answers it: the code `bd` refuses it with, in the words of the guards
-fn refusal(reason: &Reason, subject: &Subject, robots: &[PatronusRobot]) -> ApiError {
+/// The first blocker of a plan as the start answers it: the code `bd` refuses it with, in the words of the guards; a
+/// refusal of the landing gate with every refusal of it among `blockers` (each with its fix), a conflict with the target
+/// with its commit and files
+fn refusal(reason: &Reason, blockers: &[Reason], subject: &Subject, robots: &[PatronusRobot]) -> ApiError {
   let code = match reason {
     Reason::Landed { .. } | Reason::StackLanded { .. } | Reason::LandedIn { .. } | Reason::PullRequestMerged { .. } => ErrorCode::Landed,
     Reason::StackNotBuilt {
@@ -411,7 +422,23 @@ fn refusal(reason: &Reason, subject: &Subject, robots: &[PatronusRobot]) -> ApiE
     Reason::LandingRefused { refusal } => refusal.reason(),
     _ => start_refusal_text(reason, &subject.words(), robots),
   };
-  ApiError::new(code, format!("Nothing was pushed or started: {words}"))
+  let error = ApiError::new(code, format!("Nothing was pushed or started: {words}"));
+  match reason {
+    Reason::LandingRefused { .. } => error.with_details(ErrorDetails::Landing {
+      refusals: blockers
+        .iter()
+        .filter_map(|blocker| match blocker {
+          Reason::LandingRefused { refusal } => Some((**refusal).clone()),
+          _ => None,
+        })
+        .collect(),
+    }),
+    Reason::TargetConflict { commit, files } => error.with_details(ErrorDetails::Conflict {
+      commits: vec![commit.clone()],
+      paths: files.clone(),
+    }),
+    _ => error,
+  }
 }
 
 /// Why the effects after one are skipped
@@ -526,13 +553,26 @@ impl<'a> Run<'a> {
     }
   }
 
-  /// The running Safe Push the start replaces is canceled; one that finished meanwhile is as it is
+  /// The running Safe Push the start replaces is canceled; one that finished meanwhile (as the facts or its status,
+  /// one request, say) is as it is: nothing is left to cancel, and the start goes on
   async fn cancel(&mut self, robot_id: &str) -> EffectStatus {
     self.steps.step(OperationStep::CancelingRobot);
     let current = self.host.current().await;
     if let Some(finished) = current.robots.iter().find(|robot| robot.id == robot_id && !is_active(robot)) {
       debug!(robot_id, "the robot the start replaces finished meanwhile");
       self.canceled = Some(finished.clone());
+      return EffectStatus::Done;
+    }
+    // it may have finished since the session listed it; a status that can't be read asks for the cancel all the same
+    if let Ok(status) = self.services.patronus.robot_status(robot_id).await
+      && status.is_finished()
+    {
+      debug!(robot_id, ?status, "the robot the start replaces finished since it was listed");
+      if let Some(listed) = current.robots.into_iter().find(|robot| robot.id == robot_id) {
+        let finished = PatronusRobot { status, ..listed };
+        self.version = self.host.write_robot(finished.clone()).await.or(self.version);
+        self.canceled = Some(finished);
+      }
       return EffectStatus::Done;
     }
     match self.services.patronus.cancel(&self.services.prefix, robot_id).await {
@@ -586,7 +626,7 @@ impl Run<'_> {
       LeasedPush::RemoteMoved { moved, .. } => {
         let moved: Vec<&str> = moved.iter().filter_map(|index| names.get(*index)).map(String::as_str).collect();
         let mut error = ApiError::new(ErrorCode::LeaseRejected, format!("The remote branch of {} moved: nothing was pushed", moved.join(", ")));
-        error.details = Some(domain_types::error::ErrorDetails::Branches {
+        error.details = Some(ErrorDetails::Branches {
           branches: moved.iter().map(ToString::to_string).collect(),
         });
         EffectStatus::Failed { error }
@@ -631,7 +671,7 @@ impl Run<'_> {
         Err(error) => return Some(self.fail(error)),
         Ok(read) if read != tips => {
           let moved: Vec<String> = read.iter().filter(|(name, tip)| tips.get(*name) != Some(tip)).map(|(name, _)| short(name)).collect();
-          return Some(self.skip(plan_changed(&format!("{} changed after the push", moved.join(", ")))));
+          return Some(self.skip(changed_before_start(&format!("{} changed after the push", moved.join(", ")))));
         }
         Ok(_) => {}
       }
@@ -649,7 +689,7 @@ impl Run<'_> {
         && Some(robot.id.as_str()) != canceled
     });
     if let Some(robot) = started {
-      return Some(self.skip(plan_changed(&format!("the robot {} started meanwhile", robot.url))));
+      return Some(self.skip(changed_before_start(&format!("a robot of what it lands started meanwhile ({})", robot.url))));
     }
     if let Some(StartRoute::Comment { number }) = plan.start_route()
       && let Some(closed) = current
@@ -657,7 +697,7 @@ impl Run<'_> {
         .iter()
         .find(|pull_request| pull_request.number == *number && pull_request.state != PullRequestState::Open)
     {
-      return Some(self.skip(plan_changed(&format!("pull request #{} is {:?} now", closed.number, closed.state))));
+      return Some(self.skip(changed_before_start(&format!("pull request #{} is {:?} now", closed.number, closed.state).to_lowercase())));
     }
     None
   }
@@ -670,6 +710,12 @@ fn short(full: &str) -> String {
 
 fn plan_mode_is_dry_run(plan: &Plan) -> bool {
   matches!(&plan.intent, domain_types::operation::Intent::Land(land) if land.mode == domain_types::patronus::PatronusPushMode::DryRun)
+}
+
+/// What the start was planned on changed after its first effects, before its robot (`what`): no robot started, and the
+/// effects before stay done
+fn changed_before_start(what: &str) -> ApiError {
+  ApiError::new(ErrorCode::PlanChanged, format!("{what}: no robot started"))
 }
 
 /// The user stopped the start before this effect (`cancel_operation`)
@@ -787,11 +833,22 @@ impl Run<'_> {
       domain_types::operation::Intent::Land(land) => land.mode,
       _ => domain_types::patronus::PatronusPushMode::RebaseAutosquash,
     };
+    let result = OperationResult::Land(Box::new(LandResult {
+      robot: self.robot.clone(),
+      canceled: self.canceled.clone(),
+      comment: self.commented.as_ref().map(|commented| StartComment {
+        number: commented.number,
+        url: commented.comment_url.clone(),
+        accepted: commented.accepted,
+      }),
+      notes: self.planned.notes.clone(),
+    }));
     let outcome = Outcome {
       op,
       effects: self.records,
       news_key: Some(NewsKey::RobotSubject { subject, mode }),
       version_after: self.version,
+      result,
       stats: OperationStats {
         millis: u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX),
         ..OperationStats::default()

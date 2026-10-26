@@ -147,8 +147,8 @@ Pull requests opened into a parent's branch before this model, or of a parent th
 to the baseline (`PATCH pulls/<n>`, `retarget_pull_request`):
 
 - the app, right before the push of the branch (`retargetBeforePush`, each branch of a stack push), as the first effect
-  of a Safe Push start (`PlannedEffect::Retarget` of `domain_policy::land::decide`, run by `safe-push-start.ts`
-  before the push and the robot), and from the next step, row 5 "Retarget #7 to master", for any virtual base, the
+  of a Safe Push start (`PlannedEffect::Retarget` of `domain_policy::land::decide`, run by the engine,
+  `operations::land_execute`, before the cancel, the push and the robot, as `bd safe-push` runs it), and from the next step, row 5 "Retarget #7 to master", for any virtual base, the
   current parent's included (`domain_policy::pull_request::base_of`, [Next Step](../../spec/branch/next-step.spec.md));
 - `bd push`, after the push and the lock, for the pushed branches; `bd safe-push` before its push, for the branch and
   the parents its push takes along, and a refused retarget of the branch's own pull request stops the start: Patronus

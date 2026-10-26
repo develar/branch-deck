@@ -4106,6 +4106,7 @@ dependencies = [
  "git-ops",
  "github",
  "history-rewrite",
+ "object-cache",
  "patronus",
  "pretty_assertions",
  "remote-facts",
@@ -4117,6 +4118,7 @@ dependencies = [
  "test-utils",
  "tokio",
  "tracing",
+ "trial-check",
 ]
 
 [[package]]

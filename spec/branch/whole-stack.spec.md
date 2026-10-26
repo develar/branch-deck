@@ -74,7 +74,8 @@ targets:
   - ../../crates/sync-core/src/robot_landing.rs
   - ../../src/hooks/useBranchNextStep.ts
   - ../../src/hooks/useSafePush.ts
-  - ../../src/lib/safe-push-start.ts
+  - ../../crates/operations/src/land_execute.rs
+  - ../../crates/operations/src/land_session.rs
   - ../../src/presenters/land.ts
   - ../../src/components/branch/SafePushPopover.tsx
   - ../../src/components/branch/SafePushButton.tsx
@@ -225,8 +226,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   65,536 characters of a body and the 256 of a title GitHub takes, naming the branches left out.
   [@test] ../../crates/remote-facts/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`, `a_text_too_long_for_github_is_cut_and_names_the_members_left_out`)
 - The readiness of the whole stack must ask Patronus about its stack branch (`ReviewReadinessBranch::source`, a stack
-  branch of the prefix, else refused), the answer under the key the caller gives; the start of the app takes `stack`
-  (`StartPatronusRobotParams::stack`) to start the robot from the stack branch.
+  branch of the prefix, else refused), the answer under the key the caller gives; the start of the app is the
+  `Land` of the whole stack (`Subject::WholeStack`), whose robot starts from the stack branch.
   [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`the_whole_stack_is_asked_as_its_stack_branch_under_the_key_of_the_caller`)
 
 ### The whole stack in the app
@@ -378,9 +379,11 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   they are on the remote.", `describeStackBranchPush`), with its pull request open and its approvals needed
   "Approvals count in #12, the pull request of the whole stack." (never beside "No code-owner review needed."), the
   profile, the review, the robot of the whole stack it cancels; Dry Run, Cancel and the start (Enter).
-  The start pushes the stack branch alone while its remote lacks it (`pushWholeStack`, leased, a robot it replaces
-  canceled first), then starts the robot from it (`start_patronus_robot` with `stack`), or comments on its pull request.
-  A straight chain, which has no stack branch, starts its last branch.
+  The start (`execute` of the `Land` of the whole stack) checks its landing gate first (the landing needs of the view
+  are of branches: the engine runs the gate of the whole stack, `operations::land_session`), pushes the stack branch
+  alone while its remote lacks it (leased, a robot it replaces canceled first), then starts the robot from it, or
+  comments on its pull request. A straight chain, which has no stack branch, starts its last branch.
+  [@test] ../../tests/e2e/next-step/landing-needs.spec.ts (`should refuse the Safe Push of a whole stack whose build needs a branch outside it, with the restack and Start Anyway`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say in the popover of the whole stack only what holds: the branches on the remote stay, no approvals where none are needed`, `should say in the popover of the whole stack that its approvals count in its pull request while Patronus judges them`)

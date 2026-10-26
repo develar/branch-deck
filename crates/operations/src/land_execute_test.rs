@@ -162,6 +162,7 @@ impl Fixture {
       pushes: pushes.into_iter().collect(),
       source_ref: ALPHA.to_string(),
       merge_request: None,
+      notes: Vec::new(),
     }
   }
 
@@ -252,6 +253,43 @@ async fn a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of
     ]
   );
   assert!(free_while_pushing.load(Ordering::SeqCst), "the push sends without the lock");
+}
+
+/// The first effect of a start into a pull request of a virtual branch is its retarget into the target (D11): GitHub gets
+/// the new base before the push sends, and the robot starts after both; a retarget GitHub refuses of the pull request
+/// the start goes from stops it before anything is pushed
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_retargets_the_pull_request_out_of_a_virtual_branch_before_it_pushes_and_starts() {
+  let mut fixture = fixture().await;
+  let (github, service) = github::fake_github::start_fake_service("token").await;
+  let pull = "/repos/acme/monorepo/pulls/8";
+  github.answer("PATCH", pull, github::fake_github::FakeAnswer::ok(serde_json::json!({"number": 8})));
+  let repository = sync_core::github_repository::GitHubRepository {
+    owner: "acme".to_owned(),
+    name: "monorepo".to_owned(),
+  };
+  fixture.services.github = Some((Arc::new(service), repository));
+  let retarget = PlannedEffect::Retarget {
+    branch: "alpha".to_string(),
+    number: 8,
+    from: "test/virtual/base".to_string(),
+    to: "master".to_string(),
+  };
+  let effects = [vec![retarget.clone()], replace_and_start()[1..].to_vec()].concat();
+  let host = Fixture::host(fixture.planned(effects.clone()));
+  let started = fixture.run(&host, &Steps::none()).await.unwrap();
+  assert_eq!(statuses(&started), [&EffectStatus::Done, &EffectStatus::Done, &EffectStatus::Done]);
+  assert_eq!(github.requests_to("PATCH", pull)[0].json(), serde_json::json!({"base": "master"}));
+  assert_eq!(fixture.starts(), 1);
+
+  github.answer("PATCH", pull, github::fake_github::FakeAnswer::status(422, serde_json::json!({"message": "Validation Failed"})));
+  let mut planned = fixture.planned(effects);
+  planned.plan.pull_request = Some(8);
+  let refused = fixture.run(&Fixture::host(planned), &Steps::none()).await.unwrap();
+  let [retargeted, pushed, start] = statuses(&refused).try_into().unwrap();
+  assert!(matches!(retargeted, EffectStatus::Failed { .. }), "{retargeted:?}");
+  assert_eq!((pushed, start), (&EffectStatus::Skipped { reason: None }, &EffectStatus::Skipped { reason: None }));
+  assert_eq!(fixture.starts(), 1, "no second start");
 }
 
 /// The first effect that fails stops the start: a push the remote refuses starts no robot, and the robot canceled

@@ -28,7 +28,7 @@ import { useObjectBusy, useOperations } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
-import { useSafePushStarting } from "@/stores/safe-push"
+import { useLandRun } from "@/stores/safe-push"
 
 export interface BranchPushButtonProps {
   branch: Branch
@@ -81,7 +81,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const isPushing = ownPush || stackBranchPush
   // a Safe Push pushes as the first step of its start: its button in the slot shows the push, this one is disabled
   // without it
-  const starting = useSafePushStarting(branch.name)
+  const starting = useLandRun(branch.name)
   const formPushes = starting?.step === "pushing" && compact
   const showsPush = isPushing && !formPushes
   // the one push of a stack reports its progress for each of its branches, the stack branch under its key

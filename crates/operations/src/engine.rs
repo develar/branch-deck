@@ -31,7 +31,9 @@ pub async fn run(registry: &Registry, key: &SessionKey, request: OperationReques
     Admitted::Joined(joined) => {
       let answer = joined.answer().await;
       if let Ok(outcome) = &answer {
-        events.send(OperationEvent::Done { outcome: outcome.clone() });
+        events.send(OperationEvent::Done {
+          outcome: Box::new(outcome.clone()),
+        });
       }
       answer
     }

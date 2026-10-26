@@ -11,12 +11,12 @@
 //! rules of `domain-policy`, the session orders the answers and the app's writes). Besides them: the table of a sync
 //! (`branch_table`), the rule of what the robots land (`patronus_view`) and the guards of the app's actions on the
 //! remote (`push_guard`, `start_guard`, run through `actions`). It holds what the checks and the remote services found
-//! and runs no check and asks no remote service itself (the hosts answer the landing needs and the landing gate),
-//! except the Patronus client `RemoteActions` carries until the engine of the remote takes it.
+//! and runs no check and asks no remote service itself (the hosts answer the landing needs), except the Patronus client
+//! `RemoteActions` carries until the engine of the remote takes the restart and the cancel of a robot.
 //!
-//! - `actions`: what the app's actions on the remote run on, the same for the app's commands and the E2E server's routes
+//! - `actions`: what the app's actions on the robots run on, the same for the app's commands and the E2E server's routes
 //!   (`RemoteActions`: the Patronus service with the Space repository, git, the sessions with the tables of their last
-//!   syncs, the landing gate of the host); the flows are its methods
+//!   syncs); the flows are its methods
 //! - `action_view`: the actions of each subject of the view (`actions_of`: every branch, whole stack and robot, by
 //!   `domain_policy::actions`), derived with every patch over the next steps of the same patch
 //! - `facts`: the facts of a session, each with the number of the observation that answered it (`Seq`, one counter per
@@ -28,8 +28,6 @@
 //!   the rules over them (`repository`)
 //! - `derive`: what the view derives of the table by the rules of `domain-policy`: the input of the rules
 //!   (`repository`), the structure of each branch with its section (`place`)
-//! - `landing`: the landing gate a start and its popover check through (`LandingGate`), which the hosts answer with the
-//!   trial check
 //! - `moved_remote`: the remote branches someone else pushed to: which ones a listing of the pull requests asks to fetch
 //!   (`MovedFetches`, one fetch per head they show) and the host's fetch of them (`fetch_asked`)
 //! - `one_shot`: the session of one command (`OneShot`, `bd`'s): the table of its own sync and the facts it reads for
@@ -58,10 +56,10 @@
 //!   timers of a session wait on its clock (`runtime::sleep_until`); the events of the sessions for the scheduler of the
 //!   facts (`events`, `SessionEvent`), which reads with `begin` and applies with `apply_facts`; `write_robot`,
 //!   `write_pull_request`
-//! - `start_guard`: the checks of the app's start, restart and cancel of a robot, by the rules of `bd safe-push`: parked,
+//! - `start_guard`: the checks of the app's restart and cancel of a robot, by the rules of `bd safe-push`: parked,
 //!   landed whole, not built, a robot on its last commit or one that lands a part of it; the words of the robot refusals
-//!   for both sides, and the whole sequence of the action (`start_robot`, `restart_robot`, `cancel_robot`) and of the
-//!   landing check of the popover (`check_landing`)
+//!   for `bd`, the engine and the app (`start_refusal_text`), and the whole sequence of the action (`restart_robot`,
+//!   `cancel_robot`)
 //! - `state`: what a session sent its windows of the table (`View`): the patch of the parts that changed since
 //!   (`diff`), the snapshot at the version of the last patch
 //! - `sync_scheduler`: when a session syncs: one run at a time, one quiet follow-up, one check of the inputs after the
@@ -77,7 +75,6 @@ pub mod actions;
 pub mod branch_table;
 pub mod derive;
 pub mod facts;
-pub mod landing;
 pub mod moved_remote;
 pub mod one_shot;
 pub mod patch;

@@ -26,7 +26,7 @@ import type { Branch, BranchSyncState, ChildrenPushOrder, PushOrders } from "@/s
 import { branchSyncStore, getParkedState, pushOrdersIn, useBranchSync, useIsStackBranchPushing, useParkedState } from "@/stores/branch-sync"
 import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold } from "@/stores/patronus"
 import { getPullRequest, pullRequestsStore, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
-import { useSafePushStarting } from "@/stores/safe-push"
+import { useLandRun } from "@/stores/safe-push"
 
 export interface PushButtonState {
   text: string
@@ -502,6 +502,6 @@ export function useChildrenPush(name: string): ChildrenPush {
  */
 export function useStackBranchPushAlone(root: string): boolean {
   const pushing = useIsStackBranchPushing(root)
-  const startPushes = useSafePushStarting(stackReadinessKey(root))?.step === "pushing"
+  const startPushes = useLandRun(stackReadinessKey(root))?.step === "pushing"
   return pushing && !startPushes
 }

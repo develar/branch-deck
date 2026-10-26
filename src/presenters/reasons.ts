@@ -5,12 +5,12 @@
 import type { HoldKind, Landed, PatronusPushMode, PatronusRobot, Reason, RobotOf } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
-import { describeLandingRefusal } from "@/lib/landing-gate"
 import { formatParkedBlocker } from "@/lib/parked"
 import type { LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import { formatLandingSubject, formatPushMode } from "@/lib/patronus"
 import { joinNames } from "@/lib/text"
 import { formatStackBranchConflict, formatWholeStack } from "@/lib/whole-stack"
+import { describeLandingRefusal } from "@/presenters/landing"
 
 /** Whether a Safe Push or a Dry Run can start; `reason` says why not, for the hover of a disabled action */
 export type RobotStartCheck = { ok: true } | { ok: false; reason: string }

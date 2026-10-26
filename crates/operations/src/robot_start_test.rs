@@ -113,3 +113,66 @@ async fn a_comment_the_bot_rejects_fails_with_its_reason_and_one_it_never_answer
   // read right after the comment, then on the ticks of the clock until the minute ended
   assert!(!fake.requests_to("GET", COMMENT).is_empty());
 }
+
+/// A comment the bot accepted whose robot Patronus lists not within the minute: the app looks for it every 15 s after
+/// the minute while its start holds the subject, and the robot listed later is the start's; none within the five minutes
+/// after the minute is a start all the same, its robot comes with a later list of the session
+#[tokio::test]
+async fn an_accepted_comment_looks_for_its_robot_after_the_minute_until_patronus_lists_it() {
+  let listed: Arc<std::sync::Mutex<Vec<PatronusRobot>>> = Arc::default();
+  let lists = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let run = |github: GitHubService, clock: TestClock| {
+    let (listed, lists) = (Arc::clone(&listed), Arc::clone(&lists));
+    tokio::spawn(async move {
+      let repository = repository();
+      let start = CommentStart {
+        github: &github,
+        repository_path: "/repository",
+        repository: &repository,
+        number: 7,
+        mode: PatronusPushMode::RebaseAutosquash,
+        known: HashSet::new(),
+        until_listed: true,
+      };
+      let since = move |_since: u32| -> Read<'_, Result<Vec<PatronusRobot>, ApiError>> {
+        lists.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let robots = listed.lock().unwrap().clone();
+        Box::pin(async move { Ok(robots) })
+      };
+      let since: RobotsSince<'_> = &since;
+      start_by_comment(start, &clock, since).await
+    })
+  };
+  let advance = async |clock: &TestClock, by: Duration| {
+    clock.advance(by);
+    for _ in 0..50 {
+      tokio::task::yield_now().await;
+    }
+  };
+
+  let (_, github) = github_with_comment(json!({"+1": 1, "-1": 0})).await;
+  let clock = TestClock::new();
+  let found = run(github, clock.clone());
+  advance(&clock, Duration::from_mins(1)).await;
+  assert!(!found.is_finished(), "the start holds its subject past the minute while the robot is looked for");
+  listed.lock().unwrap().push(of_seven("late", PatronusPushMode::RebaseAutosquash, 200));
+  while !found.is_finished() {
+    advance(&clock, Duration::from_secs(15)).await;
+  }
+  let commented = found.await.unwrap().unwrap();
+  assert_eq!((commented.accepted, commented.robot.map(|robot| robot.id)), (true, Some("late".to_owned())));
+
+  listed.lock().unwrap().clear();
+  let (_, github) = github_with_comment(json!({"+1": 1, "-1": 0})).await;
+  let clock = TestClock::new();
+  let missing = run(github, clock.clone());
+  let before = lists.load(std::sync::atomic::Ordering::SeqCst);
+  while !missing.is_finished() {
+    advance(&clock, Duration::from_secs(15)).await;
+  }
+  let commented = missing.await.unwrap().unwrap();
+  assert_eq!((commented.accepted, commented.robot), (true, None));
+  // the ticks of the minute, then one each 15 s for five minutes
+  let asked = lists.load(std::sync::atomic::Ordering::SeqCst) - before;
+  assert!((20..=45).contains(&asked), "{asked} lists");
+}

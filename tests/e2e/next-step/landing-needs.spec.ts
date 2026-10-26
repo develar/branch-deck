@@ -2,12 +2,12 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { availableRobots, expectPatronusStarts, startRequest } from "../helpers/patronus-helpers"
-import { expectPushedToRemote, pushedBranches } from "../helpers/push-helpers"
+import { availableRobots, expectPatronusStarts, startRequest, wholeStackStartRequest } from "../helpers/patronus-helpers"
+import { expectPushedToRemote, pushedBranches, remotePushes } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, slotSafePush } from "../helpers/safe-push-helpers"
-import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
+import { clickContextMenuItem, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand } from "../helpers/wait-helpers"
 
@@ -119,18 +119,55 @@ test.describe("Landing needs", () => {
 
   test("should start anyway from the Safe Push popover with the override of what refuses it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupNeeds(page, setupRepo, syncAndWaitForBranches)
-    const starts = await recordCommand(page, "start_patronus_robot")
+    const starts = await recordCommand(page, "execute")
 
     await openSafePushWithKey(page, "lane-run")
     await expect(popoverStart(page)).toHaveText("Start Anyway")
-    await popoverStart(page).click()
-    // the gate of the start and the start command get the override; nothing else refused it
+    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
+    // the start runs with the override, which its plan and the gate of the engine get; nothing else refused it
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
-    expect(starts).toEqual([expect.objectContaining({ branchName: "lane-run", allow: { allowDangling: false, allowMissing: true } })])
+    expect(starts).toEqual([
+      expect.objectContaining({
+        intent: expect.objectContaining({ subject: { kind: "branch", name: "lane-run" }, allow: expect.objectContaining({ allowDangling: false, allowMissing: true }) }),
+      }),
+    ])
     // Patronus got the start of lane-run, past the gate that refused it
     await expectPatronusStarts(repo, [startRequest("lane-run")])
     // it pushed lane-run alone, before the start
     await expectPushedToRemote(repo, ["lane-run"])
     expect(await pushedBranches(repo)).toEqual(["lane-run"])
+  })
+
+  test("should refuse the Safe Push of a whole stack whose build needs a branch outside it, with the restack and Start Anyway", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // lane-run forks (ui-perf-nightly and lane-docs are built on it): its whole stack lands from its stack branch, and the
+    // landing needs of the view are of branches, so the gate of the start checks the whole stack
+    const repo = await setupRepo("landing_needs_fork", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    await expect(step(page, "lane-run").getByTestId("next-step")).toHaveText("Needs stills-codec")
+    const starts = await recordCommand(page, "execute")
+
+    await findBranchRow(page, "lane-run").click({ button: "right" })
+    await openSubmenu(page, "Whole Stack")
+    await clickContextMenuItem(page, "Safe Push Whole Stack")
+    await expect(popoverStart(page)).toBeFocused()
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
+    // refused before its first effect: the reason, the restack of the root of what lands, and Start Anyway
+    const refused = page.locator("[data-slot=toast]", { hasText: "Cannot start the Safe Push of the whole lane-run stack" })
+    await expect(refused.locator("[data-slot=toast-description]")).toContainText(
+      "“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3), which “Name lossy stills” of stills-codec adds: git merges it, but the build of the whole lane-run stack fails. Stack lane-run on stills-codec to land it too.",
+    )
+    await expect(refused.getByRole("button", { name: "Stack lane-run on stills-codec" })).toBeVisible()
+    expect({ pushed: await pushedBranches(repo), started: (await repo.getPatronusLog()).starts }).toEqual({ pushed: [], started: [] })
+
+    // Start Anyway: the same start with the override of what refused it, planned again, which the gate lets through
+    await runAndWaitForAnswer(page, "execute", () => refused.getByRole("button", { name: "Start Anyway" }).click())
+    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+    expect(starts.at(-1)).toMatchObject({ intent: { subject: { kind: "wholeStack", root: "lane-run" }, allow: { allowMissing: true } } })
+    await expectPatronusStarts(repo, [wholeStackStartRequest("lane-run")])
+    expect(await remotePushes(repo)).toEqual([["stack:lane-run"]])
   })
 })

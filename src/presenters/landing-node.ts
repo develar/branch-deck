@@ -7,12 +7,12 @@ import type { LandingNode as NodeView, LandingNodeKind, NodeLabel } from "@/lib/
 import { formatParkedLabel } from "@/lib/parked"
 import { formatLandingSubject } from "@/lib/patronus"
 import { formatAvailabilityHint } from "@/lib/pull-request"
-import type { FoundMove } from "@/lib/running-move"
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import type { StepContext } from "@/presenters/next-step"
 import { formatPendingFact, formatProblemsFailure, formatStepFailure, formatUnlisted, presentNextStep } from "@/presenters/next-step"
 import { formatLanded, formatLandedWhole, formatReason } from "@/presenters/reasons"
+import type { FoundMove } from "@/presenters/running-move"
 
 export interface LandingNodeLook {
   readonly color: UIColor

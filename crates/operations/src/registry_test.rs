@@ -3,7 +3,7 @@ use crate::events::EventSink;
 use crate::registry::{Admitted, Answer, Joined, OperationRequest, Registry, RunningGuard};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{land_intent, push_intent};
-use domain_types::operation::{OperationEvent, OperationId, OperationStats, OperationStep, Outcome, Resource, RunningMove, RunningOperation};
+use domain_types::operation::{OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Resource, RunningMove, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
 use domain_types::repository_view::PatronusView;
 use pretty_assertions::assert_eq;
@@ -157,6 +157,7 @@ fn outcome(op: &OperationId) -> Outcome {
     effects: Vec::new(),
     news_key: None,
     version_after: None,
+    result: OperationResult::None,
     stats: OperationStats::default(),
   }
 }
@@ -210,7 +211,7 @@ async fn an_admitted_operation_is_in_the_view_until_it_ends() {
         percent: 40,
         line: "Writing objects: 40%".to_string(),
       },
-      OperationEvent::Done { outcome: outcome(&id) },
+      OperationEvent::Done { outcome: Box::new(outcome(&id)) },
     ]
   );
 }
@@ -254,8 +255,8 @@ async fn a_request_of_the_same_intent_joins_the_running_one() {
   let (second, ()) = tokio::join!(second, async { gate.notify_one() });
   assert_eq!(first.await.unwrap(), second.clone());
   let op = second.unwrap().op;
-  assert_eq!(pushed.take(), vec![OperationEvent::Done { outcome: outcome(&op) }]);
-  assert_eq!(again.take(), vec![OperationEvent::Done { outcome: outcome(&op) }]);
+  assert_eq!(pushed.take(), vec![OperationEvent::Done { outcome: Box::new(outcome(&op)) }]);
+  assert_eq!(again.take(), vec![OperationEvent::Done { outcome: Box::new(outcome(&op)) }]);
 }
 
 /// An operation that needs what another holds waits in the session behind the newest such one, and runs once the ones
