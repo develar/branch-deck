@@ -4,7 +4,7 @@ import type { PatronusProfile, PatronusRobot } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, expectPatronusStarts, robot, startRequest } from "../helpers/patronus-helpers"
-import { expectPushedToast, routeHeldPush, routePush } from "../helpers/push-helpers"
+import { expectPushedToast, holdRemotePushes, remotePushes } from "../helpers/push-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover, slotSafePush, waitForStepFacts } from "../helpers/safe-push-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -157,8 +157,8 @@ test.describe("Branch filter", () => {
   })
 
   test("should keep a branch under Your Move until the filter changes, once its move is made", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setup(page, setupRepo, syncAndWaitForBranches)
-    const { pushes, release } = await routeHeldPush(page, "docs", 100)
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    const held = await holdRemotePushes(repo)
     // neither Patronus nor GitHub: every branch not on the remote is the user's move, its push
     await expect(chip(page, "yourMove")).toHaveText("Your Move11")
     await chip(page, "yourMove").click()
@@ -169,9 +169,9 @@ test.describe("Branch filter", () => {
     await expect(getPushButton(findBranchRow(page, "docs"))).toHaveAttribute("aria-busy", "true")
     await expect(chip(page, "yourMove")).toHaveText("Your Move10")
     await expect(chip(page, "waiting")).toHaveText("Waiting1")
-    release()
+    await held.release()
     await expectPushedToast(page, "docs")
-    expect(pushes.map(push => push.branchName)).toEqual(["docs"])
+    expect(await remotePushes(repo)).toEqual([["docs"]])
     await expect(chip(page, "yourMove")).toHaveText("Your Move10")
     await expect(chip(page, "waiting")).toHaveText("Waiting1")
     // where the user is looking: the row stays, and the focus with it
@@ -184,8 +184,7 @@ test.describe("Branch filter", () => {
   })
 
   test("should push from the branch menu as P does, and say why a pushed branch can't be pushed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setup(page, setupRepo, syncAndWaitForBranches)
-    const pushes = await routePush(page, {})
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const row = findBranchRow(page, "docs")
     // named as the push button of the row, then the key of the focused row
     const create = page.getByRole("menuitem", { name: /^Push \(1\) ?P?$/ })
@@ -195,7 +194,7 @@ test.describe("Branch filter", () => {
     await expect(create.locator("[data-slot=kbd]")).toHaveText("P")
     await create.click()
     await expectPushedToast(page, "docs")
-    expect(pushes.map(it => it.branchName)).toEqual(["docs"])
+    expect(await remotePushes(repo)).toEqual([["docs"]])
 
     await row.click({ button: "right" })
     const push = page.getByRole("menuitem", { name: /^Push ?P?$/ })
@@ -335,7 +334,7 @@ test.describe("Branch filter", () => {
   }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, robot("web", "running-robot"))
     await repo.setPatronusProfiles({ profiles: PROFILES })
-    const { pushes, release } = await routeHeldPush(page, "lint", 100)
+    const held = await holdRemotePushes(repo)
 
     // a robot runs on the commit web is at: S says why in a toast, and opens no popover
     await focusRow(page, "web")
@@ -358,17 +357,18 @@ test.describe("Branch filter", () => {
     await page.keyboard.press("Enter")
     await expect(safePushPopover(page)).toHaveCount(0)
     // the start is the move: lint lands from its push on, before its robot exists
-    await expect(slotSafePush(page, "lint")).toHaveAccessibleName("Pushing 100%")
+    await held.arrived()
+    await expect(slotSafePush(page, "lint")).toHaveAccessibleName(/^Pushing \d+%$/)
     await expect(findBranchRow(page, "lint").getByTestId("lane-node")).toHaveAttribute("data-kind", "landing")
     await expect(chip(page, "yourMove")).toHaveText("Your Move6")
     await expect(chip(page, "landing")).toHaveText("Landing4")
     expect((await repo.getPatronusLog()).starts).toEqual([])
-    release()
+    await held.release()
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
     await expect(chip(page, "yourMove")).toHaveText("Your Move6")
     await expect(chip(page, "landing")).toHaveText("Landing4")
     await expectPatronusStarts(repo, [startRequest("lint")])
-    expect(pushes.map(push => push.branchName)).toEqual(["lint"])
+    expect(await remotePushes(repo)).toEqual([["lint"]])
   })
 
   test("should have no filter bar in a table of a few branches", async ({ page, setupRepo, syncAndWaitForBranches }) => {

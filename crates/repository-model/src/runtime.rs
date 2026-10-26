@@ -915,7 +915,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 }
 
 /// The branches and whole stacks a push pushed, with the tips it left (an unapplied branch has no pull request)
-pub fn pushed_heads(subjects: &[RemoteSubject], statuses: &[RemoteStatusUpdate]) -> Vec<PushedHead> {
+fn pushed_heads(subjects: &[RemoteSubject], statuses: &[RemoteStatusUpdate]) -> Vec<PushedHead> {
   subjects
     .iter()
     .zip(statuses)

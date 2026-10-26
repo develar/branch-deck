@@ -1,12 +1,14 @@
 //! The remote of a test repository: the bare `.git/upstream.git` every template names as `origin`
 //! (`test_utils::remote_git`), which the app's pushes and fetches reach as a real remote, and what a test does to it
-//! behind the app's back. `GET /repositories/{id}/remote` answers the branches it has; `POST …/remote/push`
+//! behind the app's back. `GET /repositories/{id}/remote` answers the branches it has and the pushes it took from the
+//! app, in order (`pushes`: each the branches it moved, to their commits, null for a deleted one); `POST …/remote/push`
 //! (`{branch, revision, earlierBuild}`) pushes a commit of the repository to a branch of it as `git push --force` in a
 //! terminal does (the remote-tracking ref moves too), or an earlier build of its commits: the same commits by content
 //! under other ids, as the sync rebuilt them since; `POST …/remote/commit` (`{branch, subject, author, timestamp, files}`) writes a
-//! commit onto a branch of it as someone else's push does (the remote-tracking ref stays); `POST …/remote/refusal`
-//! (`{message}`) makes it refuse every push with that message, `null` take them again. A push held at the remote is the
-//! held answer `push` of `remote-gates` (`RemoteHost::hold_answers`).
+//! commit onto a branch of it as someone else's push does (the remote-tracking ref stays); `POST …/remote/fetch`
+//! fetches it as `git fetch origin` in a terminal does (the remote-tracking refs move to what it has);
+//! `POST …/remote/refusal` (`{message}`) makes it refuse every push with that message, `null` take them again. A push
+//! held at the remote is the held answer `push` of `remote-gates` (`RemoteHost::hold_answers`).
 //!
 //! The remote answers a push in its pre-receive hook, written on the first hold or refusal: the hook posts the refs of
 //! the push to `FakeRemote`, the fake remote of the host on a loopback port of its own, which waits at the gate while a
@@ -24,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use sync_utils::span::in_current_span;
 use test_utils::fake_server::{FakeGate, FakeServer};
 use test_utils::git_test_utils::pre_receive_hook;
-use test_utils::remote_git::{RemoteCommit, bare_origin, commit_on_remote, earlier_build, push_in_terminal, remote_branches};
+use test_utils::remote_git::{RemoteCommit, bare_origin, commit_on_remote, earlier_build, fetch_in_terminal, push_in_terminal, remote_branches, remote_pushes};
 
 /// What the fake remote answers the pre-receive hook: the gate of a held push, the message of a refusal
 #[derive(Default)]
@@ -122,11 +124,18 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> anyhow::Result<T> + 
     .map_err(|e| (StatusCode::CONFLICT, format!("{e:#}")))
 }
 
-/// The branches of the remote, by name without `refs/heads/`
+/// The branches of the remote, by name without `refs/heads/`, and the pushes it took from the app, in order
 pub async fn get_remote(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
   let path = path_of(&state, &id)?;
-  let branches: BTreeMap<String, String> = blocking(move || remote_branches(&path)).await?;
-  Ok(Json(serde_json::json!({ "branches": branches })))
+  let (branches, pushes): (BTreeMap<String, String>, _) = blocking(move || Ok((remote_branches(&path)?, remote_pushes(&path)?))).await?;
+  Ok(Json(serde_json::json!({ "branches": branches, "pushes": pushes })))
+}
+
+/// `POST /repositories/{id}/remote/fetch`: fetches the remote as `git fetch origin` in a terminal does
+pub async fn fetch_in_terminal_route(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> FixtureResult {
+  let path = path_of(&state, &id)?;
+  blocking(move || fetch_in_terminal(&path)).await?;
+  Ok(StatusCode::OK)
 }
 
 /// `POST /repositories/{id}/remote/push`: the branch of the remote and the commit of the repository pushed to it, or with

@@ -2,7 +2,7 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRows, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { mergeRunningRobot, robot, setupRunningRobot } from "../helpers/patronus-helpers"
-import { routePush, routePushBranches } from "../helpers/push-helpers"
+import { remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
 
@@ -10,9 +10,8 @@ import { runAndWaitForSync } from "../helpers/sync-helpers"
 // bazel, none of them on the remote; the commits of a branch are the same wherever its row is, here in the island
 test.describe("Push Up to Here", () => {
   test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stack_island")
+    const repo = await setupRepo("stack_island")
     await syncAndWaitForBranches()
-    const { stackPushes } = await routePushBranches(page)
     // the arrow is on the commits of the full list
     await expandBranch(page, findBranchRow(page, "air"))
     await expandBranch(page, findBranchRow(page, "bazel"))
@@ -35,10 +34,10 @@ test.describe("Push Up to Here", () => {
 
     await popover.getByTestId("push-up-to-button").click()
     // one push: air goes whole, bazel up to its first commit
-    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["air", "bazel"]])
-    const [air, bazel] = stackPushes[0]!
-    expect(air!.tip ?? null).toBeNull()
-    expect(bazel!.tip).toMatch(/^[0-9a-f]{40}$/)
+    await expect.poll(() => remotePushes(repo)).toEqual([["air", "bazel"]])
+    const remote = await repo.getRemoteBranches()
+    expect(remote[virtualBranch("air")]).toBe(await repo.revision(virtualBranch("air")))
+    expect(remote[virtualBranch("bazel")]).toBe(await repo.revision(`${virtualBranch("bazel")}~1`))
   })
 
   test("should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -77,15 +76,14 @@ test.describe("Push Up to Here", () => {
   })
 
   test("should push up to a commit from its menu in the full list", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stack_island")
+    const repo = await setupRepo("stack_island")
     await syncAndWaitForBranches()
-    const pushes = await routePush(page, {})
     await expandBranch(page, findBranchRow(page, "bazel"))
     const first = getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]").first()
     await expect(first).toContainText("Build the deploy jar, part 1")
     await openContextMenu(page, first)
     await clickContextMenuItem(page, "Push Up to Here")
-    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel"])
+    await expect.poll(() => remotePushes(repo)).toEqual([["air", "bazel"]])
   })
 
   test("should offer Push Up to Here in the full list only for a commit added after the ones a merged Safe Push landed, without the landed branches", async ({
@@ -96,7 +94,6 @@ test.describe("Push Up to Here", () => {
     // the Safe Push of bazel lands air with it
     const running = robot("bazel", "bazel-robot")
     const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stack_island", running, "air")
-    const pushes = await routePush(page, {})
     await expandBranch(page, findBranchRow(page, "bazel"))
     const commitRows = getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]")
     const first = commitRows.first()
@@ -122,6 +119,6 @@ test.describe("Push Up to Here", () => {
     // the new commit pushes bazel, without air: all of air landed
     await openContextMenu(page, commitRows.last())
     await clickContextMenuItem(page, "Push Up to Here")
-    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["bazel"])
+    await expect.poll(() => remotePushes(repo)).toEqual([["bazel"]])
   })
 })

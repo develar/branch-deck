@@ -9,7 +9,6 @@ import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { expandBranch, findBranchRow } from "../e2e/helpers/branch-helpers"
 import type { PullRequestsFixture } from "../e2e/helpers/pull-request-helpers"
 import { pullRequest, reviewer, VIEWER_LOGIN } from "../e2e/helpers/pull-request-helpers"
-import { routePush } from "../e2e/helpers/push-helpers"
 import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
 
 const SHOTS_DIR = process.env.SHOTS_DIR ?? path.join(import.meta.dirname, "../../docs/screenshots")
@@ -78,8 +77,6 @@ test("README: the branches of a day of work", async ({ page, setupRepo, syncAndW
   await setupRepo("readme_showcase", { pullRequests: PULL_REQUESTS })
   await syncAndWaitForBranches()
   await expect(findBranchRow(page, "offline")).toBeVisible()
-  // the E2E server has no remote: the page answers the pushes
-  await routePush(page, {})
   for (const branch of ["conflicts", "ABC-123", "search", "docs"]) {
     await push(page, branch)
   }

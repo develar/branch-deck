@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
-import { confirmForcePush, expectPushedToast, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, expectPushedToast, expectPushedToRemote, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { enableAutoSyncOnFocus, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
 
@@ -135,16 +135,14 @@ test.describe("Branch preview", () => {
     await expect(getPreview(page)).toHaveCount(0)
   })
 
-  test("should push the branch with P", async ({ page }) => {
-    const pushes = await routePush(page, {})
-
+  test("should push the branch with P", async ({ page, issueLinksRepo }) => {
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
     const pushButton = preview.getByRole("button", { name: /Push \(\d+\)/ })
     await expect(pushButton).toBeEnabled()
 
     await page.keyboard.press("p")
     await expectPushedToast(page, BRANCH)
-    expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
+    expect(await remotePushes(issueLinksRepo)).toEqual([[BRANCH]])
     await expect(preview.getByTestId("branch-preview-status")).toHaveText("up to date")
     await expect(preview.getByTestId("branch-preview-last-push")).toHaveText(/^Pushed /)
     // nothing left to push
@@ -152,30 +150,25 @@ test.describe("Branch preview", () => {
     await expect(preview).toBeVisible()
   })
 
-  test("should ask before P force pushes over a commit the branch lacks", async ({ page }) => {
-    const pushes = await routePush(page, {
-      // someone pushed a commit to the remote branch meanwhile
-      [BRANCH]: [
-        {
-          unpushedCommits: ["j1"],
-          commitsBehind: 1,
-          remoteTip: "their-head",
-          droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorEmail: "ann@example.com", authorTime: 1704178800 }],
-        },
-        {},
-      ],
-    })
+  test("should ask before P force pushes over a commit the branch lacks", async ({ page, issueLinksRepo }) => {
+    // the branch was pushed without its newest commit; someone pushed a commit to the remote branch since, which a fetch
+    // brought
+    await issueLinksRepo.pushInTerminal(virtualBranch(BRANCH), { revision: `${virtualBranch(BRANCH)}~1` })
+    await issueLinksRepo.commitOnRemote(virtualBranch(BRANCH), { subject: "Fix login", author: "Ann <ann@example.com>", timestamp: 1704178800, files: { "login.txt": "login\n" } })
+    await issueLinksRepo.fetchInTerminal()
+    await syncFromMenu(page)
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
-    await page.keyboard.press("p")
     await expect(preview.getByRole("button", { name: /Force Push \(1\)/ })).toBeEnabled()
 
     // the footer's push button opens its description with what the push drops
     await page.keyboard.press("p")
     await expect(page.getByTestId("push-description")).toContainText("Fix login")
-    expect(pushes).toHaveLength(1)
+    expect(await remotePushes(issueLinksRepo)).toEqual([])
     await confirmForcePush(page, "Force Push (1)")
 
-    await expect.poll(() => pushes.map(push => push.expectedRemote)).toEqual([null, "their-head"])
+    // leased on what the remote has: it took the push over Ann's commit
+    await expectPushedToRemote(issueLinksRepo, [BRANCH])
+    expect(await remotePushes(issueLinksRepo)).toEqual([[BRANCH]])
     await expect(preview).toBeVisible()
   })
 

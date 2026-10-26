@@ -376,14 +376,6 @@ impl Sessions {
     self.ask(key, |reply| Message::WritePullRequest { write, reply }).await
   }
 
-  /// A push the session did not run ended and pushed `heads` (one the page of the E2E server answered): the scheduler of
-  /// the facts lists the pull requests as after the session's own push
-  pub fn tell_push(&self, key: &SessionKey, heads: Vec<PushedHead>) {
-    if self.is_open(key) {
-      self.events.emit(key, SessionEventKind::PushEnded { heads });
-    }
-  }
-
   /// A window of the open session of `key` asks to read a fact again, of `subject` for a family read by subject;
   /// answers the version of the view after the patch of that read once it is applied, `None` when nothing was asked
   /// (the rules held it back, the session is not open, nothing takes the events). Check Approvals Again (the readiness

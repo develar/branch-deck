@@ -141,10 +141,16 @@ pub fn refuse_every_push(bare_path: &Path) {
 
 /// The `pre-receive` hook `script` (sh) in the bare repository at `bare_path`: it runs while a push to it goes
 pub fn pre_receive_hook(bare_path: &Path, script: &str) {
+  receive_hook(bare_path, "pre-receive", script);
+}
+
+/// The hook `name` (`pre-receive`, `post-receive`) with `script` (sh) in the bare repository at `bare_path`, which git
+/// runs in that directory with the refs of each push on its stdin
+pub fn receive_hook(bare_path: &Path, name: &str, script: &str) {
   let hooks = bare_path.join("hooks");
   // a repository made without a template has no `hooks` directory
   fs::create_dir_all(&hooks).unwrap();
-  let hook = hooks.join("pre-receive");
+  let hook = hooks.join(name);
   fs::write(&hook, format!("#!/bin/sh\n{script}\n")).unwrap();
   #[cfg(unix)]
   {

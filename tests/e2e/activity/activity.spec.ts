@@ -14,10 +14,10 @@ import {
   verifyCommitCount,
 } from "../helpers/branch-helpers"
 import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
-import { confirmForcePush, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, expectPushedToRemote, virtualBranch } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu, waitForTauriListener } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { waitForStorePersistence } from "../helpers/wait-helpers"
 
@@ -26,27 +26,27 @@ import { waitForStorePersistence } from "../helpers/wait-helpers"
 // and the first of the two search commits to origin/master.
 
 testWithIssueLinks.describe("Activity", () => {
-  testWithIssueLinks("should record the pushes with the remote commits a force push dropped, and show the branch", async ({ page }) => {
+  testWithIssueLinks("should record the pushes with the remote commits a force push dropped, and show the branch", async ({ page, issueLinksRepo }) => {
     // nothing happened yet: no button
     await expect(activityButton(page)).toHaveCount(0)
-    await routePush(page, {
-      "ABC-123": [
-        // someone else pushed a commit the branch lacks
-        {
-          unpushedCommits: ["a1"],
-          commitsBehind: 1,
-          remoteTip: "remote-head-1",
-          droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorEmail: "ann@example.com", authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }],
-        },
-        {},
-      ],
-    })
     const row = findBranchRow(page, "ABC-123")
     await getPushButton(row).click()
+    await expectNothingToPush(row)
+    // a commit of ABC-123 made since, and one someone else pushed onto its remote branch, which a fetch brought
+    await issueLinksRepo.commit("(ABC-123) Note the session ttl", { "session.md": "ttl\n" }, 1704182460)
+    const theirs = await issueLinksRepo.commitOnRemote(virtualBranch("ABC-123"), {
+      subject: "Fix login",
+      author: "Ann <ann@example.com>",
+      timestamp: Date.parse("2024-01-02T07:00:00Z") / 1000,
+      files: { "login.txt": "login\n" },
+    })
+    await issueLinksRepo.fetchInTerminal()
+    await syncFromMenu(page)
     // it drops Ann's commit: the click asks first, the Force Push in the description pushes
     await row.getByRole("button", { name: "Force Push (1)" }).click()
     await confirmForcePush(page, "Force Push (1)")
     await expectNothingToPush(row)
+    await expectPushedToRemote(issueLinksRepo, ["ABC-123"])
 
     const window = await openActivityWindow(page)
     await expect(window.getByTestId("activity-day")).toHaveCount(1)
@@ -59,7 +59,7 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(forced.getByTestId("activity-description")).toHaveText("1 commit · dropped 1 remote commit")
     const dropped = forced.getByTestId("dropped-commits")
     await expect(dropped).toContainText("Fix login")
-    await expect(dropped).toContainText("Ann · c0ffee01 · 3 hours ago")
+    await expect(dropped).toContainText(`Ann · ${theirs.slice(0, 8)} · 3 hours ago`)
     // the window names its repository
     expect((await getOpenedSubWindows(page)).at(-1)?.title).toMatch(/^Activity — /)
 
@@ -72,7 +72,6 @@ testWithIssueLinks.describe("Activity", () => {
   })
 
   testWithIssueLinks("should filter by the chips of the kinds and the search, an open starting over at its chip", async ({ page }) => {
-    await routePush(page, {})
     await getPushButton(findBranchRow(page, "feature-auth")).click()
     await getPushButton(findBranchRow(page, "ABC-123")).click()
     const window = await openActivityWindow(page)
@@ -147,7 +146,6 @@ testWithIssueLinks.describe("Activity", () => {
   })
 
   testWithIssueLinks("should clear the log of the repository", async ({ page }) => {
-    await routePush(page, {})
     await getPushButton(findBranchRow(page, "feature-auth")).click()
     const window = await openActivityWindow(page)
     await expect(activityEntry(window, "Pushed feature-auth")).toBeVisible()
@@ -227,7 +225,6 @@ test.describe("Activity of the selected repository", () => {
     }, otherPath)
     await page.reload()
     await syncAndWaitForBranches()
-    await routePush(page, {})
     await getPushButton(findBranchRow(page, "test-branch")).click()
     const window = await openActivityWindow(page)
     await expect(activityEntry(window, "Pushed test-branch")).toBeVisible()

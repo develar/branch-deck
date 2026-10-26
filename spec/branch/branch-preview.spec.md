@@ -173,7 +173,8 @@ its row.
 ## Testing / Local Run
 
 - `pnpm e2e` runs the E2E tests; `tests/e2e/branch-preview` covers the preview.
-- The push test answers `push_branch` in the page: the E2E server has no remote to push to.
+- The push tests push to the remote of the test repository, a bare `.git/upstream.git`, and assert what it took
+  (`remotePushes`, [The remote of a repository](../../docs/design/e2e-testing.md#the-remote-of-a-repository)).
 
 ## Open Questions / Risks
 

@@ -3507,9 +3507,8 @@ sync's remote status of it is kept aside: the push's outcome replaces it, and a 
 went away, leaves it. The page writes no remote status: it waits for the version its command answers (`ViewAnswer`,
 `whenSessionViewAt` in `src/model/store.ts`) and keeps only the spinner of a push (`pushingBranches`, `stackPushes`).
 No sync follows a push, an unapplied branch's push or a deletion (C3, C12 of [Rust as the Domain
-Authority](rust-domain-authority.md#бюджеты-конкурентности)). A push the page of an E2E test answers (the templates
-have no remote) reaches the session through `POST /sessions/pushed-in-page`, the same `Sessions::push` with the
-statuses of the page's answer.
+Authority](rust-domain-authority.md#бюджеты-конкурентности)). An E2E test pushes to the remote of its repository
+through the same core ([The remote of a repository](e2e-testing.md#the-remote-of-a-repository)).
 
 #### The sessions and their hosts
 

@@ -226,7 +226,7 @@ async fn listed(client: &reqwest::Client, addr: SocketAddr, path: &str) -> Value
 }
 
 /// A push reaches the session as a patch of the remote status it left, whose version its answer names; no sync runs
-/// for it. A push the page answered (`pushed-in-page`) does the same with the statuses of its answer
+/// for it
 #[tokio::test]
 async fn a_push_answers_the_version_of_its_patch_and_runs_no_sync() {
   let (client, addr, path, mut messages, synced) = synced_window("simple", 11).await;
@@ -237,26 +237,9 @@ async fn a_push_answers_the_version_of_its_patch_and_runs_no_sync() {
   patches_up_to(&mut messages, &synced, &pushed["version"]).await;
   let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
   assert_eq!(view["branches"]["test-branch"]["remote"]["status"], status);
-  // the remote branch the push moved is what the view of the robots is of: derived again
-  let derived = listed(&client, addr, &path).await;
-  patches_up_to(&mut messages, &pushed["version"], &derived).await;
-
-  // a test writes the counts of a status, the server derives its action as the sync does
-  let mut in_page = status.clone();
-  in_page["remoteTip"] = json!("pushed-in-page");
-  in_page["unpushedCommits"] = json!(["pushed-in-page-commit"]);
-  in_page.as_object_mut().unwrap().remove("action");
-  let request = json!({ "repositoryPath": path, "branches": [{ "branchName": "test-branch", "expectedRemote": null }], "remoteStatuses": [in_page] });
-  let answer = post(&client, addr, "/sessions/pushed-in-page", request).await;
-  assert_eq!(answer["remoteStatuses"][0]["action"], json!({ "kind": "push" }), "{answer}");
-  let version = answer["version"].clone();
-  let patches = patches_up_to(&mut messages, &derived, &version).await;
-  assert_eq!(patches.len(), 1, "{patches:?}");
-  let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
-  assert_eq!(view["branches"]["test-branch"]["remote"]["status"]["remoteTip"], "pushed-in-page");
   // what follows is the view of the robots on the remote branch the push moved, no sync
   let derived = listed(&client, addr, &path).await;
-  let after = patches_up_to(&mut messages, &version, &derived).await;
+  let after = patches_up_to(&mut messages, &pushed["version"], &derived).await;
   assert!(after.iter().all(|patch| patch["changes"].get("sync").is_none()), "no sync ran: {after:?}");
   assert_eq!(view["sync"], json!({ "kind": "idle" }), "no sync ran: {view}");
 }

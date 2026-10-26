@@ -8,7 +8,7 @@ import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-h
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
 import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
-import { routePush, routePushBranches } from "../helpers/push-helpers"
+import { remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
@@ -579,7 +579,6 @@ test.describe("Branch review window", () => {
     await syncAndWaitForBranches()
     // the Safe Push the window asks for runs once its step is known
     await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
-    const pushes = await routePush(page, {})
     // a repository the main window can't switch to: refused with the reason, in the window
     await emitTauriEvent(page, "branch-review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })
     await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "elsewhere", ok: false }])
@@ -587,8 +586,8 @@ test.describe("Branch review window", () => {
       { kind: "error", title: "Cannot push login", message: "elsewhere is no longer among the repositories of the main window" },
     ])
     await emitTauriEvent(page, "branch-review/request", requests[2])
-    // the push of the row: the stack, parent first
-    await expect.poll(() => pushes.map(it => it.branchName)).toEqual(["auth", "login"])
+    // the push of the row: the stack, in one push
+    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
     // the Safe Push of login lands auth with it: something to say, the popover at login's row
     await emitTauriEvent(page, "branch-review/request", requests[0])
     await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
@@ -705,9 +704,8 @@ test.describe("Branch review window", () => {
 
   test("should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the `stacked_ownership` template: login, two commits, stacked on auth
-    await setupRepo("stacked_ownership")
+    const repo = await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
-    const { stackPushes } = await routePushBranches(page)
     const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
     const column = window.getByTestId("range-review-commit")
     const older = column.filter({ hasText: "Add the login form" })
@@ -724,7 +722,9 @@ test.describe("Branch review window", () => {
       "Copy Changed Paths",
     ])
     await window.getByRole("menuitem", { name: "Push Up to Here" }).click()
-    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["auth", "login"]])
+    // one push of the stack: login up to the copy of that commit, its newer commit left out
+    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
+    expect((await repo.getRemoteBranches())[virtualBranch("login")]).toBe(await repo.revision(`${virtualBranch("login")}~1`))
 
     // the copies run in the window: the message of the commit as it shows it, in the virtual branch
     await setupClipboardPermissions(page.context())

@@ -1,9 +1,10 @@
 //! The remote of a fixture repository: a bare repository at `.git/upstream.git` that the templates name as `origin` (a
 //! relative URL, so a copy of a template pushes to and fetches from its own remote, offline; inside `.git`, so no status
-//! shows it), and what a test does to it behind the app's back: a push in a terminal, a commit someone else pushed, the
-//! branches it has. The E2E test server serves these as its remote fixtures (`remote_git_fixtures.rs`).
+//! shows it), and what a test does to it behind the app's back: a push or a fetch in a terminal, a commit someone else
+//! pushed, the branches it has, and the pushes it took from the app, in order (its `post-receive` hook writes each into
+//! [`PUSH_LOG`]). The E2E test server serves these as its remote fixtures (`remote_git_fixtures.rs`).
 
-use crate::git_test_utils::{append_config, disable_background_maintenance, git_command};
+use crate::git_test_utils::{append_config, disable_background_maintenance, git_command, receive_hook};
 use anyhow::{Context, Result, bail, ensure};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -14,22 +15,38 @@ use std::process::Stdio;
 /// Where the remote of a repository is, relative to its working tree: the URL of its `origin`
 pub const BARE_ORIGIN: &str = ".git/upstream.git";
 
+/// The file of the remote that its `post-receive` hook appends each push of the app to: the `<old> <new> <ref>` lines
+/// git gives the hook, then an empty line
+pub const PUSH_LOG: &str = "pushes.log";
+
+/// Set for a push in a terminal ([`push_in_terminal`]): the hook of the remote, whose environment a local push passes
+/// on, logs no push of a test
+const PUSH_IN_TERMINAL: &str = "TEST_PUSH_IN_TERMINAL";
+
 /// The remote of the repository at `repo_path`
 pub fn bare_origin(repo_path: &Path) -> PathBuf {
   repo_path.join(BARE_ORIGIN)
 }
 
 /// Gives the repository at `repo_path` its remote, as a clone leaves it: a bare repository at [`BARE_ORIGIN`] whose
-/// `branch` is the commit of `refs/remotes/origin/<branch>`, and `origin` with the usual fetch refspec. Two processes,
-/// an `init` and a `push`
+/// `branch` is the commit of `refs/remotes/origin/<branch>`, and `origin` with the usual fetch refspec; its
+/// `post-receive` hook logs the pushes it takes after that ([`PUSH_LOG`]). Two processes, an `init` and a `push`
 ///
 /// # Errors
 /// When git cannot create the bare repository or push the branch into it
 pub fn add_bare_origin(repo_path: &Path, branch: &str) -> Result<()> {
   run(repo_path, &["init", "-q", "--bare", &format!("--initial-branch={branch}"), "--template=", BARE_ORIGIN])?;
-  disable_background_maintenance(&bare_origin(repo_path));
+  let bare = bare_origin(repo_path);
+  disable_background_maintenance(&bare);
   // by URL: no remote-tracking ref moves
   run(repo_path, &["push", "-q", BARE_ORIGIN, &format!("refs/remotes/origin/{branch}:refs/heads/{branch}")])?;
+  // git runs the hook in the bare repository, after the refs moved: a refused push logs nothing. One write per push,
+  // so two pushes at once don't interleave their lines
+  receive_hook(
+    &bare,
+    "post-receive",
+    &format!("push=$(cat)\nif [ -z \"${PUSH_IN_TERMINAL}\" ]; then printf '%s\\n\\n' \"$push\" >> {PUSH_LOG}; fi"),
+  );
   append_config(
     repo_path,
     &[("remote.origin.url", BARE_ORIGIN), ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")],
@@ -61,8 +78,55 @@ pub fn push_in_terminal(repo_path: &Path, branch: &str, revision: &str) -> Resul
   existing_origin(repo_path)?;
   let commit = run(repo_path, &["rev-parse", "--verify", "--end-of-options", &format!("{revision}^{{commit}}")])?;
   let commit = commit.trim();
-  run(repo_path, &["push", "-q", "--force", "origin", &format!("{commit}:refs/heads/{branch}")])?;
+  let output = git_command()
+    .args(["push", "-q", "--force", "origin", &format!("{commit}:refs/heads/{branch}")])
+    .env(PUSH_IN_TERMINAL, "1")
+    .current_dir(repo_path)
+    .output()?;
+  ensure!(output.status.success(), "git push in a terminal failed: {}", String::from_utf8_lossy(&output.stderr));
   Ok(commit.to_string())
+}
+
+/// Fetches the remote into the repository at `repo_path` as `git fetch origin` in a terminal does: the remote-tracking
+/// refs move to what the remote has, so the next sync shows a commit someone else pushed. One `fetch`
+///
+/// # Errors
+/// When the repository has no remote of its own, or the fetch fails
+pub fn fetch_in_terminal(repo_path: &Path) -> Result<()> {
+  existing_origin(repo_path)?;
+  run(repo_path, &["fetch", "-q", "origin"])?;
+  Ok(())
+}
+
+/// The pushes of the app the remote of the repository at `repo_path` took, in order, each the branches it moved (by
+/// name without `refs/heads/`) with the commit it moved them to, `None` for a deleted one; a push in a terminal is
+/// not one. Reads [`PUSH_LOG`]
+///
+/// # Errors
+/// When the repository has no remote of its own, or the log has a line that is not `<old> <new> <ref>`
+pub fn remote_pushes(repo_path: &Path) -> Result<Vec<BTreeMap<String, Option<String>>>> {
+  let log = match std::fs::read_to_string(existing_origin(repo_path)?.join(PUSH_LOG)) {
+    Ok(log) => log,
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+    Err(error) => return Err(error.into()),
+  };
+  log
+    .split("\n\n")
+    .filter(|push| !push.trim().is_empty())
+    .map(|push| {
+      push
+        .lines()
+        .filter_map(|line| {
+          let [_, new, name] = line.split(' ').collect::<Vec<_>>()[..] else {
+            return Some(Err(anyhow::anyhow!("an unexpected line of the push log: {line:?}")));
+          };
+          let branch = name.strip_prefix("refs/heads/")?;
+          let moved_to = (new.bytes().any(|byte| byte != b'0')).then(|| new.to_string());
+          Some(Ok((branch.to_string(), moved_to)))
+        })
+        .collect()
+    })
+    .collect()
 }
 
 /// A copy of the commits of `revision` after `base` onto `base`, each with its author, message and tree, committed a day

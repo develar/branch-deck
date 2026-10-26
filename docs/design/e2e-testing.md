@@ -185,23 +185,15 @@ Mock implementation:
   any other value, also one named `response`, is an answer, and a fetch bound any other way fails the scan). A write
   (`MUTATING`: the Patronus, GitHub and YouTrack writes, the sign-ins, the git writes, the app's settings) has no page
   answer: the test server runs it behind the fake of its service and the test asserts the fake's log
-  ([Remote services](#remote-services)); its failure stays `routeCommandError`, the one page answer that is no route
-  count. The page answers of the read commands are pinned per command (`ROUTED_IN_PAGE`, five commands: a refused landing
-  gate, a conflict of the target, the repository config, the status of the agent CLI and the read ahead of a branch
-  review, states that neither the fixtures of the fakes nor the templates make yet; no fact of a session is among them),
-  and the pushes of the specs not yet moved to the remote of the repository
-  (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`/`routeHeldPush`; every other push goes to that remote and the
-  test asserts what it has, [The remote of a repository](#the-remote-of-a-repository)) are the one exception among
-  the writes. Only the remote is faked there: the outcome a push helper answers goes into the session of the repository first, as the end of
-  the app's push writes it into the table (`answeredInSession` posts its remote statuses to `POST
-  /sessions/pushed-in-page`, the server's `TableState::end_push` through `Sessions::apply`; unlike the app's push it
-  moved no remote-tracking ref, so the inputs the session knows stay; one that pushed (no `remoteMoved`) lists the pull
-  requests again as the app's push does, `Sessions::tell_push`), and the answer names the version of that patch,
-  so the rows show the status the push left from the session, with no sync after it (a test that ends before its push is answered closed its pages and deleted its
-  repository: the server answers 410, and the answer, which no page reads, names no version). An answer
+  ([Remote services](#remote-services)); a push goes to the remote of the repository, and the test asserts what that
+  remote has and took ([The remote of a repository](#the-remote-of-a-repository)); its failure stays
+  `routeCommandError`, the one page answer that is no route count. The page answers of the read commands are pinned per
+  command (`ROUTED_IN_PAGE`, five commands: a refused landing gate, a conflict of the target, the repository config, the
+  status of the agent CLI and the read ahead of a branch review, states that neither the fixtures of the fakes nor the
+  templates make yet; no fact of a session is among them). An answer
   counts where it is given: a helper that answers (a declared `function` at the outermost level, exported from
   `helpers/` or a spec's own, through the helpers it calls) counts its answers once per call, not once per definition,
-  so the pinned pushes are the calls of the push helpers. Inside a test the count is of the places that answer, not
+  so the pinned answers are the calls of the helpers. Inside a test the count is of the places that answer, not
   of the runs: a `beforeEach` answers for every test of its describe, a loop or a local arrow function runs its answer
   more often, and the ratchet counts each once, because it pins which commands the page answers and where, not how
   often a run answers them. The places whose count is wrong by construction and whose fix is a declared helper are
@@ -629,11 +621,17 @@ inside `.git`, so a copy of the template has its own and no status shows it), `o
 its `master` (`main` of `archived_branches`) at `origin/master`. The app's push reaches it through the real core
 (`guarded_push` of the bridge: the robots of the fake, the repository lock, `push_refs` with its lease and progress),
 and the fetches of the target conflict check and of Update Project read it; nothing of the page answers a push of a
-spec on it. A test asserts what the remote has, not what the page sent: `GET /repositories/{id}/remote`
-(`repo.getRemoteBranches()`) answers its branches, `expectPushedToRemote(repo, names)` of `push-helpers.ts` waits
-until the remote has each branch at the commit of the local one (a virtual branch by its name, a stack branch as
-`stack:<root>`, `branchOf`), and `pushedBranches(repo)` lists what is there, the anchor of a "nothing was pushed"
-after a step that would have pushed.
+spec on it. A test asserts what the remote has and took, not what the page sent: `GET /repositories/{id}/remote`
+answers its branches (`repo.getRemoteBranches()`) and the pushes of the app it took, in order (`repo.getRemotePushes()`:
+each the branches it moved, to their commits; its `post-receive` hook, which the template writes, logs each push into
+`pushes.log` of the remote, one write per push; a push in a terminal is not one, and a refused push moved nothing).
+`expectPushedToRemote(repo, names)` of `push-helpers.ts` waits until the remote has each branch at the commit of the
+local one (a virtual branch by its name, the stack branch of a whole stack as `stack:<root>`, `stackBranchOf`, an
+unapplied branch as `unapplied:<name>`, `branchOf`), `pushedBranches(repo)` lists what is there, the anchor of a
+"nothing was pushed" after a step that would have pushed, and `remotePushes(repo)` the pushes, each its branches
+sorted: one entry for the one atomic push of a stack, none for a push that found the remote moved, so "pushed once,
+over the tip the sync brought" and "refused whole" are what the remote took. A push of Push Up to Here is the remote
+branch at the commit it was pushed up to.
 
 - **Behind the app's back** (`remote_git_fixtures.rs`): `POST …/remote/push` (`repo.pushInTerminal(branch, {
   revision, earlierBuild })`, `pushedBefore(page, repo, names, { lacking, earlierBuild })` with the sync after it)
@@ -643,7 +641,8 @@ after a step that would have pushed.
   robot or a pull request took before the sync rebuilt the branch). `POST …/remote/commit`
   (`repo.commitOnRemote(branch, { subject, author, timestamp, files })`) writes someone else's commit onto a branch of
   the remote, the remote-tracking ref left where it was: the next push finds the branch moved, with that commit to
-  drop. A robot that ran on what the remote has names its commit (`sourceRevision`, `~1` of its source branch for one
+  drop. `POST …/remote/fetch` (`repo.fetchInTerminal()`) fetches the remote as `git fetch origin` in a terminal does,
+  so the next sync shows that commit on the row, a force push that asks first. A robot that ran on what the remote has names its commit (`sourceRevision`, `~1` of its source branch for one
   the sync rebuilt with a commit more); a fixture known only after a push in a terminal starts the app again
   (`closeSessions`, a reload), so the new session lists the robots and the pull requests anew.
 - **Held and refused**: the held answer `push` (`holdRemotePushes(repo)`: `holdRemoteAnswers({ hold: ["push"] })`,
@@ -661,6 +660,7 @@ after a step that would have pushed.
   [@test] ../../crates/test-server/src/remote_git_fixtures_test.rs (`a_commit_on_the_remote_is_what_the_next_push_finds`)
   [@test] ../../crates/test-utils/src/remote_git_test.rs (`a_template_has_its_own_remote_which_a_terminal_and_someone_else_push_to`)
   [@test] ../../crates/test-utils/src/remote_git_test.rs (`an_earlier_build_is_the_same_commits_under_other_ids`)
+  [@test] ../../crates/test-utils/src/remote_git_test.rs (`the_remote_logs_the_pushes_of_the_app_and_a_fetch_brings_its_commits`)
 
 ## Alternatives Considered
 

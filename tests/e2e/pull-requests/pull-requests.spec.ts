@@ -16,7 +16,7 @@ import {
   reviewer,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
-import { expectPushedToast, pushedToast, routePush, virtualBranch } from "../helpers/push-helpers"
+import { expectPushedToast, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import {
   EARLIER_COMMIT,
   clickStatusChipAfterHover,
@@ -155,7 +155,6 @@ test.describe("Pull request chip", () => {
   })
 
   test("should refresh after a push", async ({ page, repo }) => {
-    await routePush(page, {})
     // GitHub now shows the pushed commit
     await repo.setPullRequests(availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, { ...OUTDATED, headRefOid: "" }))
     const calls = await repo.getPullRequestCalls()
@@ -201,8 +200,7 @@ test.describe("Pull request chip", () => {
     expect(await readClipboard(page)).toBe(CHANGES_REQUESTED.url)
   })
 
-  test("should offer to create the pull request of a branch in the push toast, the branch menu and the preview", async ({ page }) => {
-    const pushes = await routePush(page, {})
+  test("should offer to create the pull request of a branch in the push toast, the branch menu and the preview", async ({ page, repo }) => {
     const texts = await recordCommand(page, "get_new_pull_request")
     const dialog = createPullRequestDialog(page)
     const row = findBranchRow(page, "feature-auth")
@@ -213,7 +211,7 @@ test.describe("Pull request chip", () => {
     await expect(dialog).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(dialog).toHaveCount(0)
-    expect(pushes).toEqual([])
+    expect(await remotePushes(repo)).toEqual([])
 
     // the dialog pushes it on Create: the row offers no push of its own, the menu does; the footer of the preview keeps
     // its push in place, disabled with why
@@ -259,7 +257,6 @@ test.describe("Pull request chip", () => {
   })
 
   test("should create the pull request with the reviewers it searched and the user as its assignee", async ({ page, repo }) => {
-    await routePush(page, {})
     const searches = await recordCommand(page, "search_github_users")
     const creates = await recordCommand(page, "create_pull_request")
 
@@ -311,7 +308,6 @@ test.describe("Pull request chip", () => {
   })
 
   test("should say whom GitHub refused, and keep the dialog when GitHub creates nothing", async ({ page, repo }) => {
-    await routePush(page, {})
     // a branch GitHub doesn't have yet, and a reviewer who is no collaborator
     await repo.setPullRequests({ ...ALL, missingBranches: ["user-name/virtual/feature-auth"], users: [...USERS, { login: "stranger", name: null }] })
     const dialog = await openDialogAfterPush(page)
@@ -341,7 +337,6 @@ test.describe("Pull request chip", () => {
   })
 
   test("should say why it can't create, and offer only Open Pull Request once the branch has one", async ({ page, repo }) => {
-    await routePush(page, {})
     const dialog = await openDialogAfterPush(page)
     const title = dialog.getByTestId("create-pull-request-title")
     await expect(title).toHaveValue(AUTH_TITLE)
@@ -374,7 +369,6 @@ test.describe("Pull request chip", () => {
   })
 
   test("should open the pull request of a pushed branch from the push toast", async ({ page }) => {
-    await routePush(page, {})
     await getPushButton(findBranchRow(page, "JIRA-456")).click()
     const toast = pushedToast(page, "JIRA-456")
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
@@ -407,7 +401,6 @@ test.describe("Pull request chip", () => {
 
 test.describe("Request Review without Patronus", () => {
   test("should ask for a review from the branch menu, the row's ⋯ and the preview, the popover at the row", async ({ page, repo }) => {
-    const pushes = await routePush(page, {})
     const row = findBranchRow(page, "ABC-123")
     const popover = page.getByTestId("request-review-popover")
     // no next step where Patronus doesn't answer; the anchor of the popover takes no room: "⋯" follows the push at its
@@ -435,7 +428,7 @@ test.describe("Request Review without Patronus", () => {
     await popover.getByTestId("request-review-submit").click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #761" })).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 761, "requested_reviewers")).toEqual([{ reviewers: ["carol"] }])
-    expect(pushes.map(push => push.branchName)).toEqual(["ABC-123"])
+    expect(await remotePushes(repo)).toEqual([["ABC-123"]])
     await expect(popover).toHaveCount(0)
 
     // the preview's "⋯": the preview closes, the popover opens at the row
@@ -491,7 +484,6 @@ baseTest.describe("Pull requests without GitHub", () => {
   baseTest("should keep a pushed branch on the way to master while its pull request waits for its author", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("simple", { pullRequests: availablePullRequests(pullRequest("test-branch", 800, { reviewDecision: "changesRequested" })) })
     await syncAndWaitForBranches()
-    await routePush(page, {})
     await getPushButton(findBranchRow(page, "test-branch")).click()
     await expectPushedToast(page, "test-branch")
 

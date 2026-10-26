@@ -412,13 +412,15 @@ branch on GitHub, so the session fetches a branch whose open pull request shows 
 ## Testing / Local Run
 
 - `pnpm test:unit` covers the words and the colours of a push (`src/lib/push-summary.test.ts`).
-- `pnpm e2e` covers the commits of others on a remote branch (`tests/e2e/outgoing/remote-commits.spec.ts`) against a
+- `pnpm e2e` covers the commits of others on a remote branch (`tests/e2e/outgoing/remote-commits.spec.ts`) against
   the remote of the template, where the test writes their commit (`commitOnRemote`): the only kind of repository whose
   moved remotes the server fetches.
-- `pnpm e2e` covers the push (`tests/e2e/outgoing`). The E2E server has no remote:
-  the tests answer `push_branch` in the page (`routePush`) to turn branches into a plain push, a force push, up to
-  date or a remote that moved, and read the `expectedRemote` the pushes sent. A result can send progress to the push's
-  channel and hold the push until the test releases it; the mock passes the channel's key in `X-Progress-Channel`.
+- `pnpm e2e` covers the push (`tests/e2e/outgoing`). A push goes to the remote of the test repository, a bare
+  `.git/upstream.git` ([The remote of a repository](../../docs/design/e2e-testing.md#the-remote-of-a-repository)): a
+  branch pushed before, rebuilt since or moved by someone else is a push or a commit there behind the app's back
+  (`pushedBefore`, `pushInTerminal`, `commitOnRemote`, a fetch with `fetchInTerminal`), and a test asserts what the
+  remote has and the pushes it took (`expectPushedToRemote`, `remotePushes`); a push held at the remote
+  (`holdRemotePushes`) shows the progress git reported.
 - `pnpm test:backend` covers the push against a bare remote (`crates/sync-core/src/push_test.rs`).
 
 ## Open Questions / Risks

@@ -1147,9 +1147,10 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `command_registry_test.rs` (четвёртый источник реестра, `tests/e2e/**/*.ts`): `routeCommand` мутирующей команды —
   ошибка, число `routeCommand` каждой читающей команды закреплено и только падает; `routeCommandError` остаётся путём
   ошибки. Ответом страницы считается и `page.route` на `/invoke/<name>`, который отвечает без `route.fetch()`.
-  Исключение среди записей — push (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`): origin шаблонов — `.`, отказ
-  или сдвиг remote взять неоткуда; его число тоже закреплено и только падает (с s9-1 origin шаблонов — bare
-  `.git/upstream.git`, Safe Push-спеки утверждают его, `PUSHES_IN_PAGE` 53/53; s9-2 доводит до 0). R12 (переизобретения в test-server)
+  Push был исключением среди записей (`PUSHES_IN_PAGE`, `routePush`/`routePushBranches`): origin шаблонов был `.`,
+  отказ или сдвиг remote взять было неоткуда. С s9-1 origin шаблонов — bare `.git/upstream.git`; с s9-2 каждый push
+  e2e идёт в него через ядро сервера, `PUSHES_IN_PAGE` и `POST /sessions/pushed-in-page` удалены, push — обычная запись
+  `MUTATING`, а спеки утверждают refs remote и журнал принятых им push (`remotePushes`). R12 (переизобретения в test-server)
   удаляется из реестра расхождений.
 - **Модель размещения (уточнено по коду при планировании):**
   - fakes — по одному на `TestRepository`, лениво, каждый на своём loopback-порту через общий
@@ -1683,7 +1684,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
     страница ждёт патч этой версии (`whenSessionViewAt`). Push, который только ждёт sync, — не «идёт»: статус sync к
     нему применяется, и он пушит поверх него. `setBranchRemoteStatus`, `setStackBranchRemoteStatus`, `isBranchSending`
     и `setBranchPushWaiting` удалены; `pushingBranches`/`stackPushes` — состояние спиннера по пути репозитория до s9.
-    Push, на который в e2e отвечает страница (`routePush`), отдаёт исход сессии через `POST /sessions/pushed-in-page`.
+    Push, на который в e2e отвечает страница (`routePush`), отдаёт исход сессии через `POST /sessions/pushed-in-page`
+    (удалён в s9-2: каждый push e2e идёт в remote репозитория).
     C4 (фокус после своего push — 0 sync) s6-6 не делает: отпечаток входов (`sync_inputs_fingerprint`) включает
     remote-ветки префикса, и свой push их двигает; путь — отпечаток по частям (хэш остального и remote-ветки префикса
     списком), в котором сессия заменяет то, что записал её push, без процесса git.
@@ -1789,8 +1791,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `facts.rs`; первый факт `FactStore` — таблица последнего успешного sync с `ContentMemo` (`Sessions::table`,
     `SessionHost::run` отвечает `SyncedTable`). C4 сделан: `read_sync_inputs` отвечает `SyncInputs { rest,
     remote_refs }`, конец push кладёт `refs/remotes/origin/<имя>` в известные входы (`SyncScheduler::pushed`, и в то,
-    что прочли идущие проверка или запуск); push, на который ответила страница e2e (`pushed-in-page`), пишет только
-    таблицу. s7-2b: `Clock::until -> Wait { Elapsed | Wall | Signal(TestWait) }` (std `Waker`, без tokio),
+    что прочли идущие проверка или запуск); push, на который ответила страница e2e (`pushed-in-page`, до s9-2),
+    писал только таблицу. s7-2b: `Clock::until -> Wait { Elapsed | Wall | Signal(TestWait) }` (std `Waker`, без tokio),
     `repository_model::runtime::sleep_until`; `Demand` (+`needed`: нужное сейчас — поповер Safe Push, диалог PR, раньше
     показанного) приходит `set_demand { subscription, demand }`: сессия держит demand каждой подписки (окна) и
     спрашивает по их объединению, demand уходит с подпиской; фокус фактов — из demand, `Message::Focus` и поле
@@ -2153,8 +2155,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
   **Порядок приземления (уточнено при планировании, 2026-10-26):** (0) до движка — реальный remote в e2e: origin
   шаблонов становится bare `.git/upstream.git` (как у `behind_upstream`), fixture-маршруты держат push в pre-receive
   hook у gate fake-remote хоста (held answer `push`), отказывают ему или сдвигают remote-ветку, спеки утверждают refs
-  remote и журналы fakes вместо ответа страницы (s9-1: Safe Push-спеки, `PUSHES_IN_PAGE` 53/53; s9-2: остальные);
-  `PUSHES_IN_PAGE` падает до 0 и `pushed_in_page` удаляется — иначе push внутри `execute(Land)` в e2e ответить нечем.
+  remote и журналы fakes вместо ответа страницы (s9-1: Safe Push-спеки, `PUSHES_IN_PAGE` 53/53; s9-2: остальные, с
+  журналом принятых remote push — `post-receive` hook, `remotePushes`, — и `fetchInTerminal`); `PUSHES_IN_PAGE` и
+  `pushed_in_page` удалены в s9-2 — иначе push внутри `execute(Land)` в e2e ответить было бы нечем.
   Ядро push (`push_guarded` + `push_locked` → `operations::push`: допуск по ref, lock на проверки и заморозку, сеть
   после unlock) извлекается **до** `Land`, потому что `Land` пушит внутри плана; тела `push_branch(es)` и `bd push`
   зовут его сразу, а сами IPC push уходят последними, как в (4). `Land` приземляется двумя коммитами: движок
@@ -2256,7 +2259,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   замере Mac Studio (≤ 365 мс при 522 мс).
 - **Критерий выхода:** ни одна мутирующая remote-команда недостижима мимо `execute` (scan-тест: записи Patronus, GitHub,
   YouTrack и `push_leased` зовутся только из `crates/operations`); `PAGE_MOCKED` для этого семейства 0 и `PUSHES_IN_PAGE`
-  0 (push в e2e доходит до bare origin тест-сервера); B4 достигнут или его разрыв назван с владельцем следующего этапа.
+  0 (push в e2e доходит до bare origin тест-сервера; сделано в s9-2, список удалён); B4 достигнут или его разрыв назван с владельцем следующего этапа.
 
 ### s10-registry-journal
 

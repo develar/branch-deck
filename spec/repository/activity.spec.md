@@ -261,8 +261,8 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 
 - `pnpm test:unit`: `src/stores/activity.test.ts`, `src/lib/activity-window.test.ts` (the chips and the search),
   `src/lib/push-summary.test.ts` (the words of a push).
-- `pnpm e2e`: `tests/e2e/activity/activity.spec.ts` with the templates `issue_links` (pushes through `routePush`, a
-  squash), `simple` (a second repository), `behind_upstream`, `update_conflict` and `landed_upstream`. The window is a
+- `pnpm e2e`: `tests/e2e/activity/activity.spec.ts` with the templates `issue_links` (pushes to the remote of the repository,
+  a force push over someone else's commit there, a squash), `simple` (a second repository), `behind_upstream`, `update_conflict` and `landed_upstream`. The window is a
   linked page of its own (`openActivityWindow` of `tests/e2e/helpers/activity-helpers.ts`, `openLinkedSubWindow`), opened
   by Open in Window of the side panel unless a test opens it otherwise. Test ids: `activity-button`, `activity-panel`,
   `activity-panel-window`, `activity-panel-close`, `activity-window`, `activity-filter`, `activity-list`, `activity-empty`,

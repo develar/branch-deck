@@ -95,7 +95,7 @@ impl SyncOverrides {
 
 /// A remote status as a test writes it, its counts without the `action`, which the server derives from them as the app's
 /// sync does (`domain_policy::push::action`): a test states what the remote has, never the rule's answer
-pub fn test_remote_status(mut json: Value) -> anyhow::Result<RemoteStatusUpdate> {
+fn test_remote_status(mut json: Value) -> anyhow::Result<RemoteStatusUpdate> {
   let object = json.as_object_mut().ok_or_else(|| anyhow::anyhow!("A remote status is no JSON object"))?;
   object.insert("action".to_string(), serde_json::to_value(PushAction::UpToDate)?);
   let mut status: RemoteStatusUpdate = serde_json::from_value(json)?;

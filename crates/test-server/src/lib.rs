@@ -218,6 +218,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/remote", get(remote_git_fixtures::get_remote))
     .route("/repositories/{id}/remote/push", post(remote_git_fixtures::push_in_terminal_route))
     .route("/repositories/{id}/remote/commit", post(remote_git_fixtures::commit_on_remote_route))
+    .route("/repositories/{id}/remote/fetch", post(remote_git_fixtures::fetch_in_terminal_route))
     .route("/repositories/{id}/remote/refusal", post(remote_git_fixtures::set_remote_refusal))
     .route("/repositories/{id}/github-answer", post(review_fixtures::set_github_answer))
     .route("/repositories/{id}/update", post(updater::set_update))
@@ -226,7 +227,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
     )
     .route("/repositories/{id}/sessions/close", post(session_routes::close_sessions))
-    .route("/sessions/pushed-in-page", post(session_routes::pushed_in_page))
     .route("/repositories/{id}/clock/advance", post(session_routes::advance_clock))
     // Store endpoints
     .route("/store/{repo_id}", get(get_store_snapshot))

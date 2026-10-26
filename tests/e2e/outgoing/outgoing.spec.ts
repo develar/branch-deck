@@ -1,28 +1,20 @@
 // @spec spec/repository/outgoing.spec.md
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getPushButton } from "../helpers/branch-helpers"
-import type { DroppedCommit } from "../helpers/push-helpers"
-import { confirmForcePush, expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, expectPushedToast, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { syncFromMenu } from "../helpers/sync-helpers"
+import type { RemoteCommit } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
-import { holdCommand } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
 
 test.describe("Push progress", () => {
-  test("should show the percent on the push button and git's last line on hover while the push runs", async ({ page }) => {
-    let release!: () => void
-    await routePush(page, {
-      "JIRA-456": {
-        progress: [
-          { percent: 15, transferred: null, speed: null, line: "Compressing objects: 100% (3/3), done." },
-          { percent: 55, transferred: "1.23 MiB", speed: "2.40 MiB/s", line: "Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s" },
-        ],
-        release: new Promise(resolve => (release = resolve)),
-      },
-    })
+  test("should show the percent on the push button and git's last line on hover while the push runs", async ({ page, issueLinksRepo }) => {
+    // the push waits at the remote, which has its pack: the progress is git's
+    const held = await holdRemotePushes(issueLinksRepo)
     const row = findBranchRow(page, "JIRA-456")
     const button = getPushButton(row)
     // the row shows the count, the label is its name and leads its description
@@ -34,18 +26,18 @@ test.describe("Push progress", () => {
     // read, then pushed: the click, later than half a second after the hover opened, leaves it open with the progress
     await page.clock.fastForward(1000)
     await button.click()
-    await expect(button).toHaveText("55%")
-    await expect(button).toHaveAccessibleName("Pushing 55%")
+    await held.arrived()
+    await expect(button).toHaveText(/^\d+%$/)
+    await expect(button).toHaveAccessibleName(/^Pushing \d+%$/)
     await expect(button).toHaveAttribute("aria-busy", "true")
     // the pointer stays on the button after the click: its popover is open
     await expect(page.getByTestId("push-description")).toHaveAttribute("data-open", "")
-    const progress = page.getByTestId("push-progress")
-    await expect(progress).toContainText("Writing objects:  50% (2/4), 1.23 MiB | 2.40 MiB/s")
-    // git's line says the amount already: no second line repeats it
-    await expect(progress).not.toContainText("1.23 MiB · 2.40 MiB/s")
+    // git's last line says the amount and the rate already: no second line repeats them
+    await expect(page.getByTestId("push-progress")).toHaveText(/^Writing objects: 100% \(\d+\/\d+\), [^|]+ \| [^|]+\/s, done\.$/)
 
-    release()
+    await held.release()
     await expectPushedToast(page, "JIRA-456")
+    await expectPushedToRemote(issueLinksRepo, ["JIRA-456"])
     // done: the button gives way to its empty place, the status says the branch is up to date; the focus it had goes to
     // the row, which keeps its keys
     await expectNothingToPush(row)
@@ -53,22 +45,19 @@ test.describe("Push progress", () => {
   })
 })
 
-/** A commit someone else pushed to the remote branch, three hours before the fixed clock of the page */
-function theirCommit(id: string, subject: string, author: string): DroppedCommit {
-  return { id, subject, author, authorEmail: `${author.toLowerCase()}@example.com`, authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }
+/** A commit someone else pushed to the remote branch, three hours before the fixed clock of the page, writing `file` */
+function theirCommit(subject: string, author: string, file: string): RemoteCommit {
+  return { subject, author: `${author} <${author.toLowerCase()}@example.com>`, timestamp: Date.parse("2024-01-02T07:00:00Z") / 1000, files: { [file]: `${subject}\n` } }
 }
 
 test.describe("Force push", () => {
-  test("should force push a branch the remote has commits for, leased on the remote head the row shows", async ({ page }) => {
-    const requests = await routePush(page, {
-      "ABC-123": [
-        // someone else pushed a commit the branch lacks
-        { unpushedCommits: ["a1"], commitsBehind: 1, remoteTip: "remote-head-1", droppedCommits: [theirCommit("c0ffee0123456789", "Fix login", "Ann")] },
-        {},
-      ],
-    })
+  test("should force push a branch the remote has commits for, leased on the remote head the row shows", async ({ page, issueLinksRepo }) => {
+    // ABC-123 was pushed without its newest commit, then someone else pushed a commit it lacks, which a fetch brought
+    await issueLinksRepo.pushInTerminal(virtualBranch("ABC-123"), { revision: `${virtualBranch("ABC-123")}~1` })
+    const theirs = await issueLinksRepo.commitOnRemote(virtualBranch("ABC-123"), theirCommit("Fix login", "Ann", "login.txt"))
+    await issueLinksRepo.fetchInTerminal()
+    await syncFromMenu(page)
     const row = findBranchRow(page, "ABC-123")
-    await getPushButton(row).click()
     const forcePush = row.getByRole("button", { name: "Force Push (1)" })
     await expect(forcePush).toBeEnabled()
     // the description says what the force push does, then lists what it drops
@@ -76,39 +65,39 @@ test.describe("Force push", () => {
     await expect(page.getByText("Force push replaces the remote branch. 1 commit to push. The remote has 1 commit your branch doesn't (by Ann).")).toBeVisible()
     const dropped = page.getByTestId("dropped-commits")
     await expect(dropped).toContainText("Fix login")
-    await expect(dropped).toContainText("Ann · c0ffee01 · 3 hours ago")
+    await expect(dropped).toContainText(`Ann · ${theirs.slice(0, 8)} · 3 hours ago`)
     // only the hover: no confirm before the click
     await expect(page.getByTestId("push-confirm")).toHaveCount(0)
 
     // it drops Ann's commit: the click asks first, the Force Push in the description pushes
     await forcePush.click()
     await expect(forcePush).toHaveAttribute("aria-expanded", "true")
-    expect(requests).toHaveLength(1)
+    expect(await remotePushes(issueLinksRepo)).toEqual([])
     await confirmForcePush(page, "Force Push (1)")
 
-    await expect.poll(() => requests.map(request => request.expectedRemote)).toEqual([null, "remote-head-1"])
+    // one push, leased on the remote head the row shows: the remote took it over Ann's commit
+    await expectPushedToRemote(issueLinksRepo, ["ABC-123"])
+    expect(await remotePushes(issueLinksRepo)).toEqual([["ABC-123"]])
     await expectNothingToPush(row)
   })
 
-  test("should show what the remote has when it moved since the status, and force push over it from the toast", async ({ page }) => {
-    const requests = await routePush(page, {
-      "JIRA-456": [
-        {
-          outcome: "remoteMoved",
-          unpushedCommits: ["j1", "j2", "j3"],
-          commitsBehind: 3,
-          remoteTip: "moved-head",
-          droppedCommits: [theirCommit("aaaa000011112222", "Fix A", "Ann"), theirCommit("bbbb000011112222", "Fix B", "Bob"), theirCommit("cccc000011112222", "Fix C", "Ann")],
-        },
-        {},
-      ],
-    })
+  test("should show what the remote has when it moved since the status, and force push over it from the toast", async ({ page, issueLinksRepo }) => {
+    // the remote branch of JIRA-456 has none of its commits; three commits of others came onto it since the sync
+    await pushedBefore(page, issueLinksRepo, ["JIRA-456"], { lacking: 3 })
+    for (const [subject, author] of [
+      ["Fix A", "Ann"],
+      ["Fix B", "Bob"],
+      ["Fix C", "Ann"],
+    ] as const) {
+      await issueLinksRepo.commitOnRemote(virtualBranch("JIRA-456"), theirCommit(subject, author, `${subject}.txt`))
+    }
     const row = findBranchRow(page, "JIRA-456")
     await getPushButton(row).click()
 
     const toast = page.locator("[data-slot=toast]", { hasText: "JIRA-456 changed on the remote" })
     await expect(toast).toContainText("3 commits you don't have (by Ann and Bob). Nothing was pushed.")
     await expect(pushedToast(page, "JIRA-456")).toHaveCount(0)
+    expect(await remotePushes(issueLinksRepo)).toEqual([])
     // the row shows the fetched remote: a force push that drops the 3 commits
     await expect(row.getByRole("button", { name: "Force Push (3)" })).toBeEnabled()
     await expect(row).toContainText("3↓")
@@ -116,33 +105,32 @@ test.describe("Force push", () => {
     // the push drops the 3 commits: the toast opens the confirm of the row's push button
     await toast.getByRole("button", { name: "Force Push" }).click()
     await expect(toast).toHaveCount(0)
-    expect(requests).toHaveLength(1)
+    expect(await remotePushes(issueLinksRepo)).toEqual([])
     await confirmForcePush(page, "Force Push (3)")
 
     await expectPushedToast(page, "JIRA-456")
-    expect(requests.map(request => request.expectedRemote)).toEqual([null, "moved-head"])
+    // leased on what the fetch brought: the remote took it over the 3 commits
+    await expectPushedToRemote(issueLinksRepo, ["JIRA-456"])
+    expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
   })
 
-  test("should push a rebased branch at once: its force push drops nothing", async ({ page }) => {
-    const requests = await routePush(page, {
-      // the remote has the commits as they were before the rebase onto a newer baseline
-      "ABC-123": [{ unpushedCommits: ["a1"], fastForward: false }, {}],
-    })
+  test("should push a rebased branch at once: its force push drops nothing", async ({ page, issueLinksRepo }) => {
+    // the remote has the commits of ABC-123 but its newest as an earlier build: the sync rebuilt them since
+    await pushedBefore(page, issueLinksRepo, ["ABC-123"], { lacking: 1, earlierBuild: true })
     const row = findBranchRow(page, "ABC-123")
-    await getPushButton(row).click()
     const forcePush = row.getByRole("button", { name: "Force Push (1)" })
     await expect(forcePush).toBeEnabled()
 
     await forcePush.click()
 
-    await expect.poll(() => requests).toHaveLength(2)
+    await expectPushedToRemote(issueLinksRepo, ["ABC-123"])
+    expect(await remotePushes(issueLinksRepo)).toEqual([["ABC-123"]])
     await expect(page.getByTestId("push-confirm")).toHaveCount(0)
   })
 })
 
 test.describe("Push toast", () => {
   test("should tell a later push of the branch in the toast of the first, in place: one toast per branch", async ({ page, issueLinksRepo }) => {
-    // the pushes go to the remote of the template, the repository itself: no answer in the page
     const row = findBranchRow(page, "JIRA-456")
     await getPushButton(row).click()
     const toast = await holdToast(pushedToast(page, "JIRA-456"))
@@ -199,10 +187,10 @@ test.describe("Push button", () => {
   })
 
   test("should push a branch pressed during a sync once, over the remote tip the sync brought, the row as it was meanwhile", async ({ page, issueLinksRepo }) => {
-    const pushes = await routePush(page, {})
+    const pushes = await recordCommand(page, "push_branch")
     const releaseSync = await holdCommand(page, "sync")
-    // the fetch of the sync finds the remote branch of JIRA-456 moved: another machine pushed an ancestor of it
-    await issueLinksRepo.setSyncOverrides({ remote: { "JIRA-456": { remoteExists: true, remoteTip: "moved-tip", keepUnpushed: 3 } } })
+    // another machine pushed an ancestor of JIRA-456, which the next sync finds on the remote
+    const movedTip = await issueLinksRepo.pushInTerminal(virtualBranch("JIRA-456"), { revision: `${virtualBranch("JIRA-456")}~3` })
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
     const row = findBranchRow(page, "JIRA-456")
@@ -217,7 +205,8 @@ test.describe("Push button", () => {
     releaseSync()
     await expectPushedToast(page, "JIRA-456")
     // one push, leased on the tip the sync brought: never a refused push over the old one, then a second
-    expect(pushes).toEqual([expect.objectContaining({ branchName: "JIRA-456", expectedRemote: "moved-tip" })])
+    expect(pushes).toEqual([expect.objectContaining({ branchName: "JIRA-456", expectedRemote: movedTip })])
+    expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
     // the row has the status the push left from the session, with no sync after it
     await expectNothingToPush(row)
   })
@@ -247,7 +236,6 @@ test.describe("Push button", () => {
   })
 
   test("should describe a disabled push on hover", async ({ page }) => {
-    await routePush(page, {})
     const row = findBranchRow(page, "JIRA-456")
     await getPushButton(row).click()
     await expectPushedToast(page, "JIRA-456")

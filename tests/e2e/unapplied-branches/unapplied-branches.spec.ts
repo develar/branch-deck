@@ -1,16 +1,30 @@
 // @spec spec/branch/unapply.spec.md
 import type { Locator, Page } from "@playwright/test"
-import { test, expect } from "../fixtures/test-fixtures"
+import { test as base, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-form-helpers"
-import { routePushBranches } from "../helpers/push-helpers"
+import { branchOf, expectPushedToRemote, remotePushes } from "../helpers/push-helpers"
 import { finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import { recordCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own,
 // each with a file of its own
 const BRANCH_COUNT = 11
+
+/** Every test starts on the synced `branch_filter` repository, `repo` */
+const test = base.extend<{ repo: TestRepositoryBuilder }>({
+  repo: [
+    async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
+      const repo = await setupRepo("branch_filter")
+      await syncAndWaitForBranches()
+      await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
+      await use(repo)
+    },
+    { auto: true },
+  ],
+})
 
 function toast(page: Page, title: string): Locator {
   return page.locator("[data-slot=toast]").filter({ hasText: title })
@@ -45,12 +59,6 @@ async function unapplyFromMenu(page: Page, name: string): Promise<void> {
 }
 
 test.describe("Unapplied branches", () => {
-  test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("branch_filter")
-    await syncAndWaitForBranches()
-    await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
-  })
-
   test("should unapply a branch from its menus: its commits and their files leave HEAD, the branch is kept", async ({ page }) => {
     // the right-click menu, confirmed with Enter
     await openUnapply(page, () => findBranchRow(page, "docs").click({ button: "right" }))
@@ -120,8 +128,7 @@ test.describe("Unapplied branches", () => {
     await expect(page.locator("[data-slot=popover-title]")).toHaveText("Unapplied")
   })
 
-  test("should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why", async ({ page }) => {
-    const { stackPushes } = await routePushBranches(page)
+  test("should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why", async ({ page, repo }) => {
     await unapplyFromMenu(page, "docs")
     const row = unappliedRow(page, "docs")
     await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Not pushed")
@@ -136,25 +143,27 @@ test.describe("Unapplied branches", () => {
     await expect(page.getByRole("tooltip")).toHaveText("Not in master: Reapply it to land it")
     await page.getByRole("menuitem", { name: "Push", exact: true }).click()
     await expect(toast(page, "Pushed docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
-    expect(stackPushes).toEqual([[{ branchName: "docs", expectedRemote: null, unapplied: true }]])
+    await expectPushedToRemote(repo, ["unapplied:docs"])
+    expect(await remotePushes(repo)).toEqual([["unapplied:docs"]])
     // the session shows the status the push left: no sync runs for it
     await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Pushed")
     expect(syncs).toEqual([])
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
 
-    // the "⋯" menu: the remote has it as it is, so its Push is disabled until a sync finds otherwise (the template has
-    // no remote: the next sync says it is not pushed)
+    // the "⋯" menu: the remote has it as it is, so its Push is disabled until a sync finds otherwise
     await row.hover()
     await row.getByRole("button", { name: "More actions for docs" }).click()
     await expect(page.getByRole("menuitem", { name: "Push", exact: true })).toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
+    // its remote branch set back to master in a terminal: the next sync finds its commit to push
+    await repo.pushInTerminal(branchOf("unapplied:docs"), { revision: "origin/master" })
     await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
-    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Not pushed")
+    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("1 commit to push")
     await row.hover()
     await row.getByRole("button", { name: "More actions for docs" }).click()
     await page.getByRole("menuitem", { name: "Push", exact: true }).click()
-    await expect.poll(() => stackPushes.length).toBe(2)
-    expect(stackPushes[1]).toEqual([{ branchName: "docs", expectedRemote: null, unapplied: true }])
+    await expect.poll(() => remotePushes(repo)).toEqual([["unapplied:docs"], ["unapplied:docs"]])
+    await expectPushedToRemote(repo, ["unapplied:docs"])
   })
 
   test("should delete an unapplied branch after its name is typed, with no sync after it", async ({ page }) => {

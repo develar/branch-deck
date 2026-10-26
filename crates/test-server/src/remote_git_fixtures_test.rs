@@ -16,8 +16,12 @@ fn push_of(path: &str, expected: Option<&str>) -> Value {
 }
 
 async fn remote_branches(client: &reqwest::Client, addr: SocketAddr, id: &str) -> Value {
-  let remote: Value = client.get(format!("http://{addr}/repositories/{id}/remote")).send().await.unwrap().json().await.unwrap();
-  remote["branches"].clone()
+  remote(client, addr, id).await["branches"].clone()
+}
+
+/// What `GET /repositories/{id}/remote` answers: the branches of the remote and the pushes it took from the app
+async fn remote(client: &reqwest::Client, addr: SocketAddr, id: &str) -> Value {
+  client.get(format!("http://{addr}/repositories/{id}/remote")).send().await.unwrap().json().await.unwrap()
 }
 
 async fn revision(client: &reqwest::Client, addr: SocketAddr, id: &str, name: &str) -> String {
@@ -50,7 +54,10 @@ async fn a_push_of_the_app_reaches_the_remote_of_the_template() {
     (json!("pushed"), json!(tip)),
     "{pushed}"
   );
-  assert_eq!(remote_branches(&client, addr, &id).await, json!({ "master": baseline, BRANCH: tip }));
+  assert_eq!(
+    remote(&client, addr, &id).await,
+    json!({ "branches": { "master": baseline, BRANCH: tip }, "pushes": [{ BRANCH: tip }] })
+  );
   assert_eq!(revision(&client, addr, &id, &format!("origin/{BRANCH}")).await, tip);
 }
 
@@ -93,8 +100,9 @@ async fn a_refused_push_moves_nothing_and_a_held_one_waits_at_the_remote() {
 }
 
 /// Someone else's commit on the remote branch moves only the remote: the next push of the app finds it moved, with the
-/// commit it would drop; a push in a terminal moves the remote branch and the remote-tracking ref, and an earlier build
-/// of the same commits leaves nothing to push
+/// commit it would drop, or a fetch in a terminal brings it; a push in a terminal moves the remote branch and the
+/// remote-tracking ref, and an earlier build of the same commits leaves nothing to push. The remote logs only the
+/// push of the app it took
 #[tokio::test]
 async fn a_commit_on_the_remote_is_what_the_next_push_finds() {
   let (addr, _) = start_test_server_with_state().await;
@@ -105,7 +113,7 @@ async fn a_commit_on_the_remote_is_what_the_next_push_finds() {
   let tip = revision(&client, addr, &id, BRANCH).await;
 
   let commit = json!({ "branch": BRANCH, "subject": "Fix the pool", "author": "Ann <ann@example.com>", "timestamp": 1_704_178_800, "files": [["pool.txt", "pool\n"]] });
-  let theirs = post(&client, addr, &format!("/repositories/{id}/remote/commit"), commit).await["commitId"].clone();
+  let theirs = post(&client, addr, &format!("/repositories/{id}/remote/commit"), commit.clone()).await["commitId"].clone();
   assert_eq!(remote_branches(&client, addr, &id).await[BRANCH], theirs);
   assert_eq!(revision(&client, addr, &id, &format!("origin/{BRANCH}")).await, tip, "no fetch yet");
 
@@ -140,4 +148,9 @@ async fn a_commit_on_the_remote_is_what_the_next_push_finds() {
   let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
   let status = &view["branches"]["test-branch"]["remote"]["status"];
   assert_eq!((status["remoteTip"].clone(), status["unpushedCommits"].clone()), (json!(earlier), json!([])), "{status}");
+
+  let theirs = post(&client, addr, &format!("/repositories/{id}/remote/commit"), commit).await["commitId"].clone();
+  post(&client, addr, &format!("/repositories/{id}/remote/fetch"), json!({})).await;
+  assert_eq!(json!(revision(&client, addr, &id, &format!("origin/{BRANCH}")).await), theirs);
+  assert_eq!(remote(&client, addr, &id).await["pushes"], json!([{ BRANCH: tip }]));
 }

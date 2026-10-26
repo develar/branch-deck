@@ -4,9 +4,9 @@
 //! server, and a command without a route answers 405, which fails the test ("Unimplemented Tauri command"). So every
 //! command either has a route or is named in [`PAGE_MOCKED`] with the reason it never reaches Rust in an E2E test.
 //! A fourth source, the E2E tests (`tests/e2e/**/*.ts`), is held by a ratchet: a test answers a command in the page
-//! only where [`ROUTED_IN_PAGE`] or [`PUSHES_IN_PAGE`] pin it, never a write of [`MUTATING`]. An answer counts where
-//! it is given: a helper that answers (`routePush`, `routeReviewRequirement`, a spec's own function) counts once per
-//! call, not once per definition. The sources are read as text, as the git scan tests read theirs
+//! only where [`ROUTED_IN_PAGE`] pins it, never a write of [`MUTATING`] (a push included: it goes to the remote of the
+//! repository, `remote_git_fixtures`). An answer counts where it is given: a helper that answers
+//! (`routeReviewRequirement`, a spec's own function) counts once per call, not once per definition. The sources are read as text, as the git scan tests read theirs
 //! (`source_scan_test.rs` of git-executor).
 
 use std::collections::BTreeSet;
@@ -121,12 +121,6 @@ const ROUTED_IN_PAGE: &[(&str, usize)] = &[
   ("get_repository_config", 3),
   ("prefetch_branch_review", 1),
 ];
-
-/// The pushes that E2E tests still answer in the page, counted per call of `routePush`, `routePushBranches` and
-/// `routeHeldPush` of push-helpers.ts (each answers both commands): the specs not yet moved to the remote of the
-/// repository, which the pushes of every other spec reach and assert (`remote_git_fixtures`,
-/// docs/design/e2e-testing.md#the-remote-of-a-repository). The one exception to [`MUTATING`]; the numbers only go down
-const PUSHES_IN_PAGE: &[(&str, usize)] = &[("push_branch", 53), ("push_branches", 53)];
 
 fn read_workspace_file(path: &str) -> String {
   let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(path);
@@ -965,11 +959,7 @@ fn page_answers() -> std::collections::BTreeMap<String, usize> {
 #[test]
 fn no_e2e_test_answers_a_write_in_the_page() {
   let answers = page_answers();
-  let pushes: BTreeSet<&str> = PUSHES_IN_PAGE.iter().map(|(name, _)| *name).collect();
-  let written: Vec<(&String, &usize)> = answers
-    .iter()
-    .filter(|(name, _)| MUTATING.contains(&name.as_str()) && !pushes.contains(name.as_str()))
-    .collect();
+  let written: Vec<(&String, &usize)> = answers.iter().filter(|(name, _)| MUTATING.contains(&name.as_str())).collect();
   assert!(
     written.is_empty(),
     "E2E tests answer these writes in the page: {written:?}; let the test server run them behind the fake of their service and assert the fake's log (a failure is `routeCommandError`)"
@@ -978,14 +968,11 @@ fn no_e2e_test_answers_a_write_in_the_page() {
 
 #[test]
 fn the_page_answers_of_the_e2e_tests_are_pinned() {
-  let pinned: std::collections::BTreeMap<String, usize> = ROUTED_IN_PAGE.iter().chain(PUSHES_IN_PAGE).map(|(name, count)| ((*name).to_owned(), *count)).collect();
-  let answers: std::collections::BTreeMap<String, usize> = page_answers()
-    .into_iter()
-    .filter(|(name, _)| !MUTATING.contains(&name.as_str()) || pinned.contains_key(name))
-    .collect();
+  let pinned: std::collections::BTreeMap<String, usize> = ROUTED_IN_PAGE.iter().map(|(name, count)| ((*name).to_owned(), *count)).collect();
+  let answers: std::collections::BTreeMap<String, usize> = page_answers().into_iter().filter(|(name, _)| !MUTATING.contains(&name.as_str())).collect();
   assert_eq!(
     answers, pinned,
-    "the commands that E2E tests answer in the page (routeCommand, a fulfilling page.route of /invoke/): a new answer comes from a fixture of the fake instead; for a removed one, lower its number in ROUTED_IN_PAGE or PUSHES_IN_PAGE"
+    "the commands that E2E tests answer in the page (routeCommand, a fulfilling page.route of /invoke/): a new answer comes from a fixture of the fake instead; for a removed one, lower its number in ROUTED_IN_PAGE"
   );
 }
 
@@ -994,14 +981,11 @@ fn the_ratchet_names_commands_of_the_app() {
   let commands: BTreeSet<String> = app_commands().into_iter().collect();
   let mutating: BTreeSet<&str> = MUTATING.iter().copied().collect();
   assert_eq!(mutating.len(), MUTATING.len(), "MUTATING names a command twice");
-  for name in MUTATING.iter().chain(ROUTED_IN_PAGE.iter().chain(PUSHES_IN_PAGE).map(|(name, _)| name)) {
+  for name in MUTATING.iter().chain(ROUTED_IN_PAGE.iter().map(|(name, _)| name)) {
     assert!(commands.contains(*name), "the ratchet names `{name}`, which collect_commands! does not have");
   }
   for (name, _) in ROUTED_IN_PAGE {
     assert!(!mutating.contains(name), "`{name}` writes: it cannot be pinned in ROUTED_IN_PAGE");
-  }
-  for (name, _) in PUSHES_IN_PAGE {
-    assert!(mutating.contains(name), "PUSHES_IN_PAGE names `{name}`, which MUTATING does not: pin it in ROUTED_IN_PAGE");
   }
 }
 

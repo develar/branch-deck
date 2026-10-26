@@ -175,7 +175,7 @@ impl RemoteHost {
       ..RepositoryState::default()
     });
     // GitHub has the branches of the repository itself, not only those a push gave its remote (`.git/upstream.git`): a
-    // pull request of a branch whose push a spec answers in the page still finds its head
+    // pull request a test sets on a branch it never pushed finds its head (an empty `headRefOid`) at the local tip
     let (git_of_tip, path_of_tip) = (git.clone(), repository_path.to_string());
     repository.set_branch_tip(Box::new(move |branch| {
       resolve_commit(&git_of_tip, &path_of_tip, &format!("refs/heads/{branch}")).ok().flatten()

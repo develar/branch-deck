@@ -161,7 +161,8 @@ that stops matching while the user looks at it (its move made, its robot done) s
   `src/stores/branch-table-rows.test.ts`.
 - `pnpm e2e tests/e2e/branch-filter`: the `branch_filter` template (eleven branches: the stack `core` → `api` → `web`
   with `cli` forked off `core`, issue branches, `search` of IJPL-200, and "the API" in the subject of `docs`); robots
-  through the `patronus` option of `setupRepo`, pushes through `routePush`. The counts are checked against the nodes of
+  through the `patronus` option of `setupRepo`, pushes to the remote of the repository (`remotePushes`, a push held
+  there with `holdRemotePushes`). The counts are checked against the nodes of
   the rows (`lane-node`, `data-kind`), which follow the same rule.
 
 ## Open Questions / Risks

@@ -270,6 +270,20 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * The pushes of the app the remote took, in order (its `post-receive` hook logs each): the branches each moved, by
+   * name without `refs/heads/`, to their commits, null for a deleted one. A push in a terminal is not one, and a
+   * refused push moved nothing
+   */
+  async getRemotePushes(): Promise<Record<string, string | null>[]> {
+    return (await this.getFixture<{ pushes: Record<string, string | null>[] }>("remote")).pushes
+  }
+
+  /** Fetches the remote as `git fetch origin` in a terminal does: the remote-tracking refs move to what it has */
+  async fetchInTerminal(): Promise<void> {
+    await this.setFixture("remote/fetch", {})
+  }
+
+  /**
    * Pushes `revision` (a ref or a commit of the repository, `branch` by default) to `branch` of the remote behind the
    * app's back, as `git push --force origin <revision>:<branch>` in a terminal: the remote branch and the
    * remote-tracking ref move, so the next sync shows the branch pushed. With `earlierBuild`, a copy of the commits of

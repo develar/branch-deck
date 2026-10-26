@@ -203,7 +203,7 @@ export const tauriMockScript = () => {
     const actualPayload = payload?.params || payload
     // a progress channel (`push_branch`, `update_project`, the `wait` of a rewrite, the `patches` of `subscribe_view`)
     // stays in the page: the server sends its messages as SSE events before the answer (`channel_commands.rs`), a test
-    // route by its key (`window.__progressChannels`, see `routePush`)
+    // route by its key (`window.__progressChannels`, `sendProgress` of wait-helpers.ts)
     const channel = payload?.progress ?? payload?.wait ?? payload?.patches
     const channelId = registerProgressChannel(channel)
 

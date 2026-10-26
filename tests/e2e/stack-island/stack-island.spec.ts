@@ -7,7 +7,7 @@ import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { columnLefts, expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, expectPatronusStarts, mergeRunningRobots, robot, startRequest, wholeStackStartRequest } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { pushedRemotes, pushOutcome, routeHeldPush, routePush, routePushBranches, STACK_ISLAND_BRANCHES, wholeStackResultKey } from "../helpers/push-helpers"
+import { branchOf, expectPushedToRemote, holdRemotePushes, pushedBefore, remotePushes, stackBranchOf } from "../helpers/push-helpers"
 import { closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -208,9 +208,9 @@ test.describe("Stack island", () => {
   })
 
   test("should push the whole stack from the header in one push, parents first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stack_island")
+    const repo = await setupRepo("stack_island")
     await syncAndWaitForBranches()
-    const { stackPushes, release } = await routeHeldPush(page, "bazel", 45)
+    const held = await holdRemotePushes(repo)
     // the compact push of a row: the commits it sends, the action its name
     const push = island(page, "air").getByTestId("stack-island-push")
     await expect(push).toHaveAccessibleName("Push with Children (7 branches)")
@@ -220,16 +220,16 @@ test.describe("Stack island", () => {
     // read, then pushed: the click, later than half a second after the hover opened, leaves it open with the progress
     await page.clock.fastForward(1000)
     await push.click()
-    // one push of the 7 branches: the header names it, and every row of it shows the one progress
-    await expect(push).toHaveAccessibleName("Pushing 7 branches 45%")
-    await expect(description).toContainText("Writing objects: 45% (2/4)")
+    // one push of the 7 branches, waiting at the remote: the header names it, and every row of it shows the one progress
+    await held.arrived()
+    await expect(push).toHaveAccessibleName(/^Pushing 7 branches \d+%$/)
+    await expect(description).toContainText(/Writing objects: +\d+% \(\d+\/\d+\)/)
     await expect(description).toHaveAttribute("data-open", "")
     for (const name of ["air", "bazel", "side-test"]) {
-      await expect(findBranchRow(page, name).getByTestId("push-button")).toHaveAccessibleName("Pushing 45%")
+      await expect(findBranchRow(page, name).getByTestId("push-button")).toHaveAccessibleName(/^Pushing \d+%$/)
     }
-    release()
-    // each branch after the one it is built on
-    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["air", "bazel", "side-fix", "bridge", "runtime", "deploy", "side-test"]])
+    await held.release()
+    await expect.poll(() => remotePushes(repo)).toEqual([["air", "bazel", "bridge", "deploy", "runtime", "side-fix", "side-test"]])
     // the branches are on the remote, the stack branch of the whole stack is not (no pull request, no Safe Push put it
     // there): the header's push stays, disabled with the reason, which says so
     await expect(push).toBeDisabled()
@@ -243,11 +243,10 @@ test.describe("Stack island", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    // its pull request or Safe Push put the stack branch on the remote; the sync rebuilt it with 2 commits that remote lacks
-    const stackRemote = (unpushedCommits: string[]) => pushOutcome("air", { unpushedCommits, remoteTip: "stack-pushed" }).remoteStatus
-    const repo = await setupRepo("stack_island", { syncOverrides: { stacks: { air: { remote: stackRemote(["s1", "s2"]) } } } })
+    const repo = await setupRepo("stack_island")
     await syncAndWaitForBranches()
-    const { stackPushes } = await routePushBranches(page)
+    // its pull request or Safe Push put the stack branch on the remote; the sync rebuilt it with 2 commits that remote lacks
+    await pushedBefore(page, repo, [stackBranchOf("air")], { lacking: 2 })
     const air = island(page, "air")
     const push = air.getByTestId("stack-island-push")
 
@@ -259,31 +258,22 @@ test.describe("Stack island", () => {
     await expect(description).toContainText("Pushes 8 branches, parents first:")
     await expect(description).toContainText("user-name/stack/air · the whole stack branch · 2 commits")
     await push.click()
-    await expect.poll(() => stackPushes.length).toBe(1)
-    expect(stackPushes[0]!.map(branch => (branch.wholeStack === true ? `stack:${branch.branchName}` : branch.branchName))).toEqual([
-      "air",
-      "bazel",
-      "side-fix",
-      "bridge",
-      "runtime",
-      "deploy",
-      "side-test",
-      "stack:air",
-    ])
-    expect(stackPushes[0]!.at(-1)).toMatchObject({ expectedRemote: "stack-pushed" })
+    // one push of the 8, the stack branch over what its remote had
+    await expect.poll(() => remotePushes(repo)).toEqual([["air", "bazel", "bridge", "deploy", "runtime", "side-fix", "side-test", "stack:air"]])
+    await expectPushedToRemote(repo, [stackBranchOf("air")])
     await expect(push).toHaveAccessibleName("Push with Children")
     await page.mouse.move(0, 0)
 
-    // the branches stay on the remote, the stack branch is rebuilt again: the "⋯" pushes it alone
-    await repo.setSyncOverrides({ remote: pushedRemotes(STACK_ISLAND_BRANCHES), stacks: { air: { remote: stackRemote(["s3"]) } } })
+    // the branches stay on the remote, the stack branch lacks its newest commit there again: the "⋯" pushes it alone
+    await repo.pushInTerminal(branchOf(stackBranchOf("air")), { revision: `${branchOf(stackBranchOf("air"))}~1` })
     await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
     await expect(push).toHaveAccessibleName("Push with Children (the whole stack branch)")
     await expect(push).toHaveText("1")
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
     await page.getByRole("menuitem", { name: "Push with Children (the whole stack branch)" }).click()
-    await expect.poll(() => stackPushes.length).toBe(2)
-    expect(stackPushes[1]).toEqual([expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: "stack-pushed" })])
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Pushed the whole stack branch of air" })).toBeVisible()
+    expect((await remotePushes(repo)).at(-1)).toEqual(["stack:air"])
+    await expectPushedToRemote(repo, [stackBranchOf("air")])
   })
 
   test("should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones", async ({
@@ -295,11 +285,9 @@ test.describe("Stack island", () => {
     const deploy = robot("deploy", "deploy-robot")
     const sideTest = robot("side-test", "side-test-robot")
     const repo = await setupRepo("stack_island", { patronus: availableRobots(deploy, sideTest), pullRequests: availablePullRequests() })
-    // its pull request or a push put the stack branch on the remote; the sync rebuilt it with 2 commits that remote lacks
-    const onRemote = () => repo.setSyncOverrides({ stacks: { air: { remote: pushOutcome("air", { unpushedCommits: ["s1", "s2"], remoteTip: "stack-pushed" }).remoteStatus } } })
-    await onRemote()
     await syncAndWaitForBranches()
-    const { stackPushes } = await routePushBranches(page)
+    // its pull request or a push put the stack branch on the remote; the sync rebuilt it with 2 commits that remote lacks
+    await pushedBefore(page, repo, [stackBranchOf("air")], { lacking: 2 })
     const air = island(page, "air")
     const push = air.getByTestId("stack-island-push")
     const description = page.getByTestId("stack-island-push-description")
@@ -330,10 +318,9 @@ test.describe("Stack island", () => {
     await openContextMenu(page, findBranchRow(page, "air"))
     await expectDisabledItems(page, [["Push with Children", nothingLeft]])
     await page.keyboard.press("Escape")
-    expect(stackPushes).toEqual([])
+    expect(await remotePushes(repo)).toEqual([])
 
     // a commit of side-test added since is what is left: it goes with the stack branch, the landed branches stay
-    await onRemote()
     await runAndWaitForSync(page, async () => {
       await repo.commit("(side-fix/side-test) Test the manifest, part 3", { "side-test/part3.txt": "Test the manifest 3\n" }, 1704200000)
       await page.getByTestId("sync-button").click()
@@ -341,15 +328,14 @@ test.describe("Stack island", () => {
     await expect(findBranchRow(page, "side-test").getByTestId("landed-with")).toHaveText("Landed · 1 commit after it")
     await expect(push).toHaveAccessibleName("Push with Children (2 branches)")
     await push.click()
-    await expect.poll(() => stackPushes.length).toBe(1)
-    expect(stackPushes[0]!.map(branch => (branch.wholeStack === true ? `stack:${branch.branchName}` : branch.branchName))).toEqual(["side-test", "stack:air"])
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Pushed side-test" })).toBeVisible()
+    expect(await remotePushes(repo)).toEqual([["side-test", "stack:air"]])
   })
 
   test("should land the whole stack in one Safe Push from the header, its popover at the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("stack_island", { patronus: availableRobots() })
     await syncAndWaitForBranches()
-    const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
+    const held = await holdRemotePushes(repo)
     const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
     const safePushOfAir = wholeStackStartRequest("air")
     const lands = "Lands 7 branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test"
@@ -373,16 +359,17 @@ test.describe("Stack island", () => {
     // push waits without it; then the robot starts from it
     await page.keyboard.press("Enter")
     // as the compact push of a row: the spinner and the percent, the push in its name
-    await expect(safePush).toHaveText("45%")
-    await expect(safePush).toHaveAccessibleName("Pushing 45%")
+    await held.arrived()
+    await expect(safePush).toHaveText(/^\d+%$/)
+    await expect(safePush).toHaveAccessibleName(/^Pushing \d+%$/)
     await expect(safePush).toHaveAttribute("aria-busy", "true")
     const push = air.getByTestId("stack-island-push")
     await expect(push).toBeDisabled()
     await expect(push).not.toHaveAttribute("aria-busy", "true")
     expect((await repo.getPatronusLog()).starts).toEqual([])
-    await runAndWaitForAnswer(page, "start_patronus_robot", async () => release())
+    await runAndWaitForAnswer(page, "start_patronus_robot", () => held.release())
     await expectPatronusStarts(repo, [safePushOfAir])
-    expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: null })]])
+    expect(await remotePushes(repo)).toEqual([["stack:air"]])
     await expect(popover).toHaveCount(0)
     await closeRefusal(page)
 
@@ -444,7 +431,6 @@ test.describe("Stack island", () => {
   }) => {
     const repo = await setupRepo("stack_side_conflict", { patronus: availableRobots() })
     await syncAndWaitForBranches()
-    const pushes = await routePush(page, {})
     await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
     const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
     const conflict = /^The stack branch conflicts at [0-9a-f]{8} in config\.js: the stack lands in pieces$/
@@ -484,7 +470,7 @@ test.describe("Stack island", () => {
     await runAndWaitForAnswer(page, "start_patronus_robot", () => popoverStart(page).click())
     // the piece: the virtual branch of deploy, not the stack branch
     await expectPatronusStarts(repo, [startRequest("deploy")])
-    expect(pushes.map(push => push.branchName)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
+    expect(await remotePushes(repo)).toEqual([["air", "bazel", "bridge", "deploy", "runtime"]])
   })
 
   test("should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack", async ({ page, setupRepo, syncAndWaitForBranches }) => {

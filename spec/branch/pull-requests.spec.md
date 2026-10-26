@@ -638,8 +638,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   opened URLs in `window.__OPENED_URLS__`. A push goes to the remote of the test repository, a bare
   `.git/upstream.git` ([The remote of a repository](../../docs/design/e2e-testing.md#the-remote-of-a-repository)): a
   branch pushed before is a push there behind the app's back (`pushInTerminal`, an earlier build of its commits for a
-  pull request that shows one), and a push these tests still answer in the page (`routePush`) gives a branch its
-  remote tip.
+  pull request that shows one), and a test asserts the pushes the remote took (`remotePushes`).
   No test answers a GitHub write in the page (`routeCommand`, a fulfilling `page.route`): the registry test fails it,
   and the page answers of the reads are pinned and only go down (`ROUTED_IN_PAGE`).
   [@test] ../../crates/test-server/src/command_registry_test.rs (`no_e2e_test_answers_a_write_in_the_page`)
