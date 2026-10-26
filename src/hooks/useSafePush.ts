@@ -273,8 +273,8 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
   const lands = getLands(branchName)
   const decision = answer?.decision ?? (isDefaultAsk(request) && lands !== undefined ? (mode === "dryRun" ? lands.dryRun : lands.safePush) : null)
   const subject = root === null ? branchName : formatWholeStack(root)
-  // a start that skips the approvals (`LandDecision.approvalsSkippedBy`) is held back only by what the step says of a
-  // start without review, as the click decides it
+  // a start that skips the approvals (`LandDecision.approvalsSkippedBy`) is held back by the reasons of the subject
+  // (`subjectBlocker`: a sync, a failure, the robots, …), never by the approvals it goes without, as the click decides it
   const stepBlocker = startStepBlocker(step, mode, decision?.approvalsSkippedBy != null)
   const route = decision === null ? null : startRouteOf(decision)
   const profile = route?.kind === "api" ? route.profile : null
@@ -477,9 +477,10 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   if (step == null) {
     return
   }
-  // a start that skips the approvals is held back only by what the step says of a start without review, never by the
-  // approvals it goes without: Start Without Review, or the default start whose decision skips them (a profile known to
-  // skip the review), as its read decides it
+  // a start that skips the approvals (Start Without Review, or the default start whose decision skips them: a profile
+  // known to skip the review) is held back by the reasons of the subject on every row (`subjectBlocker`: a sync, a
+  // failure, the robots, parked, landed, what runs on the row), never by the approvals it goes without, as its read
+  // decides it
   const lands = getLands(branchName)
   const skipsApprovals = request.bypassReview === true || (isDefaultAsk(request) && lands?.safePush.approvalsSkippedBy != null)
   const blocker = startStepBlocker(step, mode, skipsApprovals)

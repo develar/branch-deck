@@ -32,7 +32,7 @@
 //! (`grouped_rows`); `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
 //! session asks it of.
 
-use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline};
+use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
 use crate::facts::{FactRecord, FactStore, listed_robots};
 use crate::table::{TableParts, TableState};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
@@ -64,7 +64,7 @@ use domain_types::session::{
   SubjectReadiness, WholeStackView, stack_readiness_key,
 };
 use domain_types::stack::{BranchStack, StackBranchUpdate};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// The input of the rules over the table of `table`, as its view has it
 #[must_use]
@@ -138,17 +138,19 @@ fn stack_parked(repo: &Repository<'_>, stack: Option<&StackBranchUpdate>) -> Opt
 }
 
 /// What the pushes of each branch of `parts` send (`domain_policy::push::branch_push`), over the holds of the robots in
-/// `patronus` and the pull requests of the whole stacks in `pull_requests`; a branch whose pushes send it alone is not
-/// listed. A branch the fetched baseline has whole is landed: the update archives it, its push lands nothing
-pub(crate) fn push_view(parts: &TableParts, patronus: &PatronusView, pull_requests: &PullRequestsView) -> BTreeMap<String, BranchPush> {
+/// the Patronus view of `facts` and the pull requests of the whole stacks it lists; a branch whose pushes send it alone
+/// is not listed. A branch the fetched baseline has whole by the table of the last sync (`BranchTable::in_baseline`, as
+/// the decision of a start, the gate of the view and the guards read it, never the landing section a running sync
+/// moves) is landed: the update archives it, its push lands nothing
+pub(crate) fn push_view(parts: &TableParts, facts: &FactStore) -> BTreeMap<String, BranchPush> {
   let repo = parts_repository(parts);
-  let facts = PushFacts {
+  let (patronus, pull_requests) = (&facts.patronus.part().view, facts.pull_requests.view());
+  let push_facts = PushFacts {
     parts,
     patronus,
-    fully_landed: fully_landed(&parts.sections.landed),
+    in_baseline: facts.table.value().map(|table| &table.in_baseline),
   };
-  let facts = &facts;
-  let held = |name: &str| facts.state(name);
+  let held = |name: &str| push_facts.state(name);
   repo
     .order()
     .filter_map(|name| {
@@ -209,8 +211,8 @@ pub fn open_pull_requests_view<'a>(
 struct PushFacts<'a> {
   parts: &'a TableParts,
   patronus: &'a PatronusView,
-  /// The branches the fetched baseline has whole
-  fully_landed: HashSet<&'a str>,
+  /// The branches the fetched baseline has whole, of the table of the last sync; none before its first
+  in_baseline: Option<&'a BTreeSet<String>>,
 }
 
 impl PushFacts<'_> {
@@ -224,18 +226,13 @@ impl PushFacts<'_> {
       action: branch.remote.status.as_ref().map(|status| status.action),
       kept: kept(
         branch.structure.parked.is_some(),
-        self.fully_landed.contains(name),
+        self.in_baseline.is_some_and(|landed| landed.contains(name)),
         hold,
         None,
         branch.sync.status == BranchStatus::Blocked || branch.sync.has_error,
       ),
     }
   }
-}
-
-/// The branches of the landing report `baseline` the fetched baseline has whole (`branch_table::in_baseline`)
-fn fully_landed(baseline: &LandedSection) -> HashSet<&str> {
-  in_baseline(&baseline.landing).collect()
 }
 
 /// What the rules read of a table and its Patronus facts: the robots by id, the holds of the branches

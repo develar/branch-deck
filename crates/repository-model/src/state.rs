@@ -63,7 +63,7 @@ impl View {
     // the remote statuses of a running sync come one by one: the pushes are ordered over the table it leaves, in the
     // patch that ends it (a push waits for the sync), never resent with every status
     let syncing = matches!(state.sync, SyncState::Running { .. });
-    let pushes_now = (!syncing).then(|| push_view(parts, &facts.patronus.part().view, facts.pull_requests.view()));
+    let pushes_now = (!syncing).then(|| push_view(parts, facts));
     let (pushes, removed_pushes) = pushes_now.as_ref().map_or_else(|| (BTreeMap::new(), Vec::new()), |now| diff_keyed(&last.pushes, now));
     let open = session_open_pull_requests(state, facts, &self.prefix);
     let (open_pull_requests, removed_open_pull_requests) = diff_keyed(&last.open_pull_requests, &open);

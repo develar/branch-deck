@@ -3402,10 +3402,11 @@ facts of the sync (`BranchTable::remote`, one `remote_facts` for both sides: the
 `SyncReport::remote_tips`, up to date when the `RemoteStatusUpdate` the sync emitted for it has a remote branch and no
 work for it, `domain_policy::push::needs_push`; of each stack branch its `StackBranchUpdate::remote`) and the branches
 the fetched baseline has whole (`BranchTable::in_baseline`, of the landing report of `BaselineStatus`, none of their
-commits stays local: every reader of the rules over the table, the decision of a start, the view's holds and pushes of
-an action, the guards and `bd`, leaves them out of a push alike, `push::kept`); `bd` builds it from the report of its
-sync, the remote statuses of the table state its sync folded and its landing report (below; `bd status` from a
-grouping, with the remote tips only). The session of each worktree and branch prefix keeps the table of its last
+commits stays local: every reader of the rules over the table, the decision of a start, the view's holds, the pushes of
+its rows (`push_view`) and of an action, the guards and `bd`, leaves them out of a push alike, `push::kept`; never the
+landing section of the table state, which a running sync moves at any point of its events); `bd` builds it from the
+report of its sync, the remote statuses of the table state its sync folded and its landing report (below; `bd status`
+from a grouping, with the remote tips only). The session of each worktree and branch prefix keeps the table of its last
 successful sync (the session host answers it after a run, from its report and the statuses and the landing report a
 `RemoteStatusCollector` kept while it forwarded every event to the session; a failed sync keeps the one before) and
 derives the Patronus view of it (below) on the remote branches as it knows them: a push moves a remote branch without

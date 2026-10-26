@@ -262,7 +262,7 @@ fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_
     visible_branches: state.order().to_vec(),
     ..Demand::default()
   };
-  let pushes = push_view(&state.parts, &facts.patronus.part().view, facts.pull_requests.view());
+  let pushes = push_view(&state.parts, &facts);
   let actions = |steps: &BTreeMap<String, NextStepView>| {
     let sources = ActionSources {
       steps,

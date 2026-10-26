@@ -2086,8 +2086,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
      предками, что спрашивают сначала, которых `drops` отказывает): её читают `decide` (эффект `Push`),
      `LandingFacts::start_pushes` (вход `start_refusal`) и цепочка `push_blocker` (гейт старта приложения в
      `pushForAction`), все над одним landing report — `BranchTable::in_baseline`, которое таблица sync'а берёт из
-     `BaselineStatus` (`RemoteStatusCollector` сессии, `landed_section` у `bd`); приложение пушит ветки эффекта
-     (`pushForAction` с `branches`), `bd safe-push` — их же, каждую отдельно (`push_locked` с `alone`), его `remotes`
+     `BaselineStatus` (`RemoteStatusCollector` сессии, `landed_section` у `bd`); его же, а не landing section состояния
+     таблицы, которую идущий sync двигает посреди событий, читает push строк (`push_view`); приложение пушит ветки
+     эффекта (`pushForAction` с `branches`), `bd safe-push` — их же, каждую отдельно (`push_locked` с `alone`), его `remotes`
      называют только их. Повтор поверх сдвинутого remote (D4) — и у `bd safe-push --whole-stack` (`push_stack_branch`). D12 у
      `bd`: `--force`; D14 у `bd`: `review_unknown` и `--allow-unknown-review`. Закрытие D11, D12, D14 — шаг 7.
   13. Решение старта в приложении (шаг s8-7): решения default-intent'ов — `RepositoryView.lands` по ключу субъекта

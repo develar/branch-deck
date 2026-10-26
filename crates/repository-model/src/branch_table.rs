@@ -37,8 +37,8 @@ pub struct BranchTable {
   /// without a sync (`bd status`) has the remote tips only
   pub remote: RemoteFacts,
   /// The branches the fetched baseline has whole, by the landing report the sync sent (`in_baseline`): nothing of them is
-  /// left to land, so no push of a start or of an action sends them (`domain_policy::push::kept`); a table read without
-  /// a sync has none
+  /// left to land, so no push of a start, a row or an action sends them (`domain_policy::push::kept`); a table read
+  /// without a sync has none
   pub in_baseline: BTreeSet<String>,
 }
 
