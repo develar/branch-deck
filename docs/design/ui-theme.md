@@ -195,8 +195,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 - **An option set is the stock `ToggleGroup`** (`src/components/ui/toggle-group.tsx`), as the shadcn rule for 2 to 7
   choices asks: the views of the main window, the layouts of a diff (Split · Unified · Inline) and the scopes of the
   stack bar of a review (`outline`, `sm`, `spacing={0}`), the chips of a filter of a list (`FilterChips`: the state chips of the branch table, the kinds of
-  Activity, the owners of the files of a review; `spacing={1}`, wrapping). The chosen one has the stock pressed state,
-  no colour of its own: a local soft primary (blue on a blue tint) read at about 4:1. `ChoiceChip` stays for a chip that
+  Activity, the owners of the files of a review; `spacing={1}`, wrapping). The chosen one has the selection tint of the app,
+  `bg-primary/15` with the text in the foreground, as a selected page of Settings: the stock pressed `bg-muted` is the 5%
+  tint here and vanished on the canvas, and the former soft primary (blue text on a blue tint) read at about 4:1. `ChoiceChip` stays for a chip that
   puts a name into an input (Move to…, the AI suggestions).
 - **Window buttons** are the platform's, never a generic set: Windows' caption buttons (46×40, Segoe Fluent), GNOME's
   and KDE's as IntelliJ draws them (a 47×40 cell, its icons; the `window-button-*` tokens of `src/index.css` are their
