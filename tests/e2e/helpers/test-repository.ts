@@ -1,7 +1,6 @@
 import type {
   BranchNameSuggestionOutcome,
   IssueNavigationConfig,
-  PatronusCommandReply,
   PatronusMergeRequest,
   PatronusProfile,
   PatronusReviewRequirement,
@@ -14,6 +13,9 @@ import type { PatronusRobotsFixture } from "./patronus-helpers"
 import type { GitHubFixture, GitHubLog } from "./pull-request-helpers"
 import type { ReviewRequestsFixture } from "./review-request-helpers"
 import { TEST_SERVER_URL } from "./test-server-url"
+
+/** How the bot answers a `/patronus` comment (`PatronusCommandReply` of `domain_types::patronus`, which no command of the page answers) */
+export type PatronusCommandReply = { readonly status: "pending" } | { readonly status: "accepted" } | { readonly status: "rejected"; readonly reason: string | null }
 
 /**
  * An answer of a fake a test holds back (`HeldAnswer` of `remote_host.rs`): GitHub's search of the user's pull
@@ -43,6 +45,7 @@ export type HeldAnswer =
   | "push"
   | "createPullRequest"
   | "requestReviewers"
+  | "submitReview"
 
 /** A commit someone else pushed onto a branch of the remote: its author (`Name <email>`), time and files */
 export interface RemoteCommit {

@@ -29,7 +29,7 @@
 //! status.
 
 use crate::push::{OverMoved, Sent, send};
-use crate::robot_start::{ApiStart, CommentStart, Commented, patronus_failure, start_by_comment, start_through_api};
+use crate::robot_start::{ApiStart, CommentStart, Commented, RobotWait, patronus_failure, start_by_comment, start_through_api};
 use crate::witness::{Witness, check, read_refs};
 use domain_policy::holds::is_active;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
@@ -38,7 +38,7 @@ use domain_types::operation::{
   EffectRecord, EffectStatus, Fingerprint, Intent, LandResult, NewsKey, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Plan, RobotResult, StartComment,
   StartNote,
 };
-use domain_types::patronus::{PatronusMergeRequest, PatronusPushMode, PatronusRobot};
+use domain_types::patronus::{PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot};
 use domain_types::pull_request::{CreatedPullRequest, RequestedReviewers};
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
@@ -593,8 +593,8 @@ impl<'a> Run<'a> {
           PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
-          // a close is an operation of its own (`close`), never a step of a start
-          PlannedEffect::ClosePullRequest { .. } => self.fail(ApiError::internal("A start closes no pull request")),
+          // a close and a review are operations of their own (`close`, `review`), never a step of a start
+          PlannedEffect::ClosePullRequest { .. } | PlannedEffect::SubmitReview { .. } => self.fail(ApiError::internal("A start closes and reviews no pull request")),
         }
       };
       self.records.push(EffectRecord { effect, status });
@@ -873,7 +873,8 @@ impl Run<'_> {
       number,
       mode,
       known,
-      until_listed: self.services.wait_for_robot,
+      subject: PatronusCommandSubject::OwnBranch,
+      robot_wait: if self.services.wait_for_robot { RobotWait::UntilListed } else { RobotWait::Once },
     };
     let host = self.host;
     let robots_since = move |since: u32| host.robots_since(since);

@@ -42,6 +42,7 @@ use domain_types::pull_request::{PullRequest, PullRequestBase, PullRequestState}
 use domain_types::reason::Reason;
 use domain_types::session::PullRequestsView;
 use github::service::GitHubService;
+use remote_facts::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE;
 use remote_facts::pull_request_writes::retarget_pull_request;
 use remote_facts::pull_requests::GitHubWriteError;
 use remote_facts::service_sources::ServiceHost;
@@ -218,7 +219,7 @@ pub(crate) async fn github_of(services: &dyn ServiceHost, key: &SessionKey) -> R
   let repository = services
     .github_repository(key)
     .await?
-    .ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, "The GitHub repository of the branches is unknown"))?;
+    .ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY_MESSAGE))?;
   Ok((services.github(key)?, repository))
 }
 

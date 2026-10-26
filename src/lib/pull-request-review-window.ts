@@ -13,7 +13,8 @@ import type {
 } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { createWindowLink } from "@/lib/sub-window-link"
-import { getOperations } from "@/stores/operations"
+import { sessionRepositoryPath } from "@/model/store"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { isPatronusAvailable, readPatronusTargetBranch } from "@/stores/patronus"
 import { getSelectedProject } from "@/stores/repository"
 import {
@@ -91,7 +92,8 @@ function buildState(repositoryPath: string): ReviewWindowState {
     selected,
     requests: entry?.requests ?? [],
     reviewed: entry?.reviewed ?? {},
-    busy: getReviewBusy(getOperations(), repositoryPath),
+    // the reviews run in the session of the repository: of the one the main window shows, its view has them
+    busy: sessionRepositoryPath() === repositoryPath ? getReviewBusy(branchSyncStore.getState().operations) : {},
     patronus: selected ? reviewPatronus(repositoryPath) : { available: false, target: null },
   }
 }

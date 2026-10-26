@@ -13,6 +13,8 @@ targets:
   - ../../crates/sync-core/src/review_fetch.rs
   - ../../crates/remote-facts/src/pull_requests.rs
   - ../../crates/remote-facts/src/pull_request_writes.rs
+  - ../../crates/operations/src/review.rs
+  - ../../crates/operations/src/robot_start.rs
   - ../../crates/github/src/service.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/git-ops/src/commit_files.rs
@@ -408,9 +410,11 @@ Safe Push it allows.
   main window, and `pull-request-review/reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
   Patronus of the repository the main window shows: for another one the main window switches to the request's
   repository first (`showRepository`, it waits for its sync), and the window keeps the Safe Push of the Patronus it last
-  saw there. Each write is an operation of the pull request in the main window
-  ([Running Operations](../../docs/design/operations.md)): one at a time, a second one waits with its busy state, and
-  the window reads what runs from the state the main window sends (`busy`).
+  saw there. Each write is an operation of the session of the request's repository (`SubmitReview`,
+  `crates/operations/src/review.rs`, holding the review of the pull request): one at a time, a second one waits with
+  its busy state, the same one joins it, and the window reads what runs from the state the main window sends (`busy`,
+  of the operations of its session).
+  [@test] ../../src/stores/review-requests.test.ts (`says what runs for a pull request from the reviews of the session: the review, then its Safe Push`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
   [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked, records Activity in the main window, and switches it to the request's repository first`)
   [@test] ../../src/lib/sub-window-link.test.ts (`knows what the window shows until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
@@ -435,14 +439,15 @@ Safe Push it allows.
   commits while it was open: the review shows <hash> now", and they can be approved.
   [@test] ../../src/lib/review-request-actions.test.ts (`disables the writes of the review until the commit the user saw is there, and an approval of the same commit`)
 - Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
-  (`submit_pull_request_review`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)), in the
-  repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below
+  (`SubmitReview`, its effect `submitReview`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)),
+  in the repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below
   its button with the focus in the comment, also when it opens again while it still closes: the comment is required,
   ⌘↵ (Ctrl+Enter) sends it as `{"event": "REQUEST_CHANGES", "body": <comment>}`, Escape closes the form and keeps the
   draft, the focus goes back to the button. The draft is the pull request's (by its URL, in the browser storage every
   window shares, `review-draft.ts`): the window showing another request, or closed, gives it back when the pull request
   is reviewed again; a sent comment forgets it.
   [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`approves_the_commit_the_user_reviewed`, `a_request_for_changes_posts_its_comment`, `refuses_a_review_without_a_commit_id_or_a_request_for_changes_without_a_comment`)
+  [@test] ../../crates/operations/src/review_test.rs (`a_review_submits_its_verdict_then_the_safe_push_of_an_approval_comments`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`)
 - A review is a toast "Approved #101" / "Requested changes on #101" with the title and "Open Pull Request", and an
   Activity entry in the same words; the chips say "approved by you" (`success`) or "changes requested by you".
@@ -473,15 +478,18 @@ Safe Push it allows.
   alice/feature onto master, runs the checks, merges it and deletes the branch. It reports in the pull request.", with
   "Approve and Safe Push" (↵, focused on each open) and Esc Cancel; the keys of the review wait while it is open. After
   an approval of the commit it is "Safe Push…" and the text starts with "Comments".
-- Approve first, unless the user approved that commit; then one `GET repos/<owner>/<name>/pulls/<n>` for its
-  `head.sha` (`get_pull_request_head`): a head other than the approved commit is refused, "Cannot start the Safe Push" / "#101 has
-  new commits since you reviewed 1a2b3c4d: review 5e6f7a8b first", and nothing is commented.
+- One operation (`SubmitReview` with `thenLand`; once the user approved that commit, without a verdict: the Safe Push
+  alone): the approval first, said as soon as it is in; then one `GET repos/<owner>/<name>/pulls/<n>` for its
+  `head.sha`: a head other than the approved commit skips the start (`plan_changed`), "Cannot start the Safe Push" /
+  "#101 has new commits since you reviewed 1a2b3c4d: review 5e6f7a8b first", and nothing is commented.
   [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`reads_the_head_of_a_pull_request`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should not Safe Push a pull request that got commits since the user reviewed it`)
 - Then the comment `/patronus merge` (without `--keep-source-branch`: the branch of someone else goes once merged, as a
   merge on GitHub does) in the repository the requests were read from, and the bot's answer as for an own branch
   ([Patronus](../branch/patronus.spec.md#pull-requests)), "Asking Patronus on pull request #101…" in the confirmation
-  meanwhile. The 👍 is the start: the robot is looked for in the user's robots for 10 s more; found, it is announced as
+  meanwhile, read on the clock of the session (`robot_start::start_by_comment`, never a timer of the page). The 👍 is
+  the start: the robot is looked for in the user's robots for 10 s more (`PATRONUS_REVIEWED_ROBOT_WAIT`), and goes into
+  the session; found, it is announced as
   any robot ("Safe Push started" with Open in Patronus) and watched for the session (`watchRobot`): polled while it
   runs, listed in the landing overview by "#101 <title>", its merge told ("#101 <title> merged into master",
   [Landing Overview](landing-overview.spec.md#overview)), its failure a move (and in the Dock badge) only while it is
@@ -490,7 +498,7 @@ Safe Push it allows.
   Either toast of the start takes the place of the toast "Approved #101". A 👎 is "Cannot start the Safe Push" with
   the bot's reason; the approval stays.
   [@test] ../../src/stores/review-requests.test.ts (`approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start, in the toast of the approval`, `refuses a pull request that got commits since the review, and says the reason of the bot`)
-  [@test] ../../src/stores/patronus.test.ts (`starts a reviewed pull request of someone else with its thumbs up, the robot only if the user's robots list it`)
+  [@test] ../../crates/operations/src/robot_start_test.rs (`a_reviewed_pull_request_is_merged_plainly_and_its_robot_looked_for_only_a_while_after_the_reply`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should watch the robot of a reviewed pull request: listed by what it tests, its merge told`)
   [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for the failure of a watched robot once its pull request was started again: the newest robot is the one to act on`)
 
@@ -564,9 +572,10 @@ Safe Push it allows.
   (`availableReviewRequests` for `acme/monorepo`) and, with `fetchError`, makes `fetch_review_head` fail; `GET` returns
   `{ calls, fetchCalls, prunes }`; a poll comes when the test moves the clock of its sessions
   (`repo.advanceBackendClock`).
-  Its pull requests are in the fake GitHub of the test server too: `submit_pull_request_review`,
-  `get_pull_request_head`, `post_patronus_command` and `read_patronus_command_reply` run the real cores against it, and
-  a test asserts the requests GitHub got (`gitHubRequests`: the review with its event and commit, the `/patronus merge`
+  Its pull requests are in the fake GitHub of the test server too: the `SubmitReview` of `execute` runs the real
+  engine against it (its review, the head, the `/patronus merge` comment and the reads of the reply, on the clock of
+  the session), the review held there by `holdRemoteAnswers({ hold: ["submitReview"] })`, and a test asserts the
+  requests GitHub got (`gitHubRequests`: the review with its event and commit, the `/patronus merge`
   comment); `answerGitHub` scripts a refused review or another head (e2e-testing.md, Remote services).
   `fetch_review_head` runs the real function on the template: an empty head is the branch the request names, an empty
   base the baseline, the source `local`; a test holds it in the page for the progress (`routeReviewFetch`). The Dock and

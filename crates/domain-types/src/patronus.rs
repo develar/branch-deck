@@ -577,22 +577,6 @@ pub enum PatronusCommandSubject {
   ReviewedPullRequest,
 }
 
-/// Starts a robot from a GitHub pull request of someone else the user reviewed: the `/patronus` comment, whose merge
-/// deletes its branch (`PatronusCommandSubject::ReviewedPullRequest`); the start of the user's own branch is
-/// `execute(Land)`
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct PostPatronusCommandParams {
-  pub repository_path: String,
-  pub pull_request_number: u32,
-  /// `rebaseAutosquash` (`/patronus merge`) or `dryRun` (`/patronus dry-run`)
-  pub mode: PatronusPushMode,
-  /// `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository
-  #[serde(default)]
-  pub github_repository: Option<String>,
-}
-
 /// The posted command comment
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -601,18 +585,6 @@ pub struct PatronusCommandComment {
   /// The GitHub comment id; a string, as it outgrows 32 bits
   pub id: String,
   pub url: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ReadPatronusCommandReplyParams {
-  pub repository_path: String,
-  pub pull_request_number: u32,
-  pub comment_id: String,
-  /// As in `PostPatronusCommandParams`
-  #[serde(default)]
-  pub github_repository: Option<String>,
 }
 
 /// How Patronus answered a command comment

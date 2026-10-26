@@ -54,10 +54,11 @@ pub enum Intent {
   /// (`domain_policy::landed::pull_requests_to_close`)
   CloseLandedPullRequests { robot_id: String },
   /// A review of the pull request `number` of someone else on the commit the user reviewed, and the Safe Push of it
-  /// after an approval (`then_land`)
+  /// after an approval (`then_land`: a `/patronus merge` comment, only while GitHub still shows that commit); no
+  /// verdict: the Safe Push alone, the user approved the commit before
   SubmitReview {
     number: u32,
-    verdict: PullRequestReviewEvent,
+    verdict: Option<PullRequestReviewEvent>,
     commit: String,
     body: Option<String>,
     then_land: bool,
@@ -351,6 +352,20 @@ pub enum OperationResult {
   PullRequest(Box<CreatedPullRequest>),
   /// Whom a review request asked, and whom GitHub refused with its reason
   Reviewers(Box<RequestedReviewers>),
+  /// The Safe Push of a reviewed pull request of someone else: its comment and the robot it started
+  Review(Box<ReviewResult>),
+}
+
+/// What the Safe Push of a reviewed pull request answered (`Intent::SubmitReview` with `then_land`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewResult {
+  /// The `/patronus merge` comment it posted
+  pub comment: Option<StartComment>,
+  /// The robot it started, once the user's robots listed it soon after the reply (Patronus may count it as the
+  /// author's: then none, and the pull request tells how it goes)
+  pub robot: Option<PatronusRobot>,
 }
 
 /// What a restart or a cancel of a robot answered: the toast of the robot and the Activity entry of the page name it

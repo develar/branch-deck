@@ -9,60 +9,11 @@ use domain_types::error::ApiError;
 use domain_types::pull_request::{GitHubUser, NewPullRequest};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
-use remote_facts::pull_request_writes::{
-  GetPullRequestHeadParams, SubmitPullRequestReviewParams, read_pull_request_head, submit_pull_request_review as core_submit_pull_request_review,
-};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository};
 use tauri::State;
 use tracing::instrument;
-
-/// Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, github, params), fields(pull_request = params.pull_request_number, event = ?params.event))]
-#[specta::specta]
-pub async fn submit_pull_request_review(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  github: State<'_, GitHubState>,
-  params: SubmitPullRequestReviewParams,
-) -> Result<(), ApiError> {
-  operation(async move {
-    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await?;
-    core_submit_pull_request_review(
-      &github.service,
-      &params.repository_path,
-      &repository,
-      params.pull_request_number,
-      params.event,
-      &params.commit_id,
-      params.body.as_deref(),
-    )
-    .await
-    .map_err(|e| ApiError::internal(e.to_string()))
-  })
-  .await
-}
-
-/// The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
-#[specta::specta]
-pub async fn get_pull_request_head(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  github: State<'_, GitHubState>,
-  params: GetPullRequestHeadParams,
-) -> Result<String, ApiError> {
-  operation(async move {
-    let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref()).await?;
-    read_pull_request_head(&github.service, &params.repository_path, &repository, params.pull_request_number)
-      .await
-      .map_err(|e| ApiError::internal(e.to_string()))
-  })
-  .await
-}
 
 /// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
 /// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with

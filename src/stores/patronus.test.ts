@@ -1,22 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type {
-  ApiError,
   FactState,
   GetRobotCommitMapParams,
   LandedPullRequest,
   LandingRefusal,
   News,
   PatronusAvailability,
-  PatronusCommandReply,
   PatronusPart,
   PatronusRobot,
   PatronusView,
-  PostPatronusCommandParams,
   Reason,
   RobotsView,
 } from "@/lib/bindings"
-import { notifyError, setErrorRecorder } from "@/lib/errors"
 import { resetEventToasts } from "@/lib/event-toast"
 import { setWindowFocus } from "@/lib/os-notification"
 import { formatFailedRobotToast, resetFailingAnnouncements, tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
@@ -26,9 +22,6 @@ import { currentDemand, resetDemand } from "@/model/demand"
 import { formatPushHoldReason, formatStackHold } from "@/presenters/reasons"
 import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
 import {
-  COMMAND_REPLY_INTERVAL_MS,
-  COMMAND_REPLY_TIMEOUT_MS,
-  REVIEWED_ROBOT_WAIT_MS,
   applyRobotsFacts,
   applySessionFacts,
   getBranchRobot,
@@ -47,8 +40,6 @@ import {
   isRobotProblemsPending,
   patronusStore,
   resetPatronus,
-  findCommentRobot,
-  startPatronusFromReviewedPullRequest,
   watchRobot,
   whenRepositoryViewCurrent,
 } from "@/stores/patronus"
@@ -78,13 +69,6 @@ const { patronus, branches } = vi.hoisted(() => ({
     /** What failed (`RobotFailureKind`), which decides the step of the failed toast */
     failureKind: "checks" as string,
     detailCalls: [] as string[],
-    commands: [] as PostPatronusCommandParams[],
-    /** What a start of a robot and a post of a command fail with; a post succeeds while it is null */
-    postFailure: null as ApiError | null,
-    replies: [] as PatronusCommandReply[],
-    replyCalls: 0,
-    /** How long the checks of a start in Rust take before the comment is posted */
-    checkMs: 0,
     /** What the session derives of the robots and the table after each answer of Patronus */
     view: { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} } as PatronusView,
     /** How the landing needs of the view stand */
@@ -114,18 +98,6 @@ vi.mock("@/lib/bindings", async importOriginal => ({
   // the constants of the bindings (the defaults of the settings Rust reads); the commands are the test's
   ...(await importOriginal<typeof import("@/lib/bindings")>()),
   commands: {
-    postPatronusCommand: async (params: PostPatronusCommandParams) => {
-      await new Promise(resolve => setTimeout(resolve, patronus.checkMs))
-      patronus.commands.push(params)
-      if (patronus.postFailure !== null) {
-        return { status: "error", error: patronus.postFailure }
-      }
-      return { status: "ok", data: { id: "4402154133", url: "https://github.com/acme/monorepo/pull/7#issuecomment-4402154133" } }
-    },
-    readPatronusCommandReply: async () => {
-      patronus.replyCalls++
-      return { status: "ok", data: patronus.replies.shift() ?? { status: "pending" } }
-    },
     getPatronusFailingRobots: async (params: { robotIds: string[] }) => {
       patronus.failingCalls.push(params.robotIds)
       return { status: "ok", data: params.robotIds.filter(id => patronus.failing.includes(id)) }
@@ -554,11 +526,6 @@ beforeEach(() => {
   resetRobotDetails()
   resetDemand()
   resetFailingAnnouncements()
-  patronus.commands = []
-  patronus.postFailure = null
-  patronus.replies = []
-  patronus.replyCalls = 0
-  patronus.checkMs = 0
   patronus.view = { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} }
   patronus.landingNeeds = { kind: "fresh" }
   patronus.viewHeld = false
@@ -958,82 +925,8 @@ describe("merges", () => {
   })
 })
 
-describe("pull request start", () => {
+describe("robots of pull requests", () => {
   const ofPullRequest = robot({ id: "pr", startTime: START / 1000, pullRequest: { number: 7, url: "https://github.com/acme/monorepo/pull/7" } })
-
-  it("never takes an earlier robot of the pull request: one listed before the comment or of the other mode, the newest of the rest", async () => {
-    const pullRequest = { number: 7, url: "https://github.com/acme/monorepo/pull/7" }
-    // a Dry Run of #7 canceled a minute ago, listed before the comment
-    const canceledDryRun = robot({ id: "dry", pushMode: "dryRun", status: "canceled", startTime: (START - 60_000) / 1000, pullRequest })
-    patronus.list = available(canceledDryRun)
-    await list()
-    vi.setSystemTime(START + 1000)
-    patronus.replies = [{ status: "accepted" }]
-    const dryRunNotKnown = robot({ id: "dry-2", pushMode: "dryRun", startTime: (START - 30_000) / 1000, pullRequest })
-    const older = robot({ id: "older", startTime: START / 1000, pullRequest })
-    const started = robot({ id: "started", startTime: (START + 2000) / 1000, pullRequest })
-    patronus.list = available(canceledDryRun, dryRunNotKnown, started, older)
-    const asked = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
-    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_INTERVAL_MS)
-    expect((await asked)?.id).toBe("started")
-
-    const known = new Set(["dry"])
-    const robots = { dry: canceledDryRun, "dry-2": dryRunNotKnown, older, started }
-    expect(findCommentRobot(robots, 7, "dryRun", START + 1000, known)?.id).toBe("dry-2")
-    expect(findCommentRobot(robots, 8, "rebaseAutosquash", START + 1000, known)).toBeUndefined()
-  })
-
-  it("counts the minute of the bot from the comment, not from the post before it", async () => {
-    // the post of the comment takes 50 s, the 👍 comes 30 s after it
-    patronus.checkMs = 50_000
-    patronus.replies = [...Array.from({ length: 30_000 / COMMAND_REPLY_INTERVAL_MS - 1 }, () => ({ status: "pending" }) as const), { status: "accepted" }]
-    const commented = START + patronus.checkMs
-    patronus.list = available({ ...ofPullRequest, startTime: (commented + 30_000) / 1000 })
-    const asked = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
-    await vi.advanceTimersByTimeAsync(patronus.checkMs + 30_000)
-    expect((await asked)?.id).toBe("pr")
-    expect(patronus.commands).toHaveLength(1)
-    // one list of the session after the thumbs up
-    expect(patronus.refreshes).toEqual(["afterWrite"])
-  })
-
-  it("throws the reason the bot gave with its thumbs down", async () => {
-    patronus.replies = [
-      { status: "rejected", reason: null },
-      { status: "rejected", reason: "Pull request #7 is a draft and cannot be merged." },
-    ]
-    const started = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
-    const failed = expect(started).rejects.toThrow("Pull request #7 is a draft and cannot be merged.")
-    await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
-    await failed
-    expect(patronus.refreshes).toEqual([])
-  })
-
-  it("gives up after a minute without an answer", async () => {
-    const started = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
-    const failed = expect(started).rejects.toThrow("Patronus did not answer the comment within a minute: see pull request #7")
-    await vi.advanceTimersByTimeAsync(COMMAND_REPLY_TIMEOUT_MS + COMMAND_REPLY_INTERVAL_MS)
-    await failed
-  })
-
-  it("starts a reviewed pull request of someone else with its thumbs up, the robot only if the user's robots list it", async () => {
-    patronus.replies = [{ status: "pending" }, { status: "accepted" }]
-    patronus.list = available(ofPullRequest)
-    const found = startPatronusFromReviewedPullRequest(7, "acme/monorepo")
-    await vi.advanceTimersByTimeAsync(2 * COMMAND_REPLY_INTERVAL_MS)
-    expect(await found).toEqual(ofPullRequest)
-    expect(patronus.commands).toEqual([{ repositoryPath: "/repo", pullRequestNumber: 7, mode: "rebaseAutosquash", githubRepository: "acme/monorepo" }])
-    expect(patronus.replyCalls).toBe(2)
-    // the session lists the robots for the start (incremental, from shortly before its last list)
-    expect(patronus.refreshes).toEqual(["afterWrite"])
-
-    // Patronus may count the robot as the author's: the thumbs up is the start all the same
-    patronus.replies = [{ status: "accepted" }]
-    patronus.list = available()
-    const notFound = startPatronusFromReviewedPullRequest(8, "acme/monorepo")
-    await vi.advanceTimersByTimeAsync(REVIEWED_ROBOT_WAIT_MS + 2 * COMMAND_REPLY_INTERVAL_MS)
-    expect(await notFound).toBeNull()
-  })
 
   it("keeps the GitHub repository of a list through a poll, and refreshes the pull requests when a robot of one merged", async () => {
     patronus.list = { ...available(ofPullRequest), githubRepository: "acme/monorepo" }
@@ -1043,29 +936,6 @@ describe("pull request start", () => {
     await poll()
     expect(patronusStore.getState().repositories["/repo\nuser"]?.githubRepository).toBe("acme/monorepo")
     expect(notices.pullRequestRefreshes).toEqual(["afterWrite"])
-  })
-})
-
-describe("a failed start", () => {
-  const OPERATION_ID = "01K8ZQ3V6Y4M2N7P9R1S5T0W2X"
-
-  it("keeps the operation the failed post of a command on the pull request names, for Activity and the log line", async () => {
-    const recorded: unknown[] = []
-    setErrorRecorder((recordedTitle, description, operationId) => recorded.push({ title: recordedTitle, description, operationId }))
-    vi.spyOn(console, "error").mockImplementation(() => {})
-    logged.length = 0
-    patronus.postFailure = { ...internalError("GitHub answered 403"), code: "patronus_error", operation_id: OPERATION_ID }
-    const settled = startPatronusFromReviewedPullRequest(9, "acme/monorepo").then(
-      () => null,
-      (error: unknown) => error,
-    )
-    // the post answers after `checkMs`
-    await vi.advanceTimersByTimeAsync(patronus.checkMs)
-    const failure = await settled
-    expect(failure, "the start throws").not.toBeNull()
-    notifyError("Cannot start the Safe Push", failure)
-    expect(recorded).toEqual([{ title: "Cannot start the Safe Push", description: "GitHub answered 403", operationId: OPERATION_ID }])
-    expect(logged).toEqual([{ title: "Cannot start the Safe Push", keyValues: { error: "GitHub answered 403", operation_id: OPERATION_ID } }])
   })
 })
 

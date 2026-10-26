@@ -180,8 +180,10 @@ the stack's pull request).
   runs them, `runIntent`), each with its push first: the creation holds the head of its subject (a second submit joins
   it, another text waits for it and is decided again), a review request the reviewers of its pull request; the dialog
   and the popover read theirs from `RepositoryView.operations` (`pullRequestOperationIn`), in every window.
-- **The review of a pull request**: Approve, Request Changes and Approve and Safe Push (`runReviewWrite`, subject
-  `review:<n>`); `getReviewBusy` is what the review list and the review window read (`ReviewWindowState.busy`).
+- **The review of a pull request**: Approve, Request Changes and Approve and Safe Push are an operation of the session
+  in Rust (`SubmitReview` of `operations::review`, holding the review of the pull request: a second write of it waits,
+  the same one joins); `getReviewBusy` reads them from `RepositoryView.operations`, for the review list and the review
+  window (`ReviewWindowState.busy`).
 
 The next step reads the operation on its row (`NextStepFacts.busy`): the slot's own action runs (`running`), the
 others wait with its busy state.

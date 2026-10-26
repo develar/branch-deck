@@ -1,10 +1,9 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { FactsChanges, FactsView, News, PullRequestAvailability, PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
+import type { FactsChanges, FactsView, Intent, News, PatronusRobot, PullRequestAvailability, PullRequestReviewEvent, ReviewRequest, RunningOperation } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
-import { formatShortHash } from "@/lib/hash"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, openRobotUrl } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
@@ -13,13 +12,12 @@ import { reviewToastActionLabel } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { isApprovedCommit } from "@/lib/review-request-actions"
 import { describeNewRequests, mergeReviewRequests, reviewRequestKey } from "@/lib/review-requests"
+import { runFailure, runIntent } from "@/lib/run-intent"
 import { showRepository } from "@/lib/show-repository"
 import { refreshSessionFacts } from "@/model/store"
 import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
-import type { Operations } from "@/stores/operations"
-import { operationsStore, runOperation } from "@/stores/operations"
-import { startPatronusFromReviewedPullRequest, watchRobot } from "@/stores/patronus"
-import { getGitHubRepository } from "@/stores/pull-requests"
+import { branchSyncStore } from "@/stores/branch-sync"
+import { watchRobot } from "@/stores/patronus"
 import { getSelectedProject, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
 
 /*
@@ -119,47 +117,21 @@ export function useSubmittedReview(number: number): SubmittedReview | undefined 
 
 /** What runs for pull request `number` of the selected repository now, if anything */
 export function useReviewAction(number: number): ReviewAction | undefined {
-  const repositoryPath = useSelectedProjectPath() ?? ""
-  return useStore(operationsStore, state => getReviewBusy(state.running, repositoryPath)[number])
-}
-
-const REVIEW_ACTIONS: ReadonlySet<string> = new Set<ReviewAction>(["approve", "requestChanges", "safePush"])
-
-/** The subject of the writes of the user to pull request `number` on review: one at a time */
-function reviewSubject(number: number): string {
-  return `review:${number}`
+  return useStore(branchSyncStore, state => getReviewBusy(state.operations)[number])
 }
 
 /**
- * What runs for the pull requests of the repository now (a review being submitted, a Safe Push being asked for), by
- * number: the operations of their writes (`runOperation`)
+ * What runs for the pull requests of the repository of the session now, by number: the reviews of the session
+ * (`SubmitReview` operations, `RepositoryView.operations`), its Safe Push once the approval is in (or without one)
  */
-export function getReviewBusy(running: Operations, repositoryPath: string): Readonly<Record<number, ReviewAction>> {
+export function getReviewBusy(operations: Readonly<Record<string, RunningOperation>>): Readonly<Record<number, ReviewAction>> {
   const busy: Record<number, ReviewAction> = {}
-  for (const operation of running) {
-    if (operation.repositoryPath === repositoryPath && operation.subject.startsWith("review:") && REVIEW_ACTIONS.has(operation.id)) {
-      busy[Number(operation.subject.slice("review:".length))] = operation.id as ReviewAction
+  for (const { intent, step } of Object.values(operations)) {
+    if (intent.kind === "submitReview") {
+      busy[intent.number] = intent.verdict === null || (intent.thenLand && step.kind === "starting") ? "safePush" : intent.verdict
     }
   }
   return busy
-}
-
-/**
- * Runs a write of the user to pull request `number` as one operation (`runOperation`): a second click joins it, another
- * write of the same pull request waits for it (said by `feedback`); resolves to false when it did not run
- */
-function runReviewWrite(
-  repositoryPath: string,
-  number: number,
-  action: ReviewAction,
-  label: string,
-  feedback: ReviewFeedback,
-  failure: string,
-  run: () => Promise<boolean>,
-): Promise<boolean> {
-  return runOperation({ id: action, subject: reviewSubject(number), objects: [], kind: "remote", label, repositoryPath }, run, reason => feedback.error(failure, reason)).then(
-    done => done === true,
-  )
 }
 
 // ---- the facts ----
@@ -226,12 +198,6 @@ export async function refreshReviewRequests(): Promise<void> {
   } finally {
     update(repositoryPath, { isRefreshing: false })
   }
-}
-
-/** `owner/name` while GitHub lists the user's pull requests of the repository: the backend need not resolve it again */
-function githubRepositoryOfPullRequests(): string | null {
-  const repository = getGitHubRepository()
-  return repository === null ? null : `${repository.owner}/${repository.name}`
 }
 
 // ---- news ----
@@ -320,15 +286,6 @@ export function openRequestOnGitHub(request: ReviewRequest, path = ""): void {
 
 // ---- reviews ----
 
-/** "owner/name" of the repository the requests were read from: the review goes there */
-function githubRepositoryOfRequests(repositoryPath: string): string | null {
-  const availability = reviewRequestsStore.getState().repositories[repositoryPath]?.availability
-  if (availability?.status === "available") {
-    return `${availability.owner}/${availability.name}`
-  }
-  return repositoryPath === currentRepositoryPath() ? githubRepositoryOfPullRequests() : null
-}
-
 /**
  * The feedback of a write asked for in the main window: a toast whose action opens the pull request (it is read then)
  * or the robot, and the error toast
@@ -360,10 +317,10 @@ function reviewFailure(event: PullRequestReviewEvent, number: number): string {
 }
 
 /**
- * Submits a review of the user on `commitId`, the commit the user reviewed (`submit_pull_request_review`), in the
- * repository whose request it is: an approval or a request for changes with `body`. Said by `feedback` (a toast with
- * "Open Pull Request", in the window that asked) and in Activity; GitHub is asked at once, so the reviewed request
- * leaves the list (the review keeps it). Resolves to false when GitHub refused (told).
+ * Submits a review of the user on `commitId`, the commit the user reviewed (`SubmitReview`, in the session of the
+ * repository whose request it is): an approval or a request for changes with `body`. Said by `feedback` (a toast with
+ * "Open Pull Request", in the window that asked) and in Activity; the session asks GitHub again at once, so the
+ * reviewed request leaves the list (the review keeps it). Resolves to false when GitHub refused (told).
  */
 export async function submitReview(
   repositoryPath: string,
@@ -373,49 +330,36 @@ export async function submitReview(
   body: string | null = null,
   feedback: ReviewFeedback = mainReviewFeedback(request),
 ): Promise<boolean> {
-  const { number } = request
-  const failure = reviewFailure(event, number)
-  const label = event === "approve" ? `Approving #${number}` : `Requesting changes on #${number}`
-  const submitted = await runReviewWrite(repositoryPath, number, event, label, feedback, failure, async () => {
-    try {
-      const result = await commands.submitPullRequestReview({
-        repositoryPath,
-        githubRepository: githubRepositoryOfRequests(repositoryPath),
-        pullRequestNumber: number,
-        event,
-        commitId,
-        body,
-      })
-      if (result.status === "error") {
-        feedback.error(failure, result.error)
-        return false
-      }
-      return true
-    } catch (error) {
-      feedback.error(failure, error)
-      return false
-    }
-  })
-  if (!submitted) {
+  const intent: Intent = { kind: "submitReview", number: request.number, verdict: event, commit: commitId, body, thenLand: false }
+  const failure = runFailure(await runIntent(repositoryPath, intent), NO_REVIEW)
+  if (failure !== null) {
+    feedback.error(reviewFailure(event, request.number), failure)
     return false
   }
+  tellReviewed(repositoryPath, request, event, commitId, feedback)
+  return true
+}
+
+/** The review of the user is in: the next state of the toast of the request, before the request it closes leaves */
+function tellReviewed(repositoryPath: string, request: ReviewRequest, event: PullRequestReviewEvent, commitId: string, feedback: ReviewFeedback): void {
+  const { number } = request
   const title = describeReview(event, number)
-  // the review is the next state of the toast of the request (`tellNews`), before the request it closes leaves
   feedback.toast({ key: toastKeys.review(repositoryPath, number), title, description: request.title, target: { kind: "pullRequest", url: request.url } })
   markRead(repositoryPath, request)
   update(repositoryPath, entry => ({ reviewed: { ...entry.reviewed, [number]: { event, commitId } } }))
   recordReview(repositoryPath, title, request)
-  void refreshReviewRequests()
-  return true
 }
 
+/** A review the session has no plan of: never, its plan is the intent's */
+const NO_REVIEW = "The repository has no session to review in"
+
 /**
- * Approves `commitId` (unless the user approved it already) and starts a Safe Push of the pull request: the
- * `/patronus merge` comment, which deletes its branch once merged. Only the approved commit is merged: a pull request
- * that got commits since is refused before the comment. The 👍 of the bot is the start ("Safe Push started", with the
- * robot when the user's robots list it); a refusal says the bot's reason. Patronus is asked for the selected
- * repository: a request of another one switches the main window to it first (`showRepository`). Resolves to whether it
- * started.
+ * Approves `commitId` (unless the user approved it already) and starts a Safe Push of the pull request
+ * (`SubmitReview` with `thenLand`): the `/patronus merge` comment, which deletes its branch once merged, only while
+ * GitHub shows the approved commit (else refused, and nothing is commented). The 👍 of the bot is the start ("Safe Push
+ * started", with the robot when the user's robots list it); a refusal says the bot's reason. The approval is told as
+ * soon as it is in, the start in its place. The main window shows the request's repository first (`showRepository`):
+ * the robot of the start is watched there. Resolves to whether it started.
  */
 export async function approveAndSafePush(
   repositoryPath: string,
@@ -424,60 +368,61 @@ export async function approveAndSafePush(
   feedback: ReviewFeedback = mainReviewFeedback(request),
 ): Promise<boolean> {
   const { number } = request
-  // Patronus is asked for the repository the main window shows: it switches to the request's one first
   const notShown = repositoryPath === currentRepositoryPath() ? null : await showRepository(repositoryPath)
   if (notShown !== null) {
     feedback.error(SAFE_PUSH_FAILURE, notShown)
     return false
   }
   const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
-  if (!isApprovedCommit(entry.reviewed[number], commitId) && !(await submitReview(repositoryPath, request, "approve", commitId, null, feedback))) {
+  const approved = isApprovedCommit(entry.reviewed[number], commitId)
+  let told = approved
+  const tellApproval = () => {
+    if (!told) {
+      told = true
+      tellReviewed(repositoryPath, request, "approve", commitId, feedback)
+    }
+  }
+  const intent: Intent = { kind: "submitReview", number, verdict: approved ? null : "approve", commit: commitId, body: null, thenLand: true }
+  // the approval is in once the Safe Push starts: its toast first, the start in its place
+  const run = await runIntent(repositoryPath, intent, event => event.kind === "step" && event.step.kind === "starting" && tellApproval())
+  const review = run.kind === "ran" ? run.outcome.effects.find(({ effect }) => effect.kind === "submitReview")?.status : undefined
+  if (review?.kind === "failed") {
+    feedback.error(reviewFailure("approve", number), review.error)
     return false
   }
-  const githubRepository = githubRepositoryOfRequests(repositoryPath)
-  return runReviewWrite(repositoryPath, number, "safePush", `Starting the Safe Push of #${number}`, feedback, SAFE_PUSH_FAILURE, () =>
-    startReviewedSafePush(repositoryPath, request, commitId, githubRepository, feedback),
-  )
+  if (review?.kind === "done") {
+    // a run it joined tells no steps
+    tellApproval()
+  }
+  const failure = runFailure(run, NO_REVIEW)
+  if (failure !== null) {
+    feedback.error(SAFE_PUSH_FAILURE, failure)
+    return false
+  }
+  const result = run.kind === "ran" && run.outcome.result.kind === "review" ? run.outcome.result : null
+  if (result?.comment?.accepted !== true) {
+    feedback.error(SAFE_PUSH_FAILURE, `Patronus did not answer the comment within a minute: see pull request #${number}`)
+    return false
+  }
+  tellStarted(repositoryPath, request, result.robot ?? null, feedback)
+  return true
 }
 
-/** The Safe Push of `approveAndSafePush` once the commit is approved: the head checked, then the `/patronus merge` comment */
-async function startReviewedSafePush(
-  repositoryPath: string,
-  request: ReviewRequest,
-  commitId: string,
-  githubRepository: ReturnType<typeof githubRepositoryOfRequests>,
-  feedback: ReviewFeedback,
-): Promise<boolean> {
+/** The Safe Push of the reviewed pull request started: the next state of the toast of its approval, one toast of the pull request */
+function tellStarted(repositoryPath: string, request: ReviewRequest, robot: PatronusRobot | null, feedback: ReviewFeedback): void {
   const { number } = request
-  try {
-    const head = await commands.getPullRequestHead({ repositoryPath, githubRepository, pullRequestNumber: number })
-    if (head.status === "error") {
-      feedback.error(SAFE_PUSH_FAILURE, head.error)
-      return false
-    }
-    if (head.data !== commitId) {
-      feedback.error(SAFE_PUSH_FAILURE, `#${number} has new commits since you reviewed ${formatShortHash(commitId)}: review ${formatShortHash(head.data)} first`)
-      return false
-    }
-    const robot = await startPatronusFromReviewedPullRequest(number, githubRepository)
-    const title = "Safe Push started"
-    // the start after the approval is its next state: one toast of the pull request
-    const key = toastKeys.review(repositoryPath, number)
-    if (robot === null) {
-      // the robot is not the user's: the pull request tells how it goes
-      feedback.toast({ key, title, description: `#${number} ${request.title}`, target: { kind: "pullRequest", url: request.url } })
-      recordReview(repositoryPath, `${title} on #${number}`, request)
-    } else {
-      watchRobot(robot, `#${number} ${request.title}`)
-      const description = describeRobot(robot)
-      feedback.toast({ key, title, description, target: { kind: "robot", url: robot.url } })
-      recordRobot(title, description, robot)
-    }
-    return true
-  } catch (error) {
-    feedback.error(SAFE_PUSH_FAILURE, error)
-    return false
+  const title = "Safe Push started"
+  const key = toastKeys.review(repositoryPath, number)
+  if (robot === null) {
+    // the robot is not the user's: the pull request tells how it goes
+    feedback.toast({ key, title, description: `#${number} ${request.title}`, target: { kind: "pullRequest", url: request.url } })
+    recordReview(repositoryPath, `${title} on #${number}`, request)
+    return
   }
+  watchRobot(robot, `#${number} ${request.title}`)
+  const description = describeRobot(robot)
+  feedback.toast({ key, title, description, target: { kind: "robot", url: robot.url } })
+  recordRobot(title, description, robot)
 }
 
 const SAFE_PUSH_FAILURE = "Cannot start the Safe Push"

@@ -65,7 +65,8 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::CliTools
     | HeldAnswer::Push
     | HeldAnswer::CreatePullRequest
-    | HeldAnswer::RequestReviewers => None,
+    | HeldAnswer::RequestReviewers
+    | HeldAnswer::SubmitReview => None,
   }
 }
 
@@ -160,6 +161,9 @@ pub enum HeldAnswer {
   CreatePullRequest,
   /// A review request of a pull request (`POST /repos/{owner}/{name}/pulls/{n}/requested_reviewers`, of every one)
   RequestReviewers,
+  /// A review of the user (`POST /repos/{owner}/{name}/pulls/{n}/reviews`, of every one): the `SubmitReview` of the
+  /// engine waits at its review
+  SubmitReview,
 }
 
 /// The route of the fake GitHub that gives `answer`: held there
@@ -167,6 +171,7 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
   match answer {
     HeldAnswer::CreatePullRequest => Some(("POST", "/repos/*/*/pulls")),
     HeldAnswer::RequestReviewers => Some(("POST", "/repos/*/*/pulls/*/requested_reviewers")),
+    HeldAnswer::SubmitReview => Some(("POST", "/repos/*/*/pulls/*/reviews")),
     HeldAnswer::PullRequests
     | HeldAnswer::ReviewRequests
     | HeldAnswer::Robots
@@ -416,7 +421,7 @@ impl RemoteHost {
       let gate = match answer {
         HeldAnswer::Push => self.git_remote.hold()?,
         HeldAnswer::PullRequests => self.github.hold_with_body("POST", "/graphql", "author:@me"),
-        HeldAnswer::CreatePullRequest | HeldAnswer::RequestReviewers => {
+        HeldAnswer::CreatePullRequest | HeldAnswer::RequestReviewers | HeldAnswer::SubmitReview => {
           let (method, path) = github_route(*answer).expect("a route of the fake GitHub");
           self.github.hold(method, path)
         }

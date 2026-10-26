@@ -526,10 +526,10 @@ log of the fake). No test answers a remote write in the page: the registry test 
 - **GitHub bridge**: the reads of the session's pull requests, of the rules of their bases and of the review requests
   of others (`TestFactSources`: the pull requests, counted, and the rules of a base, each holding the
   repository as a command does, and `review_requests_of`, counted, which answers the fixture of the review requests),
-  `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request`
-  (the text of the real core, the viewer GitHub answers), `search_github_users` and `submit_pull_request_review` call the
-  cores as `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real
-  `resolve_github_repository` reads (or the one the page names); `post_patronus_command` and `read_patronus_command_reply` as `commands/patronus.rs` does.
+  `get_new_pull_request` and `get_new_stack_pull_request` (the text of the real core, the viewer GitHub answers) and
+  `search_github_users` call the cores as `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository
+  the real `resolve_github_repository` reads; the writes (closes, reviews, `/patronus` comments) are intents of
+  `execute`, on the same services.
 - **GitHub sign-in**: `get_github_auth_status`, `start_github_sign_in`, `wait_github_sign_in`, `cancel_github_sign_in`
   and `sign_out_of_github` (the page's repository by `X-Repository-Id`) call the host's `GitHubSignInSession`
   (`crates/github/src/sign_in_session.rs`), the core of the app's commands, with the host's service. The fake answers
@@ -563,8 +563,8 @@ log of the fake). No test answers a remote write in the page: the registry test 
   pull requests, and `requests`, every request that reached the fake in order (`method`, `path`, JSON `body`);
   `gitHubWrites` keeps the writes and `repoPath` names a path of the repository. A test asserts what GitHub got (the
   `POST pulls`, the `PATCH` of a retarget, the reviewers asked, the review, the `/patronus` comment and the reads of its
-  reply, the comment and the close; `gitHubRequests(repo, method, …segments)` filters them, `skipCommandReplyWait` runs
-  the page clock until the app read the bot's reply), not the parameters the page sent; it records the page's
+  reply, the comment and the close; `gitHubRequests(repo, method, …segments)` filters them; the engine reads the bot's
+  reply on the clock of the session, which `repo.advanceBackendClock` moves), not the parameters the page sent; it records the page's
   parameters on their way to the server where they matter (`recordCommand`), and no test answers a pull request
   command, a review, a `/patronus` comment or the text of a new pull request in the page.
 - **Held answers**: `POST /repositories/{id}/remote-gates` (`holdRemoteAnswers({ hold, fail, release })`) holds

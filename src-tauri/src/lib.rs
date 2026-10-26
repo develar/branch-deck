@@ -49,9 +49,9 @@ use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_statu
 use commands::move_commits::move_commits_to_branch;
 use commands::operations::{cancel_operation, execute, prepare};
 use commands::parked_branches::{park_branches, unpark_branches};
-use commands::patronus::{PatronusState, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_stats, post_patronus_command, read_patronus_command_reply};
+use commands::patronus::{PatronusState, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_stats};
 use commands::pick_remote_commits::{pick_remote_commits, undo_pick_remote_commits};
-use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, get_pull_request_head, search_github_users, submit_pull_request_review};
+use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
 use commands::push::{push_branch, push_branches};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
@@ -104,8 +104,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       get_new_pull_request,
       get_new_stack_pull_request,
       search_github_users,
-      submit_pull_request_review,
-      get_pull_request_head,
       get_github_auth_status,
       start_github_sign_in,
       wait_github_sign_in,
@@ -132,9 +130,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
       cancel_operation,
       get_robot_failure,
       get_robot_commit_map,
-      post_patronus_command,
       get_patronus_target_branch,
-      read_patronus_command_reply,
       get_snapshot,
       subscribe_view,
       unsubscribe_view,

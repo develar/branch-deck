@@ -131,13 +131,13 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   span of `src-tauri/src/operation.rs`, and its error carries the id (`ApiError.operation_id`); the app's log keeps
   the lines for days (the retention as the comment of `LOG_FILE_BYTES` in `src-tauri/src/lib.rs` describes it). The page
   log line of the error carries it as `operation_id`. A page step that throws what a command returned throws it as a
-  `commandFailure` (`src/lib/errors.ts`), which keeps the id up to the `notifyError` of its caller (a failed post of a
-  Patronus command), and a review write hands the error itself to its feedback. The start of a Safe Push is an
+  `commandFailure` (`src/lib/errors.ts`), which keeps the id up to the `notifyError` of its caller, and a review write
+  hands the error of its effect itself to its feedback. The start of a Safe Push is an
   operation of the session (`execute`): its outcome names the operation (`Outcome.op`), which the entry of its robot
   and of its comment keeps. It is stored, not shown yet; an error raised outside a command has
   none.
   [@test] ../../src/stores/activity.test.ts (`keeps the operation a failed command names, for its lines in the log`)
-  [@test] ../../src/stores/patronus.test.ts (`keeps the operation the failed post of a command on the pull request names, for Activity and the log line`)
+  [@test] ../../src/stores/review-requests.test.ts (`hands the error of a failed approval to its feedback as the engine answered it, and starts nothing`)
   [@test] ../../src/lib/errors.test.ts (`throws what a command returned with its message, its code and the operation it names`)
   [@test] ../../src/lib/errors.test.ts (`is what the page throws for a failed command: no new Error of its message drops the operation`)
   [@test] ../../src/lib/errors.test.ts (`returns the operation an ApiError names, and nothing for any other error`)

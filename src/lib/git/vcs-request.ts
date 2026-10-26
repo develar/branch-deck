@@ -22,22 +22,3 @@ export class VcsRequestFactory {
     return { repositoryPath }
   }
 }
-
-/**
- * The key a store keeps the state of the repository at `repositoryPath` under (`<path>\n<prefix>`, the prefix the page
- * names its branches with): `current`, the selected repository's, when it is of that repository, else one of `kept`
- * stored while it was selected (the answer of an action applies to the repository it was asked in, also after a
- * switch); null for a repository the store keeps nothing of
- */
-export function storeKeyOf(repositoryPath: string, current: string | null, kept: Iterable<string>): string | null {
-  const ofRepository = (key: string) => key.startsWith(`${repositoryPath}\n`)
-  if (current !== null && ofRepository(current)) {
-    return current
-  }
-  for (const key of kept) {
-    if (ofRepository(key)) {
-      return key
-    }
-  }
-  return null
-}

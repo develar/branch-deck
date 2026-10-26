@@ -45,10 +45,6 @@ export const commands = {
 	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_stack_pull_request", { params })),
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>(__TAURI_INVOKE("search_github_users", { params })),
-	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
-	submitPullRequestReview: (params: SubmitPullRequestReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("submit_pull_request_review", { params })),
-	/**  The commit a pull request shows now on GitHub: a Safe Push of a reviewed pull request merges only the approved one */
-	getPullRequestHead: (params: GetPullRequestHeadParams) => typedError<string, ApiError>(__TAURI_INVOKE("get_pull_request_head", { params })),
 	/**  The app's own sign-in and where the token comes from, for Settings */
 	getGithubAuthStatus: () => typedError<GitHubAuthStatus, ApiError>(__TAURI_INVOKE("get_github_auth_status")),
 	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
@@ -161,19 +157,10 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) of a pull request of someone else the user
-	 *  reviewed: the comment whose merge deletes its branch, as a merge on GitHub does. The start of the user's own branch
-	 *  is `execute` of a `Land`, whose engine comments and reads the reply itself. The posted comment; the bot answers with
-	 *  a reaction (`read_patronus_command_reply`)
-	 */
-	postPatronusCommand: (params: PostPatronusCommandParams) => typedError<PatronusCommandComment, ApiError>(__TAURI_INVOKE("post_patronus_command", { params })),
-	/**
 	 *  The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
 	 *  of origin
 	 */
 	getPatronusTargetBranch: (params: GetPatronusTargetBranchParams) => typedError<string | null, ApiError>(__TAURI_INVOKE("get_patronus_target_branch", { params })),
-	/**  How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason */
-	readPatronusCommandReply: (params: ReadPatronusCommandReplyParams) => typedError<PatronusCommandReply, ApiError>(__TAURI_INVOKE("read_patronus_command_reply", { params })),
 	/**
 	 *  The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
 	 *  null when the session is not open, so the window subscribes again
@@ -2510,13 +2497,6 @@ export type GetPatronusTargetBranchParams = {
 	baselineBranch: string,
 };
 
-export type GetPullRequestHeadParams = {
-	repositoryPath: string,
-	/**  `owner/name` when the review requests already resolved it */
-	githubRepository: string | null,
-	pullRequestNumber: number,
-};
-
 /**  Two commits of the repository to diff, `base..head` */
 export type GetRangeParams = {
 	repositoryPath: string,
@@ -2698,9 +2678,10 @@ export type Intent =
 ({ kind: "closeLandedPullRequests"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  A review of the pull request `number` of someone else on the commit the user reviewed, and the Safe Push of it
- *  after an approval (`then_land`)
+ *  after an approval (`then_land`: a `/patronus merge` comment, only while GitHub still shows that commit); no
+ *  verdict: the Safe Push alone, the user approved the commit before
  */
-({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never } | 
+({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never } | 
 /**  The YouTrack issue `key` goes into `state` (Mark Fixed, its undo), while it is in `expected` */
 ({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; comment?: never; commit?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; subject?: never; thenLand?: never; verdict?: never };
 
@@ -3461,7 +3442,11 @@ export type OperationResult =
 /**  Whom a review request asked, and whom GitHub refused with its reason */
 {
 	kind: "reviewers",
-} & RequestedReviewers;
+} & RequestedReviewers | 
+/**  The Safe Push of a reviewed pull request of someone else: its comment and the robot it started */
+{
+	kind: "review",
+} & ReviewResult;
 
 /**  What an operation cost */
 export type OperationStats = {
@@ -3636,27 +3621,6 @@ export type PatronusChecks = {
 	passed: number,
 	canceled: number,
 };
-
-/**  The posted command comment */
-export type PatronusCommandComment = {
-	/**  The GitHub comment id; a string, as it outgrows 32 bits */
-	id: string,
-	url: string,
-};
-
-/**  How Patronus answered a command comment */
-export type PatronusCommandReply = 
-/**  No answer yet */
-{ status: "pending" } | 
-/**  👍: the robot started; it is in the list of robots, linked to the pull request */
-{ status: "accepted" } | 
-/**
- *  👎: the command was not understood or the robot did not start, e.g. a draft pull request or a robot already
- *  running for the branch
- */
-{ status: "rejected"; 
-/**  The text of the bot's `⚠️` comment, null if it is not there yet */
-reason: string | null };
 
 export type PatronusMergeRequest = {
 	/**  e.g. `IJ` */
@@ -3989,7 +3953,12 @@ export type PlannedEffect =
  *  The open pull request `number` of `branch` (a virtual branch, or the root of a whole stack) is closed with
  *  `comment`, which says why (`Intent::ClosePullRequest`, `Intent::CloseLandedPullRequests`)
  */
-{ kind: "closePullRequest"; branch: string; number: number; comment: string };
+{ kind: "closePullRequest"; branch: string; number: number; comment: string } | 
+/**
+ *  The review `verdict` of the user on the commit `commit` of the pull request `number` of someone else
+ *  (`Intent::SubmitReview`)
+ */
+{ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent; commit: string };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -4005,20 +3974,6 @@ export type PlannedGroup = {
 	/**  The virtual branch the target is grouped into; `None` for an unassigned target */
 	branch: string | null,
 	folded: PlannedFixup[],
-};
-
-/**
- *  Starts a robot from a GitHub pull request of someone else the user reviewed: the `/patronus` comment, whose merge
- *  deletes its branch (`PatronusCommandSubject::ReviewedPullRequest`); the start of the user's own branch is
- *  `execute(Land)`
- */
-export type PostPatronusCommandParams = {
-	repositoryPath: string,
-	pullRequestNumber: number,
-	/**  `rebaseAutosquash` (`/patronus merge`) or `dryRun` (`/patronus dry-run`) */
-	mode: PatronusPushMode,
-	/**  `owner/name` of the pull request when the review requests know it; else the mirror of the Space repository */
-	githubRepository?: string | null,
 };
 
 export type PrefetchBranchReviewParams = {
@@ -4294,14 +4249,6 @@ export type PushScope =
 { kind: "upTo"; commit: string } | 
 /**  The unapplied branch of that name, under its own name, so the remote keeps a copy */
 { kind: "unapplied" };
-
-export type ReadPatronusCommandReplyParams = {
-	repositoryPath: string,
-	pullRequestNumber: number,
-	commentId: string,
-	/**  As in `PostPatronusCommandParams` */
-	githubRepository?: string | null,
-};
 
 /**  A commit of the unapplied branch that the reapply put on top of HEAD */
 export type ReappliedCommit = {
@@ -4911,6 +4858,17 @@ export type ReviewRequestsView = {
 	totalCount: number,
 	/**  Unix seconds of the last answer with the requests, 0 = never: how old the rows are after a failure */
 	checkedAt: number,
+};
+
+/**  What the Safe Push of a reviewed pull request answered (`Intent::SubmitReview` with `then_land`) */
+export type ReviewResult = {
+	/**  The `/patronus merge` comment it posted */
+	comment: StartComment | null,
+	/**
+	 *  The robot it started, once the user's robots listed it soon after the reply (Patronus may count it as the
+	 *  author's: then none, and the pull request tells how it goes)
+	 */
+	robot: PatronusRobot | null,
 };
 
 /**  Where the review of a pull request was fetched from */
@@ -5907,17 +5865,6 @@ export type SubjectReadiness = {
 	/**  What Patronus answered; null when it didn't */
 	requirement: PatronusReviewRequirement | null,
 	readiness: ReviewReadiness,
-};
-
-export type SubmitPullRequestReviewParams = {
-	repositoryPath: string,
-	/**  `owner/name` when the review requests already resolved it: skips resolving the repository again */
-	githubRepository: string | null,
-	pullRequestNumber: number,
-	event: PullRequestReviewEvent,
-	/**  The commit the user reviewed: the review is on it, also when the pull request got commits since */
-	commitId: string,
-	body: string | null,
 };
 
 export type SuggestBranchNamesParams = {

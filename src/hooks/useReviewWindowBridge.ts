@@ -4,7 +4,7 @@ import { PULL_REQUEST_REVIEW_WINDOW } from "@/lib/pull-request-review"
 import type { ReviewWindowRequest } from "@/lib/pull-request-review"
 import { broadcastReviewWindowState, runReviewWindowRequest } from "@/lib/pull-request-review-window"
 import { windowLinkEvents } from "@/lib/sub-window-link"
-import { operationsStore } from "@/stores/operations"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { patronusStore } from "@/stores/patronus"
 import { repositoryStore } from "@/stores/repository"
 import { reviewRequestsStore } from "@/stores/review-requests"
@@ -17,7 +17,9 @@ import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
  */
 export function useReviewWindowBridge(): void {
   useEffect(() => {
-    const unsubscribes = [reviewRequestsStore, operationsStore, patronusStore, repositoryStore, repositorySettingsStore].map(store => store.subscribe(broadcastReviewWindowState))
+    const unsubscribes = [reviewRequestsStore, patronusStore, repositoryStore, repositorySettingsStore].map(store => store.subscribe(broadcastReviewWindowState))
+    // the writes that run are operations of the session: only a change of them, not every patch of the table
+    unsubscribes.push(branchSyncStore.subscribe((state, previous) => state.operations !== previous.operations && broadcastReviewWindowState()))
     return () => {
       for (const unsubscribe of unsubscribes) {
         unsubscribe()

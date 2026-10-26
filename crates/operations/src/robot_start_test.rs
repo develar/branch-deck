@@ -1,7 +1,7 @@
-use crate::robot_start::{CommentStart, Commented, RobotsSince, start_by_comment};
+use crate::robot_start::{CommentStart, Commented, RobotWait, RobotsSince, start_by_comment};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::robot;
-use domain_types::patronus::{PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use domain_types::patronus::{PatronusCommandSubject, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake_service};
 use github::service::GitHubService;
 use pretty_assertions::assert_eq;
@@ -34,6 +34,20 @@ async fn github_with_comment(reactions: serde_json::Value) -> (Arc<FakeGitHub>, 
   (fake, service)
 }
 
+/// A Safe Push on #7 by a comment, no robot known before it
+fn start_on_seven<'a>(github: &'a GitHubService, repository: &'a GitHubRepository, subject: PatronusCommandSubject, robot_wait: RobotWait) -> CommentStart<'a> {
+  CommentStart {
+    github,
+    repository_path: "/repository",
+    repository,
+    number: 7,
+    mode: PatronusPushMode::RebaseAutosquash,
+    known: HashSet::new(),
+    subject,
+    robot_wait,
+  }
+}
+
 /// A robot of pull request #7 in `mode`
 fn of_seven(id: &str, mode: PatronusPushMode, start_time: u32) -> PatronusRobot {
   PatronusRobot {
@@ -56,7 +70,8 @@ async fn comment(github: &GitHubService, clock: &TestClock, known: &[&str], robo
     number: 7,
     mode: PatronusPushMode::RebaseAutosquash,
     known: known.iter().map(ToString::to_string).collect::<HashSet<_>>(),
-    until_listed: true,
+    subject: PatronusCommandSubject::OwnBranch,
+    robot_wait: RobotWait::UntilListed,
   };
   let listed = move |_since: u32| -> Read<'_, Result<Vec<PatronusRobot>, ApiError>> {
     let robots = robots.clone();
@@ -125,15 +140,7 @@ async fn an_accepted_comment_looks_for_its_robot_after_the_minute_until_patronus
     let (listed, lists) = (Arc::clone(&listed), Arc::clone(&lists));
     tokio::spawn(async move {
       let repository = repository();
-      let start = CommentStart {
-        github: &github,
-        repository_path: "/repository",
-        repository: &repository,
-        number: 7,
-        mode: PatronusPushMode::RebaseAutosquash,
-        known: HashSet::new(),
-        until_listed: true,
-      };
+      let start = start_on_seven(&github, &repository, PatronusCommandSubject::OwnBranch, RobotWait::UntilListed);
       let since = move |_since: u32| -> Read<'_, Result<Vec<PatronusRobot>, ApiError>> {
         lists.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let robots = listed.lock().unwrap().clone();
@@ -175,4 +182,38 @@ async fn an_accepted_comment_looks_for_its_robot_after_the_minute_until_patronus
   // the ticks of the minute, then one each 15 s for five minutes
   let asked = lists.load(std::sync::atomic::Ordering::SeqCst) - before;
   assert!((20..=45).contains(&asked), "{asked} lists");
+}
+
+/// The Safe Push of a reviewed pull request of someone else comments a plain `/patronus merge` (its branch goes once
+/// merged) and looks for its robot among the user's only for a while after the 👍: Patronus may count it as the
+/// author's, and the start is the 👍 all the same
+#[tokio::test]
+async fn a_reviewed_pull_request_is_merged_plainly_and_its_robot_looked_for_only_a_while_after_the_reply() {
+  let (fake, github) = github_with_comment(json!({"+1": 1, "-1": 0})).await;
+  let lists = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let clock = TestClock::new();
+  let run = tokio::spawn({
+    let (clock, lists) = (clock.clone(), Arc::clone(&lists));
+    async move {
+      let repository = repository();
+      let start = start_on_seven(&github, &repository, PatronusCommandSubject::ReviewedPullRequest, RobotWait::For(Duration::from_secs(10)));
+      let since = move |_since: u32| -> Read<'_, Result<Vec<PatronusRobot>, ApiError>> {
+        lists.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move { Ok(Vec::new()) })
+      };
+      let since: RobotsSince<'_> = &since;
+      start_by_comment(start, &clock, since).await
+    }
+  });
+  while !run.is_finished() {
+    clock.advance(Duration::from_secs(3));
+    for _ in 0..50 {
+      tokio::task::yield_now().await;
+    }
+  }
+  let commented = run.await.unwrap().unwrap();
+  assert_eq!((commented.accepted, commented.robot), (true, None));
+  assert_eq!(fake.requests_to("POST", COMMENTS)[0].json(), json!({"body": "/patronus merge"}));
+  // right after the reply, then each tick of the ten seconds after it
+  assert_eq!(lists.load(std::sync::atomic::Ordering::SeqCst), 4);
 }

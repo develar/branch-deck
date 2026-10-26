@@ -9,7 +9,6 @@ import type {
   LandingRefusal,
   PatronusAvailability,
   PatronusPart,
-  PatronusPushMode,
   PatronusRobot,
   PatronusStartOptions,
   PatronusView,
@@ -23,7 +22,6 @@ import type {
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { commandFailure, getErrorDetails, notifyError } from "@/lib/errors"
-import { storeKeyOf } from "@/lib/git/vcs-request"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
@@ -47,16 +45,6 @@ import { getStackPullRequest, refreshPullRequests } from "@/stores/pull-requests
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
-
-/**
- * A robot a `/patronus` comment started may have started this long before the comment was posted (the clocks of the
- * app and of Patronus differ)
- */
-const COMMENT_ROBOT_SLACK_MS = 120_000
-/** After a `/patronus` comment, how often the bot's reaction and the robot are asked for */
-export const COMMAND_REPLY_INTERVAL_MS = 3_000
-/** How long a `/patronus` comment waits for the bot to start the robot */
-export const COMMAND_REPLY_TIMEOUT_MS = 60_000
 
 /**
  * The robots of one repository and branch prefix, as the session of the repository listed and polled them
@@ -1055,11 +1043,6 @@ export function patronusRequest(): VcsRequest {
   return { repositoryPath }
 }
 
-/** The key the robots of `repositoryPath` are stored under (`storeKeyOf`); null for one whose robots were never read */
-function robotsKeyOf(repositoryPath: string): string | null {
-  return storeKeyOf(repositoryPath, currentKey(), Object.keys(patronusStore.getState().repositories))
-}
-
 /** Patronus answers for the selected repository (it is on Space): the start actions are offered */
 export function usePatronusAvailable(): boolean {
   const key = useRepositoryKey()
@@ -1171,105 +1154,6 @@ export function upsertPatronusRobot(robot: PatronusRobot, key: string | null = c
   if (key !== null) {
     storeRobot(key, robot)
   }
-}
-
-/** After the 👍 on a pull request of someone else, its robot is looked for this long: it may not be the user's */
-export const REVIEWED_ROBOT_WAIT_MS = 10_000
-
-/**
- * Starts a Safe Push of a pull request of someone else the user reviewed (`/patronus merge`, which deletes its branch
- * once merged), in `githubRepository` (`owner/name`). The 👍 of the bot is the start; the robot is returned if the
- * user's robots list it soon after (Patronus may count it as the author's), else null. 👎 throws its reason. The start
- * of the user's own branch is `execute` of a `Land`, whose engine comments and reads the reply itself.
- */
-export async function startPatronusFromReviewedPullRequest(pullRequestNumber: number, githubRepository: string | null): Promise<PatronusRobot | null> {
-  return askPatronusOnPullRequest(pullRequestNumber, "rebaseAutosquash", githubRepository, REVIEWED_ROBOT_WAIT_MS)
-}
-
-/**
- * The robot a `/patronus` comment on pull request `pullRequestNumber` started in `mode`, as `bd safe-push` matches it:
- * of that pull request, a dry run for a dry run and a Safe Push for a Safe Push, started since shortly before the
- * comment, and none of `known` (the robots listed before the comment); the newest of them
- */
-export function findCommentRobot(
-  robots: Readonly<Record<string, PatronusRobot>>,
-  pullRequestNumber: number,
-  mode: PatronusPushMode,
-  postedAt: number,
-  known: ReadonlySet<string>,
-): PatronusRobot | undefined {
-  let found: PatronusRobot | undefined
-  for (const robot of Object.values(robots)) {
-    const matches =
-      robot.pullRequest?.number === pullRequestNumber &&
-      (robot.pushMode === "dryRun") === (mode === "dryRun") &&
-      robot.startTime * 1000 >= postedAt - COMMENT_ROBOT_SLACK_MS &&
-      !known.has(robot.id)
-    if (matches && (found === undefined || robot.startTime > found.startTime)) {
-      found = robot
-    }
-  }
-  return found
-}
-
-/**
- * Posts the command, waits up to a minute from the comment for the reaction of the bot (👎 throws its reason, no
- * answer throws), then, within that minute and for up to `robotWait` after the 👍, asks the session to list the robots
- * (`refresh_facts`, `afterWrite`) for the one it started (`findCommentRobot`): returned, polled by the session while it
- * runs; null when none came
- */
-async function askPatronusOnPullRequest(pullRequestNumber: number, mode: PatronusPushMode, githubRepository: string | null, robotWait: number): Promise<PatronusRobot | null> {
-  // the repository the start was asked in: the answer of the bot applies there, also after a switch
-  const { repositoryPath } = patronusRequest()
-  const key = robotsKeyOf(repositoryPath)
-  const known = new Set(Object.keys((key === null ? undefined : patronusStore.getState().repositories[key])?.robots ?? {}))
-  const posted = await commands.postPatronusCommand({ repositoryPath, pullRequestNumber, mode, githubRepository })
-  if (posted.status === "error") {
-    throw commandFailure(posted.error)
-  }
-  // the minute of the bot counts from the comment
-  const postedAt = Date.now()
-  const replyParams = { repositoryPath, pullRequestNumber, commentId: posted.data.id, githubRepository }
-  // the session lists the robots started since shortly before its last list, and once more after a list in flight
-  const lookUp = async (): Promise<PatronusRobot | undefined> => {
-    if (key === null) {
-      return undefined
-    }
-    await refreshSessionFacts(repositoryPath, "robots", "afterWrite")
-    return findCommentRobot(patronusStore.getState().repositories[key]?.robots ?? {}, pullRequestNumber, mode, postedAt, known)
-  }
-  let acceptedAt: number | null = null
-  let rejectedOnce = false
-  const deadline = () => Math.min(postedAt + COMMAND_REPLY_TIMEOUT_MS, acceptedAt === null ? Number.POSITIVE_INFINITY : acceptedAt + robotWait)
-  while (Date.now() < deadline()) {
-    await new Promise(resolve => setTimeout(resolve, COMMAND_REPLY_INTERVAL_MS))
-    if (acceptedAt === null) {
-      const reply = await commands.readPatronusCommandReply(replyParams)
-      if (reply.status === "error") {
-        throw commandFailure(reply.error)
-      }
-      if (reply.data.status === "rejected") {
-        // the bot reacts first and comments right after: one more look for the reason
-        if (reply.data.reason !== null || rejectedOnce) {
-          throw new Error(reply.data.reason ?? "Patronus did not start the robot")
-        }
-        rejectedOnce = true
-        continue
-      }
-      if (reply.data.status !== "accepted") {
-        continue
-      }
-      acceptedAt = Date.now()
-    }
-    const robot = await lookUp()
-    if (robot !== undefined) {
-      return robot
-    }
-  }
-  if (acceptedAt === null) {
-    throw new Error(`Patronus did not answer the comment within a minute: see pull request #${pullRequestNumber}`)
-  }
-  return null
 }
 
 /**

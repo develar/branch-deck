@@ -5,7 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer, skipCommandReplyWait } from "../helpers/pull-request-helpers"
+import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import {
   NOW,
   availableReviewRequests,
@@ -21,7 +21,6 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -469,7 +468,8 @@ test.describe("Review window", () => {
 
   test("should keep the window while a write runs, and tell its result in the main window once the window closed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
-    const answer = await holdCommand(page, "submit_pull_request_review")
+    // GitHub holds the review: the write runs
+    await repo.holdRemoteAnswers({ hold: ["submitReview"] })
     const { window: reviewPage, review } = await openReviewWindow(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await reviewPage.keyboard.press("a")
@@ -480,7 +480,8 @@ test.describe("Review window", () => {
 
     // the window went meanwhile: the main window says how it went
     await emitTauriEvent(page, "tauri://destroyed", null, "pull-request-review")
-    answer()
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("submitReview")
+    await repo.holdRemoteAnswers({ release: ["submitReview"] })
     await expect(reviewToast(page, "Approved #101")).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
   })
@@ -597,10 +598,10 @@ test.describe("Review window", () => {
     await expect(form.getByTestId("review-safe-push-start")).toBeFocused()
     expect(await gitHubRequests(repo, "POST", "pulls", "*", "reviews")).toEqual([])
     await reviewPage.keyboard.press("Enter")
-    await skipCommandReplyWait(page, repo)
+    // the bot's 👍 is the start: the engine looks for its robot among the user's for 10 s of the session's clock
     await expect
       .poll(async () => {
-        await page.clock.fastForward(3000)
+        await repo.advanceBackendClock(3000)
         return reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" }).count()
       })
       .toBe(1)
@@ -633,7 +634,6 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await reviewPage.keyboard.press("m")
     await reviewPage.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start").click()
-    await skipCommandReplyWait(page, repo)
     await expect(reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
 
     // the header of the main window lists it by the pull request, without a row to show

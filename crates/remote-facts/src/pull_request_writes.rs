@@ -17,30 +17,6 @@ use serde::de::IgnoredAny;
 use sync_core::github_repository::GitHubRepository;
 use tracing::instrument;
 
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct SubmitPullRequestReviewParams {
-  pub repository_path: String,
-  /// `owner/name` when the review requests already resolved it: skips resolving the repository again
-  pub github_repository: Option<String>,
-  pub pull_request_number: u32,
-  pub event: PullRequestReviewEvent,
-  /// The commit the user reviewed: the review is on it, also when the pull request got commits since
-  pub commit_id: String,
-  pub body: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetPullRequestHeadParams {
-  pub repository_path: String,
-  /// `owner/name` when the review requests already resolved it
-  pub github_repository: Option<String>,
-  pub pull_request_number: u32,
-}
-
 /// Changes the base of pull request `number`
 #[instrument(skip(github))]
 pub async fn retarget_pull_request(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, number: u32, base: &str) -> Result<(), GitHubWriteError> {

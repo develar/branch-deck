@@ -70,19 +70,6 @@ export async function stepSessionClockUntil(repo: { advanceBackendClock(ms: numb
     .toBe(true)
 }
 
-/**
- * Runs the fake clock over the page's wait before it reads the reply of the Patronus bot to its comment on a pull
- * request of someone else (`COMMAND_REPLY_INTERVAL_MS`, 3 s) until it read it from the fake GitHub
- */
-export async function skipCommandReplyWait(page: Page, repo: { getGitHubLog(): Promise<GitHubLog> }): Promise<void> {
-  await expect
-    .poll(async () => {
-      await page.clock.fastForward(3000)
-      return (await gitHubRequests(repo, "GET", "issues", "comments", "*")).length
-    })
-    .toBeGreaterThan(0)
-}
-
 /** The writes of a log (every request but a GET and a GraphQL query), as `[method, path, body]` */
 export function gitHubWrites(log: GitHubLog): [string, string, unknown][] {
   return log.requests.filter(it => it.method !== "GET" && it.path !== "/graphql").map(it => [it.method, it.path, it.body])

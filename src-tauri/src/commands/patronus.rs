@@ -1,6 +1,5 @@
 use crate::commands::branch_prefix::PrefixInputs;
-use crate::commands::github::{GitHubState, app_user_agent};
-use crate::commands::pull_requests::github_repository;
+use crate::commands::github::app_user_agent;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use app_api::api_error::patronus_error;
@@ -8,10 +7,7 @@ use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
-use domain_types::patronus::{
-  GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PostPatronusCommandParams,
-  ReadPatronusCommandReplyParams,
-};
+use domain_types::patronus::{GetPatronusTargetBranchParams, PatronusAvailability};
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -202,62 +198,6 @@ pub async fn get_robot_commit_map(
     .map(Option::unwrap_or_default)
   })
   .await
-}
-
-/// Starts a Safe Push (`/patronus merge`) or a Dry Run (`/patronus dry-run`) of a pull request of someone else the user
-/// reviewed: the comment whose merge deletes its branch, as a merge on GitHub does. The start of the user's own branch
-/// is `execute` of a `Land`, whose engine comments and reads the reply itself. The posted comment; the bot answers with
-/// a reaction (`read_patronus_command_reply`)
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
-#[specta::specta]
-pub async fn post_patronus_command(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  github: State<'_, GitHubState>,
-  params: PostPatronusCommandParams,
-) -> Result<PatronusCommandComment, ApiError> {
-  operation(async move {
-    let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
-      .await?
-      .ok_or_else(unknown_github_repository)?;
-    remote_facts::patronus_command::post_patronus_command(
-      &github.service,
-      &params.repository_path,
-      &repository,
-      params.pull_request_number,
-      params.mode,
-      PatronusCommandSubject::ReviewedPullRequest,
-    )
-    .await
-    .map_err(|e| ApiError::internal(e.to_string()))
-  })
-  .await
-}
-
-/// How Patronus answered the command comment: pending, accepted (the robot started) or rejected with the reason
-#[tauri::command]
-#[instrument(skip(git_executor, repository_state, github))]
-#[specta::specta]
-pub async fn read_patronus_command_reply(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  github: State<'_, GitHubState>,
-  params: ReadPatronusCommandReplyParams,
-) -> Result<PatronusCommandReply, ApiError> {
-  operation(async move {
-    let repository = github_repository(&git_executor, &repository_state, &params.repository_path, params.github_repository.as_deref())
-      .await?
-      .ok_or_else(unknown_github_repository)?;
-    remote_facts::patronus_command::read_patronus_command_reply(&github.service, &params.repository_path, &repository, params.pull_request_number, &params.comment_id)
-      .await
-      .map_err(|e| ApiError::internal(e.to_string()))
-  })
-  .await
-}
-
-fn unknown_github_repository() -> ApiError {
-  ApiError::internal(remote_facts::patronus_command::UNKNOWN_GITHUB_REPOSITORY_MESSAGE)
 }
 
 /// The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch

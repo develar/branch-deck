@@ -96,10 +96,23 @@ pub struct CommentStart<'a> {
   /// The robots known before the comment (those that had finished when listed before it, and the one the start
   /// canceled): never its robot
   pub known: HashSet<String>,
-  /// The robot is looked for each tick until it is listed, `PATRONUS_COMMENT_ROBOT_WAIT` past the minute of the reply
-  /// at most (the app, whose start holds its subject meanwhile and whose session shows the robot at once); else once,
-  /// right after the bot accepted (`bd`, which says the robot isn't listed yet)
-  pub until_listed: bool,
+  /// The pull request is the user's own branch (its source branch stays once merged) or a reviewed one of someone else
+  pub subject: PatronusCommandSubject,
+  /// How long the robot is looked for once the bot accepted
+  pub robot_wait: RobotWait,
+}
+
+/// How long the robot of an accepted comment is looked for
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RobotWait {
+  /// Once, right after the bot accepted (`bd`, which says the robot isn't listed yet)
+  Once,
+  /// Each tick for this long after the bot accepted, within the minute of the reply (a reviewed pull request of someone
+  /// else, whose robot may be the author's: `PATRONUS_REVIEWED_ROBOT_WAIT`)
+  For(std::time::Duration),
+  /// Each tick until it is listed, `PATRONUS_COMMENT_ROBOT_WAIT` past the minute of the reply at most (the app, whose
+  /// start holds its subject meanwhile and whose session shows the robot at once)
+  UntilListed,
 }
 
 /// A comment the bot accepted, or one it didn't answer within the wait
@@ -117,9 +130,10 @@ pub struct Commented {
 /// The robots of the user started since a time (Unix seconds), asked now: where the robot of a comment is looked for
 pub type RobotsSince<'a> = &'a (dyn Fn(u32) -> Read<'a, Result<Vec<PatronusRobot>, ApiError>> + Send + Sync);
 
-/// Posts `/patronus merge --keep-source-branch` (or `dry-run`) on the pull request, reads the reply of the bot on
-/// `clock` until it accepted or `PATRONUS_COMMENT_REPLY_TIMEOUT` passed, and looks for the robot it started in what
-/// `robots_since` lists, each tick until the same deadline, and with `until_listed` every
+/// Posts `/patronus merge --keep-source-branch` (or `dry-run`; `/patronus merge` on a reviewed pull request of someone
+/// else) on the pull request, reads the reply of the bot on `clock` until it accepted or
+/// `PATRONUS_COMMENT_REPLY_TIMEOUT` passed, and looks for the robot it started in what `robots_since` lists, as
+/// `robot_wait` says: once, each tick for a while after the reply, or each tick until the same deadline and every
 /// `PATRONUS_COMMENT_ROBOT_INTERVAL` after it for `PATRONUS_COMMENT_ROBOT_WAIT` more
 ///
 /// # Errors
@@ -127,18 +141,13 @@ pub type RobotsSince<'a> = &'a (dyn Fn(u32) -> Read<'a, Result<Vec<PatronusRobot
 /// reason), a list of the robots that failed
 #[instrument(skip_all, fields(number = start.number, mode = ?start.mode))]
 pub async fn start_by_comment(start: CommentStart<'_>, clock: &dyn Clock, robots_since: RobotsSince<'_>) -> Result<Commented, ApiError> {
-  let comment = post_patronus_command(
-    start.github,
-    start.repository_path,
-    start.repository,
-    start.number,
-    start.mode,
-    PatronusCommandSubject::OwnBranch,
-  )
-  .await
-  .map_err(github_failure)?;
+  let comment = post_patronus_command(start.github, start.repository_path, start.repository, start.number, start.mode, start.subject)
+    .await
+    .map_err(github_failure)?;
   let posted_at = unix_now();
   let deadline = clock.now() + PATRONUS_COMMENT_REPLY_TIMEOUT;
+  // a wait of a while after the reply ends at the reply plus the wait, within the minute
+  let mut accepted_until = None;
   let mut commented = Commented {
     number: start.number,
     comment_url: comment.url,
@@ -153,7 +162,12 @@ pub async fn start_by_comment(start: CommentStart<'_>, clock: &dyn Clock, robots
         .await
         .map_err(github_failure)?
       {
-        PatronusCommandReply::Accepted => commented.accepted = true,
+        PatronusCommandReply::Accepted => {
+          commented.accepted = true;
+          if let RobotWait::For(wait) = start.robot_wait {
+            accepted_until = Some((clock.now() + wait).min(deadline));
+          }
+        }
         PatronusCommandReply::Rejected { reason } if reason.is_some() || rejected_once => return Err(rejected(start.number, reason)),
         PatronusCommandReply::Rejected { .. } => rejected_once = true,
         PatronusCommandReply::Pending => {}
@@ -162,15 +176,15 @@ pub async fn start_by_comment(start: CommentStart<'_>, clock: &dyn Clock, robots
     if commented.accepted {
       let robots = robots_since(posted_at.saturating_sub(PATRONUS_COMMENT_CLOCK_SLACK)).await?;
       commented.robot = comment_robot(robots, start.number, start.mode, &start.known);
-      if commented.robot.is_some() || !start.until_listed {
+      if commented.robot.is_some() || start.robot_wait == RobotWait::Once {
         return Ok(commented);
       }
     }
     let now = clock.now();
     let next = now + PATRONUS_COMMENT_REPLY_INTERVAL;
-    let next = if next <= deadline {
+    let next = if next <= accepted_until.unwrap_or(deadline) {
       next
-    } else if commented.accepted && start.until_listed && now + PATRONUS_COMMENT_ROBOT_INTERVAL <= deadline + PATRONUS_COMMENT_ROBOT_WAIT {
+    } else if commented.accepted && start.robot_wait == RobotWait::UntilListed && now + PATRONUS_COMMENT_ROBOT_INTERVAL <= deadline + PATRONUS_COMMENT_ROBOT_WAIT {
       // accepted, the robot not listed within the minute: looked for less often, while the start holds its subject
       now + PATRONUS_COMMENT_ROBOT_INTERVAL
     } else {

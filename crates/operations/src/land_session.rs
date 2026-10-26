@@ -202,13 +202,7 @@ impl StartHost for SessionStart {
       let Some(patronus) = &self.patronus else {
         return Err(ApiError::new(ErrorCode::NotOnSpace, "The repository is not on Space"));
       };
-      let result = patronus.robots(&self.space, &self.key.prefix, Some(since), false, self.new_api).await;
-      match result.availability {
-        PatronusAvailability::Available => Ok(result.robots),
-        PatronusAvailability::Error { message } => Err(ApiError::new(ErrorCode::PatronusError, message)),
-        PatronusAvailability::NotLoggedIn => Err(ApiError::new(ErrorCode::NotLoggedIn, "Patronus rejected the Space token")),
-        PatronusAvailability::NotPatronus => Err(ApiError::new(ErrorCode::NotOnSpace, "The repository is not on Space")),
-      }
+      robots_since(patronus, &self.space, &self.key.prefix, self.new_api, since).await
     })
   }
 
@@ -248,6 +242,21 @@ impl StartHost for SessionStart {
       ErrorCode::InvalidArguments,
       "A start of the app opens no pull request: Create Pull Request opens it",
     ))))
+  }
+}
+
+/// The robots of the user in the Space repository `space` started since `since` (Unix seconds), asked now: where the
+/// robot of a `/patronus` comment is looked for
+///
+/// # Errors
+/// What Patronus answered instead: an error, a token it rejected, a repository not on Space
+pub(crate) async fn robots_since(patronus: &PatronusService, space: &str, prefix: &str, new_api: bool, since: u32) -> Result<Vec<PatronusRobot>, ApiError> {
+  let result = patronus.robots(space, prefix, Some(since), false, new_api).await;
+  match result.availability {
+    PatronusAvailability::Available => Ok(result.robots),
+    PatronusAvailability::Error { message } => Err(ApiError::new(ErrorCode::PatronusError, message)),
+    PatronusAvailability::NotLoggedIn => Err(ApiError::new(ErrorCode::NotLoggedIn, "Patronus rejected the Space token")),
+    PatronusAvailability::NotPatronus => Err(ApiError::new(ErrorCode::NotOnSpace, "The repository is not on Space")),
   }
 }
 

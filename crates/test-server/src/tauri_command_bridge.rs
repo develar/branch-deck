@@ -12,10 +12,7 @@ use axum::{
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
-use domain_types::patronus::{
-  GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobotsResult, PostPatronusCommandParams,
-  ReadPatronusCommandReplyParams,
-};
+use domain_types::patronus::{GetPatronusTargetBranchParams, PatronusAvailability, PatronusRobotsResult};
 use domain_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest};
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
@@ -33,11 +30,7 @@ use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::reword::{RewordRequest, reword_request_core};
 use object_cache::cache::ObjectCache;
-use remote_facts::patronus_command::{
-  UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
-};
 use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
-use remote_facts::pull_request_writes::{GetPullRequestHeadParams, read_pull_request_head};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_model::session::SessionKey;
@@ -877,34 +870,6 @@ pub async fn sign_out_of_github(State(state): State<Arc<AppState>>, headers: Hea
   signed_out.map(Json).map_err(|e| failed("sign out of GitHub", e))
 }
 
-/// The commit a pull request shows now on GitHub, as the app reads it
-pub async fn get_pull_request_head(State(state): State<Arc<AppState>>, Json(params): Json<GetPullRequestHeadParams>) -> CommandResult<String> {
-  let operation = "read the head of the pull request";
-  let (host, repository) = required_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
-  let head = read_pull_request_head(&host.github_service(), &params.repository_path, &repository, params.pull_request_number).await;
-  head.map(Json).map_err(|e| failed(operation, e.to_string()))
-}
-
-/// Submits the user's review of a pull request, as the app does: the fake GitHub records it
-pub async fn submit_pull_request_review(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<remote_facts::pull_request_writes::SubmitPullRequestReviewParams>,
-) -> CommandResult<()> {
-  let operation = "submit the review";
-  let (host, repository) = required_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
-  let review = remote_facts::pull_request_writes::submit_pull_request_review(
-    &host.github_service(),
-    &params.repository_path,
-    &repository,
-    params.pull_request_number,
-    params.event,
-    &params.commit_id,
-    params.body.as_deref(),
-  )
-  .await;
-  review.map(Json).map_err(|e| failed(operation, e.to_string()))
-}
-
 /// The text a new pull request starts with and the user of the token, as the app reads them: the issue summaries
 /// from the YouTrack of the repository, when the issue links name it and the app is signed in
 pub async fn get_new_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<GetNewPullRequestParams>) -> CommandResult<NewPullRequest> {
@@ -1211,40 +1176,6 @@ pub(crate) fn rejected(rejection: Rejection) -> ApiError {
   match rejection {
     Rejection::Error(error) => error,
     Rejection::Panicked => ApiError::internal("The test server failed"),
-  }
-}
-
-/// Starts a Safe Push or a Dry Run of a pull request of someone else from its comment, as the app does: the fake GitHub
-/// posts it and its Patronus bot answers (`POST /repositories/{id}/patronus-replies`); the user's own branch starts
-/// through `execute`
-pub async fn post_patronus_command(State(state): State<Arc<AppState>>, Json(params): Json<PostPatronusCommandParams>) -> CommandResult<PatronusCommandComment> {
-  let operation = "post the Patronus command";
-  let (host, repository) = commented_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
-  let posted = core_post_patronus_command(
-    &host.github_service(),
-    &params.repository_path,
-    &repository,
-    params.pull_request_number,
-    params.mode,
-    PatronusCommandSubject::ReviewedPullRequest,
-  )
-  .await;
-  posted.map(Json).map_err(|e| failed(operation, e.to_string()))
-}
-
-/// How the bot answered the command comment, as the app reads it
-pub async fn read_patronus_command_reply(State(state): State<Arc<AppState>>, Json(params): Json<ReadPatronusCommandReplyParams>) -> CommandResult<PatronusCommandReply> {
-  let operation = "read the reply of Patronus";
-  let (host, repository) = commented_github_of(&state, &params.repository_path, params.github_repository.as_deref(), operation).await?;
-  let reply = core_read_patronus_command_reply(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.comment_id).await;
-  reply.map(Json).map_err(|e| failed(operation, e.to_string()))
-}
-
-/// `github_of` for a `/patronus` comment: none fails as the app fails it
-async fn commented_github_of(state: &AppState, path: &str, known: Option<&str>, operation: &str) -> Result<(Arc<RemoteHost>, GitHubRepository), Rejection> {
-  match github_of(state, path, known).await? {
-    (host, Some(repository)) => Ok((host, repository)),
-    (_, None) => Err(failed(operation, UNKNOWN_GITHUB_REPOSITORY_MESSAGE)),
   }
 }
 

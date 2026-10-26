@@ -8,6 +8,7 @@
 
 use crate::error::ApiError;
 use crate::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot};
+use crate::pull_request::PullRequestReviewEvent;
 use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
@@ -412,6 +413,9 @@ pub enum PlannedEffect {
   /// The open pull request `number` of `branch` (a virtual branch, or the root of a whole stack) is closed with
   /// `comment`, which says why (`Intent::ClosePullRequest`, `Intent::CloseLandedPullRequests`)
   ClosePullRequest { branch: String, number: u32, comment: String },
+  /// The review `verdict` of the user on the commit `commit` of the pull request `number` of someone else
+  /// (`Intent::SubmitReview`)
+  SubmitReview { number: u32, verdict: PullRequestReviewEvent, commit: String },
 }
 
 impl PlannedEffect {

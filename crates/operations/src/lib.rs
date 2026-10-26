@@ -37,6 +37,8 @@
 //!   subject and a review request of its open one, each with the push it needs first
 //! - `close`: the closes of pull requests: the one the user asks with its reason, and those of the pull requests a merged
 //!   robot landed with it (D7), each with its comment, one GitHub refuses stopping none of the others
+//! - `review`: the review of a pull request of someone else and its Safe Push: the `/patronus merge` comment while
+//!   GitHub shows the approved commit, its robot looked for a while after the reply
 //! - `witness`: what a plan was prepared on (`Witness`, its `Fingerprint`): the tips of the refs it moves and leases
 //!   from one `for-each-ref`, the pull requests and the robots it reads, and the check before the first effect
 //!   (`plan_changed`)
@@ -52,6 +54,7 @@ pub mod needs;
 pub mod pull_request;
 pub mod push;
 pub mod registry;
+pub mod review;
 pub mod robot;
 pub mod robot_start;
 pub mod witness;
