@@ -46,7 +46,7 @@ use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
-use domain_policy::push::{HeadedStack, Kept, PushState, branch_push};
+use domain_policy::push::{HeadedStack, Kept, PushState, StartAncestor, StartPush, branch_push, kept, start_push};
 use domain_policy::readiness::wanted;
 use domain_policy::reasons::stack_not_built;
 use domain_policy::review::candidates;
@@ -145,23 +145,13 @@ pub(crate) fn push_view(parts: &TableParts, patronus: &PatronusView, pull_reques
   let facts = PushFacts {
     parts,
     patronus,
-    fully_landed: parts
-      .sections
-      .landed
-      .landing
-      .iter()
-      .filter(|branch| branch.remaining == 0)
-      .filter_map(|branch| branch.name.as_deref())
-      .collect(),
+    fully_landed: fully_landed(&parts.sections.landed),
   };
   let facts = &facts;
-  let held = |name: &str| facts.state(name, None);
+  let held = |name: &str| facts.state(name);
   repo
     .order()
     .filter_map(|name| {
-      // the robot a Safe Push start replaces: the start cancels it, and pushes what it held
-      let replaces = patronus.branches.get(name).and_then(|facts| facts.landing.replaces.as_deref());
-      let start = replaces.map(|replaces| move |branch: &str| facts.state(branch, Some(replaces)));
       let stack = parts.stacks.get(name).map(|stack| HeadedStack {
         stack,
         pull_request_open: pull_requests
@@ -170,7 +160,7 @@ pub(crate) fn push_view(parts: &TableParts, patronus: &PatronusView, pull_reques
           .is_some_and(|pull_request| pull_request.state == PullRequestState::Open),
         hold: patronus.stacks.get(name).and_then(|facts| facts.landing.hold.as_ref()),
       });
-      let push = branch_push(&repo, held, start.as_ref().map(|start| start as &dyn Fn(&str) -> PushState), stack, name);
+      let push = branch_push(&repo, held, stack, name);
       (push != BranchPush::default()).then(|| (name.to_string(), push))
     })
     .collect()
@@ -224,28 +214,33 @@ struct PushFacts<'a> {
 }
 
 impl PushFacts<'_> {
-  /// The state of `name` for a push; `replaces`: the robot the push cancels, which holds nothing then
-  fn state(&self, name: &str, replaces: Option<&str>) -> PushState {
+  /// The state of `name` for a push, with the hold of every running robot
+  fn state(&self, name: &str) -> PushState {
     let Some(branch) = self.parts.branches.get(name) else {
       return PushState::default();
     };
     let hold = self.patronus.branches.get(name).and_then(|facts| facts.landing.hold.as_ref());
-    let kept = if branch.structure.parked.is_some() {
-      Some(Kept::Parked)
-    } else if hold.is_some_and(|hold| hold.kind == HoldKind::Landed) || self.fully_landed.contains(name) {
-      Some(Kept::Landed)
-    } else if hold.is_some_and(|hold| Some(hold.by.robot_id.as_str()) != replaces) {
-      Some(Kept::Held)
-    } else if branch.sync.status == BranchStatus::Blocked || branch.sync.has_error {
-      Some(Kept::NotBuilt)
-    } else {
-      None
-    };
     PushState {
       action: branch.remote.status.as_ref().map(|status| status.action),
-      kept,
+      kept: kept(
+        branch.structure.parked.is_some(),
+        self.fully_landed.contains(name),
+        hold,
+        None,
+        branch.sync.status == BranchStatus::Blocked || branch.sync.has_error,
+      ),
     }
   }
+}
+
+/// The branches of the landing report `baseline` the fetched baseline has whole
+fn fully_landed(baseline: &LandedSection) -> HashSet<&str> {
+  baseline
+    .landing
+    .iter()
+    .filter(|branch| branch.remaining == 0)
+    .filter_map(|branch| branch.name.as_deref())
+    .collect()
 }
 
 /// What the rules read of a table and its Patronus facts: the robots by id, the holds of the branches
@@ -323,17 +318,41 @@ impl<'a> LandingFacts<'a> {
     ancestors
   }
 
-  /// What a start of `name` pushes: the branch, and the ancestors with work up to the first held one, which its robot
-  /// lands; a remote not compared yet pushes nothing known
+  /// What keeps `name` out of the push of a start (`push::kept`): `replaces` the robot the start cancels, `in_baseline`
+  /// the branches the fetched baseline has whole
+  fn kept_from_start(&self, name: &str, replaces: Option<&str>, in_baseline: &HashSet<&str>) -> Option<Kept> {
+    kept(
+      false,
+      self.landed_whole(name).is_some() || in_baseline.contains(name),
+      self.holds.get(name),
+      replaces,
+      self.table.not_built.contains_key(name),
+    )
+  }
+
+  /// What a start of `name` pushes (`push::start_push`), over the holds of every robot but `replaces`, the robot the
+  /// start cancels; `in_baseline` the branches the fetched baseline has whole
+  fn start_push(&self, name: &'a str, replaces: Option<&str>, in_baseline: &HashSet<&str>) -> StartPush<'a> {
+    start_push(
+      name,
+      self.remote_of(name),
+      self.ancestors_nearest_first(name).into_iter().map(|ancestor| StartAncestor {
+        name: ancestor,
+        kept: self.kept_from_start(ancestor, replaces, in_baseline),
+        remote: self.remote_of(ancestor),
+      }),
+    )
+  }
+
+  /// Whether a start of `name` pushes (`push::start_push`) over the holds of every robot: only the refusal of a Dry Run
+  /// reads it (D15), and a Dry Run replaces none. A remote not compared yet pushes nothing known; a view knows no
+  /// landing report, so an ancestor the fetched baseline has whole counts by its remote
   #[must_use]
   pub fn start_pushes(&self, name: &str) -> bool {
-    let has_work = |branch: &str| self.remote_of(branch).is_some_and(|remote| !remote.up_to_date);
-    has_work(name)
-      || self
-        .ancestors_nearest_first(name)
-        .into_iter()
-        .take_while(|ancestor| !self.holds.contains_key(ancestor))
-        .any(has_work)
+    self
+      .table
+      .branch(name)
+      .is_some_and(|branch| !self.start_push(&branch.name, None, &HashSet::new()).branches.is_empty())
   }
 
   /// The input of a start of `name`; `pushes` whether it pushes (`start_pushes`, or what `bd` pushes)
@@ -407,13 +426,19 @@ impl<'a> LandingFacts<'a> {
   fn branch_landing(&self, name: &'a str) -> BranchLanding {
     let start = Start::Branch(self.branch_start(name, self.start_pushes(name)));
     let replaces = self.replaces(name).map(str::to_string);
-    // the push of an action replaces what a Safe Push start replaces: its robot lands the ancestors it holds no longer
-    let held = |ancestor: &str| self.holds.get(ancestor).is_some_and(|hold| Some(hold.by.robot_id.as_str()) != replaces.as_deref());
-    let chain = std::iter::once(name).chain(self.ancestors_nearest_first(name)).map(|branch| PushStep {
+    // the push of an action replaces what a Safe Push start replaces: its robot lands the ancestors it holds no longer;
+    // one that landed is left as it is, as a start leaves it (`push::start_push`)
+    let none = HashSet::new();
+    let ancestors = self
+      .ancestors_nearest_first(name)
+      .into_iter()
+      .map(|ancestor| (ancestor, self.kept_from_start(ancestor, replaces.as_deref(), &none)))
+      .filter(|(_, kept)| *kept != Some(Kept::Landed));
+    let chain = std::iter::once((name, None)).chain(ancestors).map(|(branch, kept)| PushStep {
       name: branch,
       not_built: self.table.not_built.get(branch).copied(),
       remote: self.remote_of(branch),
-      held: held(branch),
+      held: kept == Some(Kept::Held),
     });
     BranchLanding {
       hold: self.holds.get(name).cloned(),
@@ -449,15 +474,17 @@ impl<'a> LandingFacts<'a> {
   pub fn branch_subject(&self, name: &str, pull_requests: Option<&PullRequestsView>, baseline: &LandedSection) -> Option<BranchSubject<'_>> {
     let name = self.table.branch(name)?.name.as_str();
     let replaces = self.replaces(name);
-    let held = |branch: &str| self.holds.get(branch).is_some_and(|hold| Some(hold.by.robot_id.as_str()) != replaces);
+    let in_baseline = fully_landed(baseline);
     let chain = build_ancestors(&self.repo, name)
       .into_iter()
       .chain(std::iter::once(name))
       .map(|branch| LandsBranch {
         name: branch,
         landed_whole: self.landed_whole(branch).is_some(),
+        in_baseline: in_baseline.contains(branch),
         remote: self.remote_of(branch),
-        held: held(branch),
+        hold: self.holds.get(branch),
+        not_built: self.table.not_built.contains_key(branch),
       })
       .collect();
     let whole_stack_pull_request = self

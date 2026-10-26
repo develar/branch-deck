@@ -39,8 +39,8 @@ vi.mock("@/lib/target-conflict", () => ({
   },
 }))
 vi.mock("@/lib/git/push", () => ({
-  pushForAction: async (branchName: string, options: { repositoryPath?: string }) => {
-    calls.push(`push ${branchName} in ${options.repositoryPath}`)
+  pushForAction: async (branchName: string, options: { repositoryPath?: string; branches?: readonly string[] }) => {
+    calls.push(`push ${branchName} in ${options.repositoryPath}${options.branches?.join(",") === branchName ? "" : `: ${options.branches?.join(", ")}`}`)
     await pushGate.current
     return { pushed: true }
   },
@@ -179,6 +179,13 @@ describe("a Safe Push start runs the effects Rust planned", () => {
       "comment on #7 of auth in /a",
       "record Safe Push started in /a",
     ])
+    expect(errors).toEqual([])
+  })
+
+  it("pushes the branches its decision pushes and no other: base below a landed parent, not the parent", async () => {
+    const effects: PlannedEffect[] = [{ kind: "push", branches: ["base", "auth"], force: false }, API]
+    expect(await startSafePush(start(true, effects))).toBe(true)
+    expect(calls).toContain("push auth in /a: base, auth")
     expect(errors).toEqual([])
   })
 })

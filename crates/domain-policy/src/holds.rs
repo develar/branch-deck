@@ -121,9 +121,9 @@ pub struct PushStep<'a> {
 }
 
 /// Why the push an action needs can't be made for the user: `chain` is the branch, then the branches it is built on,
-/// the nearest first. A held ancestor ends the chain (its robot lands it, the branches above it are pushed); a branch of
-/// the chain the sync did not build (its virtual branch is an older build), or whose push drops remote commits it lacks,
-/// refuses it
+/// the nearest first, without the ones that landed (`push::kept`: nothing of them is pushed, as a start leaves them). A
+/// held ancestor ends the chain (its robot lands it, the branches above it are pushed); a branch of the chain the sync
+/// did not build (its virtual branch is an older build), or whose push drops remote commits it lacks, refuses it
 #[must_use]
 pub fn push_blocker<'a>(chain: impl IntoIterator<Item = PushStep<'a>>) -> Option<Reason> {
   for (at, step) in chain.into_iter().enumerate() {

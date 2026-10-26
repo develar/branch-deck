@@ -817,8 +817,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 - A stacked branch carries the commits of the branches it is built on ([Stacked Branches](stacked-branches.spec.md)): a
   child can't land without them, so its Safe Push lands it with every branch it is built on that isn't in the target
   yet, in one robot ([Landing](../../docs/design/landing.md)); its start always confirms, the popover saying so first.
-  Before the start the branches of the stack that have work for the remote are pushed, parents first, as the push
-  button pushes them, a part of the start, without a toast of their own. Every surface asks the start of the branch
+  Before the start the branches its decision pushes are pushed, parents first, a part of the start, without a toast of
+  their own: the branches of the stack that have work for the remote, up to the nearest one a running Safe Push holds
+  (its robot lands it as it took it: a push into it would fail it at the end) and past one that landed (a merged Safe
+  Push landed it whole, or the fetched baseline has every commit of it), as Push Stack of its row covers them; one
+  whose push drops remote commits refuses the start (the `push` effect of `domain_policy::land::decide`, one rule,
+  `domain_policy::push::start_push`, which `bd safe-push` pushes too, and no other branch). Every surface asks the start of the branch
   itself, its popover at its own row: its slot, "⋯", S, the preview footer and the review window. The header of a stack
   island asks the start of the whole stack, one robot of its stack branch, its popover at the header ([Stack
   Island](stack-island.spec.md#header), [Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app));
@@ -828,6 +832,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   menus (`getWholeStackStartItems`), its hover what it lands, disabled with the reason under it; it opens the popover
   of the whole stack.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
+  [@test] ../../crates/domain-policy/src/push_test.rs (`a_start_pushes_the_ancestors_with_work_up_to_the_nearest_held_one_past_what_landed`, `a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_built`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_push_of_a_start_is_the_push_of_its_row_past_an_ancestor_that_landed`)
+  [@test] ../../src/lib/safe-push-start.test.ts (`pushes the branches its decision pushes and no other: base below a landed parent, not the parent`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe_push_holds`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
 - A stored stack parent can stay after the branch stopped needing it ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)).
   So the popover of a Safe Push of a stacked branch asks the trial build of the branch alone (`get_stack_independence`)
@@ -1264,11 +1272,15 @@ explicit choice of the user, offered only where the approvals count in a pull re
   open pull request) has "Safe Push Without Review…" at the left of its footer, a ghost button with the
   `ShieldOffIcon`, which takes neither ⌘↵ nor the focus; its hover: "Starts the Safe Push with a merge profile that
   skips the code-owner review, such as Large Scale Change", disabled with the reason of the branch (a sync, a running
-  robot), never the approvals (`getSafePushWithoutReviewItem`, `BranchNextStep.withoutReview`). It closes the dialog,
+  robot), never the approvals (`getSafePushWithoutReviewItem`, `BranchNextStep.withoutReview`). A start that skips the
+  approvals (this one, or a default start whose profile is known to skip the review) is held back by the step only so:
+  by what it says of a start without review, the click and the popover alike (`startStepBlocker`); its decision says
+  the rest. It closes the dialog,
   reveals the row and opens the popover of its Safe Push without review, also when the popover of the row is open
   (it opens again in the other mode). The dialog of any other step has no such button.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`)
   [@test] ../../src/presenters/next-step.test.ts (`row 7: Create Pull Request… naming the code owners, or In #12 of the whole stack, quietly`, `rows 8 to 10: changes requested, Request Review…, the wait naming the people asked`)
+  [@test] ../../src/presenters/next-step.test.ts (`is the step's for a Safe Push, of a start that skips the approvals only what the step says of a start without review, of a Dry Run its own`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`, `should not offer it in the dialog of a branch whose Safe Push needs no pull request`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push popover without review from the pull request dialog`)
 - The popover is "Safe Push of auth" with the start "Safe Push Without Review". Its review line names the missing
@@ -1548,7 +1560,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   Request…" replaces nothing: it is refused as any push, and goes on as any push for a branch the robot's commit
   doesn't have. A Dry Run of a held branch that needs a push is refused with
   why: a dry run doesn't replace the Safe Push.
-  [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
+  [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes the ancestors its decision pushes with it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the popover, and not restart it`, `should cancel the robot it replaces without a push when the remote branch has the commits`, `should start the Safe Push that replaces a robot which finished meanwhile, without a cancel`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast

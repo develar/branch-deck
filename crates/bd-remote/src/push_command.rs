@@ -938,7 +938,7 @@ pub(crate) fn pushed_branch(
 
 /// The branches of a push leased on the remote heads `remote_statuses` (in their order) fetched after the remote
 /// refused it: the push again over what the remote has now (`domain_policy::push::over_moved_remote` decides it goes)
-fn over_moved(leased: &[LeasedBranch], remote_statuses: &[RemoteStatusUpdate]) -> Vec<LeasedBranch> {
+pub(crate) fn over_moved(leased: &[LeasedBranch], remote_statuses: &[RemoteStatusUpdate]) -> Vec<LeasedBranch> {
   leased
     .iter()
     .zip(remote_statuses)

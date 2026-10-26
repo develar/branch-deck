@@ -26,8 +26,8 @@ use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
 use crate::patronus_facts::{PatronusFacts, table_of};
 use crate::pull_request_retarget::{RetargetedPullRequest, refusal_warning, retarget_one};
 use crate::push_command::{
-  LANDED_NEXT, PullRequestDraft, PushArgs, PushedBranch, REMOTE_REFUSED_NEXT, WOULD_REJECT_NEXT, github_repository, not_synced_reason, push_locked, push_size_limit, pushed_branch,
-  refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
+  LANDED_NEXT, PullRequestDraft, PushArgs, PushedBranch, REMOTE_REFUSED_NEXT, WOULD_REJECT_NEXT, github_repository, not_synced_reason, over_moved, push_locked, push_size_limit,
+  pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
 };
 use crate::push_hold::{PushHolds, refusing_subject, robot_command};
 use crate::robot_list::list_robots;
@@ -47,9 +47,10 @@ use domain_policy::landed::LandedFacts;
 use domain_policy::next_step::PatronusStanding;
 use domain_policy::parked::whole_stack_parked;
 use domain_policy::pull_request::{RulesAnswer, dismisses_approvals};
-use domain_policy::push::needs_push;
+use domain_policy::push::{needs_push, over_moved_remote};
 use domain_policy::review::{CountsIn, ReviewState, review_state};
 use domain_policy::stack::WholeStack;
+use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{
@@ -461,6 +462,10 @@ struct Plan {
   /// The open pull requests into a virtual branch of the branch and of the branches its push takes along
   retargets: Vec<RetargetedPullRequest>,
   push_needed: bool,
+  /// The branches the start pushes, root first (the decision's `Push`, `domain_policy::push::start_push`): only those, as
+  /// the app's start pushes them, so an ancestor a running Safe Push holds stays as its robot took it; of a whole stack
+  /// its root, whose stack branch is the only one pushed
+  push: Vec<String>,
   /// The push replaces commits the remote has that the branch lacks (`--force`, the decision's `ForcePushDrops`)
   force: bool,
   /// The remote branches the start pushes, with their remote status
@@ -650,11 +655,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     }
     (Some(stack), false) => stack.draft.clone(),
     (None, true) => {
-      // the robot of the branch is canceled above; the start lands the ancestors its push takes along
+      // the robot of the branch is canceled above; the start pushes what its decision pushes, the ancestors it lands
+      // with it up to the nearest one a running Safe Push holds, each alone, as the app's start pushes them
       let pushed = push_locked(
         context,
         &PushArgs {
-          branches: vec![plan.name.clone()],
+          branches: plan.push.clone(),
+          alone: true,
           force: plan.force,
           ..PushArgs::default()
         },
@@ -665,12 +672,11 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
         &mut lock,
       )?;
       output.pushed = pushed.branches;
-      output
-        .pushed
-        .iter()
-        .find(|pushed| pushed.name == plan.name)
-        .and_then(|pushed| pushed.pull_request.clone())
-        .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", plan.name)))?
+      match output.pushed.iter().find(|pushed| pushed.name == plan.name).and_then(|pushed| pushed.pull_request.clone()) {
+        Some(draft) => draft,
+        // on the remote as it is, only an ancestor pushed
+        None => unpushed_pull_request_draft(context, &synced, &plan.name, Some(&youtrack))?,
+      }
     }
     (None, false) => unpushed_pull_request_draft(context, &synced, &plan.name, Some(&youtrack))?,
   };
@@ -1294,10 +1300,14 @@ fn plan(
     _ => None,
   });
   known_robots.extend(cancel.iter().map(|robot| robot.id.clone()));
-  let force = decision.effects.iter().find_map(|effect| match effect {
-    PlannedEffect::Push { force, .. } => Some(*force),
-    _ => None,
-  });
+  let (push, force) = decision
+    .effects
+    .iter()
+    .find_map(|effect| match effect {
+      PlannedEffect::Push { branches, force } => Some((branches.clone(), Some(*force))),
+      _ => None,
+    })
+    .unwrap_or_default();
   let retargets = decision
     .effects
     .iter()
@@ -1316,8 +1326,16 @@ fn plan(
   };
   let pull_request = decision.pull_request.and_then(|number| pull_request_of(pull_requests, start, number)).cloned();
   let Landing {
-    name, full_name, remotes, stack, ..
+    name,
+    full_name,
+    mut remotes,
+    stack,
+    ..
   } = landing;
+  // of the branches it lands, the ones it pushes: a held ancestor's remote stays as it is
+  if stack.is_none() {
+    remotes.retain(|remote| push.contains(&remote.name));
+  }
   Ok(Plan {
     name,
     full_name,
@@ -1333,6 +1351,7 @@ fn plan(
     pull_request,
     retargets,
     push_needed: force.is_some(),
+    push,
     force: force.unwrap_or(false),
     remotes,
     lands: decision.lands.clone(),
@@ -1864,14 +1883,28 @@ fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, sta
     my_email: None,
     size_limit: push_size_limit(context)?,
   };
-  let leased = [LeasedBranch {
+  let mut leased = vec![LeasedBranch {
     name: root.to_string(),
-    push: push.clone(),
+    push,
     parent_ref: None,
   }];
   drop(lock.take());
-  let pushed =
-    push_leased(&context.git, &target, &leased, PushOptions { atomic: true, dry_run: false }, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
+  let network = |leased: &[LeasedBranch]| {
+    push_leased(&context.git, &target, leased, PushOptions { atomic: true, dry_run: false }, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))
+  };
+  let mut pushed = network(&leased)?;
+  // a remote stack branch that moved since the sync without commits the stack branch lacks: nobody's work is lost, so
+  // the push goes again over what the remote has now, once, as `bd push --with-children` and the app's start do (D4); a
+  // remote with someone's commits, or one that moves again, is told
+  let mut over: Option<RemoteStatusUpdate> = None;
+  if let LeasedPush::RemoteMoved { moved, remote_statuses } = &pushed
+    && !moved.is_empty()
+    && moved.iter().all(|index| remote_statuses.get(*index).is_some_and(over_moved_remote))
+  {
+    leased = over_moved(&leased, remote_statuses);
+    over = remote_statuses.first().cloned();
+    pushed = network(&leased)?;
+  }
   let statuses = match pushed {
     LeasedPush::Pushed(statuses) => statuses,
     LeasedPush::RemoteMoved { remote_statuses, .. } => {
@@ -1907,8 +1940,16 @@ fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, sta
     }
     LeasedPush::TooLarge(too_large) => return Err(CliError::from(&too_large)),
   };
+  let push = &leased[0].push;
   let short = context.short_ids(std::iter::once(push.tip.as_str()).chain(push.lease.as_deref()));
-  Ok(pushed_branch(root, &push, &statuses, stack.draft.clone(), &short, stack.replaced_landed.clone()))
+  let replaced_landed = match &over {
+    Some(moved) => landed_commits(moved, &context.short_ids(RemoteSummary::ids(moved))),
+    None => stack.replaced_landed.clone(),
+  };
+  Ok(PushedBranch {
+    pushed_over: over.is_some(),
+    ..pushed_branch(root, push, &statuses, stack.draft.clone(), &short, replaced_landed)
+  })
 }
 
 /// The service of `bd`: the token of the Safe Push CLI (`./safePush.cmd`), else `SPACE_TOKEN`; `not_logged_in` without

@@ -1,9 +1,12 @@
+use crate::facts::RemoteBranch;
 use crate::push::{
-  HeadedStack, Kept, PushScope, PushState, Verdict, action, branch_push, drops_remote_commits, needs_push, over_moved_remote, push_plan, replaces_older_versions,
-  stack_branch_along,
+  HeadedStack, Kept, PushScope, PushState, StartAncestor, StartPush, Verdict, action, branch_push, drops_remote_commits, kept as kept_by, needs_push, over_moved_remote, push_plan,
+  replaces_older_versions, stack_branch_along, start_push,
 };
 use crate::stack_test::{Spec, repository, stacks_of};
+use domain_types::fixtures::robot_of;
 use domain_types::reason::Reason;
+use domain_types::repository_view::{HoldKind, HoldView};
 use domain_types::session::{ChildrenPush, StackBranchAlong};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{DroppedCommit, PushAction, RemoteStatusUpdate};
@@ -304,6 +307,86 @@ fn push_stack_covers_the_ancestors_up_to_the_nearest_held_one() {
   assert_eq!((plan.order(false), plan.order(true), plan.ask_first()), (vec![], vec!["oauth"], vec!["oauth"]));
 }
 
+/// What keeps a branch out of a push, the first that applies: parked, landed (by the fetched baseline or a merged Safe
+/// Push), held by a running Safe Push other than the one the push cancels, not built
+#[test]
+fn a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_built() {
+  let hold = |kind| HoldView {
+    kind,
+    by: robot_of("login", "login-run"),
+    carried: None,
+  };
+  let (span, landed) = (hold(HoldKind::Span), hold(HoldKind::Landed));
+  assert_eq!(kept_by(true, true, Some(&span), None, true), Some(Kept::Parked));
+  assert_eq!(kept_by(false, true, Some(&span), None, true), Some(Kept::Landed));
+  assert_eq!(kept_by(false, false, Some(&landed), Some("login-run"), false), Some(Kept::Landed));
+  assert_eq!(kept_by(false, false, Some(&span), None, true), Some(Kept::Held));
+  assert_eq!(kept_by(false, false, Some(&span), Some("login-run"), true), Some(Kept::NotBuilt));
+  assert_eq!(kept_by(false, false, None, None, false), None);
+}
+
+const UNPUSHED: RemoteBranch<'static> = RemoteBranch {
+  tip: None,
+  up_to_date: false,
+  drops: 0,
+};
+const ON_REMOTE: RemoteBranch<'static> = RemoteBranch {
+  tip: Some("tip"),
+  up_to_date: true,
+  drops: 0,
+};
+
+const fn ancestor(name: &'static str, kept: Option<Kept>, remote: Option<RemoteBranch<'static>>) -> StartAncestor<'static> {
+  StartAncestor { name, kept, remote }
+}
+
+/// A start pushes Push Stack of its branch: the ancestors with work, root first, up to the nearest held one and past
+/// one that landed, one that asks first too (its drop refuses the start unless allowed), then the branch while its
+/// remote lacks something of it; a branch it covers without a remote status leaves what it pushes unknown
+#[test]
+fn a_start_pushes_the_ancestors_with_work_up_to_the_nearest_held_one_past_what_landed() {
+  let behind = RemoteBranch { drops: 1, ..UNPUSHED };
+  // nearest first: login, auth, base
+  let pushed = start_push(
+    "oauth",
+    Some(UNPUSHED),
+    [
+      ancestor("login", Some(Kept::Landed), Some(behind)),
+      ancestor("auth", None, Some(behind)),
+      ancestor("base", None, Some(UNPUSHED)),
+    ],
+  );
+  assert_eq!(
+    pushed,
+    StartPush {
+      branches: vec!["base", "auth", "oauth"],
+      unknown: false
+    }
+  );
+  let pushed = start_push(
+    "oauth",
+    Some(ON_REMOTE),
+    [
+      ancestor("login", None, Some(UNPUSHED)),
+      ancestor("auth", Some(Kept::Held), None),
+      ancestor("base", None, None),
+    ],
+  );
+  assert_eq!(
+    pushed,
+    StartPush {
+      branches: vec!["login"],
+      unknown: false
+    }
+  );
+  assert!(start_push("oauth", Some(ON_REMOTE), [ancestor("login", None, None)]).unknown);
+  assert!(start_push("oauth", None, []).unknown);
+  assert_eq!(
+    start_push("oauth", Some(ON_REMOTE), [ancestor("login", Some(Kept::NotBuilt), None)]).branches,
+    Vec::<&str>::new()
+  );
+}
+
 /// Push with Children covers the branch and every branch stacked on it by declared parent, each after its parent
 #[test]
 fn push_with_children_covers_the_branch_and_its_descendants() {
@@ -330,27 +413,26 @@ fn push_with_children_covers_the_branch_and_its_descendants() {
 
 /// The pushes of a branch the view sends: Push Stack sends every ancestor with work, the push of the button and of an
 /// action starts above the nearest one that asks first, and the button pushes the stack only while the branch has work
-/// and asks nothing; a start that replaces a robot pushes what that robot held
+/// and asks nothing
 #[test]
 fn the_push_button_and_an_action_start_above_the_nearest_ancestor_that_asks_first() {
   let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
   let repo = repository(&stacks, &parked);
-  let push = branch_push(&repo, states(&[("auth", PUSH), ("login", DROPS), ("oauth", PUSH)]), None, None, "oauth");
+  let push = branch_push(&repo, states(&[("auth", PUSH), ("login", DROPS), ("oauth", PUSH)]), None, "oauth");
   // every ancestor goes: the stack of its structure
   assert_eq!((push.stack, push.action, push.button), (None, Some(vec![]), false));
   // none asks first: the push of the button is Push Stack
-  let push = branch_push(&repo, states(&[("auth", PUSH), ("login", PUSH), ("oauth", PUSH)]), None, None, "oauth");
-  assert_eq!((push.stack, push.action, push.button, push.start), (None, None, true, None));
+  let push = branch_push(&repo, states(&[("auth", PUSH), ("login", PUSH), ("oauth", PUSH)]), None, "oauth");
+  assert_eq!((push.stack, push.action, push.button), (None, None, true));
   // the branch alone asks first: the button confirms it alone
-  let push = branch_push(&repo, states(&[("login", PUSH), ("oauth", DROPS)]), None, None, "oauth");
+  let push = branch_push(&repo, states(&[("login", PUSH), ("oauth", DROPS)]), None, "oauth");
   assert_eq!((push.stack, push.action, push.button), (Some(vec!["login".to_string()]), None, false));
-  // the robot a start replaces holds login: the start pushes it
+  // a held login: Push Stack starts above it
   let held = kept(Kept::Held);
-  let start = states(&[("login", PUSH), ("oauth", PUSH)]);
-  let push = branch_push(&repo, states(&[("login", held), ("oauth", PUSH)]), Some(&start), None, "oauth");
-  assert_eq!((push.stack, push.action, push.start), (Some(vec![]), None, Some(vec!["login".to_string()])));
+  let push = branch_push(&repo, states(&[("login", held), ("oauth", PUSH)]), None, "oauth");
+  assert_eq!((push.stack, push.action), (Some(vec![]), None));
   // a branch alone sends nothing more
-  assert_eq!(branch_push(&repo, states(&[("auth", PUSH)]), None, None, "auth").stack, None);
+  assert_eq!(branch_push(&repo, states(&[("auth", PUSH)]), None, "auth").stack, None);
 }
 
 /// Push with Children sends the branch while it has work and the branches stacked on it that have work; one that asks
@@ -361,7 +443,7 @@ fn push_with_children_leaves_out_what_asks_first_is_held_or_landed() {
   let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
   let repo = repository(&stacks, &parked);
   let held = kept(Kept::Held);
-  let push = branch_push(&repo, states(&[("auth", DROPS), ("login", held), ("session", DROPS), ("oauth", PUSH)]), None, None, "auth");
+  let push = branch_push(&repo, states(&[("auth", DROPS), ("login", held), ("session", DROPS), ("oauth", PUSH)]), None, "auth");
   assert_eq!(
     push.children,
     Some(ChildrenPush {
@@ -372,8 +454,8 @@ fn push_with_children_leaves_out_what_asks_first_is_held_or_landed() {
     })
   );
   let parked_state = kept(Kept::Parked);
-  assert_eq!(branch_push(&repo, states(&[("oauth", parked_state)]), None, None, "login").children, None);
-  let push = branch_push(&repo, states(&[("auth", PUSH)]), None, None, "auth");
+  assert_eq!(branch_push(&repo, states(&[("oauth", parked_state)]), None, "login").children, None);
+  let push = branch_push(&repo, states(&[("auth", PUSH)]), None, "auth");
   assert_eq!(
     push.children.map(|children| (children.order, children.offers)),
     Some((Some(vec!["auth".to_string()]), false))
@@ -436,6 +518,6 @@ fn the_stack_branch_goes_along_once_published_built_not_held_and_behind() {
     pull_request_open: false,
     hold: None,
   };
-  let push = branch_push(&repo, states(&[]), None, Some(headed), "auth");
+  let push = branch_push(&repo, states(&[]), Some(headed), "auth");
   assert_eq!(push.children.map(|children| (children.order, children.offers)), Some((Some(vec![]), true)));
 }

@@ -30,8 +30,8 @@
 //!   replaces, approvals Patronus judges only at the start, a review Patronus couldn't answer (D14), approvals the push
 //!   dismisses, rules GitHub didn't answer, a start without approvals, a piece of a stack whose pull request is open, a
 //!   force push the user allowed; `unaccepted` names the ones an allowance of `bd` accepts;
-//! - effects, in order: the retargets of the pull requests into a virtual branch (D11), the cancel, the push, then the
-//!   start (`StartRoute`: a `/patronus` comment on the pull request it starts from, else the API with the profile) or
+//! - effects, in order: the retargets of the pull requests into a virtual branch (D11), the cancel, the push (of a
+//!   branch `push::start_push`: Push Stack of it up to the nearest held ancestor, past what landed), then the start (`StartRoute`: a `/patronus` comment on the pull request it starts from, else the API with the profile) or
 //!   the pull request it opens.
 //!
 //! The profiles of a mode (`allows_mode`), the default one (`default_profile`: the last robot's while the target offers
@@ -41,6 +41,7 @@
 use crate::facts::{RemoteBranch, Robots};
 use crate::holds::is_active;
 use crate::pull_request::{RulesAnswer, base_of, dismisses_approvals, start_base, starts_from};
+use crate::push::{StartAncestor, kept, start_push};
 use crate::reasons::{ancestor, blocked, descendant, held, last_commit, stack_not_built};
 use crate::review::{ReviewState, review_state, skips_approvals};
 use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandProfiles, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute};
@@ -160,10 +161,15 @@ pub struct LandsBranch<'a> {
   pub name: &'a str,
   /// A merged Safe Push landed all of it: its commits are in the target, the robot lands the rest
   pub landed_whole: bool,
+  /// The fetched baseline has every commit of it: nothing of it is left to push, the update archives it
+  pub in_baseline: bool,
   /// What is known of its remote branch; `None` before a remote status said it
   pub remote: Option<RemoteBranch<'a>>,
-  /// A running Safe Push other than the one the start replaces holds it: the push of what the start lands stops below it
-  pub held: bool,
+  /// The hold of its push (`holds::branch_hold`): one of a running Safe Push other than the one the start replaces ends
+  /// the push of what the start lands below it (`push::start_push`)
+  pub hold: Option<&'a HoldView>,
+  /// The last sync did not build it
+  pub not_built: bool,
 }
 
 /// What a start of a branch is decided on besides the remote services
@@ -492,26 +498,21 @@ pub fn decide(facts: &LandFacts<'_>, land: &Land) -> LandDecision {
 fn branch_part<'a>(facts: &LandFacts<'a>, land: &Land, branch: &BranchSubject<'a>, listed: Option<&'a PullRequestsView>, decision: &mut LandDecision) -> SubjectPart<'a> {
   let name = branch.start.name;
   let safe_push = land.mode != PatronusPushMode::DryRun;
-  // the push takes the branch and the ancestors with work, nearest first up to the first one a running Safe Push holds;
-  // one a merged Safe Push landed whole stays as it is
-  let mut push: Vec<&LandsBranch<'a>> = Vec::new();
-  let mut known = branch.tip.is_some();
-  for (index, step) in branch.chain.iter().rev().enumerate() {
-    let ancestor = index > 0;
-    if ancestor && step.held {
-      break;
-    }
-    if ancestor && step.landed_whole {
-      continue;
-    }
-    match step.remote {
-      None => known = false,
-      Some(remote) if !remote.up_to_date => push.push(step),
-      Some(_) => {}
-    }
-  }
-  push.reverse();
-  if !known {
+  // the push takes the branch and the ancestors with work up to the nearest one a running Safe Push holds (one the start
+  // replaces holds nothing: a Dry Run replaces none), past one that landed (`push::start_push`)
+  let replaces = branch.replaces.filter(|_| safe_push);
+  let (own, ancestors) = branch.chain.split_last().map_or((None, &[][..]), |(own, ancestors)| (Some(own), ancestors));
+  let started = start_push(
+    name,
+    own.and_then(|own| own.remote),
+    ancestors.iter().rev().map(|step| StartAncestor {
+      name: step.name,
+      kept: kept(false, step.landed_whole || step.in_baseline, step.hold, replaces, step.not_built),
+      remote: step.remote,
+    }),
+  );
+  let push: Vec<&LandsBranch<'a>> = started.branches.iter().filter_map(|pushed| branch.chain.iter().find(|step| step.name == *pushed)).collect();
+  if branch.tip.is_none() || started.unknown {
     decision.waits.push(FactWait {
       fact: LandFact::Remote,
       failed: None,

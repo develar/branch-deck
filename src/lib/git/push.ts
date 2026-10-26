@@ -525,6 +525,11 @@ export interface ActionPushOptions {
   /** The running robot a Safe Push start replaces: canceled, never restarted (`PushOptions.replacesRobot`) */
   replacesRobot?: PatronusRobot
   /**
+   * The branches a Safe Push start pushes, root first, as Rust decided them (the `push` effect of its decision): the
+   * start pushes those and no other; by default the push of an action (`PushOrders.action`)
+   */
+  branches?: readonly string[]
+  /**
    * The repository the action started in (`VcsRequest.repositoryPath`); by default the selected one at the call. The push
    * refuses once the main window shows another one: it pushes the branches of the table
    */
@@ -571,18 +576,18 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
     { canceled: () => (canceled = true) },
   )
   const replacesRobot = options.replacesRobot
-  // the robot the start replaces lands nothing once the push cancels it: the branches it held are pushed too
-  const orders = getPushOrders(branchName)
-  const order = replacesRobot === undefined ? orders.action : orders.start
+  // a start pushes what its decision pushes (the robot it replaces lands nothing once the push cancels it: the branches
+  // it held go too), an action what its order sends
+  const decided = options.branches
+  const order = decided ?? getPushOrders(branchName).action
   let pushed: boolean
-  if (order.length === 1 && (branch.remoteStatus?.action.kind ?? "upToDate") === "upToDate") {
+  if (decided === undefined && order.length === 1 && (branch.remoteStatus?.action.kind ?? "upToDate") === "upToDate") {
     // nothing to push: the robot a start replaces is canceled for the start alone
     pushed = replacesRobot === undefined || (await cancelHoldingRobot(replacesRobot, report))
+  } else if (order.length === 1 && order[0] === branchName) {
+    pushed = await pushBranch(branchName, { replacesRobot, announce: false, report })
   } else {
-    pushed =
-      order.length > 1
-        ? await pushStack(branchName, { stopAtConfirm: true, replacesRobot, announce: false, report })
-        : await pushBranch(branchName, { replacesRobot, announce: false, report })
+    pushed = await pushStack(branchName, { stopAtConfirm: true, ...(decided !== undefined && { order: decided }), replacesRobot, announce: false, report })
   }
   // no reason: the remote moved since the row showed it, and its toast says what the remote has and pushes over it
   if (pushed) {

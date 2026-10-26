@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use test_utils::git_test_utils::git_command;
 
 /// `bd push` with `args`
 fn bd_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
@@ -1083,6 +1084,34 @@ fn a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on() {
   assert_eq!(space.remote_tip(AUTH), "");
 }
 
+/// The start pushes what its decision pushes (the `Push` effect of `domain_policy::land::decide`): a Dry Run of login,
+/// whose parent auth a running Safe Push of its older commit holds, pushes login alone, and the remote branch of auth
+/// stays where that robot took it (a push into it would fail it at the end)
+#[test_log::test]
+fn a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe_push_holds() {
+  let space = login_on_auth();
+  let (exit_code, output) = bd_push(&space.environment(), &["login"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let pushed_auth = space.remote_tip(AUTH);
+  space.set_robots(vec![robot("auth-robot", "RUNNING", "auth", &pushed_auth)]);
+  write(&space.repo, "auth-more.txt", "more\n");
+  commit_all(&space.repo, "(auth) Add more auth", 1_700_000_500);
+  write(&space.repo, "login-more.txt", "more\n");
+  commit_all(&space.repo, "(auth/login) Add more login", 1_700_000_600);
+
+  let (exit_code, output) = space.run(&["login", "--patronus-dry-run", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let remotes: Vec<&Value> = output["remotes"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(remotes, [&json!("login")], "the remote branches the start pushes: {output}");
+  let (exit_code, output) = space.run(&["login", "--patronus-dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let pushed: Vec<&Value> = output["pushed"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(pushed, [&json!("login")]);
+  assert_eq!(space.remote_tip(AUTH), pushed_auth, "auth stays as its robot took it");
+  assert_eq!(space.remote_tip("test-user/virtual/login"), space.local_tip("test-user/virtual/login"));
+  assert_eq!(space.last_start()["mode"], json!("DRY_RUN"));
+}
+
 /// A parent whose commits a running Safe Push of a branch built on it lands stays held, also with `--alone` and after a
 /// restack placed a new root below it; the refusal names the commits. The new root goes on
 #[test_log::test]
@@ -1446,6 +1475,45 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
     (space.last_start()["mode"].clone(), space.last_start()["sourceBranch"].clone()),
     (json!("DRY_RUN"), json!(format!("refs/heads/{STACK}")))
   );
+}
+
+/// The remote stack branch moved after the sync to an older build of the stack (a push from the app in another window):
+/// it has nothing the stack branch lacks, so the start pushes again over what the remote has now, once, as `bd push
+/// --with-children` and the app's start do (D4), and the robot starts
+#[test_log::test]
+fn the_whole_stack_pushes_again_over_a_moved_remote_that_lacks_nothing_of_its_stack_branch() {
+  let space = forking_stack();
+  let session_commit = |file: &str, subject: &str, time: i64| {
+    write(&space.repo, file, format!("{subject}\n"));
+    commit_all(&space.repo, subject, time);
+    let (exit_code, output) = run_in(&space.repo, &["sync"]);
+    assert_eq!(exit_code, 0, "{output}");
+  };
+  let (exit_code, output) = run_in(&space.repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  git(&space.repo, &["push", "-q", "origin", STACK]);
+  let older = space.remote_tip(STACK);
+  session_commit("session-2.txt", "(auth/session) Add the session cache", 1_700_000_500);
+  git(&space.repo, &["push", "-q", "origin", STACK]);
+  assert_ne!(space.remote_tip(STACK), older, "the remote has the newer build");
+  let moved = git_command()
+    .args(["update-ref", &format!("refs/heads/{STACK}"), &older])
+    .current_dir(space.remote.path())
+    .output()
+    .unwrap();
+  assert!(moved.status.success(), "{}", String::from_utf8_lossy(&moved.stderr));
+  session_commit("session-3.txt", "(auth/session) Expire the session cache", 1_700_000_600);
+
+  let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&output["pushed"][0]["remote_branch"], &output["pushed"][0]["pushed_over"]),
+    (&json!(STACK), &json!(true)),
+    "{output}"
+  );
+  assert_eq!(space.remote_tip(STACK), space.local_tip(STACK));
+  assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{STACK}")));
+  assert_eq!(output["robot"]["id"], json!("started"));
 }
 
 /// A straight chain has no stack branch: its last branch carries the whole stack, and the robot starts from it

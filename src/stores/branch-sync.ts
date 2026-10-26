@@ -643,8 +643,6 @@ export interface PushOrders {
   readonly action: readonly string[]
   /** What the push button pushes when it pushes the stack (`action`); empty: the branch alone */
   readonly button: readonly string[]
-  /** The push of a Safe Push start, which cancels the robot it replaces and pushes what that one held */
-  readonly start: readonly string[]
   /** Push with Children; null for a branch nothing but parked branches is stacked on */
   readonly children: ChildrenPushOrder | null
 }
@@ -679,7 +677,6 @@ export function pushOrdersIn(state: BranchSyncState, name: string): PushOrders {
     stack,
     action,
     button: push.button === true ? action : [],
-    start: push.start == null ? action : [...push.start, name],
     children:
       children == null
         ? null

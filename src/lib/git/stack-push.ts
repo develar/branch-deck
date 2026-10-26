@@ -42,6 +42,11 @@ import { isSelectedRepository } from "@/stores/repository"
 export interface StackPushOptions {
   /** The order of the push button: it starts above an ancestor whose push drops remote commits (`PushOrders.action`) */
   stopAtConfirm?: boolean
+  /**
+   * The branches to push, root first, as Rust decided them for a Safe Push start (the `push` effect of its decision,
+   * `domain_policy::push::start_push`); by default the order of the button or of Push Stack (`PushOrders`)
+   */
+  order?: readonly string[]
   /** The push is a step of a Safe Push start: the robot it replaces is canceled, never restarted (`PushOptions`) */
   replacesRobot?: PatronusRobot
   /** Whether a toast says what was pushed (`PushOptions`) */
@@ -63,19 +68,13 @@ interface StackPushOrder {
 /**
  * Push Stack: the ancestors of a stacked branch that have work for the remote, root first, then the branch, in one
  * atomic push (`pushTogether`), as Rust orders them (`PushOrders`): from the push button, above the nearest one that asks
- * first (`action`), of a Safe Push start the branches the robot it replaces held too (`start`). Resolves to whether they
- * were pushed.
+ * first (`action`); of a Safe Push start what its decision pushes (`order`). Resolves to whether they were pushed.
  */
 export async function pushStack(branchName: string, options: StackPushOptions = {}): Promise<boolean> {
-  const orderOf = (orders: PushOrders): readonly string[] => {
-    if (options.replacesRobot !== undefined) {
-      return orders.start
-    }
-    return options.stopAtConfirm === true ? orders.action : orders.stack
-  }
+  const orderOf = (orders: PushOrders): readonly string[] => options.order ?? (options.stopAtConfirm === true ? orders.action : orders.stack)
   return await pushTogether(
     branchName,
-    `stack ${options.stopAtConfirm === true} ${options.replacesRobot?.id ?? ""}`,
+    `stack ${options.stopAtConfirm === true} ${options.replacesRobot?.id ?? ""} ${options.order?.join(",") ?? ""}`,
     () => ({ names: orderOf(getPushOrders(branchName)) }),
     options,
   )

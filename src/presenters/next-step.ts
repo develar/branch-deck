@@ -612,6 +612,19 @@ export function presentNextStep(step: NextStep, context: StepContext): BranchNex
   }
 }
 
+/**
+ * Why the step holds a start in `mode` back, as Rust's next step says it: a Dry Run by its own blocker; a Safe Push that
+ * skips the approvals (`skipsApprovals`: Start Without Review, a profile known to skip the review) only by what the step
+ * says of a start without review (`withoutReview`, rows 7 and 11), never by the approvals it goes without; its decision
+ * says the rest. The one rule of the click and of the read of a start (`requestSafePush`, `readSafePush`)
+ */
+export function startStepBlocker(step: BranchNextStep, mode: "rebaseAutosquash" | "dryRun", skipsApprovals: boolean): string | null {
+  if (mode === "dryRun") {
+    return step.dryRunBlocker
+  }
+  return skipsApprovals ? (step.withoutReview?.blocker ?? null) : step.safePushBlocker
+}
+
 /** The step of a subject the view has none of yet (no row): no slot, nothing to say against a start, which decides itself */
 export const NO_NEXT_STEP: BranchNextStep = {
   kind: "hidden",

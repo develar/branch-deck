@@ -95,7 +95,8 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
     }
     // the retargets, the push and the robot read and change the pull requests and the branches of the table, which are
     // of the selected repository
-    const pushes = start.effects.some(effect => effect.kind === "push")
+    const push = start.effects.find(effect => effect.kind === "push")
+    const pushes = push !== undefined
     const retargets = start.effects.filter(effect => effect.kind === "retarget")
     if (pushes || retargets.length > 0) {
       const switched = getRepositorySwitchReason(repositoryPath)
@@ -109,9 +110,9 @@ export async function startSafePush(start: SafePushStart, repository: StartRepos
     }
     const cancel = start.effects.find(effect => effect.kind === "cancelRobot")
     const replaces = cancel?.kind === "cancelRobot" ? (getRobot(cancel.robotId) ?? null) : null
-    if (pushes) {
+    if (push?.kind === "push") {
       setStep("pushing")
-      if (!(await pushFirst(start, replaces, errorTitle, repositoryPath))) {
+      if (!(await pushFirst(start, push.branches, replaces, errorTitle, repositoryPath))) {
         return false
       }
     } else if (replaces !== null && !(await cancelHoldingRobot(replaces, notifyError, request))) {
@@ -209,15 +210,16 @@ function refuseLanding(start: SafePushStart, errorTitle: string, landing: Extrac
 }
 
 /**
- * The push of what the remote lacks before the start: the branch and its stack (`pushForAction`), or only the stack
- * branch of the whole stack (`pushWholeStack`); a failure said under `errorTitle`. Resolves to whether it was pushed.
+ * The push of what the remote lacks before the start, as its decision pushes it (`branches` of its `push` effect): the
+ * branch and the ancestors it lands with it (`pushForAction`), or only the stack branch of the whole stack
+ * (`pushWholeStack`); a failure said under `errorTitle`. Resolves to whether it was pushed.
  */
-function pushFirst(start: SafePushStart, replaces: PatronusRobot | null, errorTitle: string, repositoryPath: string): Promise<boolean> {
+function pushFirst(start: SafePushStart, branches: readonly string[], replaces: PatronusRobot | null, errorTitle: string, repositoryPath: string): Promise<boolean> {
   const replacesRobot = replaces ?? undefined
   if (start.wholeStack !== null) {
     return pushWholeStack(start.wholeStack, { replacesRobot, report: (_title, reason) => notifyError(errorTitle, reason) })
   }
-  return pushForAction(start.branchName, { replacesRobot, repositoryPath }).then(pushed => {
+  return pushForAction(start.branchName, { replacesRobot, repositoryPath, branches }).then(pushed => {
     // a push stopped while it waited for the lock said so itself: the start fails nothing
     if (!pushed.pushed && pushed.canceled !== true) {
       notifyError(errorTitle, pushed.reason)

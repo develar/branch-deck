@@ -24,7 +24,7 @@ vi.mock("@/stores/branch-sync", () => ({
     return found
   },
   // the branches on the remote as they are: an action pushes the branch alone
-  getPushOrders: (name: string) => ({ stack: [name], action: [name], button: [], start: [name], children: null }),
+  getPushOrders: (name: string) => ({ stack: [name], action: [name], button: [], children: null }),
   getStackNotBuilt: () => null,
 }))
 vi.mock("@/stores/patronus", () => ({ getPushHold: () => null, getPatronusGitHubRepository: () => null }))

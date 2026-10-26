@@ -38,7 +38,7 @@
     "discrepancy": "D2",
     "closed": "s1-holes",
     "today": {
-      "app": ["src/hooks/useSafePush.ts#const stepBlocker = blocker !== null && !(decision?.approvalsSkippedBy != null && APPROVAL_STEPS.has(step.kind)) ? blocker : null"],
+      "app": ["src/hooks/useSafePush.ts#const stepBlocker = startStepBlocker(step, mode, decision?.approvalsSkippedBy != null)"],
       "bd": ["crates/domain-policy/src/review.rs#} else if !from_pull_request && profile.is_some_and(|profile| profile.skips_review == Some(true)) {"]
     }
   },
@@ -69,9 +69,7 @@
     ],
     "discrepancy": "D3b",
     "today": {
-      "app": [
-        "src/hooks/useSafePush.ts#const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set([\"createPullRequest\", \"changesRequested\", \"requestReview\", \"awaiting\", \"otherBase\"])"
-      ],
+      "app": ["src/presenters/next-step.ts#return skipsApprovals ? (step.withoutReview?.blocker ?? null) : step.safePushBlocker"],
       "bd": ["crates/bd-remote/src/safe_push_command.rs#Refusal::new(ErrorCode::PullRequestOtherBase, message)", "crates/domain-policy/src/pull_request.rs#pub fn base_of"]
     },
     "closed": "s8-policy"

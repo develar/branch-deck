@@ -276,7 +276,8 @@ struct World {
   readiness: Option<Fact<SubjectReadiness>>,
   rules: Option<Fact<BranchRules>>,
   landing: Option<Vec<LandingRefusal>>,
-  /// login on auth: the chain root first, each `(remote, landed whole, held)`
+  /// login on auth: the chain root first, each `(remote, landed whole, held)`: held by a running Safe Push of a branch
+  /// built on it, other than the one a start replaces
   chain: Vec<(&'static str, Option<RemoteBranch<'static>>, bool, bool)>,
   hold: Option<HoldView>,
   replaces: Option<&'static str>,
@@ -396,6 +397,11 @@ impl World {
   fn decide(&self, land: &Land) -> LandDecision {
     let robots = Robots::new(&self.robots);
     let conflict = self.conflict.as_deref();
+    let span = HoldView {
+      kind: HoldKind::Span,
+      by: robot_of("oauth", "oauth-run"),
+      carried: None,
+    };
     let facts = LandFacts {
       target: "master",
       prefix: "user",
@@ -415,8 +421,10 @@ impl World {
           .map(|(name, remote, landed_whole, held)| LandsBranch {
             name,
             landed_whole: *landed_whole,
+            in_baseline: false,
             remote: *remote,
-            held: *held,
+            hold: held.then_some(&span),
+            not_built: false,
           })
           .collect(),
         tip: Some("login-tip"),
@@ -689,6 +697,37 @@ fn a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_th
   };
   let decision = landed_ancestor.decide(&land(SAFE_PUSH));
   assert_eq!((decision.lands, decision.confirmations, decision.effects.len()), (vec!["login".to_string()], Vec::new(), 1));
+  // one that landed whole is left as it is, someone's commits on its remote too, and the push goes on below it, as Push
+  // Stack of the row does (`push::start_push`); a held one ends it
+  let behind = RemoteBranch { drops: 2, ..UNPUSHED };
+  let below_landed = World {
+    chain: vec![
+      ("base", Some(UNPUSHED), false, false),
+      ("auth", Some(behind), true, false),
+      ("login", Some(UNPUSHED), false, false),
+    ],
+    ..world()
+  };
+  let decision = below_landed.decide(&land(SAFE_PUSH));
+  assert_eq!(
+    (codes(&decision), decision.effects[0].clone()),
+    (
+      Vec::<String>::new(),
+      PlannedEffect::Push {
+        branches: vec!["base".to_string(), "login".to_string()],
+        force: false,
+      }
+    )
+  );
+  let above_held = World {
+    chain: vec![
+      ("base", Some(UNPUSHED), false, true),
+      ("auth", Some(UNPUSHED), true, false),
+      ("login", Some(ON_REMOTE), false, false),
+    ],
+    ..world()
+  };
+  assert_eq!(above_held.decide(&land(DRY_RUN)).effects.len(), 1, "nothing to push: a StartRobot only");
 }
 
 /// The landing gate refuses what would not build unless allowed, kind by kind; a conflict with the newest target refuses

@@ -1055,7 +1055,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
 - The push must be decided by content, as the app's start decides it (the `Push` effect of `domain_policy::land::decide`): `push_needed` only when the sync's remote status of
   the branch or of a branch it is built on has work for the remote (`unpushed`, `behind`, `amended`, `reworded`,
-  `restacked`, `landed`, or no remote branch). A branch whose remote branch has the same commits, only rebuilt since on
+  `restacked`, `landed`, or no remote branch). The start must push the branches of that effect and no other, each
+  alone (`domain_policy::push::start_push`: the ancestors with work up to the nearest one a running Safe Push holds,
+  past one that landed), and `remotes` name only theirs: the remote branch of a held ancestor stays where its robot
+  took it. A branch whose remote branch has the same commits, only rebuilt since on
   a newer baseline, must not be pushed (no `pushed`); one reworded since must be, the robot would land the old
   messages: the robot starts from the remote branch, and `--create-pull-request` opens the pull
   request of the remote branch as it is. A robot running on that remote branch must refuse the start as one on the
@@ -1066,6 +1069,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--cancel-running` or not ([Patronus](../branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)).
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe_push_holds`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`, `a_branch_reworded_since_its_push_is_pushed_before_the_start`)
 - `remotes` must name each existing remote branch the start pushes with its remote state, as `bd sync` has it, so
   `--check` says beforehand what the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops. A branch
@@ -1213,8 +1217,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `whole_stack` the `root`, the `source` and the `state` of the stack branch, in the start, in `--check` and in a dry
   run. A straight chain, which has no stack branch, must start from its last branch that is not parked (`source` its
   virtual branch). The whole stack is the app's, by declared parent (D8): a blocked branch whose declared parent has no
-  commits heads one of its own.
+  commits heads one of its own. A remote stack branch that moved since the sync without commits the stack branch lacks
+  (an older build of the stack) must be pushed over again at once, once, leased on the fetched head, as `bd push`
+  does (D4): `pushed[0].pushed_over`, and the robot starts; one with commits the stack lacks, or that moves again, is
+  `lease_rejected`, nothing started.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_pushes_again_over_a_moved_remote_that_lacks_nothing_of_its_stack_branch`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_the_whole_stack`)
 - A stack branch that is not `built` must refuse the start, nothing pushed or started: `stack_conflict` (exit 4) with the

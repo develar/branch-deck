@@ -240,8 +240,8 @@ vi.mock("@/stores/branch-sync", async () => {
 
 /**
  * The pushes of `name` over the stores of these tests, as Rust orders them: the ancestors with work up to the nearest
- * held one (a landed one left out), the push of an action above the nearest one that asks first, a start over the
- * robot it replaces, Push with Children of the branch and its descendants with work, and the stack branch along
+ * held one (a landed one left out), the push of an action above the nearest one that asks first, Push with Children of
+ * the branch and its descendants with work, and the stack branch along
  */
 function pushOrdersOf(name: string, holdOf: (name: string) => { kind: string } | null): PushOrders {
   const work = (it: string) => {
@@ -261,14 +261,14 @@ function pushOrdersOf(name: string, holdOf: (name: string) => { kind: string } |
   ) {
     ancestors.unshift(base)
   }
-  const chain = ({ holds, stop }: { holds: boolean; stop: boolean }) => {
+  const chain = ({ stop }: { stop: boolean }) => {
     const sent: string[] = []
     for (const ancestor of [...ancestors].reverse()) {
       const hold = holdOf(ancestor)
       if (hold?.kind === "landed") {
         continue
       }
-      if ((holds && hold !== null) || (stop && asks(ancestor))) {
+      if (hold !== null || (stop && asks(ancestor))) {
         break
       }
       if (work(ancestor)) {
@@ -277,7 +277,7 @@ function pushOrdersOf(name: string, holdOf: (name: string) => { kind: string } |
     }
     return [...sent, name]
   }
-  const action = chain({ holds: true, stop: true })
+  const action = chain({ stop: true })
   const descendants = stores.descendants[name] ?? []
   const free = (it: string) => holdOf(it) === null
   const stack = stores.stackBranches[name]
@@ -299,10 +299,9 @@ function pushOrdersOf(name: string, holdOf: (name: string) => { kind: string } |
   }
   const order = [...(work(name) && free(name) ? [name] : []), ...descendants.filter(it => work(it) && !asks(it) && free(it))]
   return {
-    stack: chain({ holds: true, stop: false }),
+    stack: chain({ stop: false }),
     action,
     button: work(name) && !asks(name) && action.length > 1 ? action : [],
-    start: chain({ holds: false, stop: true }),
     children:
       descendants.length === 0
         ? null
@@ -705,11 +704,11 @@ describe("a stack push next to a running Safe Push", () => {
     expect(calls).toEqual(["push login oauth"])
   })
 
-  it("cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it", async () => {
+  it("cancels the robot the start replaces at the first branch it holds, and pushes the ancestors its decision pushes with it", async () => {
     const run = { ...RUNNING, id: "oauth-run", branchName: "oauth" }
     robots.spans.auth = run
     robots.spans.login = run
-    await pushStack("oauth", { replacesRobot: run, announce: false })
+    await pushStack("oauth", { order: ["auth", "login", "oauth"], replacesRobot: run, announce: false })
     // canceled once, before the one push of the branches it held
     expect(calls).toEqual(["cancel oauth-run", "push auth login oauth"])
   })
@@ -1272,7 +1271,7 @@ describe("a push that started in another repository", () => {
     robots.spans.auth = run
     robots.spans.login = run
     robots.whileCanceling = switchRepository
-    expect(await pushStack("login", { replacesRobot: run, announce: false })).toBe(true)
+    expect(await pushStack("login", { order: ["auth", "login"], replacesRobot: run, announce: false })).toBe(true)
     expect(calls).toEqual(["cancel login-run", "push auth login"])
     expect(robots.askedIn).toEqual(["/repo"])
   })

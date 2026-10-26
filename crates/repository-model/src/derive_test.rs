@@ -485,6 +485,125 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
   assert_eq!(land_answer(&sources, &gone), None);
 }
 
+/// The push of a start is the push of its row (`push::start_push` over the holds the row reads): login on auth on base,
+/// auth landed, base with a new commit. Whether a merged Safe Push landed auth whole or the fetched baseline has every
+/// commit of it (its remote an older version), the decision of the Safe Push of login pushes base and login, as Push
+/// Stack of the row does, and leaves auth as it is
+#[test]
+fn the_push_of_a_start_is_the_push_of_its_row_past_an_ancestor_that_landed() {
+  use crate::derive::derive_budget_test::at;
+  use crate::facts::{FactResult, RobotsRead};
+  use domain_types::fixtures::{robot, robot_of};
+  use domain_types::landed::LandedBranch;
+  use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus, PatronusRobotsResult};
+  use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandedByView, LandingNeeds};
+  use std::sync::Arc;
+
+  for by_robot in [true, false] {
+    let branches = vec![on("login", Some("auth")), on("auth", Some("base")), on("base", None)];
+    let mut auth = remote_status("auth", &[]);
+    if !by_robot {
+      // the remote branch has the commit of auth that the baseline has now: an older version
+      auth.commits_landed = 1;
+      auth.action = domain_policy::push::action(&auth);
+    }
+    let mut events = vec![grouping(branches.clone(), &[], &[])];
+    events.extend(
+      [remote_status("base", &["base-2"]), auth, remote_status("login", &["login-1"])]
+        .into_iter()
+        .map(SyncEvent::RemoteStatusUpdate),
+    );
+    if !by_robot {
+      events.push(SyncEvent::BaselineStatus {
+        baseline_branch: "origin/master".to_string(),
+        update: None,
+        check_error: None,
+        landing: vec![LandedBranch {
+          name: Some("auth".to_string()),
+          commits: Vec::new(),
+          remaining: 0,
+          landed_at: 0,
+        }],
+        landed: Vec::new(),
+      });
+    }
+    let mut state = TableState::new();
+    crate::table::table_test::run_sync(&mut state, events);
+
+    let table = crate::branch_table::BranchTable {
+      prefix: "user".to_string(),
+      baseline: "origin/master".to_string(),
+      tips: branches
+        .iter()
+        .map(|branch| (format!("user/virtual/{}", branch.name), format!("{}-tip", branch.name)))
+        .collect(),
+      branches,
+      ..crate::branch_table::BranchTable::default()
+    };
+    let mut facts = FactStore::new();
+    let _ = facts.table.answer(at(1), Ok(Arc::new(table.clone())));
+    let mut view = PatronusView::default();
+    if by_robot {
+      let merged = robot("merged", Some("auth"), PatronusRobotStatus::Success, 10);
+      facts.apply(
+        at(2),
+        FactResult::Robots {
+          read: RobotsRead::List { full: true },
+          result: PatronusRobotsResult {
+            availability: PatronusAvailability::Available,
+            robots: vec![merged],
+            github_repository: None,
+          },
+        },
+      );
+      let by = robot_of("auth", "merged");
+      view.branches.insert(
+        "auth".to_string(),
+        BranchPatronus {
+          robot_id: Some("merged".to_string()),
+          landed_by: Some(LandedByView {
+            by: by.clone(),
+            own: true,
+            landed: names(&["auth-1"]),
+            after: Vec::new(),
+          }),
+          landing: BranchLanding {
+            hold: Some(HoldView {
+              kind: HoldKind::Landed,
+              by,
+              carried: None,
+            }),
+            ..BranchLanding::default()
+          },
+          landing_needs: LandingNeeds::Known { refusals: Vec::new() },
+          ..BranchPatronus::default()
+        },
+      );
+    }
+    assert!(facts.patronus.begin(3, std::time::Duration::from_secs(3)));
+    facts.patronus.answer(at(3), Ok(view));
+    if let Some((inputs, _)) = facts.patronus.publish(&table) {
+      let _ = facts.patronus.needs_answer(inputs, Ok(BTreeMap::new()));
+      let _ = facts.patronus.publish(&table);
+    }
+
+    let patch = View::new(1, "user").diff(&state, &facts).unwrap();
+    let decided = patch.changes.lands["login"].safe_push.effects.iter().find_map(|effect| match effect {
+      PlannedEffect::Push { branches, .. } => Some(branches.clone()),
+      _ => None,
+    });
+    // what the page sends for an action and a start: `action`, else `stack`, then the branch (`pushOrdersIn`)
+    let push = &patch.changes.pushes["login"];
+    let mut row = push.action.clone().or_else(|| push.stack.clone()).unwrap_or_default();
+    row.push("login".to_string());
+    assert_eq!(
+      (decided, row),
+      (Some(names(&["base", "login"])), names(&["base", "login"])),
+      "landed by a robot: {by_robot}"
+    );
+  }
+}
+
 /// The view carries the next step and the node of every row and of every whole stack that forks
 /// (`domain_policy::next_step`, `domain_policy::landing_node`), over the table and the facts of the session; a patch
 /// carries only the subjects whose step or node changed

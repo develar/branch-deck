@@ -707,7 +707,8 @@ pub struct BranchPush {
   pub stack: Option<Vec<String>>,
   /// The push of the push button and of an action that needs the branch on the remote (a pull request, a review
   /// request): as `stack`, starting above the nearest branch whose push drops remote commits, which asks first in its
-  /// row; absent while none of `stack` asks first (`stack` then)
+  /// row; absent while none of `stack` asks first (`stack` then). A Safe Push start pushes what its decision does (the
+  /// `Push` effect, `domain_policy::push::start_push`)
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub action: Option<Vec<String>>,
@@ -715,11 +716,6 @@ pub struct BranchPush {
   #[serde(skip_serializing_if = "std::ops::Not::not")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub button: bool,
-  /// The push of a Safe Push start that replaces a running robot of the branch (`BranchLanding::replaces`): as `action`,
-  /// with the branches that robot holds, which the start cancels; absent while it replaces none (`action` then)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  #[cfg_attr(feature = "specta", specta(optional))]
-  pub start: Option<Vec<String>>,
   /// Push with Children; absent for a branch nothing but parked branches is stacked on
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]

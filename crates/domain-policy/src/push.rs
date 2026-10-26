@@ -10,19 +10,24 @@
 //! - `drops_remote_commits`: the push drops remote commits the branch lacks, someone's work: it asks first
 //! - `over_moved_remote`: a push refused because the remote branch moved since its status goes again, once, over what
 //!   the remote has now, only when nothing of it is lost
+//! - `kept`: what keeps a branch out of a push whatever its remote has (`Kept`: parked, landed, held, not built)
 //! - `push_plan`: what a push of several branches covers, in push order, parents first, and what each of them does
 //!   (`Verdict`): Push Stack, the branches a branch is built on (the chain ends at the nearest one a running Safe Push
-//!   holds), and Push with Children, the branches stacked on it by declared parent; the adapters say each verdict (the
-//!   page leaves a branch out and its row says why, `bd` refuses where the user must act)
+//!   holds, `PushPlan::with_ancestors`), and Push with Children, the branches stacked on it by declared parent; the
+//!   adapters say each verdict (the page leaves a branch out and its row says why, `bd` refuses where the user must act)
+//! - `start_push`: what a Safe Push or a Dry Run start of a branch pushes, the `Push` effect of `land::decide` that the
+//!   app's start and `bd safe-push` send: Push Stack of it over the holds of every robot but the one the start
+//!   replaces, the ancestors that ask first included (a push that drops remote commits refuses the start unless allowed)
 //! - `branch_push`: the pushes of a branch the view sends (`BranchPush`): Push Stack, the push of the push button and
-//!   of an action (it starts above the nearest branch that asks first), of a Safe Push start that replaces a robot, and
-//!   Push with Children with the stack branch of the whole stack of a root (`stack_branch_along`: once it is on the
-//!   remote or its pull request is open, built, not held, its remote lacking it)
+//!   of an action (it starts above the nearest branch that asks first), and Push with Children with the stack branch of
+//!   the whole stack of a root (`stack_branch_along`: once it is on the remote or its pull request is open, built, not
+//!   held, its remote lacking it)
 
-use crate::facts::Repository;
+use crate::facts::{RemoteBranch, Repository};
 use crate::reasons::stack_not_built;
 use crate::stack::{build_ancestors, descendants};
 use domain_types::reason::Reason;
+use domain_types::repository_view::{HoldKind, HoldView};
 use domain_types::session::{BranchPush, ChildrenPush, StackBranchAlong};
 use domain_types::stack::StackBranchUpdate;
 use domain_types::{PushAction, RemoteStatusUpdate};
@@ -101,6 +106,25 @@ pub enum Kept {
   NotBuilt,
 }
 
+/// What keeps a branch out of a push whatever its remote has, the first that applies: it stays local (`parked`), nothing
+/// of it is left to land (`landed`: the fetched baseline has every commit of it; or `hold` is of a merged Safe Push that
+/// landed it whole), a running Safe Push holds it (`hold`) other than `replaces`, the robot the push cancels, the last
+/// sync did not build it (`not_built`)
+#[must_use]
+pub fn kept(parked: bool, landed: bool, hold: Option<&HoldView>, replaces: Option<&str>, not_built: bool) -> Option<Kept> {
+  if parked {
+    Some(Kept::Parked)
+  } else if landed || hold.is_some_and(|hold| hold.kind == HoldKind::Landed) {
+    Some(Kept::Landed)
+  } else if hold.is_some_and(|hold| Some(hold.by.robot_id.as_str()) != replaces) {
+    Some(Kept::Held)
+  } else if not_built {
+    Some(Kept::NotBuilt)
+  } else {
+    None
+  }
+}
+
 /// What a branch of a push plan does
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -161,22 +185,101 @@ impl<'a> PushPlan<'a> {
   pub fn verdict(&self, name: &str) -> Option<Verdict> {
     self.steps.iter().find(|(step, _)| *step == name).map(|(_, verdict)| *verdict)
   }
+
+  /// Push Stack of a branch: `ancestors`, the nearest first, each with what it does, up to the nearest held one (its
+  /// robot lands it and every branch it is built on), root first; then the branch, `own` what it does
+  #[must_use]
+  pub fn with_ancestors(ancestors: impl IntoIterator<Item = (&'a str, Verdict)>, own: (&'a str, Verdict)) -> Self {
+    let mut steps = Vec::new();
+    for step in ancestors {
+      steps.push(step);
+      if step.1 == Verdict::Held {
+        break;
+      }
+    }
+    steps.reverse();
+    steps.push(own);
+    Self { steps }
+  }
+}
+
+/// What a branch kept out of a push does in it
+const fn kept_verdict(kept: Kept) -> Verdict {
+  match kept {
+    Kept::Parked => Verdict::Parked,
+    Kept::Landed => Verdict::Landed,
+    Kept::Held => Verdict::Held,
+    Kept::NotBuilt => Verdict::NotBuilt,
+  }
 }
 
 /// What a branch does in a push, by its state
 #[must_use]
 pub const fn verdict(state: &PushState) -> Verdict {
-  match state.kept {
-    Some(Kept::Parked) => return Verdict::Parked,
-    Some(Kept::Landed) => return Verdict::Landed,
-    Some(Kept::Held) => return Verdict::Held,
-    Some(Kept::NotBuilt) => return Verdict::NotBuilt,
-    None => {}
+  if let Some(kept) = state.kept {
+    return kept_verdict(kept);
   }
   match state.action {
     None | Some(PushAction::UpToDate) => Verdict::UpToDate,
     Some(PushAction::Force { drops: true, .. }) => Verdict::AsksFirst,
     Some(_) => Verdict::Goes,
+  }
+}
+
+/// What a branch does in a push, by what keeps it out (`kept`) and what the rules read of its remote branch (`None`
+/// before a remote status said it), as `verdict` says it of the action of a remote status: it asks first while the push
+/// drops remote commits, goes while the remote lacks something of it, and is up to date otherwise
+#[must_use]
+pub const fn remote_verdict(kept: Option<Kept>, remote: Option<RemoteBranch<'_>>) -> Verdict {
+  if let Some(kept) = kept {
+    return kept_verdict(kept);
+  }
+  match remote {
+    Some(remote) if remote.drops > 0 => Verdict::AsksFirst,
+    Some(remote) if !remote.up_to_date => Verdict::Goes,
+    _ => Verdict::UpToDate,
+  }
+}
+
+/// A branch a start of a branch is built on, as `start_push` reads it
+#[derive(Clone, Copy, Debug)]
+pub struct StartAncestor<'a> {
+  pub name: &'a str,
+  /// What keeps it out of the push (`kept`, over the holds of every robot but the one the start replaces)
+  pub kept: Option<Kept>,
+  /// What the rules read of its remote branch; `None` before a remote status said it
+  pub remote: Option<RemoteBranch<'a>>,
+}
+
+/// What a start of a branch pushes (`start_push`)
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StartPush<'a> {
+  /// The branches it pushes, root first, the branch last while its remote lacks something of it
+  pub branches: Vec<&'a str>,
+  /// A branch the push covers has no remote status yet: what the start pushes is not known
+  pub unknown: bool,
+}
+
+/// What a Safe Push or a Dry Run start of `name` pushes, the `Push` effect of `land::decide` that the app's start and `bd
+/// safe-push` send (and whether it pushes, `BranchStart::pushes`): Push Stack of it (`PushPlan::with_ancestors`) over
+/// `ancestors`, the nearest first, the branches that go or ask first (the push of one that drops remote commits refuses
+/// the start unless the user allowed it, D12), root first; the branch itself by its remote branch `own` alone: its own
+/// hold and its landing refuse the start, they don't keep it out of the push
+#[must_use]
+pub fn start_push<'a>(name: &'a str, own: Option<RemoteBranch<'a>>, ancestors: impl IntoIterator<Item = StartAncestor<'a>>) -> StartPush<'a> {
+  let mut unknown = own.is_none();
+  let mut covered = Vec::new();
+  for ancestor in ancestors {
+    unknown |= ancestor.kept.is_none() && ancestor.remote.is_none();
+    covered.push((ancestor.name, remote_verdict(ancestor.kept, ancestor.remote)));
+    if ancestor.kept == Some(Kept::Held) {
+      break;
+    }
+  }
+  let plan = PushPlan::with_ancestors(covered, (name, remote_verdict(None, own)));
+  StartPush {
+    branches: plan.order(true),
+    unknown,
   }
 }
 
@@ -186,26 +289,25 @@ pub fn push_plan<'a>(repo: &Repository<'a>, state: impl Fn(&str) -> PushState, n
   let Some(name) = repo.branch(name).map(|branch| branch.name) else {
     return PushPlan::default();
   };
-  let mut steps = Vec::new();
   match scope {
+    // `with_ancestors` stops at the nearest held ancestor: no verdict is asked of the branches its robot lands
     PushScope::WithAncestors => {
+      let mut verdicts = Vec::new();
       for ancestor in build_ancestors(repo, name).into_iter().rev() {
         let verdict = verdict(&state(ancestor));
-        steps.push((ancestor, verdict));
-        // its robot lands it and every branch it is built on
+        verdicts.push((ancestor, verdict));
         if verdict == Verdict::Held {
           break;
         }
       }
-      steps.reverse();
-      steps.push((name, verdict(&state(name))));
+      PushPlan::with_ancestors(verdicts, (name, verdict(&state(name))))
     }
     PushScope::WithChildren => {
-      steps.push((name, verdict(&state(name))));
+      let mut steps = vec![(name, verdict(&state(name)))];
       steps.extend(descendants(repo, name).into_iter().map(|descendant| (descendant, verdict(&state(descendant)))));
+      PushPlan { steps }
     }
   }
-  PushPlan { steps }
 }
 
 /// What Push with Children of the root of a stack that forks does with its stack branch (`StackBranchAlong`): only one
@@ -248,11 +350,10 @@ pub struct HeadedStack<'a> {
   pub hold: Option<&'a Reason>,
 }
 
-/// The pushes of `name` (`BranchPush`): `state` of each branch with the holds of every running robot, `start` with
-/// those of every robot but the one a Safe Push start of the branch replaces (`None` while it replaces none), `stack`
-/// the stack branch `name` is the root of
+/// The pushes of `name` (`BranchPush`): `state` of each branch with the holds of every running robot, `stack` the stack
+/// branch `name` is the root of. What a start pushes is its decision's (`start_push`)
 #[must_use]
-pub fn branch_push(repo: &Repository<'_>, state: impl Fn(&str) -> PushState, start: Option<&dyn Fn(&str) -> PushState>, stack: Option<HeadedStack<'_>>, name: &str) -> BranchPush {
+pub fn branch_push(repo: &Repository<'_>, state: impl Fn(&str) -> PushState, stack: Option<HeadedStack<'_>>, name: &str) -> BranchPush {
   let owned = |names: &[&str]| names.iter().map(|name| (*name).to_string()).collect::<Vec<_>>();
   let ancestors = push_plan(repo, &state, name, PushScope::WithAncestors);
   let Some(&(_, own)) = ancestors.steps.last() else {
@@ -266,10 +367,6 @@ pub fn branch_push(repo: &Repository<'_>, state: impl Fn(&str) -> PushState, sta
     stack: (stack_order != build_ancestors(repo, name)).then(|| owned(&stack_order)),
     button: own == Verdict::Goes && !action.is_empty(),
     action: (action != stack_order).then(|| owned(&action)),
-    start: start.map(|start| {
-      let plan = push_plan(repo, start, name, PushScope::WithAncestors);
-      owned(&above_ask_first(&plan.steps[..plan.steps.len().saturating_sub(1)]))
-    }),
     children,
   }
 }

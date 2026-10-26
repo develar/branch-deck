@@ -3147,8 +3147,10 @@ lacks, and its pull request showing the parent's commits.
    gave for the branches as they are (`RepositoryView.pushes` of the branch, `domain_policy::push::branch_push` over
    `push_plan`, [The landing of a session](#the-landing-of-a-session)): Push Stack its `stack`, the push button and an
    action that needs the branch on the remote its `action` (above the nearest branch whose push drops remote commits),
-   a Safe Push start its `start`, Push with Children its `children` with the stack branch of the whole stack when it
-   goes along (`stack_branch_along`); the page orders none. Push Up to Here takes its steps from the structure in the
+   Push with Children its `children` with the stack branch of the whole stack when it goes along
+   (`stack_branch_along`); a Safe Push start the branches of the `Push` effect of its decision
+   (`domain_policy::push::start_push`, the same chain up to the nearest held ancestor, past one that landed, over the
+   holds of every robot but the one it replaces), which `bd safe-push` pushes too, each alone; the page orders none. Push Up to Here takes its steps from the structure in the
    page (`pushUpToPlan`, `src/lib/push-up-to.ts`). The holds are checked per branch (`checkPushHold` on the hold of the
    view; a held one refuses the whole push, the robot a Safe Push start replaces is canceled once), and an open pull
    request that needs a retarget is retargeted, as before a push of one branch.
@@ -3749,8 +3751,8 @@ Patronus view's, the landing needs the host's.
   repositoryPath, land }` answers `LandAnswer { decision, profiles }` over the facts the session holds now
   (`Sessions::decide_land`, `derive::land_answer_of`, the same `land::decide`): a read, no lock, no effect, no git
   process; the E2E server's route asks its session the same. The page runs the `effects` of a decision in their order
-  (`src/lib/safe-push-start.ts`): the retarget of a pull request into a virtual branch first, then the push with the
-  cancel of the robot the start replaces (or that cancel alone), then the start.
+  (`src/lib/safe-push-start.ts`): the retarget of a pull request into a virtual branch first, then the push of the
+  branches the effect names with the cancel of the robot the start replaces (or that cancel alone), then the start.
 - **`bd`** derives with the same functions over what it read, the facts it doesn't read unknown: `bd status` and `bd
   safe-push --check` the next step (`StepSources` of `derive::grouped_rows`), `bd safe-push` the decision of its start
   (`LandingFacts::branch_subject`, `stack_subject`, `land::decide`; its flags are the allowances of the intent),

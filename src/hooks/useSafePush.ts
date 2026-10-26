@@ -19,8 +19,8 @@ import { formatReadinessSubject, formatWholeStack, stackRootOfReadinessKey } fro
 import { demandReviewReadiness, useDemandReviewReadiness } from "@/model/demand"
 import type { LandPrompt } from "@/presenters/land"
 import { presentLand, startRouteOf } from "@/presenters/land"
-import type { BranchNextStep, NextStepKind } from "@/presenters/next-step"
-import { NO_NEXT_STEP } from "@/presenters/next-step"
+import type { BranchNextStep } from "@/presenters/next-step"
+import { NO_NEXT_STEP, startStepBlocker } from "@/presenters/next-step"
 import {
   branchSyncStore,
   getBranch,
@@ -175,13 +175,6 @@ export function resetStartOptions(): void {
 
 // ---- the read ----
 
-/**
- * The steps of the next step that wait for approvals: a start that skips them (`LandDecision.approvalsSkippedBy`: a
- * start without review, a profile known to skip it) is not held back by them, nor by a pull request into another base,
- * whose approvals count for no start into the target (D3b)
- */
-const APPROVAL_STEPS: ReadonlySet<NextStepKind> = new Set(["createPullRequest", "changesRequested", "requestReview", "awaiting", "otherBase"])
-
 /** The start `request` asks of `branchName` (a branch, or the key of a whole stack) as the contract names it (`Land`) */
 export function landOf(branchName: string, request: Omit<SafePushRequest, "placement">): Land {
   const root = stackRootOfReadinessKey(branchName)
@@ -280,9 +273,9 @@ export function readSafePush(branchName: string, request: Omit<SafePushRequest, 
   const lands = getLands(branchName)
   const decision = answer?.decision ?? (isDefaultAsk(request) && lands !== undefined ? (mode === "dryRun" ? lands.dryRun : lands.safePush) : null)
   const subject = root === null ? branchName : formatWholeStack(root)
-  const blocker = mode === "dryRun" ? step.dryRunBlocker : step.safePushBlocker
-  // a start that skips the approvals is held back only by the reasons of the branch, never by the approvals
-  const stepBlocker = blocker !== null && !(decision?.approvalsSkippedBy != null && APPROVAL_STEPS.has(step.kind)) ? blocker : null
+  // a start that skips the approvals (`LandDecision.approvalsSkippedBy`) is held back only by what the step says of a
+  // start without review, as the click decides it
+  const stepBlocker = startStepBlocker(step, mode, decision?.approvalsSkippedBy != null)
   const route = decision === null ? null : startRouteOf(decision)
   const profile = route?.kind === "api" ? route.profile : null
   const cancel = decision?.effects.find(effect => effect.kind === "cancelRobot")
@@ -484,8 +477,12 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   if (step == null) {
     return
   }
-  // a start without review is held back only by the reasons of the branch, never by the approvals it goes without
-  const blocker = mode === "dryRun" ? step.dryRunBlocker : request.bypassReview === true ? (step.withoutReview?.blocker ?? null) : step.safePushBlocker
+  // a start that skips the approvals is held back only by what the step says of a start without review, never by the
+  // approvals it goes without: Start Without Review, or the default start whose decision skips them (a profile known to
+  // skip the review), as its read decides it
+  const lands = getLands(branchName)
+  const skipsApprovals = request.bypassReview === true || (isDefaultAsk(request) && lands?.safePush.approvalsSkippedBy != null)
+  const blocker = startStepBlocker(step, mode, skipsApprovals)
   if (blocker !== null) {
     if (mode === "rebaseAutosquash" && step.notice !== null) {
       // a step that waits in the pull request (the approvals, a draft, another base) opens it from the notice

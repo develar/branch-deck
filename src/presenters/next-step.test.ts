@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingRefusal, Reason, StepBlocker } from "@/lib/bindings"
 import { FROM_MENU } from "@/lib/menu"
-import { presentNextStep } from "@/presenters/next-step"
+import { presentNextStep, startStepBlocker } from "@/presenters/next-step"
 import { missingGroup, testActions, testContext, testStep } from "@/test-support/next-step"
 
 /** The reasons of the catalog Rust writes (`reason_catalog_test.rs`) */
@@ -217,6 +217,35 @@ describe("the words of the next step", () => {
       testContext({ subject: "the whole air stack", startDescription: "Lands 2 branches, 3 commits into master in one Safe Push: air and ui" }),
     )
     expect(stack.item?.description).toBe("Lands 2 branches, 3 commits into master in one Safe Push: air and ui")
+  })
+})
+
+describe("the step's blocker of a start", () => {
+  it("is the step's for a Safe Push, of a start that skips the approvals only what the step says of a start without review, of a Dry Run its own", () => {
+    const syncing: StepBlocker = { code: "syncing" }
+    const steps = [
+      // row 7: a start without review is offered, held back by the reasons of the subject alone
+      presentNextStep(
+        testStep({ kind: "createPullRequest", groups: MISSING, stack: null, repository: true }, { safePush: OWN, withoutReview: { blocker: syncing } }),
+        testContext(),
+      ),
+      // row 8: the approvals hold it back, nothing else
+      presentNextStep(
+        testStep(
+          { kind: "changesRequested", number: 1078, groups: [missingGroup("IJPL Code Platform", [], { changesRequestedBy: [{ login: "ikorennoy", fullName: null }] })] },
+          { safePush: OWN },
+        ),
+        testContext(),
+      ),
+      // row 6: a draft, which a start through the API never reads
+      presentNextStep(testStep({ kind: "draft", number: 7 }, { safePush: OWN, dryRun: syncing }), testContext()),
+    ]
+    for (const step of steps) {
+      expect(startStepBlocker(step, "rebaseAutosquash", false)).toBe(step.safePushBlocker)
+      expect(startStepBlocker(step, "rebaseAutosquash", true)).toBe(step.withoutReview?.blocker ?? null)
+      expect(startStepBlocker(step, "dryRun", true)).toBe(step.dryRunBlocker)
+    }
+    expect(steps.map(step => startStepBlocker(step, "rebaseAutosquash", true))).toEqual(["Wait for the sync to finish", null, null])
   })
 })
 
