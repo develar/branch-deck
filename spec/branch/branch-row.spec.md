@@ -39,6 +39,7 @@ targets:
   - ../../src/components/branch/LandedChip.tsx
   - ../../src/components/branch/BranchActions.tsx
   - ../../src/components/branch/BranchPushButton.tsx
+  - ../../src/components/branch/ChildrenPushButton.tsx
   - ../../src/components/branch/StackBaseLabel.tsx
   - ../../src/components/branch/SafePushButton.tsx
   - ../../src/components/branch/NextStepSlot.tsx
@@ -274,10 +275,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   robot in the Status cell or the Safe Push slot of the row, while the keyboard focuses the row or a control in it, and while the popover
   of its Safe Push or Dry Run is open (`pinStackPath`; the pointer wins over the focus, the focus over the popover; `stack-view.ts`). Over the push button,
   the nodes of the branches the push sends are circled as well, so "↑ 18" shows which branches its 18 commits come
-  from. A root has no path; a running robot's landing span is drawn over the path. An event from a menu or a popover
+  from, and Push with Children in its place the branches stacked on it; the circles follow a push while the pointer
+  rests on the button. A root has no path; a running robot's landing span is drawn over the path. An event from a menu or a popover
   above the table moves no path.
   [@test] ../../src/lib/stack-lanes.test.ts (`draws the path from the root down to a branch, past the side branches between`, `curves into a side branch and leaves the main line alone`, `has no path for a root or a branch without a row`)
-  [@test] ../../src/stores/stack-view.test.ts (`highlights the path from the root to the hovered branch, and keeps its state while the branch doesn't change`, `prefers the pointer to the keyboard focus, and the focus to an open Safe Push popover`, `drops the path of a branch that left the rows`)
+  [@test] ../../src/stores/stack-view.test.ts (`highlights the path from the root to the hovered branch, and keeps its state while the branch doesn't change`, `prefers the pointer to the keyboard focus, and the focus to an open Safe Push popover`, `drops the path of a branch that left the rows`, `circles what the hovered push sends, the children of a branch with nothing of its own to send, and follows a push`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should draw the path to the root of the hovered branch`, `should mark the branches a push sends when its button is hovered`)
 - A branch under the branch of its issue or under its issue row must be indented one step (`--bd-family-step`, 1.75rem),
   with a guide over the whole row height under the icon of the row above; the lanes of a stack on it stay in the lane
@@ -440,7 +442,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   the hover as it is ([hover descriptions](../../docs/design/ui-theme.md)): open while the pointer stays, also
   after a click well after it opened. Its colour is the push colour
   of the branch as the text of a ghost button (the arrow for `primary`), neutral when landed. A branch up to date with
-  its remote has no button: nothing is to push, and a disabled arrow in every pushed row would say it on every row; so has a branch a running Safe Push holds, whose Status cell shows the robot or
+  its remote has no button: nothing is to push, and a disabled arrow in every pushed row would say it on every row
+  (while branches stacked on it have work, its button is Push with Children, "↑ 3 with children",
+  [Stacked Branches](stacked-branches.spec.md#pull-requests)); so has a branch a running Safe Push holds, whose Status cell shows the robot or
   "lands with oauth", and its Safe Push slot is empty too ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs));
   and so has a branch the remote lacks whose landing pushes it (`isFirstPushInLanding`): where Patronus answers or
   GitHub lists the pull requests and the branch has no live pull request, its Safe Push and Create Pull Request push
@@ -814,7 +818,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 - The push button is a ghost `xs` button, `min-w-16 justify-start` (so "⟳ 100%" fits and the arrows stand in a column),
   with the `ArrowUpIcon` and the count in tabular figures, in the push colour
-  (`ghostButtonColorClass`). Its description starts with the label in `font-medium`.
+  (`ghostButtonColorClass`). Its description starts with the label in `font-medium`. Push with Children in its place
+  adds "with children" in `text-muted-foreground` after the count where the branch view is at least 56rem wide
+  (`@container/branch-view` on `BranchColumnsRoot`).
 - The Safe Push slot is the track `step`, capped at `max-w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push" is a ghost `xs` button with
   the `ShieldCheckIcon` in the foreground colour, "Restart Safe Push" the same with the `RotateCcwIcon`, the pull request
   step with its icon; disabled, they are dimmed to `opacity-50` and keep their hover (`focusableWhenDisabled`). While a

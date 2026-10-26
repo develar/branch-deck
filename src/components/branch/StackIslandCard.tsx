@@ -2,13 +2,11 @@ import type { ReactNode } from "react"
 import { cn } from "cn"
 import { FoldVerticalIcon, GitPullRequestIcon, UnfoldVerticalIcon } from "lucide-react"
 import { useStore } from "zustand"
-import { useShallow } from "zustand/react/shallow"
 import { Button } from "@/components/ui/button"
-import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActionTracks } from "@/components/branch/ActionTracks"
 import { ColumnTrack } from "@/components/branch/BranchColumns"
-import { CompactPushLabel, PushProgressDescription } from "@/components/branch/BranchPushButton"
+import { ChildrenPushButton } from "@/components/branch/ChildrenPushButton"
 import { LandingNodeHover } from "@/components/branch/LandingNodeHover"
 import { GaplessAnchors, NextStepSlot, WholeStackRequestReviewAnchor } from "@/components/branch/NextStepSlot"
 import { ClosePullRequestButton, OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
@@ -17,11 +15,9 @@ import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { WholeStackSlot } from "@/components/branch/WholeStackSlot"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
-import { HoverDescription } from "@/components/shared/HoverDescription"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { menuSources, useMenuStores } from "@/hooks/useBranchContextActions"
 import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
-import { useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useSettledStackLine } from "@/hooks/useSettledLayout"
@@ -29,45 +25,19 @@ import { useStackStates } from "@/hooks/useStackStates"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
-import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushMode } from "@/lib/patronus"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
-import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
-import { formatAskFirst, formatPushWithChildrenLabel, stackPushSubject } from "@/lib/stack"
 import type { StackIsland } from "@/lib/stack-collapse"
 import type { StackStateChip } from "@/lib/stack-state"
 import { getStackStateChips } from "@/lib/stack-state"
 import { joinNames } from "@/lib/text"
-import { transferLabel, transferPercent } from "@/lib/transfer-progress"
-import { ghostButtonColorClass, textColorClassName } from "@/lib/ui-types"
-import {
-  STACK_BRANCH_PUSHING,
-  describeOrphanedStackPullRequest,
-  formatStackBranchPushLine,
-  formatWholeStackApprovals,
-  formatWholeStackBranch,
-  stackReadinessKey,
-} from "@/lib/whole-stack"
-import { useRowPart } from "@/model/store"
-import { actionBlocker } from "@/presenters/actions"
-import { formatPushHoldReason } from "@/presenters/reasons"
-import type { ChildrenPushOrder, StackBranch } from "@/stores/branch-sync"
-import {
-  isForkingRoot,
-  mainLineOf,
-  pushOrdersIn,
-  structureIn,
-  useBranch,
-  useBranchPushProgress,
-  useBranchSync,
-  useIsStackBranchPushing,
-  useStackBranch,
-  useStackBranchPushProgress,
-  useStackPush,
-} from "@/stores/branch-sync"
+import { textColorClassName } from "@/lib/ui-types"
+import { describeOrphanedStackPullRequest, formatWholeStackApprovals, stackReadinessKey } from "@/lib/whole-stack"
+import type { ChildrenPushOrder } from "@/stores/branch-sync"
+import { isForkingRoot, mainLineOf, pushOrdersIn, structureIn, useBranch, useBranchSync, useStackBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { landedStacksStore, useStackLandedBy } from "@/stores/landed-stacks"
 import { useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
@@ -176,7 +146,7 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
             {/* in the tracks of the Actions column: the push, the step and "⋯" stand where those of the rows stand */}
             <ActionTracks data-testid="stack-island-actions">
               <ColumnTrack track="push">
-                <StackPushSlot root={root} summary={summary} />
+                <ChildrenPushButton root={root} push={summary} held={summary.rootHeld} testId="stack-island-push" descriptionTestId="stack-island-push-description" />
               </ColumnTrack>
               <ColumnTrack track="step">
                 <StackSafePushSlot root={root} summary={summary} />
@@ -406,120 +376,6 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
       <TooltipContent>{branch === undefined ? chip.text : `Show ${branch}`}</TooltipContent>
     </Tooltip>
   )
-}
-
-/**
- * The push of the stack, as the compact push of a row: "↑ 41", the commits of Push with Children of the root (the
- * branches of the stack that have work for the remote, parents first, and the stack branch of the whole stack while it
- * goes along, as Rust orders them, `ChildrenPush`), in one push; a commit the branches and the stack branch
- * both send counts once. The hover names it and lists what it sends, and the branches that ask first in their rows; a
- * click pushes and leaves the hover as it is (`HoverDescription`), so it shows the progress while the pointer stays.
- * Disabled, "↑" with the reason in its hover, while it would push nothing beyond the root
- * (Rust's reason, `domain_policy::actions`: the stack is on the remote, the root row's push is the push, the branches with
- * work ask first, or only the stack branch has work and doesn't go along) and while a Safe Push runs in the stack: a push
- * won't land. While a push runs, the spinner and the percent, its name ("Pushing 7 branches 45%"; "Pushing the whole
- * stack 45%" for the stack branch alone) and the line of git on hover: the one indicator of the pushes of the stack; the
- * start of the Safe Push of the whole stack shows its push in its own button, this one disabled meanwhile.
- */
-/** Why the push of a stack without branches to land is disabled: Rust offers no Push with Children of its root */
-const NOTHING_TO_PUSH = "Nothing to push: the stack is on the remote"
-
-function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
-  const stackPush = useStackPush(root)
-  const current = stackPush === null ? null : stackPushSubject(root, stackPush)
-  // the push of the stack branch alone (a step of the restart of its robot, of Request Review…, of the creation of its
-  // pull request) shows here as the stack's pushes do; the Safe Push of the whole stack shows it in its own button, the
-  // step of its start: one indicator, decided where the root's push button decides it
-  const stackBranchPushing = useIsStackBranchPushing(root)
-  const pushAlone = useStackBranchPushAlone(root)
-  const alone = stackPush === null && pushAlone
-  const busy = current !== null || alone
-  // the one push of the stack reports its progress for each of its branches
-  const branchProgress = useBranchPushProgress(stackPush?.[0] ?? root)
-  const stackBranchProgress = useStackBranchPushProgress(root)
-  const progress = alone ? stackBranchProgress : branchProgress
-  const hold = usePushHold(root)
-  // Push with Children of the root as Rust offers it (`domain_policy::actions`)
-  const rootActions = useRowPart(root, "actions")
-  const stack = useStackBranch(root)
-  const { children } = summary
-  const withStackBranch = children?.stackBranch?.kind === "along" && stack !== undefined
-  const pushOrder = children?.order ?? []
-  const askFirst = children?.askFirst ?? []
-  let blocker: string | null = null
-  if (!busy) {
-    if (summary.rootHeld) {
-      blocker = hold === null || hold.kind === "landed" ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
-    } else {
-      blocker = actionBlocker(rootActions, "push-with-children", { subject: root }) ?? (children?.offers === true ? null : NOTHING_TO_PUSH)
-    }
-  }
-  let label = "Push with Children"
-  if (current !== null) {
-    label = transferLabel(`Pushing ${current}`, progress)
-  } else if (alone) {
-    label = transferLabel(STACK_BRANCH_PUSHING, progress)
-  } else if (blocker === null) {
-    label = formatPushWithChildrenLabel(pushOrder, withStackBranch)
-  }
-  // the stack branch holds the commits of the branches: what the remote lacks of both, each once
-  const pushCommits = withStackBranch ? Math.max(summary.pushCommits, stack.remoteStatus?.commitsAhead ?? 0) : summary.pushCommits
-  return (
-    <HoverDescription>
-      <PopoverTrigger
-        openOnHover
-        delay={300}
-        render={
-          <Button
-            size="xs"
-            variant="ghost"
-            className={cn("min-w-16 justify-start tabular-nums", ghostButtonColorClass(blocker === null ? "primary" : "neutral"), !busy && "aria-disabled:opacity-50")}
-            // a push of the stack branch runs: Push with Children would take it along
-            disabled={busy || blocker !== null || stackBranchPushing}
-            // the reason stays reachable on hover while the button is disabled
-            focusableWhenDisabled
-            aria-busy={busy || undefined}
-            aria-label={label}
-            data-testid="stack-island-push"
-            onClick={event => {
-              // the header toggles the island on a click
-              event.stopPropagation()
-              void pushWithChildren(root)
-            }}
-          />
-        }
-      >
-        <CompactPushLabel isPushing={busy} percent={transferPercent(progress)} count={blocker === null ? pushCommits : 0} />
-      </PopoverTrigger>
-      <PopoverContent data-testid="stack-island-push-description" className="w-auto max-w-sm gap-2 p-3 text-sm leading-snug" onClick={event => event.stopPropagation()}>
-        {busy && <PushProgressDescription subject={current ?? formatWholeStackBranch(root)} progress={progress} />}
-        {!busy && blocker !== null && (
-          <>
-            <div className="font-medium">{label}</div>
-            <div className="break-words">{blocker}</div>
-          </>
-        )}
-        {!busy && blocker === null && (
-          <>
-            <div className="font-medium">{label}</div>
-            <StackPushLines order={pushOrder} stack={withStackBranch ? stack : null} />
-            {askFirst.length > 0 && <div className="text-muted-foreground">{`${formatAskFirst(askFirst)}.`}</div>}
-          </>
-        )}
-      </PopoverContent>
-    </HoverDescription>
-  )
-}
-
-/**
- * "Pushes 3 branches, parents first:", a line per push in the words of a push (`formatStackPushLine`), the stack branch of
- * the whole stack last (`formatStackBranchPushLine`)
- */
-function StackPushLines({ order, stack }: { order: readonly string[]; stack: StackBranch | null }) {
-  const branches = useBranchSync(useShallow(state => order.flatMap(name => (state.branches[name] === undefined ? [] : [formatStackPushLine(state.branches[name])]))))
-  const lines = stack === null ? branches : [...branches, formatStackBranchPushLine(stack)]
-  const text = lines.length === 1 ? `Pushes ${lines[0]}` : `Pushes ${formatBranchCount(lines.length)}, parents first:\n${lines.join("\n")}`
-  return <div className="break-words whitespace-pre-line">{text}</div>
 }
 
 /**

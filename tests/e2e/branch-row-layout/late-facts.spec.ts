@@ -2,6 +2,7 @@
 // @spec spec/repository/review-requests.spec.md
 // @spec spec/branch/stack-island.spec.md
 // @spec spec/branch/branch-preview.spec.md
+// @spec spec/branch/stacked-branches.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
@@ -12,6 +13,7 @@ import { availablePullRequests, pullRequest, reviewer } from "../helpers/pull-re
 import { availableReviewRequests, getYourTurnCard, reviewRequest } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { pushedRemote } from "../helpers/sync-helpers"
+import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 import { animationsEnded, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
@@ -33,6 +35,15 @@ async function rowLayout(page: Page): Promise<{ row: Box; commits: Box; pullRequ
     pullRequest: { x, width },
     step: await trackBox(row.locator("[data-track=step]")),
   }
+}
+
+/** The next start of the window: the answers `held` wait at the fakes, the sessions close, the page loads and asks again */
+async function restartHolding(page: Page, repo: TestRepositoryBuilder, held: HeldAnswer[]): Promise<void> {
+  await repo.holdRemoteAnswers({ hold: held })
+  // a repository synced before syncs when the window opens it; the remote is asked once that sync ended
+  await repo.closeSessions()
+  await page.reload()
+  await expect.poll(() => repo.getArrivedAnswers()).toEqual(expect.arrayContaining(held))
 }
 
 test.describe("Late facts", () => {
@@ -63,11 +74,7 @@ test.describe("Late facts", () => {
     )
 
     // the next start: GitHub answers after the first rows
-    await repo.holdRemoteAnswers({ hold: ["pullRequests", "reviewRequests"] })
-    // a repository synced before syncs when the window opens it; GitHub is asked once that sync ended
-    await repo.closeSessions()
-    await page.reload()
-    await expect.poll(() => repo.getArrivedAnswers()).toEqual(expect.arrayContaining(["pullRequests", "reviewRequests"]))
+    await restartHolding(page, repo, ["pullRequests", "reviewRequests"])
     // Your Turn holds its place as it checks, the columns their widths, no pull request and no step known yet
     await expect(page.getByTestId("your-turn-checking")).toHaveText("Your TurnChecking GitHub…")
     await expect(findBranchRow(page, BRANCH).getByTestId("next-step-slot")).toHaveAttribute("data-step", "pending")
@@ -146,10 +153,7 @@ test.describe("Late facts", () => {
     )
 
     // the next start: GitHub answers after the first rows, the line keeps its place empty
-    await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
-    await repo.closeSessions()
-    await page.reload()
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("pullRequests")
+    await restartHolding(page, repo, ["pullRequests"])
     await expect(lines).toHaveAttribute("data-reserved", "true")
     await expect(lines.getByTestId("stack-island-pull-requests")).toHaveCount(0)
     expect(await boxOf(firstRow)).toEqual(settled)
@@ -159,5 +163,38 @@ test.describe("Late facts", () => {
     await expect(lines.getByTestId("stack-island-pull-requests")).toHaveText("1 pull request open · 1 approved")
     await expect(lines).not.toHaveAttribute("data-reserved")
     expect(await boxOf(firstRow)).toEqual(settled)
+  })
+
+  test("should hold the push track of a pushed root while GitHub answers, its Push with Children as wide as it was", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // auth on the remote in both starts, the branches stacked on it not
+    const repo = await setupRepo("stacked_branches", {
+      patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+      pullRequests: availablePullRequests(),
+      syncOverrides: { ...pushedRemote("auth"), every: true },
+    })
+    await syncAndWaitForBranches()
+    const auth = findBranchRow(page, "auth")
+    const push = auth.getByTestId("push-button")
+    // the width of the push track: the steps before their answers may widen their own track, which is theirs
+    const pushTrack = async () => (await trackBox(auth.locator("[data-track=push]"))).width
+
+    // the first start: every fact came, the push of auth sends its children; the view keeps its layout
+    await expect(push).toHaveAccessibleName("Push with Children (3 branches)")
+    const settled = await pushTrack()
+    await waitForStorePersistence(page, "repositoryState", states =>
+      Object.values(states as Record<string, { settledLayout?: { tracks: Record<string, number> } }>).some(state => (state.settledLayout?.tracks["push"] ?? 0) > 0),
+    )
+
+    // the next start: GitHub answers after the first rows; an open pull request of the whole stack could take its stack
+    // branch along, so no button yet, the track as wide as before
+    await restartHolding(page, repo, ["pullRequests"])
+    await expect(auth).toBeVisible()
+    await expect(push).toHaveCount(0)
+    expect(await pushTrack()).toEqual(settled)
+
+    // the answer comes: the button fills the place it had, its track as wide
+    await repo.holdRemoteAnswers({ release: ["pullRequests"] })
+    await expect(push).toHaveAccessibleName("Push with Children (3 branches)")
+    expect(await pushTrack()).toEqual(settled)
   })
 })

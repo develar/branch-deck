@@ -15,7 +15,7 @@ import { openActivity } from "@/lib/activity-window"
 import { formatBranchCount } from "@/lib/branch"
 import { formatCommitCount } from "@/lib/commit"
 import type { LandingOverview, LandingUnit } from "@/lib/landing-overview"
-import { formatFinishedSummary, formatLandingSectionTitle, formatLandingTitle, urgentKindOf } from "@/lib/landing-overview"
+import { formatFinishedSummary, formatLandingSectionTitle, formatLandingTitle, formatMoveUnit, urgentKindOf } from "@/lib/landing-overview"
 import { FROM_MENU } from "@/lib/menu"
 import { getRobotTiming } from "@/lib/robot-eta"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
@@ -53,10 +53,16 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
   const moveCount = overview.yourMove.length + overview.failedRobots.length + overview.failingRobots.length
   const queue = useLandingQueue(overview.running)
   const finished = formatFinishedSummary(overview.finished)
+  const moveUnit = formatMoveUnit(overview)
   return (
     <>
       <div className="flex shrink-0 flex-col gap-1">
         <PopoverTitle className="text-sm">{formatLandingTitle(overview)}</PopoverTitle>
+        {moveUnit !== null && (
+          <PopoverDescription className="text-xs" data-testid="landing-move-unit">
+            {moveUnit}
+          </PopoverDescription>
+        )}
         {overview.checking > 0 && (
           <PopoverDescription className="text-xs" data-testid="landing-checking">
             {`Checking ${formatBranchCount(overview.checking)}: Patronus and GitHub answer…`}

@@ -2,7 +2,15 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingNodeKind } from "@/lib/bindings"
 import type { LandingUnit } from "@/lib/landing-overview"
-import { collectLandingOverview, formatFinishedSummary, formatLandingSectionTitle, formatLandingTitle, getLandingBarSegments, isLandingOverviewEmpty } from "@/lib/landing-overview"
+import {
+  collectLandingOverview,
+  formatFinishedSummary,
+  formatLandingSectionTitle,
+  formatLandingTitle,
+  formatMoveUnit,
+  getLandingBarSegments,
+  isLandingOverviewEmpty,
+} from "@/lib/landing-overview"
 import type { RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
 import { EMPTY_ROBOT_OVERVIEW } from "@/lib/robot-overview"
 import { testRobot } from "@/lib/test-robot"
@@ -40,7 +48,10 @@ describe("collectLandingOverview", () => {
     expect(overview.waiting.map(it => it.name)).toEqual(["login"])
     expect(overview.inMaster.map(it => it.name)).toEqual(["old"])
     expect(overview.urgent).toBe("needsFix")
-    expect(formatLandingTitle(overview)).toBe("On the way to master: 4 your move · 1 waiting · 1 in master")
+    expect(formatLandingTitle(overview)).toBe("On the way to master: 4 moves are yours · 1 waiting · 1 in master")
+    // a stack of 22 branches is one move: the line under the title says so, as the Your Move chip counts its branches
+    expect(formatMoveUnit(overview)).toBe("A stack counts as one move: it lands in one robot. A branch of it that needs a fix counts on its own.")
+    expect(formatMoveUnit(collectLandingOverview([unit("docs", "ready")], EMPTY_ROBOT_OVERVIEW))).toBeNull()
   })
 
   it("lists a stack whose branch needs a fix with the moves, the fix counted as a move of its own", () => {

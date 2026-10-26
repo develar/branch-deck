@@ -22,7 +22,7 @@ import { stackReadinessKey } from "@/lib/whole-stack"
 import type { PendingFact } from "@/presenters/next-step"
 import { formatPendingFact } from "@/presenters/next-step"
 import { formatPushHoldReason } from "@/presenters/reasons"
-import type { Branch, BranchSyncState, PushOrders } from "@/stores/branch-sync"
+import type { Branch, BranchSyncState, ChildrenPushOrder, PushOrders } from "@/stores/branch-sync"
 import { branchSyncStore, getParkedState, pushOrdersIn, useBranchSync, useIsStackBranchPushing, useParkedState } from "@/stores/branch-sync"
 import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold } from "@/stores/patronus"
 import { getPullRequest, pullRequestsStore, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
@@ -474,6 +474,25 @@ export function useUnpushedChildren(branchName: string): UnpushedChildren | null
     return JSON.stringify({ names: children.order.filter(name => name !== branchName), pushOrder: children.order, stackBranch } satisfies UnpushedChildren)
   })
   return useMemo(() => (key === "" ? null : (JSON.parse(key) as UnpushedChildren)), [key])
+}
+
+/** What Push with Children of a branch sends */
+export interface ChildrenPush {
+  /** The pushes as Rust orders them (`ChildrenPush`); null with nothing stacked on the branch to push */
+  children: ChildrenPushOrder | null
+  /** The commits the branches of the push send */
+  pushCommits: number
+}
+
+/** Push with Children of `name` as the table has it now: the order of Rust and the commits it sends */
+export function useChildrenPush(name: string): ChildrenPush {
+  // a string, so the store notifies only when the push changes
+  const key = useBranchSync(state => {
+    const children = pushOrdersIn(state, name).children
+    const pushCommits = (children?.order ?? []).reduce((sum, branch) => sum + (state.branches[branch]?.remoteStatus?.commitsAhead ?? 0), 0)
+    return JSON.stringify({ children, pushCommits } satisfies ChildrenPush)
+  })
+  return useMemo(() => JSON.parse(key) as ChildrenPush, [key])
 }
 
 /**

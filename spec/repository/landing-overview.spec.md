@@ -95,8 +95,12 @@ indicator, whose states were the same story told twice.
   user's step, a fix; its width the commits of its units; light for a hollow node. A single kind fills it, nothing on
   the way leaves it empty: it is there either way, so a kind that comes moves nothing.
   [@test] ../../src/lib/landing-overview.test.ts (`has a segment per kind on the way, landing first and the user's moves last, its weight the commits`)
-- Its accessible name, the title of the overview: "On the way to master: 3 your move · 1 landing · 3 waiting · 1 in
-  master", the parts that apply; "landing" counts the Safe Pushes that run and will not fail.
+- Its accessible name, the title of the overview: "On the way to master: 3 moves are yours · 1 landing · 3 waiting ·
+  1 in master", the parts that apply; "landing" counts the Safe Pushes that run and will not fail. The button shows
+  the number alone: a word beside it would say "move" with another number than the Your Move chip of the table, which
+  counts the branches. While a stack is among the moves, the line under the title says what a move counts: "A stack
+  counts as one move: it lands in one robot. A branch of it that needs a fix counts on its own." (`formatMoveUnit`).
+  [@test] ../../src/lib/landing-overview.test.ts (`counts the user's moves by unit, a ready stack of 22 branches one move, the most urgent first`)
 
 ### Overview
 

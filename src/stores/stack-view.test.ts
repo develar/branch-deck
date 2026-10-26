@@ -3,8 +3,28 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { layoutStack } from "@/lib/stack-lanes"
 import { focusStackPath, hoverStackPath, pinStackPath, setStackPathRows, stackPathStore } from "@/stores/stack-view"
 
-// the push of a hovered button reads the branches; the path doesn't
-vi.mock("@/stores/branch-sync", () => ({ getBranch: () => undefined }))
+// the push of a hovered button reads the branches and their push orders; the path doesn't
+const table = vi.hoisted(() => {
+  let state: { branches: Record<string, unknown>; pushes: Record<string, unknown> } = { branches: {}, pushes: {} }
+  const listeners = new Set<(next: typeof state, previous: typeof state) => void>()
+  return {
+    getState: () => state,
+    setState: (next: typeof state) => {
+      const previous = state
+      state = next
+      listeners.forEach(listener => listener(state, previous))
+    },
+    subscribe: (listener: (next: typeof state, previous: typeof state) => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+})
+vi.mock("@/stores/branch-sync", () => ({
+  branchSyncStore: table,
+  getBranch: (name: string) => table.getState().branches[name],
+  getPushOrders: (name: string) => table.getState().pushes[name] ?? { stack: [name], action: [name], button: [], children: null },
+}))
 
 const ROWS = layoutStack("auth", name => ({ auth: ["session", "login"], login: ["oauth"] } as Record<string, string[]>)[name] ?? []).map(({ name, lanes }) => ({ name, lanes }))
 
@@ -44,6 +64,22 @@ describe("stack path", () => {
     expect(path()).toEqual(["auth", "session"])
     pinStackPath("session", false)
     expect(path()).toEqual([])
+  })
+
+  it("circles what the hovered push sends, the children of a branch with nothing of its own to send, and follows a push", () => {
+    const pushed = () => [...stackPathStore.getState().pushNodes]
+    table.setState({ branches: { auth: { remoteStatus: { action: { kind: "create" } } } }, pushes: {} })
+    hoverStackPath({ name: "auth", push: true })
+    expect(pushed()).toEqual(["auth"])
+    // pushed while the pointer rests on its button, which is Push with Children now: the circles follow
+    const children = { order: ["session", "login", "oauth"], askFirst: [], stackBranch: null, offers: true }
+    table.setState({
+      branches: { auth: { remoteStatus: { action: { kind: "upToDate" } } } },
+      pushes: { auth: { stack: ["auth"], action: ["auth"], button: ["auth"], children } },
+    })
+    expect(pushed()).toEqual(["session", "login", "oauth"])
+    hoverStackPath(null)
+    expect(pushed()).toEqual([])
   })
 
   it("drops the path of a branch that left the rows", () => {

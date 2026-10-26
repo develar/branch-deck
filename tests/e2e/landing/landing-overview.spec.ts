@@ -38,13 +38,13 @@ test.describe("Landing overview", () => {
     const indicator = page.getByTestId("landing-indicator")
     // ABC-123 needs a fix (its Safe Push failed on it as it is); the four branches GitHub lists no pull request of
     // are a Safe Push nobody judged; JIRA-456 is landing, feature-db is in master
-    await expect(indicator).toHaveAccessibleName("On the way to master: 5 your move · 1 landing · 1 in master")
+    await expect(indicator).toHaveAccessibleName("On the way to master: 5 moves are yours · 1 landing · 1 in master")
     await expect(indicator.getByTestId("landing-moves")).toHaveText("5")
     await expect(indicator).toHaveAttribute("data-urgent", "needsFix")
     await expect(indicator.getByTestId("robot-ring")).toBeVisible()
 
     const popover = await openLandingOverview(page)
-    await expect(popover.getByRole("heading", { level: 2 })).toHaveText("On the way to master: 5 your move · 1 landing · 1 in master")
+    await expect(popover.getByRole("heading", { level: 2 })).toHaveText("On the way to master: 5 moves are yours · 1 landing · 1 in master")
     // the most urgent first: the failed robot with its actions
     const moves = popover.getByTestId("landing-your-move")
     await expect(moves.getByTestId("robots-row").first()).toHaveAttribute("data-branch-name", "ABC-123")
@@ -246,7 +246,7 @@ test.describe("Landing overview", () => {
     await routePush(page, {})
     const indicator = page.getByTestId("landing-indicator")
     // not on Space, no pull requests GitHub lists: the push is the step
-    await expect(indicator).toHaveAccessibleName("On the way to master: 1 your move")
+    await expect(indicator).toHaveAccessibleName("On the way to master: 1 move is yours")
     await getPushButton(findBranchRow(page, "test-branch")).click()
     await expect(pushedToast(page, "test-branch")).toBeVisible()
     // pushed: it lands through its pull request, which nobody opened; the work still waits

@@ -458,6 +458,7 @@ shows.
   window's title bar, its place, disabled with why ([Branch Preview](../../spec/branch/branch-preview.spec.md)), and the
   unassigned commits card renders with the rows (no lazy chunk: one came seconds later under load and moved the table).
 - **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
+  Push with Children of a row the widest it gets while it pushes (`⟳ 100% with children`, invisible in its cell),
   the Safe Push of a slot its width at rest while its start runs, so
   a tick of a time or a percent changes no column. A minimum lives on the element that changes, never in the column:
   a column minimum costs its width where nothing shows (the 328px Actions column of October 2026 was two of them).

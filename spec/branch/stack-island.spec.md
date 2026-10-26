@@ -11,6 +11,7 @@ targets:
   - ../../src/hooks/useStackStates.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/components/branch/ChildrenPushButton.tsx
   - ../../src/hooks/useSettledLayout.ts
   - ../../src/components/branch/LandingNodeHover.tsx
   - ../../src/hooks/usePushButton.ts

@@ -492,7 +492,7 @@ baseTest.describe("Pull requests without GitHub", () => {
 
     // pushed is not landed: the changes requested are the move
     const indicator = page.getByTestId("landing-indicator")
-    await expect(indicator).toHaveAccessibleName("On the way to master: 1 your move")
+    await expect(indicator).toHaveAccessibleName("On the way to master: 1 move is yours")
     const popover = await openLandingOverview(page)
     await expect(landingRow(popover, "test-branch").getByTestId("landing-row-reason")).toHaveText("Changes requested on #800")
     await expect(landingRow(popover, "test-branch").getByTestId("pull-request-chip")).toHaveText("#800")

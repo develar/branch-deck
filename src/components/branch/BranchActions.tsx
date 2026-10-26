@@ -3,11 +3,12 @@ import type { ComponentType } from "react"
 import { ActionTracks } from "@/components/branch/ActionTracks"
 import { ColumnTrack } from "@/components/branch/BranchColumns"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
+import { ChildrenPushButton } from "@/components/branch/ChildrenPushButton"
 import { NextStepSlot } from "@/components/branch/NextStepSlot"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
-import { firstPushPending, isFirstPushInLanding, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
+import { firstPushPending, isFirstPushInLanding, useChildrenPush, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
@@ -25,7 +26,7 @@ export interface BranchActionsProps {
 /**
  * The Actions cell of an active branch row, each kind in its track of the Actions column (`ColumnTrack`), so it lines up
  * across the rows of every card: the compact push ("↑ 3", disabled for a blocked stacked branch; none while the remote
- * branch is up to date, unless a branch stacked on it has work: its description offers Push with Children then, while a
+ * branch is up to date, unless a branch stacked on it has work: it is Push with Children then, "↑ 4 with children"; while a
  * Safe Push holds the branch, `PushHold`, which the status says, and while the remote lacks the branch and its landing
  * pushes it, `isFirstPushInLanding`, or may: Patronus and GitHub haven't answered yet), the next step on Space (`NextStepSlot`: "Safe Push", a restart, a wait for
  * approvals) and "⋯" with the branch menu. A click in the cell, on a disabled button too, doesn't toggle the row.
@@ -46,8 +47,8 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button; a
   // branch a Safe Push holds offers no push, its Status cell says why (the menu, with the reason)
   const idle = !isPushing && stackPush === null && !stackBranchPush
-  // the root of a pushed stack keeps its push while a child has work: its description offers Push with Children; the
-  // island header offers it for an island root
+  // the branches stacked on it have work for the remote: the push of a branch with nothing of its own to send is Push
+  // with Children (the island header offers it for an island root), the description of any other offers it
   const unpushedChildren = useUnpushedChildren(branch.name)
   const childrenToPush = unpushedChildren !== null && !stackPushInHeader
   // the first push is a step of Safe Push and Create Pull Request: only the menu offers it; unless Push with Children
@@ -59,10 +60,18 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   const landingPending = firstPushPending(usePatronusPending(), usePullRequestsLoading())
   const pushAction = branch.remoteStatus?.action.kind
   const firstPushWaits = !landingPushes && landingPending !== null && pushAction === "create"
-  const upToDate = idle && ((pushAction === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null || firstPush || firstPushWaits)
+  // Push with Children in the place of the push waits for the answers of Patronus and GitHub as a first push does: a
+  // robot holds the children, a merged one landed them, an open pull request of the whole stack takes its stack branch
+  // along, so a button shown before them could leave or come at them; the settled layout keeps the track meanwhile
+  const offersChildren = childrenToPush && landingPending === null
+  const upToDate = idle && ((pushAction === "upToDate" && branch.status !== "Blocked" && !offersChildren) || hold !== null || firstPush || firstPushWaits)
+  // the branch has nothing of its own to send, the branches stacked on it have: its push is Push with Children, as the
+  // header of an island, also while that push runs
+  const pushesChildren =
+    !upToDate && !stackPushInHeader && pushAction === "upToDate" && branch.status !== "Blocked" && hold === null && !isPushing && (offersChildren || startedStackPush !== null)
   return (
     <ActionTracks>
-      <ColumnTrack track="push">{canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}</ColumnTrack>
+      <ColumnTrack track="push">{canPush && <PushSlot branch={branch} upToDate={upToDate} pushesChildren={pushesChildren} stackPushInHeader={stackPushInHeader} />}</ColumnTrack>
       <ColumnTrack track="step">
         <NextStepSlot branch={branch} wholeStackInHeader={stackPushInHeader} />
       </ColumnTrack>
@@ -81,11 +90,11 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
 
 /**
  * The compact push, or nothing while the row offers none (`upToDate`: the remote branch is up to date, a Safe Push
- * holds the branch, or its first push is a step of its landing). The focus in the button or its
- * description (pushed with a click or P) goes to the row when the push is done and the button leaves: the row keeps
- * its keys, Space included.
+ * holds the branch, or its first push is a step of its landing); Push with Children of a branch that has nothing of its
+ * own to send (`pushesChildren`). The focus in the button or its description (pushed with a click or P) goes to the
+ * row when the push is done and the button leaves: the row keeps its keys, Space included.
  */
-function PushSlot({ branch, upToDate, stackPushInHeader }: { branch: Branch; upToDate: boolean; stackPushInHeader: boolean }) {
+function PushSlot({ branch, upToDate, pushesChildren, stackPushInHeader }: { branch: Branch; upToDate: boolean; pushesChildren: boolean; stackPushInHeader: boolean }) {
   const leftWithFocusRef = useRef(false)
   const name = branch.name
   useLayoutEffect(() => {
@@ -100,9 +109,15 @@ function PushSlot({ branch, upToDate, stackPushInHeader }: { branch: Branch; upT
   return (
     <>
       <FocusLeaveWatch name={branch.name} onLeave={() => (leftWithFocusRef.current = true)} />
-      <BranchPushButton branch={branch} confirmTarget="row" compact shortcut="P" stackPushInHeader={stackPushInHeader} />
+      {pushesChildren ? <RowChildrenPush name={name} /> : <BranchPushButton branch={branch} confirmTarget="row" compact shortcut="P" stackPushInHeader={stackPushInHeader} />}
     </>
   )
+}
+
+/** Push with Children in the place of the push of the row, named and described as the push of the row */
+function RowChildrenPush({ name }: { name: string }) {
+  const push = useChildrenPush(name)
+  return <ChildrenPushButton root={name} push={push} held={false} testId="push-button" descriptionTestId="push-description" row />
 }
 
 /**

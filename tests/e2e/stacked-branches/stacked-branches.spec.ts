@@ -61,6 +61,7 @@ import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, d
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { closeToast } from "../helpers/toast-helpers"
 import { holdCommand, holdCommandCalls, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/acme/monorepo/compare"
@@ -722,25 +723,33 @@ test.describe("Stacked branches", () => {
   test("should offer Push with Children while a sync runs and when the root is pushed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
-    const { stackPushes, pushes } = await routePushBranches(page)
+    let release!: () => void
+    const { stackPushes, pushes } = await routePushBranches(page, {
+      // the second push of the children, from the row: it runs until the test releases it
+      session: [{}, { progress: [{ percent: 45, transferred: null, speed: null, line: "Writing objects:  45% (5/11)" }], release: new Promise(resolve => (release = resolve)) }],
+    })
     const auth = findBranchRow(page, "auth")
     const button = getPushButton(auth)
     await button.click()
     await expectPushedToast(page, "auth", "1 commit · created the remote branch")
     expect(pushes.map(push => push.branchName)).toEqual(["auth"])
-    // auth is on the remote, its children are not: its push stays, disabled, its description offers them
-    await expect(button).toHaveAccessibleName("Push")
-    await expect(button).toBeDisabled()
+    // auth is on the remote, its children are not: its push is Push with Children, the commits they send and the words
+    // that say whose they are; its hover lists the pushes and the graph circles the branches it sends
+    await expect(button).toHaveAccessibleName("Push with Children (3 branches)")
+    await expect(button).toBeEnabled()
+    await expect(button).toHaveText(/3\s*with children/, { useInnerText: true })
+    const pushed = () => page.locator("[data-testid=lane-node][data-pushed]").evaluateAll(nodes => nodes.map(node => node.closest("tr")!.getAttribute("data-branch-name")))
     await button.hover()
-    const alternative = page.getByTestId("push-description").getByTestId("push-alternative")
-    await expect(alternative).toContainText("session and 2 more branches are stacked on auth and have commits to push.")
-    await expect(alternative.getByRole("button", { name: "Push with Children (3 branches)" })).toBeEnabled()
+    const description = page.getByTestId("push-description")
+    await expect(description).toContainText("Pushes 3 branches, parents first:")
+    await expect.poll(pushed).toEqual(["session", "login", "oauth"])
     await page.keyboard.press("Escape")
-    await expect(alternative).toBeHidden()
+    await expect(description).toBeHidden()
 
     // a sync runs (its statuses of the template's remote replaced by the push's): the menu keeps the item enabled, and
     // the push waits for the sync
-    await repo.setSyncOverrides({ remote: { auth: { remoteExists: true, remoteTip: "auth-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: true } } })
+    const authPushed = { remote: { auth: { remoteExists: true, remoteTip: "auth-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: true } } }
+    await repo.setSyncOverrides(authPushed)
     const releaseSync = await holdCommand(page, "sync")
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
@@ -753,6 +762,28 @@ test.describe("Stacked branches", () => {
 
     releaseSync()
     await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["session", "login", "oauth"]])
+    const pushedChildren = page.locator("[data-slot=toast]", { hasText: "Pushed session, login and oauth" })
+    await expect(pushedChildren).toBeVisible()
+    await closeToast(pushedChildren)
+
+    // the next sync reads the remote of the template again, which lacks the children: the push of the row of auth sends
+    // them, its track as wide while it pushes as before the click
+    await repo.setSyncOverrides(authPushed)
+    await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
+    await expect(button).toHaveAccessibleName("Push with Children (3 branches)")
+    const track = auth.locator("[data-track=push]")
+    const width = (await boxOf(track)).width
+    await button.click()
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    await expect(button).toHaveText(/45%\s*with children/, { useInnerText: true })
+    expect((await boxOf(track)).width).toBe(width)
+    release()
+    await expect
+      .poll(() => stackPushes.map(push => push.map(branch => branch.branchName)))
+      .toEqual([
+        ["session", "login", "oauth"],
+        ["session", "login", "oauth"],
+      ])
     await expect(page.locator("[data-slot=toast]", { hasText: "Pushed session, login and oauth" })).toBeVisible()
   })
 

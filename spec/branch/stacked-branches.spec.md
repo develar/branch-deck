@@ -360,10 +360,17 @@ menu stacks, unstacks and renames branches.
 - The push button of a branch whose descendants have work for the remote must stay as it is too: it pushes only the
   branch. Its description must offer the children below a rule: "oauth is stacked on login and has commits to push."
   ("oauth and session are …", "session and 2 more branches are … and have commits to push."), then a
-  `Push with Children (4 branches)` button, named as in the branch menu. A branch whose own push is up to date (the
-  root of a stack pushed before its children) keeps its push button, disabled, with "Everything is pushed." and the
-  children's push in its description, enabled; the root row of an island leaves it to the header. Below the other
-  push of a stacked branch when both apply.
+  `Push with Children (4 branches)` button, named as in the branch menu. Below the other push of a stacked branch
+  when both apply. A branch whose own push is up to date (the root of a stack pushed before its children) has Push
+  with Children as its push button, the push of the header of an island (`ChildrenPushButton`): "↑ 3", the commits it
+  sends, in the push colour, then the muted "with children" where the branch view is at least 56rem wide
+  (`@4xl/branch-view`), its name "Push with Children (3 branches)", its hover the pushes it sends, the graph circling
+  their nodes. P and the push item of its menu stay
+  the push of the branch, disabled as up to date; the root row of an island leaves it to the header. It shows once
+  Patronus and GitHub answered, as a first push waits for them: a robot of theirs holds the children, a merged one
+  landed them, an open pull request of the whole stack takes its stack branch along. The settled layout holds its track
+  meanwhile, and while it pushes the track keeps its width ("⟳ 45% with children").
+  [@test] ../../tests/e2e/branch-row-layout/late-facts.spec.ts (`should hold the push track of a pushed root while GitHub answers, its Push with Children as wide as it was`)
   [@test] ../../src/hooks/usePushButton.test.ts (`offers Push with Children while branches stacked on it have work for the remote`, `offers the push of the branch alone before Push with Children for a branch in the middle of a stack`, `offers Push with Children while the branch itself is on the remote: its own push is disabled, this one isn't`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`, `should offer Push with Children while a sync runs and when the root is pushed`)
 - "Push with Children" must push the branch if it has work for the remote, then its descendants that have work,

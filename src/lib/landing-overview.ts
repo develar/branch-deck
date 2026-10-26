@@ -155,15 +155,26 @@ export function urgentKindOf(unit: LandingUnit): LandingNodeKind {
   return unit.fixes.length > 0 ? "needsFix" : unit.node.kind
 }
 
-/** "On the way to master: 3 your move · 1 landing · 3 waiting"; the accessible name of the header button too */
+/**
+ * "On the way to master: 3 moves are yours · 1 landing · 3 waiting"; the accessible name of the header button too,
+ * which shows the number alone
+ */
 export function formatLandingTitle(overview: LandingOverview): string {
   const parts = [
-    overview.moves > 0 ? `${overview.moves} your move` : null,
+    overview.moves > 0 ? `${overview.moves} ${overview.moves === 1 ? "move is" : "moves are"} yours` : null,
     overview.landing > 0 ? `${overview.landing} landing` : null,
     overview.waiting.length > 0 ? `${overview.waiting.length} waiting` : null,
     overview.inMaster.length > 0 ? `${overview.inMaster.length} in master` : null,
   ].filter(part => part !== null)
   return parts.length === 0 ? "Nothing on the way to master" : `On the way to master: ${parts.join(" · ")}`
+}
+
+/**
+ * What a move counts, under the title while a stack is among the moves: the number of the header then differs from the
+ * Your Move chip of the table, which counts the branches; null while every move is one branch
+ */
+export function formatMoveUnit(overview: LandingOverview): string | null {
+  return overview.yourMove.some(unit => unit.branchCount > 1) ? "A stack counts as one move: it lands in one robot. A branch of it that needs a fix counts on its own." : null
 }
 
 /** A segment of the bar of the header button: a kind, its weight the commits of its units */

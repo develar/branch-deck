@@ -3,7 +3,7 @@ import { createStore } from "zustand/vanilla"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { ancestorSegments } from "@/lib/stack-lanes"
 import type { LaneSegmentRow, LaneSegments } from "@/lib/stack-lanes"
-import { getBranch, getPushOrders } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getPushOrders } from "@/stores/branch-sync"
 import { getPushHold } from "@/stores/patronus"
 
 /** The branch whose path the graph shows; `push`: from its push button, which marks the nodes the push sends */
@@ -56,11 +56,15 @@ function sameTip(a: StackPathTip | null, b: StackPathTip | null): boolean {
 
 /** The branches a push of `name` sends: the stack its button pushes, else the branch while it has work */
 function pushedBy(name: string): ReadonlySet<string> {
-  const order = getPushOrders(name).button
-  if (order.length > 0) {
-    return new Set(order)
-  }
+  const orders = getPushOrders(name)
   const action = getBranch(name)?.remoteStatus?.action.kind
+  // nothing of its own to send: the push of the row is Push with Children, which sends the branches stacked on it
+  if (action === "upToDate" && orders.children?.offers === true && getPushHold(name) === null) {
+    return new Set(orders.children.order)
+  }
+  if (orders.button.length > 0) {
+    return new Set(orders.button)
+  }
   return action !== undefined && action !== "upToDate" && getPushHold(name) === null ? new Set([name]) : NO_NODES
 }
 
@@ -82,6 +86,18 @@ function update(patch: Partial<Pick<StackPathState, "rows" | "hovered" | "focuse
     pushNodes: tip?.push === true ? pushedBy(tip.name) : NO_NODES,
   })
 }
+
+// a push or a sync changes what the push button under the pointer or the focus sends: its circles follow it while the
+// pointer rests there (after a click of the push, the button turns into Push with Children of the branches stacked on it)
+branchSyncStore.subscribe((state, previous) => {
+  if (state.pushes === previous.pushes && state.branches === previous.branches) {
+    return
+  }
+  const { hovered, focused } = stackPathStore.getState()
+  if ((hovered ?? focused)?.push === true) {
+    update({})
+  }
+})
 
 /** The rows of the table changed: the path is laid out over them again */
 export function setStackPathRows(rows: readonly LaneSegmentRow[]) {

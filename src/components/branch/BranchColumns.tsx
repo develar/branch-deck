@@ -23,7 +23,8 @@ export function BranchColumnsRoot({ children }: { children: ReactNode }) {
         registry.setRoot(element)
         return () => registry.setRoot(null)
       }}
-      className="flex flex-col gap-2"
+      // the container of the words a row shows where the view has the room ("with children" of a push)
+      className="@container/branch-view flex flex-col gap-2"
       data-testid="branch-view"
     >
       <ColumnRegistryContext value={registry}>{children}</ColumnRegistryContext>
