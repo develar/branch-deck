@@ -179,7 +179,10 @@ function ColumnItem({
       aria-selected={selected}
       title={title}
       data-testid="range-review-commit"
-      className={cn("flex h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-md px-2 text-left hover:bg-muted", selected && "bg-primary/15 hover:bg-primary/15")}
+      className={cn(
+        "group/commit flex h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-md px-2 text-left hover:bg-muted",
+        selected && "bg-primary/15 hover:bg-primary/15",
+      )}
       // the column keeps the focus: a click chooses, the keys go on from there
       onMouseDown={event => event.preventDefault()}
       onClick={event => {
@@ -223,7 +226,10 @@ function ColumnItem({
                 {item.branch}
               </span>
             )}
-            <span className="font-mono text-xs text-muted-foreground">{formatShortHash(item.commit.id)}</span>
+            {/* the subject gets the width: the hash shows on hover, and the heading of the shown commit has it */}
+            <span className="hidden font-mono text-xs text-muted-foreground group-hover/commit:inline" data-testid="range-review-commit-hash">
+              {formatShortHash(item.commit.id)}
+            </span>
           </>,
           item.commit.subject,
         ),

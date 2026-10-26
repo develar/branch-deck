@@ -1,8 +1,9 @@
 import { Fragment, useState } from "react"
-import type { MouseEvent } from "react"
+import type { MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BranchReviewSegment } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
@@ -112,30 +113,46 @@ export function BranchReviewStackBar({
         )
       })}
       {(segments.length > 1 || wholeStackScope !== null) && (
-        // the scopes of the stack: the branch with what it is built on, every branch of the stack
-        <div role="group" aria-label="Scope" className="ml-1 flex shrink-0 items-center">
+        // the scopes of the stack, one option set: the branch with what it is built on, every branch of the stack
+        <ScopeToggle value={isWhole ? FROM_ROOT : null} onValueChange={value => (value === FROM_ROOT ? onRangeChange({ from: 0, to: segments.length - 1 }) : onWholeStack?.())}>
           {segments.length > 1 && (
             <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    aria-pressed={isWhole}
-                    className={cn("shrink-0", isWhole && "text-primary hover:text-primary")}
-                    onClick={() => onRangeChange({ from: 0, to: segments.length - 1 })}
-                  />
-                }
-              >
-                From Root
-              </TooltipTrigger>
+              <TooltipTrigger render={<ToggleGroupItem value={FROM_ROOT} className="shrink-0" />}>From Root</TooltipTrigger>
               <TooltipContent>{`${segments[0]!.name} to ${segments.at(-1)!.name} on ${baselineBranch}: ${formatBranchesAndCommits(segments.length, commitCount)}, what the Safe Push of ${segments.at(-1)!.name} lands · Shift+click a branch to extend`}</TooltipContent>
             </Tooltip>
           )}
-          {wholeStackScope !== null && <WholeStackScopeButton scope={wholeStackScope} pressed={false} onClick={onWholeStack} />}
-        </div>
+          {wholeStackScope !== null && <WholeStackScopeItem scope={wholeStackScope} />}
+        </ScopeToggle>
       )}
     </div>
+  )
+}
+
+const FROM_ROOT = "from-root"
+const WHOLE_STACK = "whole-stack"
+
+/**
+ * The scopes of the stack bar as one option set (`ToggleGroup`), the shown one pressed: a press of the pressed one keeps
+ * it, a press of another goes there
+ */
+function ScopeToggle({ value, onValueChange, children }: { value: string | null; onValueChange?: (value: string) => void; children: ReactNode }) {
+  return (
+    <ToggleGroup
+      aria-label="Scope"
+      variant="outline"
+      size="sm"
+      spacing={0}
+      value={value === null ? [] : [value]}
+      onValueChange={next => {
+        const chosen = next.find(it => it !== value)
+        if (chosen !== undefined) {
+          onValueChange?.(chosen)
+        }
+      }}
+      className="ml-1 shrink-0"
+    >
+      {children}
+    </ToggleGroup>
   )
 }
 
@@ -165,38 +182,38 @@ function WholeStackBar({ baselineBranch, from, onBranch }: { baselineBranch: str
           </Button>
         </Fragment>
       ))}
-      <div role="group" aria-label="Scope" className="ml-1 flex shrink-0 items-center">
-        <WholeStackScopeButton scope={null} pressed />
-      </div>
+      <ScopeToggle value={WHOLE_STACK}>
+        <WholeStackScopeItem scope={null} />
+      </ScopeToggle>
     </div>
   )
 }
 
-/** "Whole Stack": the scope of every branch of the stack, what its Safe Push lands; pressed while it is shown */
-function WholeStackScopeButton({ scope, pressed, onClick }: { scope: WholeStackScope | null; pressed: boolean; onClick?: () => void }) {
+/**
+ * "Whole Stack": the scope of every branch of the stack, what its Safe Push lands; pressed while it is shown (`scope`
+ * null). Its tooltip is the item itself, a child of the group, so the group keeps its joined edges. A disabled toggle
+ * of Base UI takes neither the pointer nor the focus, so one that can't go now (the stack branch is not built) stays
+ * enabled for its tooltip: announced as unavailable (`aria-disabled`), dimmed, its press canceled, the reason on hover
+ */
+function WholeStackScopeItem({ scope }: { scope: WholeStackScope | null }) {
   const disabled = scope?.disabled === true
-  const props = {
-    size: "xs",
-    variant: "ghost",
-    "aria-pressed": pressed,
-    disabled,
-    "data-testid": "branch-review-whole-stack",
-    className: cn("shrink-0", pressed && "text-primary hover:text-primary"),
-    onClick: pressed ? undefined : onClick,
-  } as const
+  const item = (
+    <ToggleGroupItem
+      value={WHOLE_STACK}
+      data-testid="branch-review-whole-stack"
+      aria-disabled={disabled || undefined}
+      className={cn("shrink-0", disabled && "opacity-50")}
+      onPressedChange={disabled ? (_pressed, details) => details.cancel() : undefined}
+    >
+      Whole Stack
+    </ToggleGroupItem>
+  )
   if (scope === null) {
-    return <Button {...props}>Whole Stack</Button>
+    return item
   }
   return (
     <Tooltip>
-      {/* a disabled button gets no pointer events: its hover is a span's */}
-      {disabled ? (
-        <TooltipTrigger render={<span />}>
-          <Button {...props}>Whole Stack</Button>
-        </TooltipTrigger>
-      ) : (
-        <TooltipTrigger render={<Button {...props} />}>Whole Stack</TooltipTrigger>
-      )}
+      <TooltipTrigger render={item} />
       <TooltipContent>{scope.description}</TooltipContent>
     </Tooltip>
   )

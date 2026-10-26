@@ -181,7 +181,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     window.
 - **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../spec/repository/title-bar.spec.md)),
   on the canvas, never an island: on the left where the user is (the repository, the stack, the list and the commit,
-  the request), on the right the view of the window (Split/Unified/Inline) and the actions on its object (`ActionButton`). A
+  the request), on the right the view of the window (Split/Unified/Inline) and the actions on its object (`ActionButton`).
+  An option set of the row (the scopes of the stack bar) is a `ToggleGroup`, as the shadcn rule for 2 to 7 choices
+  asks, so it reads as a control. A
   sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A preview dialog
   keeps its actions in its footer. A review is a window, never a dialog: a review is a task of minutes beside the
   branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The actions on the object are in
@@ -394,7 +396,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - the time of a commit is absolute: the meta line says it with the committer time on hover (`TimeWithPopover`), a
     one-line list (the commits of a pull request) says it short (`formatCompactTimestamp`: "Today
     2:32 PM", "Yesterday", "Oct 3"); only the age of an event is relative ("waiting 2 days", "landed 2 hours ago");
-  - a hash is `font-mono` and muted, in a window title too (`WindowTitle` part `{ text, mono: true }`);
+  - a hash is `font-mono` and muted, in a window title too (`WindowTitle` part `{ text, mono: true }`); in a narrow
+    list where the subject needs the width (the commits of the review sidebar) it shows on hover only, as the heading
+    of the shown commit has it;
   - every sub-window title is a `WindowTitle` in `text-sm`, the last part in the foreground ("Your Turn › 2 of 5").
 - **Spacing**:
   - islands are 8px apart and 8px from the window edges, as the 6px Islands gap on the spacing scale: `gap-2` in

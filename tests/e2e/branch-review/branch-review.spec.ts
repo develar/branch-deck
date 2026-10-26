@@ -177,6 +177,30 @@ test.describe("Reading the review ahead", () => {
 })
 
 test.describe("The scopes of the stack", () => {
+  test("should keep an unavailable Whole Stack in the scopes, announced as unavailable, its reason on hover, a press changing nothing", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the `stack_island` template, its stack branch not built: the review of the whole air stack can't open
+    await setupRepo("stack_island", { syncOverrides: { stacks: { air: { tip: null } } } })
+    await syncAndWaitForBranches()
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "bazel"))
+    const whole = window.getByTestId("branch-review-whole-stack")
+    await expect(whole).toHaveAttribute("aria-disabled", "true")
+    await whole.hover()
+    await expect(window.getByRole("tooltip")).toHaveText("The stack branch is not built yet: sync first")
+    // a press (forced: Playwright waits for an enabled element) opens no review and presses nothing; From Root after it
+    // still changes the scope
+    await whole.click({ force: true })
+    await expect(whole).toHaveAttribute("aria-pressed", "false")
+    const fromRoot = window.getByRole("button", { name: "From Root" })
+    await fromRoot.click()
+    await expect(fromRoot).toHaveAttribute("aria-pressed", "true")
+    await expect(whole).toHaveAttribute("aria-pressed", "false")
+    expect(await getOpenedSubWindows(page)).toHaveLength(1)
+  })
+
   test("should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit", async ({
     page,
     setupRepo,

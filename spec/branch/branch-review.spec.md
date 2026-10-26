@@ -9,6 +9,7 @@ targets:
   - ../../src/components/branch/BranchPreviewActions.tsx
   - ../../src/stores/branch-preview.ts
   - ../../src/components/review/BranchReviewStackBar.tsx
+  - ../../src/components/ui/toggle-group.tsx
   - ../../src/components/shared/ActionButton.tsx
   - ../../src/components/shared/WindowPage.tsx
   - ../../src/lib/branch-review.ts
@@ -165,8 +166,9 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   last.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`)
 - After "From Root", "Whole Stack" must go up to every branch of the stack of the chain's root while the stack has
-  branches outside the chain (`WholeStackScope` of the window state, `wholeStackScopeOf`): one group "Scope" of the
-  two, one pressed at most. Of a stack that forks it is the review of its stack branch, its hover "Every branch of the
+  branches outside the chain (`WholeStackScope` of the window state, `wholeStackScopeOf`): one option set "Scope" of
+  the two (the stock `ToggleGroup`, so they read as controls, not as two words of the title), one pressed at most; a
+  press of the pressed one keeps it. Of a stack that forks it is the review of its stack branch, its hover "Every branch of the
   whole air stack, its side branches too, on origin/master: 7 branches · 14 commits, what its Safe Push lands" (what is
   left of it, `StackLanding.rest`), disabled with the reason while the stack branch is not built; of a straight chain
   it is the review of its last branch from the root ("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3
@@ -194,7 +196,8 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`a_memoised_review_runs_no_log_for_the_same_tips`, `a_moved_tip_or_baseline_is_read_again`)
 - The commits (`RangeReview`, the ones of a pull request too) must be above the files in the sidebar of the commit
   review ([Commit Review](../commit/commit-review.spec.md#the-sidebar-and-the-diffs)): "All Changes" with the number
-  of commits of the part, then its commits newest first, under the name of their branch when the part has several; a commit shows
+  of commits of the part, then its commits newest first, under the name of their branch when the part has several, the
+  subject taking the width of the row and the hash only on hover (the heading of the shown commit has it); a commit shows
   only its own changes, its subject, author, time and message (three lines, "Show More") above them. ⌥↑/⌥↓ step
   through the commits from anywhere in the review, ↑/↓ inside them (one tab stop, a listbox), which keep the focus while
   the diffs of the next commit mount. A part of one commit has no list: it shows that commit. A sync that rebuilds the
@@ -371,8 +374,15 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   `ChoiceChip` (`xs`), as the state chips of the branch filter: the chosen one soft primary (`aria-pressed`), the
   others `secondary`, the count after the name in tabular numbers at 70% opacity. Above the chips, from 8 files on,
   is the search of the files ([Commit Review](../commit/commit-review.spec.md#the-search-of-the-files)); it keeps the
-  files of the chosen chip whose path has its words. "From Root" is a ghost button with a tooltip that sizes the part as the branch table does: "auth to login
-  on origin/master: 2 branches · 3 commits, what the Safe Push of login lands · Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
+  files of the chosen chip whose path has its words. "From Root" and "Whole Stack" are a `ToggleGroup` (`outline`, `sm`, `spacing={0}`), the shown scope
+  pressed (`aria-pressed`). A Whole Stack that can't open is announced as unavailable (`aria-disabled`), dimmed
+  (`opacity-50`) and takes no press, its reason in its tooltip, whose trigger is the item itself, so the group keeps
+  its joined edges.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep an unavailable Whole Stack in the scopes, announced as unavailable, its reason on hover, a press changing nothing`)
+  "From Root" has a tooltip that sizes the part as the branch table does: "auth to login
+  on origin/master: 2 branches · 3 commits, what the Safe Push of login lands · Shift+click a branch to extend". A
+  commit of the column is its subject, truncated, and its muted `font-mono` hash on hover
+  (`range-review-commit-hash`). A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
   "Needs approval for a Safe Push".
 - In the Safe Push popover the groups are a list below the review line, a group per line in the foreground colour,
   indented to its text: "Air Plugin Release Team (suggested: Alice) · 2 files".
