@@ -398,7 +398,7 @@ struct PushingRefs {
 }
 
 /// The refs of a push (`PushingRefs::claim`), released when dropped
-struct PushClaim<'a> {
+pub(crate) struct PushClaim<'a> {
   pushing: &'a PushingRefs,
   refs: Vec<(PathBuf, String)>,
 }
@@ -431,6 +431,27 @@ impl PushingRefs {
     drop(pushing);
     PushClaim { pushing: self, refs }
   }
+
+  /// Claims those of `names` of `git_common_dir` no push writes now, at once, without waiting; answers them
+  fn claim_free(&self, git_common_dir: &Path, names: &[String]) -> (PushClaim<'_>, BTreeSet<String>) {
+    let mut pushing = self.lock();
+    let free: Vec<(PathBuf, String)> = names
+      .iter()
+      .map(|name| (git_common_dir.to_path_buf(), name.clone()))
+      .filter(|key| !pushing.contains(key))
+      .collect();
+    pushing.extend(free.iter().cloned());
+    drop(pushing);
+    let claimed = free.iter().map(|(_, name)| name.clone()).collect();
+    (PushClaim { pushing: self, refs: free }, claimed)
+  }
+}
+
+/// Claims the remote refs of `names` no push of this process writes now, for a fetch of them
+/// (`moved_remote::fetch_asked`): a push of one of them waits until the claim drops, and a ref a push writes is not
+/// claimed, its outcome being newer than the fetch. Answers the claim and the names it claimed
+pub(crate) fn claim_free_refs(git_common_dir: &Path, names: &[String]) -> (PushClaim<'static>, BTreeSet<String>) {
+  PUSHING_REFS.claim_free(git_common_dir, names)
 }
 
 impl Drop for PushClaim<'_> {

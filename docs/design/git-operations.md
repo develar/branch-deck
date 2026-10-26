@@ -3123,6 +3123,10 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   (`--porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance`), so the caller shows
   what the remote has now. A branch deleted on the remote fails the fetch: `ls-remote --exit-code` (2: no such ref)
   tells it from a failed connection, and its remote-tracking ref is deleted.
+- The session fetches a branch whose pull request shows a head its remote-tracking ref lacks
+  ([Remote Status](remote-status.md#moved-remote-branches)) with the same `fetch_remote_branches`, never while the app
+  pushes it, and a push of the ref waits for the fetch (`claim_free_refs` of `PushingRefs`); the status it leaves lists
+  the fetched commits as dropped, so the lease holds as after any fetch.
 - `push_branch` returns `PushOutcome::RemoteMoved` with the new remote status when the fetched head differs from the
   expected one: the row turns into the push the remote now needs, and a toast offers it (a push that drops the fetched
   commits confirms in the row's push button first, as any such push does). When the fetched head is the
@@ -3676,6 +3680,12 @@ pull requests someone approved are read once per session (`read_branch_rules`, o
 merge profiles of the target of the baseline when a start or its popover asks (`refresh_facts { profiles }`: `GET
 /robot-start-supported`, cached by the Patronus service). The page stores the patches (`applyPullRequestsFacts`, the
 profiles in the Patronus store) and asks the session (`refreshPullRequests`, `askBranchRulesAgain`, `askStartProfiles`).
+A listing that shows the open pull request of a branch at a head that is not the remote tip the session knows (someone
+else pushed to it) asks the fetch of that branch (`AppliedFacts::moved_remotes`, `moved_remote::MovedFetches`, once per
+head by `domain_policy::refresh::moved_remote_fetch_due`): the scheduler hands it to the host beside the listing
+(`FactSources::fetch_moved_remotes`), which runs `moved_remote::fetch_in_session` in a blocking step, as a push of the
+branch runs in the session; the commits of others it brought are news (`NewsEvent::RemoteCommits`)
+([Remote Status](remote-status.md#moved-remote-branches)).
 
 The review readiness (`facts.readiness` by subject, a branch or `stack:<root>`; `repository_model::readiness_facts`):
 the actor builds the ask of each subject from the view as the page sees it (the tip is the copy of its newest commit, a

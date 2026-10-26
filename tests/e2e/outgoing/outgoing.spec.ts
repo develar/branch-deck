@@ -55,7 +55,7 @@ test.describe("Push progress", () => {
 
 /** A commit someone else pushed to the remote branch, three hours before the fixed clock of the page */
 function theirCommit(id: string, subject: string, author: string): DroppedCommit {
-  return { id, subject, author, authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }
+  return { id, subject, author, authorEmail: `${author.toLowerCase()}@example.com`, authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }
 }
 
 test.describe("Force push", () => {

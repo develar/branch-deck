@@ -144,6 +144,7 @@ pub fn remote_status(branch: &str) -> crate::RemoteStatusUpdate {
     remote_tip: Some("remote".to_string()),
     unpushed_commits: Vec::new(),
     commits_behind: 0,
+    others_behind: 0,
     dropped_commits: Vec::new(),
     commits_amended: 0,
     commits_restacked: 0,

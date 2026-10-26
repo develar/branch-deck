@@ -42,9 +42,14 @@ Compare content, not hashes, with Git's cherry-pick algorithm:
   - **landed**: an older version of a commit the baseline has above the remote branch, as a Safe Push landed it
     (`commits_landed`, the newest ten in `landed_commits` with the baseline commit of each);
   - **dropped**: the rest, work a push drops (`commits_behind`). The status lists the newest ten of them
-    (`dropped_commits`: id, subject, author, time), so the Force Push button can say what it drops.
+    (`dropped_commits`: id, subject, author, author email, time), so the Force Push button can say what it drops. Of
+    them, `others_behind` counts those whose author email is not `my_email` (the branch's author): someone else's work
+    on the remote branch, which the branch takes in rather than drops; a commit of the user pushed from another clone
+    is dropped, not someone else's.
 - **Remote tip** (`remote_tip`) is the commit of the remote-tracking ref the counts were computed against. A push leases on it: it
-  replaces the remote branch only as the status showed it ([Git Operations](git-operations.md), "Push lease").
+  replaces the remote branch only as the status showed it ([Git Operations](git-operations.md), "Push lease"). Only a
+  fetch moves that ref, and a virtual branch is fetched by a push the remote refused and by the session when the open
+  pull request of the branch shows a head the ref lacks: someone else pushed to it ("Moved remote branches" below).
 - **"My commits"** are the commits ahead authored by the user.
 - **Fast-forward** says whether the remote branch is an ancestor of the local one. A rebased branch is not, so its push
   is a force push; it follows the refs, not the result of the last sync, and stays the same across restarts.
@@ -229,6 +234,35 @@ Key components:
 - **Branch processor**: `BranchSyncContext` carries the baseline branch and `RemoteStatusMemo` the baseline commit and the
   remote tips, read once per sync (`crates/sync-core/src/branch_processor.rs`)
 - **Sync orchestration**: Propagates baseline through entire pipeline
+
+### Moved remote branches
+
+Someone else may push to the branch of the user's pull request (a fix of a reviewer, a commit of a colleague), and
+nothing in this clone moves its remote-tracking ref: the status still compares with what this clone pushed, the row
+offers the push it had, and the push is refused (its lease is the head the row showed). The listing of the pull
+requests answers the head of each branch on GitHub (`headRefOid`), which costs nothing more: after a listing the session
+asks a fetch of each branch whose open pull request shows a head that is not its remote tip
+(`domain_policy::refresh::moved_remote_fetch_due`, `repository_model::moved_remote::MovedFetches`), and the host runs it
+as a push runs in the session (`Sessions::fetch_moved_remotes`): a sync meanwhile shows no remote status of the branch,
+the status against the fetched tip goes into the table after it and the moved ref into the inputs the session knows, so
+the next focus syncs nothing. The fetch (`sync_core::moved_remote`) reads the tips (one `for-each-ref`) and which heads
+are here (one `cat-file --batch-check`); a head the tip has already (GitHub shows the older head for a moment after a
+push of the user) fetches nothing, after one `merge-base --is-ancestor`; the rest is one `fetch_remote_branches`, then
+the status of each branch against what it fetched.
+
+- **Once per head**: the session remembers the last fetch of each branch (the head, the tip it left, whether the head is
+  in that tip, how many attempts). The same head and tip ask again only while the head is not in the tip (the mirror
+  GitHub shows lags behind the remote), after a minute, five and fifteen, then no more until another head; a fetch in
+  flight asks none.
+- **Never under a push**: a branch the app pushes is not fetched, and the fetch claims the remote refs it writes
+  (`push_guard::claim_free_refs`): a push of one of them waits for it, as two pushes of one ref do, because both write
+  the remote-tracking ref (a lock failure of git) and the status of the later one is the newer.
+- **The lease holds**: the status the fetch leaves lists the fetched commits as dropped, so a push replaces them only
+  once the user saw them (a Force Push that asks first), as after any fetch ("Push lease").
+- **The news**: the commits of others a fetch brought (`others_behind`, their authors) are news of the session
+  (`NewsEvent::RemoteCommits`), told once per remote tip; the page shows them as the toast of the pushes of the branch.
+- **What it misses**: a branch with no open pull request of the user, the pull request of a whole stack, a session
+  signed out of GitHub, and `bd`, which reads no pull request heads; their remote commits show once a push is refused.
 
 ### The remote status in the session
 

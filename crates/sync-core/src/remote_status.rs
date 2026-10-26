@@ -213,6 +213,7 @@ fn walk_remote(git_executor: &GitCommandExecutor, repository_path: &str, range: 
         id: commit.id,
         subject: commit.subject,
         author: commit.author,
+        author_email: commit.key.email.clone(),
         author_time: commit.key.time,
       },
       key: commit.key,
@@ -472,7 +473,7 @@ const STATUS_CACHE_LIMIT: usize = 4096;
 /// the limit, `list_cut::kept`). Bump the high half when the status of the same commits changes: its fields, the options
 /// of its walks, `CommitKey`, `same_changes`
 fn cached_status_version() -> u32 {
-  (4 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
+  (5 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
 }
 
 /// A dropped commit in the object cache (`DroppedCommit`)
@@ -481,6 +482,7 @@ struct CachedDroppedCommit {
   id: String,
   subject: String,
   author: String,
+  author_email: String,
   author_time: u32,
 }
 
@@ -501,6 +503,7 @@ struct CachedStatus {
   unpushed_commits: Vec<String>,
   my_unpushed_count: u32,
   commits_behind: u32,
+  others_behind: u32,
   dropped_commits: Vec<CachedDroppedCommit>,
   commits_amended: u32,
   commits_restacked: u32,
@@ -519,6 +522,7 @@ impl CachedStatus {
       remote_tip: self.remote_tip,
       unpushed_commits: self.unpushed_commits,
       commits_behind: self.commits_behind,
+      others_behind: self.others_behind,
       dropped_commits: self
         .dropped_commits
         .into_iter()
@@ -526,6 +530,7 @@ impl CachedStatus {
           id: commit.id,
           subject: commit.subject,
           author: commit.author,
+          author_email: commit.author_email,
           author_time: commit.author_time,
         })
         .collect(),
@@ -722,6 +727,7 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
       my_unpushed_count: walked.mine,
       unpushed_commits: walked.commits,
       commits_behind: 0,
+      others_behind: 0,
       dropped_commits: Vec::new(),
       commits_amended: 0,
       commits_restacked: 0,
@@ -798,12 +804,19 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
   };
 
   let dropped_count = dropped.len();
+  let others_behind = count(
+    dropped
+      .iter()
+      .filter(|behind| !my_email.is_some_and(|my_email| behind.key.email.eq_ignore_ascii_case(my_email)))
+      .count(),
+  );
   let landed_count = landed.len();
   Ok(CachedStatus {
     remote_tip: Some(remote_tip.to_string()),
     my_unpushed_count: unpushed.mine,
     unpushed_commits: unpushed.commits,
     commits_behind: count(dropped.len()),
+    others_behind,
     dropped_commits: dropped
       .into_iter()
       .take(kept(dropped_count, DROPPED_COMMITS_LIMIT))
@@ -811,6 +824,7 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
         id: behind.commit.id,
         subject: behind.commit.subject,
         author: behind.commit.author,
+        author_email: behind.commit.author_email,
         author_time: behind.commit.author_time,
       })
       .collect(),

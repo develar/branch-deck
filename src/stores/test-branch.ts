@@ -25,6 +25,7 @@ export function testRemoteStatus(overrides: Partial<RemoteStatus> = {}): RemoteS
     unpushedCommits: [],
     commitsAhead: 0,
     commitsBehind: 0,
+    othersBehind: 0,
     commitsAmended: 0,
     commitsRestacked: 0,
     commitsLanded: 0,

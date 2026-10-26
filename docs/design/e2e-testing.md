@@ -455,6 +455,13 @@ log of the fake). No test answers a remote write in the page: the registry test 
   (`PatronusClient::with_web_url`), so a robot links where the app links it. The service is replaced on each Patronus
   fixture: no cached list, backoff or rejected token of the answers before holds. The templates' origin is a local path,
   so the host holds whether the repository is on Space (`space_repository`, project `e2e`, repository `repository`).
+- **Remote branches**: a template's `origin` is the repository itself (`.`), whose virtual branches a sync rewrites and
+  whose remote statuses a test sets (`sync-overrides`), so the fetch of a branch whose pull request moved
+  ([Remote Status](remote-status.md#moved-remote-branches)) runs only in a repository with a remote of its own
+  (`OWN_REMOTE`, `.git/upstream.git`): `TestFactSources::fetch_moved_remotes` ends the others unfetched
+  (`skip_in_session`). `POST /repositories/{id}/remote-commit` (`pushFromElsewhere`) gives a repository that remote, with
+  what it has of `origin` and the branch as it is here, and pushes someone else's commit onto the branch there; its id
+  is the head the test's pull request then shows.
 - **Bridge**: the reads of the session's robots (`TestFactSources`: `list_robots`, `poll_robots`, `failing_robots`,
   `robot_problems` and `robot_details_of` of the bridge, the merge profiles, `profiles_of`, and the review readiness,
   `readiness_of`), `get_robot_failure`, `get_patronus_target_branch`, `start_patronus_robot`,

@@ -49,8 +49,8 @@ export function formatPullRequestState(pullRequest: PullRequest): string {
 
 /**
  * What the details say about the commit the pull request shows, null when it shows the branch as it is: a quiet line for
- * a branch only rebuilt on a newer baseline, a push for a changed one, and the wait for GitHub when the remote branch
- * has the change already.
+ * a branch only rebuilt on a newer baseline, a push for a changed one, the wait for GitHub when the remote branch
+ * has the change already, and the commits of others the remote has that a push would drop.
  */
 export function formatPullRequestCommitNotice(pullRequest: PullRequest, chip: Pick<PullRequestChipState, "commit">, remoteTip: string | null): string | null {
   const shows = `Shows ${formatShortHash(pullRequest.headRefOid)}`
@@ -63,6 +63,8 @@ export function formatPullRequestCommitNotice(pullRequest: PullRequest, chip: Pi
       return `${shows}; the branch has changed since: push to update the pull request.`
     case "changedOnRemote":
       return `${shows}; GitHub doesn't show the pushed ${remoteTip === null ? "commit" : formatShortHash(remoteTip)} yet.`
+    case "othersOnRemote":
+      return `${shows}; someone else pushed commits your branch doesn't have: a push drops them.`
   }
 }
 

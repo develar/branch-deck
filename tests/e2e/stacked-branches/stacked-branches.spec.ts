@@ -631,7 +631,7 @@ test.describe("Stacked branches", () => {
     await syncAndWaitForBranches()
     // someone else pushed to login since its row was shown: the remote refuses the one push, nothing of it goes out, and
     // every branch is fetched: auth and oauth are still not on the remote
-    const theirs = { id: "c0ffee0", subject: "Their fix", author: "Ann", authorTime: PUSH_TIME }
+    const theirs = { id: "c0ffee0", subject: "Their fix", author: "Ann", authorEmail: "ann@example.com", authorTime: PUSH_TIME }
     const { stackPushes, pushes } = await routePushBranches(page, {
       auth: { remoteExists: false, unpushedCommits: ["auth-1"] },
       login: [{ outcome: "remoteMoved", unpushedCommits: ["login-1"], commitsBehind: 1, droppedCommits: [theirs], remoteTip: "theirs" }, {}],

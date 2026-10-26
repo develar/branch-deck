@@ -16,6 +16,7 @@
 
 use crate::branch_table::BranchTable;
 use crate::facts::{AppliedFacts, FactResult, FactTicket, Needs, PatronusOf, RobotsDigest, TableFacts};
+use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
 use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
@@ -537,6 +538,33 @@ impl Sessions {
     outcome.map(|outcome| ViewAnswer { outcome, version })
   }
 
+  /// The fetch of the remote branches of `asks` in the session of `key` (`moved_remote`), `fetch` being the host's
+  /// fetch of them (`moved_remote::fetch_asked`), run as a push of them runs (`push`): from now on a sync shows no
+  /// remote status of them, and at the end the statuses it fetched go into the table, their remote-tracking refs into the
+  /// inputs the session knows, the commits of others it brought into the news; no listing of the pull requests follows.
+  /// A future dropped ends it with nothing fetched. Answers the version of the view after its patch (`None`: the session
+  /// is not open)
+  pub async fn fetch_moved_remotes(&self, key: &SessionKey, asks: &[MovedRemoteAsk], fetch: impl Future<Output = Vec<FetchedRemote>>) -> Option<Version> {
+    let subjects: Vec<RemoteSubject> = asks.iter().map(|ask| RemoteSubject::Branch(ask.branch.clone())).collect();
+    let begun = subjects.clone();
+    drop(self.apply(key, move |state| state.begin_push(&begun)));
+    let mut running = RunningFetch {
+      sessions: self,
+      key,
+      subjects: Some(subjects),
+    };
+    let fetched = fetch.await;
+    running.end(Some(fetched)).version().await
+  }
+
+  /// Sends the end of an operation that runs in the session of `key` (`message` of its reply), whose patch's version the
+  /// answer resolves to; none when the session is not open
+  fn send_end(&self, key: &SessionKey, message: impl FnOnce(oneshot::Sender<Version>) -> Message) -> Applied {
+    let (reply, version) = oneshot::channel();
+    let sent = self.lock().get(key).is_some_and(|entry| entry.mailbox.send(message(reply)).is_ok());
+    Applied(sent.then_some(version))
+  }
+
   /// Removes the sessions idle for `IDLE_LIMIT` (no subscriber, no operation) and those whose actor is gone, and answers
   /// their keys; the host calls it on a timer, the E2E server after it moved its clock
   pub fn sweep(&self) -> Vec<SessionKey> {
@@ -662,25 +690,42 @@ impl RunningPush<'_> {
     let Some(subjects) = self.subjects.take() else {
       return Applied(None);
     };
-    let (reply, version) = oneshot::channel();
-    let sent = self.sessions.lock().get(self.key).is_some_and(|entry| {
-      entry
-        .mailbox
-        .send(Message::PushEnded {
-          subjects,
-          statuses,
-          pushed,
-          reply,
-        })
-        .is_ok()
-    });
-    Applied(sent.then_some(version))
+    self.sessions.send_end(self.key, |reply| Message::PushEnded {
+      subjects,
+      statuses,
+      pushed,
+      reply,
+    })
   }
 }
 
 impl Drop for RunningPush<'_> {
   fn drop(&mut self) {
     drop(self.end(None, false));
+  }
+}
+
+/// A fetch of moved remote branches the session knows runs (`Sessions::fetch_moved_remotes`): its end goes to the
+/// session once, also when its future is dropped (nothing fetched then)
+struct RunningFetch<'a> {
+  sessions: &'a Sessions,
+  key: &'a SessionKey,
+  /// `None` once the end was sent
+  subjects: Option<Vec<RemoteSubject>>,
+}
+
+impl RunningFetch<'_> {
+  fn end(&mut self, fetched: Option<Vec<FetchedRemote>>) -> Applied {
+    let Some(subjects) = self.subjects.take() else {
+      return Applied(None);
+    };
+    self.sessions.send_end(self.key, |reply| Message::RemotesFetched { subjects, fetched, reply })
+  }
+}
+
+impl Drop for RunningFetch<'_> {
+  fn drop(&mut self) {
+    drop(self.end(None));
   }
 }
 

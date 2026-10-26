@@ -34,6 +34,7 @@ use domain_types::{ProgressReporter, RemoteStatusUpdate};
 use object_cache::cache::ObjectCache;
 use remote_facts::fact_sources::{FactSources, Read};
 use repository_model::facts::Needs;
+use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session, skip_in_session};
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::runtime::{RunSetup, SessionEnvironment, pushed_heads};
 use repository_model::session::{SessionKey, Subscriber, SubscriberGone, SubscriptionId};
@@ -213,6 +214,22 @@ impl FactSources for TestFactSources {
   /// The test server keeps no answer (no object cache): every readiness is asked
   fn cached_readiness<'a>(&'a self, _key: &'a SessionKey, _baseline: String, asks: Vec<ReviewReadinessBranch>) -> Read<'a, Vec<Option<BranchReviewReadiness>>> {
     Box::pin(async move { vec![None; asks.len()] })
+  }
+
+  /// Only a repository with a remote of its own (`OWN_REMOTE`, `pushFromElsewhere`): the `origin` of a template is the
+  /// repository itself, whose virtual branches a sync rewrites and whose remote statuses its tests set
+  /// (`sync-overrides`), so a pull request there shows a head that no fetch of `origin` may bring in
+  fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
+    Box::pin(async move {
+      let Some(state) = self.state.upgrade() else {
+        return;
+      };
+      if std::path::Path::new(&key.worktree).join(test_utils::git_test_utils::OWN_REMOTE).exists() {
+        fetch_in_session(&state.sessions, &state.git_executor, key, asks).await;
+      } else {
+        skip_in_session(&state.sessions, key, asks).await;
+      }
+    })
   }
 }
 

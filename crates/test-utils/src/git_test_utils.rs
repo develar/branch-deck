@@ -188,6 +188,52 @@ pub fn commit_files_on_head(repo_path: &Path, message: &str, files: &[(&str, &st
   commit_in(&git, path, &["-m", message], &[("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())])
 }
 
+/// The bare remote of its own a fixture repository gets for `push_from_elsewhere` (and the templates of Update Project
+/// have), relative to the repository
+pub const OWN_REMOTE: &str = ".git/upstream.git";
+
+/// Someone else pushes a commit of `file` with `content` onto `branch` (a full name, `user-name/virtual/auth`) of the
+/// remote of the repository at `repo_path`, from a clone of their own, as `author` (`Name <email>`) at `timestamp`: lets
+/// the E2E mock server put a colleague's commit on a pushed branch, which this clone has not fetched. A template's
+/// `origin` is the repository itself (`.`), whose branches a sync rewrites, so the first call gives it a bare remote of
+/// its own (`.git/upstream.git`) with what this clone has of `origin` and the branch as it is here, its remote-tracking
+/// ref at it. Returns the id of the pushed commit
+pub fn push_from_elsewhere(repo_path: &Path, branch: &str, author: &str, file: &str, content: &str, timestamp: i64) -> Result<String, String> {
+  let git = GitCommandExecutor::new();
+  let path = repo_path.to_str().ok_or("the repository path is not UTF-8")?;
+  let (name, email) = author
+    .strip_suffix('>')
+    .and_then(|author| author.split_once(" <"))
+    .ok_or_else(|| format!("the author is not `Name <email>`: {author}"))?;
+  let upstream = repo_path.join(OWN_REMOTE);
+  let upstream_path = upstream.to_str().ok_or("the upstream path is not UTF-8")?;
+  let run = |args: &[&str]| git.execute_command(args, path).map(drop).map_err(|e| e.to_string());
+  if !upstream.exists() {
+    run(&["init", "-q", "--bare", "--initial-branch=master", upstream_path])?;
+    disable_background_maintenance(&upstream);
+    run(&["push", "-q", upstream_path, "refs/remotes/origin/*:refs/heads/*"])?;
+    run(&["config", "remote.origin.url", upstream_path])?;
+  }
+  let branch_ref = format!("refs/heads/{branch}");
+  let tracking = format!("+{branch_ref}:refs/remotes/origin/{branch}");
+  let (_, missing) = git
+    .execute_command_with_status(&["ls-remote", "--exit-code", upstream_path, &branch_ref], path)
+    .map_err(|e| e.to_string())?;
+  if missing != 0 {
+    run(&["push", "-q", upstream_path, &format!("{branch_ref}:{branch_ref}")])?;
+  }
+  run(&["fetch", "-q", "origin", &tracking])?;
+
+  let other = TestRepo::new_empty();
+  other.clone_from(&upstream)?;
+  other.checkout(branch)?;
+  other.set_config("user.name", name)?;
+  other.set_config("user.email", email)?;
+  let id = other.create_commit_with_timestamp(&format!("Change {file}"), file, content, Some(timestamp));
+  other.push("origin", branch)?;
+  Ok(id)
+}
+
 /// Runs `git commit` with `args` and `env` in `path` and returns the id of the new commit, which git prints in its
 /// summary line (in full with `core.abbrev=no`): no `rev-parse HEAD` after each commit of a fixture. Never `--quiet`,
 /// which prints no summary

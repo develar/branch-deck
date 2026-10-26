@@ -10,6 +10,7 @@ use domain_types::error::ApiError;
 use domain_types::patronus::{BranchReviewReadiness, KnownRobotStatus, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch};
 use domain_types::pull_request::{BranchRules, PullRequestsResult};
 use domain_types::review_request::ReviewRequestsResult;
+use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::session::SessionKey;
 use std::future::Future;
 use std::pin::Pin;
@@ -57,6 +58,10 @@ pub trait FactSources: Send + Sync + 'static {
   /// the commits of all of them in one read, a pre-check of Patronus for each whose kept answer doesn't hold; `recheck`
   /// asks Patronus again, never the kept answer, in the foreground. The answers in the order of `asks`
   fn readiness<'a>(&'a self, key: &'a SessionKey, baseline: String, asks: Vec<ReviewReadinessBranch>, recheck: bool) -> Read<'a, Result<Vec<BranchReviewReadiness>, ApiError>>;
+
+  /// The fetch of the remote branches a listing of the pull requests showed at a head their remote-tracking refs lack
+  /// (`moved_remote::fetch_in_session`): run in the session of `key`, the statuses it leaves go into its table
+  fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()>;
 
   /// Of `asks`, in their order, the answers the object cache keeps that still hold (`review_readiness::kept_review_readiness`),
   /// read without Patronus; `None` for each it doesn't answer

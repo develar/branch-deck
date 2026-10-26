@@ -326,6 +326,7 @@ function remoteStatusOf(status: RemoteStatusFields): RemoteStatus {
     unpushedCommits: [],
     commitsAhead,
     commitsBehind,
+    othersBehind: commitsBehind,
     commitsAmended: 0,
     commitsRestacked: 0,
     commitsLanded: 0,

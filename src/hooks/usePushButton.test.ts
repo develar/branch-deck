@@ -6,7 +6,7 @@ import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { CREATE, forcePush, PUSH, testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 function commits(count: number): DroppedCommit[] {
-  return Array.from({ length: count }, (_, index) => ({ id: `c${index}`, subject: `Fix ${index}`, author: "Ann", authorTime: 0 }))
+  return Array.from({ length: count }, (_, index) => ({ id: `c${index}`, subject: `Fix ${index}`, author: "Ann", authorEmail: "ann@example.com", authorTime: 0 }))
 }
 
 function state(remote: Partial<RemoteStatus>, context: PushButtonContext = {}) {

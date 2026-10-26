@@ -242,6 +242,7 @@ fn a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is() {
       up_to_date: true,
       known: true,
       drops: 0,
+      others: 0,
     },
   );
   let view = view_with(&table, &remote, &[running("r", "oauth", "pushed")]);
@@ -451,6 +452,7 @@ fn remote_of(names: &[(&str, bool)]) -> RemoteFacts {
         up_to_date: *up_to_date,
         known: true,
         drops: 0,
+        others: 0,
       },
     );
   }

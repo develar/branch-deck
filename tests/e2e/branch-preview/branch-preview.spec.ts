@@ -160,7 +160,7 @@ test.describe("Branch preview", () => {
           unpushedCommits: ["j1"],
           commitsBehind: 1,
           remoteTip: "their-head",
-          droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorTime: 1704178800 }],
+          droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorEmail: "ann@example.com", authorTime: 1704178800 }],
         },
         {},
       ],

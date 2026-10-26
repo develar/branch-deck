@@ -101,6 +101,7 @@ export function fakeRemoteStatus(branchName: string, unpushed: number, remoteTip
     remoteExists: true,
     unpushedCommits,
     commitsBehind: 0,
+    othersBehind: 0,
     commitsAmended: 0,
     commitsRestacked: 0,
     commitsLanded: 0,

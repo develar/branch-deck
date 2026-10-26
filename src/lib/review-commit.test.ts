@@ -30,7 +30,16 @@ describe("getReviewCommitState", () => {
     expect(getReviewCommitState("taken", undefined, testRemoteStatus({ remoteTip: "newer" }))).toBe("changedOnRemote")
   })
 
+  it("names the commits someone else pushed to the remote branch, which a push would drop, before any push due", () => {
+    const theirs = testRemoteStatus({ remoteTip: "theirs", commitsBehind: 1, othersBehind: 1, action: forcePush({ drops: true }) })
+    expect(getReviewCommitState("theirs", "local", theirs)).toBe("othersOnRemote")
+    expect(getReviewCommitState("taken", "local", { ...theirs, unpushedCommits: ["c"], commitsAhead: 1 })).toBe("othersOnRemote")
+    // the user's own commit the remote has (pushed from another clone) is a drop, a push is due
+    expect(getReviewCommitState("theirs", "local", { ...theirs, othersBehind: 0 })).toBe("changedLocally")
+  })
+
   it("is outdated only when the branch changed", () => {
+    expect(isReviewCommitOutdated("othersOnRemote")).toBe(true)
     expect(isReviewCommitOutdated("changedOnRemote")).toBe(true)
     expect(isReviewCommitOutdated("changedLocally")).toBe(true)
     expect(isReviewCommitOutdated("rebased")).toBe(false)

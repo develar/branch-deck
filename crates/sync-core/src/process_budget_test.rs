@@ -5,6 +5,7 @@
 
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::baseline::check_baseline_update;
+use crate::moved_remote::{MovedBranch, fetch_moved_remotes};
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
@@ -755,6 +756,34 @@ fn an_atomic_push_of_a_stack() {
     "{outcome:?}"
   );
   assert_processes(&git, &[("cat-file", 1), ("config", 1), ("for-each-ref", 2), ("log", 1), ("push", 1), ("reflog", 1)]);
+}
+
+/// The fetch of a remote branch whose pull request shows a head someone else pushed (`moved_remote`): the tips one
+/// `for-each-ref`, which heads are here one `cat-file`, the fetch one `fetch`, then the status against the fetched tip:
+/// one `for-each-ref` of the tips, the two walks and, as a commit is left dropped, the walk of the baseline by its
+/// author that finds the landed ones (three `rev-list`), and the push time (`reflog`)
+#[test]
+fn a_fetch_of_a_moved_remote_branch() {
+  let repo = stack_ahead_of_bare_origin();
+  repo.git(&["push", "-q", "origin", "test/virtual/alpha"]);
+  let origin = repo.path().join(".git/origin.git");
+  let other = TestRepo::new_empty();
+  other.clone_from(&origin).unwrap();
+  other.checkout("test/virtual/alpha").unwrap();
+  let theirs = other.create_commit("Their fix", "fix.txt", "fix\n");
+  other.push("origin", "test/virtual/alpha").unwrap();
+  let branch = MovedBranch {
+    full_name: "test/virtual/alpha",
+    branch_name: "alpha",
+    parent: None,
+    head: &theirs,
+    my_email: Some("test@example.com"),
+  };
+
+  let git = counting();
+  let fetched = fetch_moved_remotes(&git, &path(&repo), "origin", "master", &[branch]).unwrap();
+  assert!(fetched[0].settled);
+  assert_processes(&git, &[("cat-file", 1), ("fetch", 1), ("for-each-ref", 2), ("reflog", 1), ("rev-list", 3)]);
 }
 
 /// The question about the robot of `beta`, which ran on `source` and may land `alpha` and `beta`

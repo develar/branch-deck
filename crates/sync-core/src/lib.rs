@@ -52,6 +52,8 @@
 //! Remotes:
 //! - `remote_command`: the policy of every git that talks to a remote (push, fetch)
 //! - `transfer_progress`: the progress of a fetch or a push, from its stderr lines
+//! - `moved_remote`: the fetch of the remote branches whose pull request shows a head their remote-tracking ref lacks
+//!   (someone else pushed to them), with their remote statuses against what it fetched
 //! - `push_lease`: the lease of a virtual branch push and `push_refs`, shared by the app and `bd push`
 //! - `push`: the app's push of a virtual branch
 //! - `push_size`: the size check of every push, refused over `branchdeck.pushSizeLimit` before the network
@@ -93,6 +95,7 @@ pub mod github_repository;
 pub mod grouping;
 pub mod issue_navigation;
 pub mod landed;
+pub mod moved_remote;
 pub mod parked;
 pub mod patronus;
 pub mod patronus_start;

@@ -314,6 +314,11 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../src/lib/pull-request.test.ts (`asks for a push when the branch changed, waits for GitHub after one, and says quietly that it shows an earlier build`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say when the branch changed since the pull request's head`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say only quietly that the pull request shows an earlier build of the same commits`)
+- When someone else pushed commits to the branch of the pull request that the branch lacks (`othersBehind`, the head the
+  listing showed fetched, [Outgoing](../repository/outgoing.spec.md#remote-commits-of-others)), the details never ask for
+  a push, which would drop them: "Shows d708d5b8; someone else pushed commits your branch doesn't have: a push drops
+  them.", with the dot.
+  [@test] ../../src/lib/pull-request.test.ts (`says that a push drops the commits someone else pushed to the remote branch, never that a push is due`)
 - A click on the chip opens the pull request in the browser, leaves its details as they are
   ([hover descriptions](../../docs/design/ui-theme.md)) and does not toggle the row.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)

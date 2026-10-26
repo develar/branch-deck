@@ -771,3 +771,66 @@ fn an_unapplied_branch_is_pushed_under_its_own_name() {
   stack_pushed_as_is(&local, &params(Some(&tip)));
   assert_eq!(remote_tip_of(&remote, "prefix/unapplied/docs"), Some(more));
 }
+
+/// `fetch_moved_remotes` of the pushed `feature` whose pull request shows `head`
+fn fetch_moved(local: &TestRepo, head: &str) -> crate::moved_remote::MovedFetch {
+  let branch = crate::moved_remote::MovedBranch {
+    full_name: BRANCH,
+    branch_name: "feature",
+    parent: None,
+    head,
+    my_email: Some("test@example.com"),
+  };
+  crate::moved_remote::fetch_moved_remotes(local.git_executor(), path(local), "origin", "master", &[branch])
+    .unwrap()
+    .remove(0)
+}
+
+/// Someone pushed to the branch of an open pull request: the head the pull request shows is fetched before any push, and
+/// the status names the commit of the other author, which a push would drop
+#[test]
+fn the_head_a_pull_request_shows_is_fetched_with_the_commits_of_others() {
+  let (remote, local) = local_with_bare_remote();
+  first_push(&remote, &local);
+  let theirs = push_from_elsewhere(&remote, "Their fix");
+
+  let fetched = fetch_moved(&local, &theirs);
+
+  assert!(fetched.settled);
+  let status = fetched.status.expect("fetched");
+  assert_eq!(rev_parse(&local, &format!("refs/remotes/origin/{BRANCH}")), Some(theirs.clone()));
+  assert_eq!(status.remote_tip, Some(theirs.clone()));
+  assert_eq!((status.commits_behind, status.others_behind), (1, 1));
+  assert_eq!(dropped_subjects(&status), ["Their fix"]);
+  assert_eq!(status.dropped_commits[0].author_email, "other@example.com");
+  assert_eq!(remote_tip(&remote), Some(theirs), "nothing was pushed");
+}
+
+/// GitHub shows an older head for a moment after a push: a head the remote-tracking ref has already fetches nothing
+#[test]
+fn a_head_the_remote_tracking_ref_has_fetches_nothing() {
+  let (remote, local) = local_with_bare_remote();
+  let first = first_push(&remote, &local);
+  let newer = local.create_commit("(feature) More", "more.txt", "more");
+  set_branch(&local, &newer);
+  pushed(push(&local, Some(&first)));
+
+  let fetched = fetch_moved(&local, &first);
+
+  assert_eq!(fetched, crate::moved_remote::MovedFetch { status: None, settled: true });
+}
+
+/// A mirror that lags: the pull request shows a head the remote doesn't have yet, so the fetch brings nothing and the head
+/// stays unsettled, to be fetched again
+#[test]
+fn a_head_the_remote_lacks_stays_unsettled() {
+  let (remote, local) = local_with_bare_remote();
+  first_push(&remote, &local);
+  let elsewhere = TestRepo::new();
+  let unknown = elsewhere.create_commit("Not pushed anywhere", "x.txt", "x");
+
+  let fetched = fetch_moved(&local, &unknown);
+
+  assert!(!fetched.settled);
+  assert_eq!(fetched.status.map(|status| status.commits_behind), Some(0));
+}

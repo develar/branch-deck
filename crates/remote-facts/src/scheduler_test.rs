@@ -16,6 +16,7 @@ use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, Version};
 use pretty_assertions::assert_eq;
 use repository_model::facts::{AppliedFacts, FactResult, FactTicket, ProblemsRead, RobotsDigest, RobotsRead, Seq};
+use repository_model::moved_remote::MovedRemoteAsk;
 use repository_model::pull_request_facts::{PullRequestSubject, PushedHead};
 use repository_model::readiness_facts::{ReadinessDigest, ReadinessSubject};
 use repository_model::session::{OneClock, SessionEvent, SessionEventKind, SessionKey};
@@ -47,6 +48,8 @@ enum GitHubCall {
   PullRequests,
   Rules(String),
   Profiles(String),
+  /// The fetch of the remote branches a listing showed moved, by name
+  FetchMoved(Vec<String>),
 }
 
 /// The host: records each read and answers what the test set
@@ -180,6 +183,11 @@ impl FactSources for ScriptedSources {
     Box::pin(async move { asks.iter().map(|ask| kept.contains(&ask.branch_name).then(|| self.readiness_of(ask))).collect() })
   }
 
+  fn fetch_moved_remotes<'a>(&'a self, _key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
+    lock(&self.github_calls).push(GitHubCall::FetchMoved(asks.into_iter().map(|ask| ask.branch).collect()));
+    Box::pin(async {})
+  }
+
   fn profiles<'a>(&'a self, _key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
     lock(&self.github_calls).push(GitHubCall::Profiles(baseline));
     let fails = self.github_fails.load(Ordering::SeqCst);
@@ -234,6 +242,8 @@ struct RecordingPort {
   after_answer: Mutex<RobotsDigest>,
   /// The bases of the approved pull requests after each answer
   approved_bases: Mutex<Vec<String>>,
+  /// The remote branches the next answer of a listing of the pull requests shows moved, once
+  moved_remotes: Mutex<Vec<MovedRemoteAsk>>,
 }
 
 impl FactsPort for RecordingPort {
@@ -243,16 +253,22 @@ impl FactsPort for RecordingPort {
   }
 
   fn apply<'a>(&'a self, _key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<AppliedFacts>> {
-    if let FactResult::Robots { read, .. } = result {
-      lock(&self.applied).push(read);
+    if let FactResult::Robots { read, .. } = &result {
+      lock(&self.applied).push(*read);
     }
     let robots = lock(&self.after_answer).clone();
     let approved_bases = lock(&self.approved_bases).clone();
+    let moved_remotes = if matches!(result, FactResult::PullRequests(_)) {
+      std::mem::take(&mut *lock(&self.moved_remotes))
+    } else {
+      Vec::new()
+    };
     Box::pin(async move {
       Some(AppliedFacts {
         version: Version { epoch: 1, seq: ticket.seq.0 },
         robots,
         approved_bases,
+        moved_remotes,
       })
     })
   }
@@ -923,6 +939,22 @@ async fn the_rules_of_an_approved_base_are_read_once_and_a_failed_read_again_whe
   assert_eq!(session.github_calls(), vec![rules("master"), rules("user/virtual/auth")]);
   assert_eq!(session.refresh_family(FactFamily::BranchRules, FactRefreshReason::AfterWrite).await, None, "all known");
   session.send(pushed("auth", "pushed")).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
+}
+
+/// A listing of the pull requests that shows a branch at a head its remote-tracking ref lacks asks the host to fetch it,
+/// beside the listing; a listing that shows none fetches nothing
+#[tokio::test]
+async fn a_listing_that_shows_a_moved_remote_branch_asks_its_fetch() {
+  let session = Harness::new();
+  *lock(&session.port.moved_remotes) = vec![MovedRemoteAsk {
+    branch: "auth".to_owned(),
+    head: "theirs".to_owned(),
+  }];
+  session.send(SessionEventKind::Watched(true)).await;
+  session.send(committed()).await;
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests, GitHubCall::FetchMoved(vec!["auth".to_owned()])]);
+  session.refresh_family(FactFamily::PullRequests, FactRefreshReason::Manual).await;
   assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
 }
 

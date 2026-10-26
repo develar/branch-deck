@@ -145,6 +145,9 @@ pub struct RemoteStatusUpdate {
   /// Commits of the remote whose content the branch lacks and that are no older version of a commit it has: a push drops
   /// them
   pub commits_behind: u32,
+  /// Of the commits behind, the ones whose author is not the user (`my_email` of the status, the branch's author):
+  /// someone else's work on the remote branch, which the branch should take in (Pick Remote Commits) rather than drop
+  pub others_behind: u32,
   /// The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
   /// only one more (`commits_behind` is the total)
   pub dropped_commits: Vec<DroppedCommit>,
@@ -208,6 +211,7 @@ pub struct DroppedCommit {
   pub subject: String,
   /// The author's name
   pub author: String,
+  pub author_email: String,
   /// Unix timestamp
   pub author_time: u32,
 }

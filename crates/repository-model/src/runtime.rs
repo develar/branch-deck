@@ -36,6 +36,7 @@
 use crate::branch_table::BranchTable;
 use crate::derive::{land_answer_of, wanted_readiness};
 use crate::facts::{AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, Seq, TableFacts, derive_patronus, robots_digest};
+use crate::moved_remote::{FetchedRemote, MovedFetches};
 use crate::patronus_view::{ContentMemo, lock_memo};
 use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
@@ -139,6 +140,14 @@ pub(crate) enum Message {
     pushed: bool,
     reply: oneshot::Sender<Version>,
   },
+  /// A fetch of the remote branches whose pull requests moved (`Sessions::fetch_moved_remotes`) ended with what it
+  /// found of each, in the order of `subjects` (`None`: the session dropped it); `reply` gets the version of the view
+  /// after its patch
+  RemotesFetched {
+    subjects: Vec<RemoteSubject>,
+    fetched: Option<Vec<FetchedRemote>>,
+    reply: oneshot::Sender<Version>,
+  },
   /// An event of the run `run`
   Event {
     run: RunId,
@@ -192,6 +201,7 @@ pub(crate) fn spawn_actor(runtime: &Handle, key: SessionKey, host: Arc<dyn Sessi
     flush_at: None,
     last_flush: None,
     in_flight: None,
+    moved: MovedFetches::default(),
   };
   span.in_scope(|| runtime.spawn(actor.run(messages).in_current_span()));
   mailbox
@@ -226,6 +236,8 @@ struct Actor {
   last_flush: Option<Instant>,
   /// The check or the run in flight keeps the session alive
   in_flight: Option<Busy>,
+  /// The last fetch of each remote branch whose pull request showed a head it lacked
+  moved: MovedFetches,
 }
 
 impl Actor {
@@ -336,7 +348,12 @@ impl Actor {
           // an answer of Patronus derives a view that failed again
           self.facts.patronus.retry();
         }
+        let lists_pull_requests = matches!(result, FactResult::PullRequests(_));
         self.facts.apply(observation, result);
+        let moved_remotes = match self.facts.table.value() {
+          Some(table) if lists_pull_requests => self.moved.asks(self.life.now(), table, &self.state, &self.facts.pull_requests.view().pull_requests),
+          _ => Vec::new(),
+        };
         let robots = self.robots_digest();
         self.facts.tell_failures(&robots);
         self.derive_patronus();
@@ -348,6 +365,7 @@ impl Actor {
             .facts
             .pull_requests
             .approved_bases(self.facts.table.value().map(|table| table.baseline.as_str()), &self.key.prefix),
+          moved_remotes,
         }));
       }
       Message::WritePullRequest { write, reply } => {
@@ -407,6 +425,32 @@ impl Actor {
         }
         self.state.end_push(&subjects, statuses);
         // the remote branches the push moved are what the view of the robots is of
+        self.derive_patronus();
+        self.flush();
+        let _ = reply.send(self.view.version());
+      }
+      Message::RemotesFetched { subjects, fetched, reply } => {
+        let fetched = fetched.unwrap_or_default();
+        let branches = subjects.iter().filter_map(|subject| match subject {
+          RemoteSubject::Branch(name) => Some(name.as_str()),
+          RemoteSubject::WholeStack(_) | RemoteSubject::Unapplied(_) => None,
+        });
+        self.moved.answered(branches, &fetched);
+        let prefix = &self.key.prefix;
+        let refs = subjects
+          .iter()
+          .zip(&fetched)
+          .filter_map(|(subject, answer)| Some((subject.remote_ref(prefix)?, answer.status.as_ref()?.remote_tip.clone())))
+          .collect();
+        self.scheduler.pushed(refs);
+        for (index, subject) in subjects.iter().enumerate() {
+          let answer = fetched.get(index);
+          if let Some(answer) = answer {
+            self.facts.tell_remote_commits(answer);
+          }
+          let status = answer.and_then(|answer| answer.status.clone());
+          self.state.end_push(std::slice::from_ref(subject), status.map(|status| vec![status]));
+        }
         self.derive_patronus();
         self.flush();
         let _ = reply.send(self.view.version());

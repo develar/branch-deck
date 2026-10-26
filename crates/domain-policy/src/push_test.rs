@@ -34,11 +34,13 @@ fn status(counts: Counts) -> RemoteStatusUpdate {
     remote_tip: (!counts.absent).then(|| "remote-tip".to_string()),
     unpushed_commits: (0..counts.ahead).map(|index| format!("commit-{index}")).collect(),
     commits_behind: counts.behind,
+    others_behind: 0,
     dropped_commits: (0..counts.behind)
       .map(|index| DroppedCommit {
         id: format!("dropped-{index}"),
         subject: "Fix".to_string(),
         author: "Ann".to_string(),
+        author_email: "ann@example.com".to_string(),
         author_time: 0,
       })
       .collect(),
@@ -329,11 +331,12 @@ const UNPUSHED: RemoteBranch<'static> = RemoteBranch {
   tip: None,
   up_to_date: false,
   drops: 0,
+  others: 0,
 };
 const ON_REMOTE: RemoteBranch<'static> = RemoteBranch {
   tip: Some("tip"),
   up_to_date: true,
-  drops: 0,
+  ..UNPUSHED
 };
 
 const fn ancestor(name: &'static str, kept: Option<Kept>, remote: Option<RemoteBranch<'static>>) -> StartAncestor<'static> {

@@ -180,6 +180,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/revision", get(sync_overrides::get_revision))
     .route("/repositories/{id}/rebase-in-progress", post(sync_overrides::set_rebase_in_progress))
     .route("/repositories/{id}/branch-prefix", post(sync_overrides::set_branch_prefix_in_terminal))
+    .route("/repositories/{id}/remote-commit", post(sync_overrides::push_remote_commit))
     .route(
       "/repositories/{id}/pull-requests",
       post(remote_fixtures::set_pull_requests).get(remote_fixtures::get_github_log),

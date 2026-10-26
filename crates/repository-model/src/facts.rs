@@ -57,6 +57,7 @@
 
 use crate::branch_table::{BranchTable, RemoteFacts, remote_fact};
 use crate::derive::landed_subject;
+use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
 use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
@@ -318,6 +319,9 @@ pub struct AppliedFacts {
   pub robots: RobotsDigest,
   /// The bases of the open pull requests someone approved (`PullRequestsFact::approved_bases`): their rules are read
   pub approved_bases: Vec<String>,
+  /// The branches a listing of the pull requests showed at a head their remote-tracking refs lack, to fetch
+  /// (`moved_remote::MovedFetches::asks`); none for an answer of another fact
+  pub moved_remotes: Vec<MovedRemoteAsk>,
 }
 
 /// The table of a session, the memo of the content walks of its views and the remote branches as the session knows
@@ -372,6 +376,8 @@ pub struct FactStore {
   pub review_requests: ReviewRequestsFact,
   /// The last news, oldest first, at most `NEWS_KEPT`
   news: Vec<News>,
+  /// The remote tip of each branch whose commits of others were told (`tell_remote_commits`)
+  told_remote_tips: HashMap<String, String>,
   /// The number of the last news
   last_news: u32,
   /// The failed robots whose news waits for their problems
@@ -397,6 +403,7 @@ impl FactStore {
       review_requests: ReviewRequestsFact::default(),
       news: Vec::new(),
       last_news: 0,
+      told_remote_tips: HashMap::new(),
       failures: BTreeSet::new(),
       merges: BTreeSet::new(),
     }
@@ -553,6 +560,26 @@ impl FactStore {
     pull_requests_to_close(robot, landed, |branch| {
       table.branch(branch).map(|found| landed_subject(table, remote, Of::Branch(&found.name), pull_requests))
     })
+  }
+
+  /// The news of a fetch of a remote branch whose pull request moved: the commits of others it brought, once per tip
+  pub(crate) fn tell_remote_commits(&mut self, fetched: &FetchedRemote) {
+    let Some(status) = &fetched.status else {
+      return;
+    };
+    let Some(tip) = status.remote_tip.as_ref().filter(|_| status.others_behind > 0 && !fetched.others.is_empty()) else {
+      return;
+    };
+    if self.told_remote_tips.get(&fetched.branch) == Some(tip) {
+      return;
+    }
+    self.told_remote_tips.insert(fetched.branch.clone(), tip.clone());
+    self.tell(NewsEvent::RemoteCommits {
+      branch: fetched.branch.clone(),
+      tip: tip.clone(),
+      count: status.others_behind,
+      authors: fetched.others.clone(),
+    });
   }
 
   fn tell(&mut self, event: NewsEvent) {

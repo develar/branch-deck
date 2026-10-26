@@ -56,6 +56,9 @@ pub const REVIEW_REQUESTS_MIN_POLL_GAP: Duration = Duration::from_secs(270);
 pub const REVIEW_REQUESTS_MAX_BACKOFF: Duration = Duration::from_mins(30);
 /// After GitHub's rate limit, the next poll waits at least this long
 pub const RATE_LIMIT_WAIT: Duration = Duration::from_mins(15);
+/// A fetch of a remote branch whose pull request shows a head the fetch didn't bring (a mirror that lags behind the
+/// remote) is tried again after each of these, then not until the pull request shows another head
+pub const MOVED_REMOTE_RETRIES: [Duration; 3] = [MINUTE, Duration::from_mins(5), Duration::from_mins(15)];
 
 /// Why a fact is asked for
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -252,6 +255,51 @@ pub const fn pull_requests_follows_up(reason: RefreshReason) -> bool {
 /// `PUSH_RECHECK_DELAY` after the answer; that list asks no further one
 pub fn pull_requests_push_recheck_at(answered_at: Duration, shows_pushed_heads: bool) -> Option<Duration> {
   (!shows_pushed_heads).then(|| answered_at + PUSH_RECHECK_DELAY)
+}
+
+/// The last fetch of a remote branch the session asked because its pull request showed another head than its tip
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MovedRemoteFetch {
+  /// The head of the pull request it was asked for
+  pub head: String,
+  /// The tip of the remote branch it left (the tip it was asked at, while it runs); `None`: no remote branch
+  pub tip: Option<String>,
+  /// The head is the tip it left or an ancestor of it: nothing more to fetch for this head
+  pub settled: bool,
+  /// How many fetches this head and this tip took, the one in flight included
+  pub attempts: u32,
+  /// It runs: no other fetch of the branch is asked meanwhile
+  pub in_flight: bool,
+  /// When the last one was asked, on the clock of the session
+  pub asked_at: Duration,
+}
+
+/// A fetch of a remote branch whose open pull request shows `head` while the session knows the remote branch at
+/// `remote_tip` (someone pushed to it, and this clone never fetched it): never while the app pushes the branch (the push
+/// leaves its own status) or a fetch of it runs, nor for a head that is the tip; a head or a tip the last fetch was not of always; for the
+/// same ones only while the head is not settled, after the wait of `MOVED_REMOTE_RETRIES` for the attempts made, and
+/// no more after the last of them
+pub fn moved_remote_fetch_due(now: Duration, head: &str, remote_tip: Option<&str>, pushing: bool, last: Option<&MovedRemoteFetch>) -> bool {
+  if pushing || head.is_empty() || remote_tip == Some(head) {
+    return false;
+  }
+  let Some(last) = last else {
+    return true;
+  };
+  if last.in_flight {
+    return false;
+  }
+  if last.head != head || last.tip.as_deref() != remote_tip {
+    return true;
+  }
+  if last.settled {
+    return false;
+  }
+  usize::try_from(last.attempts)
+    .ok()
+    .and_then(|attempts| attempts.checked_sub(1))
+    .and_then(|index| MOVED_REMOTE_RETRIES.get(index))
+    .is_some_and(|wait| elapsed(now, Some(last.asked_at)) >= *wait)
 }
 
 /// The branch rules of a target (whether a push dismisses its approvals) are read once per session: a known answer

@@ -30,6 +30,8 @@
 //!   (`repository`), the structure of each branch with its section (`place`)
 //! - `landing`: the landing gate a start and its popover check through (`LandingGate`), which the hosts answer with the
 //!   trial check
+//! - `moved_remote`: the remote branches someone else pushed to: which ones a listing of the pull requests asks to fetch
+//!   (`MovedFetches`, one fetch per head they show) and the host's fetch of them (`fetch_asked`)
 //! - `patch`: the patches of a view by part, and the contract of applying one (`apply_patch`): only to the view at its
 //!   base, in the same epoch
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
@@ -72,6 +74,7 @@ pub mod branch_table;
 pub mod derive;
 pub mod facts;
 pub mod landing;
+pub mod moved_remote;
 pub mod patch;
 pub mod patronus_view;
 pub mod pull_request_facts;

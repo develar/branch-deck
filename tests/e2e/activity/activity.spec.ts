@@ -36,7 +36,7 @@ testWithIssueLinks.describe("Activity", () => {
           unpushedCommits: ["a1"],
           commitsBehind: 1,
           remoteTip: "remote-head-1",
-          droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }],
+          droppedCommits: [{ id: "c0ffee0123456789", subject: "Fix login", author: "Ann", authorEmail: "ann@example.com", authorTime: Date.parse("2024-01-02T07:00:00Z") / 1000 }],
         },
         {},
       ],

@@ -347,6 +347,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     up_to_date: false,
     known: true,
     drops: 0,
+    others: 0,
   };
   let remote = RemoteFacts {
     branches: ["auth", "login", "oauth"].map(|name| (name.to_string(), unpushed.clone())).into(),

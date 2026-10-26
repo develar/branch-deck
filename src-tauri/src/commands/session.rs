@@ -37,6 +37,7 @@ use remote_facts::review_requests::list_review_requests;
 use remote_facts::scheduler::Scheduler;
 use repository_model::facts::Needs;
 use repository_model::landing::LandingGate;
+use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
 use repository_model::session::{OneClock, SessionClocks, SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use serde::Deserialize;
@@ -323,6 +324,13 @@ impl FactSources for AppFactSources {
     Box::pin(async move {
       let (git, repository_state) = (self.app.state::<GitCommandExecutor>(), self.app.state::<RepositoryStateCache>());
       self.app.state::<PatronusState>().kept_readiness(&git, &repository_state, key, &baseline, asks).await
+    })
+  }
+
+  fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()> {
+    Box::pin(async move {
+      let git = self.app.state::<GitCommandExecutor>();
+      fetch_in_session(self.app.state::<SessionsState>().sessions(), &git, key, asks).await;
     })
   }
 }

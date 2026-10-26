@@ -30,6 +30,11 @@ targets:
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../src/lib/transfer-progress.ts
   - ../../src/stores/commit-move.ts
+  - ../../crates/sync-core/src/moved_remote.rs
+  - ../../crates/repository-model/src/moved_remote.rs
+  - ../../crates/domain-policy/src/refresh.rs
+  - ../../src/lib/remote-commits-news.ts
+  - ../../src/lib/review-commit.ts
 ---
 
 # Outgoing Commits
@@ -55,7 +60,10 @@ not what it has to push ([Landing Overview](landing-overview.spec.md)).
 - There is no "Push all": a push stays deliberate and per branch, or per stack from a stacked branch whose ancestors
   have work for the remote ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)); the description of
   its button names each push.
-- The push does not fetch: its button shows the remote status of the last sync or push.
+- The push does not fetch: its button shows the remote status of the last sync or push, or of the fetch a pull request
+  that moved past its remote branch asks ([Remote commits of others](#remote-commits-of-others)).
+- A remote branch with no pull request of the user (none, someone else's, the pull request of a whole stack) or of a
+  user signed out of GitHub is not fetched on its own: someone's commit on it shows once a push is refused (above).
 - The commits the remote has and the branch lacks are not to push; a force push drops or replaces them, and its row
   says how many.
 
@@ -328,6 +336,44 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   [@test] ../../src/stores/branch-sync.test.ts (`keeps the push progress only while the push runs`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`)
 
+### Remote commits of others
+
+Someone else may push to the branch of the user's pull request: a fix on top of it, or a commit of a review. The remote
+status compares with the remote-tracking ref, which only a fetch moves, so the row would show the remote as this clone
+last pushed it and a push would be refused ([Push](#push)). The listing of the pull requests shows the head of each
+branch on GitHub, so the session fetches a branch whose open pull request shows another head.
+
+- A listing of the pull requests that shows the open pull request of a branch at a head that is not the tip of its
+  remote-tracking ref must fetch that branch (`fetch_remote_branches`, the branch alone) and put the status against
+  what it fetched into the row, with no push and no sync: the row shows `· 1↓` in `warning` and the push asks first,
+  as for any remote commit a push drops. A branch the app pushes is not fetched (the push leaves its own status), and
+  a push of the same remote ref waits for a fetch that writes it.
+  [@test] ../../crates/domain-policy/src/refresh_test.rs (`a_remote_branch_whose_pull_request_moved_is_fetched_once_per_head`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_listing_that_shows_a_moved_remote_branch_asks_its_fetch`)
+  [@test] ../../crates/repository-model/src/moved_remote_test.rs (`a_moved_head_is_asked_once_and_a_new_head_again`, `a_pushed_branch_and_a_closed_pull_request_are_not_fetched`)
+  [@test] ../../crates/sync-core/src/push_test.rs (`the_head_a_pull_request_shows_is_fetched_with_the_commits_of_others`)
+  [@test] ../../tests/e2e/outgoing/remote-commits.spec.ts (`should fetch the branch of a pull request someone pushed to and name their commit before any push`)
+- A head is fetched once. A head the remote-tracking ref has already (GitHub shows an older head for a moment after a
+  push) fetches nothing; a head the fetch didn't bring (the mirror GitHub shows lags behind the remote) is fetched
+  again after a minute, five and fifteen, then not until the pull request shows another head.
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_head_the_remote_tracking_ref_has_fetches_nothing`, `a_head_the_remote_lacks_stays_unsettled`)
+  [@test] ../../crates/repository-model/src/moved_remote_test.rs (`a_head_the_fetch_did_not_bring_is_asked_again_three_times`, `an_ask_the_host_did_not_fetch_is_asked_again`)
+- The remote status must tell the commits of others from the user's own among the ones a push drops: `othersBehind`
+  counts the dropped commits whose author is not the branch's author (`myEmail`), and each dropped commit names its
+  author's email. A commit of the user pushed from another clone is dropped, not someone else's; a commit of the user
+  under another email counts as someone else's.
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`the_commits_of_others_behind_leave_out_the_users_own`, `test_dropped_commits_are_listed_newest_first_up_to_the_limit`)
+- The commits of others a fetch brought must be told once per remote tip, in a `warning` toast that stays until the
+  user acts: "Lev Leontev pushed 1 commit to auth" / "Your branch doesn't have it: a push drops it.", with Open Pull
+  Request. It is the toast of the pushes of the branch: a push of it takes its place. A fetch of the same tip again
+  tells nothing.
+  [@test] ../../src/lib/remote-commits-news.test.ts (`names who pushed how many commits to which branch, and that a push drops them`, `takes the commits of others the session fetched, and no other news`)
+  [@test] ../../tests/e2e/outgoing/remote-commits.spec.ts (`should fetch the branch of a pull request someone pushed to and name their commit before any push`)
+- The pull request of such a branch must not ask for a push: its details say "Shows d708d5b8; someone else pushed
+  commits your branch doesn't have: a push drops them." ([Pull Requests](../branch/pull-requests.spec.md)).
+  [@test] ../../src/lib/review-commit.test.ts (`names the commits someone else pushed to the remote branch, which a push would drop, before any push due`)
+  [@test] ../../src/lib/pull-request.test.ts (`says that a push drops the commits someone else pushed to the remote branch, never that a push is due`)
+
 ## User Experience
 
 - The push colours are the semantic tokens `bg-primary` and `bg-warning`; `info` is not a push colour. Text never takes
@@ -352,6 +398,9 @@ of a part of a branch, up to one of its commits, is Push Up to Here
 ## Testing / Local Run
 
 - `pnpm test:unit` covers the words and the colours of a push (`src/lib/push-summary.test.ts`).
+- `pnpm e2e` covers the commits of others on a remote branch (`tests/e2e/outgoing/remote-commits.spec.ts`) against a
+  bare remote the test gives the repository (`pushFromElsewhere`), the only repository whose moved remotes the server
+  fetches.
 - `pnpm e2e` covers the push (`tests/e2e/outgoing`). The E2E server has no remote:
   the tests answer `push_branch` in the page (`routePush`) to turn branches into a plain push, a force push, up to
   date or a remote that moved, and read the `expectedRemote` the pushes sent. A result can send progress to the push's

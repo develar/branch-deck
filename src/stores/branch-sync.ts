@@ -60,6 +60,8 @@ export interface RemoteStatus {
   commitsAhead: number
   /** Remote commits whose content the branch lacks that are no older version of a commit it has: a push drops them */
   commitsBehind: number
+  /** Of the commits behind, the ones another author made (`others_behind`): someone's work to take in before a push */
+  othersBehind: number
   /** Remote commits that are older versions of commits amended here: a push replaces them */
   commitsAmended: number
   /** Remote commits that are older versions of the commits of the branches it is built on: a push replaces them */
@@ -1213,6 +1215,7 @@ type RemoteStatusFields = Pick<
   | "remoteExists"
   | "unpushedCommits"
   | "commitsBehind"
+  | "othersBehind"
   | "commitsAmended"
   | "commitsRestacked"
   | "commitsLanded"
@@ -1232,6 +1235,7 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     unpushedCommits: update.unpushedCommits,
     commitsAhead: update.unpushedCommits.length,
     commitsBehind: update.commitsBehind,
+    othersBehind: update.othersBehind,
     commitsAmended: update.commitsAmended,
     commitsRestacked: update.commitsRestacked,
     commitsLanded: update.commitsLanded,

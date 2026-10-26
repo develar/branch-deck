@@ -8,14 +8,19 @@ import type { RemoteStatus } from "@/stores/branch-sync"
  * - `rebased`: the remote branch is at the commit and the branch has the same commits, rebuilt on a newer baseline;
  * - `changedOnRemote`: the remote branch moved on since, and the branch has nothing the remote lacks;
  * - `changedLocally`: the branch has work the remote lacks (or lacks commits the remote has, older versions of amended
- *   or restacked commits included): a push is due.
+ *   or restacked commits included): a push is due;
+ * - `othersOnRemote`: someone else pushed commits to the remote branch that the branch lacks (`othersBehind`): a push
+ *   drops them, so it is no push that is due but taking them in.
  */
-export type ReviewCommitState = "current" | "rebased" | "changedOnRemote" | "changedLocally"
+export type ReviewCommitState = "current" | "rebased" | "changedOnRemote" | "changedLocally" | "othersOnRemote"
 
 /** `localTip`: the commit of the local virtual branch, undefined while the sync builds it; `remote`: null until loaded */
 export function getReviewCommitState(commit: string | null, localTip: string | undefined, remote: RemoteStatus | null): ReviewCommitState {
   if (commit === null || commit === localTip || remote === null) {
     return "current"
+  }
+  if (remote.othersBehind > 0) {
+    return "othersOnRemote"
   }
   // by content: a branch only rebased onto a newer baseline is up to date, the remote has its commits
   if (remote.action.kind !== "upToDate") {
@@ -30,5 +35,5 @@ export function getReviewCommitState(commit: string | null, localTip: string | u
 
 /** The branch changed since the review took its commit: a `warning` dot */
 export function isReviewCommitOutdated(state: ReviewCommitState): boolean {
-  return state === "changedOnRemote" || state === "changedLocally"
+  return state === "changedOnRemote" || state === "changedLocally" || state === "othersOnRemote"
 }

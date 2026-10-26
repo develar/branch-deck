@@ -50,6 +50,7 @@ fn fact(remote_tip: Option<&str>, up_to_date: bool) -> RemoteFact {
     up_to_date,
     known: true,
     drops: 0,
+    others: 0,
   }
 }
 

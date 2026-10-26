@@ -47,6 +47,7 @@ fn a_robot_on_the_last_commit_is_one_that_runs_on_the_branch_as_it_is() {
     tip: Some("tip"),
     up_to_date: true,
     drops: 0,
+    others: 0,
   };
   let up_to_date = Some(remote);
   assert!(took_as_is("tip", Some("tip"), None));
@@ -290,11 +291,12 @@ const UNPUSHED: RemoteBranch<'static> = RemoteBranch {
   tip: None,
   up_to_date: false,
   drops: 0,
+  others: 0,
 };
 const ON_REMOTE: RemoteBranch<'static> = RemoteBranch {
   tip: Some("tip"),
   up_to_date: true,
-  drops: 0,
+  ..UNPUSHED
 };
 
 fn fresh<T>(value: T) -> Fact<T> {

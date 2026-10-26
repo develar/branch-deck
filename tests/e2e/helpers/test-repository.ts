@@ -253,6 +253,23 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * Someone else pushes a commit of `file` onto `branch` (`user-name/virtual/<name>`) of the remote of the repository
+   * from a clone of their own (`POST …/remote-commit`), which the repository has not fetched: the first one gives the
+   * repository a bare remote with the branch as it is here. Answers the commit, the head its pull request shows
+   */
+  async pushFromElsewhere(branch: string, commit: { author: string; file: string; content: string; timestamp: number }): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/remote-commit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch, ...commit }),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to push the commit of someone else: ${response.status} ${await response.text()}`)
+    }
+    return ((await response.json()) as { id: string }).id
+  }
+
+  /**
    * Sets what the fake GitHub of the repository holds from now on (`GitHubFixture`), read and written by the real
    * service (docs/design/e2e-testing.md#remote-services); an empty `headRefOid` is the tip of the head branch when
    * GitHub answers

@@ -1637,6 +1637,7 @@ export type DroppedCommit = {
 	subject: string,
 	/**  The author's name */
 	author: string,
+	authorEmail: string,
 	/**  Unix timestamp */
 	authorTime: number,
 };
@@ -3222,7 +3223,13 @@ export type NewsEvent =
  *  The approvals of a subject that waited for them arrived (`domain_policy::news::approval_news`): whose
  *  approval counts now in the groups that waited (none named: the code owners), in the pull request of its start
  */
-{ kind: "approvalsArrived"; subject: string; pullRequest: number; approvers: Person[]; groups: string[] };
+{ kind: "approvalsArrived"; subject: string; pullRequest: number; approvers: Person[]; groups: string[] } | 
+/**
+ *  Someone else pushed to the remote branch of `branch`, which the session fetched when its pull request showed the
+ *  new head (`moved_remote`): `count` commits of others (`others_behind`) the branch lacks at the remote tip `tip`, by
+ *  `authors` (newest first, each once). Told once per tip
+ */
+{ kind: "remoteCommits"; branch: string; tip: string; count: number; authors: string[] };
 
 /**  The next step of a subject (spec/branch/next-step.spec.md, "The table"), the first row that matches */
 export type NextStep = {
@@ -4244,6 +4251,11 @@ export type RemoteStatusUpdate = {
 	 *  them
 	 */
 	commitsBehind: number,
+	/**
+	 *  Of the commits behind, the ones whose author is not the user (`my_email` of the status, the branch's author):
+	 *  someone else's work on the remote branch, which the branch should take in (Pick Remote Commits) rather than drop
+	 */
+	othersBehind: number,
 	/**
 	 *  The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
 	 *  only one more (`commits_behind` is the total)

@@ -116,6 +116,8 @@ pub struct RemoteFact {
   pub known: bool,
   /// The commits of the remote the branch lacks that a push drops (`commits_behind`)
   pub drops: u32,
+  /// Of `drops`, the ones another author made (`others_behind`)
+  pub others: u32,
 }
 
 impl RemoteFact {
@@ -126,6 +128,7 @@ impl RemoteFact {
       tip: self.remote_tip.as_deref(),
       up_to_date: self.up_to_date,
       drops: self.drops,
+      others: self.others,
     })
   }
 }
@@ -182,6 +185,7 @@ pub fn remote_fact(remote: &RemoteStatusUpdate) -> RemoteFact {
     up_to_date: !needs_push(remote),
     known: true,
     drops: remote.commits_behind,
+    others: remote.others_behind,
   }
 }
 

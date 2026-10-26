@@ -276,7 +276,7 @@ describe("activity", () => {
 
 describe("recordPush", () => {
   it("keeps the remote commits a force push dropped", () => {
-    const dropped = [{ id: "c0ffee", subject: "Fix login", author: "Ann", authorTime: 1 }]
+    const dropped = [{ id: "c0ffee", subject: "Fix login", author: "Ann", authorEmail: "ann@example.com", authorTime: 1 }]
     recordPush("/a", "auth", testRemoteStatus({ commitsAhead: 1, commitsBehind: 3, fastForward: false, droppedCommits: dropped, action: forcePush({ drops: true }) }), null)
     expect(entries()[0]).toMatchObject({
       kind: "push",

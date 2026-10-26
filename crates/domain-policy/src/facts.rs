@@ -122,6 +122,8 @@ pub struct RemoteBranch<'a> {
   pub up_to_date: bool,
   /// The commits of the remote the subject lacks that a push drops, someone's work (`commits_behind`)
   pub drops: u32,
+  /// Of `drops`, the ones another author made (`others_behind`): work to take in before a push
+  pub others: u32,
 }
 
 /// The robots of the user, by id, as the rules look them up

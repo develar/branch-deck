@@ -7,6 +7,7 @@ export interface DroppedCommit {
   id: string
   subject: string
   author: string
+  authorEmail: string
   authorTime: number
 }
 
@@ -68,6 +69,7 @@ export function pushOutcome(branchName: string, result: PushResult = {}) {
       remoteExists: result.remoteExists ?? true,
       unpushedCommits,
       commitsBehind,
+      othersBehind: commitsBehind,
       droppedCommits: result.droppedCommits ?? [],
       commitsAmended,
       commitsRestacked,

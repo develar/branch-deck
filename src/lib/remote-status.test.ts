@@ -4,7 +4,7 @@ import { buildRemoteMovedTexts, buildRemoteStatusTexts, formatAuthors, formatFor
 import { CREATE, forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
 
 function dropped(...authors: string[]): DroppedCommit[] {
-  return authors.map((author, index) => ({ id: `c${index}`, subject: `Fix ${index}`, author, authorTime: 0 }))
+  return authors.map((author, index) => ({ id: `c${index}`, subject: `Fix ${index}`, author, authorEmail: `${author.toLowerCase()}@example.com`, authorTime: 0 }))
 }
 
 describe("buildRemoteStatusTexts", () => {

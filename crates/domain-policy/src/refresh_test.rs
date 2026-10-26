@@ -1,8 +1,8 @@
 use crate::refresh::{
-  ActiveRobots, DetailsRead, FactTiming, ListWindow, ProfilesRead, READINESS_PARALLEL, ReadState, ReadinessAsks, ReadinessPriority, ReadinessRead, RefreshReason, ServiceState,
-  branch_rules_due, profiles_due, pull_requests_due, pull_requests_follows_up, pull_requests_push_recheck_at, readiness_asks, readiness_due, readiness_priority,
-  review_requests_due, review_requests_follows_up, review_requests_poll_delay, robot_details_due, robot_failing_due, robot_problems_due, robots_list_due, robots_list_follows_up,
-  robots_list_window, robots_poll_at, robots_poll_due,
+  ActiveRobots, DetailsRead, FactTiming, ListWindow, MOVED_REMOTE_RETRIES, MovedRemoteFetch, ProfilesRead, READINESS_PARALLEL, ReadState, ReadinessAsks, ReadinessPriority,
+  ReadinessRead, RefreshReason, ServiceState, branch_rules_due, moved_remote_fetch_due, profiles_due, pull_requests_due, pull_requests_follows_up, pull_requests_push_recheck_at,
+  readiness_asks, readiness_due, readiness_priority, review_requests_due, review_requests_follows_up, review_requests_poll_delay, robot_details_due, robot_failing_due,
+  robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
 };
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::pull_request::{PullRequestAvailability, TokenSource};
@@ -320,4 +320,66 @@ fn the_review_requests_poll_backs_off_after_failures_waits_out_a_rate_limit_and_
   for availability in stopped {
     assert_eq!(review_requests_poll_delay(&availability, 1), None, "{availability:?}");
   }
+}
+
+/// A case of the fetch of a moved remote branch: its name, the head, the remote tip, whether the app pushes it, the last
+/// fetch and whether one is due
+type MovedFetchCase = (&'static str, &'static str, Option<&'static str>, bool, Option<MovedRemoteFetch>, bool);
+
+/// The last fetch of `head` that left `tip`, asked `ago` seconds ago after `attempts` fetches
+fn fetched(head: &str, tip: &str, settled: bool, attempts: u32, ago: u64) -> MovedRemoteFetch {
+  MovedRemoteFetch {
+    head: head.to_string(),
+    tip: Some(tip.to_string()),
+    settled,
+    attempts,
+    in_flight: false,
+    asked_at: NOW.checked_sub(secs(ago)).unwrap(),
+  }
+}
+
+/// Someone pushed to the remote branch of an open pull request: the session fetches it once its pull request shows the
+/// new head, and not again for the same head, unless the fetch didn't bring it (a mirror that lags): then after a
+/// minute, five and fifteen, and no more
+#[test]
+fn a_remote_branch_whose_pull_request_moved_is_fetched_once_per_head() {
+  let lagging = |attempts, ago| fetched("theirs", "seen", false, attempts, ago);
+  let in_flight = MovedRemoteFetch {
+    in_flight: true,
+    ..lagging(1, 3600)
+  };
+  let cases: [MovedFetchCase; 14] = [
+    ("the pull request shows the tip", "seen", Some("seen"), false, None, false),
+    ("a new head", "theirs", Some("seen"), false, None, true),
+    ("a new head of a branch not on the remote here", "theirs", None, false, None, true),
+    ("no head", "", Some("seen"), false, None, false),
+    ("the app pushes the branch", "theirs", Some("seen"), true, None, false),
+    ("the fetch in flight", "theirs", Some("seen"), false, Some(in_flight), false),
+    (
+      "the head is in the tip the fetch left",
+      "older",
+      Some("seen"),
+      false,
+      Some(fetched("older", "seen", true, 1, 3600)),
+      false,
+    ),
+    ("another head since", "newer", Some("seen"), false, Some(fetched("theirs", "seen", true, 1, 0)), true),
+    (
+      "the remote branch moved since",
+      "theirs",
+      Some("pushed"),
+      false,
+      Some(fetched("theirs", "seen", true, 1, 0)),
+      true,
+    ),
+    ("a lagging mirror, a minute not over", "theirs", Some("seen"), false, Some(lagging(1, 59)), false),
+    ("a lagging mirror, a minute over", "theirs", Some("seen"), false, Some(lagging(1, 60)), true),
+    ("the second retry after five minutes", "theirs", Some("seen"), false, Some(lagging(2, 300)), true),
+    ("the third retry after fifteen minutes", "theirs", Some("seen"), false, Some(lagging(3, 900)), true),
+    ("no fourth retry", "theirs", Some("seen"), false, Some(lagging(4, 3600)), false),
+  ];
+  for (case, head, tip, pushing, last, due) in cases {
+    assert_eq!(moved_remote_fetch_due(NOW, head, tip, pushing, last.as_ref()), due, "{case}");
+  }
+  assert_eq!(MOVED_REMOTE_RETRIES.len(), 3);
 }

@@ -380,6 +380,12 @@ impl TableState {
   }
 
   /// A push of `subjects` starts sending: a sync meanwhile shows no remote status of them until it ends
+  /// Whether a push of `subject` (or a fetch run as one, `Sessions::fetch_moved_remotes`) is in flight
+  #[must_use]
+  pub fn is_pushing(&self, subject: &RemoteSubject) -> bool {
+    self.pushes.contains_key(subject)
+  }
+
   pub fn begin_push(&mut self, subjects: &[RemoteSubject]) {
     for subject in subjects {
       self.pushes.entry(subject.clone()).or_default().running += 1;

@@ -77,8 +77,8 @@ export interface PushButtonAction {
 }
 
 export interface DroppedCommits {
-  /** The newest ones, newest first */
-  commits: readonly DroppedCommit[]
+  /** The newest ones, newest first (an Activity entry kept them without the email) */
+  commits: readonly Omit<DroppedCommit, "authorEmail">[]
   /** How many more the push drops than listed */
   more: number
 }

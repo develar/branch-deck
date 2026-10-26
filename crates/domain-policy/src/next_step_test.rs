@@ -143,6 +143,7 @@ impl Fixture {
         tip: tip.as_deref(),
         up_to_date: *up_to_date,
         drops: 0,
+        others: 0,
       }),
       robot: self.robot.as_ref().map(|(robot, needs_review, problems_failed, restart)| StepRobot {
         robot,

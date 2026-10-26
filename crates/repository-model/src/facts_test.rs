@@ -565,6 +565,7 @@ fn the_session_knows_the_remote_branches_a_push_moved_without_a_sync() {
       up_to_date: true,
       known: true,
       drops: 0,
+      others: 0,
     })
   );
   assert_eq!(remote.branches.get("auth").and_then(|fact| fact.remote_tip.as_deref()), Some("synced-tip"));

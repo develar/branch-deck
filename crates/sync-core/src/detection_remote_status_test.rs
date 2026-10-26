@@ -555,6 +555,25 @@ fn feature_with_their_fixes(count: i64) -> (TestScenario, Vec<String>) {
   (scenario, theirs)
 }
 
+/// A commit the remote has from the user, pushed from another clone, is dropped like any other, but it is the user's
+/// own: only the commits of another author count as someone else's work
+#[test(tokio::test)]
+async fn the_commits_of_others_behind_leave_out_the_users_own() {
+  let (scenario, _) = feature_with_their_fixes(2);
+  configure_test_author(&scenario.upstream_repo, &scenario.user_email, "Test User");
+  scenario
+    .upstream_repo
+    .create_commit_with_timestamp("My fix from the laptop", "mine.txt", "mine", Some(1_700_001_000));
+  scenario.local_repo.fetch_prune("origin").unwrap();
+
+  let result = feature_status(&scenario);
+
+  assert_eq!(result.commits_behind, 3);
+  assert_eq!(result.others_behind, 2);
+  let emails: Vec<&str> = result.dropped_commits.iter().map(|commit| commit.author_email.as_str()).collect();
+  assert_eq!(emails, [scenario.user_email.as_str(), "other@example.com", "other@example.com"]);
+}
+
 /// Someone else added commits to the pushed branch: a push drops them. They are listed newest first, with their author
 /// and time, up to the limit; the count covers them all, and the status names the remote head it compared with
 #[test(tokio::test)]
@@ -565,6 +584,7 @@ async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
 
   assert_eq!(result.remote_tip.as_ref(), theirs.last());
   assert_eq!(result.commits_behind, 12);
+  assert_eq!(result.others_behind, 12, "all of them are someone else's");
   let listed: Vec<&str> = result.dropped_commits.iter().map(|commit| commit.id.as_str()).collect();
   let newest: Vec<&str> = theirs.iter().rev().take(DROPPED_COMMITS_LIMIT).map(String::as_str).collect();
   assert_eq!(listed, newest);
@@ -574,6 +594,7 @@ async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
       id: theirs[11].clone(),
       subject: "Their fix 11".to_string(),
       author: "Other User".to_string(),
+      author_email: "other@example.com".to_string(),
       author_time: 1_700_000_660,
     }
   );

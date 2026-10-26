@@ -159,6 +159,12 @@ impl SessionFacts {
             let shows_old_head = !recheck && pushed.iter().any(|head| head.shows_old_head(&result));
             let availability = Some(result.availability.clone());
             let applied = scheduler.port.apply(&key, ticket, FactResult::PullRequests(result)).await;
+            let moved = applied.as_ref().map_or_default(|applied| applied.moved_remotes.clone());
+            if !moved.is_empty() {
+              // someone pushed to these: their fetch runs beside the listing, which answers its waiters now
+              let (scheduler, key) = (scheduler.clone(), key.clone());
+              tokio::spawn(async move { scheduler.sources.fetch_moved_remotes(&key, moved).await }.in_current_span());
+            }
             PullRequestsListed {
               availability,
               shows_old_head,

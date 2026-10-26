@@ -5,6 +5,7 @@ import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { approvalNewsOf } from "@/lib/approval-news"
 import { isWindowFocused, setWindowFocus } from "@/lib/os-notification"
 import { tellRobotNews, watchFailingRobots } from "@/lib/patronus-failing"
+import { tellRemoteCommitsNews } from "@/lib/remote-commits-news"
 import { setDemandFocused } from "@/model/demand"
 import { onSessionFacts } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
@@ -36,7 +37,8 @@ function isAwaiting(): boolean {
  * whose next step depends on it (the demand of the window), the whole stack of an island header too; while a row or
  * such a header waits for an approval
  * (Awaiting), a focus asks the session for the pull requests at once (the user comes back from asking for it); the
- * approvals that arrived are news of the session (`tellReadinessNews`).
+ * approvals that arrived are news of the session (`tellReadinessNews`), and so are the commits of others the session
+ * fetched when a pull request showed a head the remote branch lacked (`tellRemoteCommitsNews`).
  */
 export function useReviewStatusRefresh(): void {
   useEffect(
@@ -49,6 +51,7 @@ export function useReviewStatusRefresh(): void {
         applyReviewRequestsFacts(repositoryPath, view.facts, changes?.facts ?? null, news)
         tellRobotNews(repositoryPath, news)
         approvalNewsOf(news).forEach(tellReadinessNews)
+        tellRemoteCommitsNews(repositoryPath, news)
       }),
     [],
   )

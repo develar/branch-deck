@@ -117,6 +117,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     up_to_date: true,
     known: true,
     drops: 0,
+    others: 0,
   };
   let remote = RemoteFacts {
     branches: branches

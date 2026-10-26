@@ -529,6 +529,10 @@ pub enum NewsEvent {
     approvers: Vec<Person>,
     groups: Vec<String>,
   },
+  /// Someone else pushed to the remote branch of `branch`, which the session fetched when its pull request showed the
+  /// new head (`moved_remote`): `count` commits of others (`others_behind`) the branch lacks at the remote tip `tip`, by
+  /// `authors` (newest first, each once). Told once per tip
+  RemoteCommits { branch: String, tip: String, count: u32, authors: Vec<String> },
 }
 
 /// What the last answer of Patronus said of the repository

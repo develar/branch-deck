@@ -185,6 +185,7 @@ fn step(name: &str, not_built: Option<BlockReason>, drops: u32, held: bool) -> P
       tip: Some("remote"),
       up_to_date: false,
       drops,
+      others: 0,
     }),
     held,
   }
@@ -226,6 +227,7 @@ fn remote(tip: &str, up_to_date: bool) -> RemoteBranch<'_> {
     tip: Some(tip),
     up_to_date,
     drops: 0,
+    others: 0,
   }
 }
 

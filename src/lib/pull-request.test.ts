@@ -14,7 +14,7 @@ import {
   waitingReviewers,
 } from "@/lib/pull-request"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { PUSH, testRemoteStatus } from "@/stores/test-branch"
+import { forcePush, PUSH, testRemoteStatus } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@/lib/errors", () => ({ notifyError: () => {} }))
@@ -85,6 +85,14 @@ describe("formatPullRequestCommitNotice", () => {
     expect(notice("88de421d4567", testRemoteStatus({ remoteTip: "88de421d4567" }))).toBe("Shows 3264f30f; GitHub doesn't show the pushed 88de421d yet.")
     expect(notice("88de421d4567", testRemoteStatus({ remoteTip: "3264f30f0123" }))).toBe("Shows an earlier build of the same commits.")
     expect(notice("3264f30f0123", ahead)).toBeNull()
+  })
+
+  it("says that a push drops the commits someone else pushed to the remote branch, never that a push is due", () => {
+    const shown = pullRequest({ headRefOid: "d708d5b80123" })
+    const theirs = testRemoteStatus({ remoteTip: "d708d5b80123", commitsBehind: 1, othersBehind: 1, action: forcePush({ drops: true }) })
+    expect(formatPullRequestCommitNotice(shown, getPullRequestChipState(shown, "00524674dd04", theirs), theirs.remoteTip)).toBe(
+      "Shows d708d5b8; someone else pushed commits your branch doesn't have: a push drops them.",
+    )
   })
 })
 

@@ -109,7 +109,7 @@ const REMOTE_MOVED: PushResult[] = [
     unpushedCommits: ["j1", "j2", "j3"],
     commitsBehind: 1,
     remoteTip: "moved-tip",
-    droppedCommits: [{ id: "aaaa000011112222", subject: "Fix the pool", author: "Ann", authorTime: 1704178800 }],
+    droppedCommits: [{ id: "aaaa000011112222", subject: "Fix the pool", author: "Ann", authorEmail: "ann@example.com", authorTime: 1704178800 }],
   },
   {},
 ]
