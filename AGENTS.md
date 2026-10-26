@@ -318,7 +318,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
   `GIT_INDEX_FILE` is fine. The single exception is the guarded two-way `read-tree -m -u` in
   `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure),
-  `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app and `bd update`), its undo, the finish
+  `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app, `bd update`, and the update of a lease
+  onto its home branch, detached, after a conflict of `bd lease pick`), its undo, the finish
   of a resolve session (`update_resolve.rs`), `bd pick` (`pick.rs`, also the worktree of `--follow`) and its undo, and
   the unapply and the reapply of a virtual branch (`unapply.rs`, `reapply.rs`) and their undo
   ([Invariants](docs/design/git-operations.md#invariants)). The scan

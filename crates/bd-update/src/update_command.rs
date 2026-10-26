@@ -6,6 +6,7 @@
 //! session (`--continue`, `--abort`, `--status`) under the lock: the rounds are resolved outside the working tree,
 //! which only the finish writes. A block changes nothing; bd never stashes
 
+use bd_core::bd_command::shell_word;
 use bd_core::context::RepoContext;
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
@@ -182,6 +183,10 @@ pub struct UpdateOutput {
   /// Why the user decides, one entry per decision
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub reasons: Vec<AskReason>,
+  /// After an update of a lease onto its home branch (`bd lease pick`): `bd lease pick`, which lands the commits once
+  /// they build and pass their tests
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub next: Vec<String>,
 }
 
 /// A decision of the user that an output asks for
@@ -596,15 +601,42 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
   let options = UpdateOptions {
     fetch: !args.no_fetch,
     lock_wait: LockWait::Bounded(context.lock_timeout),
+    onto: None,
   };
-  let output = match update_and_resolve(&context.git, &context.repository, options, args.dir.as_deref()).map_err(core_error)? {
+  let output = update_or_resolve(context, options, args.dir.as_deref())?;
+  Ok(UpdateCommandOutput::Update(Box::new(output)))
+}
+
+/// `update_and_resolve` and its output: an update, or the round of the resolve session its conflict started
+fn update_or_resolve(context: &RepoContext, options: UpdateOptions<'_>, dir: Option<&std::path::Path>) -> Result<UpdateOutput, CliError> {
+  match update_and_resolve(&context.git, &context.repository, options, dir).map_err(core_error)? {
     BdUpdate::Update(result) => {
       let applied = result.applied.as_ref().map(|applied| (applied.new_head.as_str(), applied.replayed));
-      output(context, &result.check, applied, (result.landed, &result.dropped), false)?
+      output(context, &result.check, applied, (result.landed, &result.dropped), false)
     }
-    BdUpdate::Session(outcome) => session_output(context, *outcome, false, &bd)?,
+    BdUpdate::Session(outcome) => session_output(context, *outcome, false, &context.bd),
+  }
+}
+
+/// The update of the lease of `context` onto `branch`, its home, without a fetch: what `bd lease pick` runs after its
+/// pick conflicted. A conflict opens a resolve session in the lease (`bd update --continue` goes on there); a replay
+/// that applies (the words resolved the conflict) moves the lease onto the tip of the branch
+pub fn update_lease_onto(context: &RepoContext, branch: &str) -> Result<UpdateOutput, CliError> {
+  let options = UpdateOptions {
+    fetch: false,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
+    onto: Some(branch),
   };
-  Ok(UpdateCommandOutput::Update(Box::new(output)))
+  let mut output = update_or_resolve(context, options, None)?;
+  if matches!(output.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
+    output.next = vec![lease_pick_command(context)];
+  }
+  Ok(output)
+}
+
+/// `bd -C <lease> lease pick`
+fn lease_pick_command(context: &RepoContext) -> String {
+  format!("{} -C {} lease pick", context.bd, shell_word(&context.repository))
 }
 
 /// `onto:<path>` or `commit:<path>`
@@ -1042,6 +1074,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
     verify: None,
     ask_user: !reasons.is_empty(),
     reasons,
+    next: Vec::new(),
   };
   match applied {
     Some((previous_head, new_head, replayed, landed)) => {
@@ -1054,6 +1087,9 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
       output.resolutions = resolutions_of(&state.resolutions, &short);
       output.resolved = resolved_rounds(&state.resolutions, &short);
       output.verify = verify_paths(&state.resolutions, &[]);
+      if state.local_upstream {
+        output.next = vec![lease_pick_command(context)];
+      }
     }
     None => output.session = Some(session_of(&view, &short, bd, false)),
   }
@@ -1221,6 +1257,7 @@ fn output(
     verify: applied.and_then(|_| verify_paths(&[], &check.resolved_by_words)),
     ask_user: false,
     reasons: Vec::new(),
+    next: Vec::new(),
   })
 }
 

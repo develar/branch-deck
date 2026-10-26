@@ -145,7 +145,8 @@ the update changes; local changes on them refuse it, `uncommitted_overlap` with 
 `bd update` fetches the baseline (--no-fetch: the last fetched state; --dry-run: the check only, no fetch, nothing
 written but git objects). Exit 0: `state` is up_to_date, fast_forward or rebase, the last two with an `undo_token`.
 Exit 1: a commit conflicts, and a resolve session opens, one round per conflicting commit. The session belongs to this worktree
-and branch, and keeps the baseline it started with; peers' commits on top of HEAD join it as more rounds. Running
+and branch, and keeps the baseline it started with (in a lease, the session of `bd lease pick`: the branch it was cut
+from, `upstream`, on its detached HEAD; its finish names `bd lease pick` in `next`); peers' commits on top of HEAD join it as more rounds. Running
 `bd update` again prints the open round (and writes its missing copies); `state: pending` (exit 1) means every
 commit is resolved and `session.next` finishes. A conflict of git that its words resolve (`branchdeck.resolveByWords`, on by
 default) needs no round: the update commits the result and lists the commit in `resolved` (`commit`, `new_id`,
@@ -273,16 +274,23 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    - `already_present[]`: commits whose change the branch has already (`on`: its commit with the same patch; `by`:
      `patch_id`, left out before the replay, or `empty`, the change in another form); never an empty commit.
      `state: up_to_date`: nothing was left to pick.
-   - `state: conflict` (exit 1): nothing changed. Do what `conflict.next` says: move your worktree onto the branch,
-     make the commit again there, regenerate a generated file, never keep one side of a code hunk; then pick again.
-     Never `git cherry-pick` it into the shared checkout: it leaves `CHERRY_PICK_HEAD`, which blocks every rewrite.
+   - `state: conflict` (exit 1): nothing landed. `bd lease pick` gives the conflict back to your lease: it updates the
+     lease onto the tip of `home.branch` (`update`), and the conflict opens a resolve session there (`bd help
+     update`); the lease moves only when `bd update --continue` finishes it, `bd update --abort` closes it. Resolve it
+     (regenerate a generated file, never keep one side of a code hunk), build and test, then `bd lease pick` again (the
+     `next` of the finish). An update that applies at once (the words resolved it) is picked again at once. From a
+     worktree that is no lease, do what `conflict.next` says: move the worktree onto the branch, make the commit again
+     there, pick again. Never `git cherry-pick` it into the shared checkout: it leaves `CHERRY_PICK_HEAD`, which blocks
+     every rewrite.
    - `uncommitted_overlap` (exit 4): local files of the named worktree sit on paths the pick writes; ask the user.
      `range_unknown` or `source_on_newer_baseline` (exit 4): name the commits (`bd pick <first>^..<last>`), or ask the
-     owner to update the branch first; never `bd update` in a lease, it moves the lease past the branch.
+     owner to update the branch first. In a lease `bd update` onto the baseline is `lease_follows_home` (exit 4): it
+     would move the lease past its branch; `bd lease pick` brings it onto the tip, the owner updates the branch.
    - `bd lease pick`: `home_branch_switched` (exit 4): the shared checkout has another branch checked out than at the
      get, nothing landed; ask the user, and pick again once the branch is back (`bd workspace` shows
      `home.switched_to`). `no_home_branch` (exit 4): the lease was cut from a detached HEAD, no branch is named; ask
-     the user where the commits go. `no_lease` (exit 2): run it inside your lease.
+     the user where the commits go. `no_lease` (exit 2): run it inside your lease. `resolve_in_progress` (exit 4): the
+     session of its conflict is still open; finish or close it first.
    - `followed.state` `head_moved` or `blocked`: the branch moved, your worktree did not; the same command again moves
      only the worktree. A build daemon or a file watcher of the worktree may need a restart after it moved.
    - `bd undo <undo_token>` moves the branch and your worktree back.
@@ -303,7 +311,8 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
-   content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
+   content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `resolve_in_progress` (exit 4): the
+   resolve session of a pick is open in it, finish it (`bd update --continue`, then `bd lease pick`) or close it (`bd update --abort`); `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
    `processes`: each with `argv` and `kind`): a process of another session works in it (a shell, a build, a test run);
    read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. `host_slot` (exit 4, `paths`):
    the worktree is a host slot (holder `bd-host/<n>`) that the host lends to the runs of other machines, never yours. A repeat after a timed-out call is

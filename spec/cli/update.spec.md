@@ -17,6 +17,7 @@ targets:
   - ../../crates/git-ops/src/commit_writer.rs
   - ../../crates/git-ops/src/update_branch.rs
   - ../../crates/git-ops/src/revs.rs
+  - ../../crates/bd-cli/src/lib.rs
 ---
 
 # bd update
@@ -128,6 +129,23 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-update/src/update_test.rs (`the_undo_is_refused_when_local_changes_overlap_or_the_branch_moved`, `update_outputs_match_the_schema`, `update_fast_forwards_and_the_undo_moves_the_files_back`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`undo_needs_the_token_of_the_last_update`, `undo_tokens_are_strict`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`)
+
+### In a lease
+
+- In a lease of the pool `bd update` onto the baseline must be refused as `lease_follows_home` (exit 4), the message
+  naming `bd lease pick` and the owner of the shared checkout: the lease follows the branch it was cut from, and an
+  update onto a newer baseline would make its pick refuse it (`source_on_newer_baseline`). `--dry-run`, `--status`,
+  `--continue` and `--abort` go on there; a host slot of `bd host` is no lease of a session.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort`)
+- The update that `bd lease pick` runs after its pick conflicted must go onto the branch the lease was cut from, a
+  local branch, without a fetch (`UpdateOptions::onto`): on the detached HEAD of the lease (`branch: "HEAD"`), the
+  fork point in the reflog of that branch seeing through a move that was rolled back (`branch_fork_point`), and no
+  landed report, at its apply or at the finish of its session: nothing reached the baseline. A conflict starts a
+  resolve session as below, with `upstream` the branch; the finish prints `next`, `bd -C <lease> lease pick`; `bd
+  undo update:` moves the detached HEAD back by the reflog of `HEAD`.
+  [@test] ../../crates/update-core/src/update_project_test.rs (`an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_back`)
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_pick_that_conflicts`)
 
 ### Resolve session
 
@@ -370,7 +388,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 | 1 | a round is open (`conflict`) or the finish is next (`pending`): an output, not an error |
 | 2 | `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `not_landed_round`, `landed_differs`, `landed_not_empty`, `invalid_arguments` |
 | 3 | `head_moved`, `round_moved`, `locked` (retryable) |
-| 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap`, `finish_pending` |
+| 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap`, `finish_pending`, `lease_follows_home` |
 
 - The refusals of a resolution and `unsupported_conflict` must list the files in `paths`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `binary_and_file_directory_conflicts_are_refused_and_start_no_session`)

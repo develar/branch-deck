@@ -128,6 +128,9 @@ by the next sync the same way.
 - An applied update adds what it landed to the report in `branch-deck/landed.json` of the worktree's git directory and
   returns it; the next sync doesn't add it again.
   [@test] ../../crates/update-core/src/landed_test.rs (`whole_branch_landed_by_a_rebase_upstream`)
+- An update onto a local branch (the update of a lease onto its home after a conflict of `bd lease pick`) adds nothing,
+  at its apply or at the finish of its session: what the local branch has did not reach the baseline by it.
+  [@test] ../../crates/update-core/src/update_project_test.rs (`an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_back`)
 - Each sync remembers where the branch is; when the merge base moved since the previous sync, the commits that were local
   then and match the upstream now are added, once.
   [@test] ../../crates/update-core/src/landed_test.rs (`update_made_elsewhere_is_reported_by_the_next_sync_once`)

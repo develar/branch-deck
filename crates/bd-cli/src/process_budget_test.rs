@@ -580,8 +580,8 @@ fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, bd_core::context::E
 }
 
 /// `bd lease get` of a free slot and its `bd lease return`: the repository, the source HEAD and the pool config, one
-/// `status` and one `checkout` of the slot; the return reads the unlanded commits, the untracked mode of the config,
-/// the `status` and HEAD. No `status` of another slot, no full checkout
+/// `status` and one `checkout` of the slot; the return reads whether a resolve session of the slot is open, the
+/// unlanded commits, the untracked mode of the config, the `status` and HEAD. No `status` of another slot, no full checkout
 #[test]
 fn a_lease_get_and_return() {
   let repo = repo_with_branches();
@@ -597,7 +597,7 @@ fn a_lease_get_and_return() {
   assert_git_processes(&context.git, &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 1)]);
   let context = LeaseContext::resolve(&environment, Some(&slot)).unwrap();
   lease_return(&context, &LeaseReturnArgs::default()).unwrap();
-  assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("rev-parse", 2), ("status", 1)]);
+  assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("rev-parse", 2), ("show-ref", 1), ("status", 1)]);
 }
 
 /// `bd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto
@@ -615,13 +615,16 @@ fn a_lease_return_that_starts_the_maintenance() {
   let context = LeaseContext::resolve(&environment, Some(std::path::Path::new(&added.path))).unwrap();
   let returned = lease_return(&context, &LeaseReturnArgs::default()).unwrap();
   assert!(returned.maintenance_started, "{returned:?}");
-  assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("maintenance", 1), ("rev-parse", 2), ("status", 1)]);
+  assert_git_processes(
+    &context.git,
+    &[("config", 1), ("log", 1), ("maintenance", 1), ("rev-parse", 2), ("show-ref", 1), ("status", 1)],
+  );
 }
 
 /// The host slots of `bd host`, each step after the `rev-parse` of its context: a fill of a free slot reads the config of
 /// the host slots, then gets the slot as `bd lease get` does; a lend runs no git; a give-back reads the config and one `status`, and only a dirty slot adds `reset` and
 /// `clean`; a shrink reads the config, one `status` and one `checkout` of the leased commit, then returns the slot as
-/// `bd lease return` does
+/// `bd lease return` does (with its `show-ref` of the slot's resolve session)
 #[test]
 fn the_host_slots_lend_give_back_and_shrink() {
   let repo = repo_with_branches();
@@ -665,7 +668,7 @@ fn the_host_slots_lend_give_back_and_shrink() {
   let git = host(&|git, params| assert_eq!(give_back(git, params, 1, "run-1").unwrap().discarded, ["untracked.txt"]));
   assert_git_processes(&git, &[("clean", 1), ("config", 1), ("reset", 1), ("rev-parse", 1), ("status", 1)]);
   let git = host(&|git, params| assert!(matches!(shrink(git, params, 0).unwrap()[0].outcome, ShrinkOutcome::Returned(_))));
-  assert_git_processes(&git, &[("checkout", 1), ("config", 2), ("log", 1), ("rev-parse", 2), ("status", 2)]);
+  assert_git_processes(&git, &[("checkout", 1), ("config", 2), ("log", 1), ("rev-parse", 2), ("show-ref", 1), ("status", 2)]);
 }
 
 /// `bd workspace` in the shared checkout: the repository, the `branchdeck.*` config, the pool config and one `status` of
@@ -688,13 +691,88 @@ fn a_workspace() {
   assert_git_processes(&git, &[("config", 1), ("rev-parse", 2), ("status", 1)]);
 }
 
-/// `bd lease pick`: the lease from the state of the pool, no git; then the processes of `bd pick --from <lease>
+/// A repository with a commit on master, the pool in a temporary home, which lives as long as its guard, and a lease of
+/// it
+fn leased_repo() -> (TestRepo, tempfile::TempDir, bd_core::context::Environment, bd_lease::lease_command::LeaseGetOutput) {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (home, environment) = lease_environment(&repo);
+  let got = lease_get(&LeaseContext::resolve(&environment, None).unwrap(), &environment, &LeaseGetArgs::default()).unwrap();
+  (repo, home, environment, got)
+}
+
+/// `bd lease pick` whose pick conflicts: the check of the pick in the home checkout (no lock, nothing moves), then the
+/// update of the lease onto the home branch without a fetch: the check of the update (a binary search of `replay`) and
+/// the start of a resolve session in the lease under the lock
+#[test]
+fn a_lease_pick_that_conflicts() {
+  let (repo, _home, environment, got) = leased_repo();
+  let lane = std::path::Path::new(&got.path);
+  std::fs::write(lane.join("README.md"), "lane\n").unwrap();
+  test_utils::git_test_utils::git_command()
+    .args(["commit", "-q", "-a", "-m", "(lane) Change readme"])
+    .current_dir(lane)
+    .output()
+    .unwrap();
+  repo.create_commit("(own) Change readme", "README.md", "own\n");
+  let context = context(&repo);
+  let output = crate::lease_pick_in(&context, &got.path, "master".to_string(), &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
+  assert_eq!(output.state, bd_update::pick_command::PickOutcome::Conflict);
+  assert_processes(
+    &context,
+    &[
+      ("for-each-ref", 1),
+      ("log", 2),
+      ("merge-base", 4),
+      ("merge-tree", 1),
+      ("remote", 1),
+      ("replay", 1),
+      ("rev-list", 1),
+      ("rev-parse", 8),
+      ("symbolic-ref", 3),
+    ],
+  );
+  let lease = RepoContext::resolve(
+    &environment,
+    &RepoOptions {
+      repo: Some(lane),
+      prefix: Some(PREFIX),
+      full_ids: false,
+      no_cache: false,
+    },
+  )
+  .unwrap();
+  let update = bd_update::update_command::update_lease_onto(&lease, "master").unwrap();
+  assert_eq!(update.state, bd_update::update_command::UpdateOutcome::Conflict);
+  assert_processes(
+    &lease,
+    &[
+      ("cat-file", 6),
+      ("check-attr", 2),
+      ("config", 1),
+      ("diff-tree", 5),
+      ("fast-import", 1),
+      ("for-each-ref", 1),
+      ("hash-object", 1),
+      ("log", 7),
+      ("merge-base", 3),
+      ("merge-tree", 5),
+      ("patch-id", 1),
+      ("replay", 1),
+      ("rev-list", 2),
+      ("rev-parse", 6),
+      ("show-ref", 1),
+      ("symbolic-ref", 2),
+      ("update-ref", 1),
+      ("var", 2),
+    ],
+  );
+}
+
+/// `bd lease pick`: the lease from the state of the pool and whether its resolve session is open (`show-ref`); then the processes of `bd pick --from <lease>
 /// --follow` in the checkout it was cut from (`a_pick`)
 #[test]
 fn a_lease_pick() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let (_home, environment) = lease_environment(&repo);
-  let got = lease_get(&LeaseContext::resolve(&environment, None).unwrap(), &environment, &LeaseGetArgs::default()).unwrap();
+  let (repo, _home, environment, got) = leased_repo();
   let lane = std::path::Path::new(&got.path);
   for (subject, file) in [("(lane) Add a", "a.txt"), ("(lane) Add b", "b.txt")] {
     std::fs::write(lane.join(file), "x\n").unwrap();
@@ -708,7 +786,7 @@ fn a_lease_pick() {
   commit_subjects(&repo, &["(own) Add c"]);
   let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
   let (checkout, branch) = bd_lease::lease_command::lease_home(&lease).unwrap();
-  assert_git_processes(&lease.git, &[("rev-parse", 1)]);
+  assert_git_processes(&lease.git, &[("rev-parse", 1), ("show-ref", 1)]);
   let context = context(&repo);
   assert_eq!(checkout, context.repository);
   let output = crate::lease_pick_in(&context, &got.path, branch, &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();

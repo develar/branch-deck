@@ -135,7 +135,7 @@ branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `cr
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -902,14 +902,20 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 - `bd lease pick [--dry-run]` inside the lease is `bd pick --from <lease> --follow` in `home.checkout`, onto
   `home.branch`, and prints what `bd pick` prints: the commits replayed onto the tip as it is then, whatever other
   sessions landed meanwhile, and the lease moved onto the new tip; with nothing to land the lease only follows
-  (`up_to_date`, `followed.state: moved`). A conflict lands nothing (exit 1), its `conflict.next` names `bd lease pick`
-  to run again. Refused with nothing changed: `home_branch_switched` (exit 4; another branch is checked out there now:
+  (`up_to_date`, `followed.state: moved`). A conflict lands nothing (exit 1) and comes back to the lease: `update` is
+  the update of the lease onto the tip of `home.branch` without a fetch, as `bd update` prints it, and its conflict
+  opens a resolve session in the lease (`bd help update`); the lease moves when `bd update --continue` finishes it,
+  whose `next` is `bd lease pick` again, and `bd update --abort` closes it; while it is open `bd lease pick` is
+  `resolve_in_progress` (exit 4). The output is `lease_pick`.
+- In a lease `bd update` onto the baseline is `lease_follows_home` (exit 4): the lease follows its home branch, and the
+  owner of the shared checkout updates that; `--dry-run` and the steps of a session go on. Refused with nothing changed: `home_branch_switched` (exit 4; another branch is checked out there now:
   ask the user), `no_home_branch` (exit 4; cut from a detached HEAD), `no_lease` (exit 2; not inside a lease), and the
   refusals of `bd pick`.
 - `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
   or the current directory, or, with `--lease-id` and no `--workspace`, the slot of that lease from any checkout of the
   repository: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
-  its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `slot_busy` (a process of another session
+  its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `resolve_in_progress` (a resolve session of the slot is
+  open: finish it with `bd update --continue` or close it with `--abort`), `slot_busy` (a process of another session
   in it: `processes` [{`pid`, `command`, `argv`, `kind`: `bazel_server` or `other`, `workspace`}]), `unlanded_commits`
   (`commits` that no branch, tag or remote branch holds and that a dry run of
   the pick onto the branch of the source would pick: land them with `bd pick --from <dir> --follow`),

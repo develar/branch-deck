@@ -613,7 +613,12 @@ fn outcome(
         proven: &state.landed_dropped,
         not_landed: &not_landed,
       };
-      let landed = record_landed_update(git_executor, repo_path, &report, grouping);
+      // onto a local branch (a lease) nothing reached the baseline
+      let landed = if state.local_upstream {
+        Vec::new()
+      } else {
+        record_landed_update(git_executor, repo_path, &report, grouping)
+      };
       let replayed = count(git_executor, repo_path, &new_head, &state.upstream_head)?;
       let mut view = view_state(git_executor, repo_path, state, None, None, ViewDetail::Full)?;
       view.dropped = with_empty_drops(std::mem::take(&mut view.dropped), &landed);

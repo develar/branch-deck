@@ -235,6 +235,8 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::SourceOnNewerBaseline
     | ErrorCode::HomeBranchSwitched
     | ErrorCode::NoHomeBranch
+    | ErrorCode::LeaseFollowsHome
+    | ErrorCode::ResolveInProgress
     | ErrorCode::SlotBusy
     | ErrorCode::HostSlot
     | ErrorCode::UnlandedCommits

@@ -1,5 +1,5 @@
 use crate::lease_test::{Fixture, path_of, slot_git};
-use bd_cli::fixture_test::{PREFIX, assert_error, canonical, git};
+use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, canonical, git};
 use bd_core::bd_command::shell_word;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -106,19 +106,87 @@ fn a_lease_pick_refuses_a_home_that_switched_its_branch() {
   assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
 }
 
-/// A conflict lands nothing and names `bd lease pick` as the command to run again
-#[test_log::test]
-fn a_lease_pick_that_conflicts_changes_nothing_and_names_itself_again() {
+/// The conflicting copy of `path` in the open round of `update` (the `update` of `bd lease pick`, or a `bd update`)
+fn edit_of(update: &Value, path: &str) -> String {
+  update["session"]["files"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|file| file["path"] == json!(path))
+    .and_then(|file| file["edit"].as_str())
+    .unwrap_or_else(|| panic!("{path} in {update}"))
+    .to_string()
+}
+
+/// A lease whose commit conflicts with what another session landed on master since the get, and the lease
+fn conflicting_lease() -> (Fixture, String) {
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&[]));
   commit_in(&path, "(lane) Change b", "b.txt");
-  let head = fixture.repo.create_commit("(peer) Change b", "b.txt", "peer\n");
+  fixture.repo.create_commit("(peer) Change b", "b.txt", "peer\n");
+  (fixture, path)
+}
+
+/// A conflict lands nothing and comes back to the lease: the lease is updated onto the tip of master, the update opens
+/// a resolve session there, and the lease stays where it was until `bd update --continue` applies it; then `bd lease
+/// pick` lands the resolved commit. A return and a pick while the session is open are refused
+#[test_log::test]
+fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it() {
+  let (fixture, path) = conflicting_lease();
+  let (home, lease) = (fixture.repo.head(), slot_git(&path, &["rev-parse", "HEAD"]));
 
   let (exit_code, output) = lease_pick(&fixture, &path, &[]);
-  assert_eq!((exit_code, &output["state"]), (1, &json!("conflict")), "{output}");
-  assert_eq!(fixture.repo.head(), head);
+  assert_eq!(
+    (exit_code, &output["state"], &output["update"]["state"]),
+    (1, &json!("conflict"), &json!("conflict")),
+    "{output}"
+  );
+  assert_eq!((fixture.repo.head(), slot_git(&path, &["rev-parse", "HEAD"])), (home.clone(), lease), "nothing moved");
+  assert_eq!(output["update"]["upstream"], json!("master"));
   let next = output["conflict"]["next"].as_str().unwrap();
-  assert!(next.contains("lease pick` again") && next.contains(&shell_word(&path)), "{next}");
+  assert!(next.contains("update --continue") && next.contains("lease pick` again"), "{next}");
+
+  let (exit_code, refused) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&refused, exit_code, (4, "resolve_in_progress"));
+  let (exit_code, refused) = lease_pick(&fixture, &path, &[]);
+  assert_error(&refused, exit_code, (4, "resolve_in_progress"));
+  let (_, schema) = fixture.run(&["schema", "--all"]);
+  let outputs = &schema["outputs"];
+  assert_covered(&outputs["lease_pick"], &outputs["lease_pick"], &output, "lease_pick");
+
+  std::fs::write(edit_of(&output["update"], "b.txt"), "peer and lane\n").unwrap();
+  let (exit_code, done) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--continue", "--round", "1"]);
+  assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
+  assert_eq!(done["next"], json!([format!("bd -C {} lease pick", shell_word(&path))]), "{done}");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD~1"]), home, "the lease is on the tip of master");
+
+  let (exit_code, output) = lease_pick(&fixture, &path, &[]);
+  assert_eq!((exit_code, &output["state"], output.get("update")), (0, &json!("picked"), None), "{output}");
+  assert_eq!(std::fs::read_to_string(fixture.repo.path().join("b.txt")).unwrap(), "peer and lane\n");
+  fixture.give_back(&path);
+}
+
+/// In a lease `bd update` onto the baseline is refused, it would move the lease past its home; a dry run and the
+/// steps of a resolve session go on, and `bd update --abort` closes the session that a pick opened
+#[test_log::test]
+fn an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort() {
+  let (fixture, path) = conflicting_lease();
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update"]);
+  assert_error(&output, exit_code, (4, "lease_follows_home"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("lease pick"), "{output}");
+  // a dry run reads only: not the lease refuses it, the check of the baseline does, as on any detached HEAD
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--dry-run"]);
+  assert_error(&output, exit_code, (4, "detached_head"));
+
+  let (exit_code, _) = lease_pick(&fixture, &path, &[]);
+  assert_eq!(exit_code, 1);
+  let (exit_code, status) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--status"]);
+  assert_eq!(exit_code, 0, "{status}");
+  let (exit_code, aborted) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "update", "--abort"]);
+  assert_eq!((exit_code, &aborted["branch"]), (0, &json!("HEAD")), "{aborted}");
+  // the session is gone: the return refuses only the commit that did not land
+  let (exit_code, refused) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&refused, exit_code, (4, "unlanded_commits"));
 }
 
 /// Outside a leased slot there is no home: the shared checkout itself refuses

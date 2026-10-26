@@ -53,6 +53,10 @@ pub struct UpstreamRef<'a> {
   pub name: &'a str,
   /// Where the tracking ref pointed before the fetch that just moved it, if that was a forced update
   pub previous: Option<&'a str>,
+  /// The upstream is a local branch, `refs/heads/<name>`: the home of a lease, which `bd lease pick` updates the lease
+  /// onto. The update may run on a detached HEAD (named `HEAD` in the check, `HeadRef::of`), and the fork point in
+  /// the branch's reflog sees through a move that was rolled back or undone (`branch_fork_point`)
+  pub local: bool,
 }
 
 /// What a check is for
@@ -158,6 +162,8 @@ impl ReplayPlan {
 pub(crate) struct CheckedState {
   pub(crate) branch: String,
   pub(crate) upstream: String,
+  /// The upstream is a local branch (`UpstreamRef::local`)
+  pub(crate) local_upstream: bool,
   pub(crate) head: String,
   pub(crate) upstream_head: String,
   pub(crate) base: String,
@@ -233,7 +239,7 @@ fn check_update_read(
   resolve: ResolveMode,
   blocks: Blocks,
 ) -> Result<UpdatePlan> {
-  let (branch, head, upstream_head) = read_checked_head(git_executor, repo_path, upstream.tracking_ref)?;
+  let (branch, head, upstream_head) = read_checked_head(git_executor, repo_path, upstream.tracking_ref, upstream.local)?;
   let checked = CheckedHead {
     branch: &branch,
     head: &head,
@@ -242,10 +248,15 @@ fn check_update_read(
   check_update_with(git_executor, repo_path, checked, upstream, purpose, landed, resolve, blocks)
 }
 
-/// The guards, then the checked out branch, HEAD and the upstream's tip: one `rev-parse` of two revisions, which takes
-/// no `--end-of-options`, so the tracking ref from the configuration is checked to be a full ref name here
-fn read_checked_head(git_executor: &GitCommandExecutor, repo_path: &str, tracking_ref: &str) -> Result<(String, String, String)> {
-  let branch = check_update_guards(git_executor, repo_path)?;
+/// The guards, then the checked out branch (`HEAD` for a detached HEAD, only onto a `local` upstream), HEAD and the
+/// upstream's tip: one `rev-parse` of two revisions, which takes no `--end-of-options`, so the tracking ref from the
+/// configuration is checked to be a full ref name here
+fn read_checked_head(git_executor: &GitCommandExecutor, repo_path: &str, tracking_ref: &str, local: bool) -> Result<(String, String, String)> {
+  let branch = if local {
+    HeadRef::read(git_executor, repo_path)?.name().to_string()
+  } else {
+    check_update_guards(git_executor, repo_path)?
+  };
   let tracking_ref = full_ref_name(tracking_ref)?;
   let ids = git_executor.execute_command_lines(&["rev-parse", "HEAD^{commit}", &format!("{tracking_ref}^{{commit}}")], repo_path)?;
   let [head, upstream_head] = <[String; 2]>::try_from(ids).map_err(|ids| anyhow!("Unexpected rev-parse output: {ids:?}"))?;
@@ -316,6 +327,7 @@ fn check_update_with(
   let checked = CheckedState {
     branch: branch.clone(),
     upstream: upstream.name.to_string(),
+    local_upstream: upstream.local,
     head: head.clone(),
     upstream_head: upstream_head.clone(),
     base: base.clone(),
@@ -347,7 +359,7 @@ fn check_update_with(
 
   let kind = if base == head { UpdateKind::FastForward } else { UpdateKind::Rebase };
   if kind == UpdateKind::Rebase {
-    plan.excluded = previous_upstream_tips(git_executor, repo_path, upstream, &head, &base)?;
+    plan.excluded = previous_upstream_tips(git_executor, repo_path, upstream, &upstream_head, &head, &base)?;
   }
   let key = ReplayKey {
     repo_path: repo_path.to_string(),
@@ -435,8 +447,8 @@ fn check_update_with(
 /// the local changes on the paths it writes (`blocking_paths`, the exact dry run), now that nobody else moves HEAD. The
 /// guards and one `rev-parse` of both, then the dry run only when files change
 #[instrument(skip(git_executor, plan))]
-pub fn recheck_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &mut UpdatePlan, tracking_ref: &str) -> Result<bool> {
-  let (branch, head, upstream_head) = read_checked_head(git_executor, repo_path, tracking_ref)?;
+pub fn recheck_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &mut UpdatePlan, upstream: UpstreamRef<'_>) -> Result<bool> {
+  let (branch, head, upstream_head) = read_checked_head(git_executor, repo_path, upstream.tracking_ref, upstream.local)?;
   let checked = &plan.checked;
   if branch != checked.branch || head != checked.head || upstream_head != checked.upstream_head {
     debug!(%branch, %head, %upstream_head, "the branch or its upstream moved during the check");
@@ -978,7 +990,7 @@ pub fn apply_update<'a>(git_executor: &GitCommandExecutor, repo_path: &str, plan
   move_branch_and_files(
     git_executor,
     repo_path,
-    &HeadRef::Branch(check.branch.clone()),
+    &HeadRef::of(&check.branch),
     &check.head,
     new_head,
     plan.files_change,
@@ -1090,11 +1102,13 @@ pub struct UndoBlocked {
 /// with the old and the new tree swapped, so the dry run refuses every path changed since the update and an ignored
 /// file in the way of a file that comes back. The last entry of the branch's reflog must be that update
 /// (`NotAnUpdate` otherwise), so a token can't move the branch to any other commit; HEAD elsewhere is `HeadMoved`.
-/// When the last two entries are this update and its undo, the undo is done already (`UndoCheck::AlreadyUndone`)
+/// When the last two entries are this update and its undo, the undo is done already (`UndoCheck::AlreadyUndone`). A
+/// detached HEAD, which only an update onto a local branch moves (a lease, `UpstreamRef::local`), is undone by the
+/// reflog of `HEAD`
 #[instrument(skip(git_executor))]
 pub fn check_update_undo(git_executor: &GitCommandExecutor, repo_path: &str, previous_head: &str, new_head: &str) -> Result<UndoCheck> {
-  let branch = check_update_guards(git_executor, repo_path)?;
-  check_move_undo(git_executor, repo_path, UPDATE, &HeadRef::Branch(branch), previous_head, new_head)
+  let head_ref = HeadRef::read(git_executor, repo_path)?;
+  check_move_undo(git_executor, repo_path, UPDATE, &head_ref, previous_head, new_head)
 }
 
 /// `check_update_undo` of a move of `head_ref` by `operation`, whose guards passed: the last entry of the reflog of the
@@ -1266,6 +1280,12 @@ impl HeadRef {
   pub(crate) fn read(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self> {
     ensure_no_operation_in_progress(git_executor, repo_path).map_err(|e| anyhow::Error::new(GuardRefusal::OperationInProgress(format!("{e:#}"))))?;
     Ok(current_branch(git_executor, repo_path)?.map_or(Self::Detached, Self::Branch))
+  }
+
+  /// The `HeadRef` that `name` names: `HEAD` is a detached HEAD (git refuses a branch of that name), any other name a
+  /// branch. A check and a resolve session record what they read this way
+  pub(crate) fn of(name: &str) -> Self {
+    if name == "HEAD" { Self::Detached } else { Self::Branch(name.to_string()) }
   }
 
   /// The branch, or `HEAD` when detached: how messages name what moved
@@ -1679,7 +1699,7 @@ pub(crate) fn files_follow(
 
 /// The previous upstream tips to exclude from the local commits: the tip before a forced fetch, and the fork point of
 /// HEAD in the tracking ref's reflog. Tips that are the merge base already are left out.
-fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, head: &str, base: &str) -> Result<Vec<String>> {
+fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, upstream_head: &str, head: &str, base: &str) -> Result<Vec<String>> {
   let mut tips = Vec::new();
   if let Some(previous) = upstream.previous
     && previous != base
@@ -1687,7 +1707,11 @@ fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, up
   {
     tips.push(previous.to_string());
   }
-  if let Some(fork_point) = fork_point(git_executor, repo_path, upstream.tracking_ref, head)?
+  let fork_point = match upstream.tracking_ref.strip_prefix("refs/heads/") {
+    Some(branch) if upstream.local => branch_fork_point(git_executor, repo_path, branch, upstream_head, head)?,
+    _ => fork_point(git_executor, repo_path, upstream.tracking_ref, head)?,
+  };
+  if let Some(fork_point) = fork_point
     && fork_point != base
     && !tips.contains(&fork_point)
   {

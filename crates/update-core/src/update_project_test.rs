@@ -90,6 +90,7 @@ const ORIGIN_MASTER: UpstreamRef<'static> = UpstreamRef {
   tracking_ref: "refs/remotes/origin/master",
   name: "origin/master",
   previous: None,
+  local: false,
 };
 
 /// A local commit and a fetched upstream commit on another file: a clean rebase
@@ -877,6 +878,7 @@ fn undo_tokens_are_strict() {
 const FETCH_AND_A_SHORT_WAIT: UpdateOptions = UpdateOptions {
   fetch: true,
   lock_wait: LockWait::Bounded(Duration::from_millis(200)),
+  onto: None,
 };
 
 /// `update_project_with` in `repo`, with the phases it told, each once
@@ -925,6 +927,7 @@ fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
   let options = UpdateOptions {
     fetch: false,
     lock_wait: LockWait::Bounded(Duration::from_secs(60)),
+    onto: None,
   };
   let result = std::thread::scope(|scope| {
     let update = scope.spawn(|| update_project_with(clone.git_executor(), path(&clone), options, &|it| sender.send(it.phase).unwrap()));
@@ -980,6 +983,7 @@ fn update_without_a_fetch_goes_onto_the_last_fetched_state() {
   let options = UpdateOptions {
     fetch: false,
     lock_wait: LockWait::Bounded(Duration::from_millis(200)),
+    onto: None,
   };
 
   let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();
@@ -1166,4 +1170,52 @@ fn sync_after_a_conflicting_update_does_not_replay_again() {
   // the preview replays with a fixed committer date: a replay would write new commits
   assert_eq!(preview(&clone), plan.check.state);
   assert_eq!(loose_objects(&clone), objects);
+}
+
+/// An update onto a local branch (the home of a lease, `bd lease pick`): a detached worktree goes onto the tip of
+/// `master` without a fetch, its HEAD moved with `option no-deref`, no landed report written; `bd undo` moves the
+/// detached HEAD back by the reflog of `HEAD`
+#[test]
+fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_back() {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base\n");
+  let lane = test_utils::git_test_utils::TestWorktree::detached(&repo);
+  let own = lane.commit("(lane) Add a", "a.txt", "a\n");
+  let tip = repo.create_commit("(peer) Add p", "p.txt", "p\n");
+  let options = UpdateOptions {
+    fetch: true,
+    lock_wait: LockWait::Bounded(Duration::from_secs(10)),
+    onto: Some("master"),
+  };
+
+  let result = update_project_with(repo.git_executor(), &lane.path, options, &|_| {}).unwrap();
+  assert_eq!(
+    (
+      &result.check.state,
+      result.check.branch.as_str(),
+      result.check.upstream.as_str(),
+      result.check.upstream_head.as_str()
+    ),
+    (&UpdateState::Clean { kind: UpdateKind::Rebase }, "HEAD", "master", tip.as_str())
+  );
+  assert!(result.landed.is_empty(), "{:?}", result.landed);
+  let lane_git = |args: &[&str]| repo.git_executor().execute_command(args, &lane.path).unwrap();
+  let new_head = lane_git(&["rev-parse", "HEAD"]);
+  assert_eq!(lane_git(&["rev-parse", "HEAD~1"]), tip);
+  assert_eq!(lane_git(&["log", "-1", "--format=%s"]), "(lane) Add a");
+  assert_eq!(lane_git(&["status", "--porcelain"]), "", "the files followed");
+  assert_eq!(
+    repo.git_executor().execute_command_with_status(&["symbolic-ref", "-q", "HEAD"], &lane.path).unwrap().1,
+    1,
+    "still detached"
+  );
+  assert!(!repo.path().join(".git/branch-deck/landed.json").exists(), "nothing reached the baseline");
+
+  let token = UpdateUndoToken {
+    previous_head: own.clone(),
+    new_head,
+  };
+  let undone = undo_update_core(repo.git_executor(), &lane.path, &token, Duration::from_secs(10)).unwrap();
+  assert_eq!((undone.branch.as_str(), undone.already_undone), ("HEAD", false));
+  assert_eq!(lane_git(&["rev-parse", "HEAD"]), own);
 }

@@ -1077,6 +1077,18 @@ Code: `crates/git-ops/src/update_branch.rs` (check, apply, the undo check, and t
 `crates/git-ops/src/worktree_update.rs` (the exempt `read-tree -u`), `crates/sync-core/src/baseline.rs` (upstream, fetch, the check inside
 sync), `crates/update-core/src/update_project.rs` (lock, update, undo), `crates/bd-update/src/update_command.rs` (`bd update`, `bd undo update:`).
 
+**Onto a local branch** (`UpdateOptions::onto`, only `bd lease pick` after its pick conflicted): the lease is
+updated onto the branch it was cut from, `refs/heads/<home>` in place of the tracking ref (`UpstreamRef::local`).
+Step 1 and step 2 are skipped (a `show-ref --verify` that the branch exists instead), step 0 accepts a detached
+HEAD, which the check names `HEAD` (`HeadRef::of`, git refuses a branch of that name) and step 9 moves with
+`option no-deref`, as the follow of a pick does. Step 4 reads the fork point with `branch_fork_point`, the fork point
+of `bd pick`, which sees through a pick that rolled back or was undone in the branch's reflog. No landed report is
+written, at the apply or at the finish of a session (`SessionState::local_upstream`): what the local branch has did
+not reach the baseline by this update. `bd undo update:` of a detached HEAD checks the reflog of `HEAD`. In a lease a
+plain `bd update` is refused (`lease_follows_home`): onto a baseline newer than the home branch it would make the
+next pick refuse the lease (`source_on_newer_baseline`). A `bd lease return` refuses while the slot's session ref
+exists (one `show-ref`), because the next lease of the slot, the same worktree id, would find it.
+
 #### Resolve session
 
 An update that conflicts starts a resolve session in `bd update` (spec: [bd update](../../spec/cli/update.spec.md)).
@@ -1601,11 +1613,15 @@ only `source_head`, and the landing was a `bd pick --from <lease> --follow -C <s
 named, while the agent instructions of the repository named `git rebase master` and `git merge --ff-only`: on
 2026-10-26 a session whose master had moved compared the commits by hand and rebased its lease with `git rebase
 --onto`. `bd lease pick` inside the lease is that pick, the paths and the branch from the lease
-(`lease_pool::lease::ready_lease_at`, no git), with the branch as part of the pick's request (`PickRequest::
+(`lease_pool::lease::ready_slot_at`, no git), with the branch as part of the pick's request (`PickRequest::
 expect_branch`): `check_pick` refuses another branch checked out in the source as `PickRefusal::BranchSwitched`
 (`home_branch_switched`), and `recheck_pick`, which compares the branch under the lock, sends a switch back to that
 check, so the commits never land on a branch the user switched to. It replays onto the tip as it is then: a commit
-tested on an older tip lands without a test on the new one, and a conflict comes back to the lease.
+tested on an older tip lands without a test on the new one, and a conflict comes back to the lease: the lease is
+updated onto the tip of its home branch ("Update project", onto a local branch), a resolve session opens there, and
+its finish names `bd lease pick` again. An update that applies at once (the words resolved what the pick could not)
+is picked again at once. While that session is open (one `show-ref` of its ref) `bd lease pick` refuses
+(`resolve_in_progress`): a pick that lands meanwhile would leave the session stale.
 
 Which processes keep a slot busy was learned from 27 sessions of idea-1 (2026-10-19 to 24) whose returns were
 refused: mostly the Bazel server of the slot, then git's maintenance, the `caffeinate` of Claude Code and the `jq` of

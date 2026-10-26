@@ -26,6 +26,7 @@ fn upstream(tracking_ref: &str) -> UpstreamRef<'_> {
     tracking_ref,
     name: "origin/master",
     previous: None,
+    local: false,
   }
 }
 
@@ -102,12 +103,12 @@ fn the_fork_point_of_a_tracking_ref_that_is_gone_is_an_error() {
   let base = repo.create_commit("base", "base.txt", "base\n");
   let head = repo.create_commit("local", "local.txt", "local\n");
   // `merge-base --fork-point` exits with 1 without a reflog or a fork point, with 128 for a ref that is not there
-  let error = previous_upstream_tips(repo.git_executor(), repo.path_str(), upstream("refs/remotes/origin/gone"), &head, &base).unwrap_err();
+  let error = previous_upstream_tips(repo.git_executor(), repo.path_str(), upstream("refs/remotes/origin/gone"), &base, &head, &base).unwrap_err();
   assert!(format!("{error:#}").contains("refs/remotes/origin/gone"), "{error:#}");
   // the fork point is the merge base: no previous tip
   repo.git(&["update-ref", TRACKING_REF, &base]);
   assert_eq!(
-    previous_upstream_tips(repo.git_executor(), repo.path_str(), upstream(TRACKING_REF), &head, &base).unwrap(),
+    previous_upstream_tips(repo.git_executor(), repo.path_str(), upstream(TRACKING_REF), &base, &head, &base).unwrap(),
     Vec::<String>::new()
   );
 }

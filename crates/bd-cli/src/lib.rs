@@ -18,7 +18,7 @@ use bd_core::output::write_json;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{
-  LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status,
+  LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_return, lease_status, refuse_update_in_lease,
 };
 use bd_lease::workspace_command::workspace;
 use bd_remote::push_command::{PushArgs, push};
@@ -37,10 +37,10 @@ use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UnstackArgs, group, rename, restack, unstack};
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
-use bd_update::pick_command::{HomePick, PickArgs, PickOutput, pick, pick_into};
+use bd_update::pick_command::{HomePick, LeasePickOutput, PickArgs, PickOutcome, PickOutput, pick, pick_into};
 use bd_update::unapply_command::{ReapplyArgs, UnapplyArgs, reapply, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
-use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, update};
+use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, UpdateOutcome, update, update_lease_onto};
 use clap::error::ErrorKind;
 use clap::{ArgAction, ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use domain_types::error::ErrorCode;
@@ -294,17 +294,34 @@ fn operation_name(matches: &ArgMatches) -> String {
 }
 
 /// `bd lease pick`: `bd pick --from <this lease> --follow` in the checkout the lease was cut from, onto the branch it
-/// had checked out then
-fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<PickOutput, CliError> {
+/// had checked out then. A conflict lands nothing and comes back to the lease: the lease is updated onto the tip of
+/// that branch, a resolve session opened in it; an update that applies (the words resolved the conflict) is picked
+/// again at once
+fn lease_pick(lease: &LeaseContext, environment: &Environment, options: &RepoOptions<'_>, args: &LeasePickArgs) -> Result<LeasePickOutput, CliError> {
   let (checkout, branch) = lease_home(lease)?;
-  let home_options = RepoOptions {
-    repo: Some(std::path::Path::new(&checkout)),
-    prefix: options.prefix,
-    full_ids: options.full_ids,
-    no_cache: options.no_cache,
+  let in_dir = |dir: &str| {
+    RepoContext::resolve(
+      environment,
+      &RepoOptions {
+        repo: Some(std::path::Path::new(dir)),
+        prefix: options.prefix,
+        full_ids: options.full_ids,
+        no_cache: options.no_cache,
+      },
+    )
   };
-  let context = RepoContext::resolve(environment, &home_options)?;
-  lease_pick_in(&context, &lease.dirs.top_level, branch, environment, args)
+  let home = in_dir(&checkout)?;
+  let pick = lease_pick_in(&home, &lease.dirs.top_level, branch.clone(), environment, args)?;
+  if pick.state != PickOutcome::Conflict || args.dry_run {
+    return Ok(LeasePickOutput { pick, update: None });
+  }
+  let update = update_lease_onto(&in_dir(&lease.dirs.top_level)?, &branch)?;
+  let pick = if matches!(update.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
+    lease_pick_in(&home, &lease.dirs.top_level, branch, environment, args)?
+  } else {
+    pick
+  };
+  Ok(LeasePickOutput { pick, update: Some(update) })
 }
 
 /// `bd lease pick` of the lease at `lease_dir` in `context`, the checkout it was cut from, onto `branch`
@@ -367,7 +384,16 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Unstack(args) => return print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
     Command::Reword(args) => return print_summary(out, context().and_then(|context| reword(&context, args)), RewriteOutput::exit_code),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
-    Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateCommandOutput::exit_code),
+    Command::Update(args) => {
+      let run = |context: RepoContext| {
+        // the steps of a resolve session and a dry run go on in a lease; an update onto the baseline does not
+        if !(args.status || args.abort || args.resume || args.dry_run) {
+          refuse_update_in_lease(&context.git_common_dir, &context.repository)?;
+        }
+        update(&context, args)
+      };
+      return print_summary(out, context().and_then(run), UpdateCommandOutput::exit_code);
+    }
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
     Command::Lease(LeaseArgs { command: LeaseCommand::Get(args) }) => lease_context(None)
       .and_then(|context| lease_get(&context, environment, args))
@@ -378,7 +404,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
       return print_summary(
         out,
         lease_context(None).and_then(|lease| lease_pick(&lease, environment, &options, args)),
-        PickOutput::exit_code,
+        LeasePickOutput::exit_code,
       );
     }
     Command::Lease(LeaseArgs {

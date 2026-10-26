@@ -3,7 +3,7 @@
 //! worktree shares, replays the commits in memory, and moves the branch (and, with --follow, the source worktree)
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing
 
-use crate::update_command::{core_error, uncommitted_overlap, undo_core_error};
+use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{SchemaVersion, ShortIds};
@@ -87,6 +87,27 @@ impl PickOutput {
   /// 1 for a conflict, else 0
   pub const fn exit_code(&self) -> i32 {
     if self.conflict.is_some() { CONFLICT_EXIT } else { 0 }
+  }
+}
+
+/// `bd lease pick`: the pick of the lease's commits onto its home branch, and after a conflict the update of the lease
+/// onto that branch
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeasePickOutput {
+  #[serde(flatten)]
+  pub pick: PickOutput,
+  /// With a conflict of the pick: the update of the lease onto the tip of its home branch, as `bd update` prints it. A
+  /// conflict there opens a resolve session in the lease (`state: conflict`, `session`): resolve it, `bd update
+  /// --continue`, build and test, then `bd lease pick` again; `bd update --abort` closes it, nothing moved. An update
+  /// that applies (the words resolved the conflict) moved the lease onto the tip: build and test, then `next`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub update: Option<UpdateOutput>,
+}
+
+impl LeasePickOutput {
+  /// 1 while the commits did not land, else 0
+  pub const fn exit_code(&self) -> i32 {
+    self.pick.exit_code()
   }
 }
 
@@ -394,9 +415,10 @@ fn next_step(context: &RepoContext, result: &PickResult, short: &ShortIds, home:
   let resolve = "resolve it there: regenerate a generated file, never keep one side of a code hunk";
   let no_cherry_pick = "Never `git cherry-pick` here: it leaves CHERRY_PICK_HEAD, which blocks every bd rewrite";
   match (&check.follow, home) {
-    (Some(follow), Some(home)) => format!(
-      "Move the lease onto {onto} (`git -C {worktree} rebase --onto {onto} {base}`), {resolve}, then run `{again}` again. {no_cherry_pick}",
-      worktree = follow.worktree,
+    (Some(_), Some(home)) => format!(
+      "Nothing landed. The lease is updated onto {onto} (`update`): resolve the conflict of its session there ({resolve}), `{bd} update --continue`, \
+       build and test, then run `{again}` again. {no_cherry_pick}",
+      bd = context.bd,
       again = home.again,
     ),
     (Some(follow), None) => format!(

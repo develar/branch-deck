@@ -9,13 +9,14 @@ use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
-use git_ops::revs::{RepositoryDirs, repository_dirs};
+use git_ops::revs::{RepositoryDirs, ref_exists, repository_dirs};
+use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::free_space::available_bytes;
-use lease_pool::host_slots::{HostSlotsParams, clean_host_slots};
+use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotsParams, clean_host_slots};
 use lease_pool::lease::{
-  Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool,
-  SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir, ready_lease_at,
+  Adopted, BusyProcess, CreatedBy, GetStep, IdleLease, LandedCheck, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseRefusal, LeaseReturnParams, Pool,
+  SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir, ready_slot_at,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age};
 use schemars::JsonSchema;
@@ -278,17 +279,29 @@ pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str) -> Vec<String> {
 }
 
 /// The checkout and the branch the commits of the lease of this worktree land on (`bd lease pick`): `no_lease` outside
-/// a leased slot, `no_home_branch` when its get's source had a detached HEAD
+/// a leased slot, `no_home_branch` when its get's source had a detached HEAD, `resolve_in_progress` while the resolve
+/// session of a pick is open in it (one `show-ref`): a pick that lands now would leave that session stale
 pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> {
-  let lease = ready_lease_at(Path::new(&context.dirs.git_common_dir), &context.dirs.top_level)
-    .map_err(lease_error)?
-    .ok_or_else(|| {
-      CliError::new(
-        ErrorCode::NoLease,
-        format!("{} is no leased worktree of the pool: run bd lease pick in your lease", context.dirs.top_level),
-      )
-    })?;
-  let home = lease.home();
+  let top_level = &context.dirs.top_level;
+  let slot = ready_slot_at(Path::new(&context.dirs.git_common_dir), top_level).map_err(lease_error)?.ok_or_else(|| {
+    CliError::new(
+      ErrorCode::NoLease,
+      format!("{top_level} is no leased worktree of the pool: run bd lease pick in your lease"),
+    )
+  })?;
+  if ref_exists(&context.git, top_level, &session_ref(&slot.name)) {
+    let lease = shell_word(top_level);
+    return Err(CliError::new(
+      ErrorCode::ResolveInProgress,
+      format!(
+        "A resolve session is open in {top_level}: finish it with `bd -C {lease} update --continue` and then `bd -C {lease} lease pick`, or close it with `bd -C {lease} update --abort`"
+      ),
+    ));
+  }
+  let home = slot.lease.as_ref().map_or(LeaseHome {
+    checkout: String::new(),
+    branch: None,
+  }, Lease::home);
   match home.branch {
     Some(branch) if !home.checkout.is_empty() => Ok((home.checkout, branch)),
     _ => Err(CliError::new(
@@ -300,6 +313,29 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
       ),
     )),
   }
+}
+
+/// `bd update` in the worktree at `top_level`: refused in a lease of the pool (`lease_follows_home`), which follows the
+/// branch it was cut from, not the baseline: an update onto the baseline would move it past that branch, and its pick
+/// would refuse it (`source_on_newer_baseline`). A host slot of `bd host` is no session's lease
+pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<(), CliError> {
+  let Some(lease) = ready_slot_at(git_common_dir, top_level).map_err(lease_error)?.and_then(|slot| slot.lease) else {
+    return Ok(());
+  };
+  if lease.holder.starts_with(HOST_HOLDER_PREFIX) {
+    return Ok(());
+  }
+  let home = lease.home();
+  let branch = home.branch.as_deref().unwrap_or("its branch");
+  Err(CliError::new(
+    ErrorCode::LeaseFollowsHome,
+    format!(
+      "{top_level} is a lease: it follows {branch} of {checkout}, not the baseline. `bd -C {lease} lease pick` lands its commits on {branch} and moves \
+       it onto the tip; {branch} itself is updated in {checkout} by its owner: ask the user",
+      checkout = home.checkout,
+      lease = shell_word(top_level),
+    ),
+  ))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -935,6 +971,7 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
     LeaseRefusal::SlotBusy { .. } | LeaseRefusal::ServersRunning { .. } | LeaseRefusal::Returning { .. } => ErrorCode::SlotBusy,
     LeaseRefusal::UnlandedCommits { .. } => ErrorCode::UnlandedCommits,
     LeaseRefusal::DirtyWorktree { .. } | LeaseRefusal::DirtyCandidate { .. } => ErrorCode::DirtyWorktree,
+    LeaseRefusal::ResolveInProgress { .. } => ErrorCode::ResolveInProgress,
     LeaseRefusal::BranchExists(_) => ErrorCode::BranchExists,
     LeaseRefusal::InvalidBranch(_) | LeaseRefusal::InvalidSize { .. } | LeaseRefusal::ReservedHolder(_) => ErrorCode::InvalidArguments,
     LeaseRefusal::LowDiskSpace { .. } => ErrorCode::LowDiskSpace,

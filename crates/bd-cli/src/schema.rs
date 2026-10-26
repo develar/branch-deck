@@ -20,7 +20,7 @@ use bd_rewrite::move_hunk_command::MoveHunkOutput;
 use bd_rewrite::park_command::ParkOutput;
 use bd_rewrite::rewrite::RewriteOutput;
 use bd_rewrite::suggest::SuggestOutput;
-use bd_update::pick_command::PickOutput;
+use bd_update::pick_command::{LeasePickOutput, PickOutput};
 use bd_update::unapply_command::{ReapplyOutput, UnapplyOutput};
 use bd_update::undo_command::UndoOutput;
 use bd_update::update_command::{UpdateAbortOutput, UpdateOutput, UpdateStatusOutput};
@@ -40,7 +40,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("fold", &["fold"]),
   ("group", &["rewrite"]),
   ("install", &["install"]),
-  ("lease", &["lease_get", "lease_return", "lease_status", "lease_adopt", "lease_clean"]),
+  ("lease", &["lease_get", "lease_pick", "lease_return", "lease_status", "lease_adopt", "lease_clean"]),
   ("move-hunk", &["move_hunk"]),
   ("park", &["park"]),
   ("pick", &["pick"]),
@@ -145,6 +145,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("lease_adopt".to_string(), schema_for!(LeaseAdoptOutput)),
     ("lease_clean".to_string(), schema_for!(LeaseCleanOutput)),
     ("lease_get".to_string(), schema_for!(LeaseGetOutput)),
+    ("lease_pick".to_string(), schema_for!(LeasePickOutput)),
     ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),
     ("lease_status".to_string(), schema_for!(LeaseStatusOutput)),
     ("move_hunk".to_string(), schema_for!(MoveHunkOutput)),

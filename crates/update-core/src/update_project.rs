@@ -9,7 +9,7 @@ use domain_types::landed::LandedBranch;
 use domain_types::update_project::{AppliedUpdate, UpdateCheck, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::LandedDrop;
-use git_ops::revs::{Worktree, current_worktree, is_object_id, with_dirs_of};
+use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
   CheckPurpose, LandedLookup, UndoBlocked, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
   check_update_undo, finish_pending_update, pending_update, recheck_update,
@@ -20,7 +20,7 @@ use history_rewrite::repository_lock::{LockWait, lock_repository};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
-use sync_core::baseline::{fetch_baseline, last_fetch_time, read_check_inputs};
+use sync_core::baseline::{BaselineUpstream, fetch_baseline, last_fetch_time, read_check_inputs};
 use sync_core::landed::{LandedQuery, find_landed, local_revs, record_update, remaining_revs, restore_before_update};
 use sync_core::repo_facts::{Baseline, read_baseline};
 use sync_core::transfer_progress::TransferProgress;
@@ -99,6 +99,9 @@ pub struct UpdateOptions<'a> {
   /// How the update waits for the repository lock, which it takes after the fetch: `bd` at most its timeout, the app
   /// as long as the holder lives
   pub lock_wait: LockWait<'a>,
+  /// A local branch to update onto instead of the baseline, never fetched: the home of a lease (`bd lease pick`). The
+  /// update may run on a detached HEAD, and writes no landed report: nothing reached the baseline by it
+  pub onto: Option<&'a str>,
 }
 
 /// The fetch of an update failed; nothing was changed
@@ -126,7 +129,11 @@ pub fn update_project_core(
   on_progress: &dyn Fn(UpdateProgress),
   lock_wait: LockWait,
 ) -> Result<UpdateProjectResult> {
-  let options = UpdateOptions { fetch: params.fetch, lock_wait };
+  let options = UpdateOptions {
+    fetch: params.fetch,
+    lock_wait,
+    onto: None,
+  };
   update_project_with(git_executor, &params.repository_path, options, on_progress)
 }
 
@@ -182,12 +189,19 @@ pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, op
 
 /// `update_project_with`; with `Resolve::Yes`, a conflict starts a resolve session
 fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress), resolve: Resolve<'_>) -> Result<BdUpdate> {
-  let Baseline { name, upstream, branch } = read_baseline(git_executor, repo_path)?;
-  let upstream = upstream.ok_or_else(|| anyhow::Error::new(NoUpstream { baseline: name }))?;
-  // refuse before the network: the check would refuse after it anyway; the branch is the one the baseline read found
-  check_update_guards_on(git_executor, repo_path, branch.as_deref())?;
+  // onto a local branch the guards run in the check, which reads HEAD
+  let upstream = if let Some(branch) = options.onto {
+    local_upstream(git_executor, repo_path, branch)?
+  } else {
+    let Baseline { name, upstream, branch } = read_baseline(git_executor, repo_path)?;
+    let upstream = upstream.ok_or_else(|| anyhow::Error::new(NoUpstream { baseline: name }))?;
+    // refuse before the network: the check would refuse after it anyway; the branch is the one the baseline read found
+    check_update_guards_on(git_executor, repo_path, branch.as_deref())?;
+    upstream
+  };
+  let local = options.onto.is_some();
 
-  let (previous, fetched_at) = if options.fetch {
+  let (previous, fetched_at) = if options.fetch && !local {
     on_progress(UpdatePhase::Fetching.into());
     let mut on_fetch_progress = |fetch| {
       on_progress(UpdateProgress {
@@ -211,6 +225,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     tracking_ref: &upstream.tracking_ref,
     name: &upstream.name,
     previous: previous.as_deref(),
+    local,
   };
   // the check (the replay, the resolution by words, the landed candidates) on the HEAD and the upstream it reads once,
   // before the lock: the lock is held only for the witness, the local changes and the move
@@ -232,7 +247,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   let lock = options.lock_wait.lock_with(git_executor, repo_path, &|| on_progress(UpdatePhase::Waiting.into()))?;
   // an update or undo that a crash stopped before its files followed: they follow first
   let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
-  if recovered || !recheck_update(git_executor, repo_path, &mut prepared.plan, &upstream.tracking_ref)? {
+  if recovered || !recheck_update(git_executor, repo_path, &mut prepared.plan, upstream_ref)? {
     // HEAD or the upstream moved during the check: once more, under the lock now, so it can't move again. The step is
     // the check again, no longer the wait for another operation
     info!(recovered, "the update is checked again under the lock");
@@ -261,7 +276,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // the update is done: what it did and what it landed are a report, read without the lock on the ids the move froze
   drop(lock);
   let applied = moved.map(|moved| moved.report(git_executor, repo_path)).transpose()?;
-  let landed = applied.as_ref().map_or_default(|applied| {
+  let landed = applied.as_ref().filter(|_| !local).map_or_default(|applied| {
     let report = LandedReport {
       check: &plan.check,
       excluded: plan.excluded(),
@@ -282,6 +297,20 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     landed,
     dropped,
   })))
+}
+
+/// The local branch `branch` as the upstream of an update onto it (`UpdateOptions::onto`); no remote, never fetched
+fn local_upstream(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str) -> Result<BaselineUpstream> {
+  let tracking_ref = format!("refs/heads/{branch}");
+  if !ref_exists(git_executor, repo_path, &tracking_ref) {
+    bail!("There is no branch {branch} to update onto");
+  }
+  Ok(BaselineUpstream {
+    remote: String::new(),
+    remote_ref: tracking_ref.clone(),
+    tracking_ref,
+    name: branch.to_string(),
+  })
 }
 
 /// Whether an update in `state` moves nothing: only a clean one moves the branch, and a conflict only when it starts a

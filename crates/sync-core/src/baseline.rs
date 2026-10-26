@@ -215,6 +215,7 @@ pub fn check_baseline_update_with(
     tracking_ref: &upstream.tracking_ref,
     name: &upstream.name,
     previous: None,
+    local: false,
   };
   let landed = LandedLookup::ByKey { stacks: grouping.stacks };
   let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, landed, resolve)?;
@@ -249,6 +250,7 @@ pub fn check_known_baseline_update(
     tracking_ref: &known.upstream.tracking_ref,
     name: &known.upstream.name,
     previous: None,
+    local: false,
   };
   let checked = CheckedHead {
     branch: &known.branch,

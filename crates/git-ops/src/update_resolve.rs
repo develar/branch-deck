@@ -291,9 +291,15 @@ pub struct SessionState {
   pub worktree: String,
   /// The git dir of the worktree (absolute): a session never continues in another one
   pub git_dir: String,
+  /// The checked out branch; `HEAD` for a detached HEAD, which only a session onto a local branch has (a lease,
+  /// `UpstreamRef::local`; `HeadRef::of`)
   pub branch: String,
   /// The upstream as the user knows it, e.g. `origin/master`; it stays fixed for the session
   pub upstream: String,
+  /// The upstream is a local branch, the home of a lease (`UpstreamRef::local`): the finish writes no landed report,
+  /// nothing is in the baseline by it
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub local_upstream: bool,
   pub base: String,
   pub upstream_head: String,
   /// The previous upstream tips left out of the local commits
@@ -749,6 +755,7 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
     git_dir: worktree.git_dir.clone(),
     branch: checked.branch.clone(),
     upstream: checked.upstream.clone(),
+    local_upstream: checked.local_upstream,
     base: checked.base.clone(),
     upstream_head: checked.upstream_head.clone(),
     excluded: excluded.to_vec(),
@@ -1180,11 +1187,20 @@ fn ensure_own_worktree(worktree: &Worktree, state: &SessionState) -> Result<()> 
   }))
 }
 
+/// The branch HEAD is on now, after the guards of an update; `HEAD` when it is detached and the session started on a
+/// detached HEAD (`SessionState::branch`). A session on a branch refuses a detached HEAD as `check_update_guards` does
+fn head_of_session(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<String> {
+  match HeadRef::of(&state.branch) {
+    HeadRef::Detached => Ok(HeadRef::read(git_executor, repo_path)?.name().to_string()),
+    HeadRef::Branch(_) => check_update_guards(git_executor, repo_path),
+  }
+}
+
 /// Follow the peers: HEAD (`head_seen` when the caller read it already) must still be on the session's branch and
 /// contain the session's HEAD. Commits made on top of it are appended to the local commits (more rounds, usually
 /// clean); a rewrite is `Stale`
 fn follow_head(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState, head_seen: Option<&str>) -> Result<()> {
-  let branch = check_update_guards(git_executor, repo_path)?;
+  let branch = head_of_session(git_executor, repo_path, state)?;
   if branch != state.branch {
     return Err(stale(&format!("HEAD is on {branch} now, not on {}", state.branch)));
   }
@@ -1900,7 +1916,7 @@ fn finish(
     git_executor,
     repo_path,
     &FileMove {
-      head_ref: &HeadRef::Branch(state.branch.clone()),
+      head_ref: &HeadRef::of(&state.branch),
       head: &head,
       new_head: &tip,
       files_change: !changed.is_empty(),
@@ -1937,7 +1953,7 @@ enum Moved {
 
 fn moved_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &Session) -> Result<Moved> {
   let state = &session.state;
-  let branch = check_update_guards(git_executor, repo_path)?;
+  let branch = head_of_session(git_executor, repo_path, state)?;
   let actual = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], repo_path)?;
   let changed = changed_paths(git_executor, repo_path, &state.head, &state.tip)?;
   let followed = changed.is_empty() || !index_left_behind(git_executor, repo_path, &changed)?;
@@ -1987,7 +2003,7 @@ fn finish_files_after_move(git_executor: &GitCommandExecutor, repo_path: &str, s
       files_follow(
         git_executor,
         repo_path,
-        &HeadRef::Branch(state.branch.clone()),
+        &HeadRef::of(&state.branch),
         &state.head,
         &state.tip,
         &changed,

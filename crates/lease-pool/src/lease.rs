@@ -24,6 +24,7 @@ use git_ops::lease_slot::{
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, short_id};
+use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLock, lock_file_while_held};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -241,6 +242,10 @@ pub enum LeaseRefusal {
   UnlandedCommits { path: String, commits: Vec<UnlandedCommit>, check: LandedCheck },
   #[error("{path} has local changes; commit or land them; --confirm-preserved discards them, only when the user says they are kept elsewhere")]
   DirtyWorktree { path: String, paths: Vec<String> },
+  #[error(
+    "{path} has a resolve session open ({session}); finish it with `bd -C {path} update --continue` and land the commits with `bd -C {path} lease pick`, or close it with `bd -C {path} update --abort`"
+  )]
+  ResolveInProgress { path: String, session: String },
   #[error("{path} has local changes; a slot of the pool must be clean")]
   DirtyCandidate { path: String, paths: Vec<String> },
   #[error("The branch {0} exists")]
@@ -1636,6 +1641,11 @@ fn return_once(
       processes: busy_processes(&inside),
     });
   }
+  // a resolve session of the slot (`bd lease pick` opens one onto its home): the next lease of the slot would find it
+  let session = session_ref(&slot.name);
+  if ref_exists(git_executor, &path, &session) {
+    bail!(LeaseRefusal::ResolveInProgress { path, session });
+  }
   let (unlanded, landed_check) = unlanded_work(git_executor, &path, &lease)?;
   if !unlanded.is_empty() && !params.confirm_preserved {
     bail!(LeaseRefusal::UnlandedCommits {
@@ -1921,15 +1931,15 @@ impl Lease {
   }
 }
 
-/// The ready lease of the slot whose top level is `top_level`, from the state, no git; `None` outside a leased slot
-pub fn ready_lease_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Lease>> {
+/// The slot whose top level is `top_level` when its lease is ready, from the state, no git; `None` outside a leased slot
+pub fn ready_slot_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Slot>> {
   let top_level = canonical_path(Path::new(top_level));
   let (slots, _) = lease_status_core(git_common_dir, false)?;
   Ok(
     slots
       .into_iter()
-      .find(|status| status.state == SlotState::Ready && status.slot.path == top_level)
-      .and_then(|status| status.slot.lease),
+      .find(|status| status.state == SlotState::Ready && status.slot.path == top_level && status.slot.lease.is_some())
+      .map(|status| status.slot),
   )
 }
 

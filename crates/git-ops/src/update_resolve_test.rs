@@ -139,6 +139,7 @@ fn session_state(repo: &TestRepo, head: &str) -> SessionState {
     git_dir: repo.path().join(".git").to_str().unwrap().to_string(),
     branch: "master".to_string(),
     upstream: "origin/master".to_string(),
+    local_upstream: false,
     base: head.to_string(),
     upstream_head: head.to_string(),
     excluded: Vec::new(),
@@ -253,6 +254,7 @@ const ORIGIN_MASTER: UpstreamRef<'static> = UpstreamRef {
   tracking_ref: "refs/remotes/origin/master",
   name: "origin/master",
   previous: None,
+  local: false,
 };
 
 fn start_with(clone: &TestRepo, resolve: ResolveMode) -> Step {

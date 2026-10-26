@@ -96,6 +96,9 @@ pub enum ErrorCode {
   HomeBranchSwitched,
   /// `bd lease pick`: the lease was cut from a detached HEAD, so no branch is named to land on
   NoHomeBranch,
+  /// `bd update` in a lease of the pool: the lease follows the branch it was cut from, not the baseline; `bd lease
+  /// pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
+  LeaseFollowsHome,
   /// Uncommitted, staged or untracked files sit on paths `bd update`, `bd pick` (or their undo) writes; `paths` lists
   /// them. Nothing was changed; never stash them, ask the user
   UncommittedOverlap,
@@ -194,6 +197,9 @@ pub enum ErrorCode {
   ReviewRefused,
   /// `bd lease return`, `bd lease pick`: the worktree holds no lease of the pool, or its get still prepares it
   NoLease,
+  /// `bd lease return`: a resolve session of the slot is open; finish it (`bd update --continue`) or close it
+  /// (`bd update --abort`) first, so the next lease of the slot never finds it
+  ResolveInProgress,
   /// `bd lease return --lease-id`: the worktree holds another lease
   LeaseMismatch,
   /// `bd lease adopt`: the directory is not the top level of a linked worktree of this repository
@@ -272,6 +278,8 @@ impl ErrorCode {
       | Self::SourceOnNewerBaseline
       | Self::HomeBranchSwitched
       | Self::NoHomeBranch
+      | Self::LeaseFollowsHome
+      | Self::ResolveInProgress
       | Self::UncommittedOverlap
       | Self::SessionStale
       | Self::UnsupportedConflict

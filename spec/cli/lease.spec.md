@@ -236,7 +236,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [{`pid`, `command`, `argv` (at most 200 characters), `kind`: `bazel_server` or `other`, `workspace`?}], the message
   naming each with its argv, so no `ps` is needed to tell them), HEAD
   with commits that no branch, tag or remote branch holds (`unlanded_commits`, exit 4, `commits`, the message naming
-  `bd -C <dir> lease pick`), and local changes (`dirty_worktree`, exit 4, `paths`). The commits of the commit
+  `bd -C <dir> lease pick`), an open resolve session of the slot (`resolve_in_progress`, exit 4: the next lease of
+  the slot would find it; the message names `bd update --continue` and `--abort`, and `--confirm-preserved` does not
+  pass it), and local changes (`dirty_worktree`, exit 4, `paths`). The commits of the commit
   the slot was leased at never count as unlanded, also after a rewrite of master made them unreachable.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
 - The question of the unlanded check is whether the branch of the source has every change of the slot. The get must
@@ -250,6 +252,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_session_rewords_its_landed_commit_from_its_lease`, `a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_after_a_pick_that_rolled_back_refuses_the_commit`)
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it`)
 - The return must find the Bazel servers of the slot (a process whose argv has `--workspace_directory=<dir>`, `<dir>`
   the slot or inside it, such as `<slot>/community`), ask each to exit with SIGTERM once nothing else refuses, wait up
   to 30 s, and name them in `stopped_servers` (pid, workspace, output base). A server that does not exit keeps the
@@ -304,10 +307,16 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   no branch to land on: `no_home_branch` (exit 4). Outside a leased slot: `no_lease` (exit 2).
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_home_that_switched_its_branch`)
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`the_get_names_the_home_of_the_lease_and_the_commands_of_the_session`, `a_lease_pick_outside_a_lease_is_refused`)
-- A conflict must land nothing (exit 1, `state: conflict`), and its `conflict.next` must name `bd -C <lease> lease pick`
-  as the command to run again once the commit is made again on the tip.
-  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_changes_nothing_and_names_itself_again`)
-- Its git processes are those of the pick (`a_pick`); the lease itself comes from the state of the pool, without git.
+- A conflict must land nothing (exit 1, `state: conflict`) and come back to the lease: the lease is updated onto the
+  tip of its home branch without a fetch (`update`, what `bd update` prints, [bd update](update.spec.md)), and the
+  conflict there opens a resolve session in the lease; the lease moves only when `bd update --continue` finishes it,
+  whose `next` is `bd -C <lease> lease pick` again, and `bd update --abort` closes it. `conflict.next` says so. An
+  update that applies at once (the words resolved the conflict) is picked again at once. While the session is open a
+  `bd lease pick` refuses (`resolve_in_progress`, exit 4). The output is `lease_pick` of `bd schema`.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_pick_that_conflicts`)
+- Its git processes are those of the pick (`a_pick`); the lease itself comes from the state of the pool, without git,
+  and one `show-ref` asks whether its resolve session is open.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_pick`)
 
 ### Clean rules
@@ -467,9 +476,9 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
 |---|---|
 | 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
-| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits); `bd lease pick`: `home_branch_switched`, `no_home_branch` and the refusals of `bd pick` |
+| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`; `bd lease pick`: `home_branch_switched`, `no_home_branch` and the refusals of `bd pick` |
 
-- The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`; `bd lease pick` prints `pick`).
+- The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)
