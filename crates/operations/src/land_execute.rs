@@ -3,7 +3,10 @@
 //! the facts now (`StartHost::plan`) and runs only on the fingerprint its caller accepted, with every confirmation of it
 //! accepted. A restart of a robot (`Intent::RestartRobot`, `robot::execute_restart`) runs the same way (`run_planned`):
 //! its plan pushes first while the branch has work the remote lacks, and its last effect restarts the robot
-//! (`PlannedEffect::RestartRobot`) where a start starts one. Then, in this order:
+//! (`PlannedEffect::RestartRobot`) where a start starts one; so do the creation of a pull request and a review request
+//! (`pull_request::execute_pull_request`), whose last effect opens the pull request (`CreatePullRequest`, the text of the
+//! intent), waits until GitHub has the pushed branch (`WaitForMirror`) or asks the reviewers (`RequestReviewers`), each
+//! written into the facts. Then, in this order:
 //!
 //! 1. the cheap witness, before the lock: the tips of the refs the plan moves and leases, one `for-each-ref`;
 //! 2. the repository lock, the full witness and the freeze of the commits and the leases of the push under it (no HTTP
@@ -36,7 +39,7 @@ use domain_types::operation::{
   StartNote,
 };
 use domain_types::patronus::{PatronusMergeRequest, PatronusPushMode, PatronusRobot};
-use domain_types::pull_request::CreatedPullRequest;
+use domain_types::pull_request::{CreatedPullRequest, RequestedReviewers};
 use domain_types::pull_request::{PullRequest, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::session::Version;
@@ -46,8 +49,11 @@ use github::service::GitHubService;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLock, RepositoryLocked, lock_repository_in};
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
-use remote_facts::pull_request_create::{CreatePullRequestParams, create_pull_request};
+use remote_facts::pull_request_create::{CreatePullRequestParams, MIRROR_WAIT, create_pull_request, wait_for_branch};
+use remote_facts::pull_request_writes::request_pull_request_reviewers;
 use remote_facts::pull_requests::GitHubWriteError;
+use remote_facts::pull_requests::failure_message;
+use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::ref_claims::claim_refs;
 use repository_model::refusal_words::start_refusal_text;
 use repository_model::table::RemoteSubject;
@@ -137,6 +143,10 @@ pub trait StartHost: Send + Sync {
 
   /// The robot the start started or canceled goes into the facts: the version of the view after its patch
   fn write_robot(&self, robot: PatronusRobot) -> Read<'_, Option<Version>>;
+
+  /// The pull request a run opened, or the reviewers it asked, goes into the facts: the version of the view after its
+  /// patch; `None` when nothing keeps it (`bd`)
+  fn write_pull_request(&self, write: PullRequestWrite) -> Read<'_, Option<Version>>;
 }
 
 /// The pull request a start opens, as its host words it
@@ -175,8 +185,10 @@ pub struct StartServices {
   /// `$GIT_COMMON_DIR` of the repository: the refs a fetch of this process writes are claimed there (`ref_claims`)
   pub git_common_dir: std::path::PathBuf,
   pub prefix: String,
-  pub patronus: Arc<PatronusService>,
-  /// The Space repository the robots run in
+  /// The service of the robots; `None` off Space or without a token: a plan that starts, restarts or cancels no robot
+  /// (a pull request, a review request) runs without it
+  pub patronus: Option<Arc<PatronusService>>,
+  /// The Space repository the robots run in; empty off Space
   pub space: String,
   /// The GitHub service and the repository the branches are mirrored to; `None` without one
   pub github: Option<(Arc<GitHubService>, GitHubRepository)>,
@@ -188,6 +200,16 @@ pub struct StartServices {
   pub clock: Arc<dyn Clock>,
   /// The robot of a comment is looked for until the reply wait ends (the app), or once after the bot accepted (`bd`)
   pub wait_for_robot: bool,
+}
+
+impl StartServices {
+  /// The service of the robots, or why there is none
+  fn patronus(&self) -> Result<&PatronusService, ApiError> {
+    self
+      .patronus
+      .as_deref()
+      .ok_or_else(|| ApiError::new(ErrorCode::NotOnSpace, "The repository is not on Space, or Patronus has no token: no robot can be asked"))
+  }
 }
 
 /// Where the push of a start goes and what its remote statuses compare with
@@ -255,6 +277,8 @@ pub struct Started {
   pub commented: Option<Commented>,
   /// The pull request it opened (or found open)
   pub created: Option<CreatedPullRequest>,
+  /// Whom its review request asked, and whom GitHub refused
+  pub requested: Option<RequestedReviewers>,
 }
 
 /// Runs the start `land` as `op` on the plan its caller accepted (`fingerprint`, with `accepted` among the
@@ -279,7 +303,7 @@ pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Ste
 ///
 /// # Errors
 /// As `execute`, before any effect
-pub(crate) async fn run_planned(
+pub async fn run_planned(
   host: &dyn StartHost,
   services: &StartServices,
   steps: &Steps,
@@ -422,6 +446,14 @@ fn unknown_subject(subject: &Subject) -> ApiError {
   ApiError::new(ErrorCode::UnknownBranch, format!("The last sync has no {}: nothing was pushed or started", subject.words()))
 }
 
+/// What refuses `planned` as its run would refuse it before anything (`run_planned`): its first blocker, with the code
+/// `bd` fails with and the words of the guards, the robots of the hold named among `robots`; `None` when nothing does
+#[must_use]
+pub fn refusal_of(planned: &Planned, robots: &[PatronusRobot]) -> Option<ApiError> {
+  let blocker = planned.plan.blockers.first()?;
+  Some(refusal(blocker, &planned.plan, &planned.subject, robots))
+}
+
 /// The first blocker of `plan` as the start answers it: the code `bd` refuses it with, in the words of the guards; a
 /// refusal of the landing gate with every refusal of it among its blockers (each with its fix), a conflict with the
 /// target with its commit and files
@@ -437,6 +469,8 @@ fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRo
     Reason::DropsRemote { .. } | Reason::CantPush { .. } => ErrorCode::PushRefused,
     Reason::TargetConflict { .. } => ErrorCode::TargetConflict,
     Reason::Draft { .. } | Reason::Unprotected { .. } => ErrorCode::PatronusRefused,
+    Reason::NeedsPush { .. } => ErrorCode::NeedsPush,
+    Reason::NoReviewer { .. } => ErrorCode::NoReviewer,
     Reason::OtherBase { .. } => ErrorCode::PullRequestOtherBase,
     Reason::ApprovalsMissing { .. } => ErrorCode::ApprovalsMissing,
     Reason::DismissesApprovals { .. } => ErrorCode::PushDismissesApprovals,
@@ -449,12 +483,22 @@ fn refusal(reason: &Reason, plan: &Plan, subject: &Subject, robots: &[PatronusRo
       ErrorCode::RobotRunning
     }
   };
+  let review = matches!(plan.intent, Intent::RequestReview { .. });
+  // a draft asks nobody: GitHub marks it ready for review
+  let code = if review && matches!(reason, Reason::Draft { .. }) {
+    ErrorCode::NoPullRequest
+  } else {
+    code
+  };
   let words = match reason {
     Reason::LandingRefused { refusal } => refusal.reason(),
+    Reason::Draft { number } if review => format!("pull request #{number} is a draft: mark it ready for review on GitHub first"),
     _ => start_refusal_text(reason, &subject.words(), robots),
   };
   let nothing = match &plan.intent {
     Intent::RestartRobot { .. } => "Nothing was restarted",
+    Intent::CreatePullRequest(_) => "Nothing was pushed or created",
+    Intent::RequestReview { .. } => "Nothing was pushed or requested",
     _ => "Nothing was pushed or started",
   };
   let error = ApiError::new(code, format!("{nothing}: {words}"));
@@ -497,6 +541,7 @@ struct Run<'a> {
   robot: Option<PatronusRobot>,
   commented: Option<Commented>,
   created: Option<CreatedPullRequest>,
+  requested: Option<RequestedReviewers>,
   version: Option<Version>,
   /// Once an effect failed or the facts changed: why the effects after it are skipped
   stopped: Option<Stopped>,
@@ -521,6 +566,7 @@ impl<'a> Run<'a> {
       robot: None,
       commented: None,
       created: None,
+      requested: None,
       version: None,
       stopped: None,
       checked: false,
@@ -545,6 +591,8 @@ impl<'a> Run<'a> {
           PlannedEffect::StartRobot { route } => self.start(route).await,
           PlannedEffect::CreatePullRequest => self.create_pull_request().await,
           PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
+          PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
+          PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
         }
       };
       self.records.push(EffectRecord { effect, status });
@@ -596,7 +644,11 @@ impl<'a> Run<'a> {
     let current = self.host.current().await;
     let host = self.host;
     let write = move |robot: PatronusRobot| host.write_robot(robot);
-    match crate::robot::cancel(&self.services.patronus, &self.services.prefix, &current.robots, robot_id, &write).await {
+    let patronus = match self.services.patronus() {
+      Ok(patronus) => patronus,
+      Err(error) => return self.fail(error),
+    };
+    match crate::robot::cancel(patronus, &self.services.prefix, &current.robots, robot_id, &write).await {
       Ok(canceled) => {
         self.version = canceled.version.or(self.version);
         self.canceled = Some(canceled.robot);
@@ -613,7 +665,10 @@ impl<'a> Run<'a> {
       return skipped;
     }
     self.steps.step(OperationStep::Starting);
-    let answer = self.services.patronus.restart(&self.services.prefix, robot_id).await.map_err(patronus_failure);
+    let answer = match self.services.patronus() {
+      Ok(patronus) => patronus.restart(&self.services.prefix, robot_id).await.map_err(patronus_failure),
+      Err(error) => Err(error),
+    };
     self.robot_started(answer).await
   }
 
@@ -712,10 +767,15 @@ impl Run<'_> {
         Err(error) => return Some(self.fail(error)),
         Ok(read) if read != tips => {
           let moved: Vec<String> = read.iter().filter(|(name, tip)| tips.get(*name) != Some(tip)).map(|(name, _)| short(name)).collect();
-          return Some(self.skip(changed_before_start(&format!("{} changed after the push", moved.join(", ")))));
+          let changed = changed_before_start(&format!("{} changed after the push", moved.join(", ")), &self.planned.plan.intent);
+          return Some(self.skip(changed));
         }
         Ok(_) => {}
       }
+    }
+    // a plan that lands nothing (a pull request, a review request) starts no robot another one could race
+    if self.planned.plan.lands.is_empty() {
+      return None;
     }
     let current = self.host.current().await;
     let plan = &self.planned.plan;
@@ -726,7 +786,7 @@ impl Run<'_> {
       lands && is_active(robot) && (robot.push_mode == PatronusPushMode::DryRun) == dry_run && !self.known.contains(&robot.id) && Some(robot.id.as_str()) != canceled
     });
     if let Some(robot) = started {
-      return Some(self.skip(changed_before_start(&format!("a robot of what it lands started meanwhile ({})", robot.url))));
+      return Some(self.skip(changed_before_start(&format!("a robot of what it lands started meanwhile ({})", robot.url), &plan.intent)));
     }
     if let Some(StartRoute::Comment { number }) = plan.start_route()
       && let Some(closed) = current
@@ -734,7 +794,10 @@ impl Run<'_> {
         .iter()
         .find(|pull_request| pull_request.number == *number && pull_request.state != PullRequestState::Open)
     {
-      return Some(self.skip(changed_before_start(&format!("pull request #{} is {:?} now", closed.number, closed.state).to_lowercase())));
+      return Some(self.skip(changed_before_start(
+        &format!("pull request #{} is {:?} now", closed.number, closed.state).to_lowercase(),
+        &plan.intent,
+      )));
     }
     None
   }
@@ -745,10 +808,16 @@ fn short(full: &str) -> String {
   full.rsplit('/').next().unwrap_or(full).to_string()
 }
 
-/// What the start was planned on changed after its first effects, before its robot (`what`): no robot started, and the
-/// effects before stay done
-fn changed_before_start(what: &str) -> ApiError {
-  ApiError::new(ErrorCode::PlanChanged, format!("{what}: no robot started"))
+/// What the run of `intent` was planned on changed after its first effects, before its last one (`what`): no robot
+/// started, no pull request was opened, nobody was asked; the effects before stay done
+fn changed_before_start(what: &str, intent: &Intent) -> ApiError {
+  let undone = match intent {
+    Intent::CreatePullRequest(create) if create.on_github => "GitHub's form was not opened",
+    Intent::CreatePullRequest(_) => "no pull request was opened",
+    Intent::RequestReview { .. } => "nobody was asked to review",
+    _ => "no robot started",
+  };
+  ApiError::new(ErrorCode::PlanChanged, format!("{what}: {undone}"))
 }
 
 /// The user stopped the start before this effect (`cancel_operation`)
@@ -775,7 +844,10 @@ impl Run<'_> {
           profile: profile.as_ref().map(|profile| profile.id.clone()),
           merge_request: self.planned.merge_request.clone(),
         };
-        let answer = start_through_api(&self.services.patronus, start).await;
+        let answer = match self.services.patronus() {
+          Ok(patronus) => start_through_api(patronus, start).await,
+          Err(error) => Err(error),
+        };
         self.robot_started(answer).await
       }
       StartRoute::Comment { number } => self.comment(*number, mode).await,
@@ -817,18 +889,39 @@ impl Run<'_> {
     }
   }
 
-  /// The pull request of the subject is opened, after its push (GitHub may not know the branch for a moment)
-  async fn create_pull_request(&mut self) -> EffectStatus {
+  /// Before a write to GitHub, the last effect of a plan: the checks before a start, the step, the GitHub service and
+  /// repository of the branches; else the status of the effect
+  async fn before_write(&mut self) -> Result<(Arc<GitHubService>, GitHubRepository), EffectStatus> {
     if let Some(skipped) = self.before_start().await {
-      return skipped;
+      return Err(skipped);
     }
     self.steps.step(OperationStep::Writing);
-    let Some((github, repository)) = &self.services.github else {
-      return self.fail(ApiError::new(ErrorCode::InvalidArguments, "The GitHub repository of the branches is unknown"));
+    match &self.services.github {
+      Some((github, repository)) => Ok((Arc::clone(github), repository.clone())),
+      None => Err(self.fail(ApiError::new(ErrorCode::InvalidArguments, "The GitHub repository of the branches is unknown"))),
+    }
+  }
+
+  /// The pull request of the subject is opened, after its push (GitHub may not know the branch for a moment)
+  async fn create_pull_request(&mut self) -> EffectStatus {
+    let (github, repository) = match self.before_write().await {
+      Ok(github) => github,
+      Err(status) => return status,
     };
-    let text = match self.host.pull_request_text(self.pushed.as_ref()).await {
-      Ok(text) => text,
-      Err(error) => return self.fail(error),
+    // the text the user wrote, else the host's (`bd safe-push --create-pull-request`)
+    let text = match &self.planned.plan.intent {
+      Intent::CreatePullRequest(create) => PullRequestText {
+        head: self.planned.source_ref.trim_start_matches("refs/heads/").to_string(),
+        base: self.services.target.clone(),
+        title: create.title.clone(),
+        body: create.body.clone(),
+        reviewers: create.reviewers.clone(),
+        assign_self: create.assign_self,
+      },
+      _ => match self.host.pull_request_text(self.pushed.as_ref()).await {
+        Ok(text) => text,
+        Err(error) => return self.fail(error),
+      },
     };
     let params = CreatePullRequestParams {
       repository_path: self.services.repository_path.clone(),
@@ -841,13 +934,63 @@ impl Run<'_> {
       assign_self: text.assign_self,
       wait_for_mirror: self.pushed.is_some(),
     };
-    match create_pull_request(github, repository, &params).await {
+    match create_pull_request(&github, &repository, &params).await {
       Ok(created) => {
+        let write = PullRequestWrite::Created {
+          pull_request: created.pull_request.clone(),
+        };
+        self.version = self.host.write_pull_request(write).await.or(self.version);
         self.created = Some(created);
         EffectStatus::Done
       }
       Err(error) => self.fail(crate::robot_start::github_failure(error)),
     }
+  }
+
+  /// GitHub has the pushed `branch` (a mirror copies it a moment after the push), asked again for a while: GitHub's form
+  /// of a new pull request shows nothing of a branch it doesn't have
+  async fn wait_for_mirror(&mut self, branch: &str) -> EffectStatus {
+    let (github, repository) = match self.before_write().await {
+      Ok(github) => github,
+      Err(status) => return status,
+    };
+    match wait_for_branch(&github, &self.services.repository_path, &repository, branch, MIRROR_WAIT).await {
+      Ok(true) => EffectStatus::Done,
+      Ok(false) => self.fail(ApiError::new(
+        ErrorCode::NetworkError,
+        format!("GitHub doesn't have {branch} yet: a mirror copies a pushed branch a moment later; try again"),
+      )),
+      Err(failure) => self.fail(ApiError::new(ErrorCode::NetworkError, failure_message(&failure))),
+    }
+  }
+
+  /// `reviewers` are asked to review the pull request `number`; whom GitHub asked goes into the facts. GitHub asking
+  /// nobody (it refused each: the author, a user without access) fails the effect with each reason
+  async fn request_reviewers(&mut self, number: u32, reviewers: &[String]) -> EffectStatus {
+    let (github, repository) = match self.before_write().await {
+      Ok(github) => github,
+      Err(status) => return status,
+    };
+    let requested = match request_pull_request_reviewers(&github, &self.services.repository_path, &repository, number, reviewers).await {
+      Ok(requested) => requested,
+      Err(GitHubWriteError::Refused(message)) => return self.fail(ApiError::new(ErrorCode::InvalidArguments, message)),
+      Err(error) => return self.fail(crate::robot_start::github_failure(error)),
+    };
+    let write = PullRequestWrite::ReviewersRequested {
+      number,
+      requested: requested.requested.clone(),
+    };
+    self.version = self.host.write_pull_request(write).await.or(self.version);
+    let nobody = requested.requested.is_empty();
+    let refused: Vec<String> = requested.refused.iter().map(|refused| format!("{}: {}", refused.login, refused.reason)).collect();
+    self.requested = Some(requested);
+    if nobody {
+      return self.fail(ApiError::new(
+        ErrorCode::ReviewRefused,
+        format!("GitHub asked nobody to review pull request #{number}: {}", refused.join("; ")),
+      ));
+    }
+    EffectStatus::Done
   }
 
   /// The run as its outcome tells it, with what its effects answered
@@ -860,6 +1003,8 @@ impl Run<'_> {
         canceled: self.canceled.clone(),
         already_finished: false,
       })),
+      Intent::CreatePullRequest(_) => self.created.clone().map_or_default(|created| OperationResult::PullRequest(Box::new(created))),
+      Intent::RequestReview { .. } => self.requested.clone().map_or_default(|requested| OperationResult::Reviewers(Box::new(requested))),
       _ => OperationResult::Land(Box::new(LandResult {
         robot: self.robot.clone(),
         canceled: self.canceled.clone(),
@@ -871,10 +1016,15 @@ impl Run<'_> {
         notes: self.planned.notes.clone(),
       })),
     };
+    // the event of the robot of the subject: a pull request or a review request has no toast of a robot to replace
+    let news_key = match &self.planned.plan.intent {
+      Intent::CreatePullRequest(_) | Intent::RequestReview { .. } => None,
+      _ => Some(NewsKey::RobotSubject { subject, mode }),
+    };
     let outcome = Outcome {
       op,
       effects: self.records,
-      news_key: Some(NewsKey::RobotSubject { subject, mode }),
+      news_key,
       version_after: self.version,
       result,
       stats: OperationStats {
@@ -891,6 +1041,7 @@ impl Run<'_> {
       robot: self.robot,
       commented: self.commented,
       created: self.created,
+      requested: self.requested,
     }
   }
 }

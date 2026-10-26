@@ -4,17 +4,17 @@
 // work its remote lacks, the running robot canceled before the push; a cancel of a robot that finished meanwhile is
 // answered as it ended. The page only words how it went: the next state of the toast of the robot ("Safe Push
 // restarted", "Safe Push is canceling"), the remote that moved with the push that restarts it, or why not.
-import type { OperationEvent, Outcome, PatronusRobot, RobotResult } from "@/lib/bindings"
+import type { Outcome, PatronusRobot, RobotResult } from "@/lib/bindings"
 import { getErrorCode, notifyError } from "@/lib/errors"
 import { showRemoteMovedToast } from "@/lib/git/push"
 import { describeRobot, formatPushMode, formatRobotSubject } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/robot-toast"
 import type { IntentRun } from "@/lib/run-intent"
-import { failedEffect, runFailure, runIntent } from "@/lib/run-intent"
+import { failedEffect, pushShown, runFailure, runIntent } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { recordRobot } from "@/stores/activity"
-import { getBranch, setBranchPushing, setBranchPushProgress } from "@/stores/branch-sync"
+import { getBranch } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
@@ -51,30 +51,6 @@ function tellFailure(title: string, run: IntentRun, noPlan: string): void {
 }
 
 /**
- * What the push buttons show of the push of a restart while it sends (the step `pushing` of its run): the branch of the
- * robot, or the stack branch of its whole stack ("Pushing the whole stack 45%"), with the percent and the line of git;
- * `done` clears it
- */
-function pushShown(robot: PatronusRobot, repositoryPath: string): { readonly onEvent: (event: OperationEvent) => void; readonly done: () => void } {
-  const key = robot.branchName ?? (robot.stackRoot == null ? null : stackReadinessKey(robot.stackRoot))
-  let pushing = false
-  const show = (now: boolean) => {
-    if (key !== null && now !== pushing) {
-      pushing = now
-      setBranchPushing(key, now, repositoryPath)
-    }
-  }
-  const onEvent = (event: OperationEvent) => {
-    if (event.kind === "step") {
-      show(event.step.kind === "pushing")
-    } else if (event.kind === "progress" && pushing && key !== null) {
-      setBranchPushProgress(key, { percent: event.percent, line: event.line, transferred: null, speed: null }, repositoryPath)
-    }
-  }
-  return { onEvent, done: () => show(false) }
-}
-
-/**
  * Restarts `robot` in `repositoryPath` (the repository the main window shows, where its action ran): in the toast of
  * the robot "Safe Push restarted", in place of its own (a failed robot's toast becomes the restart); the push it makes
  * first shows on the push button of its branch or of its whole stack. A push the remote refused because the remote
@@ -83,7 +59,9 @@ function pushShown(robot: PatronusRobot, repositoryPath: string): { readonly onE
  */
 export async function restartRobot(robot: PatronusRobot, repositoryPath: string = getSelectedRepositoryPath()): Promise<PatronusRobot | null> {
   const mode = formatPushMode(robot.pushMode)
-  const push = pushShown(robot, repositoryPath)
+  // the push it makes first shows on the push button of its branch, or of its whole stack
+  const key = robot.branchName ?? (robot.stackRoot == null ? null : stackReadinessKey(robot.stackRoot))
+  const push = pushShown(key === null ? [] : [key], repositoryPath)
   const run = await runIntent(repositoryPath, { kind: "restartRobot", robotId: robot.id }, push.onEvent).finally(push.done)
   const restarted = restartedOf(run)
   if (restarted !== null) {

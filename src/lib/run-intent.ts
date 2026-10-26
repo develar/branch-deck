@@ -11,7 +11,7 @@ import { whenSessionViewAt } from "@/model/store"
 import { formatReason } from "@/presenters/reasons"
 import { recordPush, recordRetarget } from "@/stores/activity"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { getBranch } from "@/stores/branch-sync"
+import { getBranch, setBranchesPushProgress, setBranchPushing } from "@/stores/branch-sync"
 import { getPullRequest } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
 
@@ -55,6 +55,31 @@ export async function runIntent(repositoryPath: string, intent: Intent, onEvent:
   await whenSessionViewAt(repositoryPath, executed.data.versionAfter)
   recordEffects(executed.data, repositoryPath, before)
   return { kind: "ran", plan, outcome: executed.data }
+}
+
+/**
+ * What the push buttons show of the push an intent makes first while it sends (the step `pushing` of its run): `keys`,
+ * the rows whose push it is (a branch, `stackReadinessKey(root)` of a whole stack), with the percent and the line of
+ * git; `done` clears it
+ */
+export function pushShown(keys: readonly string[], repositoryPath: string): { readonly onEvent: (event: OperationEvent) => void; readonly done: () => void } {
+  let pushing = false
+  const show = (now: boolean) => {
+    if (now !== pushing) {
+      pushing = now
+      for (const key of keys) {
+        setBranchPushing(key, now, repositoryPath)
+      }
+    }
+  }
+  const onEvent = (event: OperationEvent) => {
+    if (event.kind === "step") {
+      show(event.step.kind === "pushing")
+    } else if (event.kind === "progress" && pushing) {
+      setBranchesPushProgress(keys, { percent: event.percent, line: event.line, transferred: null, speed: null }, repositoryPath)
+    }
+  }
+  return { onEvent, done: () => show(false) }
 }
 
 /** The first effect of `outcome` that failed, with its error; null when none did */

@@ -12,7 +12,7 @@ use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatu
 use domain_types::pull_request::PullRequestState;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{PatronusView, RestartAction, RobotRestart};
-use domain_types::session::{Fact, FactState, LandedSection, PullRequestsView, Version};
+use domain_types::session::{Fact, FactState, LandedSection, PullRequestsView, SubjectReadiness, Version};
 use history_rewrite::repository_lock::lock_repository_in;
 use pretty_assertions::assert_eq;
 use repository_model::branch_table::{BranchTable, RemoteFact};
@@ -29,21 +29,23 @@ fn robot_on(id: &str, status: PatronusRobotStatus, source: &str) -> PatronusRobo
   }
 }
 
-/// What a plan of a restart reads, as a test holds it: the table of `auth` at `TIP`, its robots, the restarts the view
-/// offers and the pull requests of the session
-struct Sources {
-  table: BranchTable,
+/// What a plan of a restart (and of a pull request, `pull_request_test`) reads, as a test holds it: the table of `auth`
+/// at `TIP`, its robots, the restarts the view offers, the pull requests of the session and the review readiness of its
+/// subjects
+pub(crate) struct Sources {
+  pub(crate) table: BranchTable,
   robots: Vec<PatronusRobot>,
-  view: PatronusView,
-  pull_requests: PullRequestsView,
+  pub(crate) view: PatronusView,
+  pub(crate) pull_requests: PullRequestsView,
   profiles: Fact<PatronusStartOptions>,
   baseline: LandedSection,
+  pub(crate) readiness: BTreeMap<String, Fact<SubjectReadiness>>,
 }
 
 impl Sources {
   /// `auth` at `TIP` with its remote branch at `remote` (`up_to_date` it has the branch), and `robots`, each offering
   /// `action`
-  fn new(remote: Option<&str>, up_to_date: bool, robots: Vec<PatronusRobot>, action: RestartAction) -> Self {
+  pub(crate) fn new(remote: Option<&str>, up_to_date: bool, robots: Vec<PatronusRobot>, action: RestartAction) -> Self {
     let mut table = table();
     table.remote.branches.insert(
       "auth".to_owned(),
@@ -65,11 +67,17 @@ impl Sources {
       pull_requests: PullRequestsView::default(),
       profiles: Fact::default(),
       baseline: LandedSection::default(),
+      readiness: BTreeMap::new(),
     }
   }
 
   fn planned(&self, robot_id: &str) -> Option<Planned> {
-    let readiness = |_: &str| None;
+    self.with(|sources| restart_planned(sources, robot_id))
+  }
+
+  /// `decide` over these sources
+  pub(crate) fn with<T>(&self, decide: impl FnOnce(&LandSources<'_>) -> T) -> T {
+    let readiness = |key: &str| self.readiness.get(key);
     let sources = LandSources {
       table: &self.table,
       remote: &self.table.remote,
@@ -87,7 +95,7 @@ impl Sources {
       gate: None,
       target_conflict: None,
     };
-    restart_planned(&sources, robot_id)
+    decide(&sources)
   }
 }
 
@@ -253,7 +261,7 @@ async fn a_restart_on_the_remote_branch_takes_no_lock() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancel_of_a_robot_that_finished_is_as_it_ended_and_cancels_nothing() {
   let fixture = fixture().await;
-  let patronus = &fixture.services.patronus;
+  let patronus = fixture.services.patronus.as_deref().expect("the fake Patronus");
   let written = Mutex::new(Vec::new());
   let write = |robot: PatronusRobot| {
     written.lock().unwrap().push(format!("{} {:?}", robot.id, robot.status));
@@ -283,7 +291,7 @@ async fn a_cancel_of_a_robot_that_finished_is_as_it_ended_and_cancels_nothing() 
 }
 
 /// The operation that runs a request of the registry, as it is in the session
-fn running(id: &str, request: &crate::registry::OperationRequest) -> RunningOperation {
+pub(crate) fn running(id: &str, request: &crate::registry::OperationRequest) -> RunningOperation {
   RunningOperation {
     id: OperationId(id.to_owned()),
     intent: request.intent.clone(),

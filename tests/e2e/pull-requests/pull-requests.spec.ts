@@ -258,7 +258,8 @@ test.describe("Pull request chip", () => {
 
   test("should create the pull request with the reviewers it searched and the user as its assignee", async ({ page, repo }) => {
     const searches = await recordCommand(page, "search_github_users")
-    const creates = await recordCommand(page, "create_pull_request")
+    // the intents the page runs (`execute`): the creation is one of them
+    const runs = await recordCommand(page, "execute")
 
     const dialog = await openDialogAfterPush(page)
     const title = dialog.getByTestId("create-pull-request-title")
@@ -278,20 +279,20 @@ test.describe("Pull request chip", () => {
 
     await title.press("ControlOrMeta+Enter")
     await expect(dialog).toHaveCount(0)
-    expect(creates).toEqual([
-      {
-        // the repository only: Rust resolves the prefix of its branches
+    expect(runs).toEqual([
+      expect.objectContaining({
+        // the repository only: Rust resolves the prefix of its branches, the head and the base
         repositoryPath: expect.any(String),
-        branchName: "feature-auth",
-        head: "user-name/virtual/feature-auth",
-        base: "master",
-        title: "Add auth & login",
-        body: AUTH_BODY,
-        reviewers: ["bob"],
-        assignSelf: true,
-        // pushed before the dialog opened: no push, no wait for a mirror
-        waitForMirror: false,
-      },
+        intent: {
+          kind: "createPullRequest",
+          subject: { kind: "branch", name: "feature-auth" },
+          title: "Add auth & login",
+          body: AUTH_BODY,
+          reviewers: ["bob"],
+          assignSelf: true,
+          onGitHub: false,
+        },
+      }),
     ])
     // GitHub got the pull request, then the user as its assignee, then the reviewer
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual([

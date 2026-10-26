@@ -30,6 +30,8 @@ tracing.workspace = true
 domain-types = { path = "../domain-types", features = ["fixtures"] }
 # the fake Patronus whose requests a push counts
 patronus = { path = "../patronus", features = ["fake"] }
+# the fake GitHub a creation and a review request write to
+github = { path = "../github", features = ["fake"] }
 test-utils = { path = "../test-utils" }
 pretty_assertions.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

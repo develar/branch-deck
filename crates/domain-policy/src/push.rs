@@ -371,6 +371,29 @@ pub fn branch_push(repo: &Repository<'_>, state: impl Fn(&str) -> PushState, sta
   }
 }
 
+/// What the push of an action that needs a branch on the remote makes first (`action_push`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActionPush<'a> {
+  /// The branches it is built on that go, root first, above the nearest one whose push asks first (`BranchPush::action`)
+  pub ancestors: Vec<&'a str>,
+  /// What the branch itself does in the push
+  pub own: Verdict,
+}
+
+/// What the push of an action that needs `name` on the remote sends (Create Pull Request, Request Review: the push of
+/// the push button too, `BranchPush::action`): Push Stack of it (`push_plan`) without the ancestors from the nearest one
+/// whose push asks first on, which its own row asks for, then the branch by what it does; `None` for a branch the table
+/// lacks
+#[must_use]
+pub fn action_push<'a>(repo: &Repository<'a>, state: impl Fn(&str) -> PushState, name: &str) -> Option<ActionPush<'a>> {
+  let plan = push_plan(repo, state, name, PushScope::WithAncestors);
+  let (&(_, own), before) = plan.steps.split_last()?;
+  Some(ActionPush {
+    ancestors: above_ask_first(before),
+    own,
+  })
+}
+
 /// Of the ancestors of a plan, root first, those that go above the nearest one that asks first: a push started without
 /// asking leaves it, and what it is built on, to its own row
 fn above_ask_first<'a>(ancestors: &[(&'a str, Verdict)]) -> Vec<&'a str> {

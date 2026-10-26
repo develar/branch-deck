@@ -34,7 +34,6 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { holdCommand, recordCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
@@ -231,7 +230,7 @@ test.describe("Whole stack", () => {
     await syncAndWaitForBranches()
     const held = await holdRemotePushes(repo)
     const created = stackPullRequest("air", 12)
-    const creates = await recordCommand(page, "create_pull_request")
+    const creates = () => gitHubRequests(repo, "POST", "pulls")
     const dialog = createPullRequestDialog(page)
     // the menus are built on open: Patronus and GitHub answered once a branch's menu offers its pull request
     await expect(island(page, "air").getByTestId("stack-island-actions").getByTestId("safe-push-button")).toBeVisible()
@@ -270,10 +269,9 @@ test.describe("Whole stack", () => {
     // the push of the stack branch it starts with shows in the button, as the push of a branch does
     await held.arrived()
     await expect(submit).toContainText(/Pushing \d+%/)
-    expect(creates).toEqual([])
+    expect(await creates()).toEqual([])
     await held.release()
-    await expect.poll(() => creates.length).toBe(1)
-    expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", base: "master", title: "air, with the 6 branches built on it", waitForMirror: true })
+    await expect.poll(creates).toEqual([expect.objectContaining({ head: "user-name/stack/air", base: "master", title: "air, with the 6 branches built on it" })])
     // it pushed the stack branch alone
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     expect(await pushedBranches(repo)).toEqual([stackBranchOf("air")])
@@ -295,7 +293,6 @@ test.describe("Whole stack", () => {
     syncAndWaitForBranches,
   }) => {
     const { slot, repo } = await setupAwaitingCodeOwner(page, setupRepo, syncAndWaitForBranches)
-    const creates = await recordCommand(page, "create_pull_request")
 
     // the step of the header opens the dialog of the stack branch, the code owner Patronus suggests asked to review
     await slot.getByTestId("next-step").click()
@@ -303,13 +300,14 @@ test.describe("Whole stack", () => {
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
     await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
     await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "yourStep")
-    const releaseCreate = await holdCommand(page, "create_pull_request")
+    // GitHub creates it only when the test lets it
+    await repo.holdRemoteAnswers({ hold: ["createPullRequest"] })
     await dialog.getByTestId("create-pull-request-submit").click()
     // the creation is the move of the whole stack: its node waits for GitHub from the click on
     await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "waiting")
-    releaseCreate()
-    await expect.poll(() => creates.length).toBe(1)
-    expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", reviewers: ["ikorennoy"] })
+    await repo.holdRemoteAnswers({ release: ["createPullRequest"] })
+    await expect.poll(() => gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/stack/air" })])
+    await expect.poll(() => gitHubRequests(repo, "POST", "pulls", "*", "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
     await expectPushedToRemote(repo, [stackBranchOf("air")])
   })
 
@@ -784,10 +782,8 @@ test.describe("Whole stack", () => {
     await expect(createPullRequestDialog(page)).toHaveCount(0)
 
     // Create: the main window pushes the stack branch alone and creates it; the toast is in the window
-    const creates = await recordCommand(page, "create_pull_request")
     await dialog.getByTestId("create-pull-request-submit").click()
-    await expect.poll(() => creates.length).toBe(1)
-    expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", base: "master" })
+    await expect.poll(() => gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/stack/air", base: "master" })])
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     expect(await pushedBranches(repo)).toEqual([stackBranchOf("air")])
     await expect(window.locator("[data-slot=toast]").filter({ hasText: "Created pull request #12" })).toBeVisible()

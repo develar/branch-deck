@@ -23,20 +23,20 @@ import type { GitHubUser, NewPullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
-import { continueOnGitHub, PULL_REQUEST_DIALOG_ACTIONS, pullRequestSubject, submitPullRequest } from "@/lib/create-pull-request-context"
-import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import { notifyError } from "@/lib/errors"
 import { FROM_MENU } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { formatAvailabilityHint, openPullRequest } from "@/lib/pull-request"
 import type { CompareFields } from "@/lib/pull-request"
+import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/pull-request-dialog"
+import { continueOnGitHub, pullRequestOperationIn, submitPullRequest } from "@/lib/pull-request-run"
 import { formatStackPushing } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { transferLabel } from "@/lib/transfer-progress"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useIsStackBranchPushing, useStackBranchPushProgress, useStackPush } from "@/stores/branch-sync"
 import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePullRequestGeneration, useCreatePullRequestWholeStack } from "@/stores/create-pull-request-dialog"
-import { useSubjectRunning } from "@/stores/operations"
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
 
 /**
@@ -57,11 +57,15 @@ export function CreatePullRequestDialog() {
   if (branchName !== null && shown?.generation !== generation) {
     setShown({ branchName, wholeStack, generation })
   }
-  // the creation runs in this window: the dialog waits while its operation runs (`runOperation`)
-  const isCreating = useSubjectRunning(shown === null ? "" : pullRequestSubject(shown.branchName, shown.wholeStack), PULL_REQUEST_DIALOG_ACTIONS)
+  // the creation (or "Continue on GitHub") is an operation of the session: the dialog waits from the click on (its plan
+  // is asked first) and while the operation runs, also one another window asked
+  const key = shown === null ? "" : shown.wholeStack ? stackReadinessKey(shown.branchName) : shown.branchName
+  const [submitting, setSubmitting] = useState(false)
+  const running = useBranchSync(state => key !== "" && pullRequestOperationIn(state.operations, "createPullRequest", key) !== undefined)
+  const isCreating = submitting || running
   const titleRef = useRef<HTMLInputElement>(null)
   const branch = useBranchSync(state => (shown === null ? undefined : state.branches[shown.branchName]))
-  const formProps = { titleRef, isCreating }
+  const formProps = { titleRef, isCreating, setIsCreating: setSubmitting }
 
   return (
     <CreatePullRequestDialogFrame open={branchName !== null} isCreating={isCreating} titleRef={titleRef} onClose={closeCreatePullRequestDialog}>
@@ -124,9 +128,9 @@ export interface CreatePullRequestActions {
 
 interface FormProps {
   titleRef: RefObject<HTMLInputElement | null>
-  /** The creation or "Continue on GitHub" runs: the operation of the main window, or the request a review window sent */
+  /** The creation or "Continue on GitHub" runs: the operation of the session, or the request a review window sent */
   isCreating: boolean
-  /** A review window's own wait for the main window; the main window reads its operation */
+  /** The wait of the form from the click on, until its action answered */
   setIsCreating?: (isCreating: boolean) => void
 }
 

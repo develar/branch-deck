@@ -2,13 +2,13 @@
 macro_rules! read_only {
   () => {
     "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd robot-stats`, `bd schema`,
-`bd version`, `bd describe <branch>` without a setter, `bd request-review --check`, `bd update --status` without
+`bd version`, `bd describe <branch>` without a setter, `bd update --status` without
 --materialize, `bd lease status`, `bd workspace`, and
 `bd group --dry-run`, `bd rename --dry-run`, `bd restack --dry-run`, `bd unstack --dry-run`, `bd update --dry-run`
 (also with --continue), `bd pick --dry-run`, `bd fold --dry-run`, `bd move-hunk --dry-run` and `bd reword --dry-run`
 write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
 object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of each tree.
-`bd push --dry-run` and `bd safe-push --check` sync first."
+`bd push --dry-run`, `bd safe-push --check` and `bd request-review --check` sync first."
   };
 }
 
@@ -557,10 +557,12 @@ merge; when the app isn't running, tell the user that they stay open.
 /// `bd request-review --help`: whom it asks and its refusals
 pub const REQUEST_REVIEW_HELP: &str = "\
 A pull request that asks no code owner of a missing group: `bd request-review <branch> --check` names whom
-it would ask (`reviewers`: one suggested code owner of each such group); once approved, `bd request-review
-<branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these instead): `requested`, `refused` with
-GitHub's reason, `waiting_for`. `no_pull_request` (exit 4): none is open, or a draft; `no_reviewer`: Patronus
-names no GitHub login, ask the user whom; `review_refused`: GitHub asked nobody.
+it would ask (`reviewers`: one suggested code owner of each such group) and what it would push first (`pushed`);
+once approved, `bd request-review <branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these
+instead): `requested`, `refused` with GitHub's reason, `waiting_for`. `needs_push` (exit 4): the branch has commits
+its remote lacks, which the reviewers would not see; once the user approves the push, --push pushes them first
+(`pushed`). `no_pull_request`: none is open, or a draft; `no_reviewer`: Patronus names no GitHub login, ask the
+user whom; `review_refused`: GitHub asked nobody.
 ";
 
 /// `bd robot --help`: the robot of a branch and why it failed

@@ -526,10 +526,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
 - **GitHub bridge**: the reads of the session's pull requests, of the rules of their bases and of the review requests
   of others (`TestFactSources`: the pull requests, counted, and the rules of a base, each holding the
   repository as a command does, and `review_requests_of`, counted, which answers the fixture of the review requests),
-  `create_pull_request`, `close_pull_request` and `request_pull_request_reviewers` (which
-  give what they wrote to the session of the repository and answer the version of its patch, as the app's commands
-  do), `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request` (the text of the real core, the
-  viewer GitHub answers), `wait_for_github_branch`, `search_github_users` and `submit_pull_request_review` call the
+  `close_pull_request` (which gives what it wrote to the session of the repository and answers the version of its
+  patch, as the app's command does), `get_pull_request_head`, `get_new_pull_request` and `get_new_stack_pull_request`
+  (the text of the real core, the viewer GitHub answers), `search_github_users` and `submit_pull_request_review` call the
   cores as `src-tauri/src/commands/pull_requests.rs` does, with the GitHub repository the real
   `resolve_github_repository` reads (or the one the page names); `post_patronus_command` and `read_patronus_command_reply` as `commands/patronus.rs` does.
 - **GitHub sign-in**: `get_github_auth_status`, `start_github_sign_in`, `wait_github_sign_in`, `cancel_github_sign_in`
@@ -571,9 +570,12 @@ log of the fake). No test answers a remote write in the page: the registry test 
   command, a review, a `/patronus` comment or the text of a new pull request in the page.
 - **Held answers**: `POST /repositories/{id}/remote-gates` (`holdRemoteAnswers({ hold, fail, release })`) holds
   answers of the fakes from now on, fails them, or releases them: `pullRequests` (GitHub's search of the user's pull
-  requests, `POST /graphql` whose body has `author:@me`), `robots` (the list of Patronus, `GET /app/rest/v1/robots`),
+  requests, `POST /graphql` whose body has `author:@me`), `createPullRequest` (`POST /repos/*/*/pulls`) and
+  `requestReviewers` (`POST /repos/*/*/pulls/*/requested_reviewers`), the writes the engine's creation and review
+  request end with (`FakeGitHub::hold`), `robots` (the list of Patronus, `GET /app/rest/v1/robots`),
   `readiness` (the pre-check, `POST /app/rest/v1/pre-merge-approval-required-check`), `robotProblems` (why a robot
-  failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold` matches any one) and
+  failed, `GET /app/rest/v1/robots/*/problems`: a `*` segment of a route of `FakePatronus::hold` and `FakeGitHub::hold`
+  matches any one, `test_utils::fake_server::route_matches`) and
   the answers the server gives itself, which wait in their read: `reviewRequests` (the session's list, from their
   fixture, `review_requests_of`), `landingNeeds` (the computation of the landing needs of a session, `TestSessionEnvironment::landing_needs`),
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the

@@ -1,5 +1,5 @@
 //! The words of the refusals the rules give (`domain_types::reason::Reason`), as `bd` and the engine of the operations
-//! say them in their errors: why a start, a restart or a push is not possible ("A Safe Push of the last commit is
+//! say them in their errors: why a start, a restart, a push or a review request is not possible ("A Safe Push of the last commit is
 //! running"), and why the stack branch of a whole stack is no build of its commits. The page words the same codes
 //! itself (`src/presenters/reasons.ts`).
 
@@ -49,6 +49,11 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
         note: note.clone(),
         with: with.clone(),
       },
+    ),
+    Reason::NeedsPush { branch } => format!("{branch} has commits its remote branch lacks, which the reviewers would not see; --push pushes them first"),
+    Reason::NoReviewer { groups } => format!(
+      "Patronus names no code owner with a GitHub login to ask for {}: pass --reviewer <login>",
+      join_names(groups)
     ),
     Reason::Unprotected { target } => format!("Patronus does not protect {target}: a robot can't be started into it"),
     Reason::Draft { number } => format!("Pull request #{number} is a draft: Patronus merges it once it is ready for review"),

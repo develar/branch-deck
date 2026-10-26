@@ -47,6 +47,17 @@ impl Drop for FakeServer {
   }
 }
 
+/// `route` (`METHOD /path`) is the one `pattern` names: segment by segment, a `*` segment matching any one; the route
+/// of a hold or a failure of a fake (`FakePatronus::hold`, `FakeGitHub::hold`)
+#[must_use]
+pub fn route_matches(pattern: &str, route: &str) -> bool {
+  let mut segments = route.split('/');
+  pattern
+    .split('/')
+    .all(|expected| segments.next().is_some_and(|segment| expected == "*" || expected == segment))
+    && segments.next().is_none()
+}
+
 /// A gate that holds the requests a fake routes to it until `open`: a barrier for a test of what runs while a request is
 /// in flight (`FakeGitHub::hold`, `FakePatronus::hold`, the held answers of the E2E test server)
 pub struct FakeGate {

@@ -74,7 +74,8 @@ targets:
   - ../../src/components/branch/LandedChip.tsx
   - ../../src/lib/git/push-toast.tsx
   - ../../src/lib/git/new-pull-request.ts
-  - ../../src/lib/create-pull-request-context.ts
+  - ../../src/lib/pull-request-dialog.ts
+  - ../../src/lib/pull-request-run.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../crates/bd-remote/src/pull_request_retarget.rs
   - ../../crates/remote-facts/src/pull_request_writes.rs
@@ -266,7 +267,7 @@ menu stacks, unstacks and renames branches.
   and its dialog says what it holds ("Includes the commits of auth and login, which oauth is built on: 3 branches · 12
   commits"); `bd push` prints its `gh pr create` with `--base master` ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../src/lib/stack.test.ts (`is the baseline as the remote names it for every branch, stacked or not`)
-  [@test] ../../src/lib/create-pull-request-context.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
+  [@test] ../../src/lib/pull-request-dialog.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
   [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
 - After a push, the toast is the push toast of any branch ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)):
   it says what the push did and offers "Create Pull Request…" (into the baseline) or "Open Pull Request". It names no

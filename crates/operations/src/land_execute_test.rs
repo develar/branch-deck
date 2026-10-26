@@ -15,6 +15,7 @@ use patronus::service::PatronusService;
 use patronus::token::{Token, TokenLookup, TokenStamp};
 use pretty_assertions::assert_eq;
 use remote_facts::fact_sources::Read;
+use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::table::RemoteSubject;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -81,6 +82,11 @@ impl StartHost for Host {
   fn pull_request_text<'a>(&'a self, _sent: Option<&'a Sent>) -> Read<'a, Result<PullRequestText, ApiError>> {
     Box::pin(std::future::ready(Err(ApiError::internal("no pull request"))))
   }
+
+  fn write_pull_request(&self, write: PullRequestWrite) -> Read<'_, Option<Version>> {
+    self.tell(format!("pull request {write:?}"));
+    Box::pin(std::future::ready(None))
+  }
 }
 
 /// `stack_ahead_of_bare_origin` (`alpha` not on the remote yet) and a fake Patronus whose Safe Push `r1` runs on an
@@ -109,7 +115,7 @@ pub(crate) async fn fixture() -> Fixture {
     repository_path: repo.path_str().to_string(),
     git_common_dir: common_dir,
     prefix: "test".to_string(),
-    patronus: Arc::new(service),
+    patronus: Some(Arc::new(service)),
     space: "ultimate".to_string(),
     github: None,
     target: "master".to_string(),

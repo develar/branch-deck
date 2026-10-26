@@ -149,8 +149,8 @@ async fn until_listings(client: &reqwest::Client, addr: std::net::SocketAddr, id
 }
 
 /// The pull requests of the fixture come through the real service from the fake GitHub of the repository, with the
-/// head of an empty `headRefOid` resolved; a creation and a close run the app's cores against the fake, a retarget the
-/// engine (`prepare` and `execute` of its intent), which lists what they changed and logs each request
+/// head of an empty `headRefOid` resolved; a creation and a retarget run the engine (`prepare` and `execute` of their
+/// intents), a close the app's core, against the fake, which lists what they changed and logs each request
 /// (`GET …/pull-requests`)
 #[tokio::test]
 async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real_service() {
@@ -169,19 +169,30 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   assert_eq!(pull_requests["availability"], json!({"status": "available", "owner": "acme", "name": "monorepo"}));
   assert_eq!(pull_requests["pullRequests"]["login"]["headRefOid"], tip.as_str());
 
-  // each write is in the session at once; a creation and a retarget list the pull requests again, a close does not
-  let create = json!({"repositoryPath": repository_path, "branchName": "auth", "head": "user-name/virtual/auth",
-    "base": "master", "title": "Add auth", "body": "b", "reviewers": ["bob", "user-name"], "assignSelf": true});
-  let created = post(&client, addr, "/invoke/create_pull_request", create).await;
-  assert!(created["version"].is_object(), "{created}");
-  let created = &created["outcome"];
-  assert_eq!((created["created"].clone(), created["assignees"].clone()), (json!(true), json!(["user-name"])));
+  // each write is in the session at once; a creation and a retarget list the pull requests again, a close does not.
+  // The creation and the retarget are intents of the engine, planned over the table of the sync: test-branch is not on
+  // the remote, so the creation pushes it first
+  sync(&client, addr, &repository_path).await;
+  let intent = json!({"kind": "createPullRequest", "subject": {"kind": "branch", "name": "test-branch"}, "title": "Add auth", "body": "b",
+    "assignSelf": true, "reviewers": ["bob", "user-name"]});
+  let plan = post(&client, addr, "/invoke/prepare", json!({"repositoryPath": repository_path, "intent": intent})).await;
+  assert_eq!(
+    plan["effects"],
+    json!([{"kind": "push", "branches": ["test-branch"], "force": false}, {"kind": "createPullRequest"}]),
+    "{plan}"
+  );
+  let execute = json!({"repositoryPath": repository_path, "intent": intent, "fingerprint": plan["fingerprint"], "accepted": []});
+  let created = post(&client, addr, "/invoke/execute", execute).await;
+  assert!(created["versionAfter"].is_object(), "{created}");
+  let created = &created["result"];
+  assert_eq!(
+    (created["kind"].clone(), created["created"].clone(), created["assignees"].clone()),
+    (json!("pullRequest"), json!(true), json!(["user-name"]))
+  );
   assert_eq!(created["pullRequest"]["number"], 8);
   assert_eq!(created["pullRequest"]["reviewers"], json!([{"login": "bob", "state": "requested", "requested": true}]));
   until_listings(&client, addr, &id, 3).await;
-  // the retarget is an intent of the engine: its plan moves the pull request into the target the sync names, its run in
-  // the session
-  sync(&client, addr, &repository_path).await;
+  // the retarget moves the pull request into the target the sync names
   let intent = json!({"kind": "retarget", "number": 7});
   let plan = post(&client, addr, "/invoke/prepare", json!({"repositoryPath": repository_path, "intent": intent})).await;
   assert_eq!(
@@ -198,13 +209,13 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   post(&client, addr, "/invoke/close_pull_request", close).await;
   let view = post(&client, addr, "/invoke/get_snapshot", json!({"repositoryPath": repository_path})).await;
   assert_eq!(
-    view["facts"]["pullRequests"]["pullRequests"]["auth"]["state"], "closed",
+    view["facts"]["pullRequests"]["pullRequests"]["test-branch"]["state"], "closed",
     "the close is in the session at once"
   );
 
   let pull_requests = listed(&client, addr, &repository_path).await;
   assert_eq!(pull_requests["pullRequests"]["login"]["baseRefName"], "master");
-  assert_eq!(pull_requests["pullRequests"]["auth"]["state"], "closed");
+  assert_eq!(pull_requests["pullRequests"]["test-branch"]["state"], "closed");
   let log = get(&client, addr, &format!("/repositories/{id}/pull-requests")).await;
   let writes: Vec<Value> = log["requests"]
     .as_array()
@@ -216,7 +227,7 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
   assert_eq!(
     writes,
     vec![
-      json!(["POST", "/repos/acme/monorepo/pulls", {"title": "Add auth", "body": "b", "head": "user-name/virtual/auth", "base": "master"}]),
+      json!(["POST", "/repos/acme/monorepo/pulls", {"title": "Add auth", "body": "b", "head": "user-name/virtual/test-branch", "base": "master"}]),
       json!(["POST", "/repos/acme/monorepo/issues/8/assignees", {"assignees": ["user-name"]}]),
       json!(["POST", "/repos/acme/monorepo/pulls/8/requested_reviewers", {"reviewers": ["bob"]}]),
       json!(["PATCH", "/repos/acme/monorepo/pulls/7", {"base": "master"}]),
@@ -224,7 +235,8 @@ async fn pull_requests_are_listed_created_retargeted_and_closed_through_the_real
       json!(["PATCH", "/repos/acme/monorepo/pulls/8", {"state": "closed"}]),
     ]
   );
-  assert_eq!(log["calls"], 5);
+  // the push the creation makes first lists the pull requests again too
+  assert_eq!(log["calls"], 6);
 }
 
 /// Signed out is no token file, which the status of the sign-in names too; a failure of the fixture is what the real

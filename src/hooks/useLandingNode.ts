@@ -21,20 +21,18 @@ import {
   useIsBranchPushing,
   useWholeStack,
 } from "@/stores/branch-sync"
-import { getOperationMoves, operationsStore } from "@/stores/operations"
 
 /*
  * The node of a row as Rust decides it (`nextSteps` of the view, `domain_policy::landing_node`) in the page's words
  * (`presentLandingNode`): a row reads its part of the view (`useRowPart(key, "landing")`, one kept reference) and what
  * the words read beside it, each a narrow selector; the move that runs on the row (its push too) is laid over it: the
- * moves of the operations of the session (`RepositoryView.operations`: a start of a Safe Push or a Dry Run from its
- * admission on), and the page's own until their families move into Rust (s9: a restart, a pull request, a review
- * request).
+ * moves of the operations of the session (`RepositoryView.operations`: a start or a restart of a robot, the creation of
+ * a pull request, a review request, from its admission on).
  */
 
-/** The moves that run: of the operations of the session, and of the page's operations that declare one */
+/** The moves that run: of the operations of the session */
 function runningMoves(): readonly RunningMove[] {
-  return [...presentOperationMoves(branchSyncStore.getState().operations), ...getOperationMoves()]
+  return presentOperationMoves(branchSyncStore.getState().operations)
 }
 
 /** The branches a Safe Push of `key` lands beside it: the members of a whole stack, the ancestors of a branch */
@@ -148,18 +146,16 @@ export function getStackNodeKindNow(root: string): LandingNodeKind | null {
 }
 
 /**
- * Renders again with `select` when a store a node reads changes: the view with the operations of the session, and the
- * page's operations that run until s9 moves their families. For what reads the nodes of many rows: the filter chips,
- * the states of a stack, the overview
+ * Renders again with `select` when a store a node reads changes: the view with the operations of the session. For what
+ * reads the nodes of many rows: the filter chips, the states of a stack, the overview
  */
 export function useNodeStores<T>(select: () => T): T {
-  useStore(branchSyncStore, select)
-  return useStore(operationsStore, select)
+  return useStore(branchSyncStore, select)
 }
 
 /** The states of the stores a node reads (`useNodeStores`), for what keeps the nodes of many rows it computed */
 export function nodeSources(): readonly unknown[] {
-  return [branchSyncStore.getState(), operationsStore.getState()]
+  return [branchSyncStore.getState()]
 }
 
 /** The running move of the row of `key` (`runningMoveNow`), re-rendering only when it changes: a selector of its text */

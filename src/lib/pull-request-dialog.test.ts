@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import { formatPullRequestIncludes } from "@/lib/create-pull-request"
-import type { CreatePullRequestFacts } from "@/lib/create-pull-request-context"
-import { toCreatePullRequestContext } from "@/lib/create-pull-request-context"
+import type { CreatePullRequestFacts } from "@/lib/pull-request-dialog"
+import { toCreatePullRequestContext } from "@/lib/pull-request-dialog"
 import type { Branch } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -10,7 +10,6 @@ const { branches } = vi.hoisted(() => ({ branches: {} as Record<string, Branch> 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 vi.mock("@/lib/bindings", () => ({ commands: {} }))
-vi.mock("@/lib/git/push", () => ({ pushForAction: async () => ({ pushed: true }) }))
 vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ baselineBranch: "origin/master" }) },
@@ -23,8 +22,6 @@ vi.mock("@/stores/branch-sync", () => ({
     }
     return found
   },
-  // the branches on the remote as they are: an action pushes the branch alone
-  getPushOrders: (name: string) => ({ stack: [name], action: [name], button: [], children: null }),
   getStackNotBuilt: () => null,
 }))
 vi.mock("@/stores/patronus", () => ({ getPushHold: () => null, getPatronusGitHubRepository: () => null }))

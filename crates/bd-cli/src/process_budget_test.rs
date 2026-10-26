@@ -1181,7 +1181,7 @@ fn a_robot_stats() {
   assert_processes(&context, &[("for-each-ref", 2), ("remote", 3), ("rev-parse", 2), ("symbolic-ref", 1)]);
 }
 
-/// `bd request-review auth --check`: the grouping, whose listing names the upstream the target is, the tip, and the
+/// `bd request-review auth --push --check`: the sync, which says the remote lacks auth, the plan of its push, and the
 /// review of Patronus (`log`, `diff-tree`, the `OWNERSHIP` files)
 #[test]
 fn a_request_review_check() {
@@ -1190,6 +1190,7 @@ fn a_request_review_check() {
   let args = RequestReviewArgs {
     branch: "auth".to_string(),
     reviewers: Vec::new(),
+    push: true,
     check: true,
   };
   let output = request_review(&context, &args, &environment).unwrap();
@@ -1201,9 +1202,11 @@ fn a_request_review_check() {
       ("config", 1),
       ("diff-tree", 1),
       ("for-each-ref", 1),
-      ("log", 2),
+      ("log", 5),
+      ("merge-base", 1),
       ("remote", 2),
-      ("rev-parse", 3),
+      ("rev-parse", 1),
+      ("symbolic-ref", 1),
     ],
   );
 }

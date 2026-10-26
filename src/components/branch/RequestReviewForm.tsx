@@ -10,20 +10,17 @@ import type { GitHubUser, PullRequest, ReviewReadiness } from "@/lib/bindings"
 import { isRulesUnknown } from "@/lib/branch-rules"
 import { isLogin } from "@/lib/create-pull-request"
 import { notifyError } from "@/lib/errors"
-import { pushForAction } from "@/lib/git/push"
-import { pushWholeStack } from "@/lib/git/stack-push"
 import { openPullRequest } from "@/lib/pull-request"
-import { describeCodeOwnersFact, formatCandidate, formatRefused, formatRequestedToast } from "@/lib/request-review"
+import { pullRequestOperationIn, requestReview } from "@/lib/pull-request-run"
 import { showToast } from "@/lib/toast-message"
-import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useRowPart } from "@/model/store"
 import { actionBlocker } from "@/presenters/actions"
+import { describeCodeOwnersFact, formatCandidate, formatRefused, formatRequestedToast } from "@/presenters/review"
 import type { Branch } from "@/stores/branch-sync"
-import { useOpenPullRequest } from "@/stores/branch-sync"
-import { runOperation, useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
+import { useBranchSync, useOpenPullRequest } from "@/stores/branch-sync"
 import { usePatronusAvailable } from "@/stores/patronus"
-import { requestReviewers, useBranchRules } from "@/stores/pull-requests"
-import { getRepositorySwitchReason, useSelectedProjectPath } from "@/stores/repository"
+import { useBranchRules } from "@/stores/pull-requests"
+import { useSelectedProjectPath } from "@/stores/repository"
 
 export interface RequestReviewFormProps {
   /**
@@ -35,29 +32,6 @@ export interface RequestReviewFormProps {
   readiness: ReviewReadiness | null
   /** Closes the popover after a request GitHub asked someone in */
   onDone: () => void
-}
-
-/**
- * The push of the work the remote lacks before the request, reported under `errorTitle`: of the branch (`pushForAction`,
- * its stack first), or of the stack branch of the whole stack (`pushWholeStack`, only a built one)
- */
-async function pushFirst(name: string, errorTitle: string, repositoryPath: string): Promise<boolean> {
-  const root = stackRootOfReadinessKey(name)
-  if (root !== null) {
-    // the push reads the stack branch of the table, which is of the selected repository
-    const switched = getRepositorySwitchReason(repositoryPath)
-    if (switched !== null) {
-      notifyError(errorTitle, switched)
-      return false
-    }
-    return pushWholeStack(root, { report: (_title, reason) => notifyError(errorTitle, reason) })
-  }
-  const pushed = await pushForAction(name, { repositoryPath })
-  // a push stopped while it waited for the lock said so itself
-  if (!pushed.pushed && pushed.canceled !== true) {
-    notifyError(errorTitle, pushed.reason)
-  }
-  return pushed.pushed
 }
 
 /**
@@ -74,16 +48,14 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
   const checked = choice ?? candidates.filter(candidate => candidate.preselected).map(candidate => candidate.login)
   const [others, setOthers] = useState<GitHubUser[]>([])
   const search = useReviewerSearch(repositoryPath)
-  // the request runs from here: one operation of the pull request (a second click joins it), its spinner here
-  const surface = `request-review:${branch.name}`
-  useIndicatorClaim(surface)
-  const isRequesting = useSurfaceBusy(surface) !== null
+  // the request is an operation of the session (a second click joins it): its spinner while it runs, from any window
+  const isRequesting = useBranchSync(state => pullRequestOperationIn(state.operations, "requestReview", branch.name) !== undefined)
 
   // as Rust offers the request (a draft asks nobody)
   const actions = useRowPart(branch.name, "actions")
   const blocker = actionBlocker(actions, "request-review", { subject: branch.name }) ?? null
-  // the reviewers see the commits: the request pushes the work the remote lacks first (Rust's push action of the remote
-  // status; an unknown one is no push), a step of it, not of the user
+  // the reviewers see the commits: the request pushes the work the remote lacks first (a step of its plan, not of the
+  // user); the warnings read Rust's push action of the remote status (an unknown one is no push)
   const pushes = branch.remoteStatus != null && branch.remoteStatus.action.kind !== "upToDate"
   // a push of new commits into a pull request someone approved: the rules of the repository may dismiss the approvals
   const approved = pushes && pullRequest.reviewers.some(reviewer => reviewer.state === "approved")
@@ -119,34 +91,17 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
     }
     const errorTitle = `Cannot request a review on #${number}`
     // the repository of the click: the push and the request go there, whichever the main window shows meanwhile
-    const repository = { repositoryPath }
-    const run = async () => {
-      if (pushes && !(await pushFirst(branch.name, errorTitle, repositoryPath))) {
-        return
-      }
-      const result = await requestReviewers(branch.name, logins, repository).catch((error: unknown) => {
-        notifyError(errorTitle, error)
-        return null
-      })
-      if (result === null) {
-        return
-      }
-      const toast = formatRequestedToast(pullRequest, result, nameOf)
-      if (toast === null) {
-        notifyError(errorTitle, new Error(formatRefused(result, nameOf)))
-        return
-      }
-      showToast({ ...toast, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
-      onDone()
-    }
-    const label = `Requesting a review on #${number}`
-    // the move of the row: the reviewers answer next, from the click on (the push included)
-    const move = { key: branch.name, lands: false, label }
-    // the reviewers of the pull request: a retarget of it runs beside, unless the push first may retarget it too
-    // (`retargetBeforePush`), which writes its base
-    const resources = pushes ? [`pr:${number}:reviewers`, `pr:${number}:base`] : [`pr:${number}:reviewers`]
-    void runOperation({ id: "request-review", subject: `pr:${number}`, objects: [branch.name], kind: "remote", label, surface, move, repositoryPath, resources }, run, reason =>
-      showToast({ type: "info", title: errorTitle, description: reason }),
+    void requestReview(branch.name, logins, repositoryPath).then(
+      result => {
+        const toast = formatRequestedToast(pullRequest, result, nameOf)
+        if (toast === null) {
+          notifyError(errorTitle, new Error(formatRefused(result, nameOf)))
+          return
+        }
+        showToast({ ...toast, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
+        onDone()
+      },
+      (error: unknown) => notifyError(errorTitle, error),
     )
   }
 

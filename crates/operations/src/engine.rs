@@ -3,14 +3,14 @@
 //! admitted and ends it with the body's answer, or answers what the operation of the same intent it joined answered. The
 //! caller hears the outcome either way (`OperationEvent::Done`). `prepare` asks the family of an intent for its plan,
 //! and `execute` runs it on the plan its caller accepted: a start (`execute_land`, `land_execute::execute`), a restart
-//! and a cancel of a robot (`robot`), a retarget of a pull request (`pull_request`); the other families (`push`,
-//! `review`, `issue`) build on it as they move here. A start reserves what its plan lands (`Resource::Lands`), the refs
+//! and a cancel of a robot (`robot`), a retarget of a pull request, the creation of one and a review request
+//! (`pull_request`); the other families (`push`, `review`, `issue`) build on it as they move here. A start reserves what its plan lands (`Resource::Lands`), the refs
 //! it pushes and the robot it cancels: a second start of the same subject joins it, one that lands a part of it waits for
 //! it and is decided again.
 
 use crate::events::EventSink;
-use crate::land_execute::{self, Accepted, StartHost, StartServices, Steps};
-use crate::land_session::session_start;
+use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Steps};
+use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::{land, pull_request, robot};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
@@ -45,7 +45,8 @@ pub async fn run(registry: &Registry, key: &SessionKey, request: OperationReques
 
 /// The plan of `intent` in the open session of `key` (the `prepare` of its family): a read, no lock, no effect; `None`
 /// for a session that is not open or has no answer of it yet (a start before the Patronus view, a subject its table
-/// lacks, a robot it offers no restart of, a pull request it lists not)
+/// lacks, a robot it offers no restart of, a pull request it lists not, a review request of a subject without an open
+/// pull request)
 ///
 /// # Errors
 /// `invalid_arguments` for an intent whose family has no plan here yet
@@ -55,6 +56,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::RestartRobot { robot_id } => Ok(robot::prepare_restart(sessions, key, &robot_id).await.map(|planned| planned.plan)),
     Intent::CancelRobot { robot_id } => Ok(robot::prepare_cancel(sessions, key, &robot_id).await.map(|(plan, _)| plan)),
     Intent::Retarget { number } => Ok(pull_request::prepare_retarget(sessions, key, number).await),
+    Intent::CreatePullRequest(_) | Intent::RequestReview { .. } => Ok(pull_request::prepare_planned(sessions, key, &intent).await.map(|planned| planned.plan)),
     _ => Err(not_yet()),
   }
 }
@@ -63,7 +65,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
 fn not_yet() -> ApiError {
   ApiError::new(
     ErrorCode::InvalidArguments,
-    "Only a start, a restart and a cancel of a robot and a retarget run through prepare and execute so far",
+    "Only a start, a restart and a cancel of a robot, a retarget, the creation of a pull request and a review request run through prepare and execute so far",
   )
 }
 
@@ -84,6 +86,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     Intent::RestartRobot { robot_id } => Box::pin(robot::execute_restart(registry, key, &robot_id, accepted, services, events)).await,
     Intent::CancelRobot { robot_id } => robot::execute_cancel(registry, key, &robot_id, accepted, services, events).await,
     Intent::Retarget { number } => pull_request::execute_retarget(registry, key, number, accepted, services, events).await,
+    intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. }) => Box::pin(pull_request::execute_pull_request(registry, key, intent, accepted, services, events)).await,
     _ => Err(not_yet()),
   }
 }
@@ -98,6 +101,17 @@ pub(crate) fn steps_of(guard: &RunningGuard) -> Steps {
     Arc::new(move |tick: &TransferProgress| progress.progress(u32::from(tick.percent), tick.line.clone())),
     guard.canceled(),
   )
+}
+
+/// Runs `planned`, decided again once its operation `guard` was admitted, on `start` (the host and the services of the
+/// session, `session_start` or `pull_request_start`) as a start runs (`land_execute::run_planned`), its steps in the view;
+/// answers its outcome
+pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, StartServices), planned: Planned, accepted: &Accepted, began: std::time::Instant) -> Answer {
+  let (host, services) = start;
+  let steps = steps_of(guard);
+  // the run of a plan is a large future: on the heap
+  let started = Box::pin(land_execute::run_planned(&host, &services, &steps, guard.id().clone(), planned, accepted, began)).await?;
+  Ok(started.outcome)
 }
 
 /// Runs the start `land` of the app in the session of `key` on the plan its caller accepted (`accepted`):

@@ -1,5 +1,5 @@
-//! A new pull request of a virtual branch, opened through the GitHub REST API by the app's form and by
-//! `bd safe-push --create-pull-request`: the text of the app's form (`pull_request_text`, of the commits of the local
+//! A new pull request of a virtual branch, opened through the GitHub REST API by the app's form (the engine's
+//! `CreatePullRequest`) and by `bd safe-push --create-pull-request`: the text of the app's form (`pull_request_text`, of the commits of the local
 //! branch), the pull request with the user as its assignee and the reviewers asked, and the users of the repository a
 //! review can be asked from (one GraphQL query per search).
 //!
@@ -40,9 +40,8 @@ pub struct GetNewPullRequestParams {
   pub stack_ancestors: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
+/// What a creation asks GitHub for (`operations`: the app's Create Pull Request and `bd safe-push --create-pull-request`)
+#[derive(Debug, Clone)]
 pub struct CreatePullRequestParams {
   pub repository_path: String,
   /// The virtual branch name, e.g. `feature-auth`, or the root of the whole stack: named when a pull request that already
@@ -57,17 +56,7 @@ pub struct CreatePullRequestParams {
   pub assign_self: bool,
   /// The branch (or its base) was just pushed: GitHub may not know it for a moment (a Space mirror copies it), so a
   /// creation GitHub refuses for a missing head or base is asked again until `MIRROR_WAIT` (`create_pull_request`)
-  #[serde(default)]
   pub wait_for_mirror: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct WaitForGitHubBranchParams {
-  pub repository_path: String,
-  /// The full branch name on the remote, e.g. `user/virtual/feature-auth`
-  pub branch: String,
 }
 
 #[derive(Debug, Deserialize)]

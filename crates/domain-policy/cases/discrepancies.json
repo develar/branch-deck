@@ -99,29 +99,33 @@
     "id": "request-review-pushes-first",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "Request Review of a branch the remote lags: the app pushes first, bd request-review doesn't push; the candidates are one rule of both (domain_policy::review::candidates)",
+    "title": "Request Review of a branch the remote lags: one intent of both sides (RequestReview) pushes first, the app always, bd only with --push (needs_push without); the candidates are one rule of both (domain_policy::review::candidates)",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#request-review", "spec/cli/agent-cli.spec.md#bd-request-review"],
     "discrepancy": "D5",
     "today": {
       "app": [
-        "src/components/branch/RequestReviewForm.tsx#if (pushes && !(await pushFirst(branch.name, errorTitle, repositoryPath)))",
-        "src/components/branch/RequestReviewForm.tsx#const candidates = view?.candidates ?? []"
+        "src/lib/pull-request-run.ts#const intent: Intent = { kind: \"requestReview\", subject: subjectOf(key), reviewers: [...logins], pushFirst: true }",
+        "crates/operations/src/pull_request.rs#} else if !first.pushes.is_empty() && !push_first {"
       ],
-      "bd": ["crates/bd-remote/src/request_review_command.rs#let Candidates { candidates, without_reviewer } = candidates(Some(&review.readiness), &pull_request);"]
+      "bd": [
+        "crates/bd-remote/src/request_review_command.rs#push_first: args.push,",
+        "crates/operations/src/pull_request.rs#let Candidates { candidates, without_reviewer } = candidates(readiness, pull_request);"
+      ]
     },
-    "closed": "s8-policy"
+    "closed": "s9-engine-remote"
   },
   {
     "id": "create-pull-request-waits-for-the-mirror",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "Create Pull Request: the app pushes, waits for the GitHub branch (`wait_for_github_branch`) and creates it; bd does it in safe-push --create-pull-request with `wait_for_mirror`",
+    "title": "Create Pull Request: one intent (CreatePullRequest) pushes first, then the creation waits for the mirror (wait_for_mirror), Continue on GitHub until GitHub has the branch (WaitForMirror); bd's safe-push --create-pull-request runs the same effect",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-safe-push"],
     "discrepancy": "D6",
     "today": {
-      "app": ["src/lib/create-pull-request-context.ts#const result = await commands.waitForGithubBranch("],
+      "app": ["crates/operations/src/pull_request.rs#(true, true) => vec![PlannedEffect::WaitForMirror { branch: first.head.clone() }],"],
       "bd": ["crates/operations/src/land_execute.rs#wait_for_mirror: self.pushed.is_some()"]
-    }
+    },
+    "closed": "s9-engine-remote"
   },
   {
     "id": "close-the-pull-requests-a-robot-landed",

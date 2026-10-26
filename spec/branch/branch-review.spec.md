@@ -37,7 +37,8 @@ targets:
   - ../../src/hooks/useWholeStackActions.ts
   - ../../src/stores/repository.ts
   - ../../src/types/sub-window.ts
-  - ../../src/lib/create-pull-request-context.ts
+  - ../../src/lib/pull-request-dialog.ts
+  - ../../src/lib/pull-request-run.ts
   - ../../src/components/review/WindowCreatePullRequestDialog.tsx
   - ../../src/hooks/useCreatePullRequestContext.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vite-plus/test"
 import type { ActionState, PullRequestView, ReviewCandidate } from "@/lib/bindings"
-import { describeCodeOwnersFact, formatRefused, formatRequestedToast, getRequestReviewItem } from "@/lib/request-review"
+import { describeCodeOwnersFact, formatRefused, formatRequestedToast, getRequestReviewItem } from "@/presenters/review"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { disabled, enabled, setActions } from "@/test-support/actions"
 

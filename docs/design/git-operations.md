@@ -3347,7 +3347,8 @@ lacks, and its pull request showing the parent's commits.
 6. The stack branch of the whole stack (`{prefix}/stack/<root>`) goes the same way, as a branch of `push_branches`
    with `wholeStack` (no parent, no tip), leased on the remote head of its remote status, only while the sync built it:
    alone by the start of the Safe Push of the whole stack and the restart of its robot, the creation of its pull
-   request and Request Review on it (`pushWholeStack`), the branches of the stack left as they are; and after the
+   request and Request Review on it (the `Push` of the plan of `CreatePullRequest` and `RequestReview`,
+   `operations::pull_request`, frozen and sent as a start does), the branches of the stack left as they are; and after the
    branches by Push with Children of the root (`domain_policy::push::stack_branch_along`), once it is on the remote or the pull request of
    the whole stack is open, so that pull request follows its branches, as `bd push <root> --with-children` does. A
    refusal names it apart from its root's virtual branch (`PushBranchesOutcome::RemoteMoved::whole_stack`). One push
@@ -4091,7 +4092,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | `bd lease get` of a free slot, then `bd lease return` (2026-10-19) | `a_lease_get_and_return` | 5, 4 | 5, 4 |
 | `bd status` (the push URL of `origin` for `landed_by` since 2026-10-18) | `a_status` * | 10 | 8 |
 | `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 8 |
-| `bd robot`, `bd request-review --check`, `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 11, 11 |
+| `bd robot`, `bd request-review --push --check` (its sync since 2026-10-26: whether the remote lacks the branch, D5), `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 14, 11 |
 
 `bd sync` runs the processes of its core and one `rev-parse` for its context (`a_sync_with_the_prefix_of_the_config`).
 On a clone of a monorepo (217 commits ahead of the baseline in 38 stacked groups, 16 of them conflicting), a release

@@ -11,7 +11,7 @@ use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
-use test_utils::fake_server::FakeGate;
+use test_utils::fake_server::{FakeGate, route_matches};
 
 /// One answer: a status, a JSON body and extra headers
 #[derive(Clone, Debug)]
@@ -125,7 +125,8 @@ impl FakeGitHub {
     self.answers.lock().unwrap().insert(format!("{method} {path}"), answers.into());
   }
 
-  /// Holds the requests to `method path` (without the query) until the gate it returns opens
+  /// Holds the requests to `method path` (without the query; a `*` segment matches any one) until the gate it returns
+  /// opens
   pub fn hold(&self, method: &str, path: &str) -> Arc<FakeGate> {
     self.hold_matching(method, path, None)
   }
@@ -155,7 +156,7 @@ impl FakeGitHub {
     let holds = self.holds.lock().unwrap();
     holds
       .iter()
-      .find(|hold| hold.key == key && hold.body.as_ref().is_none_or(|marker| text.contains(marker.as_str())))
+      .find(|hold| route_matches(&hold.key, &key) && hold.body.as_ref().is_none_or(|marker| text.contains(marker.as_str())))
       .map(|hold| Arc::clone(&hold.gate))
   }
 

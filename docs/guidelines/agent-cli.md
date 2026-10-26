@@ -135,7 +135,7 @@ branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `cr
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `plan_changed` (the facts a remote action was planned on changed before its first effect; nothing was done), `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -1653,11 +1653,12 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
-### `bd request-review <branch> [--reviewer LOGIN]… [--check]`
+### `bd request-review <branch> [--reviewer LOGIN]… [--push] [--check]`
 
 Asks GitHub users to review the open pull request of the virtual branch, as the app's Request Review… does
-([Pull Requests](../../spec/branch/pull-requests.spec.md#request-review)). Patronus counts the approvals of the code
-owners in that pull request, so one that asks no member of a missing group waits for nobody.
+([Pull Requests](../../spec/branch/pull-requests.spec.md#request-review)): the same intent of the engine
+(`RequestReview`, `operations::pull_request`), planned over the one-shot session of the command. Patronus counts the
+approvals of the code owners in that pull request, so one that asks no member of a missing group waits for nobody.
 
 ```json
 {"schema":2,…,"branch":"auth","pull_request":{"number":7,"url":"https://github.com/acme/monorepo/pull/7"},
@@ -1675,8 +1676,12 @@ owners in that pull request, so one that asks no member of a missing group waits
   to the user and asks only after the user approves. `requested` is whom GitHub asked, `refused` whom it refused with
   its reason (the author, a user without access; a refused list is asked one by one to tell), `waiting_for` the
   reviewers the pull request asks after the request.
-- No lock, no sync: the readiness is that of the virtual branch as the last sync built it (`unknown_branch` before
-  the first sync). The only write is `POST pulls/<n>/requested_reviewers`, users only (no team).
+- It syncs first under the repository lock (`unknown_branch` for a branch the sync has not), so it knows whether the
+  branch has work its remote lacks: then the reviewers would not see the commits, and it is `needs_push` (exit 4)
+  with the next step `bd request-review <branch> --push`, the user's to approve. `--push` pushes them first as the app's
+  request does (the ancestors with work first; an open pull request of what it pushes into a virtual branch is
+  retargeted into the target before the push), `pushed` naming the branches, then asks; `--check` names what it would
+  push. The writes run after the lock: the push, then `POST pulls/<n>/requested_reviewers`, users only (no team).
 - `no_pull_request` (exit 4): no open pull request, or a draft; `bd safe-push <branch> --create-pull-request` opens
   one with `--reviewer`. `no_reviewer` (exit 4): a missing group nobody is asked for has no code owner with a GitHub
   login Patronus names, and nobody else is to ask: ask the user whom, then `--reviewer`. `review_refused` (exit 4):

@@ -37,10 +37,12 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::TargetConflict { .. } => 20,
     Reason::LandedIn { .. } => 21,
     Reason::PullRequestMerged { .. } => 22,
+    Reason::NeedsPush { .. } => 23,
+    Reason::NoReviewer { .. } => 24,
   }
 }
 
-const CODES: usize = 23;
+const CODES: usize = 25;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -161,6 +163,10 @@ fn examples() -> Vec<Reason> {
       note: String::new(),
     },
     Reason::Unprotected { target: s("master") },
+    Reason::NeedsPush { branch: s("auth") },
+    Reason::NoReviewer {
+      groups: vec![s("IJPL Code Platform")],
+    },
     Reason::Draft { number: 7 },
     Reason::OtherBase {
       number: 7,

@@ -16,11 +16,11 @@ use domain_types::patronus::{
   GetPatronusTargetBranchParams, PatronusAvailability, PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusRobotsResult, PostPatronusCommandParams,
   ReadPatronusCommandReplyParams,
 };
-use domain_types::pull_request::{CreatedPullRequest, GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest, RequestedReviewers};
+use domain_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode, GitHubUser, NewPullRequest};
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
-use domain_types::session::{Version, ViewAnswer};
+use domain_types::session::Version;
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
 use file_diffs::model::{
@@ -36,10 +36,7 @@ use object_cache::cache::ObjectCache;
 use remote_facts::patronus_command::{
   UNKNOWN_GITHUB_REPOSITORY_MESSAGE, post_patronus_command as core_post_patronus_command, read_patronus_command_reply as core_read_patronus_command_reply,
 };
-use remote_facts::pull_request_create::{
-  CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
-  new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
-};
+use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
 use remote_facts::pull_request_writes::{ClosePullRequestParams, GetPullRequestHeadParams, close_pull_request as core_close_pull_request, read_pull_request_head};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
@@ -922,26 +919,6 @@ pub async fn submit_pull_request_review(
   review.map(Json).map_err(|e| failed(operation, e.to_string()))
 }
 
-/// Asks users to review a pull request, as the app does: the fake GitHub asks its collaborators only, the session of the
-/// repository has whom it asked at once
-pub async fn request_pull_request_reviewers(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<remote_facts::pull_request_writes::RequestPullRequestReviewersParams>,
-) -> CommandResult<ViewAnswer<RequestedReviewers>> {
-  let operation = "request the reviews";
-  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
-  let requested =
-    remote_facts::pull_request_writes::request_pull_request_reviewers(&host.github_service(), &params.repository_path, &repository, params.pull_request_number, &params.reviewers)
-      .await;
-  let outcome = requested.map_err(|e| failed(operation, e.to_string()))?;
-  let write = PullRequestWrite::ReviewersRequested {
-    number: params.pull_request_number,
-    requested: outcome.requested.clone(),
-  };
-  let version = write_pull_request(&state, &params.repository_path, write).await;
-  Ok(Json(ViewAnswer { outcome, version }))
-}
-
 /// The text a new pull request starts with and the user of the token, as the app reads them: the issue summaries
 /// from the YouTrack of the repository, when the issue links name it and the app is signed in
 pub async fn get_new_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<GetNewPullRequestParams>) -> CommandResult<NewPullRequest> {
@@ -957,27 +934,6 @@ async fn with_viewer(state: &AppState, path: &str, mut pull_request: NewPullRequ
     pull_request.viewer_login = read_viewer_login(&host.github_service(), path, &repository).await.ok();
   }
   Ok(Json(pull_request))
-}
-
-/// Opens the pull request of a pushed virtual branch, as the app does: the session of the repository has it at once
-pub async fn create_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<CreatePullRequestParams>) -> CommandResult<ViewAnswer<CreatedPullRequest>> {
-  let operation = "create the pull request";
-  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
-  let created = core_create_pull_request(&host.github_service(), &repository, &params).await;
-  let outcome = created.map_err(|e| failed(operation, e.to_string()))?;
-  let write = PullRequestWrite::Created {
-    pull_request: outcome.pull_request.clone(),
-  };
-  let version = write_pull_request(&state, &params.repository_path, write).await;
-  Ok(Json(ViewAnswer { outcome, version }))
-}
-
-/// Waits until GitHub has the branch just pushed, as the app does
-pub async fn wait_for_github_branch(State(state): State<Arc<AppState>>, Json(params): Json<WaitForGitHubBranchParams>) -> CommandResult<bool> {
-  let operation = "wait for the branch on GitHub";
-  let (host, repository) = required_github_of(&state, &params.repository_path, None, operation).await?;
-  let has = wait_for_branch(&host.github_service(), &params.repository_path, &repository, &params.branch, MIRROR_WAIT).await;
-  has.map(Json).map_err(|failure| failed(operation, failure_message(&failure)))
 }
 
 /// The users a review can be asked from, as the app searches them

@@ -1,3 +1,6 @@
+// The words and the menu item of Request Review… (spec/branch/pull-requests.spec.md, "Request Review"): whom it offers,
+// what it says of the code owners while Patronus can't name them, and the toast of whom GitHub asked; the request is
+// the intent of the engine (`requestReview` of `pull-request-run.ts`), the candidates Rust's (`review::candidates`).
 import type { PullRequest, PullRequestView, RequestedReviewers, ReviewCandidate, ReviewReadiness } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { joinNames } from "@/lib/text"
@@ -28,7 +31,7 @@ export function getRequestReviewItem(key: string): MenuItem | null {
 /**
  * What "Request Review…" of the open pull request `pullRequest` does (`PullRequestView`), whose availability Rust decides
  * (`domain_policy::actions`: a draft asks nobody): the code owners Patronus preselects, else a review of it; work the
- * remote lacks is no reason, the request pushes it first (`pushForAction`), so the reviewers see the commits
+ * remote lacks is no reason, the request pushes it first (its plan's `Push`), so the reviewers see the commits
  */
 export function describeRequestReview(pullRequest: PullRequestView): string {
   const chosen = pullRequest.candidates.filter(candidate => candidate.preselected)

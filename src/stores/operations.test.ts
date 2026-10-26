@@ -3,17 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import { commands } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import type { OperationSpec } from "@/stores/operations"
-import {
-  getOperationMoves,
-  getOperations,
-  lockWaitChannel,
-  operationItem,
-  operationLabel,
-  operationsStore,
-  runOperation,
-  stopWaitingItem,
-  whenRewritesDone,
-} from "@/stores/operations"
+import { getOperations, lockWaitChannel, operationItem, operationLabel, operationsStore, runOperation, stopWaitingItem, whenRewritesDone } from "@/stores/operations"
 
 vi.mock("@tauri-apps/api/core", async () => await import("@/test-support/channel-mock"))
 vi.mock("@/lib/bindings", async importOriginal => {
@@ -175,18 +165,6 @@ describe("runOperation", () => {
     expect(getOperations()).toEqual([])
     // nothing runs: at once
     await whenRewritesDone(REPOSITORY)
-  })
-
-  it("tells the moves of the running operations of the repository until they end", async () => {
-    const request = deferred<null>()
-    const move = { key: "auth", lands: false, label: "Requesting a review on #12" }
-    void runOperation({ ...remoteOf("pr:12", ["auth"], "request-review"), move }, () => request.promise)
-    void runOperation({ ...remoteOf("pr:13", ["login"], "request-review"), repositoryPath: "/other", move: { ...move, key: "login" } }, () => request.promise)
-    // an operation that is no move of a row
-    void runOperation(rewriteOf("auth"), () => request.promise)
-    expect(getOperationMoves(REPOSITORY)).toEqual([move])
-    request.resolve(null)
-    await vi.waitFor(() => expect(getOperationMoves(REPOSITORY)).toEqual([]))
   })
 
   it("ends the operation when its action fails", async () => {

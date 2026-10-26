@@ -56,7 +56,8 @@ targets:
   - ../../src/lib/stack.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/usePushButton.ts
-  - ../../src/lib/create-pull-request-context.ts
+  - ../../src/lib/pull-request-dialog.ts
+  - ../../src/lib/pull-request-run.ts
   - ../../src/hooks/useCreatePullRequestContext.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/components/branch/InlineCloseStackPullRequest.tsx

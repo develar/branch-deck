@@ -1,8 +1,8 @@
 import type { MergeConflictInfo } from "@/lib/bindings"
 import type { BranchReviewFocus } from "@/lib/branch-review"
-import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import type { CompareFields } from "@/lib/pull-request"
+import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/pull-request-dialog"
 import type { ToastMessage } from "@/lib/toast-message"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */

@@ -11,7 +11,7 @@ use crate::repository_view::{Carried, HoldView, RobotOf};
 use crate::stack::{BlockReason, StackBranchConflict, StackBranchState};
 use serde::{Deserialize, Serialize};
 
-/// Why a start, a push or a restart is refused. A robot code names the push mode and the target of its robot, so a
+/// Why a start, a push, a restart or a review request is refused. A robot code names the push mode and the target of its robot, so a
 /// formatter needs nothing else; the words of a context (a hold says "nothing of it is left to push") belong to the
 /// field the reason is read from
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,6 +72,12 @@ pub enum Reason {
   /// `branch` stays local: its own line parks it (`with` none), or it is built on the parked `with` and carries its
   /// commits; `note` the note of that line, empty without one
   Parked { branch: String, with: Option<String>, note: String },
+  /// `branch` (a branch, or the root of a whole stack) has work its remote branch lacks: a review request pushes it
+  /// first only when asked to (`bd request-review --push`), so the reviewers see the commits (D5)
+  NeedsPush { branch: String },
+  /// Patronus names no code owner with a GitHub login to ask for the missing approvals of `groups`: the reviewers are
+  /// named instead (`bd request-review --reviewer`)
+  NoReviewer { groups: Vec<String> },
   /// Patronus doesn't protect `target`: no robot pushes into it
   Unprotected { target: String },
   /// The pull request `number` a robot starts from is a draft: Patronus merges it once it is ready for review
@@ -112,6 +118,8 @@ impl Reason {
       | Self::CantPush { .. }
       | Self::DropsRemote { .. }
       | Self::Parked { .. }
+      | Self::NeedsPush { .. }
+      | Self::NoReviewer { .. }
       | Self::Unprotected { .. }
       | Self::Draft { .. }
       | Self::OtherBase { .. }

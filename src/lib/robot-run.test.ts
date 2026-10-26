@@ -45,7 +45,7 @@ vi.mock("@/lib/git/push", () => ({
 vi.mock("@/stores/branch-sync", () => ({
   getBranch: () => (engine.remoteStatus === undefined ? undefined : { remoteStatus: engine.remoteStatus }),
   setBranchPushing: () => {},
-  setBranchPushProgress: () => {},
+  setBranchesPushProgress: () => {},
 }))
 
 const FAILED: PatronusRobot = {

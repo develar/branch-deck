@@ -18,6 +18,7 @@ use domain_types::patronus::{PatronusAvailability, PatronusRobot};
 use domain_types::session::Version;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{git_common_dir, resolve_commit};
+use github::service::GitHubService;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, LockWaitCanceled, RepositoryLocked, lock_repository_while_held};
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
@@ -26,11 +27,13 @@ use remote_facts::service_sources::ServiceHost;
 use repository_model::derive::{StartChecks, with_checked_land_sources};
 use repository_model::facts::listed_robots;
 use repository_model::patronus_view::landed_commits;
+use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::{SessionKey, Sessions};
 use repository_model::table::RemoteSubject;
 use std::collections::HashSet;
 use std::sync::Arc;
 use sync_core::config_snapshot::ConfigSnapshot;
+use sync_core::github_repository::GitHubRepository;
 use sync_core::push::LeasedPush;
 use sync_core::target_conflict::{TargetOutcome, check_target, fetch_target};
 use sync_utils::span::in_current_span;
@@ -43,8 +46,9 @@ pub struct SessionStart {
   pub sessions: Arc<Sessions>,
   pub key: SessionKey,
   pub git: GitCommandExecutor,
-  /// The service and the Space repository the robot of a comment is listed from; `new_api` as the settings say
-  pub patronus: Arc<PatronusService>,
+  /// The service and the Space repository the robot of a comment is listed from; `new_api` as the settings say. `None`
+  /// for a run that starts no robot (a pull request, a review request) off Space or without a token
+  pub patronus: Option<Arc<PatronusService>>,
   pub space: String,
   pub new_api: bool,
   /// The object cache of the repository, which the landing gate of a whole stack checks through
@@ -195,7 +199,10 @@ impl StartHost for SessionStart {
 
   fn robots_since(&self, since: u32) -> Read<'_, Result<Vec<PatronusRobot>, ApiError>> {
     Box::pin(async move {
-      let result = self.patronus.robots(&self.space, &self.key.prefix, Some(since), false, self.new_api).await;
+      let Some(patronus) = &self.patronus else {
+        return Err(ApiError::new(ErrorCode::NotOnSpace, "The repository is not on Space"));
+      };
+      let result = patronus.robots(&self.space, &self.key.prefix, Some(since), false, self.new_api).await;
       match result.availability {
         PatronusAvailability::Available => Ok(result.robots),
         PatronusAvailability::Error { message } => Err(ApiError::new(ErrorCode::PatronusError, message)),
@@ -231,6 +238,10 @@ impl StartHost for SessionStart {
     Box::pin(async move { self.sessions.write_robot(&self.key, robot).await })
   }
 
+  fn write_pull_request(&self, write: PullRequestWrite) -> Read<'_, Option<Version>> {
+    Box::pin(async move { self.sessions.write_pull_request(&self.key, write).await })
+  }
+
   /// A start of the app opens no pull request: Create Pull Request does, with its own text
   fn pull_request_text<'a>(&'a self, _sent: Option<&'a Sent>) -> Read<'a, Result<PullRequestText, ApiError>> {
     Box::pin(std::future::ready(Err(ApiError::new(
@@ -250,11 +261,6 @@ impl StartHost for SessionStart {
 /// A session that is not open or has no table yet, a repository not on Space, a baseline that is no branch of
 /// `origin`, git failing
 pub async fn session_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>, key: &SessionKey) -> Result<(SessionStart, StartServices), ApiError> {
-  let baseline = sessions
-    .table(key)
-    .await
-    .map(|table| table.table.baseline.clone())
-    .ok_or_else(|| ApiError::new(ErrorCode::NoSession, "The repository has no open session with a sync yet"))?;
   let space = services
     .space_repository(key)
     .await?
@@ -264,6 +270,43 @@ pub async fn session_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>,
     Some(repository) => Some((services.github(key)?, repository)),
     None => None,
   };
+  start_of(services, sessions, key, Some((patronus, space.name)), github).await
+}
+
+/// What the creation of a pull request and a review request of the app run on (`session_start` without Patronus: they
+/// start no robot, off Space too); the Patronus service while there is one. Without the GitHub repository of the
+/// branches an effect that writes to GitHub fails, the push before it goes ("Continue on GitHub" of a pushed branch
+/// writes nothing)
+///
+/// # Errors
+/// As `session_start`, but for Space
+pub async fn pull_request_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>, key: &SessionKey) -> Result<(SessionStart, StartServices), ApiError> {
+  let github = match services.github_repository(key).await? {
+    Some(repository) => Some((services.github(key)?, repository)),
+    None => None,
+  };
+  let patronus = match services.space_repository(key).await {
+    Ok(Some(space)) => services.patronus(key).ok().map(|patronus| (patronus, space.name)),
+    _ => None,
+  };
+  start_of(services, sessions, key, patronus, github).await
+}
+
+/// The run in the open session of `key` over `services`, with the Patronus service and the Space repository `patronus`
+/// and the GitHub of the branches `github`
+async fn start_of(
+  services: &dyn ServiceHost,
+  sessions: &Arc<Sessions>,
+  key: &SessionKey,
+  patronus: Option<(Arc<PatronusService>, String)>,
+  github: Option<(Arc<GitHubService>, GitHubRepository)>,
+) -> Result<(SessionStart, StartServices), ApiError> {
+  let baseline = sessions
+    .table(key)
+    .await
+    .map(|table| table.table.baseline.clone())
+    .ok_or_else(|| ApiError::new(ErrorCode::NoSession, "The repository has no open session with a sync yet"))?;
+  let (patronus, space) = patronus.map_or((None, String::new()), |(patronus, space)| (Some(patronus), space));
   let target = services.target(key, &baseline).await?;
   let (git, path) = (services.git(), key.worktree.clone());
   let (common_dir, size_limit) = tokio::task::spawn_blocking(in_current_span(move || {
@@ -278,8 +321,8 @@ pub async fn session_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>,
     sessions: Arc::clone(sessions),
     key: key.clone(),
     git: services.git(),
-    patronus: Arc::clone(&patronus),
-    space: space.name.clone(),
+    patronus: patronus.clone(),
+    space: space.clone(),
     new_api: services.new_api(key),
     cache: services.object_cache(key).await,
   };
@@ -302,7 +345,7 @@ pub async fn session_start(services: &dyn ServiceHost, sessions: &Arc<Sessions>,
     git_common_dir: common_dir,
     prefix: key.prefix.clone(),
     patronus,
-    space: space.name,
+    space,
     github,
     target,
     push: PushSettings {

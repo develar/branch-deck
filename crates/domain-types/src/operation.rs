@@ -7,7 +7,7 @@
 use crate::error::{ApiError, HolderTool};
 use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, PlannedEffect, StartRoute, Subject};
 use crate::patronus::{PatronusPushMode, PatronusRobot};
-use crate::pull_request::PullRequestReviewEvent;
+use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedReviewers};
 use crate::reason::Reason;
 use crate::session::Version;
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,9 @@ pub enum Intent {
   Retarget { number: u32 },
   /// The pull request of a subject is opened, after the push it needs
   CreatePullRequest(CreatePullRequest),
-  /// The code owners (or `reviewers`) are asked to review the pull request of a subject, `push_first` when its branch
-  /// has work for the remote
+  /// `reviewers` are asked to review the open pull request of a subject, none: the code owners Patronus suggests that
+  /// Request Review… preselects (`domain_policy::review::candidates`); `push_first`: the work its branch has for the
+  /// remote is pushed first, so the reviewers see it (D5), else such work refuses it (`Reason::NeedsPush`)
   RequestReview { subject: Subject, reviewers: Vec<String>, push_first: bool },
   /// The pull request `number` is closed with `comment`
   ClosePullRequest { number: u32, comment: String },
@@ -98,7 +99,7 @@ pub enum PushScope {
   Unapplied,
 }
 
-/// A pull request to open for a subject
+/// A pull request to open for a subject: of its virtual branch into the target, of the stack branch of a whole stack
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -106,9 +107,15 @@ pub struct CreatePullRequest {
   pub subject: Subject,
   pub title: String,
   pub body: String,
-  pub draft: bool,
+  /// The user of the token is its assignee ("Assign to me")
+  pub assign_self: bool,
   /// Logins; the author's own is left out, GitHub refuses it
   pub reviewers: Vec<String>,
+  /// "Continue on GitHub": the user opens it in GitHub's form, which shows nothing of a branch GitHub doesn't have yet;
+  /// the plan pushes what it needs and waits until GitHub has the branch (`PlannedEffect::WaitForMirror`), and the page
+  /// opens the form
+  #[serde(default, rename = "onGitHub")]
+  pub on_github: bool,
 }
 
 /// What an operation holds while it runs or waits, which a new one that needs it waits for
@@ -340,6 +347,10 @@ pub enum OperationResult {
   Land(Box<LandResult>),
   /// A restart or a cancel of a robot
   Robot(Box<RobotResult>),
+  /// The pull request a creation opened, or the open one GitHub has of its head (`created: false`)
+  PullRequest(Box<CreatedPullRequest>),
+  /// Whom a review request asked, and whom GitHub refused with its reason
+  Reviewers(Box<RequestedReviewers>),
 }
 
 /// What a restart or a cancel of a robot answered: the toast of the robot and the Activity entry of the page name it

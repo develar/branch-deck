@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use sync_utils::span::in_current_span;
-use test_utils::fake_server::{FakeGate, FakeServer};
+use test_utils::fake_server::{FakeGate, FakeServer, route_matches};
 
 /// Rewrites a robot of an answer in place (`FakePatronus::robots_hook`); runs on the blocking pool, outside every lock
 /// of the fake: the hook of the test server runs git
@@ -436,15 +436,6 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
   fake.set_status(200);
   let url = FakeServer::start(router(Arc::clone(&fake))).await.detach();
   (fake, PatronusClient::new(url, "Branch Deck test"))
-}
-
-/// `route` (`METHOD /path`) is the one `pattern` names, a `*` segment of it any one segment
-fn route_matches(pattern: &str, route: &str) -> bool {
-  let mut segments = route.split('/');
-  pattern
-    .split('/')
-    .all(|expected| segments.next().is_some_and(|segment| expected == "*" || expected == segment))
-    && segments.next().is_none()
 }
 
 /// A request waits at its gate (`FakePatronus::hold`) before it is answered, and fails then where its route fails

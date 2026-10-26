@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
-import type { Fact, FactsView, PullRequest, PullRequestAvailability, Version } from "@/lib/bindings"
+import type { Fact, FactsView, PullRequest, PullRequestAvailability } from "@/lib/bindings"
 import {
   applyPullRequestsFacts,
-  createPullRequest,
   getGitHubRepository,
   getPullRequest,
   getPullRequestListing,
@@ -11,7 +10,6 @@ import {
   peekBranchRules,
   pullRequestsStore,
   refreshPullRequests,
-  requestReviewers,
   resetPullRequests,
   retargetPullRequest,
 } from "@/stores/pull-requests"
@@ -23,23 +21,6 @@ const { session } = vi.hoisted(() => ({
     writes: [] as string[],
     /** What the page asked the session to read again, with the repository */
     refreshed: [] as string[],
-    /** The versions the page waited for, by repository */
-    waited: [] as string[],
-  },
-}))
-
-const VERSION: Version = { epoch: 1, seq: 7 }
-
-vi.mock("@/lib/bindings", () => ({
-  commands: {
-    createPullRequest: async (params: { repositoryPath: string; branchName: string }) => {
-      session.writes.push(`create ${params.branchName} in ${params.repositoryPath}`)
-      return { status: "ok", data: { outcome: { created: true, pullRequest: { number: 9 }, assignees: [], warnings: [] }, version: VERSION } }
-    },
-    requestPullRequestReviewers: async (params: { repositoryPath: string; pullRequestNumber: number; reviewers: string[] }) => {
-      session.writes.push(`request ${params.reviewers.join(" ")} on #${params.pullRequestNumber} in ${params.repositoryPath}`)
-      return { status: "ok", data: { outcome: { requested: params.reviewers, refused: [] }, version: VERSION } }
-    },
   },
 }))
 
@@ -57,9 +38,7 @@ vi.mock("@/model/store", () => ({
     session.refreshed.push(`${family} ${reason} in ${repositoryPath}`)
     return true
   },
-  whenSessionViewAt: async (repositoryPath: string, version: Version | null) => {
-    session.waited.push(`${repositoryPath} at ${version === null ? "none" : version.seq}`)
-  },
+  whenSessionViewAt: async () => {},
 }))
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
@@ -99,7 +78,6 @@ beforeEach(() => {
   resetPullRequests()
   session.writes = []
   session.refreshed = []
-  session.waited = []
 })
 
 describe("applyPullRequestsFacts", () => {
@@ -164,27 +142,5 @@ describe("the writes and the refresh", () => {
     applyPullRequestsFacts("/repo", LISTED, null)
     await retargetPullRequest("auth")
     expect(session.writes).toEqual(["retarget #1 in /repo"])
-  })
-})
-
-describe("the writes of a pull request asked in another repository than the selected one", () => {
-  const other = { repositoryPath: "/other" }
-
-  it("creates the pull request in the repository the dialog was opened in", async () => {
-    const request = { ...other, branchName: "auth", head: "them/virtual/auth", base: "master", title: "t", body: "", reviewers: [], assignSelf: false, waitForMirror: false }
-    expect((await createPullRequest(request)).pullRequest.number).toBe(9)
-    expect(session.writes).toEqual(["create auth in /other"])
-    expect(session.waited).toEqual(["/other at 7"])
-  })
-
-  it("asks the reviewers on the pull request of its repository, not on the one of the same branch selected now", async () => {
-    applyPullRequestsFacts("/repo", LISTED, null)
-    // the pull requests of /other, kept under the prefix the page showed while it was selected
-    pullRequestsStore.setState(state => ({
-      repositories: { ...state.repositories, "/other\nthem": { ...state.repositories["/repo\nuser"]!, pullRequests: { auth: pullRequest("auth", 7) } } },
-    }))
-    await requestReviewers("auth", ["ann"], other)
-    expect(session.writes).toEqual(["request ann on #7 in /other"])
-    expect(session.waited).toEqual(["/other at 7"])
   })
 })

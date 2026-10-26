@@ -29,7 +29,6 @@ import { getEmittedEvents } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, pushedRemote } from "../helpers/sync-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
-import { holdCommand, holdCommandCalls, recordCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -75,7 +74,7 @@ function gitHubOf(...pullRequests: PullRequest[]) {
 
 /**
  * JIRA-456 not on the remote (or as `syncOverrides` has it), its approvals missing, no pull request: the creations of
- * its "Create pull request" dialog, recorded on the way to the fake GitHub
+ * its "Create pull request" dialog reach the fake GitHub (`POST pulls` of its log)
  */
 async function setupUnpushedCreation(
   page: Page,
@@ -83,9 +82,7 @@ async function setupUnpushedCreation(
   syncAndWaitForBranches: () => Promise<unknown>,
   syncOverrides?: SyncOverrides,
 ) {
-  const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true, syncOverrides })
-  const creates = await recordCommand(page, "create_pull_request")
-  return { creates, repo }
+  return setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true, syncOverrides })
 }
 
 function slot(page: Page) {
@@ -361,7 +358,7 @@ test.describe("Next step", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const { creates, repo } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches)
+    const repo = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches)
     // the step of the slot, never a "push first": the push is the dialog's to make
     await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
     const step = slot(page).getByTestId("next-step")
@@ -379,16 +376,16 @@ test.describe("Next step", () => {
     await expect(dialog).toBeVisible()
     const node = getLandingNode(findBranchRow(page, BRANCH))
     await expect(node).toHaveAttribute("data-kind", "yourStep")
-    const releaseCreate = await holdCommand(page, "create_pull_request")
+    // GitHub creates it only when the test lets it
+    await repo.holdRemoteAnswers({ hold: ["createPullRequest"] })
     await dialog.getByTestId("create-pull-request-submit").click()
     // the creation is the move made: the branch waits for GitHub from the click on, the push and the mirror included
     await expect(node).toHaveAttribute("data-kind", "waiting")
-    releaseCreate()
+    await repo.holdRemoteAnswers({ release: ["createPullRequest"] })
     await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #1079" })).toBeVisible()
     await expect(dialog).toHaveCount(0)
     await expectPushedToRemote(repo, [BRANCH])
-    expect(creates).toEqual([expect.objectContaining({ branchName: BRANCH, waitForMirror: true })])
-    // GitHub got the pull request with the code owner Patronus suggests as its reviewer
+    // GitHub got the pull request, after the push, with the code owner Patronus suggests as its reviewer
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
       ["POST", repoPath("pulls"), expect.objectContaining({ head: `user-name/virtual/${BRANCH}`, base: "master" })],
       ["POST", repoPath("issues", 1079, "assignees"), { assignees: ["user-name"] }],
@@ -405,22 +402,22 @@ test.describe("Next step", () => {
   }) => {
     // the push goes to the test server: its real push to the remote of the template
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true })
-    const creates = await recordCommand(page, "create_pull_request")
     await addRecentProject(page)
     await syncAndWaitForBranches()
-    const push = await holdCommandCalls(page, "push_branch")
+    // the remote takes the push of the creation only when the test lets it
+    await repo.holdRemoteAnswers({ hold: ["push"] })
     // Create of the dialog of the review window, asked of the main window over the link of the window
     const input = { title: "Add auth", body: "", reviewers: [], assignSelf: false, viewerLogin: null }
     await emitTauriEvent(page, "branch-review/request", { id: "create", repositoryPath: repo.path, branchName: BRANCH, dialog: "create", input } satisfies BranchReviewRequest)
-    await expect.poll(() => push.calls.map(call => call.branchName)).toEqual([BRANCH])
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("push")
 
     // the main window opens another repository while the push runs: the pull request still goes to the one asked
     await switchRepository(page, OTHER_REPOSITORY)
-    push.release()
+    await repo.holdRemoteAnswers({ release: ["push"] })
     await expect
       .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "branch-review/reply")).filter(it => it.id === "create").map(it => it.ok))
       .toEqual([true])
-    expect(creates).toEqual([expect.objectContaining({ repositoryPath: repo.path, branchName: BRANCH })])
+    await expectPushedToRemote(repo, [BRANCH])
     expect(gitHubWrites(await repo.getGitHubLog())).toContainEqual(["POST", repoPath("pulls"), expect.objectContaining({ head: `user-name/virtual/${BRANCH}` })])
 
     // back in it, the row has its pull request
@@ -430,20 +427,21 @@ test.describe("Next step", () => {
 
   test("should open GitHub's form of a branch not on the remote yet from its preview, after the push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [], availableRobots(), { unpushed: true })
-    const waits = await recordCommand(page, "wait_for_github_branch")
     const preview = await openBranchPreview(page, BRANCH)
     await preview.getByRole("button", { name: "Create Pull Request…" }).click()
     const dialog = createPullRequestDialog(page)
     await dialog.getByTestId("create-pull-request-on-github").click()
     await expect(dialog).toHaveCount(0)
     await expectPushedToRemote(repo, [BRANCH])
-    expect(waits).toEqual([expect.objectContaining({ branch: `user-name/virtual/${BRANCH}` })])
+    // the run waited until GitHub had the pushed branch, and wrote nothing to GitHub
+    expect(await gitHubRequests(repo, "GET", "branches", "user-name", "virtual", BRANCH)).toHaveLength(1)
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([])
     expect(await getOpenedUrls(page)).toEqual([expect.stringMatching(new RegExp(`/compare/master\\.\\.\\.user-name/virtual/${BRANCH}\\?`))])
   })
 
   test("should keep the dialog, with the reason, when the push would drop commits of the remote branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const theirs = { remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 2, fastForward: false, remoteTip: "theirs" }
-    const { creates, repo } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches, { remote: { [BRANCH]: theirs } })
+    const repo = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches, { remote: { [BRANCH]: theirs } })
     await slot(page).getByTestId("next-step").click()
     const dialog = createPullRequestDialog(page)
     await dialog.getByTestId("create-pull-request-submit").click()
@@ -451,7 +449,7 @@ test.describe("Next step", () => {
     await expect(error).toContainText(`The remote branch of ${BRANCH} has 2 commits that ${BRANCH} lacks: push it from its row, which shows them`)
     await expect(dialog).toBeVisible()
     expect(await pushedBranches(repo)).toEqual([])
-    expect(creates).toEqual([])
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([])
   })
 
   test("should start the Safe Push of a branch that needs no review with a click, and offer Create Pull Request… in its menu", async ({
@@ -504,13 +502,12 @@ test.describe("Next step", () => {
     await repo.setPullRequests(gitHubOf({ ...unasked, reviewers: [...unasked.reviewers, reviewer("ikorennoy", "requested")] }))
     const node = getLandingNode(findBranchRow(page, BRANCH))
     await expect(node).toHaveAttribute("data-kind", "yourStep")
-    const releaseRequest = await holdCommand(page, "request_pull_request_reviewers")
-    // Patronus answers again only when the test lets it: the wait shows before its new answer
-    await repo.holdRemoteAnswers({ hold: ["readiness"] })
+    // GitHub asks the reviewer, and Patronus answers again, only when the test lets them: the wait shows before
+    await repo.holdRemoteAnswers({ hold: ["requestReviewers", "readiness"] })
     await popover.getByTestId("request-review-submit").click()
     // the request is the move made: the branch waits for the reviewer from the click on
     await expect(node).toHaveAttribute("data-kind", "waiting")
-    releaseRequest()
+    await repo.holdRemoteAnswers({ release: ["requestReviewers"] })
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 1078, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
     await expect(popover).toHaveCount(0)
@@ -574,20 +571,23 @@ test.describe("Next step", () => {
     // the approvals into a virtual branch don't count: no code owner to offer, the search finds whom to ask
     await popover.getByTestId("request-review-reviewer-search").fill("ikor")
     await page.getByRole("option", { name: /ikorennoy/ }).click()
-    const request = await holdCommandCalls(page, "request_pull_request_reviewers")
+    // GitHub answers the request only when the test lets it
+    await repo.holdRemoteAnswers({ hold: ["requestReviewers"] })
     await popover.getByTestId("request-review-submit").click()
-    await expect.poll(() => request.calls.length).toBe(1)
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("requestReviewers")
 
     // the retarget writes the base of the pull request, the request its reviewers: it runs while the request waits
     await page.keyboard.press("Escape")
     const retarget = slot(page).getByRole("button", { name: "Retarget #1078" })
     await expect(retarget).toBeEnabled()
     await retarget.click()
-    await expect.poll(async () => gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", 1078), { base: "master" }]])
+    await expect
+      .poll(async () => (await repo.getGitHubLog()).requests.filter(it => it.method === "PATCH").map(it => [it.path, it.body]))
+      .toEqual([[repoPath("pulls", 1078), { base: "master" }]])
     await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #1078 to master" })).toBeVisible()
     await expect(page.locator("[data-slot=toast]", { hasText: "Cannot retarget" })).toHaveCount(0)
 
-    request.release()
+    await repo.holdRemoteAnswers({ release: ["requestReviewers"] })
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 1078, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
   })

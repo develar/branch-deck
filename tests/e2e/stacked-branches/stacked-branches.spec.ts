@@ -28,7 +28,7 @@ import {
   startRequest,
   wholeStackStartRequest,
 } from "../helpers/patronus-helpers"
-import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubWrites, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, gitHubWrites, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import {
   branchOf,
   confirmForcePush,
@@ -608,14 +608,12 @@ test.describe("Stacked branches", () => {
     await expect(dialog).toHaveCount(0)
 
     // the root's pull request goes into master too, and holds only its own commits
-    const creates = await recordCommand(page, "create_pull_request")
     await openContextMenu(page, findBranchRow(page, "auth"))
     await clickContextMenuItem(page, "Create Pull Request…")
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("auth → master")
     await expect(dialog.getByTestId("create-pull-request-includes")).toHaveCount(0)
     await dialog.getByTestId("create-pull-request-submit").click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #900" }).locator("[data-slot=toast-description]")).toHaveText("auth → master · assigned to you")
-    expect(creates).toEqual([expect.objectContaining({ branchName: "auth", head: "user-name/virtual/auth", base: "master" })])
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
       ["POST", repoPath("pulls"), expect.objectContaining({ head: "user-name/virtual/auth", base: "master" })],
       ["POST", repoPath("issues", 900, "assignees"), { assignees: ["user-name"] }],
@@ -1402,7 +1400,6 @@ test.describe("Stacked branches", () => {
       await page.keyboard.press("p")
       await expect.poll(() => remotePushes(repo)).toEqual([["docs"], ["docs"]])
       await unpushed()
-      const creates = await recordCommand(page, "create_pull_request")
       await openContextMenu(page, docsRow)
       await clickContextMenuItem(page, "Create Pull Request…")
       const dialog = createPullRequestDialog(page)
@@ -1410,7 +1407,7 @@ test.describe("Stacked branches", () => {
       await dialog.getByTestId("create-pull-request-submit").click()
       await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #901" })).toBeVisible()
       expect(await remotePushes(repo)).toEqual([["docs"], ["docs"], ["docs"]])
-      expect(creates).toEqual([expect.objectContaining({ branchName: "docs", base: "master" })])
+      expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/virtual/docs", base: "master" })])
     })
 
     test("should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -221,14 +221,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   A sync and an inline action of the row pass: the node keeps the state they started from. A move of the row is made
   when the user makes it (`RunningMove`): a start or a restart of its robot (Push and Restart included), the creation of
   its pull request, a review request leave the filled nodes at the click, not when Patronus or GitHub answer; an action
-  that fails gives the node back. Its action declares the move (`RunningOperation.moves` of the view for the start of a
-  Safe Push or a Dry Run, from its admission; `OperationSpec.move` of the page's operations until their families move
-  into Rust), so every surface that starts it moves the node alike, in every window. Without Patronus a running push is
+  that fails gives the node back. Its operation of the session declares the move (`RunningOperation.moves` of the view,
+  from its admission: a start, a restart, a creation of a pull request, a review request), so every surface that starts
+  it moves the node alike, in every window. Without Patronus a running push is
   the push made. A retarget is no such move: the Safe Push after it is the user's again.
   [@test] ../../crates/domain-policy/src/landing_node_test.rs (`the_node_of_the_subject_itself_parked_failing_landed_blocked_or_its_robot_running_stays_through_a_move`, `is_ready_to_land_once_patronus_judged_the_approvals_else_the_start_is_the_users_step`, `waits_for_others_the_reviewers_a_base_that_may_be_meant_and_is_the_users_step_otherwise`, `waits_for_the_first_answers_as_the_step_does_and_says_a_read_that_failed`)
   [@test] ../../src/presenters/landing-node.test.ts (`words where a start lands it: ready with the branches it lands, the user's step while Patronus checks the approvals at the start`, `words the step of the node as its slot says it: a pull request, a review request, a wait, In #12, Checking…`, `waits for the first answers and says a read that failed`, `is the pushed branch from the click of its push where it asks for the push, in a repository that is not on Space`)
   [@test] ../../src/presenters/running-move.test.ts (`finds the own move of the row, else a move of a row whose Safe Push lands it beside`, `finds none for a move that lands nothing beside, or of a row that doesn't land it`, `words the moves of the operations of the session as the node of each row says them`)
-  [@test] ../../src/stores/operations.test.ts (`tells the moves of the running operations of the repository until they end`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart a robot once while its restart runs, running in the slot and in its details, landing from the click`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the branch preview, landing from the click`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should ask the code owner nobody asked yet from Request Review…, then wait for him from the click on`)

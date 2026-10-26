@@ -91,6 +91,12 @@ pub fn one_shot_plan(session: &OneShot, land: &Land, host: &LandHost<'_>) -> Opt
 /// `one_shot_plan` with what its run needs (`planned_of`)
 #[must_use]
 pub fn one_shot_planned(session: &OneShot, land: &Land, host: &LandHost<'_>) -> Option<Planned> {
+  with_one_shot_sources(session, host, |sources| planned_of(sources, land))
+}
+
+/// `decide` over the sources of the one-shot session of a command as it is now, with what the command knows of its
+/// start besides (`LandHost`)
+pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: impl FnOnce(&LandSources<'_>) -> T) -> T {
   let facts = session.facts();
   let readiness = |key: &str| -> Option<&Fact<SubjectReadiness>> { facts.readiness.fact(key) };
   let sources = LandSources {
@@ -110,7 +116,7 @@ pub fn one_shot_planned(session: &OneShot, land: &Land, host: &LandHost<'_>) -> 
     gate: Some(host.gate),
     target_conflict: host.target_conflict,
   };
-  planned_of(&sources, land)
+  decide(&sources)
 }
 
 /// The plan of `land` over `sources`; `None` for a subject the table lacks, or a whole stack that doesn't fork

@@ -3,7 +3,7 @@ import { CreatePullRequestDialogFrame, CreatePullRequestForm } from "@/component
 import type { CreatePullRequestActions } from "@/components/branch/CreatePullRequestDialog"
 import { askMainWindow } from "@/hooks/useMainWindowLink"
 import { BRANCH_REVIEW_WINDOW } from "@/lib/branch-review"
-import type { CreatePullRequestContext } from "@/lib/create-pull-request-context"
+import type { CreatePullRequestContext } from "@/lib/pull-request-dialog"
 import type { BranchReviewRequest } from "@/types/sub-window"
 
 /**

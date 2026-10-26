@@ -7,7 +7,7 @@ import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/bran
 import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
 import { getCommitPreview } from "../helpers/preview-helpers"
-import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
@@ -15,7 +15,7 @@ import { clickContextMenuItem, openContextMenu } from "../helpers/selection-help
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordCommand, routeCommand } from "../helpers/wait-helpers"
+import { routeCommand } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -77,6 +77,7 @@ async function setupAuthWithoutPullRequest(
   await repo.setReviewAnswers({ answers: { auth: AWAITING_CODE_OWNER } })
   await syncAndWaitForBranches()
   await expect(findBranchRow(page, "auth").getByTestId("next-step-slot")).toHaveAttribute("data-step", "createPullRequest")
+  return repo
 }
 
 /** What the main window says of each branch: the ids of its actions, a disabled one with its reason */
@@ -609,8 +610,7 @@ test.describe("Branch review window", () => {
   })
 
   test("should create the pull request in the window it was asked in, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
-    const created = await recordCommand(page, "create_pull_request")
+    const repo = await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
 
     const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
     const actions = reviewPage.getByTestId("branch-review-actions")
@@ -640,11 +640,12 @@ test.describe("Branch review window", () => {
     // the main window creates it (the push, then the pull request: the answer first); the toast is in the window, which
     // opens the pull request
     await actions.getByRole("button", { name: "Create Pull Request…" }).click()
-    await runAndWaitForAnswer(page, "create_pull_request", () => dialog.getByTestId("create-pull-request-submit").click())
+    await runAndWaitForAnswer(page, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
     await expect(dialog).toBeHidden()
     const toast = reviewPage.locator("[data-slot=toast]", { hasText: "Created pull request #77" })
     await expect(toast).toBeVisible()
-    expect(created).toEqual([expect.objectContaining({ branchName: "auth", title: "Add the token", reviewers: ["ikorennoy"] })])
+    expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/virtual/auth", title: "Add the token" })])
+    expect(await gitHubRequests(repo, "POST", "pulls", 77, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
     await expect.poll(() => getOpenedUrls(reviewPage)).toEqual([pullRequest("auth", 77).url])
 
@@ -660,7 +661,7 @@ test.describe("Branch review window", () => {
     await expect
       .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "branch-review/reply")).filter(it => it.id === "elsewhere"))
       .toEqual([{ id: "elsewhere", ok: false }])
-    expect(created).toHaveLength(1)
+    expect(await gitHubRequests(repo, "POST", "pulls")).toHaveLength(1)
   })
 
   test("should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes", async ({

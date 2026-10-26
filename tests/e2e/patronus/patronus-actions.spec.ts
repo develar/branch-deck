@@ -1308,7 +1308,6 @@ test.describe("Patronus actions", () => {
         })
         await repo.setReviewAnswers({ answers: { "JIRA-456": CODE_OWNERS } })
         await syncAndWaitForBranches()
-        const creates = await recordCommand(page, "create_pull_request")
 
         const dialog = await openCreatePullRequestFromSlot(page)
         const slot = findBranchRow(page, "JIRA-456").getByTestId("next-step-slot")
@@ -1318,8 +1317,10 @@ test.describe("Patronus actions", () => {
         await expect(dialog).toHaveCount(0)
         // pushed first: GitHub opens a pull request of a branch it has
         await expectPushedToRemote(repo, ["JIRA-456"])
-        expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", reviewers: ["alice-gh"], assignSelf: true, waitForMirror: true })])
-        expect(gitHubWrites(await repo.getGitHubLog())).toContainEqual(["POST", repoPath("pulls", 7, "requested_reviewers"), { reviewers: ["alice-gh"] }])
+        const writes = gitHubWrites(await repo.getGitHubLog())
+        expect(writes).toContainEqual(["POST", repoPath("pulls"), expect.objectContaining({ head: "user-name/virtual/JIRA-456" })])
+        expect(writes).toContainEqual(["POST", repoPath("issues", 7, "assignees"), { assignees: ["user-name"] }])
+        expect(writes).toContainEqual(["POST", repoPath("pulls", 7, "requested_reviewers"), { reviewers: ["alice-gh"] }])
         // the approvals count in it: the row waits for the code owner asked there, whom its hover names
         await expect(slot).toHaveAttribute("data-step", "awaiting")
         await expect(slot.getByTestId("next-step")).toHaveText("Awaiting Review")

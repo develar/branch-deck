@@ -30,6 +30,8 @@ describe("formatReason", () => {
       "Built on parked auth: Unpark auth to push",
       "Parked: Unpark it to push",
       "Patronus does not push into master",
+      "auth has commits the remote lacks: the review request pushes them first",
+      "Patronus names no code owner with a GitHub login of IJPL Code Platform: choose the reviewers",
       "#7 is a draft: Patronus merges it once it is ready for review",
       "Approvals in #7 don't count: its base is release/253",
       "Patronus checks the approvals when the robot starts and fails without them",
@@ -41,7 +43,7 @@ describe("formatReason", () => {
       "Pull request #7 is merged",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(23)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(25)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

@@ -1,10 +1,11 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{PREFIX, assert_error, run_json};
-use bd_cli::remote_fixture_test::{evaluated_review, list_pull_requests, needs_code_owner, own_pull_request};
+use bd_cli::fixture_test::{PREFIX, assert_error, next_steps, run_json};
+use bd_cli::remote_fixture_test::{Space, evaluated_review, list_pull_requests, needs_code_owner, own_pull_request};
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 const REVIEWERS: &str = "/repos/acme/monorepo/pulls/7/requested_reviewers";
@@ -25,9 +26,17 @@ fn bodies(github: &FakeGitHub) -> Vec<Value> {
   github.requests_to("POST", REVIEWERS).iter().map(github::fake_github::FakeRequest::json).collect()
 }
 
+/// `needs_code_owner` with auth pushed: its remote has it, the request pushes nothing
+fn pushed_code_owner(state: &str) -> (Space, Arc<FakeGitHub>, Environment) {
+  let (space, github, environment) = needs_code_owner(state);
+  let (exit_code, output) = run_json(&environment, &["--prefix", PREFIX, "push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  (space, github, environment)
+}
+
 #[test_log::test]
 fn asks_the_suggested_code_owner_of_the_missing_group_once() {
-  let (space, github, environment) = needs_code_owner("NOT_ADDED");
+  let (space, github, environment) = pushed_code_owner("NOT_ADDED");
   github.answer("POST", REVIEWERS, requested_answer(&["ikorennoy"]));
   let ilya = json!({"login": "ikorennoy", "full_name": "Ilya Korennoy"});
 
@@ -64,7 +73,7 @@ fn asks_the_suggested_code_owner_of_the_missing_group_once() {
 
 #[test_log::test]
 fn asks_the_logins_it_is_given_and_names_whom_github_refuses() {
-  let (space, github, environment) = needs_code_owner("NOT_ADDED");
+  let (space, github, environment) = pushed_code_owner("NOT_ADDED");
   let author = FakeAnswer::status(422, json!({"message": "Review cannot be requested from pull request author."}));
   github.answer_in_turn("POST", REVIEWERS, vec![author.clone(), requested_answer(&["alice"]), author.clone()]);
   let checks = space.fake.check_calls.load(Ordering::SeqCst);
@@ -120,4 +129,30 @@ fn a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused() {
     "{output}"
   );
   assert_eq!(bodies(&github), [] as [Value; 0]);
+}
+
+/// A branch with work its remote lacks: the reviewers would not see it, so the request is refused (`needs_push`) with
+/// the command that pushes it first, the user's to approve; `--push` pushes it, then asks, and `--check` names what it
+/// would push
+#[test_log::test]
+fn a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it() {
+  let (space, github, environment) = needs_code_owner("NOT_ADDED");
+  github.answer("POST", REVIEWERS, requested_answer(&["ikorennoy"]));
+  let (exit_code, output) = request_review(&environment, &["auth"]);
+  assert_error(&output, exit_code, (4, "needs_push"));
+  // the push is the user's to approve
+  assert_eq!(next_steps(&output["error"]), [("bd request-review auth --push".to_string(), true)]);
+
+  let (exit_code, output) = request_review(&environment, &["auth", "--push", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["pushed"].clone(), output["requested"].clone()), (json!(["auth"]), json!([])));
+  let remote = format!("{PREFIX}/virtual/auth");
+  assert_eq!(space.remote_tip(&remote), "", "--check pushes nothing");
+  assert_eq!(bodies(&github), [] as [Value; 0]);
+
+  let (exit_code, output) = request_review(&environment, &["auth", "--push"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["pushed"], json!(["auth"]));
+  assert_ne!(space.remote_tip(&remote), "", "the push went first");
+  assert_eq!(bodies(&github), [json!({"reviewers": ["ikorennoy"]})]);
 }

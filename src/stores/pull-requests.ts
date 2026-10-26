@@ -1,17 +1,14 @@
 import { useEffect } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { BranchRules, CreatedPullRequest, Fact, FactsChanges, FactsView, PullRequest, PullRequestAvailability, RequestedReviewers } from "@/lib/bindings"
+import type { BranchRules, Fact, FactsChanges, FactsView, PullRequest, PullRequestAvailability } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { BranchRulesAnswer } from "@/lib/branch-rules"
 import { isRulesUnknown, rulesAnswerOf } from "@/lib/branch-rules"
 import { commandFailure } from "@/lib/errors"
-import { storeKeyOf } from "@/lib/git/vcs-request"
-import type { VcsRequest } from "@/lib/git/vcs-request"
 import type { GitHubRepository } from "@/lib/pull-request"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { runFailure, runIntent } from "@/lib/run-intent"
-import { formatReadinessSubject, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { refreshSessionFacts, whenSessionViewAt } from "@/model/store"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 
@@ -275,68 +272,6 @@ async function closeOnGitHub(key: string, pullRequest: PullRequest, comment: str
     throw commandFailure(result.error)
   }
   await whenSessionViewAt(repositoryPath, result.data)
-}
-
-/** The key the pull requests of `repositoryPath` are stored under (`storeKeyOf`); null for one the store doesn't have */
-function pullRequestsKeyOf(repositoryPath: string): string | null {
-  return storeKeyOf(repositoryPath, currentKey(), Object.keys(pullRequestsStore.getState().repositories))
-}
-
-/**
- * Asks `logins` to review the open pull request of a branch on GitHub (Request Review…), or of the whole stack of a
- * root for its readiness key (`stackReadinessKey`), in the repository it was asked in; resolves once the session has
- * whom GitHub asked marked requested (the review readiness reads the reviews of the pull request), and lists the pull
- * requests again. Throws what GitHub said when it refused the request as a whole.
- */
-export async function requestReviewers(branchName: string, logins: readonly string[], repository: VcsRequest): Promise<RequestedReviewers> {
-  // the repository the request was asked in: its pull request, never the one of the same branch selected now
-  const key = pullRequestsKeyOf(repository.repositoryPath)
-  const root = stackRootOfReadinessKey(branchName)
-  const entry = key === null ? undefined : pullRequestsStore.getState().repositories[key]
-  const pullRequest = root === null ? entry?.pullRequests[branchName] : entry?.stackPullRequests[root]
-  if (pullRequest === undefined) {
-    throw new Error(`${formatReadinessSubject(branchName)} has no pull request`)
-  }
-  const result = await commands.requestPullRequestReviewers({ repositoryPath: repository.repositoryPath, pullRequestNumber: pullRequest.number, reviewers: [...logins] })
-  if (result.status === "error") {
-    throw commandFailure(result.error)
-  }
-  await whenSessionViewAt(repository.repositoryPath, result.data.version)
-  return result.data.outcome
-}
-
-/** What the "Create pull request" dialog asks for */
-export interface NewPullRequestRequest {
-  /** The repository the dialog was opened in: the pull request goes there, whichever is selected now */
-  repositoryPath: string
-  /** The branch, or the root of the whole stack (`wholeStack`) */
-  branchName: string
-  /** The pull request of the stack branch of the whole stack whose root `branchName` is */
-  wholeStack?: boolean
-  head: string
-  base: string
-  title: string
-  body: string
-  reviewers: string[]
-  assignSelf: boolean
-  /** The branch was just pushed: the creation waits while GitHub doesn't have it (a mirror copies it a moment later) */
-  waitForMirror: boolean
-}
-
-/**
- * Opens the pull request of a branch on GitHub (or finds the one it has) in the repository of the dialog: resolves once
- * the session has it (until GitHub's search lists it), so the row's chip and the Safe Push popover read it; the session
- * lists the pull requests again. Throws what GitHub said.
- */
-export async function createPullRequest(request: NewPullRequestRequest): Promise<CreatedPullRequest> {
-  // the session tells the pull request of a whole stack by its head, the stack branch
-  const { wholeStack: _wholeStack = false, ...params } = request
-  const result = await commands.createPullRequest(params)
-  if (result.status === "error") {
-    throw commandFailure(result.error)
-  }
-  await whenSessionViewAt(request.repositoryPath, result.data.version)
-  return result.data.outcome
 }
 
 // ---- the rules of the bases ----

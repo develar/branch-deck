@@ -40,7 +40,7 @@ targets:
   - ../../src/hooks/useSafePush.ts
   - ../../src/presenters/land.ts
   - ../../src/stores/request-review-popover.ts
-  - ../../src/lib/request-review.ts
+  - ../../src/presenters/review.ts
   - ../../src/stores/pull-requests.ts
   - ../../src/lib/branch-review-window.ts
   - ../../src/stores/patronus.ts

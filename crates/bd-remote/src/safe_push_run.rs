@@ -5,19 +5,26 @@
 //! waiting. A rewrite of another session between the sync and the witness changes the plan: `plan_changed` (exit 3),
 //! nothing done; one after the push and before the start skips the start, and the error says what was pushed.
 
+use crate::push_command::push_size_limit;
+use crate::safe_push_command::STACK_REMOTE;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::Land;
 use domain_types::patronus::{PatronusAvailability, PatronusRobot};
+use github::service::GitHubService;
 use operations::land::{LandHost, one_shot_planned};
-use operations::land_execute::{Current, Locker, Planned, PullRequestText, StartHost, bounded_lock};
+use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices, bounded_lock};
 use operations::push::Sent;
+use patronus::service::PatronusService;
 use remote_facts::fact_sources::{FactSources, Read};
 use repository_model::one_shot::OneShot;
+use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::session::SessionKey;
 use repository_model::table::RemoteSubject;
 use std::sync::Arc;
+use sync_core::github_repository::GitHubRepository;
+use sync_utils::clock::SystemClock;
 
 /// The facts of a start of `bd`: its one-shot session as the plan read it, prepared again on it (the same facts, so the
 /// same plan while the refs are as the sync left them), the robots of a comment asked through `sources`
@@ -70,6 +77,11 @@ impl StartHost for BdStart<'_> {
     Box::pin(std::future::ready(None))
   }
 
+  /// A command keeps no session: its output tells the pull request and the reviewers
+  fn write_pull_request(&self, _write: PullRequestWrite) -> Read<'_, Option<domain_types::session::Version>> {
+    Box::pin(std::future::ready(None))
+  }
+
   fn pull_request_text<'a>(&'a self, _sent: Option<&'a Sent>) -> Read<'a, Result<PullRequestText, ApiError>> {
     let text = self
       .text
@@ -77,6 +89,39 @@ impl StartHost for BdStart<'_> {
       .ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, "The start opens no pull request without --create-pull-request"));
     Box::pin(std::future::ready(text))
   }
+}
+
+/// What a run of the engine of `bd` runs on: the repository of `context`, the Patronus service and the Space repository
+/// of its robots (`patronus`: none for a review request off Space), the GitHub service and repository of the branches,
+/// the branch of origin they go into, the push to `origin` compared with `baseline`; the lock waited for a bounded time,
+/// the reply of a comment read once
+pub(crate) fn start_services(
+  context: &RepoContext,
+  patronus: Option<Arc<PatronusService>>,
+  space: String,
+  github: Option<(Arc<GitHubService>, GitHubRepository)>,
+  target: String,
+  baseline: &str,
+) -> Result<StartServices, CliError> {
+  Ok(StartServices {
+    git: context.git.clone(),
+    repository_path: context.repository.clone(),
+    git_common_dir: context.git_common_dir.clone(),
+    prefix: context.prefix.clone(),
+    patronus,
+    space,
+    github,
+    target,
+    push: PushSettings {
+      remote: STACK_REMOTE.to_string(),
+      baseline: baseline.to_string(),
+      my_email: None,
+      size_limit: push_size_limit(context)?,
+    },
+    lock: locker(context),
+    clock: Arc::new(SystemClock::new()),
+    wait_for_robot: false,
+  })
 }
 
 /// The repository lock of `bd` for the full witness and the freeze: the bounded wait of the command (`locked`)

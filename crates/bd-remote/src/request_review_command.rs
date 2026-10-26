@@ -1,35 +1,44 @@
 //! `bd request-review`: ask GitHub users to review the open pull request of a virtual branch, as the app's Request
-//! Review… does (`spec/branch/pull-requests.spec.md#request-review`). Without `--reviewer` it asks the code owners
-//! Patronus suggests for the groups whose approval is missing, one per group nobody is asked for yet, from the review
-//! readiness `bd safe-push` checks (the pre-check with the pull request, asked again, through the reads of the app's
-//! session, `ServiceFactSources`): the ones the app's popover
-//! preselects, by the one rule of both (`domain_policy::review::candidates`). Users only: a team is not asked.
-//! No repository lock and no sync: the readiness is that of the virtual branch as the last sync built it; the only
-//! write is the request on GitHub (`POST pulls/<n>/requested_reviewers`).
+//! Review… does (`spec/branch/pull-requests.spec.md#request-review`): the same intent of the engine
+//! (`Intent::RequestReview`, `operations::pull_request`), planned over the one-shot session of the command and run as
+//! the app runs it. Without `--reviewer` it asks the code owners Patronus suggests that the app's popover preselects
+//! (`domain_policy::review::candidates`, over the review readiness the session reads: the pre-check with the pull
+//! request, asked again). Users only: a team is not asked.
+//!
+//! The sync runs under the repository lock, so the command knows whether the branch has work its remote lacks: such work
+//! refuses the request (`needs_push`), and `--push` pushes it first, the push of the app's request (the ancestors with
+//! work first, the pull requests of what it pushes into a virtual branch retargeted before), so the reviewers see the
+//! commits (D5). The writes run after the lock (the engine takes it again only to witness and freeze the push): the push,
+//! then `POST pulls/<n>/requested_reviewers`.
 
-use crate::safe_push_command::{Review, UNKNOWN_GITHUB_REPOSITORY, github_error, readiness_names};
-use bd_core::branch_view::read_grouping;
+use crate::push_command::unknown_or_unapplied;
+use crate::safe_push_command::{UNKNOWN_GITHUB_REPOSITORY, compared_table, readiness_names};
+use crate::safe_push_run::{BdStart, cli_error, start_services};
+use crate::session_facts::SessionFacts;
+use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
-use domain_policy::pull_request::base_of;
-use domain_policy::review::{Candidates, candidates};
+use bd_core::sync_command::{lock, sync_locked};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
-use domain_types::patronus::{Person, ReviewReadiness, ReviewReadinessBranch, UnavailableReadinessReason};
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState};
-use git_ops::revs::resolve_commit;
-use github::service::GitHubService;
-use patronus::service::PatronusService;
-use remote_facts::pull_request_writes::request_pull_request_reviewers;
-use remote_facts::pull_requests::{GitHubWriteError, SIGNED_OUT_MESSAGE};
+use domain_types::landing::{PlannedEffect, Subject};
+use domain_types::operation::{EffectStatus, Intent, OperationId};
+use domain_types::patronus::{PatronusReviewRequirement, ReviewReadiness, UnavailableReadinessReason};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
+use domain_types::session::{Fact, SubjectReadiness};
+use operations::land::LandHost;
+use operations::land_execute::{Accepted, Steps, refusal_of, run_planned};
+use operations::needs::needs;
+use operations::pull_request::one_shot_planned;
+use remote_facts::pull_requests::SIGNED_OUT_MESSAGE;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::sync::Arc;
-use sync_core::github_repository::{GitHubRepository, resolve_github_repository_with};
-use sync_core::patronus::{SpaceRepository, target_branch_of};
+use sync_core::github_repository::resolve_github_repository_with;
+use sync_core::patronus::target_branch_of;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct RequestReviewArgs {
@@ -38,7 +47,11 @@ pub struct RequestReviewArgs {
   /// Ask this GitHub login (repeatable) instead of the suggested code owners; Patronus is not asked then
   #[arg(long = "reviewer", value_name = "LOGIN")]
   pub reviewers: Vec<String>,
-  /// Print whom it would ask and ask nobody
+  /// Push the commits the remote lacks first, so the reviewers see them; without it such commits refuse the request
+  /// (`needs_push`)
+  #[arg(long)]
+  pub push: bool,
+  /// Print whom it would ask and what it would push, and ask nobody
   #[arg(long)]
   pub check: bool,
 }
@@ -57,6 +70,10 @@ pub struct RequestReviewOutput {
   /// Whom it asks: the `--reviewer` logins, else one suggested code owner of each missing group nobody is asked for
   /// yet; with `--check`, whom it would ask
   pub reviewers: Vec<PersonSummary>,
+  /// The branches `--push` pushed first, root first; with `--check`, what it would push; absent when the remote has
+  /// them
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub pushed: Vec<String>,
   /// Whom GitHub asked to review; empty with `--check`
   pub requested: Vec<PersonSummary>,
   /// Whom GitHub refused (the author, a user without access to the repository), with its reason
@@ -84,93 +101,121 @@ pub struct RefusedSummary {
   pub reason: String,
 }
 
+/// An unapplied branch has no pull request to review: its commits are not in HEAD
+const UNAPPLIED_REVIEW: &str = "nobody was asked to review: reapply it first (`bd reapply`)";
+
 pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environment: &Environment) -> Result<RequestReviewOutput, CliError> {
   let name = args.branch.as_str();
   // the name must be one a virtual branch can have
   to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
+  let reviewers = logins_of(&args.reviewers)?;
   // the push URL of origin is read once, for this and the Space repository of the review
   let configured = context.config()?.github_repository();
   let repository = resolve_github_repository_with(&context.git, &context.repository, configured, context.origin_url()?)?
     .ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY))?;
-  let github = Arc::new(github_service(context, environment));
-  let runtime = context.runtime()?;
-
-  // the pull requests and the review as the app's session reads them (`ServiceFactSources`)
-  let reads = Reads {
-    context,
-    github: &github,
-    repository: &repository,
+  // Patronus names the code owners (without --reviewer) and the robots that hold the push (--push)
+  let space = context.space_repository()?;
+  let patronus = match (&space, reviewers.is_empty()) {
+    (None, true) => {
+      return Err(CliError::new(
+        ErrorCode::NotOnSpace,
+        format!("The repository is not on Space: Patronus can't name the code owners; pass --reviewer <login> to ask someone for {name}"),
+      ));
+    }
+    (Some(_), true) => Some(Arc::new(patronus_service(environment)?)),
+    (Some(_), false) if args.push => patronus_service(environment).ok().map(Arc::new),
+    _ => None,
   };
-  let listed = runtime.block_on(reads.services(None, None, None).sources().pull_requests(&session_key(context)));
-  if !matches!(listed.availability, PullRequestAvailability::Available { .. }) {
-    return Err(availability_error(&listed.availability));
+  let github = Arc::new(github_service(context, environment));
+
+  // the sync, under the lock, says whether the branch has work its remote lacks; nothing else runs under it
+  let synced = {
+    let _lock = lock(context)?;
+    sync_locked(context)?
+  };
+  if !synced.branches.iter().any(|branch| branch.name == name) {
+    return Err(unknown_or_unapplied(context, name, UNAPPLIED_REVIEW));
+  }
+  let target = target_branch_of(synced.report.upstream.as_ref()).ok_or_else(|| {
+    CliError::new(
+      ErrorCode::InvalidArguments,
+      format!(
+        "The baseline {} is not a branch of origin: a pull request of a virtual branch goes into a branch of origin",
+        synced.baseline
+      ),
+    )
+  })?;
+  let table = compared_table(context, &synced);
+  let services = BdServices {
+    patronus: patronus.clone(),
+    space: space.clone(),
+    github_repository: Some(repository.clone()),
+    target: Some(target.clone()),
+    ..BdServices::new(context, Arc::clone(&github))
+  };
+  let subject = Subject::branch(name);
+  let intent = Intent::RequestReview {
+    subject: subject.clone(),
+    reviewers: reviewers.clone(),
+    push_first: args.push,
+  };
+  // what the plan reads, as the app's session reads it (`operations::needs`): the pull requests, the robots that hold
+  // the push with --push, the review of the branch without --reviewer
+  let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), services.sources());
+  facts.read(context, &needs(&intent))?;
+  if args.push {
+    facts.derive();
+  }
+  let session_facts = facts.session.facts();
+  let listed = session_facts.pull_requests.view();
+  match listed.head.value.as_ref() {
+    Some(PullRequestAvailability::Available { .. }) => {}
+    other => return Err(availability_error(other.unwrap_or(&PullRequestAvailability::SignedOut))),
   }
   let pull_request = listed
     .pull_requests
     .get(name)
     .filter(|pull_request| pull_request.state == PullRequestState::Open)
     .cloned()
-    .ok_or_else(|| {
-      CliError::new(
-        ErrorCode::NoPullRequest,
-        format!("{name} has no open pull request: `bd safe-push {name} --create-pull-request` pushes the branch and opens it, with `--reviewer`"),
-      )
-    })?;
-  if pull_request.is_draft {
-    return Err(CliError::new(
-      ErrorCode::NoPullRequest,
-      format!(
-        "Pull request #{} is a draft: mark it ready for review on GitHub first ({})",
-        pull_request.number, pull_request.url
-      ),
-    ));
-  }
-
-  let (readiness, review, reviewers, groups_without_reviewer) = if args.reviewers.is_empty() {
-    let review = code_owner_review(&reads, environment, name, &pull_request)?;
-    // the candidates of the app's Request Review…: it asks the ones the popover preselects
-    let Candidates { candidates, without_reviewer } = candidates(Some(&review.readiness), &pull_request);
-    let reviewers: Vec<Person> = candidates
-      .into_iter()
-      .filter(|candidate| candidate.preselected)
-      .map(|candidate| Person {
-        login: Some(candidate.login),
-        full_name: candidate.full_name,
-      })
-      .collect();
-    let groups_without_reviewer = without_reviewer;
-    if reviewers.is_empty() && !groups_without_reviewer.is_empty() {
-      return Err(CliError::new(
-        ErrorCode::NoReviewer,
-        format!(
-          "Patronus names no code owner with a GitHub login to ask for {}: pass --reviewer <login> (`bd safe-push {name} --check` lists the groups and their reviewers)",
-          groups_without_reviewer.join(", ")
-        ),
-      ));
-    }
-    (Some(readiness_names(&review.readiness).0.to_string()), Some(review), reviewers, groups_without_reviewer)
+    .ok_or_else(|| no_pull_request(name))?;
+  let review = if reviewers.is_empty() {
+    Some(review_of(session_facts.readiness.fact(&subject.key()))?)
   } else {
-    let mut logins: Vec<&str> = Vec::new();
-    for login in args.reviewers.iter().map(|login| login.trim()).filter(|login| !login.is_empty()) {
-      if !logins.iter().any(|it| it.eq_ignore_ascii_case(login)) {
-        logins.push(login);
-      }
-    }
-    if logins.is_empty() {
-      return Err(CliError::new(ErrorCode::InvalidArguments, "--reviewer needs a GitHub login"));
-    }
-    let reviewers = logins.into_iter().map(|login| Person {
-      login: Some(login.to_string()),
-      full_name: None,
-    });
-    (None, None, reviewers.collect(), Vec::new())
+    None
   };
-  let full_name_of = |login: &str| review.as_ref().and_then(|review| review_full_name(review, login));
+  let host = LandHost {
+    table: &table,
+    baseline: &synced.landed_section,
+    target: &target,
+    github: true,
+    gate: &[],
+    target_conflict: None,
+  };
+  let planned = one_shot_planned(&facts.session, &host, &intent).ok_or_else(|| no_pull_request(name))?;
+
+  let full_name_of = |login: &str| review.as_ref().and_then(|(requirement, _)| review_full_name(requirement, login));
   let summary = |login: &str| PersonSummary {
     login: Some(login.to_string()),
     full_name: full_name_of(login),
   };
-
+  let asked: Vec<String> = planned
+    .plan
+    .effects
+    .iter()
+    .find_map(|effect| match effect {
+      PlannedEffect::RequestReviewers { reviewers, .. } => Some(reviewers.clone()),
+      _ => None,
+    })
+    .unwrap_or_default();
+  let pushes: Vec<String> = planned
+    .plan
+    .effects
+    .iter()
+    .find_map(|effect| match effect {
+      PlannedEffect::Push { branches, .. } => Some(branches.clone()),
+      _ => None,
+    })
+    .unwrap_or_default();
   let mut output = RequestReviewOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -180,28 +225,68 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
       number: pull_request.number,
       url: pull_request.url.clone(),
     },
-    readiness,
-    reviewers: reviewers.iter().filter_map(|person| person.login.as_deref()).map(summary).collect(),
+    readiness: review.as_ref().map(|(_, readiness)| readiness_names(readiness).0.to_string()),
+    reviewers: asked.iter().map(|login| summary(login)).collect(),
+    pushed: pushes.clone(),
     requested: Vec::new(),
     refused: Vec::new(),
     waiting_for: Vec::new(),
-    groups_without_reviewer,
+    groups_without_reviewer: review.as_ref().map_or_default(|(_, readiness)| without_reviewer(readiness, &pull_request)),
   };
+  if let Some(error) = refusal_of(&planned, facts.session.robots()) {
+    let refused = cli_error(error);
+    // the push is the user's to approve: the reviewers see what it pushes
+    return Err(if refused.code == ErrorCode::NeedsPush {
+      refused.with_next_step(format!("{} request-review {} --push", context.bd, shell_word(name)), true)
+    } else {
+      refused
+    });
+  }
   let mut waiting: Vec<String> = pull_request
     .reviewers
     .iter()
     .filter(|reviewer| reviewer.requested)
     .map(|reviewer| reviewer.login.clone())
     .collect();
-  let logins: Vec<String> = reviewers.into_iter().filter_map(|person| person.login).collect();
-  if !args.check && !logins.is_empty() {
-    let result = runtime
-      .block_on(request_pull_request_reviewers(&github, &context.repository, &repository, pull_request.number, &logins))
-      .map_err(|error| match error {
-        GitHubWriteError::GitHub(failure) => github_error(&failure),
-        GitHubWriteError::Refused(message) => CliError::new(ErrorCode::InvalidArguments, message),
-      })?;
-    output.refused = result
+  if args.check || (asked.is_empty() && pushes.is_empty()) {
+    output.waiting_for = waiting.iter().map(|login| summary(login)).collect();
+    return Ok(output);
+  }
+
+  let start = BdStart {
+    session: &facts.session,
+    host,
+    sources: facts.sources(),
+    key: session_key(context),
+    text: None,
+  };
+  let space = space.map_or_default(|space| space.name);
+  let run = start_services(context, patronus, space, Some((Arc::clone(&github), repository)), target.clone(), &synced.baseline)?;
+  let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+  let accepted = Accepted {
+    fingerprint: planned.plan.fingerprint.clone(),
+    confirmations: Vec::new(),
+  };
+  let steps = Steps::none();
+  let started = context
+    .runtime()?
+    .block_on(run_planned(&start, &run, &steps, op, planned, &accepted, std::time::Instant::now()))
+    .map_err(cli_error)?;
+  // the request got to its end unless its last effect did not (a retarget GitHub refused of a branch the push takes
+  // along stops nothing): then the first failure says why
+  let effects = &started.outcome.effects;
+  if effects.last().is_some_and(|last| last.status != EffectStatus::Done) {
+    let stopped = effects.iter().find_map(|record| match &record.status {
+      EffectStatus::Failed { error } | EffectStatus::Skipped { reason: Some(error) } => Some(error.clone()),
+      _ => None,
+    });
+    return Err(stopped.map_or_else(
+      || CliError::new(ErrorCode::NetworkError, "GitHub did not answer the request: see the pull request"),
+      cli_error,
+    ));
+  }
+  if let Some(requested) = started.requested {
+    output.refused = requested
       .refused
       .iter()
       .map(|refused| RefusedSummary {
@@ -210,100 +295,65 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
         reason: refused.reason.clone(),
       })
       .collect();
-    if result.requested.is_empty() {
-      let reasons: Vec<String> = result.refused.iter().map(|refused| format!("{}: {}", refused.login, refused.reason)).collect();
-      return Err(CliError::new(
-        ErrorCode::ReviewRefused,
-        format!("GitHub asked nobody to review pull request #{}: {}", pull_request.number, reasons.join("; ")),
-      ));
-    }
-    for login in &result.requested {
+    for login in &requested.requested {
       if !waiting.iter().any(|it| it.eq_ignore_ascii_case(login)) {
         waiting.push(login.clone());
       }
     }
-    output.requested = result.requested.iter().map(|login| summary(login)).collect();
+    output.requested = requested.requested.iter().map(|login| summary(login)).collect();
   }
   output.waiting_for = waiting.iter().map(|login| summary(login)).collect();
   Ok(output)
 }
 
-/// What `bd request-review` reads the remote with: the GitHub service and repository of the branches
-struct Reads<'a> {
-  context: &'a RepoContext,
-  github: &'a Arc<GitHubService>,
-  repository: &'a GitHubRepository,
-}
-
-impl Reads<'_> {
-  /// The services of the reads, with the Patronus service, the Space repository and the target of the review
-  fn services(&self, patronus: Option<Arc<PatronusService>>, space: Option<SpaceRepository>, target: Option<String>) -> BdServices {
-    BdServices {
-      patronus,
-      space,
-      github_repository: Some(self.repository.clone()),
-      target,
-      ..BdServices::new(self.context, Arc::clone(self.github))
+/// The `--reviewer` logins, trimmed, each once
+fn logins_of(reviewers: &[String]) -> Result<Vec<String>, CliError> {
+  let mut logins: Vec<String> = Vec::new();
+  for login in reviewers.iter().map(|login| login.trim()).filter(|login| !login.is_empty()) {
+    if !logins.iter().any(|it| it.eq_ignore_ascii_case(login)) {
+      logins.push(login.to_string());
     }
   }
+  if logins.is_empty() && !reviewers.is_empty() {
+    return Err(CliError::new(ErrorCode::InvalidArguments, "--reviewer needs a GitHub login"));
+  }
+  Ok(logins)
 }
 
-/// The review readiness of the virtual branch at its local tip, for the start of its pull request when it merges into
-/// the target, else for a start through the API (whose answer still names the code owners): the pre-check asked again,
-/// never a kept answer, through the reads of the app's session (`ServiceFactSources::readiness`); a pre-check that
-/// failed is an error, a Patronus that doesn't let the user in `not_logged_in`
-fn code_owner_review(reads: &Reads<'_>, environment: &Environment, name: &str, pull_request: &PullRequest) -> Result<Review, CliError> {
-  let context = reads.context;
-  let service = Arc::new(patronus_service(environment)?);
-  let space = context.space_repository()?.ok_or_else(|| {
-    CliError::new(
-      ErrorCode::NotOnSpace,
-      format!("The repository is not on Space: Patronus can't name the code owners; pass --reviewer <login> to ask someone for {name}"),
-    )
-  })?;
-  let grouping = read_grouping(context, Some(name))?;
-  let target = target_branch_of(grouping.upstream.as_ref()).ok_or_else(|| {
-    CliError::new(
-      ErrorCode::NotOnSpace,
-      format!(
-        "The baseline {} is not a branch of origin: Patronus names the code owners of a branch of origin",
-        grouping.baseline_branch
-      ),
-    )
-  })?;
-  let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  let tip = resolve_commit(&context.git, &context.repository, &format!("refs/heads/{full_name}"))?
-    .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("{name} has no virtual branch yet: `bd sync` builds it")))?;
-  // the robot starts from the pull request only when it goes into the target
-  let into_target = (base_of(pull_request, &target, &context.prefix) == PullRequestBase::Target).then_some(pull_request);
-  let ask = ReviewReadinessBranch::starting_from(name.to_string(), None, tip, into_target);
-  let sources = reads.services(Some(service), Some(space), Some(target)).sources();
-  let key = session_key(context);
-  let read = sources.readiness(&key, grouping.baseline_branch, vec![ask], true);
-  let answer = context
-    .runtime()?
-    .block_on(read)
-    .map_err(|error| CliError::new(error.code, error.message))?
-    .pop()
-    .ok_or_else(|| CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review"))?;
-  match (answer.requirement, answer.readiness) {
-    (Some(requirement), readiness) => Ok(Review { requirement, readiness }),
-    (
+/// "auth has no open pull request: …"
+fn no_pull_request(name: &str) -> CliError {
+  CliError::new(
+    ErrorCode::NoPullRequest,
+    format!("{name} has no open pull request: `bd safe-push {name} --create-pull-request` pushes the branch and opens it, with `--reviewer`"),
+  )
+}
+
+/// The code-owner review of the branch the session read (the pre-check with the pull request, asked again): a pre-check
+/// that failed is an error, a Patronus that doesn't let the user in `not_logged_in`
+fn review_of(fact: Option<&Fact<SubjectReadiness>>) -> Result<(PatronusReviewRequirement, ReviewReadiness), CliError> {
+  let answer = fact.and_then(|fact| fact.value.as_ref());
+  match answer.map(|answer| (answer.requirement.clone(), &answer.readiness)) {
+    Some((Some(requirement), readiness)) => Ok((requirement, readiness.clone())),
+    Some((
       None,
       ReviewReadiness::Unavailable {
         reason: UnavailableReadinessReason::NotLoggedIn,
         message,
       },
-    ) => Err(CliError::new(ErrorCode::NotLoggedIn, message)),
-    (None, ReviewReadiness::Unavailable { message, .. }) => Err(CliError::new(ErrorCode::PatronusError, message)),
-    (None, _) => Err(CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review")),
+    )) => Err(CliError::new(ErrorCode::NotLoggedIn, message.clone())),
+    Some((None, ReviewReadiness::Unavailable { message, .. })) => Err(CliError::new(ErrorCode::PatronusError, message.clone())),
+    _ => Err(CliError::new(ErrorCode::PatronusError, "Patronus gave no answer for the review")),
   }
 }
 
+/// The missing groups whose suggested code owners have no GitHub login to ask (`domain_policy::review::candidates`)
+fn without_reviewer(readiness: &ReviewReadiness, pull_request: &PullRequest) -> Vec<String> {
+  domain_policy::review::candidates(Some(readiness), pull_request).without_reviewer
+}
+
 /// The full name Patronus knows for a GitHub login
-fn review_full_name(review: &Review, login: &str) -> Option<String> {
-  review
-    .requirement
+fn review_full_name(requirement: &PatronusReviewRequirement, login: &str) -> Option<String> {
+  requirement
     .groups
     .iter()
     .flat_map(|group| &group.reviewers)

@@ -63,7 +63,9 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::GitHubAuth
     | HeldAnswer::YouTrackAuth
     | HeldAnswer::CliTools
-    | HeldAnswer::Push => None,
+    | HeldAnswer::Push
+    | HeldAnswer::CreatePullRequest
+    | HeldAnswer::RequestReviewers => None,
   }
 }
 
@@ -153,6 +155,35 @@ pub enum HeldAnswer {
   /// A push to the remote of the repository (its pre-receive hook, `remote_git_fixtures`): the remote has the pack and
   /// moves no ref until the release
   Push,
+  /// The creation of a pull request (`POST /repos/{owner}/{name}/pulls`): the creation of the engine waits at its last
+  /// effect, the row's move made
+  CreatePullRequest,
+  /// A review request of a pull request (`POST /repos/{owner}/{name}/pulls/{n}/requested_reviewers`, of every one)
+  RequestReviewers,
+}
+
+/// The route of the fake GitHub that gives `answer`: held there
+const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)> {
+  match answer {
+    HeldAnswer::CreatePullRequest => Some(("POST", "/repos/*/*/pulls")),
+    HeldAnswer::RequestReviewers => Some(("POST", "/repos/*/*/pulls/*/requested_reviewers")),
+    HeldAnswer::PullRequests
+    | HeldAnswer::ReviewRequests
+    | HeldAnswer::Robots
+    | HeldAnswer::Start
+    | HeldAnswer::Restart
+    | HeldAnswer::Cancel
+    | HeldAnswer::Readiness
+    | HeldAnswer::LandingNeeds
+    | HeldAnswer::RobotProblems
+    | HeldAnswer::BranchRules
+    | HeldAnswer::Profiles
+    | HeldAnswer::RepositoryView
+    | HeldAnswer::GitHubAuth
+    | HeldAnswer::YouTrackAuth
+    | HeldAnswer::CliTools
+    | HeldAnswer::Push => None,
+  }
 }
 
 impl RemoteHost {
@@ -385,6 +416,10 @@ impl RemoteHost {
       let gate = match answer {
         HeldAnswer::Push => self.git_remote.hold()?,
         HeldAnswer::PullRequests => self.github.hold_with_body("POST", "/graphql", "author:@me"),
+        HeldAnswer::CreatePullRequest | HeldAnswer::RequestReviewers => {
+          let (method, path) = github_route(*answer).expect("a route of the fake GitHub");
+          self.github.hold(method, path)
+        }
         HeldAnswer::Robots | HeldAnswer::Start | HeldAnswer::Restart | HeldAnswer::Cancel | HeldAnswer::Readiness | HeldAnswer::RobotProblems => {
           let (method, path) = patronus_route(*answer).expect("a route of the fake Patronus");
           self.patronus.hold(method, path)

@@ -10,6 +10,10 @@
 //! one order. `open_pull_requests_view` is the open pull request of each subject as the rules read it (where it goes, a
 //! draft, the code owners Request Review… offers), derived with each patch too.
 //!
+//! `action_push_of` is the push an action that needs a branch on the remote makes first (a pull request, a review
+//! request), in the order of the push button and with why it can't be made, over the holds of the Patronus view as they
+//! stand; `with_pull_request_sources` the sources such an action is planned on, which need no Patronus view.
+//!
 //! `decide_landing` is what the rules decide over the Patronus facts of a table (`patronus_view`), for the view of the
 //! session, the guards of the app and `bd` alike: the hold of each branch (`domain_policy::holds::branch_hold`) and of
 //! each stack branch, why a Safe Push or a Dry Run can't start (`domain_policy::land::start_refusal`), the robot a Safe
@@ -47,12 +51,11 @@ use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
 use domain_policy::pull_request::base_of;
-use domain_policy::push::{HeadedStack, Kept, PushState, StartAncestor, StartPush, branch_push, kept, start_push};
+use domain_policy::push::{HeadedStack, Kept, PushState, StartAncestor, StartPush, Verdict, action_push, branch_push, kept, start_push};
 use domain_policy::readiness::wanted;
-use domain_policy::reasons::stack_not_built;
+use domain_policy::reasons::{held, stack_not_built};
 use domain_policy::review::candidates;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
-use domain_types::GroupedBranchInfo;
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::landing::{Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
 use domain_types::next_step::{NextStepView, StackPullRequest};
@@ -65,6 +68,7 @@ use domain_types::session::{
   SubjectReadiness, WholeStackView, stack_readiness_key,
 };
 use domain_types::stack::{BranchStack, StackBranchUpdate};
+use domain_types::{GroupedBranchInfo, PushAction};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// The input of the rules over the table of `table`, as its view has it
@@ -206,6 +210,77 @@ pub fn open_pull_requests_view<'a>(
     .filter(open)
     .map(|(root, pull_request)| view_of(stack_readiness_key(root), pull_request));
   of_branches.chain(of_stacks).collect()
+}
+
+/// The push an action that needs a branch on the remote makes first (Create Pull Request, Request Review), ordered as
+/// the push button of the view orders it (`BranchPush::action`)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ActionPushView {
+  /// What it sends, root first: the ancestors with work above the nearest one whose push asks first, then the branch
+  /// while it has work (`domain_policy::push::action_push`); empty when the remote has it all
+  pub branches: Vec<String>,
+  /// Why it can't be made for the user: the branch stays local, a running Safe Push holds it, the last sync did not
+  /// build it, its push drops remote commits (its row asks first), or a branch of its chain the sync did not build or
+  /// whose push drops remote commits (`BranchLanding::push`)
+  pub blocker: Option<Reason>,
+}
+
+/// The push an action that needs `name` on the remote makes first, over the table of `state` and the holds of the
+/// Patronus view of `facts` as they stand (none known before a view: nothing holds it), as `push_view` orders the pushes;
+/// a branch with work for the remote that it can't push (its push drops remote commits, it stays local, a Safe Push holds
+/// it) has the blocker and no branch to send
+#[must_use]
+pub fn action_push_of(state: &TableState, facts: &FactStore, name: &str) -> ActionPushView {
+  let parts = &state.parts;
+  let patronus = &facts.patronus.part().view;
+  let push_facts = PushFacts {
+    parts,
+    patronus,
+    in_baseline: facts.table.value().map(|table| &table.in_baseline),
+  };
+  let repo = parts_repository(parts);
+  let Some(push) = action_push(&repo, |branch| push_facts.state(branch), name) else {
+    return ActionPushView::default();
+  };
+  let mut branches: Vec<String> = push.ancestors.iter().map(|branch| (*branch).to_string()).collect();
+  if push.own == Verdict::Goes {
+    branches.push(name.to_string());
+  }
+  // the remote has it all: there is no push to make, nor a reason it can't be made
+  let own_work = parts
+    .branches
+    .get(name)
+    .and_then(|branch| branch.remote.status.as_ref())
+    .is_some_and(|status| !matches!(status.action, PushAction::UpToDate));
+  if branches.is_empty() && !own_work {
+    return ActionPushView::default();
+  }
+  let landing = patronus.branches.get(name).map(|facts| &facts.landing);
+  let table = facts.table.value();
+  let own = match push.own {
+    Verdict::Parked => parts.branches.get(name).and_then(|branch| branch.structure.parked.as_ref()).map(|parked| Reason::Parked {
+      branch: name.to_string(),
+      with: parked.with.clone(),
+      note: parked.note.clone(),
+    }),
+    Verdict::Held => landing.and_then(|landing| landing.hold.as_ref()).and_then(|hold| {
+      let robots = listed_robots(facts.robots.view());
+      robots.iter().find(|robot| robot.id == hold.by.robot_id).map(|robot| held(name, hold, robot))
+    }),
+    Verdict::NotBuilt => table.and_then(|table| table.not_built.get(name)).map(|block| Reason::CantPush {
+      branch: name.to_string(),
+      block: *block,
+    }),
+    Verdict::AsksFirst => parts.branches.get(name).and_then(|branch| branch.remote.status.as_ref()).map(|status| Reason::DropsRemote {
+      branch: name.to_string(),
+      behind: status.commits_behind,
+    }),
+    Verdict::Goes | Verdict::UpToDate | Verdict::Landed => None,
+  };
+  ActionPushView {
+    branches,
+    blocker: own.or_else(|| landing.and_then(|landing| landing.push.clone())),
+  }
 }
 
 /// What `push_view` reads of a branch
@@ -706,6 +781,19 @@ pub fn with_checked_land_sources<T>(state: &TableState, facts: &FactStore, prefi
   if !matches!(part.state, FactState::Fresh | FactState::Stale { .. }) {
     return None;
   }
+  sources_of(state, facts, prefix, checks, decide)
+}
+
+/// The sources of the session as they stand, its Patronus view as it is (none known before the first: no robot holds
+/// or lands anything): what a pull request or a review request is planned on, which needs no robot of its own; `None`
+/// before the first table
+pub fn with_pull_request_sources<T>(state: &TableState, facts: &FactStore, prefix: &str, decide: impl FnOnce(&LandSources<'_>) -> T) -> Option<T> {
+  sources_of(state, facts, prefix, &StartChecks::default(), decide)
+}
+
+/// `decide` over the sources of the session of `state` and `facts`; `None` before the first table
+fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &StartChecks, decide: impl FnOnce(&LandSources<'_>) -> T) -> Option<T> {
+  let part = facts.patronus.part();
   let table = facts.table_facts(state)?;
   let robots = listed_robots(facts.robots.view());
   let target = baseline_on_remote(&state.parts.header.baseline_branch);

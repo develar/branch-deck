@@ -202,6 +202,9 @@ pub enum ErrorCode {
   NoPullRequest,
   /// `bd request-review`: a missing group has no code owner with a GitHub login Patronus names; pass `--reviewer`
   NoReviewer,
+  /// `bd request-review`: the branch has work its remote branch lacks, which the reviewers would not see; `--push`
+  /// pushes it first
+  NeedsPush,
   /// `bd request-review`: GitHub asked nobody, it refused every reviewer (the author, a user without access); the
   /// message names each with the reason
   ReviewRefused,
@@ -321,6 +324,7 @@ impl ErrorCode {
       | Self::PatronusRefused
       | Self::NoPullRequest
       | Self::NoReviewer
+      | Self::NeedsPush
       | Self::ReviewRefused
       | Self::SlotBusy
       | Self::HostSlot

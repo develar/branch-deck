@@ -182,6 +182,14 @@
     "target": "master"
   },
   {
+    "code": "needsPush",
+    "branch": "auth"
+  },
+  {
+    "code": "noReviewer",
+    "groups": ["IJPL Code Platform"]
+  },
+  {
     "code": "draft",
     "number": 7
   },

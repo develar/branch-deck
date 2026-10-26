@@ -1,7 +1,7 @@
 use crate::facts::RemoteBranch;
 use crate::push::{
-  HeadedStack, Kept, PushScope, PushState, StartAncestor, StartPush, Verdict, action, branch_push, drops_remote_commits, kept as kept_by, needs_push, over_moved_remote, push_plan,
-  replaces_older_versions, stack_branch_along, start_push,
+  ActionPush, HeadedStack, Kept, PushScope, PushState, StartAncestor, StartPush, Verdict, action, action_push, branch_push, drops_remote_commits, kept as kept_by, needs_push,
+  over_moved_remote, push_plan, replaces_older_versions, stack_branch_along, start_push,
 };
 use crate::stack_test::{Spec, repository, stacks_of};
 use domain_types::fixtures::robot_of;
@@ -436,6 +436,21 @@ fn the_push_button_and_an_action_start_above_the_nearest_ancestor_that_asks_firs
   assert_eq!((push.stack, push.action), (Some(vec![]), None));
   // a branch alone sends nothing more
   assert_eq!(branch_push(&repo, states(&[("auth", PUSH)]), None, "auth").stack, None);
+}
+
+/// The push of an action that needs the branch on the remote (a pull request, a review request) sends what the button
+/// does: the ancestors with work above the nearest one that asks first, root first, and the branch by what it does
+#[test]
+fn an_action_pushes_the_ancestors_above_the_nearest_that_asks_first_then_the_branch() {
+  let (stacks, parked) = (stacks_of(&STACK), BTreeMap::new());
+  let repo = repository(&stacks, &parked);
+  let pushed = |entries: &[(&'static str, PushState)]| action_push(&repo, states(entries), "oauth");
+  let goes = |ancestors: Vec<&'static str>, own| Some(ActionPush { ancestors, own });
+  assert_eq!(pushed(&[("auth", PUSH), ("login", DROPS), ("oauth", PUSH)]), goes(vec![], Verdict::Goes));
+  assert_eq!(pushed(&[("auth", PUSH), ("login", PUSH)]), goes(vec!["auth", "login"], Verdict::UpToDate));
+  // a held ancestor ends the chain: its robot lands it and what it is built on
+  assert_eq!(pushed(&[("auth", PUSH), ("login", kept(Kept::Held)), ("oauth", DROPS)]), goes(vec![], Verdict::AsksFirst));
+  assert_eq!(action_push(&repo, states(&[]), "gone"), None);
 }
 
 /// Push with Children sends the branch while it has work and the branches stacked on it that have work; one that asks

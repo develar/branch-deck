@@ -19,9 +19,9 @@
 //! a restart and a cancel of one robot run one after the other, a second click of the same joins it; a restart holds
 //! what its robot lands too (`Resource::Lands`) and the ref it pushes (`Resource::Ref`).
 
-use crate::engine::{run, steps_of};
+use crate::engine::{run, run_planned_in};
 use crate::events::EventSink;
-use crate::land_execute::{Accepted, Planned, PushedRef, run_planned};
+use crate::land_execute::{Accepted, Planned, PushedRef};
 use crate::land_session::session_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::patronus_failure;
@@ -315,10 +315,7 @@ pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &s
     let planned = prepare_restart(sessions, key, robot_id)
       .await
       .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
-    let (host, run) = session_start(services, sessions, key).await?;
-    let steps = steps_of(guard);
-    let started = Box::pin(run_planned(&host, &run, &steps, guard.id().clone(), planned, &accepted, began)).await?;
-    Ok(started.outcome)
+    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, began).await
   })
   .await
 }
@@ -378,4 +375,4 @@ fn cancel_outcome(op: OperationId, plan: Plan, canceled: Result<Canceled, ApiErr
 
 #[cfg(test)]
 #[path = "robot_test.rs"]
-mod robot_test;
+pub(crate) mod robot_test;

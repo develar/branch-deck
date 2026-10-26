@@ -257,7 +257,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::LandedDiffers
     | ErrorCode::LandedNotEmpty
     | ErrorCode::FinishPending => &["help update"],
-    ErrorCode::NoPullRequest | ErrorCode::NoReviewer | ErrorCode::ReviewRefused => &["request-review"],
+    ErrorCode::NoPullRequest | ErrorCode::NoReviewer | ErrorCode::NeedsPush | ErrorCode::ReviewRefused => &["request-review"],
   }
 }
 

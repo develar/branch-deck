@@ -44,16 +44,6 @@ pub struct SubmitPullRequestReviewParams {
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
-pub struct RequestPullRequestReviewersParams {
-  pub repository_path: String,
-  pub pull_request_number: u32,
-  /// GitHub logins of users; a team is not asked (`team_reviewers`)
-  pub reviewers: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
 pub struct GetPullRequestHeadParams {
   pub repository_path: String,
   /// `owner/name` when the review requests already resolved it

@@ -199,12 +199,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (`group`: `rewrite`), and an unknown name must be `invalid_arguments` naming every command and output.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_without_a_name_is_the_index_of_the_commands`, `schema_of_a_command_is_only_its_outputs`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
-  `request-review --check`, `update --status` without `--materialize`, `lease status`, and the `--dry-run` of `group`, `rename`,
+  `update --status` without `--materialize`, `lease status`, and the `--dry-run` of `group`, `rename`,
   `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold`, `move-hunk` and `reword` must write no ref,
   config,
   index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
-  with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run` and
-  `safe-push --check` sync first.
+  with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run`,
+  `safe-push --check` and `request-review --check` sync first.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-update/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`)
@@ -1301,11 +1301,21 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   each once, never the author, a member asked already or one whose approval counts (the ones the app's popover checks,
   by the one rule of both: `domain_policy::review::candidates`), from the review readiness
   `bd safe-push` checks (the pre-check with the pull request, asked again); `--reviewer <login>` (repeatable) asks
-  those instead and doesn't ask Patronus. It must print `reviewers` (whom it asks), `requested`, `refused` with
-  GitHub's reason, `waiting_for` (the reviewers the pull request asks after the request) and the `readiness` before it,
-  each person with the full name Patronus knows. `--check` must print the same object and ask nobody. It must take no
-  lock, run no sync and write nothing but the request on GitHub.
+  those instead and doesn't ask Patronus. It is the intent of the app's request (`RequestReview`,
+  `operations::pull_request`), planned over the one-shot session of the command (`operations::needs`) and run by the
+  same engine. It must print `reviewers` (whom it asks), `requested`, `refused` with GitHub's reason, `waiting_for` (the
+  reviewers the pull request asks after the request), the `readiness` before it, each person with the full name
+  Patronus knows, and `pushed`, the branches it pushed first. `--check` must print the same object and push and ask
+  nothing. It must hold the repository lock only for its sync and for the freeze of its push, and write nothing but
+  the push of `--push` and the request on GitHub.
   [@test] ../../crates/bd-remote/src/request_review_test.rs (`asks_the_suggested_code_owner_of_the_missing_group_once`, `asks_the_logins_it_is_given_and_names_whom_github_refuses`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_request_review_check`)
+- A branch with work its remote branch lacks must be `needs_push` (exit 4, D5) with the next step `bd request-review
+  <branch> --push` (`needs_approval: true`): the reviewers would not see the commits. `--push` must push them first as
+  the app's request does (the ancestors with work first, root first; an open pull request of what it pushes into a
+  virtual branch retargeted into the target before the push), then ask; a push the user decides (one that drops remote
+  commits) refuses it as `bd push` does.
+  [@test] ../../crates/bd-remote/src/request_review_test.rs (`a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it`)
 - Without an open pull request, or with a draft, it must be `no_pull_request` (exit 4), naming `bd safe-push <branch>
   --create-pull-request`; a missing group nobody is asked for whose code owners have no GitHub login Patronus names,
   with nobody else to ask, `no_reviewer`; a request GitHub asked nobody in, `review_refused` naming each with the

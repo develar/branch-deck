@@ -40,8 +40,10 @@ Two words are used for what lands, never for anything else:
   one robot. Its Safe Push is in the stack's header, and its popover opens at the header.
 - **A push serves the landing.** Git pushes put on the remote what a Safe Push or a pull request needs. A stack
   pushes in one atomic push. The first push of a branch is a step of its Safe Push and its Create Pull Request, which
-  push it themselves: the row, the preview and the review window offer no push of a branch the remote lacks, only its
-  menu does (`isFirstPushInLanding`). A push stays a move of its own where it changes what other people see: a remote
+  push it themselves (a step of the plan of their intent, the push of the push button): the row, the preview and the
+  review window offer no push of a branch the remote lacks, only its menu does (`isFirstPushInLanding`). A review
+  request pushes what its pull request lacks first too, so the reviewers see it; `bd request-review` only with `--push`
+  (D5), else it refuses (`needs_push`). A push stays a move of its own where it changes what other people see: a remote
   branch that lags, the commits of a live pull request, a force push the landing refuses to make.
 
 The specs are the contract of each part:

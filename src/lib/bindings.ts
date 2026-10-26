@@ -43,17 +43,6 @@ export const commands = {
 	 *  who is the assignee
 	 */
 	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_stack_pull_request", { params })),
-	/**
-	 *  Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
-	 *  already exists is found instead. The session of the repository has it at once, until GitHub's search lists it, and
-	 *  lists the pull requests again
-	 */
-	createPullRequest: (params: CreatePullRequestParams) => typedError<ViewAnswer<CreatedPullRequest>, ApiError>(__TAURI_INVOKE("create_pull_request", { params })),
-	/**
-	 *  Waits until GitHub has the branch just pushed (a mirror copies it a moment later): false when it still doesn't after
-	 *  `MIRROR_WAIT`
-	 */
-	waitForGithubBranch: (params: WaitForGitHubBranchParams) => typedError<boolean, ApiError>(__TAURI_INVOKE("wait_for_github_branch", { params })),
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>(__TAURI_INVOKE("search_github_users", { params })),
 	/**  Approves, or requests changes on, a pull request that waits for the user's review, on the commit the user reviewed */
@@ -65,11 +54,6 @@ export const commands = {
 	 *  with it. The session of the repository has it closed at once; the version of the view after its patch
 	 */
 	closePullRequest: (params: ClosePullRequestParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("close_pull_request", { params })),
-	/**
-	 *  Asks users to review an open pull request of the virtual branches (Request Review…): whom GitHub asked, and whom it
-	 *  refused with its reason. The session of the repository has whom it asked at once and lists the pull requests again
-	 */
-	requestPullRequestReviewers: (params: RequestPullRequestReviewersParams) => typedError<ViewAnswer<RequestedReviewers>, ApiError>(__TAURI_INVOKE("request_pull_request_reviewers", { params })),
 	/**  The app's own sign-in and where the token comes from, for Settings */
 	getGithubAuthStatus: () => typedError<GitHubAuthStatus, ApiError>(__TAURI_INVOKE("get_github_auth_status")),
 	/**  Starts the app's own sign-in: the code the user enters on GitHub. `wait_github_sign_in` waits for it. */
@@ -1418,35 +1402,21 @@ export type Coverage = {
 	weeks_missing: number,
 };
 
-/**  A pull request to open for a subject */
+/**  A pull request to open for a subject: of its virtual branch into the target, of the stack branch of a whole stack */
 export type CreatePullRequest = {
 	subject: Subject,
 	title: string,
 	body: string,
-	draft: boolean,
-	/**  Logins; the author's own is left out, GitHub refuses it */
-	reviewers: string[],
-};
-
-export type CreatePullRequestParams = {
-	repositoryPath: string,
-	/**
-	 *  The virtual branch name, e.g. `feature-auth`, or the root of the whole stack: named when a pull request that already
-	 *  exists is not listed yet (it is found by `head`)
-	 */
-	branchName: string,
-	head: string,
-	base: string,
-	title: string,
-	body: string,
-	/**  Logins; the author's own is left out, GitHub refuses it */
-	reviewers: string[],
+	/**  The user of the token is its assignee ("Assign to me") */
 	assignSelf: boolean,
+	/**  Logins; the author's own is left out, GitHub refuses it */
+	reviewers: string[],
 	/**
-	 *  The branch (or its base) was just pushed: GitHub may not know it for a moment (a Space mirror copies it), so a
-	 *  creation GitHub refuses for a missing head or base is asked again until `MIRROR_WAIT` (`create_pull_request`)
+	 *  "Continue on GitHub": the user opens it in GitHub's form, which shows nothing of a branch GitHub doesn't have yet;
+	 *  the plan pushes what it needs and waits until GitHub has the branch (`PlannedEffect::WaitForMirror`), and the page
+	 *  opens the form
 	 */
-	waitForMirror?: boolean,
+	onGitHub?: boolean,
 };
 
 /**  A pull request the app or `bd` opened, or found open */
@@ -1934,6 +1904,11 @@ export type ErrorCode =
 "no_pull_request" | 
 /**  `bd request-review`: a missing group has no code owner with a GitHub login Patronus names; pass `--reviewer` */
 "no_reviewer" | 
+/**
+ *  `bd request-review`: the branch has work its remote branch lacks, which the reviewers would not see; `--push`
+ *  pushes it first
+ */
+"needs_push" | 
 /**
  *  `bd request-review`: GitHub asked nobody, it refused every reviewer (the author, a user without access); the
  *  message names each with the reason
@@ -2721,8 +2696,9 @@ export type Intent =
 	kind: "createPullRequest",
 } & CreatePullRequest | 
 /**
- *  The code owners (or `reviewers`) are asked to review the pull request of a subject, `push_first` when its branch
- *  has work for the remote
+ *  `reviewers` are asked to review the open pull request of a subject, none: the code owners Patronus suggests that
+ *  Request Review… preselects (`domain_policy::review::candidates`); `push_first`: the work its branch has for the
+ *  remote is pushed first, so the reviewers see it (D5), else such work refuses it (`Reason::NeedsPush`)
  */
 ({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; robotId?: never; state?: never; thenLand?: never; verdict?: never } | 
 /**  The pull request `number` is closed with `comment` */
@@ -3489,7 +3465,15 @@ export type OperationResult =
 /**  A restart or a cancel of a robot */
 {
 	kind: "robot",
-} & RobotResult;
+} & RobotResult | 
+/**  The pull request a creation opened, or the open one GitHub has of its head (`created: false`) */
+{
+	kind: "pullRequest",
+} & CreatedPullRequest | 
+/**  Whom a review request asked, and whom GitHub refused with its reason */
+{
+	kind: "reviewers",
+} & RequestedReviewers;
 
 /**  What an operation cost */
 export type OperationStats = {
@@ -4005,7 +3989,14 @@ export type PlannedEffect =
 /**  The pull request of the subject is opened, where the code owners approve (none is open) */
 { kind: "createPullRequest" } | 
 /**  The robot is restarted (`Intent::RestartRobot`): Patronus starts it again on the newest commit of its remote branch */
-{ kind: "restartRobot"; robotId: string };
+{ kind: "restartRobot"; robotId: string } | 
+/**
+ *  GitHub has the pushed branch `branch` (without `refs/heads/`): a mirror copies it a moment after the push, and
+ *  GitHub's form of a new pull request shows nothing of a branch it doesn't have ("Continue on GitHub")
+ */
+{ kind: "waitForMirror"; branch: string } | 
+/**  `reviewers` (logins) are asked to review the open pull request `number` (`Intent::RequestReview`) */
+{ kind: "requestReviewers"; number: number; reviewers: string[] };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {
@@ -4357,7 +4348,7 @@ export type ReapplyBranchResult = {
 };
 
 /**
- *  Why a start, a push or a restart is refused. A robot code names the push mode and the target of its robot, so a
+ *  Why a start, a push, a restart or a review request is refused. A robot code names the push mode and the target of its robot, so a
  *  formatter needs nothing else; the words of a context (a hold says "nothing of it is left to push") belong to the
  *  field the reason is read from
  */
@@ -4412,6 +4403,16 @@ export type Reason =
  *  commits; `note` the note of that line, empty without one
  */
 { code: "parked"; branch: string; with: string | null; note: string } | 
+/**
+ *  `branch` (a branch, or the root of a whole stack) has work its remote branch lacks: a review request pushes it
+ *  first only when asked to (`bd request-review --push`), so the reviewers see the commits (D5)
+ */
+{ code: "needsPush"; branch: string } | 
+/**
+ *  Patronus names no code owner with a GitHub login to ask for the missing approvals of `groups`: the reviewers are
+ *  named instead (`bd request-review --reviewer`)
+ */
+{ code: "noReviewer"; groups: string[] } | 
 /**  Patronus doesn't protect `target`: no robot pushes into it */
 { code: "unprotected"; target: string } | 
 /**  The pull request `number` a robot starts from is a draft: Patronus merges it once it is ready for review */
@@ -4659,13 +4660,6 @@ export type RepositoryView = {
 	 *  that its first view had already
 	 */
 	news: News[],
-};
-
-export type RequestPullRequestReviewersParams = {
-	repositoryPath: string,
-	pullRequestNumber: number,
-	/**  GitHub logins of users; a team is not asked (`team_reviewers`) */
-	reviewers: string[],
 };
 
 /**  What GitHub did with a request for reviews of a pull request */
@@ -6476,12 +6470,6 @@ export type ViewPatch = {
 export type ViewSubscription = {
 	id: number,
 	view: RepositoryView,
-};
-
-export type WaitForGitHubBranchParams = {
-	repositoryPath: string,
-	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
-	branch: string,
 };
 
 export type WeekCount = {

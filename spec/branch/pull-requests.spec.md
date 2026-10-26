@@ -39,7 +39,8 @@ targets:
   - ../../src/lib/git/new-pull-request.ts
   - ../../src/lib/git/push-toast.tsx
   - ../../src/lib/create-pull-request.ts
-  - ../../src/lib/create-pull-request-context.ts
+  - ../../src/lib/pull-request-dialog.ts
+  - ../../src/lib/pull-request-run.ts
   - ../../src/stores/create-pull-request-dialog.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/components/branch/BranchPreviewActions.tsx
@@ -51,7 +52,7 @@ targets:
   - ../../crates/bd-remote/src/request_review_command.rs
   - ../../src/hooks/useReviewerSearch.ts
   - ../../src/components/shared/ReviewerPicker.tsx
-  - ../../src/lib/request-review.ts
+  - ../../src/presenters/review.ts
   - ../../src/components/branch/RequestReviewPopover.tsx
   - ../../src/components/branch/RequestReviewForm.tsx
   - ../../crates/domain-policy/src/pull_request.rs
@@ -348,20 +349,24 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   five or more are "auth, login, core and 2 more").
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
-  [@test] ../../src/lib/create-pull-request-context.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
+  [@test] ../../src/lib/pull-request-dialog.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
 - "Create Pull Request…" is offered to any branch without a live pull request, on the remote or not (Rust offers `create-pull-request`
   by the GitHub repository and the pull request alone): the push is the creation's first step, never a step the user
-  takes or reads about. Opening the dialog pushes nothing; Create (and "Continue on GitHub") pushes what the push
-  button would (`pushForAction`: the branch and the ancestors with work, root first, without a push toast; Activity
-  records it), its progress in the button ("Pushing 45%"), Escape and a click outside don't close the dialog meanwhile.
-  A push the user decides is never made for them: one that drops commits of the remote branch keeps the dialog with
-  "Cannot create pull request" / "The remote branch of feature-auth has 2 commits that feature-auth lacks: push it from
-  its row, which shows them", and creates nothing. Right after its push GitHub may not have the branch yet (a Space
-  mirror copies it a moment later): the creation asks again every 2 s for 30 s (`wait_for_mirror`), "Continue on GitHub"
-  waits until GitHub has the branch (`wait_for_github_branch`) before it opens GitHub's form; bd's
-  `safe-push --create-pull-request` waits the same way after its push.
+  takes or reads about. Opening the dialog pushes nothing; Create (and "Continue on GitHub") is one intent of the engine
+  (`CreatePullRequest`, `operations::pull_request`; "Continue on GitHub" with `onGitHub`), whose plan pushes first what
+  the push button would (`derive::action_push_of`: the branch and the ancestors with work, root first; the pull requests
+  of what it pushes into a virtual branch are retargeted into the target before, D3a; the stack branch of a whole stack;
+  no push toast; Activity records it), its progress in the button ("Pushing 45%"), Escape and a click outside don't
+  close the dialog meanwhile. A push the user decides is never made for them: one that drops commits of the remote
+  branch refuses the plan, and the dialog stays with "Cannot create pull request" / "The remote branch of feature-auth
+  has 2 commits that feature-auth lacks: push it from its row, which shows them"; nothing is created. Right after its
+  push GitHub may not have the branch yet (a Space mirror copies it a moment later): the creation asks again every 2 s
+  for 30 s (`wait_for_mirror`), "Continue on GitHub" waits until GitHub has the branch (the effect `WaitForMirror` of its
+  plan) before the page opens GitHub's form; bd's `safe-push --create-pull-request` waits the same way after its push.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should open GitHub's form of a branch not on the remote yet from its preview, after the push`, `should keep the dialog, with the reason, when the push would drop commits of the remote branch`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`right_after_a_push_the_creation_waits_for_the_mirror_to_copy_the_branch`, `the_wait_for_the_mirror_ends_with_the_reason`, `waits_until_github_has_the_branch`)
+  [@test] ../../crates/operations/src/pull_request_test.rs (`a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request`, `continue_on_github_pushes_and_waits_until_github_has_the_branch`)
+  [@test] ../../src/lib/pull-request-run.test.ts (`opens GitHub's form once the run pushed and GitHub has the branch, of the whole stack too`)
 - The text starts as `bd push` and `bd safe-push --create-pull-request` write it (`get_new_pull_request`,
   `pull_request_text`): the `bd describe` description of the branch, else the text of the commits the pull request
   will show, those of the local branch the creation pushes (`<remote>/<base>..<head>`). A field the user typed in is
@@ -420,22 +425,26 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should offer Create Pull Request… with the code owner when approvals count only in one`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should preselect the code owners in Create Pull Request… from the answer that comes after the dialog opened`)
 - "Assign to me" is on until the user turns it off; the choice is kept (`appSettings.createPullRequestAssignSelf`).
-- ⌘↵ (Ctrl+Enter) or the button creates it (`create_pull_request`), in one request of the token chain: `GET /user`
+- ⌘↵ (Ctrl+Enter) or the button creates it (the last effect of `CreatePullRequest`), in one request of the token chain: `GET /user`
   first (a rejected token is replaced before anything is written), `POST pulls`, then `POST issues/<n>/assignees`
   and `POST pulls/<n>/requested_reviewers`. After the pull request exists nothing fails the creation: an assignee
   GitHub leaves out and a reviewer it refuses are warnings; a refused list of reviewers is asked again one by one, to
   name whom it refuses. Escape and a click outside don't close the dialog while it runs; a click outside never closes
-  it (the text stays). The creation and "Continue on GitHub" are operations of the pull request in the main window
-  ([Running Operations](../../docs/design/operations.md)): a second submit joins the first; the dialog of the main
-  window reads them, the review window its own request. So is "Request Review…": its button shows the spinner, a
+  it (the text stays). The creation and "Continue on GitHub" are operations of the session of the repository
+  (`RepositoryView.operations`, [Running Operations](../../docs/design/operations.md)): each holds the head of its
+  subject, so a second submit of the same joins the first, another text (or a push of the branch) waits for it and is
+  decided again (GitHub then finds the pull request it opened); the dialog waits from the click on and while the
+  operation runs, the review window for its own request. So is "Request Review…": its button shows the spinner, a
   second click joins it.
+  [@test] ../../crates/operations/src/pull_request_test.rs (`a_review_request_waits_for_a_retarget_of_its_pull_request_only_when_its_push_retargets_it`)
+  [@test] ../../src/lib/pull-request-run.test.ts (`is the running operation of its row while the session runs it`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except_the_author`, `without_the_assignee_and_reviewers_only_the_pull_request_is_created`, `a_refused_list_of_reviewers_is_asked_one_by_one_and_who_github_refuses_is_a_warning`, `an_assignee_github_leaves_out_or_refuses_is_a_warning_of_the_created_pull_request`, `a_rejected_token_writes_nothing`, `a_title_of_several_lines_is_refused_before_github_is_asked`)
 - The creation, "Continue on GitHub" and "Request Review…" belong to the repository they were asked in (the dialog of
   the main window or of the review window, the popover): its path goes with the request, and Rust resolves the branch
-  prefix of that repository for each command, so the push, the pull request, its reviewers, the store and Activity are
-  of that repository also when the main window opens another during the push. The push reads the branches of the table: a switch before it sends nothing, and the action
-  fails with "idea-1 is no longer the open repository".
-  [@test] ../../src/stores/pull-requests.test.ts (`creates the pull request in the repository the dialog was opened in`, `asks the reviewers on the pull request of its repository, not on the one of the same branch selected now`)
+  prefix of that repository for each command: the intent is planned and run in the session of that repository, so the
+  push, the pull request, its reviewers, the store and Activity are of that repository also when the main window opens
+  another during the push.
+  [@test] ../../src/lib/pull-request-run.test.ts (`runs the intent in the repository of the dialog, and toasts and records the pull request GitHub opened`, `pushes first and answers whom GitHub asked and refused, also when it asked nobody`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request asked from the review window in its repository when the main window opens another during its push`)
 - The result is one toast with "Open Pull Request", recorded in Activity: "Created pull request #123" / "feature-auth
   → master · review requested from alice · assigned to you", a `warning` toast whose description names what GitHub
@@ -455,6 +464,8 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../src/lib/git/push.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
+  [@test] ../../crates/operations/src/pull_request_test.rs (`a_creation_again_finds_the_pull_request_the_search_does_not_list_yet`)
+  [@test] ../../src/lib/pull-request-run.test.ts (`records nothing of the one GitHub had of the head already, and throws why nothing was created`)
   [@test] ../../src/lib/create-pull-request.test.ts (`says that one which existed got nothing of the dialog`)
 - A creation that fails is "Cannot create pull request" with GitHub's reason, and the dialog stays with its text. A
   branch GitHub doesn't have yet (a mirror copies a pushed branch a moment later) says so: "GitHub doesn't have
@@ -520,14 +531,15 @@ Patronus counts the approvals of the code owners in the pull request the robot s
 ([Patronus](patronus.spec.md#code-owner-review)): a pull request that asks no member of a group whose approval is
 missing waits for nobody. "Request Review…" asks them, on the pull request that exists.
 
-- `getRequestReviewItem` (`src/lib/request-review.ts`) builds the item, id `request-review`, "Request Review…", for
+- `getRequestReviewItem` (`src/presenters/review.ts`) builds the item, id `request-review`, "Request Review…", for
   every surface that offers it (the row's next step, the branch menu): there only while the branch
   has an open pull request (else "Create Pull Request…" asks the reviewers); disabled with the reason while the pull
   request is a draft ("#1078 is a draft: mark it ready for review on GitHub first"), as the session reads the open pull
   request of the subject (`RepositoryView.openPullRequests`, `PullRequestView`: its number, where it goes by
   `domain_policy::pull_request::base_of`, a draft, the candidates below). Work the remote lacks by content is
-  no reason: the request pushes it first (`pushForAction`, no push toast; one only rebuilt on a newer baseline is up to
-  date, an unknown remote status pushes nothing), so the reviewers see the commits. A push that dismisses the
+  no reason: the request (the intent `RequestReview` with `pushFirst`, D5) pushes it first, the `Push` of its plan (the
+  push of the push button, the stack branch of a whole stack, no push toast; one only rebuilt on a newer baseline is
+  up to date, an unknown remote status pushes nothing), so the reviewers see the commits. A push that dismisses the
   approvals the pull request has (the rules of its base as the session read them, `useBranchRules` answers `dismiss`) is said in
   the popover, a consequence the user decides by Request: "The push of the new commits dismisses the approvals of
   #1078: the rules of the repository dismiss stale reviews when new commits are pushed." Rules that can't be read are
@@ -535,7 +547,8 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   no approvals): "Cannot check whether the push of the new commits keeps the approvals of #1078: GitHub answered 500."
   A refused push ("Cannot request a review on
   #1078" with its reason) asks nobody. Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
-  [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is not there without an open pull request`, `is disabled with the reason Rust gives for a draft: work the remote lacks is pushed by the request`)
+  [@test] ../../src/presenters/review.test.ts (`asks the chosen code owners on the open pull request`, `is not there without an open pull request`, `is disabled with the reason Rust gives for a draft: work the remote lacks is pushed by the request`)
+  [@test] ../../crates/operations/src/pull_request_test.rs (`a_review_request_pushes_first_only_when_told_to_and_asks_the_preselected_code_owner`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_reads_where_each_open_pull_request_goes_and_whom_request_review_offers`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should push the commits the remote lacks as the first step of Request Review…`)
@@ -555,7 +568,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   the dialog (`ReviewerPicker`, `useReviewerSearch`). "Request Review" asks the checked ones and the chosen ones.
   [@test] ../../crates/domain-policy/src/review_test.rs (`are_the_suggested_ones_of_the_missing_groups_one_per_group_nobody_is_asked_for_chosen_each_once`, `leave_out_the_author_whoever_is_asked_already_and_an_approval_that_counts_a_group_someone_is_asked_for_chooses_nobody`, `are_none_when_no_approval_is_missing_or_the_readiness_is_unknown`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should choose the code owner of a readiness of the whole stack that comes after its Request Review… opened`)
-  [@test] ../../src/lib/request-review.test.ts (`says while Patronus checks them, when its check failed or doesn't tell, never nothing as if none were needed`)
+  [@test] ../../src/presenters/review.test.ts (`says while Patronus checks them, when its check failed or doesn't tell, never nothing as if none were needed`)
   [@test] ../../tests/e2e/next-step/facts-without-answer.spec.ts (`should say in Request Review… while Patronus names no code owners, when it fails to, and when the rules of the branch can't be read`)
 - The surfaces ([Next Step](next-step.spec.md), row 9): the row's slot mounts the popover around its step, or, for
   another step, around an anchor at its end, which "Request Review…" of the branch menu opens
@@ -571,20 +584,25 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   (`RequestReviewAnchors`, `GaplessAnchors`); no code owners without Patronus, the search finds whom to ask.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should ask for a review from the branch menu, the row's ⋯ and the preview, the popover at the row`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask for a review of the pull request of a small stack without Patronus from Whole Stack › of the root's menu, the popover at the root's row`, `should ask for a review of the pull request of the whole stack without Patronus from the island's ⋯, the popover at the header`)
-- The request is `request_pull_request_reviewers` (`POST pulls/<n>/requested_reviewers`, users only, no team), each
-  login once: one request, and one per reviewer only when GitHub refuses the list with a 422 (it names nobody), to tell
+- The request is the last effect of `RequestReview` (`RequestReviewers`, after its push:
+  `POST pulls/<n>/requested_reviewers`, users only, no team), each login once: one request, and one per reviewer only when GitHub refuses the list with a 422 (it names nobody), to tell
   whom it refuses (the author, a user without access); a login it accepts but doesn't list is refused too ("GitHub left
   the reviewer out"). Another refusal (no right to write, no such pull request), also of one reviewer after the split,
   fails the request; the token chain tries the next token after a 401. The creation of a pull request asks its
-  reviewers the same way.
+  reviewers the same way. The request holds the reviewers of its pull request: a retarget of it runs beside, unless the
+  push of the request retargets the pull request too (it goes into a virtual branch), which holds its base: then it
+  waits for the retarget and is planned again over the base it left, the PATCH of the base before the request.
+  [@test] ../../crates/operations/src/pull_request_test.rs (`a_review_request_retargets_and_pushes_first_then_asks_whom_its_plan_names`, `a_review_request_waits_for_a_retarget_of_its_pull_request_only_when_its_push_retargets_it`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should retarget a pull request while a review is requested in it: both reach GitHub, neither refuses the other`)
   [@test] ../../crates/remote-facts/src/pull_request_writes_test.rs (`asks_the_reviewers_of_an_open_pull_request_once_each`, `a_refused_list_is_asked_one_by_one_to_name_whom_github_refuses`, `a_request_github_refuses_as_a_whole_fails_and_no_login_asks_nothing`, `a_rejected_token_after_the_split_fails_the_request`)
 - The result is a toast with "Open Pull Request": "Requested a review from Ilya Korennoy on #1078", a `warning` whose
   description names whom GitHub refused ("GitHub refused Bob: …"). A request GitHub asked nobody in, or one that
   failed, is "Cannot request a review on #1078" with the reason, and the popover stays. Whom GitHub asked is requested
   in the pull request of the row at once, and a refresh of the pull requests follows: the review readiness reads the
   new request.
-  [@test] ../../src/lib/request-review.test.ts (`names whom GitHub asked, and whom it refused as a warning`, `is none when GitHub asked nobody: the error says why`)
-- `bd request-review <branch>` asks the same code owners from the agent CLI, `--reviewer <login>` others
+  [@test] ../../src/presenters/review.test.ts (`names whom GitHub asked, and whom it refused as a warning`, `is none when GitHub asked nobody: the error says why`)
+- `bd request-review <branch>` runs the same intent from the agent CLI: the same code owners, `--reviewer <login>`
+  others; work the remote lacks refuses it (`needs_push`) until `--push` pushes it first
   ([Agent CLI](../cli/agent-cli.spec.md#bd-request-review)).
 
 ### Branch preview

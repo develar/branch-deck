@@ -35,8 +35,9 @@
 //! - `push`: what a push of a branch does to its remote branch (`action`: create, push, force, up to date), whether it
 //!   has work, replaces older versions or drops remote commits, whether a push over a remote that moved goes again
 //!   (`over_moved_remote`), what a push of several branches covers and what each of them does (`push_plan`: Push Stack,
-//!   Push with Children), the pushes of a branch the view sends (`branch_push`) and the stack branch Push with Children
-//!   of a root takes along (`stack_branch_along`)
+//!   Push with Children), the pushes of a branch the view sends (`branch_push`), the push an action that needs the
+//!   branch on the remote makes first (`action_push`: a pull request, a review request) and the stack branch Push with
+//!   Children of a root takes along (`stack_branch_along`)
 //! - `pull_request`: where an open pull request goes (`base_of`: the target, a virtual branch it leaves for the target,
 //!   another base that may be meant), the pull request a robot starts from (`start_pull_request`), and what a push does
 //!   to its approvals by the rules of its base (`dismisses_approvals`)

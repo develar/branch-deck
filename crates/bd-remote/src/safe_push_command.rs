@@ -26,11 +26,11 @@ use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
 use crate::pull_request_retarget::{RetargetedPullRequest, refusal_warning};
 use crate::push_command::{
   LANDED_NEXT, PullRequestDraft, PushedBranch, PushedName, REMOTE_REFUSED_NEXT, WOULD_REJECT_NEXT, github_repository, lease_rejected, not_synced_reason, pull_request_drafts,
-  push_size_limit, pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
+  pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
 };
 use crate::push_hold::{refusing_subject, robot_command};
 use crate::robot_list::keep_listed;
-use crate::safe_push_run::{BdStart, cli_error, locker};
+use crate::safe_push_run::{BdStart, cli_error, start_services};
 use crate::session_facts::{SessionFacts, listed_robots};
 use bd_core::bd_command::shell_word;
 use bd_core::check_summary::{CheckConflict, CheckWarning, DanglingReferenceSummary, dangling_reference_message, dangling_references_in, session_of_sync};
@@ -67,7 +67,7 @@ use domain_types::session::{Fact, FactState, LandedSection, ParkedMember, PullRe
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use github::service::{GitHubFailure, GitHubService};
 use operations::land::{LandHost, one_shot_plan};
-use operations::land_execute::{Accepted, Planned, PullRequestText, PushSettings, StartServices, Started, Steps, execute};
+use operations::land_execute::{Accepted, Planned, PullRequestText, Started, Steps, execute};
 use operations::needs::{FactNeed, needs};
 use operations::push::Sent;
 use operations::robot_start::github_request_failure;
@@ -91,7 +91,6 @@ use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_start::{join_names, push_mode_name};
 use sync_core::push::LeasedPush;
 use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
-use sync_utils::clock::SystemClock;
 use trial_check::check::{CheckSession, StackIndependence};
 use trial_check::landing_gate::check_landing_gate;
 use youtrack::client::YouTrackClient;
@@ -418,12 +417,6 @@ pub struct RulesSummary {
   pub message: String,
 }
 
-/// The answer of the pre-check and what it means for the start
-pub(crate) struct Review {
-  pub(crate) requirement: PatronusReviewRequirement,
-  pub(crate) readiness: ReviewReadiness,
-}
-
 /// A start as `prepare` planned it, with the facts `bd` tells it with, read under the repository lock
 struct Prepared {
   /// The branch the robot runs on (for a straight chain with `--whole-stack`, its last branch), or the root of the
@@ -645,25 +638,8 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       key: session_key(context),
       text,
     };
-    let services = StartServices {
-      git: context.git.clone(),
-      repository_path: context.repository.clone(),
-      git_common_dir: context.git_common_dir.clone(),
-      prefix: context.prefix.clone(),
-      patronus: Arc::clone(&service),
-      space: plan.space.name.clone(),
-      github: plan.github.clone().map(|repository| (Arc::clone(&github), repository)),
-      target: plan.target.clone(),
-      push: PushSettings {
-        remote: STACK_REMOTE.to_string(),
-        baseline: synced.baseline.clone(),
-        my_email: None,
-        size_limit: push_size_limit(context)?,
-      },
-      lock: locker(context),
-      clock: Arc::new(SystemClock::new()),
-      wait_for_robot: false,
-    };
+    let github = plan.github.clone().map(|repository| (Arc::clone(&github), repository));
+    let services = start_services(context, Some(Arc::clone(&service)), plan.space.name.clone(), github, plan.target.clone(), &synced.baseline)?;
     let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
     let accepted = Accepted {
       fingerprint: plan.planned.plan.fingerprint.clone(),
@@ -867,7 +843,7 @@ fn check_output(mut output: SafePushOutput, plan: Prepared) -> SafePushOutput {
 }
 
 /// The remote of the stack branch: Patronus pushes from `origin`, whose remote status the sync computed
-const STACK_REMOTE: &str = "origin";
+pub(crate) const STACK_REMOTE: &str = "origin";
 
 /// What a start lands as the sync left it, for the reads of the start and the words of its refusals
 struct Landing {
@@ -949,7 +925,7 @@ fn landing_of(context: &RepoContext, synced: &SyncOutput, table: &BranchTable, s
 /// The table of `bd`'s sync as the rules read it: its sync compared every remote branch it could, so a branch or a stack
 /// branch without a remote status is one the remote lacks, which the push creates (`domain_policy::land::decide` waits
 /// for a remote nobody compared yet)
-fn compared_table(context: &RepoContext, synced: &SyncOutput) -> BranchTable {
+pub(crate) fn compared_table(context: &RepoContext, synced: &SyncOutput) -> BranchTable {
   let mut table = synced.branch_table(&context.prefix);
   for fact in table.remote.branches.values_mut().filter(|fact| !fact.known) {
     fact.known = true;
@@ -1592,6 +1568,9 @@ impl Told<'_> {
       Reason::TargetConflict { .. } => Refusal::new(ErrorCode::TargetConflict, self.target_check.and_then(|summary| summary.message.clone()).unwrap_or_default())
         .with_next_step(format!("{} update", context.bd), true),
       Reason::Draft { .. } | Reason::Unprotected { .. } => Refusal::new(ErrorCode::PatronusRefused, start_refusal_text(reason, what, self.session.robots())),
+      // the reasons of a review request, never of a start
+      Reason::NeedsPush { .. } => Refusal::new(ErrorCode::NeedsPush, start_refusal_text(reason, what, self.session.robots())),
+      Reason::NoReviewer { .. } => Refusal::new(ErrorCode::NoReviewer, start_refusal_text(reason, what, self.session.robots())),
       Reason::OtherBase { number, base, target } => {
         let message = format!(
           "Nothing was pushed or started: pull request #{number} of {what} goes into {base}, and Patronus merges a pull request into its base: its approvals count for no Safe Push into {target}. Retarget it to {target} on GitHub (`gh pr edit {number} --base {target}`) after the user approves, then run it again; --without-approvals starts through the API without them, only when the user says so"

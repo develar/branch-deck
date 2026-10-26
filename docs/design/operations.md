@@ -175,9 +175,11 @@ the stack's pull request).
   icon) in every window; a second restart joins it in Rust, and a cancel during it waits there.
 - **The pull request**: the retarget of the next step (`retargetToTarget`, subject `pr:<n>`: its slot and its row
   busy, the retarget itself an operation of the session, `Retarget` of `operations::pull_request`, which holds its
-  base, so a review request of it runs beside), the creation and
-  "Continue on GitHub" (`submitPullRequest`, `continueOnGitHub`: a second submit joins; one that must wait throws
-  why), "Request Review…" (`RequestReviewForm`, its button the surface).
+  base, so a review request of it runs beside). The creation, "Continue on GitHub" and "Request Review…" are operations
+  of the session in Rust (`CreatePullRequest`, `RequestReview` of `operations::pull_request`; `src/lib/pull-request-run.ts`
+  runs them, `runIntent`), each with its push first: the creation holds the head of its subject (a second submit joins
+  it, another text waits for it and is decided again), a review request the reviewers of its pull request; the dialog
+  and the popover read theirs from `RepositoryView.operations` (`pullRequestOperationIn`), in every window.
 - **The review of a pull request**: Approve, Request Changes and Approve and Safe Push (`runReviewWrite`, subject
   `review:<n>`); `getReviewBusy` is what the review list and the review window read (`ReviewWindowState.busy`).
 
@@ -206,11 +208,11 @@ laid over the nodes (`presentOperationMoves`), in every window, from the admissi
 - the start of a Safe Push or a Dry Run (`RunningMove::Starting`, `operations::engine::execute_land`; `lands`:
   Landing, and the branches its Safe Push lands beside; a Dry Run waits);
 - the restart of a robot, its push first included (`RunningMove::Restarting`, `operations::robot::execute_restart`;
-  the same `lands`).
+  the same `lands`);
+- the creation of a pull request, "Continue on GitHub" too (`RunningMove::CreatingPullRequest`), and a review request
+  (`RunningMove::RequestingReview`, `operations::pull_request::execute_pull_request`): Waiting.
 
-Until their families move, the page's operations declare theirs (`OperationSpec.move`, read by `getOperationMoves`):
-
-- the creation of a pull request (not "Continue on GitHub": the user creates it there) and a review request: Waiting.
+The page's own operations declare no move.
 
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
 and back. The other operations pass, as a sync does: the node keeps the state they started from.
@@ -227,8 +229,8 @@ One run keeps its own record, one place for every surface of it:
   branch waits for it, and a stack push claims its branches once it knows them, before its checks, so a push of one of
   them meanwhile waits instead of sending it twice. A push inside an operation (the
   creation of a pull request, a review request, a Safe Push start, a restart) is a step of it, not an operation of its
-  own; the push of a restart shows on the push button of its branch (or of its whole stack) from the steps and the
-  progress its run tells its caller. In Rust the push the page asks (`push_branch`, `push_branches`) is already an operation of the
+  own; the push of a restart, a creation and a review request shows on the push button of its branch (or of its whole
+  stack) from the steps and the progress its run tells its caller (`pushShown` of `run-intent.ts`). In Rust the push the page asks (`push_branch`, `push_branches`) is already an operation of the
   session (`operations::push`, [Push and land](git-operations.md#push-and-land)): admitted per ref it writes in the
   registry of the operations, so a push of a ref another push of the app writes waits for it there and the pushes of
   other refs run side by side, its steps in the view's `operations` (`Checking`, `WaitingForSync`, `WaitingForLock`,

@@ -404,6 +404,11 @@ pub enum PlannedEffect {
   CreatePullRequest,
   /// The robot is restarted (`Intent::RestartRobot`): Patronus starts it again on the newest commit of its remote branch
   RestartRobot { robot_id: String },
+  /// GitHub has the pushed branch `branch` (without `refs/heads/`): a mirror copies it a moment after the push, and
+  /// GitHub's form of a new pull request shows nothing of a branch it doesn't have ("Continue on GitHub")
+  WaitForMirror { branch: String },
+  /// `reviewers` (logins) are asked to review the open pull request `number` (`Intent::RequestReview`)
+  RequestReviewers { number: u32, reviewers: Vec<String> },
 }
 
 impl PlannedEffect {
