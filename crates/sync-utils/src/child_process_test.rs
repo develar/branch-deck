@@ -2,6 +2,7 @@ use crate::child_process::{ChildProcessError, ToolDir, ToolLookup, find_executab
 #[cfg(unix)]
 use crate::process_scan::is_running;
 use std::process::Command;
+#[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use test_utils::fake_executable::fake_executable;
