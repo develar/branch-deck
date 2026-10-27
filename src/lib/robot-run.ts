@@ -7,23 +7,21 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
 import type { Outcome, PatronusRobot, RobotResult, RunningOperation } from "@/lib/bindings"
 import { getErrorCode, notifyError } from "@/lib/errors"
-import { describeRobot, formatPushMode, formatRobotSubject } from "@/lib/patronus"
+import { formatPushMode, formatRobotSubject } from "@/lib/patronus"
 import { showRemoteMovedToast } from "@/lib/push-run"
 import { showRobotToast } from "@/lib/robot-toast"
 import type { IntentRun } from "@/lib/run-intent"
 import { failedEffect, runFailure, runIntent } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
-import { recordRobot } from "@/stores/activity"
 import { getBranch } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
- * Says that a robot restarted or is canceling, in the toast of the robot and in Activity of `repositoryPath`: "Safe Push
- * restarted" / "auth → master", with "Open in Patronus" (a toast about an object opens it)
+ * Says that a robot restarted or is canceling, in the toast of the robot: "Safe Push restarted" / "auth → master", with
+ * "Open in Patronus" (a toast about an object opens it); Activity has it from the journal of the repository
  */
-export function announceRobot(title: string, robot: PatronusRobot, repositoryPath: string, operationId?: string): void {
+export function announceRobot(title: string, robot: PatronusRobot, repositoryPath: string): void {
   showRobotToast(title, robot, repositoryPath)
-  recordRobot(title, describeRobot(robot), robot, repositoryPath, operationId)
 }
 
 /** What a restart or a cancel answered of the robot, when it ran */
@@ -63,7 +61,7 @@ export async function restartRobot(robot: PatronusRobot, repositoryPath: string 
   const run = await runIntent(repositoryPath, { kind: "restartRobot", robotId: robot.id })
   const restarted = restartedOf(run)
   if (restarted !== null) {
-    announceRobot(`${mode} restarted`, restarted, repositoryPath, run.kind === "ran" ? run.outcome.op : undefined)
+    announceRobot(`${mode} restarted`, restarted, repositoryPath)
     return restarted
   }
   const failed = run.kind === "ran" ? failedEffect(run.outcome) : null
@@ -88,7 +86,7 @@ export async function cancelRobot(robot: PatronusRobot, repositoryPath: string =
     tellFailure(`Cannot cancel the ${mode}`, run, `Patronus lists no running ${mode} of ${formatRobotSubject(robot)}`)
     return null
   }
-  announceRobot(result.alreadyFinished ? `${mode} already finished` : `${mode} is canceling`, result.robot, repositoryPath, run.kind === "ran" ? run.outcome.op : undefined)
+  announceRobot(result.alreadyFinished ? `${mode} already finished` : `${mode} is canceling`, result.robot, repositoryPath)
   return result.robot
 }
 

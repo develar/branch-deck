@@ -36,7 +36,7 @@ import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
 import { watchRobotInDemand } from "@/model/demand"
 import { refreshSessionFacts } from "@/model/store"
 import { describeLandedCloses } from "@/presenters/news"
-import { recordRobot } from "@/stores/activity"
+import { recordRobotNews } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
 import { branchSyncStore, getStackAncestors, getStackBranch, structureIn, whenSynced } from "@/stores/branch-sync"
 import { rememberLandedStackRoot } from "@/stores/landed-stacks"
@@ -817,7 +817,7 @@ export function announceMerge(key: string, robot: PatronusRobot, closes: readonl
   const closed = [describeLandedCloses(robot, closes), currentKey() === key ? rememberLandedRoot(robot) : null].filter((part): part is string => part !== null)
   const description = closed.length === 0 ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed.join(" · ")}`
   const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
-  recordRobot(title, description, robot, repositoryPath)
+  recordRobotNews(repositoryPath, title, description, robot)
   // the toast's button picks it up (Update Project fetches first): the notification says what merged, as the toast
   const notification = { title, body: description }
   const landedBranches = landed.map(branch => branch.branch)

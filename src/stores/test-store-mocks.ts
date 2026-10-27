@@ -19,12 +19,11 @@ export const archivedBranchesMock = {
 /** `@/stores/activity` for tests of the modules that record what they did: nothing is recorded */
 export const activityMock = {
   UNDO_WINDOW_MS: 10_000,
-  recordActivity: () => null,
+  recordActivity: () => Promise.resolve(null),
   recordLanded: () => {},
-  recordPush: () => {},
-  recordRetarget: () => {},
   recordReviewRequest: () => {},
-  recordRewrite: (_title: string, undo: () => Promise<boolean>) => () => void undo(),
-  recordRobot: () => {},
+  recordRewrite: (_repositoryPath: string, _title: string, undo: () => Promise<boolean>) => () => void undo(),
+  recordRobotNews: () => {},
   recordUpdate: () => {},
+  refreshActivity: () => Promise.resolve(),
 }

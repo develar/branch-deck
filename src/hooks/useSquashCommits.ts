@@ -31,7 +31,7 @@ export async function squashCommits(commits: readonly Commit[], message: string,
     wait => commands.squashCommits({ repositoryPath, commitIds: resolveCommitsOf(repositoryPath, commits).map(commit => commit.originalHash), message }, wait),
     ({ newHead, previousHead, squashedCount }) => ({
       sync: true,
-      after: () => showUndoToast(`Squashed ${formatCommitCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),
+      after: () => showUndoToast(repositoryPath, `Squashed ${formatCommitCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),
     }),
   )
   return result !== null

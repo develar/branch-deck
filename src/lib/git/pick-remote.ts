@@ -41,6 +41,7 @@ export async function pickRemoteCommits(branchName: string, expectedRemote?: str
         closeEventToasts(toastKeys.push(repositoryPath, branchName))
         const undoToken = data.undoToken
         showUndoToast(
+          repositoryPath,
           `Picked the remote commits of ${branchName}`,
           undoToken === null ? async () => false : () => undoPick(repositoryPath, branchName, undoToken),
           `${formatCommitCount(data.picked.length)} into ${branchName} · its push drops nothing now`,

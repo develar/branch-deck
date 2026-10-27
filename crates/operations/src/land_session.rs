@@ -9,8 +9,9 @@
 //! session, so every window shows it at once.
 
 use crate::land::planned_of;
-use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices, lock_failure};
+use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, PushedRef, StartHost, StartServices, lock_failure, shown_remote};
 use crate::push::Sent;
+use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Land, LandingRefusal, Subject};
 use domain_types::operation::StartNote;
@@ -203,6 +204,18 @@ impl StartHost for SessionStart {
         return Err(ApiError::new(ErrorCode::NotOnSpace, "The repository is not on Space"));
       };
       robots_since(patronus, &self.space, &self.key.prefix, self.new_api, since).await
+    })
+  }
+
+  fn shown_remote<'a>(&'a self, pushes: &'a [PushedRef]) -> Read<'a, Vec<Option<RemoteStatusUpdate>>> {
+    Box::pin(async move {
+      let pushes = pushes.to_vec();
+      let count = pushes.len();
+      let shown = self
+        .sessions
+        .read(&self.key, move |state, _facts| pushes.iter().map(|pushed| shown_remote(state, pushed)).collect())
+        .await;
+      shown.unwrap_or_else(|| vec![None; count])
     })
   }
 

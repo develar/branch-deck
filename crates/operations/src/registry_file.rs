@@ -386,6 +386,15 @@ impl ProcessRegistry {
     self.change_then(change, |_| None)
   }
 
+  /// `run` under the lock of the registry, with its directory: the journal beside the file changes under it too
+  /// (`journal::clear`)
+  pub(crate) fn locked<R>(&self, run: impl FnOnce(&Path) -> std::io::Result<R>) -> Result<R, ApiError> {
+    let io = |error: std::io::Error| ApiError::new(ErrorCode::GitError, format!("Cannot change {}: {error}", self.dir.display()));
+    std::fs::create_dir_all(&self.dir).map_err(io)?;
+    let _lock = lock_file(self.dir.join(LOCK), LOCK_TIMEOUT, &|| debug!("waiting for the lock of the operations registry")).map_err(|error| lock_failure(&error))?;
+    run(&self.dir).map_err(io)
+  }
+
   /// `change`, then, still under the lock, the entry `journal` makes of what the change answered (`None` for the
   /// registry of another Branch Deck) appended to the journal beside the file (`journal`): a journal that can't be
   /// written fails no change, it is logged

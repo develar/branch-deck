@@ -287,7 +287,7 @@ menu stacks, unstacks and renames branches.
   error and the push still runs; its toast then says "the pull request goes into auth: retarget it to master" with
   "Copy gh pr edit". "Copy Retarget Command" in the copy group of the branch menu copies the command before a push.
   `bd push` and `bd safe-push` retarget the same way ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
-  [@test] ../../src/lib/push-run.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`, `pushes and copies the command that retargets a pull request when the retarget fails`)
+  [@test] ../../src/lib/push-run.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and says it in the toast of the push`, `pushes and copies the command that retargets a pull request when the retarget fails`)
   [@test] ../../crates/test-server/src/github_host_test.rs (`a_push_retargets_the_pull_request_of_its_branch_out_of_a_virtual_branch_first`)
   [@test] ../../src/presenters/push-button.test.ts (`says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)

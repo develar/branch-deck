@@ -7,7 +7,9 @@
 //!   (`registry_file::others`) of the branch prefix of each session become its operations of other processes
 //!   (`OperationPatch::Foreign`, `Origin::OtherProcess`): the rows show "bd: Safe Push of auth…";
 //! - a change of `stamp`, which `bd` touches after every mutation (`touch_stamp`), asks each session for a sync that runs
-//!   when the inputs changed (`SyncReason::Stamp`): the regroup of an agent shows within a second, without a focus.
+//!   when the inputs changed (`SyncReason::Stamp`): the regroup of an agent shows within a second, without a focus;
+//! - a change of `journal.jsonl` (an operation of this process or of another ended) tells the listener of the journal
+//!   (`RegistryFiles::on_journal`): the windows read Activity again.
 //!
 //! One task per repository reads the file and applies what it read, one read at a time, so a session never shows an older
 //! read after a newer one; the events that come while it reads are one read after it. Without a watch (the system
@@ -15,6 +17,7 @@
 //! admission of an operation into the file, which writes it; the stamp then waits for the focus sync. The watch runs no
 //! git process, and a read is one read of a file.
 
+use crate::registry::JournalListener;
 use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::operation::RunningOperation;
 use domain_types::session::SyncReason;
@@ -47,12 +50,13 @@ pub fn touch_stamp(git_common_dir: &Path) {
   }
 }
 
-/// What woke the task of a watch: the registry changed, the stamp moved
+/// What woke the task of a watch: the registry changed, the stamp moved, the journal changed
 #[derive(Default)]
 struct Wake {
   notify: Notify,
   registry: AtomicBool,
   stamp: AtomicBool,
+  journal: AtomicBool,
 }
 
 impl Wake {
@@ -63,6 +67,11 @@ impl Wake {
 
   fn stamp(&self) {
     self.stamp.store(true, Ordering::SeqCst);
+    self.notify.notify_one();
+  }
+
+  fn journal(&self) {
+    self.journal.store(true, Ordering::SeqCst);
     self.notify.notify_one();
   }
 }
@@ -85,13 +94,31 @@ struct Watching {
   shown: Vec<RunningOperation>,
 }
 
-/// The watches of the repositories of the sessions of a registry, by the registry of each; a clone is the same
-#[derive(Clone, Default)]
-pub(crate) struct Watches(Arc<Mutex<HashMap<ProcessRegistry, RepositoryWatch>>>);
+/// The watches of the repositories of the sessions of a registry, by the registry of each, and the listener of their
+/// journals; a clone is the same
+#[derive(Clone)]
+pub(crate) struct Watches {
+  watches: Arc<Mutex<HashMap<ProcessRegistry, RepositoryWatch>>>,
+  journaled: Option<JournalListener>,
+}
 
 impl Watches {
+  pub(crate) fn new(journaled: Option<JournalListener>) -> Self {
+    Self {
+      watches: Arc::default(),
+      journaled,
+    }
+  }
+
   fn lock(&self) -> MutexGuard<'_, HashMap<ProcessRegistry, RepositoryWatch>> {
-    self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    self.watches.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+
+  /// The journal of a watched repository changed: its listener hears it
+  fn journaled(&self) {
+    if let Some(listener) = &self.journaled {
+      listener();
+    }
   }
 
   /// Watches `registry` for the session of `key` while the answer lives; the first session of a repository starts its
@@ -214,6 +241,8 @@ fn woken(wake: &Wake, event: notify::Result<Event>) {
           wake.registry();
         } else if name == STAMP {
           wake.stamp();
+        } else if crate::journal::is_file_name(name) {
+          wake.journal();
         }
       }
     }
@@ -236,6 +265,9 @@ async fn run(sessions: Arc<Sessions>, registry: ProcessRegistry, watches: Watche
     }
     if wake.registry.swap(false, Ordering::SeqCst) {
       show(&sessions, &registry, &watches).await;
+    }
+    if wake.journal.swap(false, Ordering::SeqCst) {
+      watches.journaled();
     }
   }
 }

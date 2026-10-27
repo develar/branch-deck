@@ -24,7 +24,7 @@ const { engine } = vi.hoisted(() => {
 
 vi.mock("@/lib/run-intent", async importOriginal => ({ ...(await importOriginal<typeof import("@/lib/run-intent")>()), runIntent: engine.runIntent }))
 vi.mock("@/presenters/pull-request-url", () => ({ openNewPullRequest: (url: string) => engine.said.push(`open ${url}`) }))
-vi.mock("@/stores/activity", () => ({ recordPullRequestCreated: (title: string) => engine.said.push(`activity ${title}`) }))
+vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/landed-stacks", () => ({ forgetLandedStackRoot: (root: string) => engine.said.push(`forget ${root}`) }))
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 
@@ -59,7 +59,7 @@ beforeEach(() => {
 })
 
 describe("the creation of a pull request", () => {
-  it("runs the intent in the repository of the dialog, and toasts and records the pull request GitHub opened", async () => {
+  it("runs the intent in the repository of the dialog, and toasts the pull request GitHub opened", async () => {
     engine.run = ran([DONE], { kind: "pullRequest", pullRequest: PULL_REQUEST, created: true, assignees: ["me"], warnings: [] })
     const { toast, pullRequest } = await submitPullRequest(CONTEXT, INPUT)
     expect(engine.asked).toEqual([
@@ -69,10 +69,11 @@ describe("the creation of a pull request", () => {
       },
     ])
     expect([pullRequest.number, toast.title]).toEqual([12, "Created pull request #12"])
-    expect(engine.said).toEqual(["activity Created pull request #12"])
+    // the pull request of a branch, not of a whole stack: no landed stack root is forgotten
+    expect(engine.said).toEqual([])
   })
 
-  it("records nothing of the one GitHub had of the head already, and throws why nothing was created", async () => {
+  it("answers the one GitHub had of the head already, and throws why nothing was created", async () => {
     engine.run = ran([DONE], { kind: "pullRequest", pullRequest: PULL_REQUEST, created: false, assignees: [], warnings: [] })
     expect((await submitPullRequest(CONTEXT, INPUT)).pullRequest.number).toBe(12)
     expect(engine.said).toEqual([])

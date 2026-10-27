@@ -17,7 +17,6 @@ import { runFailure, runIntent } from "@/lib/run-intent"
 import type { ToastMessage } from "@/lib/toast-message"
 import { formatReadinessSubject, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { openNewPullRequest } from "@/presenters/pull-request-url"
-import { recordPullRequestCreated } from "@/stores/activity"
 import { forgetLandedStackRoot } from "@/stores/landed-stacks"
 
 /** The subject of the row `key`: a branch, or the whole stack of a root (`stackReadinessKey`) */
@@ -69,8 +68,8 @@ async function runCreation(context: CreatePullRequestContext, input: Omit<Create
 
 /**
  * Creates the pull request of the dialog of `context` with `input` (`CreatePullRequest`: the push of what it needs
- * first, then GitHub, which finds the one it has of the head): the toast to show, with the pull request it opens; Activity
- * records a new one. Throws why nothing was created, or what GitHub said
+ * first, then GitHub, which finds the one it has of the head): the toast to show, with the pull request it opens; the
+ * journal of the repository has a new one for Activity. Throws why nothing was created, or what GitHub said
  */
 export async function submitPullRequest(
   context: CreatePullRequestContext,
@@ -86,9 +85,6 @@ export async function submitPullRequest(
     forgetLandedStackRoot(context.branchName, context.repositoryPath, context.branchPrefix)
   }
   const toast = formatCreatedToast(context.label, context.base, input.viewerLogin, created)
-  if (created.created) {
-    recordPullRequestCreated(toast.title, toast.description ?? "", created.pullRequest.url, toast.type === "warning", context.repositoryPath)
-  }
   return { toast, pullRequest: created.pullRequest }
 }
 

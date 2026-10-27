@@ -3,11 +3,11 @@ use crate::land_execute::Accepted;
 use crate::push::{execute_push, prepare_push};
 use crate::registry::registry_test::{operations_until, view_operations};
 use crate::registry::{Registry, RegistryFiles};
-use domain_types::PushAction;
 use domain_types::error::{ApiError, ErrorCode, HolderTool, LockHolderInfo};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
 use domain_types::operation::{EffectStatus, Intent, NewsKey, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Push, PushScope, RunningOperation};
 use domain_types::session::SyncReason;
+use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions, lock_repository_as_another_process};
@@ -207,13 +207,15 @@ impl Fixture {
     self.execute_on(push, accepted, &OFFLINE, Arc::new(NoEvents)).await
   }
 
-  /// `push` run on its plan now, `accepted` among its confirmations: the remote refuses the lease of its first effect
-  async fn assert_lease_rejected(&self, push: &Push, accepted: Vec<Confirmation>) {
+  /// `push` run on its plan now, `accepted` among its confirmations: the remote refuses the lease of its first effect;
+  /// the outcome
+  async fn assert_lease_rejected(&self, push: &Push, accepted: Vec<Confirmation>) -> Outcome {
     let outcome = self.execute(push, accepted).await.unwrap();
     let EffectStatus::Failed { error } = &outcome.effects[0].status else {
       panic!("{outcome:?}")
     };
     assert_eq!(error.code, ErrorCode::LeaseRejected);
+    outcome
   }
 
   /// `push` run on its plan now over `services`, its events to `events`
@@ -854,11 +856,19 @@ async fn fixture_again(previous: Fixture) -> Fixture {
 /// Pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost. The remote
 /// branch of `alpha` was deleted since the row showed it: the lease on the head the user saw is refused, the push fetches
 /// it and goes again, once, the same commit it froze under the lock, leased on what the remote has now, and says what it
-/// went over (`pushed_over`). Someone's commit on the remote instead is told, never pushed over
+/// went over (`pushed_over`). Someone's commit on the remote instead is told, never pushed over. The record of each push
+/// says what the remote was as the push found it, which its toast and its Activity entry word: the status the session
+/// showed, the one it went over once more, what the remote has now
 #[tokio::test(flavor = "multi_thread")]
 async fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks() {
   let fixture = fixture(true).await;
-  assert_done(&fixture.execute(&alone("alpha", None), Vec::new()).await);
+  let found = |outcome: &Outcome| -> Vec<Option<(bool, PushAction, usize, u32)>> {
+    let status = |status: &RemoteStatusUpdate| (status.remote_exists, status.action, status.unpushed_commits.len(), status.commits_behind);
+    outcome.effects[0].remote.iter().map(|remote| remote.as_ref().map(status)).collect()
+  };
+  let first = fixture.execute(&alone("alpha", None), Vec::new()).await;
+  assert_done(&first);
+  assert_eq!(found(first.as_ref().unwrap()), [Some((false, PushAction::Create, 1, 0))], "the status the session showed");
   let alpha = "refs/heads/test/virtual/alpha";
   let seen = fixture.remote_tip("alpha");
   fixture.repo.git(&["--git-dir", ".git/origin.git", "update-ref", "-d", alpha]);
@@ -871,6 +881,11 @@ async fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_th
 
   let outcome = fixture.execute(&alone("alpha", Some(seen)), Vec::new()).await;
   assert_done(&outcome);
+  assert_eq!(
+    found(outcome.as_ref().unwrap()),
+    [Some((false, PushAction::Create, 2, 0))],
+    "the status it went over once more"
+  );
   let OperationResult::Push(result) = outcome.unwrap().result else {
     panic!("no push result")
   };
@@ -889,7 +904,12 @@ async fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_th
   fixture.repo.git(&["--git-dir", ".git/origin.git", "update-ref", alpha, &theirs]);
   fixture.repo.create_commit("(alpha) Alpha, part 3", "alpha-3.txt", "alpha 3\n");
   fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
-  fixture.assert_lease_rejected(&alone("alpha", Some(rebuilt)), Vec::new()).await;
+  let refused = fixture.assert_lease_rejected(&alone("alpha", Some(rebuilt)), Vec::new()).await;
+  assert_eq!(
+    found(&refused),
+    [Some((true, PushAction::Force { drops: true, replaces: false }, 1, 1))],
+    "what the remote has now"
+  );
   assert_eq!(fixture.remote_tip("alpha"), theirs, "nothing was pushed over it");
 }
 

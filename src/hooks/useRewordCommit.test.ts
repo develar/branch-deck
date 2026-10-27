@@ -5,6 +5,7 @@ import type { RewordResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommitUnion } from "@/lib/commit"
 import { activityStore, canUndoActivity, clearActivity, selectActivity, undoActivity, UNDO_WINDOW_MS } from "@/stores/activity"
+import { fakeActivity } from "@/test-support/fake-activity"
 
 const { toasts, selection, syncs, renamed } = vi.hoisted(() => ({
   // what each `toast.add` showed, its action included
@@ -48,7 +49,8 @@ vi.mock("@/stores/commit-move", () => ({ requestReveal: () => {} }))
 vi.mock("@/stores/stack-collapse", () => ({ forgetCollapsedStack: () => {}, renameCollapsedStack: () => {} }))
 vi.mock("@/lib/bindings", async importOriginal => {
   const original = await importOriginal<typeof import("@/lib/bindings")>()
-  return { ...original, commands: { ...original.commands, reword: vi.fn(), undoRegroup: vi.fn() } }
+  const { fakeActivity } = await import("@/test-support/fake-activity")
+  return { ...original, commands: { ...original.commands, ...fakeActivity.commands, reword: vi.fn(), undoRegroup: vi.fn() } }
 })
 
 const OLD_ID = "1111111111111111111111111111111111111111"
@@ -64,14 +66,21 @@ function entries() {
   return selectActivity(activityStore.getState(), "/repo")
 }
 
+/** The entry of the rewrite once its record answered, with its Undo */
+async function recorded() {
+  await vi.waitFor(() => expect(entries()[0]?.undo).toBeDefined())
+  return entries()[0]!
+}
+
 describe("rewordCommit", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers({ now: 1_000_000 })
     toasts.length = 0
     selection.path = "/repo"
     syncs.count = 0
     renamed.clear()
-    clearActivity("/repo")
+    fakeActivity.reset()
+    await clearActivity("/repo")
     vi.mocked(commands.undoRegroup).mockResolvedValue({ status: "ok", data: null })
   })
 
@@ -95,8 +104,13 @@ describe("rewordCommit", () => {
     )
     expect(follow.mock.calls).toEqual([[OLD_ID, NEW_ID]])
     expect(toasts.map(toast => [toast.title, toast.description, toast.timeout])).toEqual([["Reworded 11111111", "(auth) Add the login form", UNDO_WINDOW_MS]])
-    const entry = entries()[0]!
-    expect([entry.kind, entry.title, entry.undo]).toEqual(["rewrite", "Reworded 11111111", { until: 1_000_000 + UNDO_WINDOW_MS }])
+    const entry = await recorded()
+    expect([entry.kind, entry.title, entry.undo, fakeActivity.page.map(it => it.activity.repositoryPath)]).toEqual([
+      "rewrite",
+      "Reworded 11111111",
+      { until: 1_000_000 + UNDO_WINDOW_MS },
+      ["/repo"],
+    ])
     expect(canUndoActivity(entry)).toBe(true)
 
     undoActivity(entry)
@@ -145,6 +159,7 @@ describe("rewordCommit", () => {
   it("offers no Undo past the window of the toast", async () => {
     answer({ newCommitIds: { [OLD_ID]: NEW_ID }, previousHead: OLD_ID, newHead: NEW_ID, undoToken: TOKEN })
     await rewordCommit(commit, "(auth) Add the login form", () => {})
+    await recorded()
 
     vi.advanceTimersByTime(UNDO_WINDOW_MS)
     const entry = entries()[0]!

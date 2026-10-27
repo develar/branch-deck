@@ -37,7 +37,15 @@ pub const REPOSITORY_STATE_KEYS: [&str; 2] = [REPOSITORY_STATE_KEY, LINKED_PULL_
 pub const REPOSITORY_STATE_FIELDS: &[&str] = &["lastSyncTime", "lastBranchCount", "updateTimings", "lastFetchTime", "landedHiddenUntil"];
 
 /// The key of the recent projects, whose projects kept the fields of `repositoryState` before it
-const RECENT_PROJECTS_KEY: &str = "recentProjects";
+pub const RECENT_PROJECTS_KEY: &str = "recentProjects";
+
+/// The key of the journal of the repository of each project, by its path (`journals`): Rust writes it, no window reads
+/// it
+pub const JOURNAL_PATHS_KEY: &str = "journalPaths";
+
+/// The keys a settings file of before kept that no version reads any more: a load drops them, so the next save writes
+/// the file without them. `activity`: the log of Activity, which the journals keep now (`operations::journal`)
+const RETIRED_KEYS: &[&str] = &["activity"];
 
 /// Why the text of a settings file is no settings
 #[derive(Debug, thiserror::Error)]
@@ -82,6 +90,9 @@ impl SettingsFile {
       Value::Object(object) => object,
       value => return Err(ParseError::NotAnObject(json_kind(&value))),
     };
+    for key in RETIRED_KEYS {
+      other.remove(*key);
+    }
     let app = match other.remove(APP_SETTINGS_KEY) {
       None => AppSettings::default(),
       Some(Value::Object(stored)) => AppSettings::from_stored(stored),

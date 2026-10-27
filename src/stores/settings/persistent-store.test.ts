@@ -164,8 +164,8 @@ describe("persistent store", () => {
   })
 
   it("starts a key only the main window keeps empty in a sub-window and takes none of its changes", () => {
-    const store = createPersistentStore("activity", { schema: z.array(z.string()).default([]), isArray: true, isMainOnly: true })
-    broadcast({ version: 50, key: "activity", value: ["entry"], origin: "main" })
+    const store = createPersistentStore("robotHistory", { schema: z.array(z.string()).default([]), isArray: true, isMainOnly: true })
+    broadcast({ version: 50, key: "robotHistory", value: ["entry"], origin: "main" })
     expect(store.getState().items).toEqual([])
   })
 })

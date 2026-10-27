@@ -7,6 +7,15 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
+	 *  The log of Activity: the journals of the repositories of the recent projects, each once and each within
+	 *  `ACTIVITY_READ_TIMEOUT` (one that is not read by then is unavailable), and the journal of the page; no git process
+	 */
+	readActivity: () => typedError<ActivityLog, ApiError>(__TAURI_INVOKE("read_activity")),
+	/**  Records what the page told of a repository in the journal of the page, and answers its entry */
+	recordActivity: (params: PageActivity) => typedError<PageEntry, ApiError>(__TAURI_INVOKE("record_activity", { params })),
+	/**  Clear Log: the journal of the repository of the recent project and the entries of the page of it are forgotten */
+	clearActivity: (params: ClearActivityParams) => typedError<null, ApiError>(__TAURI_INVOKE("clear_activity", { params })),
+	/**
 	 *  Stops the wait of the command whose channel has the id `channel` for another holder of the repository lock: the
 	 *  command answers `canceled`, nothing changed. A wait that ended already (the lock taken) goes on
 	 */
@@ -510,6 +519,40 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
 export type ActionState = {
 	id: ActionId,
 	availability: Availability,
+};
+
+/**  What a page entry expands to, or opens */
+export type ActivityDetails = 
+/**  The landed report, as the island showed it */
+{ type: "landed"; upstream: string; report: LandedBranch[] } | 
+/**  The robot page in the Patronus web UI */
+{ type: "robot"; url: string } | 
+/**  A pull request on GitHub */
+{ type: "pullRequest"; url: string };
+
+/**  What a page entry is about: the chip of Activity it counts in */
+export type ActivityKind = 
+/**  An Update Project, applied or refused */
+"update" | 
+/**  A landed report a sync found after an update made elsewhere */
+"landed" | 
+/**  News of a Patronus robot: it merged, failed or is failing */
+"patronus" | 
+/**  A history rewrite with an Undo */
+"rewrite" | 
+/**  A review request or an approval */
+"review" | 
+/**  An error the page told */
+"error";
+
+/**
+ *  What Activity shows, as `read_activity` read it: the journals of the recent projects, each once, and the journal of
+ *  the page
+ */
+export type ActivityLog = {
+	journals: RepositoryJournal[],
+	/**  The entries of the page, of every repository, oldest first */
+	page: PageEntry[],
 };
 
 export type AddIssueReferenceParams = {
@@ -1096,6 +1139,12 @@ export type ChildrenPush = {
 	offers?: boolean,
 };
 
+/**  The parameters of `clear_activity` */
+export type ClearActivityParams = {
+	/**  The recent project whose log goes: the journal of its repository and the page entries of it */
+	repositoryPath: string,
+};
+
 /**  A CLI that agents and the app use */
 export type CliTool = 
 /**  JetBrains/teamcity-cli: the logs and tests of the builds of a robot */
@@ -1601,6 +1650,14 @@ export type DroppedCommit = {
 export type EffectRecord = {
 	effect: PlannedEffect,
 	status: EffectStatus,
+	/**
+	 *  Of a push that ran: the remote status of each of its `branches`, in their order, as the push found it: the one the
+	 *  session showed when it was planned (of Push Up to Here the part up to its commit), or the one after the fetch of a
+	 *  refused first push that it went over once more; of a push refused because the remote moved, what the remote has
+	 *  now; `None` for a branch whose status the session did not know. The toast of the push and its Activity entry say
+	 *  what it did from it (`describePush`); empty for any other effect, and for a push that did not run
+	 */
+	remote?: (RemoteStatusUpdate | null)[],
 };
 
 /**
@@ -2725,6 +2782,54 @@ export type IssueNavigationLink = {
 	linkRegexp: string,
 };
 
+/**
+ *  One operation of the remote that ended, as the journal of its repository keeps it (`operations::journal`,
+ *  `$GIT_COMMON_DIR/branch-deck/journal.jsonl`): of the app and of every `bd`, one line each; or what became of a start
+ *  whose answer was lost (`transition`), under the id of that start
+ */
+export type JournalEntry = {
+	/**
+	 *  The id of the operation: the `operation_id` of its log lines, of its record in the operations registry, of the
+	 *  JSON of `bd`
+	 */
+	id: OperationId,
+	tool: HolderTool,
+	/**  The process that ran it */
+	pid: number,
+	/**  The worktree of its session, its top level */
+	worktree: string,
+	/**  The branch prefix of its session */
+	prefix: string,
+	/**  The worktree is a slot of the lease pool of the repository (`leases.json`): the operation of an agent */
+	leaseSlot: boolean,
+	intent: Intent,
+	/**  What it is about, as the view keys it (`Intent::subject`) */
+	subject: string | null,
+	/**  Unix seconds of its admission */
+	startedAt: number,
+	/**  Unix seconds of its end, or of the transition */
+	endedAt: number,
+	/**  Each effect of its plan with its status, in order; empty when it failed before its first effect */
+	effects: EffectRecord[],
+	/**  What its effects answered, by its family */
+	result: OperationResult,
+	/**  Why it failed before its first effect, or ended without an answer; `None` once it got to its outcome */
+	error: ApiError | null,
+	/**  What it cost from its admission to its end */
+	stats: OperationStats,
+	/**  What became of a start whose answer was lost: `None` for the end of an operation */
+	transition: JournalTransition | null,
+};
+
+/**  What became of a start whose answer was lost (`OperationStep::StartUnknown`), long after its operation ended */
+export type JournalTransition = 
+/**  A read of Patronus found its robot, or the bot accepted its comment (no robot listed yet) */
+{ kind: "started"; robot: PatronusRobot | null } | 
+/**  A read of Patronus proved that it started no robot */
+{ kind: "notStarted" } | 
+/**  The user forgot it (Forget This Start, `bd operation forget`): Patronus may still run the robot it sent */
+{ kind: "forgotten" };
+
 export type KindCount = {
 	kind: RobotFailureKind,
 	count: number,
@@ -3613,6 +3718,32 @@ export type OutsideFile = {
 
 /**  A package manager that installs and updates a CLI */
 export type PackageManager = "homebrew" | "winget" | "scoop";
+
+/**  What the page records (`record_activity`): of its repository, in the words of its toast */
+export type PageActivity = {
+	/**  The repository it is of, as the page names it (the path of a recent project) */
+	repositoryPath: string,
+	kind: ActivityKind,
+	title: string,
+	description: string | null,
+	/**  A refused update, a failing robot */
+	warning?: boolean,
+	details: ActivityDetails | null,
+	/**
+	 *  The operation of a failed command (`ApiError.operation_id`): the id of its lines in the log, and of its entry in
+	 *  the journal of its repository when it was an operation of the remote
+	 */
+	operationId: OperationId | null,
+};
+
+/**  A line of the journal of the page */
+export type PageEntry = {
+	/**  A ULID, unique in the journal: the Undo of a rewrite is kept by it in the page */
+	id: string,
+	/**  Unix seconds of the record */
+	endedAt: number,
+	activity: PageActivity,
+};
 
 /**  Where the declared parent of a branch comes from */
 export type ParentSource = 
@@ -4620,6 +4751,21 @@ export type RepositoryConfig = {
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
 export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null };
+
+/**  The journal of the repository of one or more recent projects (the worktrees of one repository share it) */
+export type RepositoryJournal = {
+	/**  The file, as `subscribe_view` remembered it for the projects */
+	path: string,
+	/**  The paths of the recent projects whose repository it is the journal of */
+	repositories: string[],
+	/**
+	 *  It was read within the bound (`ACTIVITY_READ_TIMEOUT`); false: its disk is gone or did not answer, `entries` is
+	 *  empty
+	 */
+	available: boolean,
+	/**  Oldest first, as the file has them */
+	entries: JournalEntry[],
+};
 
 /**
  *  The snapshot of the view of a session: the branch table, what the robots land, landed and hold of it, the facts of

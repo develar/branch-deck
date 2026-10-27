@@ -339,6 +339,13 @@ impl SettingsService {
     key_value(&self.shared.lock(), key)
   }
 
+  /// The app data directory of the files: the journal of Activity of the page lies beside them
+  /// (`operations::journal::record_page`)
+  #[must_use]
+  pub fn directory(&self) -> &Path {
+    &self.shared.directory
+  }
+
   /// The settings of the app as they are now
   #[must_use]
   pub fn app(&self) -> AppSettings {

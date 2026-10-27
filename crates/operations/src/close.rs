@@ -170,7 +170,7 @@ pub async fn execute_close(registry: &Registry, key: &SessionKey, intent: Intent
         },
         _ => EffectStatus::Skipped { reason: None },
       };
-      records.push(EffectRecord { effect, status });
+      records.push(EffectRecord::new(effect, status));
     }
     Ok(close_outcome(guard.id().clone(), &intent, records, version))
   })

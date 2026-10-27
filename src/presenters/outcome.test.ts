@@ -64,7 +64,7 @@ const DONE = { kind: "done" } as const
 describe("presentLandOutcome", () => {
   it("says the robot it started with the profile of its plan, and the checks that ran on the last fetched target", () => {
     const notes: LandResult["notes"] = [{ kind: "targetFetchFailed", target: "origin/master", error: "Could not resolve host" }]
-    expect(presentLandOutcome(outcome([DONE, DONE, DONE], { robot: ROBOT, notes }), PLAN, "auth")).toEqual({
+    expect(presentLandOutcome(outcome([DONE, DONE, DONE], { robot: ROBOT, notes }), PLAN.intent, "auth")).toEqual({
       kind: "started",
       title: "Safe Push started",
       description: "auth → master · profile Large Scale Change. The fetch of origin/master failed, so the check used the last fetched origin/master: Could not resolve host",
@@ -74,14 +74,14 @@ describe("presentLandOutcome", () => {
 
   it("says a comment Patronus accepted whose robot it lists not yet, and a comment it never answered as a start not known yet that opens it", () => {
     const comment = { number: 7, url: "https://github.com/acme/monorepo/pull/7#issuecomment-1", accepted: true }
-    expect(presentLandOutcome(outcome([DONE, DONE, DONE], { comment }), PLAN, "auth")).toEqual({
+    expect(presentLandOutcome(outcome([DONE, DONE, DONE], { comment }), PLAN.intent, "auth")).toEqual({
       kind: "commented",
       title: "Safe Push started",
       description: "Patronus accepted the comment on #7: the robot shows once Patronus lists it",
       number: 7,
       url: comment.url,
     })
-    const silent = presentLandOutcome(outcome([DONE, DONE, { kind: "unknown" }], { comment: { ...comment, accepted: false } }), PLAN, "auth")
+    const silent = presentLandOutcome(outcome([DONE, DONE, { kind: "unknown" }], { comment: { ...comment, accepted: false } }), PLAN.intent, "auth")
     expect(silent).toEqual({
       kind: "unknown",
       title: "Cannot tell whether the Safe Push of auth started",
@@ -92,7 +92,7 @@ describe("presentLandOutcome", () => {
 
   it("says a start whose answer was lost as not known yet, with why", () => {
     const lost = apiError("patronus_error", "The connection to Patronus broke off before its answer")
-    expect(presentLandOutcome(outcome([DONE, DONE, { kind: "unknown" }], { lost }), PLAN, "auth")).toEqual({
+    expect(presentLandOutcome(outcome([DONE, DONE, { kind: "unknown" }], { lost }), PLAN.intent, "auth")).toEqual({
       kind: "unknown",
       title: "Cannot tell whether the Safe Push of auth started",
       description: "The connection to Patronus broke off before its answer. It holds auth until Patronus lists its robot, or until Forget This Start on the row",
@@ -103,7 +103,7 @@ describe("presentLandOutcome", () => {
   it("offers the start again when the facts changed after the push, naming the robot it canceled; a failed effect says its error", () => {
     const changed = apiError("plan_changed", "auth changed after the push: no robot started")
     const older = { ...ROBOT, id: "older", status: "canceling" as const }
-    expect(presentLandOutcome(outcome([DONE, DONE, { kind: "skipped", reason: changed }], { canceled: older }), PLAN, "auth")).toEqual({
+    expect(presentLandOutcome(outcome([DONE, DONE, { kind: "skipped", reason: changed }], { canceled: older }), PLAN.intent, "auth")).toEqual({
       kind: "failed",
       title: "Cannot start the Safe Push of auth",
       description: "auth changed after the push: no robot started; the Safe Push it replaced was canceled and the push stays",
@@ -112,13 +112,13 @@ describe("presentLandOutcome", () => {
       canceled: older,
     })
     const refused = apiError("push_refused", "The remote refused the push: pre-receive hook declined")
-    expect(presentLandOutcome(outcome([DONE, { kind: "failed", error: refused }]), PLAN, "auth")).toMatchObject({
+    expect(presentLandOutcome(outcome([DONE, { kind: "failed", error: refused }]), PLAN.intent, "auth")).toMatchObject({
       kind: "failed",
       description: "The remote refused the push: pre-receive hook declined",
       error: refused,
       again: false,
     })
-    const stopped = presentLandOutcome(outcome([DONE, DONE, { kind: "skipped", reason: apiError("canceled", "stopped") }]), PLAN, "auth")
+    const stopped = presentLandOutcome(outcome([DONE, DONE, { kind: "skipped", reason: apiError("canceled", "stopped") }]), PLAN.intent, "auth")
     expect(stopped).toEqual({ kind: "stopped", title: "Canceled the Safe Push of auth before its robot started", description: "The push stays" })
   })
 })

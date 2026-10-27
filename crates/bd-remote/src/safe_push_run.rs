@@ -13,6 +13,7 @@ use crate::safe_push_command::STACK_REMOTE;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::services::session_key;
+use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode, HolderTool};
 use domain_types::landing::Land;
 use domain_types::operation::OperationId;
@@ -20,7 +21,7 @@ use domain_types::patronus::{PatronusAvailability, PatronusRobot};
 use github::service::GitHubService;
 use operations::engine::request_of;
 use operations::land::{LandHost, one_shot_planned};
-use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices, Started, bounded_lock};
+use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, PushedRef, StartHost, StartServices, Started, bounded_lock, shown_remote};
 use operations::push::Sent;
 use operations::reconcile::{ReconcileSources, SettleWith, admit_settled};
 use operations::registry_file::{Entry, ProcessRegistry};
@@ -74,6 +75,11 @@ impl StartHost for BdStart<'_> {
         PatronusAvailability::NotPatronus => Err(ApiError::new(ErrorCode::NotOnSpace, "The repository is not on Space: Patronus can't push it")),
       }
     })
+  }
+
+  fn shown_remote<'a>(&'a self, pushes: &'a [PushedRef]) -> Read<'a, Vec<Option<RemoteStatusUpdate>>> {
+    let shown = pushes.iter().map(|pushed| shown_remote(self.session.state(), pushed)).collect();
+    Box::pin(std::future::ready(shown))
   }
 
   /// A command keeps no session: its output tells the push

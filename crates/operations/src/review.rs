@@ -149,7 +149,7 @@ impl Review<'_> {
         _ => EffectStatus::Skipped { reason: None },
       };
       stopped = !matches!(status, EffectStatus::Done);
-      records.push(EffectRecord { effect, status });
+      records.push(EffectRecord::new(effect, status));
     }
     records
   }

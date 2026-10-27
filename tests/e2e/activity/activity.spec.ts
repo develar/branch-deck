@@ -49,8 +49,9 @@ testWithIssueLinks.describe("Activity", () => {
     await expectPushedToRemote(issueLinksRepo, ["ABC-123"])
 
     const window = await openActivityWindow(page)
+    // one day: the backend dates the journal by its own clock, the page of a test runs on a fixed one, so the day is
+    // not "Today" here (the labels of the days: `groupActivityByDay` of activity.test.ts)
     await expect(window.getByTestId("activity-day")).toHaveCount(1)
-    await expect(window.getByTestId("activity-day").getByRole("heading")).toHaveText("Today")
     // newest first
     await expect(window.getByTestId("activity-title")).toHaveText(["Force pushed ABC-123", "Pushed ABC-123"])
     await expect(activityEntry(window, "Pushed ABC-123").getByTestId("activity-description")).toHaveText("4 commits · created the remote branch")
@@ -143,6 +144,18 @@ testWithIssueLinks.describe("Activity", () => {
 
   testWithIssueLinks("should offer the Undo of a squash while the toast's lasts, in the panel", async ({ page }) => {
     await squashAndUndo({ page }, "panel")
+  })
+
+  testWithIssueLinks("should read the log from the journal of the repository after a reload", async ({ page, syncAndWaitForBranches }) => {
+    const row = findBranchRow(page, "feature-auth")
+    await getPushButton(row).click()
+    await expectNothingToPush(row)
+    // the push is in the journal of the repository, which a new page reads: no window keeps the log
+    await page.reload()
+    await syncAndWaitForBranches()
+    const window = await openActivityWindow(page)
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed feature-auth"])
+    await expect(activityEntry(window, "Pushed feature-auth").getByTestId("activity-description")).toHaveText("1 commit · created the remote branch")
   })
 
   testWithIssueLinks("should clear the log of the repository", async ({ page }) => {

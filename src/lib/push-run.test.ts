@@ -21,7 +21,6 @@ const { engine, stores } = vi.hoisted(() => ({
     /** What reached the backend and the clipboard, in order: "prepare auth", "execute auth", "copy …", "open …" */
     calls: [] as string[],
     /** What Activity recorded */
-    records: [] as string[],
     /** The plan `prepare` answers of the intent */
     plan: (_intent: Intent): Partial<Plan> => ({}),
     /** The effects of the run and their statuses, of its plan */
@@ -96,7 +95,6 @@ vi.mock("@/stores/branch-sync", async () => {
     getBranch: (name: string) => stores.branches[name],
     getOpenPullRequest: (name: string) => openPullRequestOf(stores.pullRequests[name]),
     setOperationPushProgress: () => {},
-    toRemoteStatus: () => null,
   }
 })
 vi.mock("@/stores/operations", () => ({ whenRewritesDone: async () => {} }))
@@ -112,12 +110,7 @@ vi.mock("@/stores/repository", async () => ({
   getRepositorySwitchReason: (path: string) => (path === "/repo" ? null : `${path} is no longer the open repository`),
   getEffectiveBranchPrefix: () => "user",
 }))
-vi.mock("@/stores/activity", async () => ({
-  ...(await import("@/stores/test-store-mocks")).activityMock,
-  recordPush: (_repositoryPath: string, branchName: string) => void engine.records.push(`push ${branchName}`),
-  recordRobot: (title: string) => void engine.records.push(title),
-  recordRetarget: (title: string, description: string) => void engine.records.push(`${title}: ${description}`),
-}))
+vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/stores/unapplied-branches", () => ({ getUnappliedBranch: () => undefined }))
 vi.mock("@/lib/robot-toast", () => ({ showRobotToast: (title: string, robot: PatronusRobot) => void engine.calls.push(`robot toast ${title}: ${robot.id}`) }))
 
@@ -144,7 +137,6 @@ const RETARGET: PlannedEffect = { kind: "retarget", branch: "login", number: 8, 
 
 beforeEach(() => {
   engine.calls.length = 0
-  engine.records = []
   engine.intents = []
   engine.accepted = []
   engine.plan = () => ({})
@@ -205,14 +197,13 @@ describe("the toast of a push", () => {
     expect(toasts.at(-1)!.actionProps?.children).toBe("Create Pull Request…")
   })
 
-  it("retargets a pull request into a virtual branch to the baseline before the push, and Activity records it", async () => {
+  it("retargets a pull request into a virtual branch to the baseline before the push, and says it in the toast of the push", async () => {
     addBranch("login", "auth")
     stores.pullRequests.login = { number: 8, state: "open", baseRefName: "user/virtual/auth", url: "https://github.com/JetBrains/ultimate/pull/8" } as PullRequest
     engine.plan = () => ({ effects: [RETARGET, { kind: "push", branches: ["login"], force: false }] })
     expect(await pushBranch("login")).toBe(true)
     const toast = toasts.at(-1)!
     expect(text(toast.description)).toBe("1 commit · retargeted pull request #8 to master")
-    expect(engine.records).toEqual(["Retargeted #8 to master: login · it went into auth", "push login"])
   })
 
   it("pushes and copies the command that retargets a pull request when the retarget fails", async () => {
@@ -229,16 +220,14 @@ describe("the toast of a push", () => {
     await vi.waitFor(() => expect(engine.calls).toContain("copy gh pr edit 8 --base master"))
   })
 
-  it("says nothing for a push that is a step of another action, and Activity records it", async () => {
+  it("says nothing for a push that is a step of another action", async () => {
     expect(await pushBranch("auth", { announce: false })).toBe(true)
     expect(toasts).toEqual([])
-    expect(engine.records).toEqual(["push auth"])
   })
 
-  it("says only the restart a push that is a step of another action made, in the toast of its robot and Activity", async () => {
+  it("says only the restart a push that is a step of another action made, in the toast of its robot", async () => {
     engine.restarted = { ...ROBOT, id: "r2" }
     expect(await pushBranch("auth", { announce: false, restartRunning: true })).toBe(true)
-    expect(engine.records).toEqual(["push auth", "Safe Push restarted"])
     expect(engine.calls).toEqual(["prepare auth", "execute auth", "robot toast Safe Push restarted: r2"])
     expect(toasts).toEqual([])
   })
@@ -349,7 +338,6 @@ describe("the plan of a push", () => {
     expect(await pushBranch("auth")).toBe(false)
     const toast = toasts.at(-1)!
     expect(toast.type).toBe("warning")
-    expect(engine.records).toEqual(["push auth"])
     engine.run = plan => plan.effects.map(effect => ({ effect, status: { kind: "done" } }))
     toast.actionProps!.onClick()
     await vi.waitFor(() => expect(engine.calls.filter(call => call === "execute auth")).toHaveLength(2))

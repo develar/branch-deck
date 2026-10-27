@@ -10,7 +10,7 @@ import { describeRobot, formatPushMode, formatRobotSubject } from "@/lib/patronu
 import { copyRobotPrompt, robotAncestors } from "@/lib/robot-prompt-copy"
 import { robotToastKeys, showRobotEventToast } from "@/lib/robot-toast"
 import { getRobotActionItems, isRestart } from "@/presenters/actions"
-import { recordRobot } from "@/stores/activity"
+import { recordRobotNews } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { announceMerge, patronusStore, repositoryKey } from "@/stores/patronus"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
@@ -108,7 +108,7 @@ async function announceFailed(key: string, robot: PatronusRobot, needsReview: bo
   const toldFailing = announced.has(robot.id)
   if (toldFailing) {
     const { title, description } = formatFailedRobotToast(robot, needsReview, null, label)
-    recordRobot(title, description, robot, repositoryPath)
+    recordRobotNews(repositoryPath, title, description, robot)
     if (!isEventToastOpen(toastKeys.robot(repositoryPath, robot.id))) {
       return
     }
@@ -120,7 +120,7 @@ async function announceFailed(key: string, robot: PatronusRobot, needsReview: bo
     showFailedToast(repositoryPath, robot, needsReview, kind, title, description, true)
     return
   }
-  recordRobot(title, description, robot, repositoryPath)
+  recordRobotNews(repositoryPath, title, description, robot)
   announce("patronusFailures", { title, body: description }, () => showFailedToast(repositoryPath, robot, needsReview, kind, title, description, false))
 }
 
@@ -196,7 +196,7 @@ async function announceFailing(key: string, robot: PatronusRobot, label: string 
   // the warning names no check: the details do (cached by the backend for a minute, so the popover reuses them)
   const failedChecks = await readFailedChecks(robot.id)
   const { title, description } = formatFailingRobotToast(robot, failedChecks, label)
-  recordRobot(title, description, robot, repositoryPath)
+  recordRobotNews(repositoryPath, title, description, robot)
   announce("patronusFailures", { title, body: description }, () =>
     // the robot as the store has it now: canceled meanwhile, it has nothing to cancel
     showRobotEventToast({

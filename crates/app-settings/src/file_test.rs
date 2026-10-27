@@ -176,3 +176,11 @@ fn the_fields_of_the_repository_state_leave_the_recent_projects_by_path_and_noth
   let mut not_a_list = SettingsFile::parse(r#"{"recentProjects":{"path":"/a","lastSyncTime":1}}"#).unwrap();
   assert!(not_a_list.take_repository_state().is_empty());
 }
+
+#[test]
+fn the_activity_log_of_a_file_of_before_is_dropped_by_the_load_and_the_next_save() {
+  let directory = tempfile::tempdir().unwrap();
+  let path = directory.path().join("settings.json");
+  write(&path, &json!({ "activity": [{ "id": "1", "title": "Pushed auth" }], "diffView": { "mode": "split" } }));
+  assert_eq!(round_trip(&path), json!({ "diffView": { "mode": "split" } }));
+}

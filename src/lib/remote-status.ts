@@ -1,4 +1,4 @@
-import type { DroppedCommit } from "@/lib/bindings"
+import type { DroppedCommit, RemoteStatusUpdate } from "@/lib/bindings"
 import { formatPushCount } from "@/lib/push-summary"
 import { cutList, joinNames } from "@/lib/text"
 import { formatTimestamp } from "@/lib/time"
@@ -257,4 +257,46 @@ export function buildRemoteMovedTexts(branchName: string, remote: RemoteStatus):
     return { title, description: "The remote has older versions of the branch's commits. Nothing was pushed.", action }
   }
   return { title, description: "The remote has no commits the branch lacks. Nothing was pushed.", action }
+}
+
+/** The fields of a remote status of Rust the page reads */
+type RemoteStatusFields = Pick<
+  RemoteStatusUpdate,
+  | "remoteExists"
+  | "unpushedCommits"
+  | "commitsBehind"
+  | "othersBehind"
+  | "commitsAmended"
+  | "commitsRestacked"
+  | "commitsLanded"
+  | "commitsReworded"
+  | "ancestorCommitsAhead"
+  | "myUnpushedCount"
+  | "fastForward"
+  | "lastPushTime"
+  | "remoteTip"
+  | "droppedCommits"
+  | "action"
+>
+
+/** The remote status of Rust (`RemoteStatusUpdate`) as the page reads it */
+export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
+  return {
+    exists: update.remoteExists,
+    unpushedCommits: update.unpushedCommits,
+    commitsAhead: update.unpushedCommits.length,
+    commitsBehind: update.commitsBehind,
+    othersBehind: update.othersBehind,
+    commitsAmended: update.commitsAmended,
+    commitsRestacked: update.commitsRestacked,
+    commitsLanded: update.commitsLanded,
+    commitsReworded: update.commitsReworded,
+    ancestorCommitsAhead: update.ancestorCommitsAhead,
+    myCommitsAhead: update.myUnpushedCount ?? 0,
+    fastForward: update.fastForward,
+    lastPushTime: update.lastPushTime ?? 0,
+    remoteTip: update.remoteTip,
+    droppedCommits: update.droppedCommits,
+    action: update.action,
+  }
 }

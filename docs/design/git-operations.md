@@ -2903,7 +2903,8 @@ starts once, pushing nothing more) and `bd operation forget`.
 
 Every operation of the remote that ended, of the app and of every `bd`, is one line of JSON in
 `$GIT_COMMON_DIR/branch-deck/journal.jsonl`, beside the registry (`operations::journal`, its one writer;
-`registry_scan_test.rs` fails on the name of the file anywhere else); the Activity of the app is to read it:
+`registry_scan_test.rs` fails on the name of the file anywhere else); the Activity of the app reads it
+(spec/repository/activity.spec.md):
 
 - **An entry** (`domain_types::operation::JournalEntry`): the id of the operation (the id of its record, of its outcome,
   of the root span of its log lines, the `operation_id` of the JSON of `bd`), `tool` and pid, the worktree and the
@@ -2922,6 +2923,22 @@ Every operation of the remote that ended, of the app and of every `bd`, is one l
 - **Bounds**: each write keeps the newest 200 entries of the last 30 days (by `endedAt`) and replaces the file by a
   rename (`write_atomically`), so a read without the lock (`journal::read`) sees whole lines. A line this version can't
   read stays while it is new enough, and the reader skips it.
+- **A push** keeps the remote status each of its branches was pushed over (`EffectRecord::remote`): the one the session
+  showed when the start froze it (`StartHost::shown_remote`, of Push Up to Here the part up to its commit), the one
+  after the fetch of a refused first push it went over once more, or what the remote has now when it moved; the toast
+  of the push and its Activity entry word it from there.
+- **The journal of the page**: what only the page knows (an error it told, an update, what landed, a rewrite, the
+  news of a review request, an approval or a robot) is a `PageEntry` of `<app data>/journal.jsonl`, written by the same
+  module (`journal::record_page`, `record_activity`) under `journal.lock` beside it, within the same bounds.
+- **Activity reads** (`journal::read_activity`, `read_activity`): the journal of the repository of each recent project,
+  which `subscribe_view` remembered for the project (`app_settings::journals`, the key `journalPaths`, by the path of
+  the project; Rust writes it before the subscription, no window does), each once for the projects that share it, all
+  in parallel on the blocking pool within 200 ms (`ACTIVITY_READ_TIMEOUT`; one not read by then is unavailable), and
+  the journal of the page; no git process. Clear Log (`journal::clear`, `clear_activity`) empties the journal of the
+  repository under `operations.lock` and takes the entries of the project out of the journal of the page under its
+  lock. The watch of the registry of a repository a window shows (`registry_watch`) sees its journal change and tells
+  the listener of the journal (`RegistryFiles::on_journal`): the app sends its windows `activity-changed`, and the main
+  window reads again, as it does after each operation and each write of its own.
 - **The cost** (`sync_utils::operation_tally`): the tally of an operation begins at its admission; its git processes
   (`GitCommandExecutor`, at the spawn) and its HTTP requests (the clients of Patronus, GitHub and YouTrack, one per
   request sent) count into the tally current on the thread that runs them: during each poll of the future of its run
@@ -2931,7 +2948,9 @@ Every operation of the remote that ended, of the app and of every `bd`, is one l
   is a file.
 
 `operations/src/journal_test.rs` pins the rules (one entry each for the app and `bd` in one file with what they cost,
-a lost start settled and forgotten, a dropped run, a slot of the pool, the bounds), `operations/src/engine_log_test.rs`
+a lost start settled and forgotten, a dropped run, a slot of the pool, the bounds, the journal of the page and Clear
+Log, a read of Activity with a journal shared, unreadable or not answering), `operations/src/push_test.rs` the remote
+statuses of a push, `app-settings/src/journals_test.rs` the journals of the recent projects, `operations/src/engine_log_test.rs`
 the root span (the lines of a run, its git on the blocking pool too, name the id of its error and its entry), and
 `bd-cli/src/operation_test.rs` the run of `bd` (the JSON, the root span and the entry of a `bd safe-push` share the
 id).

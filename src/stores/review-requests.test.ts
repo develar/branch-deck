@@ -121,8 +121,6 @@ vi.mock("@/stores/repository", async () => ({
 
 vi.mock("@/stores/activity", () => ({
   recordReviewRequest: (_path: string, request: ReviewRequest) => gh.activity.push(`#${request.number}`),
-  recordReview: (_path: string, title: string) => gh.activity.push(title),
-  recordRobot: (title: string) => gh.activity.push(`robot: ${title}`),
 }))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
@@ -334,7 +332,6 @@ describe("reviews", () => {
     expect(await submitReview("/repo", request(7), "approve", HEAD)).toBe(true)
     expect(gh.reviews).toEqual([{ repositoryPath: "/repo", kind: "submitReview", number: 7, verdict: "approve", commit: HEAD, body: null, thenLand: false }])
     expect(toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Approved #7", "Change 7", "Open Pull Request"]])
-    expect(gh.activity).toEqual(["Approved #7"])
     expect(entry().reviewed[7]).toEqual({ event: "approve", commitId: HEAD })
     // the session asks GitHub again (`operations::review`): the request leaves the list, the window keeps its place
     listed(available(request(8)))
@@ -382,7 +379,6 @@ describe("Safe Push of a reviewed pull request", () => {
     expect(gh.safePushes).toEqual([{ number: 7 }])
     // no robot of the user's: the toast opens the pull request; "Approved #7" became the start in place
     expect(toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Safe Push started", "#7 Change 7", "Open Pull Request"]])
-    expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
 
     // approved already (the session says so): the Safe Push alone; a robot of the user's is announced as any
     gh.actions["pull:7"] = [{ id: "approve", availability: { kind: "disabled", reason: { code: "approved", commit: HEAD } } }]
@@ -392,7 +388,6 @@ describe("Safe Push of a reviewed pull request", () => {
     // the robot of no branch is watched: polled, its merge told, listed in the header
     expect(gh.announced).toEqual(["watch #7 Change 7"])
     expect(toasts.at(-1)).toMatchObject({ title: "Safe Push started", description: "auth → master", actionProps: { children: "Open in Patronus" } })
-    expect(gh.activity.at(-1)).toBe("robot: Safe Push started")
   })
 
   it("refuses a pull request that got commits since the review, and says the reason of the bot", async () => {
@@ -413,7 +408,7 @@ describe("Safe Push of a reviewed pull request", () => {
     })
   })
 
-  it("tells the window that asked, records Activity in the main window, and switches it to the request's repository first", async () => {
+  it("tells the window that asked and switches the main window to the request's repository first", async () => {
     listed(available(request(7)))
     gh.head = HEAD
     const told: unknown[] = []
@@ -427,7 +422,6 @@ describe("Safe Push of a reviewed pull request", () => {
       { key, title: "Approved #7", description: "Change 7", target: { kind: "pullRequest", url: request(7).url } },
       { key, title: "Safe Push started", description: "#7 Change 7", target: { kind: "pullRequest", url: request(7).url } },
     ])
-    expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
 
     // the main window shows another repository: it switches to the request's one first, or says why it can't
     gh.selected = "/other"

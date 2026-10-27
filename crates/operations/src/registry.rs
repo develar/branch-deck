@@ -94,7 +94,13 @@ pub struct RegistryFiles {
   /// Unix seconds now for the session of a key, which a reconcile compares the time of a start with: the system's but in
   /// a test
   now: Arc<dyn Fn(&SessionKey) -> u32 + Send + Sync>,
+  /// Called when the watch of a repository saw its journal change (`registry_watch`): an operation of this process or
+  /// of another ended, and Activity reads the journals again
+  journaled: Option<JournalListener>,
 }
+
+/// What hears that the journal of a watched repository changed
+pub type JournalListener = Arc<dyn Fn() + Send + Sync>;
 
 /// The `$GIT_COMMON_DIR` of the worktree of a session; `None` outside a repository
 type CommonDir = dyn Fn(&SessionKey) -> Option<PathBuf> + Send + Sync;
@@ -108,7 +114,16 @@ impl RegistryFiles {
       common_dir: Some(Arc::new(common_dir)),
       settle: None,
       now: Arc::new(|_key| unix_now()),
+      journaled: None,
     }
+  }
+
+  /// The same files, whose journal changes `listener` hears while a window watches its repository (the app tells its
+  /// windows `activity-changed`)
+  #[must_use]
+  pub fn on_journal(mut self, listener: impl Fn() + Send + Sync + 'static) -> Self {
+    self.journaled = Some(Arc::new(listener));
+    self
   }
 
   /// The same files, whose starts whose answer was lost are settled by reads over `host` (the app's services)
@@ -135,6 +150,7 @@ impl RegistryFiles {
       common_dir: None,
       settle: None,
       now: Arc::new(|_key| unix_now()),
+      journaled: None,
     }
   }
 
@@ -212,10 +228,17 @@ impl Registry {
   pub fn new(sessions: Arc<Sessions>, files: RegistryFiles) -> Self {
     Self {
       sessions,
+      watches: Watches::new(files.journaled.clone()),
       files,
       channels: Arc::new(Mutex::new(HashMap::new())),
-      watches: Watches::default(),
     }
+  }
+
+  /// The journal of the repository of the session of `key` (`$GIT_COMMON_DIR/branch-deck/journal.jsonl`), which
+  /// Activity reads; none when nothing is recorded or outside a repository
+  pub async fn journal_of(&self, key: &SessionKey) -> Option<PathBuf> {
+    let registry = self.files.registry_of(key).await?;
+    Some(crate::journal::journal_path_in(registry.dir()))
   }
 
   /// Subscribes a window to the session of `key` (`Sessions::subscribe`, opening it), and watches the operations

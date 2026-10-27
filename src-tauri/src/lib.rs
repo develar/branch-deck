@@ -34,6 +34,7 @@ mod tracing_log_test;
 mod zoom_test;
 
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
+use commands::activity::{clear_activity, read_activity, record_activity};
 use commands::add_issue_reference::add_issue_reference_to_commits;
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
 use commands::amend_to_branch::amend_uncommitted_to_branch;
@@ -97,6 +98,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
   Builder::<tauri::Wry>::new()
     .disable_serde_phases()
     .commands(collect_commands![
+      read_activity,
+      record_activity,
+      clear_activity,
       cancel_lock_wait,
       get_new_pull_request,
       get_new_stack_pull_request,

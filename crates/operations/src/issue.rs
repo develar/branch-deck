@@ -69,7 +69,7 @@ pub async fn execute_issue(registry: &Registry, key: &SessionKey, intent: Intent
         OperationResult::None,
       ),
     };
-    let effects = plan.effects.into_iter().map(|effect| EffectRecord { effect, status: status.clone() }).collect();
+    let effects = plan.effects.into_iter().map(|effect| EffectRecord::new(effect, status.clone())).collect();
     Ok(outcome_of(guard.id().clone(), effects, Some(NewsKey::Issue { key: issue.clone() }), None, result))
   })
   .await

@@ -1,6 +1,7 @@
 use crate::land_execute::{Accepted, Current, Planned, PullRequestText, PushLease, PushSettings, PushedRef, StartHost, StartServices, Started, Steps, bounded_lock, execute};
 use crate::push::Sent;
 use crate::witness::{Witness, read_refs};
+use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{land_intent, robot};
 use domain_types::landing::{Confirmation, Land, PlannedEffect, StartRoute};
@@ -62,6 +63,10 @@ impl StartHost for Host {
 
   fn robots_since(&self, _since: u32) -> Read<'_, Result<Vec<PatronusRobot>, ApiError>> {
     Box::pin(std::future::ready(Ok(Vec::new())))
+  }
+
+  fn shown_remote<'a>(&'a self, pushes: &'a [PushedRef]) -> Read<'a, Vec<Option<RemoteStatusUpdate>>> {
+    Box::pin(std::future::ready(vec![None; pushes.len()]))
   }
 
   fn begin_push(&self, subjects: Vec<RemoteSubject>) {

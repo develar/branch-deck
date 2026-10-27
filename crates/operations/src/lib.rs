@@ -16,7 +16,9 @@
 //!   the operations of the other processes in the session, a sync after a mutation of `bd` (`touch_stamp`)
 //! - `journal`: the journal of the operations of a repository (`journal.jsonl` beside the registry), one entry per
 //!   operation that ended, of the app and of every `bd`, and per start whose answer was lost once settled or forgotten:
-//!   what it did, how it ended and what it cost; written by the registry file under its lock
+//!   what it did, how it ended and what it cost; written by the registry file under its lock. Beside it the journal of
+//!   the page in the app data directory (`record_page`), the read of Activity over both (`read_activity`), Clear Log
+//!   (`clear`)
 //! - `reconcile`: what a start whose answer was lost did, read of Patronus and GitHub, at an admission it holds back
 //!   (`admit_settled`) and after a list of the robots of a session; settled, its record leaves the registry
 //! - `forget`: a start whose answer was lost forgotten (`Intent::ForgetStart`, `bd operation forget`): its record leaves

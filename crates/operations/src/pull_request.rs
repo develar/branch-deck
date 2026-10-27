@@ -203,7 +203,7 @@ pub async fn execute_retarget(registry: &Registry, key: &SessionKey, number: u32
         }
         _ => EffectStatus::Skipped { reason: None },
       };
-      records.push(EffectRecord { effect, status });
+      records.push(EffectRecord::new(effect, status));
     }
     Ok(retarget_outcome(guard.id().clone(), records, version))
   })

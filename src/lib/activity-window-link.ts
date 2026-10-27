@@ -132,6 +132,5 @@ export const runActivityRequest = link.serve<ActivityWindowRequest, ActivityWind
   if ("dismiss" in request) {
     return dismissLanded(request.repositoryPath).then(() => true)
   }
-  clearActivity(request.repositoryPath)
-  return true
+  return clearActivity(request.repositoryPath).then(failure => failure === null || refuse("Cannot clear the log", failure))
 })

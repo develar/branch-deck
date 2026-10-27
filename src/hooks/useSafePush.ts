@@ -13,7 +13,7 @@ import { formatPushMode, openRobot } from "@/lib/patronus"
 import { openPullRequest, openPullRequestUrl } from "@/lib/pull-request"
 import { pushForAction, pushWholeStack } from "@/lib/push-run"
 import { showRobotEventToast } from "@/lib/robot-toast"
-import { pushedBefore, recordEffects } from "@/lib/run-intent"
+import { executeIntent } from "@/lib/run-intent"
 import type { ToastActionProps } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
@@ -25,7 +25,6 @@ import { formatLandingFix } from "@/presenters/landing"
 import type { BranchNextStep } from "@/presenters/next-step"
 import { NO_NEXT_STEP, startStepBlocker } from "@/presenters/next-step"
 import { presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"
-import { recordActivity, recordRobot } from "@/stores/activity"
 import {
   branchSyncStore,
   getBranch,
@@ -605,7 +604,6 @@ async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | u
   if (planned === null) {
     return false
   }
-  const before = pushedBefore(planned)
   const events = new Channel<OperationEvent>()
   let op: OperationId | null = null
   events.onmessage = event => {
@@ -615,7 +613,7 @@ async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | u
     }
   }
   const params = { repositoryPath, intent: planned.intent, fingerprint: planned.fingerprint, accepted: planned.confirmations }
-  const result = await commands.execute(params, events).finally(() => {
+  const result = await executeIntent(params, events).finally(() => {
     if (op !== null) {
       setLandProgress(op, null)
     }
@@ -625,7 +623,6 @@ async function runPlanned(plan: Plan, intent: Land, allow: LandingAllowances | u
     return false
   }
   setLandProgress(result.data.op, null)
-  recordEffects(result.data, repositoryPath, before)
   return tellOutcome(result.data, planned, repositoryPath)
 }
 
@@ -640,11 +637,10 @@ function tellOutcome(outcome: Outcome, plan: Plan, repositoryPath: string): bool
     return false
   }
   const key = landKey(land)
-  const toast = presentLandOutcome(outcome, plan, formatReadinessSubject(key))
+  const toast = presentLandOutcome(outcome, plan.intent, formatReadinessSubject(key))
   const subjectKey = toastKeys.robotSubject(repositoryPath, key, land.mode)
   switch (toast.kind) {
     case "started":
-      recordRobot(toast.title, toast.description, toast.robot, repositoryPath, outcome.op)
       // a start asked by mistake costs only the robot: its toast cancels it while it can be canceled
       showRobotEventToast({
         repositoryPath,
@@ -657,14 +653,6 @@ function tellOutcome(outcome: Outcome, plan: Plan, repositoryPath: string): bool
       })
       return true
     case "commented":
-      recordActivity({
-        repositoryPath,
-        kind: "patronus",
-        title: toast.title,
-        description: toast.description,
-        details: { type: "pullRequest", url: toast.url },
-        operationId: outcome.op,
-      })
       showEventToast({
         key: subjectKey,
         supersedes: land.mode === "dryRun" ? [] : [toastKeys.approval(repositoryPath, key)],

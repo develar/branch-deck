@@ -12,6 +12,7 @@
 //! A subscription is recorded under the page that asked for it (`WindowSubscriptions`), so one that answers after its
 //! page went away (the command awaited the prefix and the session meanwhile) ends at once.
 
+use crate::commands::activity::emit_activity_changed;
 use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
 use crate::commands::github::GitHubState;
 use crate::commands::patronus::PatronusState;
@@ -22,6 +23,7 @@ use crate::repository_state::RepositoryStateCache;
 use crate::settings::emit_change;
 use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
+use app_settings::journals::remember_journal;
 use app_settings::linked_pull_requests::{forget, linked};
 use app_settings::service::SettingsService;
 use domain_types::error::{ApiError, HolderTool};
@@ -128,7 +130,11 @@ impl SessionsState {
       let (app, git) = (app.clone(), git.clone());
       RegistryFiles::new(HolderTool::App, move |key| app.state::<RepositoryStateCache>().git_common_dir(&git, &key.worktree).ok())
     }
-    .settled_with(Arc::new(AppServices { app: app.clone() }));
+    .settled_with(Arc::new(AppServices { app: app.clone() }))
+    .on_journal({
+      let app = app.clone();
+      move || emit_activity_changed(&app)
+    });
     let host = GitSessionHost::new(git, AppEnvironment { app: app.clone() });
     let runtime = tauri::async_runtime::handle().inner().clone();
     let clocks: Arc<dyn SessionClocks> = Arc::new(OneClock(Arc::new(SystemClock::new())));
@@ -386,6 +392,7 @@ pub async fn subscribe_view(
     let page = state.windows().page(&label);
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;
+    remember_journal_of(&webview, &settings, &state.registry, &key, &params.repository_path).await;
     // through the registry: the window watches the operations registry of the repository while it subscribes
     let (id, view) = state
       .registry
@@ -400,6 +407,20 @@ pub async fn subscribe_view(
     Ok(ViewSubscription { id: id.0, view })
   })
   .await
+}
+
+/// Remembers the journal of the repository of the session of `key` for the project at `repository_path`, which
+/// Activity reads without a git process (`app_settings::journals`); a change goes to the main window, a failure is
+/// only logged
+async fn remember_journal_of(webview: &Webview, settings: &Settings<'_>, registry: &Registry, key: &SessionKey, repository_path: &str) {
+  let Some(journal) = registry.journal_of(key).await else {
+    return;
+  };
+  match remember_journal(settings, repository_path, &journal.to_string_lossy()) {
+    Ok(Some(change)) => emit_change(webview.app_handle(), &change),
+    Ok(None) => {}
+    Err(error) => warn!(%error, "cannot remember the journal of the repository"),
+  }
 }
 
 #[derive(Debug, Deserialize, specta::Type)]

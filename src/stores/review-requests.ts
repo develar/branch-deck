@@ -11,11 +11,11 @@ import type { ReviewFeedback, ReviewSource } from "@/lib/pull-request-review"
 import { reviewToastActionLabel } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { approvedCommitOf } from "@/lib/review-request-actions"
-import { describeNewRequests, mergeReviewRequests, reviewRequestKey } from "@/lib/review-requests"
+import { describeNewRequests, describeReview, mergeReviewRequests, reviewRequestKey } from "@/lib/review-requests"
 import { runFailure, runIntent } from "@/lib/run-intent"
 import { showRepository } from "@/lib/show-repository"
 import { getRowPart, refreshSessionFacts } from "@/model/store"
-import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
+import { recordReviewRequest } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { watchRobot } from "@/stores/patronus"
 import { getSelectedProject, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
@@ -301,11 +301,6 @@ export function mainReviewFeedback(request: ReviewRequest): ReviewFeedback {
   }
 }
 
-/** "Approved #123", "Requested changes on #123" */
-export function describeReview(event: PullRequestReviewEvent, number: number): string {
-  return event === "approve" ? `Approved #${number}` : `Requested changes on #${number}`
-}
-
 /** "Cannot approve pull request #123" */
 function reviewFailure(event: PullRequestReviewEvent, number: number): string {
   return event === "approve" ? `Cannot approve pull request #${number}` : `Cannot request changes on pull request #${number}`
@@ -342,7 +337,6 @@ function tellReviewed(repositoryPath: string, request: ReviewRequest, event: Pul
   feedback.toast({ key: toastKeys.review(repositoryPath, number), title, description: request.title, target: { kind: "pullRequest", url: request.url } })
   markRead(repositoryPath, request)
   update(repositoryPath, entry => ({ reviewed: { ...entry.reviewed, [number]: { event, commitId } } }))
-  recordReview(repositoryPath, title, request)
 }
 
 /** A review the session has no plan of: never, its plan is the intent's */
@@ -411,13 +405,11 @@ function tellStarted(repositoryPath: string, request: ReviewRequest, robot: Patr
   if (robot === null) {
     // the robot is not the user's: the pull request tells how it goes
     feedback.toast({ key, title, description: `#${number} ${request.title}`, target: { kind: "pullRequest", url: request.url } })
-    recordReview(repositoryPath, `${title} on #${number}`, request)
     return
   }
   watchRobot(robot, `#${number} ${request.title}`)
   const description = describeRobot(robot)
   feedback.toast({ key, title, description, target: { kind: "robot", url: robot.url } })
-  recordRobot(title, description, robot)
 }
 
 const SAFE_PUSH_FAILURE = "Cannot start the Safe Push"

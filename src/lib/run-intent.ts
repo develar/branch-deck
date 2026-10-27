@@ -5,16 +5,13 @@
 // the outcome. A start of a Safe Push or a Dry Run asks its confirmations first (`startPlanned` of `useSafePush.ts`);
 // the intents run here ask none.
 import { Channel } from "@tauri-apps/api/core"
-import type { ApiError, Intent, OperationEvent, OperationId, Outcome, Plan, Reason } from "@/lib/bindings"
+import type { ApiError, ExecuteParams, Intent, OperationEvent, OperationId, Outcome, Plan, Reason } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { formatWholeStackBranch, stackRootOfReadinessKey } from "@/lib/whole-stack"
+import type { CommandResult } from "@/lib/command"
 import { whenSessionViewAt } from "@/model/store"
 import { formatReason } from "@/presenters/reasons"
-import { recordPush, recordRetarget } from "@/stores/activity"
-import type { RemoteStatus } from "@/stores/branch-sync"
-import { getBranch, getStackBranch, setOperationPushProgress } from "@/stores/branch-sync"
-import { getPullRequest } from "@/stores/pull-requests"
-import { getEffectiveBranchPrefix } from "@/stores/repository"
+import { refreshActivity } from "@/stores/activity"
+import { setOperationPushProgress } from "@/stores/branch-sync"
 
 /** How a run of an intent went */
 export type IntentRun =
@@ -54,25 +51,33 @@ export async function runIntent(repositoryPath: string, intent: Intent, onEvent:
 }
 
 /**
- * Runs `plan` in the session of `repositoryPath` on its fingerprint, with what it asks accepted (`execute`); resolves
- * once the view of the session has what the run changed (`versionAfter`), so what the page shows next reads it, and
- * Activity has its retargets and its push (`recordEffects`). The push buttons of the branches its push sends show how
- * far it is (`operationPushProgress`); `onEvent` hears its steps and that progress too
+ * `execute` of `params`, its events to `events`: the operation ended in the journal of its repository before it
+ * answered, so Activity reads the log again (`refreshActivity`) and has what it did, in the words of its toast
+ */
+export async function executeIntent(params: ExecuteParams, events: Channel<OperationEvent>): Promise<CommandResult<Outcome>> {
+  const executed = await commands.execute(params, events)
+  void refreshActivity()
+  return executed
+}
+
+/**
+ * Runs `plan` in the session of `repositoryPath` on its fingerprint, with what it asks accepted (`executeIntent`);
+ * resolves once the view of the session has what the run changed (`versionAfter`), so what the page shows next reads
+ * it. The push buttons of the branches its push sends show how far it is (`operationPushProgress`); `onEvent` hears its
+ * steps and that progress too
  */
 export async function executePlan(repositoryPath: string, plan: Plan, onEvent: (event: OperationEvent) => void = () => {}): Promise<IntentRun> {
-  const before = pushedBefore(plan)
   const events = new Channel<OperationEvent>()
   const progress = operationPushProgress()
   events.onmessage = event => {
     progress.onEvent(event)
     onEvent(event)
   }
-  const executed = await commands.execute({ repositoryPath, intent: plan.intent, fingerprint: plan.fingerprint, accepted: plan.confirmations }, events).finally(progress.done)
+  const executed = await executeIntent({ repositoryPath, intent: plan.intent, fingerprint: plan.fingerprint, accepted: plan.confirmations }, events).finally(progress.done)
   if (executed.status === "error") {
     return { kind: "failed", error: executed.error }
   }
   await whenSessionViewAt(repositoryPath, executed.data.versionAfter)
-  recordEffects(executed.data, repositoryPath, before)
   return { kind: "ran", plan, outcome: executed.data }
 }
 
@@ -139,59 +144,5 @@ export function runFailure(run: IntentRun, noPlan: string): ApiError | string | 
       return run.error
     case "ran":
       return failedEffect(run.outcome)?.error ?? skippedReason(run.outcome)
-  }
-}
-
-/** A base as the rows name it: a virtual branch by its short name (`auth` of `user/virtual/auth`), another as it is */
-function shortBase(base: string): string {
-  const virtual = `${getEffectiveBranchPrefix()}/virtual/`
-  return base.startsWith(virtual) ? base.slice(virtual.length) : base
-}
-
-/** The remote status a push up to `tip` was made against, as its toast and Activity count it: the commits up to it are ahead */
-export function sentPart(before: RemoteStatus | null, tip: string | undefined): RemoteStatus | null {
-  if (before === null || tip === undefined) {
-    return before
-  }
-  const sent = before.unpushedCommits.indexOf(tip) + 1
-  return sent === 0 ? before : { ...before, commitsAhead: sent, myCommitsAhead: Math.min(before.myCommitsAhead, sent) }
-}
-
-/**
- * The remote status of each branch the push of `plan` sends, before it (of the stack branch of a whole stack under its
- * key, `stack:<root>`; of the branch of a Push Up to Here the part up to its commit): what Activity says the push changed
- */
-export function pushedBefore(plan: Plan): ReadonlyMap<string, RemoteStatus | null> {
-  const push = plan.effects.find(effect => effect.kind === "push")
-  const intent = plan.intent
-  const upTo = intent.kind === "push" && intent.scope.kind === "upTo" ? { name: intent.subject.kind === "branch" ? intent.subject.name : "", tip: intent.scope.commit } : null
-  const before = (name: string) => {
-    const root = stackRootOfReadinessKey(name)
-    const status = (root === null ? getBranch(name)?.remoteStatus : getStackBranch(root)?.remoteStatus) ?? null
-    return upTo?.name === name ? sentPart(status, upTo.tip) : status
-  }
-  return new Map(push?.kind === "push" ? push.branches.map(name => [name, before(name)] as const) : [])
-}
-
-/**
- * Activity of the effects of a run that have no toast of their own, each with the operation: the retargets of the pull
- * requests into a virtual branch (D11) and the push
- */
-export function recordEffects(outcome: Outcome, repositoryPath: string, before: ReadonlyMap<string, RemoteStatus | null>): void {
-  for (const { effect, status } of outcome.effects) {
-    if (status.kind !== "done") {
-      continue
-    }
-    if (effect.kind === "retarget") {
-      const url = getPullRequest(effect.branch)?.url
-      if (url !== undefined) {
-        recordRetarget(`Retargeted #${effect.number} to ${effect.to}`, `${effect.branch} · it went into ${shortBase(effect.from)}`, url)
-      }
-    } else if (effect.kind === "push") {
-      for (const name of effect.branches) {
-        const root = stackRootOfReadinessKey(name)
-        recordPush(repositoryPath, root === null ? name : formatWholeStackBranch(root), before.get(name) ?? null, null)
-      }
-    }
   }
 }

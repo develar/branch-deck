@@ -1413,7 +1413,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../src/stores/patronus.test.ts (`is replaced in place by the toast of its restart, a newer robot of the branch`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart from the toast a Safe Push whose builds never started`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
-  [@test] ../../src/lib/robot-run.test.ts (`restarts through the engine and says it in the toast of the robot and Activity`, `cancels through the engine: the robot is canceling`, `says the change of the facts after its push in an info toast, and a failure of Patronus in an error toast`)
+  [@test] ../../src/lib/robot-run.test.ts (`restarts through the engine and says it in the toast of the robot`, `cancels through the engine: the robot is canceling`, `says the change of the facts after its push in an info toast, and a failure of Patronus in an error toast`)
 - Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks (by content,
   or commits reworded since its push: the remote has them with the old messages, which Patronus would land), every
   surface offers "Restart Safe Push" instead of Restart: the push of the row, then the restart on the pushed commit,

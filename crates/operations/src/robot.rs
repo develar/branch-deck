@@ -346,7 +346,7 @@ fn cancel_outcome(op: OperationId, plan: Plan, canceled: Result<Canceled, ApiErr
     ),
     Err(error) => (EffectStatus::Failed { error }, RobotResult::default(), None),
   };
-  let effects = plan.effects.into_iter().map(|effect| EffectRecord { effect, status: status.clone() }).collect();
+  let effects = plan.effects.into_iter().map(|effect| EffectRecord::new(effect, status.clone())).collect();
   outcome_of(op, effects, Some(NewsKey::Robot { robot_id }), version, OperationResult::Robot(Box::new(result)))
 }
 

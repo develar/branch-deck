@@ -38,6 +38,7 @@ use crate::registry_file::{PendingStart, RecordHandle};
 use crate::robot_start::{ApiStart, CommentStart, Commented, NoRobot, RobotWait, follow_start_comment, patronus_failure, post_start_comment, start_through_api};
 use crate::witness::{Witness, check, plan_changed, read_refs};
 use domain_policy::holds::is_active;
+use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use domain_types::landing::{Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
@@ -65,7 +66,7 @@ use repository_model::branch_table::BranchTable;
 use repository_model::pull_request_facts::PullRequestWrite;
 use repository_model::ref_claims::claim_refs;
 use repository_model::refusal_words::start_refusal_text;
-use repository_model::table::RemoteSubject;
+use repository_model::table::{RemoteSubject, TableState};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -134,6 +135,33 @@ pub enum PushLease {
   Planned(Option<String>),
 }
 
+/// The remote status `state` shows of `pushed`, as a push of it goes over it: of a stack branch the stack's, of an
+/// unapplied branch the one its section has, of a Push Up to Here the part up to its commit (the commits after it stay
+/// unpushed); `None` for a ref the table has no status of
+#[must_use]
+pub fn shown_remote(state: &TableState, pushed: &PushedRef) -> Option<RemoteStatusUpdate> {
+  let status = if pushed.whole_stack {
+    state.stack(&pushed.name)?.remote.clone()
+  } else if pushed.unapplied {
+    state.sections().unapplied.iter().find(|branch| branch.branch == pushed.name)?.remote.clone()
+  } else {
+    state.branch(&pushed.name)?.remote.status.clone()
+  }?;
+  Some(match &pushed.up_to {
+    Some(commit) => sent_part(status, commit),
+    None => status,
+  })
+}
+
+/// `status` of a push up to `commit`: the commits up to it are the ones it sends
+fn sent_part(mut status: RemoteStatusUpdate, commit: &str) -> RemoteStatusUpdate {
+  if let Some(at) = status.unpushed_commits.iter().position(|id| id == commit) {
+    status.unpushed_commits.truncate(at + 1);
+    status.my_unpushed_count = status.my_unpushed_count.min(u32::try_from(at + 1).unwrap_or(u32::MAX));
+  }
+  status
+}
+
 impl PushedRef {
   /// The virtual branch `name` of `table` as a push sends it: under `prefix`, built on the branch its stack names, by its
   /// author, leased on `lease`; `None` for a branch the table lacks
@@ -197,6 +225,10 @@ pub trait StartHost: Send + Sync {
 
   /// The user's robots started since `since` (Unix seconds), asked now: the robot a comment started
   fn robots_since(&self, since: u32) -> Read<'_, Result<Vec<PatronusRobot>, ApiError>>;
+
+  /// The remote status the facts show of each of `pushes` (`shown_remote`), in their order: what the push goes over,
+  /// which its toast and its Activity entry say what it did from
+  fn shown_remote<'a>(&'a self, pushes: &'a [PushedRef]) -> Read<'a, Vec<Option<RemoteStatusUpdate>>>;
 
   /// The push of `subjects` starts: from now on a sync shows no remote status of them
   fn begin_push(&self, subjects: Vec<RemoteSubject>);
@@ -667,6 +699,8 @@ struct Run<'a> {
   retargets: Vec<Result<(), GitHubWriteError>>,
   canceled: Option<PatronusRobot>,
   pushed: Option<Sent>,
+  /// The remote status of each ref of the push as it found it (`EffectRecord::remote`), once it ran
+  pushed_remote: Vec<Option<RemoteStatusUpdate>>,
   robot: Option<PatronusRobot>,
   restarted: Vec<PatronusRobot>,
   commented: Option<Commented>,
@@ -695,6 +729,7 @@ impl<'a> Run<'a> {
       retargets: Vec::new(),
       canceled: None,
       pushed: None,
+      pushed_remote: Vec::new(),
       robot: None,
       restarted: Vec::new(),
       commented: None,
@@ -733,7 +768,15 @@ impl<'a> Run<'a> {
           ),
         }
       };
-      self.records.push(EffectRecord { effect, status });
+      let remote = if matches!(effect, PlannedEffect::Push { .. }) {
+        std::mem::take(&mut self.pushed_remote)
+      } else {
+        Vec::new()
+      };
+      self.records.push(EffectRecord {
+        remote,
+        ..EffectRecord::new(effect, status)
+      });
     }
   }
 
@@ -848,6 +891,7 @@ impl Run<'_> {
     let names: Vec<String> = self.planned.pushes.iter().map(|pushed| pushed.full_name.clone()).collect();
     // a fetch of a remote branch whose pull request moved writes the remote-tracking ref too: the push is newer
     let _claim = claim_refs(&self.services.git_common_dir, &names, || debug!("the push of the start waits for the fetch of its refs")).await;
+    let shown = self.host.shown_remote(&self.planned.pushes).await;
     self.host.begin_push(subjects.clone());
     let (git, progress) = (self.services.git.clone(), Arc::clone(&self.steps.progress));
     let sent = blocking(move || send(&git, prepared, &mut |tick: TransferProgress| progress(&tick)).map_err(git_failure)).await;
@@ -859,6 +903,11 @@ impl Run<'_> {
       }
     };
     self.version = self.host.end_push(subjects, Some(&sent)).await.or(self.version);
+    self.pushed_remote = match (&sent.answer, &sent.over) {
+      (LeasedPush::RemoteMoved { remote_statuses, .. }, _) => remote_statuses.iter().cloned().map(Some).collect(),
+      (_, Some(over)) => over.statuses.iter().cloned().map(Some).collect(),
+      _ => shown,
+    };
     let status = match &sent.answer {
       LeasedPush::Pushed(_) => EffectStatus::Done,
       LeasedPush::RemoteMoved { moved, .. } => {

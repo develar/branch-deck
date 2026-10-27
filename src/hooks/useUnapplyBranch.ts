@@ -40,6 +40,7 @@ export async function unapplyBranch(branch: Branch, options: UnapplyOptions = {}
       sync: true,
       after: () =>
         showUndoToast(
+          repositoryPath,
           `Unapplied ${branch.name}`,
           () => undoUnapply(repositoryPath, branch.name, data.undoToken),
           `Removed ${formatCommitCount(data.commitsRemoved.length)} from HEAD · kept in ${data.unappliedBranchName}`,

@@ -1,4 +1,4 @@
-import type { ReviewRequest } from "@/lib/bindings"
+import type { PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 
@@ -171,4 +171,9 @@ export function formatRequestMeta(request: ReviewRequest): string {
     parts.push(`requested by ${request.requestedBy}`)
   }
   return parts.join(" · ")
+}
+
+/** A review of the user, as its toast and its Activity entry say it: "Approved #123", "Requested changes on #123" */
+export function describeReview(event: PullRequestReviewEvent, number: number): string {
+  return event === "approve" ? `Approved #${number}` : `Requested changes on #${number}`
 }

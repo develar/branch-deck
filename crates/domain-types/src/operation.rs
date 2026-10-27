@@ -506,6 +506,25 @@ pub enum StartNote {
 pub struct EffectRecord {
   pub effect: PlannedEffect,
   pub status: EffectStatus,
+  /// Of a push that ran: the remote status of each of its `branches`, in their order, as the push found it: the one the
+  /// session showed when it was planned (of Push Up to Here the part up to its commit), or the one after the fetch of a
+  /// refused first push that it went over once more; of a push refused because the remote moved, what the remote has
+  /// now; `None` for a branch whose status the session did not know. The toast of the push and its Activity entry say
+  /// what it did from it (`describePush`); empty for any other effect, and for a push that did not run
+  #[serde(default)]
+  pub remote: Vec<Option<RemoteStatusUpdate>>,
+}
+
+impl EffectRecord {
+  /// `effect` as it went, with no remote status
+  #[must_use]
+  pub const fn new(effect: PlannedEffect, status: EffectStatus) -> Self {
+    Self {
+      effect,
+      status,
+      remote: Vec::new(),
+    }
+  }
 }
 
 /// How an effect went. The first one that fails stops the operation: the effects after it are skipped, and none of the

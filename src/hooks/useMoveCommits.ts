@@ -70,6 +70,7 @@ export async function moveCommits(commits: readonly Commit[], targetBranch: stri
         sync: true,
         after: () => {
           const toastId = showUndoToast(
+            repositoryPath,
             moveTitle(moved, target, count),
             () => undoRegroup(repositoryPath, moved.undoToken, "Cannot undo the move", "Undoing the move"),
             description === undefined ? undefined : capitalize(description),

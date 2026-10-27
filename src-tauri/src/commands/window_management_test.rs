@@ -180,11 +180,11 @@ fn a_page_that_loads_takes_no_change_older_than_its_snapshot_nor_a_key_only_the_
       settings_version: settings.snapshot().0,
     },
   );
-  let activity = SettingsPatch::Value {
-    key: "activity".to_owned(),
+  let history = SettingsPatch::Value {
+    key: "robotHistory".to_owned(),
     value: json!([{ "id": "1" }]),
   };
-  settings.set(activity, "main").unwrap();
+  settings.set(history, "main").unwrap();
   assert_eq!(state.loaded("branch-review", &settings).0.settings, Vec::new());
 }
 

@@ -140,10 +140,15 @@ sequenceDiagram
    **Rationale**: zustand state must be an object. The writer and the file see the plain array.
 
 8. **Decision**: Keys only the main window keeps (`MAIN_ONLY_KEYS` in `crates/app-settings/src/windows.rs`: the
-   Activity log, the robot history, the state of the repositories) reach no sub-window: not in its snapshot, not in its
-   changes.
+   robot history, the state of the repositories, the links of Reviews, the journals of the projects) reach no
+   sub-window: not in its snapshot, not in its changes. The links of Reviews (`linkedPullRequests`) and the journals of
+   the projects (`journalPaths`) are keys Rust writes and no window reads: `subscribe_view` remembers the journal of the repository of a project by its path, a `Fields` patch of
+   that path (`app_settings::journals`), which Activity reads in Rust (`read_activity`). The log of Activity is no key:
+   it is read from the journals (`operations::journal`), and the load drops the key `activity` of a file of before.
    **Rationale**: They are large or change with every sync, and only the main window writes them; the Activity window
-   gets the log of the selected repository over its window link (`src/lib/activity-window-link.ts`).
+   gets the log of the selected repository over its window link (`src/lib/activity-window-link.ts`). A key Rust writes
+   no window writes, so a window's copy of a key never drops a field Rust added (a page schema strips what it doesn't
+   know).
 
 9. **Decision**: The disk lags, the windows don't: a change is sent to every window at once, and the file is saved on
    one writer thread at most 500 ms after the first unsaved change. The app flushes on `RunEvent::ExitRequested`.
@@ -193,8 +198,8 @@ sequenceDiagram
   `settings_changed` listener per page, started as the module loads (`listeningToSettings`), and the catch-up of a load
   through the version gate (`acceptSettingsChanges`, which `src/lib/sub-window.ts` calls with the answer of
   `sub_window_loaded`). Stores: `appSettings.ts`, `aiSettings.ts`,
-  `diff-view-settings.ts`, `repositorySettings.ts`, `repositoryState.ts` in `src/stores/settings/`, the Activity log `src/stores/activity.ts`
-  and the robot history `src/stores/robot-history.ts`. They are module-level singletons; components read them with
+  `diff-view-settings.ts`, `repositorySettings.ts`, `repositoryState.ts` in `src/stores/settings/` and the robot history
+  `src/stores/robot-history.ts`. They are module-level singletons; components read them with
   `useStore` selectors, non-React code with `getState()`.
 - E2E: the test server gives each test repository a `SettingsService` of its own on its app data directory
   (`TestRepository::store`), whose `/store` routes set any key, `repositoryState` too (`syncedAgoMs` of `setupRepo`); the page mock routes `set_setting`, `get_settings_changes` and `sub_window_loaded` (from

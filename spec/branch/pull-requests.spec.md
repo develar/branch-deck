@@ -446,7 +446,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   prefix of that repository for each command: the intent is planned and run in the session of that repository, so the
   push, the pull request, its reviewers, the store and Activity are of that repository also when the main window opens
   another during the push.
-  [@test] ../../src/lib/pull-request-run.test.ts (`runs the intent in the repository of the dialog, and toasts and records the pull request GitHub opened`, `pushes first and answers whom GitHub asked and refused, also when it asked nobody`)
+  [@test] ../../src/lib/pull-request-run.test.ts (`runs the intent in the repository of the dialog, and toasts the pull request GitHub opened`, `pushes first and answers whom GitHub asked and refused, also when it asked nobody`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request asked from the review window in its repository when the main window opens another during its push`)
 - The result is one toast with "Open Pull Request", recorded in Activity: "Created pull request #123" / "feature-auth
   → master · review requested from alice · assigned to you", a `warning` toast whose description names what GitHub
@@ -467,7 +467,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
   [@test] ../../crates/operations/src/pull_request_test.rs (`a_creation_again_finds_the_pull_request_the_search_does_not_list_yet`)
-  [@test] ../../src/lib/pull-request-run.test.ts (`records nothing of the one GitHub had of the head already, and throws why nothing was created`)
+  [@test] ../../src/lib/pull-request-run.test.ts (`answers the one GitHub had of the head already, and throws why nothing was created`)
   [@test] ../../src/lib/create-pull-request.test.ts (`says that one which existed got nothing of the dialog`)
 - A creation that fails is "Cannot create pull request" with GitHub's reason, and the dialog stays with its text. A
   branch GitHub doesn't have yet (a mirror copies a pushed branch a moment later) says so: "GitHub doesn't have

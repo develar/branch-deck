@@ -8,6 +8,8 @@
 //!   (`BranchSyncStatus`, `CommitSyncStatus`, `BranchError`), its grouped branches, the remote status of a branch and
 //!   what a push of it does (`PushAction`), the unapplied branches, the dropped commits and the landed remote commits
 //! - `actions`: the actions of a subject by their ids and whether each can run now, as `domain_policy::actions` decides
+//! - `activity`: what the page records in the journal of the app data directory (`PageEntry`), and the log Activity
+//!   reads of it and of the journals of the repositories (`ActivityLog`)
 //! - `branch_integration`: the integration of a branch into the baseline (rebase, merge, squash)
 //! - `calendar`: the local weekday, hour and week of a moment, in a time zone the host names
 //! - `branch_names`: the names of the branches under the prefix (`{prefix}/virtual/<name>`, `BranchKind`), the prefix,
@@ -51,6 +53,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub mod actions;
+pub mod activity;
 pub mod branch_integration;
 pub mod branch_name_suggestion;
 pub mod branch_names;

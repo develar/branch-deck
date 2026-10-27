@@ -42,12 +42,11 @@ vi.mock("@/model/store", () => ({
   },
 }))
 vi.mock("@/stores/activity", () => ({
-  recordRetarget: (title: string, description: string) => engine.records.push(`${title}: ${description}`),
-  recordPush: (_repositoryPath: string, name: string) => engine.records.push(`push ${name}`),
+  refreshActivity: async () => {
+    engine.records.push("read Activity")
+  },
 }))
-vi.mock("@/stores/branch-sync", () => ({ getBranch: () => undefined }))
-vi.mock("@/stores/pull-requests", () => ({ getPullRequest: () => ({ url: "https://github.com/acme/monorepo/pull/7" }) }))
-vi.mock("@/stores/repository", () => ({ getEffectiveBranchPrefix: () => "user" }))
+vi.mock("@/stores/branch-sync", () => ({ setOperationPushProgress: () => {} }))
 
 const RETARGET: Intent = { kind: "retarget", number: 7 }
 
@@ -74,13 +73,13 @@ beforeEach(() => {
 })
 
 describe("runIntent", () => {
-  it("runs the plan Rust prepared on its fingerprint, then waits for the view of what it changed and records its effects", async () => {
+  it("runs the plan Rust prepared on its fingerprint, then waits for the view of what it changed; Activity reads the journal it ended in", async () => {
     engine.plan = plan({})
     const run = await runIntent("/repo", RETARGET)
     expect(run.kind).toBe("ran")
     expect(engine.calls).toEqual(["prepare retarget in /repo", "execute f1 in /repo"])
     expect(engine.waited).toEqual(["/repo at 7"])
-    expect(engine.records).toEqual(["Retargeted #7 to master: auth · it went into core"])
+    expect(engine.records).toEqual(["read Activity"])
     expect(runFailure(run, "none")).toBeNull()
   })
 

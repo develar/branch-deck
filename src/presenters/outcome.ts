@@ -4,9 +4,8 @@
 // (docs/guidelines/ux-writing.md#one-toast-per-event): it takes the place of the toast of the approvals it starts on
 // and of the robot it replaces; a refusal of the landing gate offers its fix and Start Anyway, a conflict with the
 // newest target Update Project, a start the facts changed under "Start Safe Push" again.
-import type { ApiError, EffectRecord, LandingAllowances, LandingFix, Outcome, PatronusPushMode, PatronusRobot, Plan, StartNote } from "@/lib/bindings"
+import type { ApiError, EffectRecord, Intent, LandingAllowances, LandingFix, Outcome, PatronusPushMode, PatronusRobot, StartNote } from "@/lib/bindings"
 import { describeRobot, formatPushMode } from "@/lib/patronus"
-import { startRouteOf } from "@/presenters/land"
 import { describeLandingRefusals } from "@/presenters/landing"
 
 /** What ended a start, as its toast says it */
@@ -73,11 +72,12 @@ function withNotes(description: string, notes: readonly StartNote[], effects: re
 }
 
 /**
- * The toast of the outcome of the start `plan` of `subject` ("auth", "the whole air stack"): the robot it started, the
- * comment Patronus accepted, or why its robot did not start, the effects before it named as they went
+ * The toast of the outcome of the start `intent` of `subject` ("auth", "the whole air stack"): the robot it started, the
+ * comment Patronus accepted, or why its robot did not start, the effects before it named as they went. The entry of
+ * Activity of the start says the same (`presentActivity`, over the journal of the repository)
  */
-export function presentLandOutcome(outcome: Outcome, plan: Plan, subject: string): LandToast {
-  const mode = plan.intent.kind === "land" ? plan.intent.mode : "rebaseAutosquash"
+export function presentLandOutcome(outcome: Pick<Outcome, "effects" | "result">, intent: Intent, subject: string): LandToast {
+  const mode = intent.kind === "land" ? intent.mode : "rebaseAutosquash"
   const modeName = formatPushMode(mode)
   const result = outcome.result.kind === "land" ? outcome.result : null
   const notes = result?.notes ?? []
@@ -109,7 +109,7 @@ export function presentLandOutcome(outcome: Outcome, plan: Plan, subject: string
   }
   const title = `${modeName} started`
   if (result?.robot != null) {
-    const route = startRouteOf(plan)
+    const route = start?.effect.kind === "startRobot" ? start.effect.route : null
     const profile = route?.kind === "api" ? (route.profile?.name ?? null) : null
     return { kind: "started", title, description: withNotes(describeRobot(result.robot, profile), notes, outcome.effects, subject), robot: result.robot }
   }

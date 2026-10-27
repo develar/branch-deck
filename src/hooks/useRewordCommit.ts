@@ -62,6 +62,7 @@ export async function rewordCommit(commit: CommitUnion, message: string, onFollo
         sync: true,
         after: () =>
           showUndoToast(
+            repositoryPath,
             `Reworded ${formatShortHash(target)}`,
             () => undoRegroup(repositoryPath, token, "Cannot undo the reword", "Undoing the reword", () => onFollow(newCommitId, target)),
             getSubjectLine(message).trim(),

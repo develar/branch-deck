@@ -158,7 +158,8 @@ export async function applyConflictFix(component: FixComponent): Promise<void> {
       conflictFixStore.setState({ key: null, status: "idle", fix: null })
       return {
         sync: true,
-        after: () => showUndoToast(fixTitle(component), () => undoRegroup(repositoryPath, applied.undoToken, "Cannot undo the fix", "Undoing the fix"), description),
+        after: () =>
+          showUndoToast(repositoryPath, fixTitle(component), () => undoRegroup(repositoryPath, applied.undoToken, "Cannot undo the fix", "Undoing the fix"), description),
       }
     },
   )

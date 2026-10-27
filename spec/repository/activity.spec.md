@@ -4,6 +4,15 @@ description: Requirements for the log of what Branch Deck did in a repository (p
 style: plain-1
 targets:
   - ../../src/stores/activity.ts
+  - ../../src/presenters/activity.ts
+  - ../../crates/operations/src/journal.rs
+  - ../../crates/operations/src/registry_watch.rs
+  - ../../crates/app-settings/src/journals.rs
+  - ../../crates/app-settings/src/file.rs
+  - ../../crates/domain-types/src/activity.rs
+  - ../../src-tauri/src/commands/activity.rs
+  - ../../src-tauri/src/commands/session.rs
+  - ../../crates/test-server/src/activity_routes.rs
   - ../../src/components/repository/ActivityButton.tsx
   - ../../src/components/repository/ActivityLog.tsx
   - ../../src/components/shared/FilterChips.tsx
@@ -44,7 +53,8 @@ targets:
   - ../../src/lib/review-requests.ts
   - ../../src/stores/update-project.ts
   - ../../src/stores/landed.ts
-  - ../../src/stores/settings/persistent-store.ts
+  - ../../src/lib/run-intent.ts
+  - ../../src/lib/remote-status.ts
 ---
 
 # Activity
@@ -59,8 +69,10 @@ the Safe Push the user started, the squash and its Undo. Activity keeps them: a 
 a side panel beside the branch tables (or a window of its own) with the log of the selected repository, newest first
 by day, each entry with what happened, the detail and when; chips of the kinds and a search find an entry in a month of
 them. A branch name shows its row, a landed entry
-has the report of the island, a rewrite has its Undo while the toast's lasts. It is the history the landing overview
-leaves out: the overview tells the present, its line of the last day opens Activity at its Robots.
+has the report of the island, a rewrite has its Undo while the toast's lasts. The log is read from journals: the
+operations of the remote, of the app and of `bd`, are the journal of their repository, the rest the page records in the
+journal of the app data directory; no window keeps it. It is the history the landing overview leaves out: the overview
+tells the present, its line of the last day opens Activity at its Robots.
 
 ## Goals
 
@@ -70,7 +82,7 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 
 ## Non-goals
 
-- No history of the repository (that is `git reflog`): only what this app did, as it said it.
+- No history of the repository (that is `git reflog`): only what this app and `bd` did, as the app says it.
 - No sync and no fetch of their own in the log: they change nothing the user asked for, a failure is an error entry.
 - No Undo after the toast's window or after a restart: the rewrite it would revert may be pushed or rewritten again.
 
@@ -78,22 +90,34 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 
 ### Recording
 
-- Every event that toasts in the main window is recorded for its repository, the selected one by default, in the words
-  of its toast: the toast and the entry take their title and description from one function (`describePush`,
-  `describeRobot`, `appliedUpdateToast`). A push that is a step of another action, which has no toast of its own (a
-  Safe Push start, a merge request), and each branch of a stack push are recorded too, in the words their toast would
-  have. A sub-window records nothing: the main window owns the log, the Activity window is told it over its link.
-  A toast whose later states replace it in place ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event):
-  the merge, then the landing; the failure of a robot, then its restart) leaves an entry per state: Activity is the
-  log of the events, the toasts are one per event.
-  [@test] ../../src/stores/activity.test.ts (`keeps the log of each repository apart, newest first`, `records nothing without a repository`)
+- What Branch Deck did is read from journals, never kept by a window. Every operation of the remote, of the app and of
+  `bd` alike (a push, a start of a Safe Push or a Dry Run, a restart or a cancel of a robot, a retarget, a pull request
+  created, closed or reviewed), is the journal of its repository (`operations::journal`,
+  `$GIT_COMMON_DIR/branch-deck/journal.jsonl`): an entry once it ended, with each effect and what it answered. What only
+  the page knows (an error it told, an update, what landed, a rewrite, a review request, an approval, the news of a
+  robot) the main window records in the journal of the app data directory (`record_activity`, the same writer), always
+  with its repository: an error in the repository the main window shows when it is told; a sub-window records nothing.
+  [@test] ../../crates/operations/src/journal_test.rs (`the_page_records_into_its_journal_and_clear_log_forgets_the_log_of_a_repository_in_both`)
+  [@test] ../../src/stores/activity.test.ts (`reads the journals of the repositories and the page's, each repository's log apart, newest first`, `records nothing without a repository`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should read the log from the journal of the repository after a reload`)
+- Each event is an entry in the words its toast had: the toast and the entry take their title and description from
+  one function (`describePush`, `describeRobot`, `presentLandOutcome`, `appliedUpdateToast`; the entries of an
+  operation `presentActivity` of `src/presenters/activity.ts`). An operation is an entry per event it made: each branch
+  it pushed (of a stack push each, of a whole stack its stack branch), each pull request it retargeted, the robot it
+  started; a push that is a step of another action (a Safe Push start, a merge request) too, in the words its toast
+  would have. A toast whose later states replace it in place ([One toast per event](../../docs/guidelines/ux-writing.md#one-toast-per-event):
+  the merge, then the landing; the failure of a robot, then its restart) leaves an entry per state: Activity is the log
+  of the events, the toasts are one per event.
+  [@test] ../../src/presenters/activity.test.ts (`puts the operations of a journal in every project of its repository, and the page's entries in theirs, newest first`)
 - A push: "Pushed feature-auth" / "3 commits", "4 commits · created the remote branch"; a force push "Force pushed
   ABC-123" / "1 commit · dropped 1 remote commit" with the dropped remote commits (`DroppedCommitList`), or "replaced the
   rebased copies", "replaced 1 amended commit", "replaced the parent's older commits"; a remote that moved since its
-  status says so, nothing pushed. The words come from the remote status
-  the push was made against.
+  status says so ("auth changed on the remote" / "… Nothing was pushed."). The words come from the remote status the
+  push found, which the journal keeps with the push (`EffectRecord.remote`: the status the session showed, of Push Up
+  to Here the part it sent, the one it went over once more, what the remote has now when it moved).
   [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`)
-  [@test] ../../src/stores/activity.test.ts (`keeps the remote commits a force push dropped`)
+  [@test] ../../src/presenters/activity.test.ts (`says each branch a push sent from the status it went over, a force push with the remote commits it dropped`, `says a remote that moved under the push of a branch, nothing pushed`)
+  [@test] ../../crates/operations/src/push_test.rs (`pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should record the pushes with the remote commits a force push dropped, and show the branch`)
 - An update: applied, with the toast's words ("Updated master: rebased 1 commit onto origin/master", or what landed
   first, with the report); refused, "Didn't update master" / "Conflicts in 1 file: src/app.txt. Nothing was changed.";
@@ -101,13 +125,16 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   [@test] ../../src/stores/activity.test.ts (`records a refused update, not one with nothing to do`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should record an applied update, the button on the header line at the minimum window width`, `should record a refused update`)
 - A landed report is recorded once: by the update that brought it, or by the sync after an update made elsewhere (the
-  commits no entry has yet, "Found by a sync").
+  commits no entry has yet, "Found by a sync"), also while the record of the update is on its way.
   [@test] ../../src/stores/activity.test.ts (`records a landed report once, whether the update or the sync after one brings it`)
-- A Patronus robot started ("Safe Push started" / "auth → master · profile Large Scale Change"), restarted, canceled
-  ("Safe Push is canceling" / "auth → master"), failing ("A required check of auth failed"), failed ("Safe Push of auth
-  failed" / "Fast Tests · auth → master", [Patronus](../branch/patronus.spec.md#failed)) or merged ("auth merged into
-  master" / "Safe Push"), with "Open in Patronus".
-  [@test] ../../src/stores/activity.test.ts (`records a robot with its page`)
+- A Patronus robot started ("Safe Push started" / "auth → master · profile Large Scale Change", or the comment Patronus
+  accepted), restarted, canceled ("Safe Push is canceling" / "auth → master"), with "Open in Patronus": the operation
+  of the journal. Failing ("A required check of auth failed"), failed ("Safe Push of auth failed" / "Fast Tests · auth
+  → master", [Patronus](../branch/patronus.spec.md#failed)) or merged ("auth merged into master" / "Safe Push"): the
+  news of the session, which the page records.
+  [@test] ../../src/presenters/activity.test.ts (`says the robot a start started in the words of its toast, and the comment Patronus accepted`, `says a restart and a cancel of a robot, and the pull request a creation opened`)
+  [@test] ../../src/stores/activity.test.ts (`records the news of a robot with its page`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`)
 - A new review request ([Review Requests](review-requests.spec.md#new-requests)), one entry per request also when one
   toast told several: "dave requested your review on #104" / its title, kind `review`, with "Open Pull Request", the
   name of the action everywhere ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
@@ -116,16 +143,20 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 - An approval of the user's pull request that made a branch ready ([Review Requests](review-requests.spec.md#approval-news)):
   "Ilya Korennoy approved auth" / "#1078 · IJPL Code Platform", kind `review`, with "Open Pull Request".
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push of the branch first`)
-- A pull request the app retargeted from a virtual branch to the baseline ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)):
-  before a push, "Retargeted #802 to master" / "login · it went into auth"; by the next step, the words of its toast
-  ("Retargeted #7 to master" / "auth · its approvals count for a Safe Push now"); kind `review`, with "Open Pull
-  Request".
-  [@test] ../../src/lib/push-run.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`)
+- A pull request the app retargeted from a virtual branch to the baseline ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)),
+  "Retargeted #802 to master" / "login · it went into auth"; one it created ("Created pull request #12" / "auth →
+  master · review requested from bob"), one the user closed ("Closed pull request #12" / "#12 no longer matches the air
+  stack: auth landed"), a review the user submitted ("Approved #7"); kind `review`, with "Open Pull Request", a link to
+  the pull request in the GitHub repository of the repository. The closes of a merged robot are states of its merge.
+  [@test] ../../src/presenters/activity.test.ts (`says the retarget of a pull request out of a virtual branch, with the pull request on GitHub`, `says the close the user asked and a review, not the closes of a merged robot`)
   [@test] ../../crates/test-server/src/github_host_test.rs (`a_push_retargets_the_pull_request_of_its_branch_out_of_a_virtual_branch_first`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
-- A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack, reword), and every
-  error toast (`notifyError`, with its reason).
-  [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about`)
+- A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack, reword), in the
+  repository it rewrote, and every error toast (`notifyError`, with its reason). An operation of the remote that failed
+  is the entry of its error toast, which names it (`operationId`); one no toast told (of `bd`) says what it was for and
+  why it failed ("Cannot push auth" / "The remote refused the push: …"); a canceled one is no entry.
+  [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about, in the repository the main window shows`)
+  [@test] ../../src/presenters/activity.test.ts (`says an operation that failed unless the page recorded the error of its toast, and leaves out the agents' and the canceled`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`)
 - The entry of an error a command returned keeps the operation it names as `operationId`, the key to the command's
   lines in the app's log: every command that can fail runs its body as an operation, the `operation{operation_id=…}`
@@ -133,10 +164,9 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   the lines for days (the retention as the comment of `LOG_FILE_BYTES` in `src-tauri/src/lib.rs` describes it). The page
   log line of the error carries it as `operation_id`. A page step that throws what a command returned throws it as a
   `commandFailure` (`src/lib/errors.ts`), which keeps the id up to the `notifyError` of its caller, and a review write
-  hands the error of its effect itself to its feedback. The start of a Safe Push is an
-  operation of the session (`execute`): its outcome names the operation (`Outcome.op`), which the entry of its robot
-  and of its comment keeps. It is stored, not shown yet; an error raised outside a command has
-  none.
+  hands the error of its effect itself to its feedback. An entry of an operation of the remote is its id (the
+  `operation_id` of its log lines, of its entry in the journal, of the JSON of `bd`). It is stored, not shown yet; an
+  error raised outside a command has none.
   [@test] ../../src/stores/activity.test.ts (`keeps the operation a failed command names, for its lines in the log`)
   [@test] ../../src/stores/review-requests.test.ts (`hands the error of a failed approval to its feedback as the engine answered it, and starts nothing`)
   [@test] ../../src/lib/errors.test.ts (`throws what a command returned with its message, its code and the operation it names`)
@@ -161,21 +191,34 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   [@test] ../../src/stores/activity.test.ts (`offers the Undo of a rewrite for the window of its toast, once`, `marks a rewrite undone from its toast once its undo undid it`, `keeps the Undo of a rewrite whose undo failed, in its toast and in Activity: a second press runs it again`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should offer the Undo of a squash while the toast's lasts, in the window`, `should offer the Undo of a squash while the toast's lasts, in the panel`)
-- The undo itself is not persisted: after a restart no entry has an Undo.
+- The undo itself lives in the main window, by the id of the entry, not in the journal: after a restart no entry has
+  an Undo.
   [@test] ../../src/stores/activity.test.ts (`has no Undo for a rewrite of an earlier session`)
 
 ### Log
 
-- The log is persisted by the main window (`createPersistentStore("activity", { isArray: true, isMainOnly: true })`)
-  and parsed by its Zod schema on load; it is not in the store snapshot of sub-windows: the Activity window gets the
-  log of the selected repository over its link (below).
-  [@test] ../../src/stores/activity.test.ts (`starts from the stored log and parses what is stored or received`)
-- At most 200 entries over all repositories, none older than 30 days; the oldest go first.
-  [@test] ../../src/stores/activity.test.ts (`keeps at most 200 entries and none older than 30 days`)
+- The main window reads the log (`read_activity`): the journal of the repository of each recent project, which
+  `subscribe_view` remembered for the project when a window opened its session (`journalPaths` of the settings, by the
+  path of the project, written by Rust; no window writes it), so the read runs no git process; each journal once for
+  the projects that share it (the worktrees of one repository), all in parallel on the blocking pool, each within
+  200 ms (`ACTIVITY_READ_TIMEOUT`): one that is not read by then (a removed disk) is listed unavailable and the others
+  show. The journal of the page comes with them. The main window reads again when it starts, after each operation and
+  each write of its own, and when a journal changes (`activity-changed`: the watch of the operations registry of a
+  repository a window shows sees its journal change, an operation of `bd` ended). The log of a settings file of before
+  (the key `activity`) is dropped by the load. The operations of the agents (a worktree that is a slot of the lease
+  pool) are not shown. The Activity window gets the log of the selected repository over its link (below).
+  [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_does_not_answer_within_the_bound_is_unavailable`)
+  [@test] ../../crates/app-settings/src/journals_test.rs (`the_recent_projects_have_the_journals_remembered_for_them_and_one_opened_before_has_none`, `no_recent_projects_have_no_journals`)
+  [@test] ../../crates/app-settings/src/file_test.rs (`the_activity_log_of_a_file_of_before_is_dropped_by_the_load_and_the_next_save`)
+  [@test] ../../src/lib/run-intent.test.ts (`runs the plan Rust prepared on its fingerprint, then waits for the view of what it changed; Activity reads the journal it ended in`)
+- Each journal keeps at most 200 entries, none older than 30 days; the oldest go first.
+  [@test] ../../crates/operations/src/journal_test.rs (`the_journal_keeps_the_newest_entries_of_the_last_thirty_days`)
 - "Clear Log" in the footer of the window forgets the whole log of the repository, whatever the filter shows (its
-  tooltip says it); the others stay. The main window clears it, so an entry it records meanwhile is not lost; the
-  window then says "Nothing yet: what Branch Deck does in the repository shows here", Clear Log disabled, and the
-  header button goes.
+  tooltip says it): the journal of its repository empties (`clear_activity`, under `operations.lock`) and the entries
+  of the page of it leave the journal of the page; the other repositories keep theirs. The window then says "Nothing
+  yet: what Branch Deck does in the repository shows here", Clear Log disabled, and the header button goes; a clear
+  that fails is an error toast in the window.
+  [@test] ../../crates/operations/src/journal_test.rs (`the_page_records_into_its_journal_and_clear_log_forgets_the_log_of_a_repository_in_both`)
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should clear the log of the repository`)
 
 ### Side panel
@@ -262,8 +305,11 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/stores/activity.test.ts`, `src/lib/activity-window.test.ts` (the chips and the search),
-  `src/lib/push-summary.test.ts` (the words of a push).
+- `pnpm test:unit`: `src/stores/activity.test.ts` (over the journals in memory, `src/test-support/fake-activity.ts`),
+  `src/presenters/activity.test.ts` (the words of the entries of the journal), `src/lib/activity-window.test.ts` (the
+  chips and the search), `src/lib/push-summary.test.ts` (the words of a push).
+- `cargo nextest run -p operations -E 'test(/journal_test/)'` and `-p app-settings -E 'test(/journals_test/)'`: the
+  journals, their reads and Clear Log.
 - `pnpm e2e`: `tests/e2e/activity/activity.spec.ts` with the templates `issue_links` (pushes to the remote of the repository,
   a force push over someone else's commit there, a squash), `simple` (a second repository), `behind_upstream`, `update_conflict` and `landed_upstream`. The window is a
   linked page of its own (`openActivityWindow` of `tests/e2e/helpers/activity-helpers.ts`, `openLinkedSubWindow`), opened
@@ -275,9 +321,10 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 
 ## Open Questions / Risks
 
-- The log lives in `settings.json`, read by the main window at startup: 200 entries with landed reports stay small
-  (a few hundred KB at worst), but a much larger cap would not.
-- An entry that doesn't parse (written by a newer version) drops the whole log on load, as any invalid stored value.
+- A journal is read whole at each read of Activity: 200 entries with landed reports stay small (a few hundred KB at
+  worst), but a much larger cap would not. A line this version can't read (a newer version's) is skipped, never the
+  journal.
+- A read of a journal that takes longer than 200 ms under load lists it unavailable for that read.
 - A cleared log records a still undismissed report again at the next sync, as "Found by a sync".
 
 ## References

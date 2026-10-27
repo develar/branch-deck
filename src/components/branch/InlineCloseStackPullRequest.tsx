@@ -5,7 +5,6 @@ import { openPullRequest } from "@/lib/pull-request"
 import { closePullRequest } from "@/lib/pull-request-run"
 import { showToast } from "@/lib/toast-message"
 import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
-import { recordPullRequestClosed } from "@/stores/activity"
 import { useStackBranch } from "@/stores/branch-sync"
 import { closeInline, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { useStackLandedBy } from "@/stores/landed-stacks"
@@ -45,7 +44,6 @@ export function InlineCloseStackPullRequest({ root }: { root: string }) {
             () => {
               const title = `Closed pull request #${pullRequest.number}`
               showToast({ title, description: reason, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
-              recordPullRequestClosed(title, reason, pullRequest.url)
               return true
             },
             (error: unknown) => {

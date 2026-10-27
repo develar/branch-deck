@@ -6,6 +6,8 @@
 //!   (`BranchPrefixes`)
 //! - `file`: a settings file (`SettingsFile`): a tolerant load, the stored form of a save, the atomic write; the fields
 //!   of a sync that a file of before keeps in its recent projects (`take_repository_state`)
+//! - `journals`: the journal of the repository of each recent project, which Rust remembers when a window opens its
+//!   session and Activity reads (`activity_projects`)
 //! - `linked_pull_requests`: the pull requests the user added to Reviews by their links, by GitHub repository
 //! - `resolve`: the order of the branch prefixes, with where the prefix came from (`resolve_branch_prefix`)
 //! - `service`: the one writer of both files (`SettingsService`): each key in its file, patches in the order they
@@ -17,6 +19,7 @@
 
 pub mod branch_prefixes;
 pub mod file;
+pub mod journals;
 pub mod linked_pull_requests;
 pub mod resolve;
 pub mod service;
@@ -26,6 +29,8 @@ pub mod windows;
 mod branch_prefixes_test;
 #[cfg(test)]
 mod file_test;
+#[cfg(test)]
+mod journals_test;
 #[cfg(test)]
 mod linked_pull_requests_test;
 #[cfg(test)]

@@ -16,7 +16,7 @@ use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use crate::tauri_command_bridge::{
   CommandResult, Rejection, branch_prefix_now, branch_prefix_of, failed, github_of, held_or_failed, holding, keep_answered, patronus_new_api_of, rejected, remote_of,
-  repository_by_path, review_requests_of, space_of,
+  repository_by_path, requesting_repository, review_requests_of, space_of,
 };
 use app_api::api_error::{api_error, no_branch_prefix, patronus_error};
 use axum::Json;
@@ -501,6 +501,14 @@ pub async fn cancel_operation(State(state): State<Arc<AppState>>, Json(params): 
 pub async fn subscribe_view(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<SessionRequest>) -> Response {
   answer_with_progress(progress_channel(&headers), move |progress| async move {
     let key = session_key(&state, &request.repository_path).await?;
+    // Activity reads the journal of the repository, which the settings of the page remember, as the app's do; before
+    // the subscription, whose patches follow its answer
+    if let Some(journal) = state.registry.journal_of(&key).await
+      && let Ok(repository) = requesting_repository(&state, &headers)
+      && let Err(error) = app_settings::journals::remember_journal(&repository.store, &request.repository_path, &journal.to_string_lossy())
+    {
+      tracing::warn!(%error, "cannot remember the journal of the repository");
+    }
     // through the registry, as the app subscribes: the window watches the operations registry of the repository
     let (id, view) = state
       .registry

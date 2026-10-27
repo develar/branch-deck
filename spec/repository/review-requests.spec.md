@@ -422,7 +422,7 @@ Safe Push it allows.
   of the operations of its session).
   [@test] ../../src/stores/review-requests.test.ts (`says what runs for a pull request from the reviews of the session: the review, then its Safe Push`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
-  [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked, records Activity in the main window, and switches it to the request's repository first`)
+  [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked and switches the main window to the request's repository first`)
   [@test] ../../src/lib/sub-window-link.test.ts (`knows what the window shows until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
 - The close of the window kills its fetch and prunes the refs of the request it showed; the stores of the files and
   the diffs of a range are the window's and go with it.

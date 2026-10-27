@@ -18,19 +18,18 @@ import type { EventToastAction } from "@/lib/event-toast"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { showPushToast, showStackPushToast } from "@/lib/git/push-toast"
 import { canceledBeforeStart } from "@/lib/lock-wait"
-import { describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
+import { formatPushMode, openRobot } from "@/lib/patronus"
 import { describePush } from "@/lib/push-summary"
-import { buildRemoteMovedTexts } from "@/lib/remote-status"
+import { buildRemoteMovedTexts, toRemoteStatus } from "@/lib/remote-status"
 import { showRobotToast } from "@/lib/robot-toast"
-import { executePlan, planIntent, runFailure, sentPart, skippedReason } from "@/lib/run-intent"
+import { executePlan, planIntent, runFailure, skippedReason } from "@/lib/run-intent"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { formatReadinessSubject, formatWholeStackBranch, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Retargeted } from "@/presenters/pull-request-url"
 import { formatReason, formatReasonOrNull } from "@/presenters/reasons"
-import { recordPush, recordRobot } from "@/stores/activity"
 import type { RemoteStatus } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getPushOrders, getStackBranch, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getPushOrders, getStackBranch } from "@/stores/branch-sync"
 import { whenRewritesDone } from "@/stores/operations"
 import { getBranchLanding, getPushHold } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
@@ -170,7 +169,6 @@ async function runPush(repositoryPath: string, branchName: string, intent: Inten
       // the session has what the remote has now, fetched after the refusal
       const moved = getBranch(branchName)?.remoteStatus ?? null
       if (moved !== null) {
-        recordPush(repositoryPath, branchName, remote, moved)
         await showRemoteMovedToast(repositoryPath, branchName, moved, intent.restartRunning)
         return { kind: "moved" }
       }
@@ -185,8 +183,9 @@ async function runPush(repositoryPath: string, branchName: string, intent: Inten
   if (skipped !== null) {
     return { kind: "failed", error: skipped }
   }
-  const over = outcome.result.kind === "push" ? outcome.result.pushedOver[0] : undefined
-  return { kind: "pushed", outcome, before: over === undefined ? remote : toRemoteStatus(over) }
+  // the status the push found: the one it went over, once more when the remote had moved (`EffectRecord.remote`)
+  const found = push?.remote?.[0]
+  return { kind: "pushed", outcome, before: found == null ? remote : toRemoteStatus(found) }
 }
 
 /**
@@ -196,7 +195,7 @@ async function runPush(repositoryPath: string, branchName: string, intent: Inten
  */
 function announcePush(branchName: string, repositoryPath: string, run: Extract<PushRun, { kind: "pushed" }>, announce: boolean): void {
   const { outcome } = run
-  const restarted = restartedOf(outcome, repositoryPath)
+  const restarted = restartedOf(outcome)
   const pushed = outcome.effects.some(({ effect, status }) => effect.kind === "push" && status.kind === "done")
   if (!announce || !pushed) {
     if (restarted !== undefined) {
@@ -207,14 +206,9 @@ function announcePush(branchName: string, repositoryPath: string, run: Extract<P
   showPushToast(branchName, repositoryPath, describePush(branchName, run.before), restarted, retargetedOf(outcome))
 }
 
-/** The Safe Push the push restarted on the pushed commit, recorded in Activity of `repositoryPath`; undefined for none */
-function restartedOf(outcome: Outcome, repositoryPath: string): PatronusRobot | undefined {
-  const restarted = outcome.result.kind === "push" ? outcome.result.restarted : null
-  if (restarted == null) {
-    return undefined
-  }
-  recordRobot(`${formatPushMode(restarted.pushMode)} restarted`, describeRobot(restarted), restarted, repositoryPath, outcome.op)
-  return restarted
+/** The Safe Push the push restarted on the pushed commit; undefined for none */
+function restartedOf(outcome: Outcome): PatronusRobot | undefined {
+  return outcome.result.kind === "push" ? (outcome.result.restarted ?? undefined) : undefined
 }
 
 /** The pull request the push retargeted first (of `branch`, else of any branch it sent), as its toast names it */
@@ -275,7 +269,7 @@ export async function showRemoteMovedToast(repositoryPath: string, branchName: s
   let restarted: PatronusRobot | undefined
   if (restartRunning && texts.action === null) {
     const run = await runBranchPush(branchName, { expectRemote: remoteStatus.remoteTip, restartRunning: true })
-    restarted = run.kind === "pushed" ? restartedOf(run.outcome, repositoryPath) : undefined
+    restarted = run.kind === "pushed" ? restartedOf(run.outcome) : undefined
     if (run.kind === "failed") {
       notifyError("Cannot restart the Safe Push", run.error)
     }
@@ -412,12 +406,6 @@ function stackIntent(branchName: string, scope: PushScope, force: boolean): Inte
   }
 }
 
-/** The remote status a name of the push effect of a plan had before it: of a branch, of a stack branch (`stack:<root>`) */
-function remoteStatusOf(name: string): RemoteStatus | null {
-  const root = stackRootOfReadinessKey(name)
-  return (root === null ? getBranch(name)?.remoteStatus : getStackBranch(root)?.remoteStatus) ?? null
-}
-
 /**
  * Runs the push `intent` of a stack started from `startedFrom` in the repository the main window shows, after its
  * rewrites (their sync the session's: the push waits for it in Rust): its plan, refused by its first blocker; one that
@@ -454,7 +442,6 @@ async function runStackPush(startedFrom: string, intent: Intent, options: StackP
     askStackPush(startedFrom, intent, options, planned.plan.confirmations)
     return false
   }
-  const before = new Map(push.branches.map(name => [name, remoteStatusOf(name)] as const))
   const run = await executePlan(repositoryPath, planned.plan)
   if (run.kind !== "ran") {
     if (run.kind === "failed" && getErrorCode(run.error) === "canceled") {
@@ -464,7 +451,7 @@ async function runStackPush(startedFrom: string, intent: Intent, options: StackP
     }
     return false
   }
-  return await toldStackPush(startedFrom, repositoryPath, run.outcome, before, intent, options)
+  return await toldStackPush(startedFrom, repositoryPath, run.outcome, options)
 }
 
 /**
@@ -505,14 +492,7 @@ function isAccepted(confirmation: Confirmation, accepted: readonly Confirmation[
 }
 
 /** What the outcome of a push of a stack says (`runStackPush`); whether it pushed */
-async function toldStackPush(
-  startedFrom: string,
-  repositoryPath: string,
-  outcome: Outcome,
-  before: ReadonlyMap<string, RemoteStatus | null>,
-  intent: Intent,
-  options: StackPushOptions,
-): Promise<boolean> {
+async function toldStackPush(startedFrom: string, repositoryPath: string, outcome: Outcome, options: StackPushOptions): Promise<boolean> {
   const failure = `Cannot push ${formatReadinessSubject(startedFrom)}`
   for (const { effect, status } of outcome.effects) {
     if (effect.kind === "retarget" && status.kind === "failed") {
@@ -543,12 +523,13 @@ async function toldStackPush(
   if (record === undefined || options.announce === false || record.effect.kind !== "push") {
     return true
   }
-  const over = outcome.result.kind === "push" ? outcome.result.pushedOver : []
-  const tip = intent.kind === "push" && intent.scope.kind === "upTo" ? intent.scope.commit : undefined
-  const sent = record.effect.branches.map((name, at) => ({ name, before: over[at] === undefined ? (before.get(name) ?? null) : toRemoteStatus(over[at]) }))
-  const outcomes = sent
-    .filter(it => stackRootOfReadinessKey(it.name) === null)
-    .map(it => ({ name: it.name, before: it.name === startedFrom ? sentPart(it.before, tip) : it.before, retargeted: retargetedOf(outcome, it.name) }))
+  // the status each branch was pushed over (of Push Up to Here the part it sent), as the push found it
+  const found = record.remote ?? []
+  const sent = record.effect.branches.map((name, at) => {
+    const status = found[at] ?? null
+    return { name, before: status === null ? null : toRemoteStatus(status) }
+  })
+  const outcomes = sent.filter(it => stackRootOfReadinessKey(it.name) === null).map(it => ({ ...it, retargeted: retargetedOf(outcome, it.name) }))
   const stack = sent.find(it => stackRootOfReadinessKey(it.name) !== null)
   const root = stack === undefined ? null : stackRootOfReadinessKey(stack.name)
   // after a switch the pull requests of the table are of the other repository: the toast offers none

@@ -20,7 +20,6 @@ import type {
   PullRequestView,
   PushAction,
   Reason,
-  RemoteStatusUpdate,
   RunningOperation,
   StackBranchAlong,
   StackBranchConflict,
@@ -1304,46 +1303,6 @@ export function isBranchPushing(name: string, repositoryPath: string = selectedR
 /** Whether a push of a stack started from `startedFrom` runs in the selected repository (`useStackPush`) */
 export function isStackPushing(startedFrom: string): boolean {
   return stackPushOperationIn(branchSyncStore.getState().operations, startedFrom) !== undefined
-}
-
-type RemoteStatusFields = Pick<
-  RemoteStatusUpdate,
-  | "remoteExists"
-  | "unpushedCommits"
-  | "commitsBehind"
-  | "othersBehind"
-  | "commitsAmended"
-  | "commitsRestacked"
-  | "commitsLanded"
-  | "commitsReworded"
-  | "ancestorCommitsAhead"
-  | "myUnpushedCount"
-  | "fastForward"
-  | "lastPushTime"
-  | "remoteTip"
-  | "droppedCommits"
-  | "action"
->
-
-export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
-  return {
-    exists: update.remoteExists,
-    unpushedCommits: update.unpushedCommits,
-    commitsAhead: update.unpushedCommits.length,
-    commitsBehind: update.commitsBehind,
-    othersBehind: update.othersBehind,
-    commitsAmended: update.commitsAmended,
-    commitsRestacked: update.commitsRestacked,
-    commitsLanded: update.commitsLanded,
-    commitsReworded: update.commitsReworded,
-    ancestorCommitsAhead: update.ancestorCommitsAhead,
-    myCommitsAhead: update.myUnpushedCount ?? 0,
-    fastForward: update.fastForward,
-    lastPushTime: update.lastPushTime ?? 0,
-    remoteTip: update.remoteTip,
-    droppedCommits: update.droppedCommits,
-    action: update.action,
-  }
 }
 
 // ---- sync ----

@@ -26,6 +26,7 @@ export async function reapplyBranch(name: string): Promise<boolean> {
       sync: true,
       after: () =>
         showUndoToast(
+          repositoryPath,
           `Reapplied ${branch.branch}`,
           () => undoReapply(repositoryPath, branch.branch, data.undoToken ?? ""),
           `${formatCommitCount(data.reapplied.length)} back on top of HEAD`,

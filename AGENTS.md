@@ -424,8 +424,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   ([Operations registry](docs/design/git-operations.md#operations-registry)). The journal beside it
   (`journal.jsonl`) has one writer, `operations::journal`, called by the registry under `operations.lock` as a record
   leaves: one entry per operation that ended, of the app and of every `bd`, with what it cost from its admission
-  (`sync_utils::operation_tally`), its id the `operation_id` of its log lines and of the JSON of `bd`
-  ([Journal](docs/design/git-operations.md#journal)).
+  (`sync_utils::operation_tally`), its id the `operation_id` of its log lines and of the JSON of `bd`; the same module
+  writes the journal of the page in the app data directory (`record_page`, under `journal.lock`) and empties both for
+  Clear Log (`clear`); Activity reads them, no window keeps a log ([Journal](docs/design/git-operations.md#journal)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
   A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done
@@ -643,7 +644,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/history-rewrite/src/stack_parents.rs` |
 | Parked branches: kept local, never pushed, not Your Move (`bd park`, `bd unpark`) | `branch/parked-branches` | `crates/history-rewrite/src/parked.rs`, `crates/sync-core/src/parked.rs`, `crates/domain-policy/src/parked.rs` |
 | Unapply and Reapply: a branch and its files out of HEAD, kept as `{prefix}/unapplied/<name>` in the Unapplied card, and back on top (`bd unapply`, `bd reapply`, `bd push --unapplied`) | `branch/unapply` | `crates/sync-core/src/unapply_branch.rs`, `crates/sync-core/src/reapply_branch.rs`, `crates/git-ops/src/unapply.rs`, `crates/git-ops/src/reapply.rs`, `src/components/branch/UnappliedBranchTableCard.tsx` |
-| Activity log, its side panel and its window | `repository/activity` | `src/stores/activity.ts`, `src/components/repository/ActivityPanel.tsx`, `src/pages/ActivityPage.tsx`, `src/lib/activity-window-link.ts` |
+| Activity log, its side panel and its window: read from the journals (the operations of the app and `bd` in the journal of their repository, the page's records in the journal of the app data directory; `read_activity`, `record_activity`, `clear_activity`) | `repository/activity` | `crates/operations/src/journal.rs`, `crates/app-settings/src/journals.rs`, `src-tauri/src/commands/activity.rs`, `src/stores/activity.ts`, `src/presenters/activity.ts`, `src/components/repository/ActivityPanel.tsx`, `src/pages/ActivityPage.tsx`, `src/lib/activity-window-link.ts` |
 | Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
 | Go to Declaration and Find Usages in a review (⌘-click, ⌘B, ⌥F7, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useSymbolNavigation.ts`, `src/components/diff/DeclarationFileView.tsx` |
 | Command palette (⌘K: the views, Activity, the commands of the app, Go to a branch) | `repository/command-palette` | `src/components/command-palette/CommandPalette.tsx`, `src/lib/command-palette.ts` |

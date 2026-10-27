@@ -33,10 +33,7 @@ vi.mock("@/lib/run-intent", async importOriginal => ({
 vi.mock("@/lib/robot-toast", () => ({
   showRobotToast: (title: string, robot: PatronusRobot) => engine.said.push(`toast ${title}: ${robot.id}`),
 }))
-vi.mock("@/stores/activity", () => ({
-  recordRobot: (title: string, _description: string, robot: PatronusRobot) => engine.said.push(`activity ${title}: ${robot.id}`),
-  recordActivity: () => {},
-}))
+vi.mock("@/stores/activity", async () => (await import("@/stores/test-store-mocks")).activityMock)
 vi.mock("@/lib/push-run", () => ({
   showRemoteMovedToast: async (_repositoryPath: string, branch: string, _status: RemoteStatus, restartRunning: boolean) => {
     engine.moved.push(`${branch}, restarts ${restartRunning}`)
@@ -81,11 +78,11 @@ beforeEach(() => {
 })
 
 describe("restartRobot", () => {
-  it("restarts through the engine and says it in the toast of the robot and Activity", async () => {
+  it("restarts through the engine and says it in the toast of the robot", async () => {
     engine.run = ran([{ effect: { kind: "restartRobot", robotId: "r1" }, status: { kind: "done" } }], { ...FAILED, id: "r2", status: "running" })
     expect((await restartRobot(FAILED, "/repo"))?.id).toBe("r2")
     expect(engine.asked).toEqual(["restartRobot r1 in /repo"])
-    expect(engine.said).toEqual(["toast Safe Push restarted: r2", "activity Safe Push restarted: r2"])
+    expect(engine.said).toEqual(["toast Safe Push restarted: r2"])
   })
 
   it("says what its plan refuses it by, and runs nothing", async () => {
@@ -129,13 +126,13 @@ describe("cancelRobot", () => {
     engine.run = ran([cancel], { ...running, status: "canceling" })
     expect((await cancelRobot(running, "/repo"))?.status).toBe("canceling")
     expect(engine.asked).toEqual(["cancelRobot r1 in /repo"])
-    expect(engine.said).toEqual(["toast Safe Push is canceling: r1", "activity Safe Push is canceling: r1"])
+    expect(engine.said).toEqual(["toast Safe Push is canceling: r1"])
   })
 
   it("answers a robot that finished meanwhile as it ended: nothing was canceled", async () => {
     engine.run = ran([cancel], FAILED, true)
     expect((await cancelRobot(running, "/repo"))?.status).toBe("failure")
-    expect(engine.said).toEqual(["toast Safe Push already finished: r1", "activity Safe Push already finished: r1"])
+    expect(engine.said).toEqual(["toast Safe Push already finished: r1"])
   })
 
   it("says what Patronus refused the cancel with", async () => {

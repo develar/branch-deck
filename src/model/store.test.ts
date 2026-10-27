@@ -3,9 +3,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
+import { toRemoteStatus } from "@/lib/remote-status"
 import { resetDemand } from "@/model/demand"
 import { closeSession, openSession, requestSessionSync, setSessionWindowFocus, whenSessionReady, whenSessionViewAt } from "@/model/store"
-import { branchSyncStore, getBranch, getStackBranch, toRemoteStatus, whenSynced } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranch, whenSynced } from "@/stores/branch-sync"
 import { emptyView, fakeRemoteStatus, fakeSessions, grouping } from "@/test-support/fake-sessions"
 
 const { toasts, archived, syncRecords, prefixLoads } = vi.hoisted(() => ({

@@ -20,6 +20,7 @@ use tracing::Instrument;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+pub mod activity_routes;
 pub mod channel_commands;
 pub mod cli_tools_fixtures;
 pub mod remote_fixtures;
@@ -272,6 +273,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/check_git_setup", post(tauri_command_bridge::check_git_setup))
     .route("/invoke/get_repository_config", post(tauri_command_bridge::get_repository_config))
     .route("/invoke/set_repository_config", post(tauri_command_bridge::set_repository_config))
+    .route("/invoke/read_activity", post(activity_routes::read_activity))
+    .route("/invoke/record_activity", post(activity_routes::record_activity))
+    .route("/invoke/clear_activity", post(activity_routes::clear_activity))
     .route("/invoke/get_snapshot", post(session_routes::get_snapshot))
     .route("/invoke/prepare", post(session_routes::prepare))
     .route("/invoke/execute", post(session_routes::execute))

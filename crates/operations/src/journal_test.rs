@@ -1,10 +1,11 @@
 use crate::engine::run;
 use crate::events::EventSink;
-use crate::journal::{LIMIT, MAX_AGE, kept, read};
+use crate::journal::{LIMIT, MAX_AGE, clear, journal_path_in, kept, read, read_activity, read_page, record_page};
 use crate::registry::registry_test::sessions;
 use crate::registry::{Answer, Registry, RegistryFiles, RunningGuard};
 use crate::registry_file::ProcessRegistry;
 use crate::registry_file::registry_file_test::{id, safe_push, sent, session};
+use domain_types::activity::{ActivityKind, PageActivity};
 use domain_types::error::{ApiError, ErrorCode, HolderTool};
 use domain_types::fixtures::land_intent;
 use domain_types::landing::{PlannedEffect, StartRoute};
@@ -32,12 +33,12 @@ impl EventSink for Deaf {
 fn started(op: &domain_types::operation::OperationId, status: EffectStatus) -> Outcome {
   Outcome {
     op: op.clone(),
-    effects: vec![EffectRecord {
-      effect: PlannedEffect::StartRobot {
+    effects: vec![EffectRecord::new(
+      PlannedEffect::StartRobot {
         route: StartRoute::Api { profile: None },
       },
       status,
-    }],
+    )],
     news_key: None,
     version_after: None,
     result: OperationResult::None,
@@ -243,4 +244,107 @@ fn the_journal_keeps_the_newest_entries_of_the_last_thirty_days() {
   assert_eq!(kept.len(), LIMIT);
   assert_eq!((kept[0], kept[LIMIT - 1]), (line(NOW, 6).as_str(), line(NOW, LIMIT + 5).as_str()));
   assert_eq!(super::kept([line(NOW - MAX_AGE, 1).as_str()].into_iter(), NOW), [line(NOW - MAX_AGE, 1)]);
+}
+
+/// What the page records of `repository`: an error it told
+fn told_error(repository: &str, title: &str) -> PageActivity {
+  PageActivity {
+    repository_path: repository.to_string(),
+    kind: ActivityKind::Error,
+    title: title.to_string(),
+    description: Some("the remote refused it".to_string()),
+    warning: false,
+    details: None,
+    operation_id: Some(id("failed")),
+  }
+}
+
+/// The page records into its journal in the app data directory, each entry with an id and the time; Clear Log of a
+/// repository empties the journal of its repository and takes its entries out of the journal of the page, and the
+/// entries of the other repositories stay
+#[test]
+fn the_page_records_into_its_journal_and_clear_log_forgets_the_log_of_a_repository_in_both() {
+  let (common, app_data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  let registry = ProcessRegistry::of(common.path());
+  finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
+  let recorded = record_page(app_data.path(), told_error("/a", "Cannot push auth")).unwrap();
+  record_page(app_data.path(), told_error("/b", "Cannot push docs")).unwrap();
+  let page = read_page(app_data.path()).unwrap();
+  assert_eq!(
+    page.iter().map(|entry| entry.activity.title.as_str()).collect::<Vec<_>>(),
+    ["Cannot push auth", "Cannot push docs"]
+  );
+  assert_eq!(page[0], recorded);
+  assert!(page[0].ended_at >= unix_now() - 60 && page[0].id != page[1].id, "{page:?}");
+
+  clear(Some(&journal_path_in(registry.dir())), app_data.path(), "/a").unwrap();
+  assert_eq!(read(common.path()).unwrap(), []);
+  assert_eq!(
+    read_page(app_data.path())
+      .unwrap()
+      .iter()
+      .map(|entry| entry.activity.repository_path.as_str())
+      .collect::<Vec<_>>(),
+    ["/b"]
+  );
+}
+
+/// Activity reads the journal of a repository once for the recent projects that share it (two worktrees), none for a
+/// project its journal was never remembered for, and lists a journal it can't read unavailable; the journal of the page
+/// comes with them
+#[tokio::test(flavor = "multi_thread")]
+async fn activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read() {
+  let (common, app_data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  let registry = ProcessRegistry::of(common.path());
+  finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
+  record_page(app_data.path(), told_error("/b", "Cannot push docs")).unwrap();
+  let journal = journal_path_in(registry.dir()).to_string_lossy().into_owned();
+  // a directory where the journal should be: its read fails at once
+  let gone = app_data.path().join("gone");
+  std::fs::create_dir_all(&gone).unwrap();
+  let projects = [
+    ("/a".to_string(), Some(journal.clone())),
+    ("/b".to_string(), None),
+    ("/a-feature".to_string(), Some(journal.clone())),
+    ("/c".to_string(), Some(gone.to_string_lossy().into_owned())),
+  ];
+
+  let log = read_activity(&projects, app_data.path(), Duration::from_mins(1)).await;
+  let journals: Vec<_> = log
+    .journals
+    .iter()
+    .map(|journal| {
+      (
+        journal.repositories.clone(),
+        journal.available,
+        journal.entries.iter().map(|entry| entry.id.0.clone()).collect::<Vec<_>>(),
+      )
+    })
+    .collect();
+  assert_eq!(
+    journals,
+    [
+      (vec!["/a".to_string(), "/a-feature".to_string()], true, vec!["pushed".to_string()]),
+      (vec!["/c".to_string()], false, Vec::new()),
+    ]
+  );
+  assert_eq!(log.page.iter().map(|entry| entry.activity.title.as_str()).collect::<Vec<_>>(), ["Cannot push docs"]);
+}
+
+/// A journal that does not answer within the bound (a disk that hangs: here a pipe nobody writes) is listed unavailable,
+/// and the read does not wait for it
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_journal_that_does_not_answer_within_the_bound_is_unavailable() {
+  let directory = tempfile::tempdir().unwrap();
+  let pipe = directory.path().join("journal.jsonl");
+  let made = sync_utils::child_process::windowless_command("mkfifo").arg(&pipe).status().unwrap();
+  assert!(made.success());
+  let projects = [("/a".to_string(), Some(pipe.to_string_lossy().into_owned()))];
+
+  let app_data = tempfile::tempdir().unwrap();
+  let log = read_activity(&projects, app_data.path(), Duration::from_millis(50)).await;
+  assert_eq!(log.journals.iter().map(|journal| journal.available).collect::<Vec<_>>(), [false]);
+  // the read that still waits for a writer ends with one, so the runtime of the test can stop
+  drop(std::fs::OpenOptions::new().write(true).open(&pipe).unwrap());
 }

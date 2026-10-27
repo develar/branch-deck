@@ -1,158 +1,215 @@
-import { z } from "zod"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
-import type { LandedBranch, PatronusRobot, ReviewRequest, UpdateProjectResult } from "@/lib/bindings"
-import { setErrorRecorder } from "@/lib/errors"
+import { createStore } from "zustand/vanilla"
+import type { ActivityLog, DroppedCommit, LandedBranch, PageActivity, PatronusRobot, ReviewRequest, UpdateProjectResult } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
+import { logError, setErrorRecorder } from "@/lib/errors"
 import { appliedUpdateToast, foundLandedNews } from "@/lib/landed"
-import { describePush } from "@/lib/push-summary"
-import { buildRemoteMovedTexts } from "@/lib/remote-status"
+import type { GitHubRepository } from "@/lib/pull-request"
 import { describeRequestActivity } from "@/lib/review-requests"
 import { describeUpdateState } from "@/lib/update-state"
 import { isMainWindow } from "@/lib/window-label"
-import type { RemoteStatus } from "@/stores/branch-sync"
+import { presentActivity } from "@/presenters/activity"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
-import { createPersistentStore } from "@/stores/settings/persistent-store"
-import type { ArrayStoreState } from "@/stores/settings/persistent-store"
 
 /*
- * Activity: what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, history rewrites,
- * errors) and the review requests it told about, newest first. Toasts pass, the log stays: persisted by the main window, at most `MAX_ACTIVITY_ENTRIES` and
- * `MAX_ACTIVITY_AGE_MS`. See spec/repository/activity.spec.md.
+ * Activity: what Branch Deck did in a repository, newest first, read from the journals (spec/repository/activity.spec.md).
+ * The operations of the remote, of the app and of `bd`, are the journal of their repository; what only the page knows
+ * (an error it told, an update, what landed, a rewrite, a review request, an approval, the news of a robot) it records
+ * in the journal of the app data directory (`record_activity`). The main window reads the log (`read_activity`) when
+ * it starts, after each write and operation of its own (`refreshActivity`), and when a journal changes
+ * (`activity-changed`); `presentActivity` words the entries. The Undo of a rewrite lives here, in memory, by entry id.
  */
 
-/** At most this many entries over all repositories; the oldest go first */
-export const MAX_ACTIVITY_ENTRIES = 200
-/** Entries older than this go */
-export const MAX_ACTIVITY_AGE_MS = 30 * 24 * 60 * 60 * 1000
 /** How long the Undo of a rewrite lasts, the toast's and the one in Activity alike */
 export const UNDO_WINDOW_MS = 10_000
 
-const ActivityKindSchema = z.enum(["push", "update", "landed", "patronus", "rewrite", "review", "error"])
-
-export type ActivityKind = z.infer<typeof ActivityKindSchema>
-
-const DroppedCommitSchema = z.object({
-  id: z.string(),
-  subject: z.string(),
-  author: z.string(),
-  authorTime: z.number(),
-})
-
-const LandedBranchSchema = z.object({
-  name: z.string().nullable(),
-  commits: z.array(
-    z.object({
-      id: z.string(),
-      subject: z.string(),
-      upstream: z.object({ id: z.string(), author: z.string(), committer: z.string(), time: z.number() }).nullable(),
-    }),
-  ),
-  remaining: z.number(),
-  landedAt: z.number(),
-})
+export type ActivityKind = "push" | "update" | "landed" | "patronus" | "rewrite" | "review" | "error"
 
 /** What an entry expands to, or opens */
-const ActivityDetailsSchema = z.discriminatedUnion("type", [
+export type ActivityDetails =
   /** The remote commits a force push dropped, the newest first, and how many more */
-  z.object({ type: z.literal("dropped"), commits: z.array(DroppedCommitSchema), more: z.number() }),
+  | { readonly type: "dropped"; readonly commits: readonly DroppedCommit[]; readonly more: number }
   /** The landed report, as the island showed it */
-  z.object({ type: z.literal("landed"), upstream: z.string(), report: z.array(LandedBranchSchema) }),
+  | { readonly type: "landed"; readonly upstream: string; readonly report: readonly LandedBranch[] }
   /** The robot page in the Patronus web UI */
-  z.object({ type: z.literal("robot"), url: z.string() }),
-  /** A pull request on GitHub: one that waits for the user's review */
-  z.object({ type: z.literal("pullRequest"), url: z.string() }),
-])
+  | { readonly type: "robot"; readonly url: string }
+  /** A pull request on GitHub */
+  | { readonly type: "pullRequest"; readonly url: string }
 
-export type ActivityDetails = z.infer<typeof ActivityDetailsSchema>
-
-const ActivityEntrySchema = z.object({
-  id: z.string(),
-  repositoryPath: z.string(),
+export interface ActivityEntry {
+  readonly id: string
+  readonly repositoryPath: string
   /** Milliseconds since the epoch */
-  time: z.number(),
-  kind: ActivityKindSchema,
-  title: z.string(),
-  description: z.string().optional(),
-  /** A refused update, a push that dropped remote commits or found the remote moved */
-  warning: z.boolean().optional(),
-  details: ActivityDetailsSchema.optional(),
+  readonly time: number
+  readonly kind: ActivityKind
+  readonly title: string
+  readonly description?: string
+  /** A refused update, a push that dropped remote commits or found the remote moved, a failing robot */
+  readonly warning?: boolean
+  readonly details?: ActivityDetails
   /**
-   * The Undo of a rewrite: it works until `until` (ms) in the session that did the rewrite, as the toast's; `undone`
-   * once the user undid it, from the toast or from Activity
+   * The Undo of a rewrite of this session: it works until `until` (ms), as the toast's; `undone` once the user undid it,
+   * from the toast or from Activity
    */
-  undo: z.object({ until: z.number(), undone: z.boolean().optional() }).optional(),
-  /** The operation of a failed command (`ApiError.operation_id`): the id its lines in the app's log carry */
-  operationId: z.string().optional(),
-})
+  readonly undo?: { readonly until: number; readonly undone?: boolean }
+  /** The operation of the entry: the id of its lines in the app's log (an error a command named, an operation of the remote) */
+  readonly operationId?: string
+}
 
-export type ActivityEntry = z.infer<typeof ActivityEntrySchema>
+/** The Undo of a rewrite of this session */
+interface UndoState {
+  readonly until: number
+  readonly undone: boolean
+}
 
-// an entry that doesn't parse (a kind of a newer version) drops the log, as any invalid stored value: it is a record
-const ActivityLogSchema = z.array(ActivityEntrySchema).default([])
+interface ActivityState {
+  /** The log as the last read answered it; null before the first */
+  readonly log: ActivityLog | null
+  /** The entries of every repository, newest first, in their words */
+  readonly items: readonly ActivityEntry[]
+  /** The Undo of the rewrites of this session, by entry id */
+  readonly undo: Readonly<Record<string, UndoState>>
+}
 
-export const activityStore = createPersistentStore("activity", { schema: ActivityLogSchema, isArray: true, isMainOnly: true })
+export const activityStore = createStore<ActivityState>(() => ({ log: null, items: [], undo: {} }))
+
+/** The GitHub repository the pull requests of the entries are linked in; set by `startActivityReads` */
+let gitHubRepositoryOf: () => GitHubRepository | null = () => null
+
+/** The entries of `log` in their words, with the Undo of this session's rewrites */
+function itemsOf(log: ActivityLog | null, undo: Readonly<Record<string, UndoState>>): ActivityEntry[] {
+  if (log === null) {
+    return []
+  }
+  return presentActivity(log, gitHubRepositoryOf()).map(entry => {
+    const state = undo[entry.id]
+    return state === undefined ? entry : { ...entry, undo: { until: state.until, ...(state.undone && { undone: true }) } }
+  })
+}
+
+function setLog(log: ActivityLog): void {
+  activityStore.setState(state => ({ log, items: itemsOf(log, state.undo) }))
+}
+
+function setUndo(id: string, undo: UndoState): void {
+  activityStore.setState(state => {
+    const next = { ...state.undo, [id]: undo }
+    return { undo: next, items: itemsOf(state.log, next) }
+  })
+}
+
+/** The read in flight, and whether another one was asked meanwhile: reads run one at a time, the last one wins */
+let reading: Promise<void> | null = null
+let readAgain = false
+
+/** Reads the log again (`read_activity`); resolves once the store has a read made after the call. Main window only */
+export function refreshActivity(): Promise<void> {
+  if (!isMainWindow) {
+    return Promise.resolve()
+  }
+  if (reading !== null) {
+    readAgain = true
+    return reading
+  }
+  const read = async (): Promise<void> => {
+    do {
+      readAgain = false
+      const answer = await commands.readActivity()
+      if (answer.status === "ok") {
+        setLog(answer.data)
+      } else {
+        logError("Cannot read Activity", answer.error)
+      }
+    } while (readAgain)
+  }
+  reading = read().finally(() => {
+    reading = null
+  })
+  return reading
+}
+
+/**
+ * Reads the log now and links its pull requests in the GitHub repository `gitHubRepository` answers, again when
+ * `subscribe` says it changed; returns the unsubscribe. The main window's (`useActivityWindowLink`)
+ */
+export function startActivityReads(gitHubRepository: () => GitHubRepository | null, subscribe: (changed: () => void) => () => void): () => void {
+  gitHubRepositoryOf = gitHubRepository
+  let shown = gitHubRepository()
+  const unsubscribe = subscribe(() => {
+    const now = gitHubRepository()
+    if (now?.owner !== shown?.owner || now?.name !== shown?.name) {
+      shown = now
+      activityStore.setState(state => ({ items: itemsOf(state.log, state.undo) }))
+    }
+  })
+  void refreshActivity()
+  return unsubscribe
+}
+
+// ---- what the page records ----
+
+/** What the page records of a repository (`PageActivity` of `record_activity`) */
+export interface PageInput {
+  readonly kind: PageActivity["kind"]
+  readonly title: string
+  readonly description?: string
+  readonly warning?: boolean
+  readonly details?: Exclude<ActivityDetails, { readonly type: "dropped" }>
+  readonly operationId?: string
+}
+
+/** The details of `input` as the journal of the page keeps them */
+function pageDetails(details: PageInput["details"]): PageActivity["details"] {
+  if (details === undefined) {
+    return null
+  }
+  return details.type === "landed" ? { type: "landed", upstream: details.upstream, report: [...details.report] } : { ...details }
+}
+
+/**
+ * Records what the page told of `repositoryPath` in the journal of the page (`record_activity`); the entry shows at once.
+ * Resolves to its id; null in a sub-window, which records nothing (the main window does), and when the write failed
+ * (logged, never toasted: a toast would record its error again)
+ */
+export async function recordActivity(repositoryPath: string, input: PageInput): Promise<string | null> {
+  if (!isMainWindow || repositoryPath === "") {
+    return null
+  }
+  const activity: PageActivity = {
+    repositoryPath,
+    kind: input.kind,
+    title: input.title,
+    description: input.description ?? null,
+    warning: input.warning === true,
+    details: pageDetails(input.details),
+    operationId: input.operationId ?? null,
+  }
+  const recorded = await commands.recordActivity(activity)
+  if (recorded.status === "error") {
+    logError("Cannot record in Activity", recorded.error)
+    return null
+  }
+  activityStore.setState(state => {
+    const log: ActivityLog = { journals: state.log?.journals ?? [], page: [...(state.log?.page ?? []), recorded.data] }
+    return { log, items: itemsOf(log, state.undo) }
+  })
+  return recorded.data.id
+}
 
 /** The undo functions of this session's rewrites, by entry id, while their window lasts */
 const undoActions = new Map<string, () => void>()
 
-export interface ActivityInput extends Omit<ActivityEntry, "id" | "repositoryPath" | "time"> {
-  /** The selected repository by default */
-  repositoryPath?: string
-}
-
-let lastId = 0
-
-function nextId(time: number): string {
-  lastId = Math.max(lastId + 1, time)
-  return lastId.toString(36)
-}
-
-/** The entries within the age and the count limits, newest first */
-export function pruneActivity(items: readonly ActivityEntry[], now: number): ActivityEntry[] {
-  return items.filter(entry => now - entry.time < MAX_ACTIVITY_AGE_MS).slice(0, MAX_ACTIVITY_ENTRIES)
-}
-
 /**
- * Adds an entry to the log of its repository (the selected one by default) and returns it; null in a sub-window, which
- * doesn't own the log (the Activity window is told it over its link), and without a repository.
+ * A history rewrite of `repositoryPath` with an Undo (squash, fixups, move, rename, stack, unstack, ungroup). Returns
+ * the undo to run from the toast: whichever Undo comes first, the toast's or the one in Activity, runs `undo`, and a
+ * second one while it runs joins it. `undo` resolves to whether it undid the rewrite: only then is the entry marked
+ * undone and its Undo gone; an undo that failed (an error toast said why) is offered again, in its window.
  */
-export function recordActivity(input: ActivityInput): ActivityEntry | null {
-  const { repositoryPath = getSelectedProject()?.path, ...rest } = input
-  if (!isMainWindow || repositoryPath === undefined || repositoryPath === "") {
-    return null
-  }
-  const time = Date.now()
-  const entry: ActivityEntry = { id: nextId(time), repositoryPath, time, ...rest }
-  activityStore.setState(state => ({ items: pruneActivity([entry, ...state.items], time) }))
-  return entry
-}
-
-function updateEntry(id: string, update: (entry: ActivityEntry) => ActivityEntry): void {
-  activityStore.setState(state => ({ items: state.items.map(entry => (entry.id === id ? update(entry) : entry)) }))
-}
-
-/** Forgets the log of a repository */
-export function clearActivity(repositoryPath: string): void {
-  const { items } = activityStore.getState()
-  for (const entry of items) {
-    if (entry.repositoryPath === repositoryPath) {
-      undoActions.delete(entry.id)
-    }
-  }
-  activityStore.setState({ items: items.filter(entry => entry.repositoryPath !== repositoryPath) })
-}
-
-// ---- what is recorded ----
-
-/**
- * A history rewrite with an Undo (squash, fixups, move, rename, stack, unstack, ungroup). Returns the undo to run from
- * the toast: whichever Undo comes first, the toast's or the one in Activity, runs `undo`, and a second one while it runs
- * joins it. `undo` resolves to whether it undid the rewrite: only then is the entry marked undone and its Undo gone; an
- * undo that failed (an error toast said why) is offered again, in its window.
- */
-export function recordRewrite(title: string, undo: () => Promise<boolean>, description?: string): () => void {
-  const entry = recordActivity({ kind: "rewrite", title, description, undo: { until: Date.now() + UNDO_WINDOW_MS } })
+export function recordRewrite(repositoryPath: string, title: string, undo: () => Promise<boolean>, description?: string): () => void {
+  const until = Date.now() + UNDO_WINDOW_MS
   let state: "offered" | "running" | "done" = "offered"
+  let entryId: string | null = null
   const run = () => {
     if (state !== "offered") {
       return
@@ -165,15 +222,24 @@ export function recordRewrite(title: string, undo: () => Promise<boolean>, descr
   }
   const finish = (undone: boolean) => {
     state = undone ? "done" : "offered"
-    if (undone && entry !== null) {
-      undoActions.delete(entry.id)
-      updateEntry(entry.id, it => (it.undo === undefined ? it : { ...it, undo: { ...it.undo, undone: true } }))
+    if (undone && entryId !== null) {
+      undoActions.delete(entryId)
+      setUndo(entryId, { until, undone: true })
     }
   }
-  if (entry !== null) {
-    undoActions.set(entry.id, run)
-    setTimeout(() => undoActions.delete(entry.id), UNDO_WINDOW_MS)
-  }
+  void recordActivity(repositoryPath, { kind: "rewrite", title, description }).then(id => {
+    if (id === null) {
+      return
+    }
+    entryId = id
+    if (state === "done") {
+      setUndo(id, { until, undone: true })
+      return
+    }
+    undoActions.set(id, run)
+    setUndo(id, { until, undone: false })
+    setTimeout(() => undoActions.delete(id), Math.max(0, until - Date.now()))
+  })
   return run
 }
 
@@ -198,40 +264,55 @@ export function undoActivity(entry: ActivityEntry): void {
 }
 
 /**
- * A push in the words of its toast (`describePush`): "Pushed feature-auth" / "3 commits"; a force push that dropped
- * remote commits keeps them. `before` is the remote status the push was made against, `moved` the fetched status when
- * the remote moved and nothing was pushed.
+ * Forgets the log of a repository (Clear Log): the journal of its repository and the entries of the page of it
+ * (`clear_activity`), then reads the log again; resolves to the error of a failed clear
  */
-export function recordPush(repositoryPath: string, branchName: string, before: RemoteStatus | null, moved: RemoteStatus | null): void {
-  if (moved !== null) {
-    const texts = buildRemoteMovedTexts(branchName, moved)
-    recordActivity({ repositoryPath, kind: "push", title: texts.title, description: texts.description, warning: true })
-    return
+export async function clearActivity(repositoryPath: string): Promise<string | null> {
+  const cleared = await commands.clearActivity({ repositoryPath })
+  // a still undismissed report is recorded again by the next sync
+  landedRecorded.delete(repositoryPath)
+  for (const entry of activityStore.getState().items) {
+    if (entry.repositoryPath === repositoryPath) {
+      undoActions.delete(entry.id)
+    }
   }
-  const news = describePush(branchName, before)
-  const dropped = before?.droppedCommits ?? []
-  const details: ActivityDetails | undefined =
-    news.warning !== true || before === null || dropped.length === 0
-      ? undefined
-      : { type: "dropped", commits: [...dropped], more: Math.max(0, before.commitsBehind - dropped.length) }
-  recordActivity({ repositoryPath, kind: "push", ...news, details })
+  await refreshActivity()
+  return cleared.status === "error" ? cleared.error.message : null
+}
+
+/**
+ * The landed commits recorded by each repository in this session, also while their record is on its way: the sync
+ * right after an update records none of them again
+ */
+const landedRecorded = new Map<string, Set<string>>()
+
+/** `report` is recorded in `repositoryPath` */
+function noteLanded(repositoryPath: string, report: readonly LandedBranch[]): void {
+  const ids = landedRecorded.get(repositoryPath) ?? new Set<string>()
+  for (const branch of report) {
+    for (const commit of branch.commits) {
+      ids.add(commit.id)
+    }
+  }
+  landedRecorded.set(repositoryPath, ids)
 }
 
 /** An Update Project: applied (with what landed), or refused for a conflict or uncommitted changes; up to date is no news */
 export function recordUpdate(repositoryPath: string, { check, applied, landed }: UpdateProjectResult): void {
   const status = check.state.status
   if (status === "clean" && applied !== null) {
-    const details: ActivityDetails | undefined = landed.length === 0 ? undefined : { type: "landed", upstream: check.upstream, report: landed }
-    recordActivity({ repositoryPath, kind: "update", ...appliedUpdateToast(check, applied, landed), details })
+    noteLanded(repositoryPath, landed)
+    const details: PageInput["details"] = landed.length === 0 ? undefined : { type: "landed", upstream: check.upstream, report: landed }
+    void recordActivity(repositoryPath, { kind: "update", ...appliedUpdateToast(check, applied, landed), details })
   } else if (status === "conflict" || status === "blocked") {
     const description = `${describeUpdateState(check.state, check.upstream).summary}. Nothing was changed.`
-    recordActivity({ repositoryPath, kind: "update", title: `Didn't update ${check.branch}`, description, warning: true })
+    void recordActivity(repositoryPath, { kind: "update", title: `Didn't update ${check.branch}`, description, warning: true })
   }
 }
 
 /** The landed commits of the entries of a repository: a report is recorded once, by the update or by the sync after one */
 function recordedLandedCommits(repositoryPath: string): Set<string> {
-  const ids = new Set<string>()
+  const ids = new Set<string>(landedRecorded.get(repositoryPath))
   for (const entry of activityStore.getState().items) {
     if (entry.repositoryPath === repositoryPath && entry.details?.type === "landed") {
       for (const branch of entry.details.report) {
@@ -258,16 +339,17 @@ export function recordLanded(repositoryPath: string, report: readonly LandedBran
   if (news === null) {
     return
   }
-  recordActivity({ repositoryPath, kind: "landed", ...news, details: { type: "landed", upstream, report: found } })
+  noteLanded(repositoryPath, found)
+  void recordActivity(repositoryPath, { kind: "landed", ...news, details: { type: "landed", upstream, report: found } })
 }
 
 /**
- * A robot started, restarted, canceled or merged, in the words of its toast: "Safe Push started" / "feature-auth →
- * master · profile Large Scale Change" (`describeRobot`), "feature-auth merged into master" / "Safe Push"; with the
- * robot page, and the operation that started it (`operationId`, its log lines).
+ * News of a robot the session told: it merged ("auth merged into master" / "Safe Push"), failed or is failing, in the
+ * words of its toast, with the robot page. A robot the user started, restarted or canceled is an operation of the
+ * journal of its repository instead
  */
-export function recordRobot(title: string, description: string, robot: PatronusRobot, repositoryPath?: string, operationId?: string): void {
-  recordActivity({ repositoryPath, kind: "patronus", title, description, details: { type: "robot", url: robot.url }, ...(operationId !== undefined && { operationId }) })
+export function recordRobotNews(repositoryPath: string, title: string, description: string, robot: PatronusRobot, warning = false): void {
+  void recordActivity(repositoryPath, { kind: "patronus", title, description, ...(warning && { warning }), details: { type: "robot", url: robot.url } })
 }
 
 /**
@@ -275,42 +357,19 @@ export function recordRobot(title: string, description: string, robot: PatronusR
  * on #123" / its title, with the pull request on GitHub
  */
 export function recordReviewRequest(repositoryPath: string, request: ReviewRequest): void {
-  recordActivity({ repositoryPath, kind: "review", ...describeRequestActivity(request), details: { type: "pullRequest", url: request.url } })
-}
-
-/** A review the user submitted from the app: "Approved #123" / its title, with the pull request on GitHub */
-export function recordReview(repositoryPath: string, title: string, request: ReviewRequest): void {
-  recordActivity({ repositoryPath, kind: "review", title, description: request.title, details: { type: "pullRequest", url: request.url } })
+  void recordActivity(repositoryPath, { kind: "review", ...describeRequestActivity(request), details: { type: "pullRequest", url: request.url } })
 }
 
 /** An approval of the user's pull request made a branch ready: the words of its toast (`describeApprovalNews`) */
 export function recordApproval(repositoryPath: string, title: string, description: string, url: string): void {
-  recordActivity({ repositoryPath, kind: "review", title, description, details: { type: "pullRequest", url } })
+  void recordActivity(repositoryPath, { kind: "review", title, description, details: { type: "pullRequest", url } })
 }
 
-/** A pull request the app created: "Created pull request #123" / the reviewers and the assignee, with it on GitHub */
-export function recordPullRequestCreated(title: string, description: string, url: string, warning: boolean, repositoryPath?: string): void {
-  recordActivity({ kind: "review", title, description, ...(warning && { warning }), details: { type: "pullRequest", url }, repositoryPath })
-}
-
-/**
- * A pull request the user closed in the app: "Closed pull request #12" / "#12 no longer matches the air stack: auth
- * landed", with it on GitHub
- */
-export function recordPullRequestClosed(title: string, description: string, url: string): void {
-  recordActivity({ kind: "review", title, description, details: { type: "pullRequest", url } })
-}
-
-/**
- * A pull request the app retargeted from a virtual branch to the baseline: "Retargeted #8 to master" / "login · it went
- * into auth", with it on GitHub
- */
-export function recordRetarget(title: string, description: string, url: string): void {
-  recordActivity({ kind: "review", title, description, details: { type: "pullRequest", url } })
-}
-
-// every error the user was told about (`notifyError`); errors.ts can't import the store, which imports errors.ts
-setErrorRecorder((title, description, operationId) => recordActivity({ kind: "error", title, description, ...(operationId !== undefined && { operationId }) }))
+// every error the user was told about (`notifyError`), in the repository the main window shows; errors.ts can't import
+// the store, which imports errors.ts
+setErrorRecorder((title, description, operationId) => {
+  void recordActivity(getSelectedProject()?.path ?? "", { kind: "error", title, description, ...(operationId !== undefined && { operationId }) })
+})
 
 // ---- days ----
 
@@ -351,19 +410,19 @@ export function groupActivityByDay(entries: readonly ActivityEntry[], now: numbe
 
 const noEntries: readonly ActivityEntry[] = []
 
+/** The log of a repository, newest first */
+export function selectActivity(state: Pick<ActivityState, "items">, repositoryPath: string | undefined): ActivityEntry[] {
+  return state.items.filter(entry => entry.repositoryPath === repositoryPath)
+}
+
 /** The log of the selected repository, newest first */
 export function useActivity(): readonly ActivityEntry[] {
   const repositoryPath = useSelectedProjectPath()
   const entries = useStore(
     activityStore,
-    useShallow((state: ArrayStoreState<ActivityEntry>) => selectActivity(state, repositoryPath)),
+    useShallow((state: ActivityState) => selectActivity(state, repositoryPath)),
   )
   return entries.length === 0 ? noEntries : entries
-}
-
-/** The log of a repository, newest first */
-export function selectActivity(state: ArrayStoreState<ActivityEntry>, repositoryPath: string | undefined): ActivityEntry[] {
-  return state.items.filter(entry => entry.repositoryPath === repositoryPath)
 }
 
 /** Whether the selected repository has a log: the header hides the Activity button without one */

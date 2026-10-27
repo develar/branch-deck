@@ -39,7 +39,7 @@ export async function parkBranches(names: readonly string[], note: string, optio
       // a new note of a parked branch is no park
       const [renoted] = changed.length === 1 && changed[0]?.previousNote !== null ? changed : []
       const title = renoted === undefined ? `Parked ${joinNames(changed.map(change => change.branchName))}` : `Changed the park note of ${renoted.branchName}`
-      return { sync: true, after: () => showUndoToast(title, () => restoreQuietly(changed, repositoryPath)) }
+      return { sync: true, after: () => showUndoToast(repositoryPath, title, () => restoreQuietly(changed, repositoryPath)) }
     },
   )
   return result !== null
@@ -60,7 +60,7 @@ export async function unparkBranches(names: readonly string[], options: ParkOpti
     parkSpec("unpark", names, `Unparking ${joinNames(names)}`, repositoryPath, options),
     `Cannot unpark ${joinNames(names)}`,
     wait => commands.unparkBranches({ repositoryPath, branchNames: [...names] }, wait),
-    data => ({ sync: true, after: () => showUndoToast(`Unparked ${joinNames(names)}`, () => restoreQuietly(data.branches, repositoryPath)) }),
+    data => ({ sync: true, after: () => showUndoToast(repositoryPath, `Unparked ${joinNames(names)}`, () => restoreQuietly(data.branches, repositoryPath)) }),
   )
   return result !== null
 }

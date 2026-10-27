@@ -43,7 +43,7 @@ export async function squashFixups(scope: AutosquashScope, expectedHead: string,
     wait => commands.squashFixupCommits({ repositoryPath, expectedHead, scope }, wait),
     ({ newHead, previousHead, squashedCount }) => ({
       sync: true,
-      after: () => showUndoToast(`Squashed ${formatFixupCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),
+      after: () => showUndoToast(repositoryPath, `Squashed ${formatFixupCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),
     }),
   )
   return result !== null

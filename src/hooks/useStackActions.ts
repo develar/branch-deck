@@ -50,7 +50,7 @@ async function runStackOperation(
       return {
         sync: true,
         after: () =>
-          showUndoToast(successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`), () =>
+          showUndoToast(repositoryPath, successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`), () =>
             undoRegroup(repositoryPath, undoToken, "Cannot undo the change", "Undoing the change"),
           ),
       }
