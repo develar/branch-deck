@@ -211,14 +211,15 @@ tells the present, its line of the last day opens Activity at its Robots.
   200 ms (`ACTIVITY_READ_TIMEOUT`), then shown as it answered last: one whose repository is gone (its
   `$GIT_COMMON_DIR` is not there: a removed disk, a deleted repository), that can't be read or that never answered (a
   disk that hangs) is listed unavailable and the others show; a journal its repository has not written yet is empty.
-  One read of a journal runs at a time, which the reads meanwhile join; one that answers after the wait with other
-  entries tells the windows (`activity-changed`), so a journal of a slow disk shows once it answered, never "unavailable"
-  for good because the machine was loaded. The journal of the page comes with them. The main window and
+  One read of a journal runs at a time; a read asked while one runs waits for the next, which begins once that one
+  answered (the one that runs may have read the journal before the change the read was asked for), and the reads asked
+  meanwhile share it; one that answers after the wait with other entries tells the windows (`activity-changed`), so a
+  journal of a slow disk shows once it answered, never "unavailable" for good because the machine was loaded. The journal of the page comes with them. The main window and
   the Activity window each read the log themselves (`useActivityReads`): when they open, and again when a journal
   changes (`activity-changed`: a write of the page, or the watch of the operations registry of a repository a window
   shows sees its journal change, an operation of the app or of `bd` ended); the main window also after each operation
   and each write of its own. The log of a settings file of before (the key `activity`) is dropped by the load.
-  [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_answers_after_the_bound_shows_once_it_answered`, `the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_written_yet_is_empty`)
+  [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_answers_after_the_bound_shows_once_it_answered`, `a_read_asked_while_one_runs_shows_the_journal_as_it_is_after_that_one`, `the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_written_yet_is_empty`)
   [@test] ../../crates/app-settings/src/journals_test.rs (`the_recent_projects_have_the_journals_remembered_for_them_and_one_opened_before_has_none`, `no_recent_projects_have_no_journals`)
   [@test] ../../crates/app-settings/src/file_test.rs (`the_activity_log_of_a_file_of_before_is_dropped_by_the_load_and_the_next_save`)
   [@test] ../../src/lib/run-intent.test.ts (`runs the plan Rust prepared on its fingerprint, then waits for the view of what it changed; Activity reads the journal it ended in`)

@@ -376,17 +376,33 @@ fn unheard() -> LateListener {
   Arc::new(|| {})
 }
 
+/// What Activity shows of each journal of `log`: whether it is available, and the ids of its entries
+fn shown(log: &domain_types::activity::ActivityLog) -> Vec<(bool, Vec<String>)> {
+  log
+    .journals
+    .iter()
+    .map(|journal| (journal.available, journal.entries.iter().map(|entry| entry.id.0.clone()).collect()))
+    .collect()
+}
+
+/// A journal at a pipe in `directory`, as on a disk that hangs: a read of it waits until the test writes to it
+#[cfg(unix)]
+fn journal_on_a_hung_disk(directory: &std::path::Path) -> std::path::PathBuf {
+  let pipe = directory.join("journal.jsonl");
+  let made = sync_utils::child_process::windowless_command("mkfifo").arg(&pipe).status().unwrap();
+  assert!(made.success());
+  pipe
+}
+
 /// A journal that does not answer within the bound (a disk that hangs or is slow: here a pipe the test writes to late)
-/// is unavailable while it never answered, and the read does not wait for it; a read meanwhile joins the read that runs.
-/// Once it answers other entries the windows hear it, and the next read shows them, as what it answered last, while the
-/// read it starts waits again
+/// is unavailable while it never answered, and the read does not wait for it; a read meanwhile waits for the read that
+/// begins once that one answered. Once it answers other entries the windows hear it, and the next read shows them, as
+/// what it answered last, while the read it waits for waits for the disk again
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_journal_that_answers_after_the_bound_shows_once_it_answered() {
   let directory = tempfile::tempdir().unwrap();
-  let pipe = directory.path().join("journal.jsonl");
-  let made = sync_utils::child_process::windowless_command("mkfifo").arg(&pipe).status().unwrap();
-  assert!(made.success());
+  let pipe = journal_on_a_hung_disk(directory.path());
   let projects = [("/a".to_string(), Some(pipe.to_string_lossy().into_owned()))];
   let app_data = tempfile::tempdir().unwrap();
   let (told, mut heard) = tokio::sync::mpsc::unbounded_channel();
@@ -394,13 +410,6 @@ async fn a_journal_that_answers_after_the_bound_shows_once_it_answered() {
   let late: LateListener = Arc::new(move || {
     let _ = told.send(());
   });
-  let shown = |log: &domain_types::activity::ActivityLog| {
-    log
-      .journals
-      .iter()
-      .map(|journal| (journal.available, journal.entries.iter().map(|entry| entry.id.0.clone()).collect::<Vec<_>>()))
-      .collect::<Vec<_>>()
-  };
 
   let log = read_activity(&projects, app_data.path(), Duration::from_millis(50), &late).await;
   assert_eq!(shown(&log), [(false, Vec::new())]);
@@ -415,6 +424,48 @@ async fn a_journal_that_answers_after_the_bound_shows_once_it_answered() {
   heard.recv().await.unwrap();
   let log = read_activity(&projects, app_data.path(), Duration::from_millis(50), &late).await;
   assert_eq!(shown(&log), [(true, vec!["pushed".to_string()])]);
-  // the read that still waits for a writer ends with one, so the runtime of the test can stop
+  // the reads that still wait for a writer end with one each, so the runtime of the test can stop: the second answers
+  // no entries, which the windows hear, then the third begins
   drop(std::fs::OpenOptions::new().write(true).open(&pipe).unwrap());
+  heard.recv().await.unwrap();
+  drop(std::fs::OpenOptions::new().write(true).open(&pipe).unwrap());
+}
+
+/// A read of Activity asked while a read of the journal runs (a slow disk: here a pipe the test writes to late) never
+/// takes the answer of that read, which began before the change the read was asked for: an operation of `bd` ended
+/// meanwhile, and the windows heard its journal change. It shows the read that begins once that one answered, with the
+/// entry of `bd`
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_asked_while_one_runs_shows_the_journal_as_it_is_after_that_one() {
+  let directory = tempfile::tempdir().unwrap();
+  let path = journal_on_a_hung_disk(directory.path());
+  let projects = [("/a".to_string(), Some(path.to_string_lossy().into_owned()))];
+  let app_data = tempfile::tempdir().unwrap();
+  let common = tempfile::tempdir().unwrap();
+  let registry = ProcessRegistry::of(common.path());
+  finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
+  let before = std::fs::read_to_string(journal_path_in(registry.dir())).unwrap();
+  finished(&registry, "landed", &session("user"), &safe_push("docs"), Ok(&started(&id("landed"), EffectStatus::Done)));
+
+  // the first read opens the journal (the writer of the pipe opens once it did) and waits for the disk
+  let log = read_activity(&projects, app_data.path(), Duration::from_millis(50), &unheard()).await;
+  assert_eq!(shown(&log), [(false, Vec::new())]);
+  let pipe = path.clone();
+  let disk = tokio::task::spawn_blocking(move || std::fs::OpenOptions::new().write(true).open(&pipe).unwrap())
+    .await
+    .unwrap();
+  // the operation of bd ends: its entry is in the journal, and the window reads again while the first read waits
+  let written = directory.path().join("written");
+  std::fs::copy(journal_path_in(registry.dir()), &written).unwrap();
+  std::fs::rename(&written, &path).unwrap();
+  let late = unheard();
+  let mut again = std::pin::pin!(read_activity(&projects, app_data.path(), Duration::from_mins(1), &late));
+  let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+  assert!(again.as_mut().poll(&mut context).is_pending());
+
+  // the disk answers the first read with the journal it opened, before the entry of bd
+  std::io::Write::write_all(&mut &disk, before.as_bytes()).unwrap();
+  drop(disk);
+  assert_eq!(shown(&again.await), [(true, vec!["pushed".to_string(), "landed".to_string()])]);
 }

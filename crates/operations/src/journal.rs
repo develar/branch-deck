@@ -16,12 +16,13 @@
 //! The page has a journal of the same form in the app data directory (`PageEntry`, spec/repository/activity.spec.md):
 //! what only the page knows (an error it told, an update, what landed, a rewrite, the news of a review request, an
 //! approval or a robot), recorded through `record_page` under `journal.lock` beside it, within the same bounds.
-//! Activity reads both (`read_activity`): the journals of the recent projects in parallel on the blocking pool, one read
-//! of each journal at a time, which the reads of Activity meanwhile join (`JournalReads`). A read waits for each within
-//! `ACTIVITY_READ_TIMEOUT`, then shows what that journal answered last: a journal of a removed disk, or of one that never
-//! answered, is listed unavailable; a read that answers later with other entries tells the windows (`late`), so a slow
-//! disk shows once it answered and the wall clock never decides what shows. Clear Log forgets the log of a repository in
-//! both (`clear`).
+//! Activity reads both (`read_activity`): the journals of the recent projects in parallel on the blocking pool, one
+//! read of each journal at a time; a read of Activity asked while one runs waits for the next, which begins once that
+//! one answered, as the one that runs may have read the file before the change the read was asked for (`JournalReads`).
+//! A read waits for each within `ACTIVITY_READ_TIMEOUT`, then shows what that journal answered last: a journal of a
+//! removed disk, or of one that never answered, is listed unavailable; a read that answers later with other entries
+//! tells the windows (`late`), so a slow disk shows once it answered and the wall clock never decides what shows. Clear
+//! Log forgets the log of a repository in both (`clear`).
 
 use crate::registry_file::{ProcessRegistry, Record};
 use domain_types::activity::{ActivityLog, PageActivity, PageEntry, RepositoryJournal};
@@ -302,15 +303,22 @@ pub type LateListener = Arc<dyn Fn() + Send + Sync>;
 /// The answer of a read of a journal: its entries, or why it can't be read
 type Answer = Result<Vec<JournalEntry>, String>;
 
-/// The reads of a journal in this process: one runs at a time, and the reads of Activity meanwhile join it, so a disk
-/// that hangs keeps one blocked thread, never one per read
+/// A read of a journal: its answer, once it came
+type Reading = watch::Receiver<Option<Answer>>;
+
+/// The reads of a journal in this process: one runs at a time, so a disk that hangs keeps one blocked thread, never one
+/// per read. A read of Activity asked while one runs never takes its answer, which may be of the file before the change
+/// it was asked for (`activity-changed`): it waits for the next read, which the same thread runs once the one that runs
+/// answered, and which the reads of Activity asked meanwhile share
 #[derive(Default)]
 struct JournalReads {
-  /// The answer of the read that runs, once it came
-  running: Option<watch::Receiver<Option<Answer>>>,
+  /// The read that runs
+  running: Option<Reading>,
+  /// The read that runs next, once one was asked while one runs
+  next: Option<(watch::Sender<Option<Answer>>, Reading)>,
   /// The entries of the last read that answered; none after one that failed
   last: Option<Vec<JournalEntry>>,
-  /// Set once a read of Activity stopped waiting for the read that runs: told when its answer differs from `last`
+  /// Set once a read of Activity stopped waiting for its read: told by the first answer that differs from `last`
   late: Option<LateListener>,
 }
 
@@ -320,43 +328,53 @@ fn journal_reads() -> MutexGuard<'static, HashMap<PathBuf, JournalReads>> {
   READS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The answer of the read of the journal at `path` that runs, or of one started now on the blocking pool
-fn begin_read(path: &Path) -> watch::Receiver<Option<Answer>> {
+/// The answer of a read of the journal at `path` that begins after this call: one started now on the blocking pool, or,
+/// while one runs, the next one
+fn begin_read(path: &Path) -> Reading {
   let mut reads = journal_reads();
   let state = reads.entry(path.to_path_buf()).or_default();
   // a read whose thread is gone without an answer (a panic) is no read that runs
-  if let Some(running) = &state.running
-    && running.has_changed().is_ok()
-  {
-    return running.clone();
+  if state.running.as_ref().is_some_and(|running| running.has_changed().is_ok()) {
+    return state.next.get_or_insert_with(|| watch::channel(None)).1.clone();
   }
-  let (sender, receiver) = watch::channel(None);
+  let (sender, receiver) = state.next.take().unwrap_or_else(|| watch::channel(None));
   state.running = Some(receiver.clone());
   let path = path.to_path_buf();
-  drop(tokio::task::spawn_blocking(in_current_span(move || {
-    let answer = read_journal(&path).map_err(|error| error.to_string());
-    let late = {
+  drop(tokio::task::spawn_blocking(in_current_span(move || read_in_turn(&path, sender))));
+  receiver
+}
+
+/// Reads the journal at `path` for `sender`, then the next read asked meanwhile, until none is asked
+fn read_in_turn(path: &Path, sender: watch::Sender<Option<Answer>>) {
+  let mut sender = sender;
+  loop {
+    let answer = read_journal(path).map_err(|error| error.to_string());
+    let (late, next) = {
       let mut reads = journal_reads();
-      let state = reads.entry(path).or_default();
-      state.running = None;
+      let state = reads.entry(path.to_path_buf()).or_default();
       let changed = answer.as_ref().ok() != state.last.as_ref();
       state.last = answer.as_ref().ok().cloned();
-      let late = state.late.take();
+      let late = if changed { state.late.take() } else { None };
       // under the lock: a read of Activity that stops waiting sees either this answer or `late` taken after it
       let _ = sender.send(Some(answer));
-      late.filter(|_| changed)
+      let next = state.next.take();
+      state.running = next.as_ref().map(|(_, receiver)| receiver.clone());
+      (late, next)
     };
     if let Some(late) = late {
       late();
     }
-  })));
-  receiver
+    let Some((next, _)) = next else {
+      return;
+    };
+    sender = next;
+  }
 }
 
 /// The entries of the journal at `path` as Activity shows them: the answer of its read (`begin_read`) by `deadline`, else
 /// what it answered last, with `late` told once its read answers other entries; none when it can't be read, or never
 /// answered
-async fn shown(path: &Path, mut answer: watch::Receiver<Option<Answer>>, deadline: tokio::time::Instant, late: &LateListener) -> Option<Vec<JournalEntry>> {
+async fn shown(path: &Path, mut answer: Reading, deadline: tokio::time::Instant, late: &LateListener) -> Option<Vec<JournalEntry>> {
   if let Ok(waited) = tokio::time::timeout_at(deadline, answer.wait_for(Option::is_some)).await {
     return match waited.as_deref() {
       Ok(Some(Ok(entries))) => Some(entries.clone()),

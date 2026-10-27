@@ -1638,7 +1638,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   robot in the facts); a list of the whole window asked 60 s after it was sent at least (the 30 s a start waits for its
   answer, and as long again for a request Patronus still handles) without it means none started (the record leaves,
   and the start goes as planned, without the push that went before); a list asked earlier proves nothing, however late
-  its answer came. A comment is settled by the
+  its answer came, so a list of the session (which may be one kept for the windows from before) proves only that it
+  started, and without its robot a start that settled is asked once more since it was sent. A comment is settled by the
   reply of the bot to it (found by its text among the comments of its pull request since it was sent when its post
   lost its answer): accepted started, rejected or never posted failed. Forget This Start (and `bd operation forget`)
   takes the record out without asking Patronus: the toast "Forgot the start of auth" says Patronus may still run it.
@@ -1659,7 +1660,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../src/presenters/actions.test.ts (`offers Open in Patronus where its robot would be and Forget This Start, which says Patronus may still run it`)
   [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should show a start whose answer was lost on its row, refuse a start of it, and start again once it is forgotten`)
   [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should open the pull request of a comment start whose answer was lost`)
-  [@test] ../../crates/operations/src/reconcile_test.rs (`a_list_asked_before_a_lost_start_settled_proves_nothing_however_late_it_came`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_it_absent`)
 - After a mutation of `bd` (an agent's `bd group`, `bd push`), the session a window shows must sync once what a sync
   reads changed, without a focus: `bd` touched the stamp of the repository, which the window watches.
   [@test] ../../crates/operations/src/registry_watch_test.rs (`a_stamp_of_bd_syncs_the_session_a_window_shows`)

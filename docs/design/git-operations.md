@@ -2888,11 +2888,13 @@ both ended; a mutation of `bd` touches the stamp, a read, a dry run and a failur
   stack branch of a whole stack) in its mode, started since `sentAt` (`PATRONUS_COMMENT_CLOCK_SLACK` for the clocks), on
   its commit when Patronus names one, or of its pull request for a comment: started, the record leaves (`settle`, a CAS
   on its id and its start), the robot goes into the facts, and the admission is refused as `plan_changed`, its plan made
-  without that robot. A list of the whole window asked `SETTLED_AFTER` (60 s: the answer timeout of a start, 30 s,
-  and as long again for a request Patronus still handles after the client gave up) after `sentAt` without it proves
-  that none started: the record leaves and the admission goes in. A list of the session is dated by its request, not by
-  its answer: the registry, the port the scheduler applies the facts through, notes the time each read begins
-  (`FactsPort::begin`), and a list asked before the start settled proves nothing however late it came. A comment is read by its
+  without that robot. A list of the robots since `sentAt` that the reconcile asks itself `SETTLED_AFTER` (60 s: the
+  answer timeout of a start, 30 s, and as long again for a request Patronus still handles after the client gave up)
+  after `sentAt` at least without it proves that none started: the record leaves and the admission goes in. A list of
+  the session proves only that it started: the service may answer it from the full list it kept for the windows
+  (`FULL_LIST_REUSE`, 10 s, shared by the sessions of a Space repository), asked before the start settled however late
+  it came; without the robot, a start that settled is asked again by that list of the reconcile (one request, never
+  before it settled). A comment is read by its
   id (one conditional request of its reactions; a post that lost its answer is found by its text among the comments of
   its pull request since `sentAt`, a user's): accepted started, rejected failed, none found once settled failed (the
   post never arrived). Anything else, a read that fails included, stays `unknown`, and the admission is `busy` naming
@@ -2904,7 +2906,8 @@ both ended; a mutation of `bd` touches the stamp, a read, a dry run and a failur
 `operations/src/reconcile_test.rs` pins the reconcile (a lost answer of the fake Patronus, which drops the connection
 after it took the start: unknown, one `POST`, the record with the pushed commit, `busy` for its own process too, settled
 once the fake lists its robot; a start the fake doesn't list once settled leaves; a comment found by its text and
-settled by the bot's reply; a list of the robots of a session settles its starts), `registry_file_test.rs` and `forget_test.rs` the record and its forget, and
+settled by the bot's reply; a list of the robots of a session settles its starts, and a full list the service kept from
+before a start settled never proves it absent), `registry_file_test.rs` and `forget_test.rs` the record and its forget, and
 `bd-cli/src/cross_process_test.rs` a `bd safe-push auth` killed between its push and its start (the app settles it and
 starts once, pushing nothing more) and `bd operation forget`.
 
@@ -2942,8 +2945,10 @@ Every operation of the remote that ended, of the app and of every `bd`, is one l
 - **Activity reads** (`journal::read_activity`, `read_activity`): the journal of the repository of each recent project,
   which `subscribe_view` remembered for the project (`app_settings::journals`, the key `journalPaths`, by the path of
   the project; Rust writes it before the subscription, no window does), each once for the projects that share it, all
-  in parallel on the blocking pool, one read of a journal at a time in the process (a read of Activity meanwhile joins
-  it, so a disk that hangs keeps one thread), each waited for 200 ms (`ACTIVITY_READ_TIMEOUT`), then shown as it
+  in parallel on the blocking pool, one read of a journal at a time in the process, so a disk that hangs keeps one
+  thread (a read of Activity asked while one runs waits for the next, which the same thread begins once that one
+  answered and the reads asked meanwhile share: the one that runs may have read the file before the change the read was
+  asked for, `activity-changed`), each waited for 200 ms (`ACTIVITY_READ_TIMEOUT`), then shown as it
   answered last: one whose repository is gone (its `$GIT_COMMON_DIR` missing), that can't be read or that never
   answered is unavailable, one not written yet is empty; a read that answers after the wait with other entries than
   its journal answered before tells the listener of the read (the app's windows hear `activity-changed`), so a slow

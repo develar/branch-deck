@@ -26,7 +26,7 @@
 
 use crate::events::EventSink;
 use crate::journal::stats_of;
-use crate::reconcile::{Listed, ReconcileSources, Reconciled, SettleWith, admit_settled, reconcile};
+use crate::reconcile::{ReconcileSources, Reconciled, SettleWith, admit_settled, reconcile};
 use crate::registry_file::{Entry, ProcessRegistry, RecordHandle, RecordStatus};
 use crate::registry_watch::{SessionWatch, Watches};
 use domain_policy::admission::admit;
@@ -36,7 +36,7 @@ use domain_types::session::{RepositoryView, ViewPatch};
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::FactsPort;
 use remote_facts::service_sources::ServiceHost;
-use repository_model::facts::{AppliedFacts, FactResult, FactTicket, RobotsRead, Seq};
+use repository_model::facts::{AppliedFacts, FactResult, FactTicket, RobotsRead};
 use repository_model::session::{SessionHold, SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::{OperationPatch, TableState};
 use std::collections::HashMap;
@@ -80,25 +80,6 @@ pub struct Registry {
   channels: Arc<Mutex<HashMap<OperationId, Channel>>>,
   /// The watches of the registries of the repositories whose sessions a window shows
   watches: Watches,
-  /// When each read of the facts that runs began (`FactsPort::begin`), by its session and ticket, on the clock of the
-  /// reconcile: the request of a list of the robots goes out right after its begin, so the list settles the starts
-  /// whose answer was lost by the time it was asked (`reconcile::Listed`), never by when its answer came. Kept only by
-  /// a registry that settles; each read takes its own out when its answer is applied
-  asked: Asked,
-}
-
-/// When each read of the facts that runs began (`Registry::asked`): Unix seconds by the session, the epoch and the
-/// number of its ticket
-type Asked = Arc<Mutex<HashMap<(SessionKey, u32, Seq), u32>>>;
-
-/// The robots a list of a session brought, to settle the starts whose answer was lost by (`Registry::listed_robots`)
-#[derive(Debug, Clone)]
-pub struct ListedRobots {
-  pub robots: Vec<domain_types::patronus::PatronusRobot>,
-  /// Of the whole window
-  pub complete: bool,
-  /// Unix seconds when it was asked, on the clock of the reconcile (`RegistryFiles::at`)
-  pub asked_at: u32,
 }
 
 /// Where the operations of the sessions of a registry are recorded for the other processes of their repositories
@@ -225,8 +206,8 @@ struct Channel {
 /// The channels of a registry; the lock is held only for a lookup or an entry, never across a wait
 type Channels = Arc<Mutex<HashMap<OperationId, Channel>>>;
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-  mutex.lock().unwrap_or_else(PoisonError::into_inner)
+fn lock(channels: &Mutex<HashMap<OperationId, Channel>>) -> MutexGuard<'_, HashMap<OperationId, Channel>> {
+  channels.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// What the admission on the actor of the session decided
@@ -250,7 +231,6 @@ impl Registry {
       watches: Watches::new(files.journaled.clone()),
       files,
       channels: Arc::new(Mutex::new(HashMap::new())),
-      asked: Arc::new(Mutex::new(HashMap::new())),
     }
   }
 
@@ -305,11 +285,12 @@ impl Registry {
     self.watches.reread(registry);
   }
 
-  /// Settles the starts whose answer was lost of the prefix of `key` in the registry of its repository by `listed`, the
-  /// user's robots a list of the session just brought, and for a comment by the reply of the bot (`reconcile`), over
-  /// the services of the files; a settled one leaves the registry and the windows read it again. Nothing without such a
-  /// start, or without the services
-  pub async fn reconcile_after_robots(&self, key: &SessionKey, listed: &ListedRobots) {
+  /// Settles the starts whose answer was lost of the prefix of `key` in the registry of its repository after a list of
+  /// the session brought `listed`, the user's robots, over the services of the files (`reconcile`): one whose robot it
+  /// has started; else through the API a list the reconcile asks once the start settled tells (the list of the session
+  /// may be one the service kept from before), and for a comment the reply of the bot. A settled one leaves the
+  /// registry and the windows read it again. Nothing without such a start, or without the services
+  pub async fn reconcile_after_robots(&self, key: &SessionKey, listed: &[domain_types::patronus::PatronusRobot]) {
     let (Some(host), Some(registry)) = (self.files.settle.as_deref(), self.files.registry_of(key).await) else {
       return;
     };
@@ -325,12 +306,7 @@ impl Registry {
     let sources = ReconcileSources::of(host, key, (self.files.now)(key)).await;
     let mut settled = false;
     for record in unknown {
-      let list = Listed {
-        robots: &listed.robots,
-        complete: listed.complete,
-        asked_at: listed.asked_at,
-      };
-      let transition = match reconcile(&record, &sources, Some(list)).await {
+      let transition = match reconcile(&record, &sources, Some(listed)).await {
         Reconciled::Unknown => continue,
         Reconciled::Started(robot) => JournalTransition::Started { robot },
         Reconciled::Failed => JournalTransition::NotStarted,
@@ -345,20 +321,16 @@ impl Registry {
     }
   }
 
-  /// What the answer `result` of the read of `ticket` of the session of `key` settles the starts whose answer was lost
-  /// by: the robots of a list that Patronus answered, of the whole window when `full`, with the time its read began;
-  /// none for any other read, and in a registry that settles none. The time of the read leaves the registry here
-  pub(crate) fn listed_robots(&self, key: &SessionKey, ticket: FactTicket, result: &FactResult) -> Option<ListedRobots> {
-    let asked_at = lock(&self.asked).remove(&(key.clone(), ticket.epoch, ticket.seq))?;
+  /// The robots after whose list the starts whose answer was lost are settled (`reconcile_after_robots`): those of the
+  /// answer `result` of a list that Patronus answered, of the whole window or since a time; none for any other read,
+  /// and in a registry that settles none
+  fn listed_robots(&self, result: &FactResult) -> Option<Vec<domain_types::patronus::PatronusRobot>> {
+    self.files.settle.as_ref()?;
     match result {
       FactResult::Robots {
-        read: RobotsRead::List { full },
+        read: RobotsRead::List { .. },
         result,
-      } if result.availability == domain_types::patronus::PatronusAvailability::Available => Some(ListedRobots {
-        robots: result.robots.clone(),
-        complete: *full,
-        asked_at,
-      }),
+      } if result.availability == domain_types::patronus::PatronusAvailability::Available => Some(result.robots.clone()),
       _ => None,
     }
   }
@@ -429,22 +401,15 @@ impl Registry {
 }
 
 /// The registry is the port the scheduler of the facts applies its answers through (`Sessions::apply_facts`): after a list
-/// of the robots of a session, the starts whose answer was lost of its prefix are settled by it
-/// (`reconcile_after_robots`), on a task of their own, so the scheduler never waits for them
+/// of the robots of a session, the starts whose answer was lost of its prefix are settled (`reconcile_after_robots`), on
+/// a task of their own, so the scheduler never waits for them
 impl FactsPort for Registry {
   fn begin<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Option<FactTicket>> {
-    Box::pin(async move {
-      let ticket = self.sessions.begin(key).await?;
-      // the request of the read goes out next: a list proves no more than what Patronus had then
-      if self.files.settle.is_some() {
-        lock(&self.asked).insert((key.clone(), ticket.epoch, ticket.seq), (self.files.now)(key));
-      }
-      Some(ticket)
-    })
+    Box::pin(self.sessions.begin(key))
   }
 
   fn apply<'a>(&'a self, key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<AppliedFacts>> {
-    let listed = self.listed_robots(key, ticket, &result);
+    let listed = self.listed_robots(&result);
     Box::pin(async move {
       let applied = self.sessions.apply_facts(key, ticket, result).await;
       if let Some(listed) = listed {
