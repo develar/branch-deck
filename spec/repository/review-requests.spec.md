@@ -99,7 +99,8 @@ there, in the preview and in the review alike, on the commit the review shows; t
 
 ## Non-goals
 
-- Requests of a team the user is in (CODEOWNERS fan-out): only direct requests (`user-review-requested:@me`).
+- Requests of a team the user is in (CODEOWNERS fan-out): only direct requests (`user-review-requested:@me`); the
+  team requests, the reviewed and the own pull requests are [Reviews](reviews.spec.md).
 - Drafts and archived repositories.
 - Comments on lines, a review with a comment only, and dismissing a review: GitHub does that (Open Pull Request).
 - Repositories other than the selected one: only it is polled.
@@ -271,7 +272,7 @@ Safe Push it allows.
   returned" after it ("1 returned" alone), the age in `warning` when old. The help popover after the count says what is shown (direct requests only, not an answered one, then the returned pull requests),
   how the ages colour, and where from; the "⋯" menu has
   "Refresh" (when GitHub was asked on its hover: "Checked 2 minutes ago"), "Open All on GitHub" (the search of the
-  repository, while requests wait) and "Notification Settings…".
+  repository, while requests wait), "Show All Reviews" (⌘2, [Reviews](reviews.spec.md)) and "Notification Settings…".
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`, `should say 50 of 63 when GitHub has more than it returns, expanded or not, and keep the count in the collapsed header`, `should show the island for a returned pull request alone`)
 - A row, 36 px: the unread dot, the title (`font-medium`), the meta "#101 · carol · 2 files · +12 −3" (muted line
   counts, as in every row; "#830 · agent-bot · requested by dave · …" when someone else than the author asked, as for a pull request a
@@ -297,7 +298,9 @@ Safe Push it allows.
   Changes…, Open Pull Request (O), Copy Pull Request Link, Copy Branch Name (copies without a toast). A write opens the
   review window for it, since a review is on the commit the user saw: Request Changes… with its comment form, Approve
   and Safe Push… with its confirmation, Approve… with the focus on Approve once the pull request is fetched.
-  Approve… is disabled with "You approved <hash>" after an approval of the head GitHub shows. ↑/↓ move the focus between
+  The actions are those Rust decides of the pull request (`pull:<number>` of `RepositoryView.actions`, [Reviews](reviews.spec.md#the-actions-of-a-pull-request)):
+  Approve… is disabled with "You approved <hash>" after an approval of the head GitHub shows (or the app submitted),
+  Approve and Safe Push… is offered where Patronus merges and disabled for another base than its target. ↑/↓ move the focus between
   the rows (one tab stop), Enter reviews, `D` reviews its changes (the window opens in Changes once the pull request is
   fetched, as D in the review shows them); the main window keeps the focus on the row. Space does nothing: it is Quick
   Look elsewhere, and a pull request has none.
@@ -337,7 +340,7 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
   [@test] ../../src/lib/pull-request-review.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
 - The window opens at once with what the search returned. Its title bar ([Title Bar](title-bar.spec.md)): ↑ ↓ (in the
-  tooltips) and the window title "Your Turn › 2 of 5" on the left; GitHub (`O`), "⋯" (Copy Pull Request Link, Copy
+  tooltips) and the window title "Your Turn › 2 of 5" on the left ("Reviews › 3 of 14" opened from [Reviews](reviews.spec.md), whose rows it walks); GitHub (`O`), "⋯" (Copy Pull Request Link, Copy
   Branch Name) and the decisions ([Reviews](#reviews)) on the right, Approve last, in the corner. In a title bar
   narrower than 48rem GitHub is its icon; narrower than 56rem the decisions drop their keys and Request Changes… is its
   icon, named on hover; one 40px line down to the window's minimum width. Then, in one island:
@@ -395,11 +398,14 @@ Safe Push it allows.
   the pull request does not have yet; the review shows them." A source ahead of the pull request (a mirror) still shows
   the pull request's commit; a force-pushed source is `diverged`.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_mirror_ahead_of_the_pull_request_shows_the_pull_request`, `a_force_pushed_source_branch_diverged`, `a_head_that_cannot_be_got_shows_the_source_branch`)
-- A request withdrawn while the window shows it stays, with the quiet line "No longer waiting for your review".
+- A request withdrawn while the window shows it stays, with the quiet line "No longer waiting for your review" ("No
+  longer in Reviews" of one opened from Reviews).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the review when the request is withdrawn meanwhile, and its refs`)
 - The main window owns the requests: the window gets them in its data (`PullRequestReviewWindowData`: the request, its
-  place, the intent, and the state of the requests of its repository: the list, the reviews of the user, what runs,
-  Patronus, whether the main window shows that repository), and `pull-request-review/state` whenever that changed
+  place, the intent, the list it was opened from, and the state of the requests of its repository: the rows of that
+  list, how the user takes part in each pull request of Reviews, the actions Rust decides of each (`pull:<number>`; the
+  window's pull request among them while it shows it, `Demand::review_windows`, also once no listing has it), what
+  runs, whether the main window shows that repository), and `pull-request-review/state` whenever that changed
   (deduplicated), over the link of the window (`sub-window-link.ts`, the events of a window prefixed with its label).
 - A write of the window (Approve, Request Changes, Approve and Safe Push, Open Pull Request) is a
   `pull-request-review/request` with the whole request; the main window runs it on the window's repository, the toast
@@ -437,7 +443,7 @@ Safe Push it allows.
   fetched (`missing`), Approve and Request Changes are disabled with the reason. An approval of the same commit again
   is disabled ("You approved <hash>"); a poll that brings new commits fetches them, the header says "#101 got new
   commits while it was open: the review shows <hash> now", and they can be approved.
-  [@test] ../../src/lib/review-request-actions.test.ts (`disables the writes of the review until the commit the user saw is there, and an approval of the same commit`)
+  [@test] ../../src/lib/review-request-actions.test.ts (`disables the writes of the review until the commit the user saw is there, an approval of the same commit, and an own pull request`)
 - Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
   (`SubmitReview`, its effect `submitReview`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)),
   in the repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below
@@ -464,15 +470,15 @@ Safe Push it allows.
 ### Safe Push of a reviewed pull request
 
 - Where Patronus guards the repository, the title bar has Approve and Safe Push… (`M`), an outline button before Approve,
-  the primary (the decision comes first, the merge after it), and the row's menu has it after Approve…. It is enabled only for a pull request into the branch
-  Patronus pushes into for the baseline (`get_patronus_target_branch`); another base is disabled with "#103 merges into
-  release/253: Patronus would merge it there, not into master" (a stacked pull request would land in its parent). The
-  row's menu decides alike (`getReviewSafePush`, the target read once for the card), never enabled where the review
-  refuses. While the target is read it is disabled with "Reading the branch Patronus pushes into…"; a read that failed
-  says it ("Cannot read the branch Patronus pushes into: …", read again by the next open of a review window), never "the
-  baseline is none".
-  [@test] ../../src/lib/review-request-actions.test.ts (`offers Approve and Safe Push where Patronus merges into the base, the Safe Push alone once approved`)
-  [@test] ../../src/lib/pull-request-review.test.ts (`says why Approve and Safe Push waits for the branch Patronus pushes into, and a read that failed as a failure`)
+  the primary (the decision comes first, the merge after it), and the row's menu has it after Approve…. Rust decides it
+  ([Reviews](reviews.spec.md#the-actions-of-a-pull-request), `domain_policy::actions::review_actions`) on the branch
+  Patronus pushes into for the baseline, which the sync read (`TableHeader.targetBranch`): enabled only for a pull
+  request into it; another base is disabled with "#103 merges into release/253: Patronus would merge it there, not into
+  master" (a stacked pull request would land in its parent); before the first sync "Reading the branch Patronus pushes
+  into…"; a baseline that is no branch of origin "Patronus pushes into a branch of origin: the baseline is none". The
+  row's menu and the review decide alike, by the same actions.
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patronus_pushes_into`)
+  [@test] ../../src/lib/review-request-actions.test.ts (`offers Approve and Safe Push where Rust offers it, disabled with its reason, the Safe Push alone once approved`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve and Safe Push a pull request into the Patronus target with a plain /patronus merge, after a confirmation`)
 - It opens a confirmation below its button: "Approves 1a2b3c4d, then comments /patronus merge on #101: Patronus rebases
   alice/feature onto master, runs the checks, merges it and deletes the branch. It reports in the pull request.", with

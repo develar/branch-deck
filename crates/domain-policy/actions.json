@@ -36,7 +36,13 @@
     "copy-robot-prompt",
     "copy-robot-full-prompt",
     "open-robot",
-    "open-robot-pull-request"
+    "open-robot-pull-request",
+    "review",
+    "approve",
+    "safe-push-pull-request",
+    "request-changes",
+    "show-branch",
+    "remove-from-reviews"
   ],
   "blockers": [
     [
@@ -245,6 +251,40 @@
           },
           "after": []
         }
+      }
+    ],
+    [
+      "approve",
+      {
+        "code": "ownPullRequest"
+      }
+    ],
+    [
+      "approve",
+      {
+        "code": "approved",
+        "commit": "0123456789abcdef"
+      }
+    ],
+    [
+      "safe-push-pull-request",
+      {
+        "code": "targetUnread"
+      }
+    ],
+    [
+      "safe-push-pull-request",
+      {
+        "code": "noTarget"
+      }
+    ],
+    [
+      "safe-push-pull-request",
+      {
+        "code": "otherBase",
+        "number": 101,
+        "base": "release/253",
+        "target": "master"
       }
     ]
   ]

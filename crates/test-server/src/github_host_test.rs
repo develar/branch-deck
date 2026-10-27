@@ -464,7 +464,7 @@ async fn a_deleted_repository_releases_the_answers_its_test_held() {
     async move { TestFactSources::new(&state).pull_requests(&key).await }
   });
   until_arrived(&client, addr, &id, "pullRequests").await;
-  let requests = tokio::spawn(async move { review_requests_of(&state, &key).await });
+  let requests = tokio::spawn(async move { review_requests_of(&state, &key, false).await });
   until_arrived(&client, addr, &id, "reviewRequests").await;
   delete_repository(&client, addr, &id, &repository_path).await;
   let listed = tokio::time::timeout(std::time::Duration::from_mins(1), listing)

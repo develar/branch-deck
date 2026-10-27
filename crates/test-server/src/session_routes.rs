@@ -30,7 +30,6 @@ use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
-use domain_types::review_request::ReviewRequestsResult;
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -212,13 +211,13 @@ impl FactSources for TestFactSources {
     })
   }
 
-  fn review_requests<'a>(&'a self, key: &'a SessionKey, _github_repository: Option<String>) -> Read<'a, ReviewRequestsResult> {
+  fn review_requests<'a>(&'a self, key: &'a SessionKey, _github_repository: Option<String>, reviews: bool) -> Read<'a, domain_types::review_request::ReviewRequestsResult> {
     Box::pin(async move {
-      let failure = |message: String| ReviewRequestsResult::unavailable(PullRequestAvailability::Error { message });
+      let failure = |message: String| domain_types::review_request::ReviewRequestsResult::unavailable(PullRequestAvailability::Error { message });
       let Some(state) = self.state.upgrade() else {
         return failure(stopped().message);
       };
-      review_requests_of(&state, key).await.unwrap_or_else(|error| failure(error.message))
+      review_requests_of(&state, key, reviews).await.unwrap_or_else(|error| failure(error.message))
     })
   }
 
@@ -300,6 +299,29 @@ impl ServiceHost for TestServices {
     self.git.clone()
   }
 
+  /// The links of a test repository live in its own settings (`TestRepository::store`), as the app's in its app data
+  fn linked_pull_requests(&self, key: &SessionKey, repository: &GitHubRepository) -> Vec<domain_types::review_request::LinkedPullRequest> {
+    let Ok(state) = self.state() else {
+      return Vec::new();
+    };
+    repository_by_path(&state, &key.worktree).map_or_default(|repo| app_settings::linked_pull_requests::linked(&repo.store, &repository.full_name()))
+  }
+
+  fn link_pull_request(&self, key: &SessionKey, repository: &GitHubRepository, link: domain_types::review_request::LinkedPullRequest) -> Result<(), ApiError> {
+    let state = self.state()?;
+    let repo = repository_by_path(&state, &key.worktree).map_err(rejected)?;
+    app_settings::linked_pull_requests::link(&repo.store, &repository.full_name(), link).map_err(|error| ApiError::internal(error.to_string()))?;
+    Ok(())
+  }
+
+  fn forget_linked_pull_requests(&self, key: &SessionKey, repository: &GitHubRepository, numbers: &[u32]) {
+    if let Ok(state) = self.state()
+      && let Ok(repo) = repository_by_path(&state, &key.worktree)
+    {
+      let _ = app_settings::linked_pull_requests::forget(&repo.store, &repository.full_name(), numbers);
+    }
+  }
+
   /// The config as the config commands of the test read and write it: the global config of the repository its own file
   fn config_git(&self, key: &SessionKey) -> GitCommandExecutor {
     let state = self.state.upgrade();
@@ -365,6 +387,32 @@ impl ServiceHost for TestServices {
 
 fn stopped() -> ApiError {
   ApiError::internal("The test server stopped")
+}
+
+/// Adds a pull request to Reviews by its link, as the app's `link_pull_request`: the same core over the fake GitHub
+pub async fn link_pull_request(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<domain_types::review_request::LinkPullRequestParams>,
+) -> CommandResult<domain_types::review_request::LinkedPullRequestAnswer> {
+  let key = session_key(&state, &params.repository_path).await?;
+  let (entry, kept) = remote_facts::reviews::link_pull_request(&test_services(&state), &state.sessions, &key, &params.input, sync_utils::timestamp::unix_now()).await?;
+  Ok(Json(domain_types::review_request::LinkedPullRequestAnswer { entry, kept }))
+}
+
+/// Removes a link of Reviews, as the app's `unlink_pull_request`
+pub async fn unlink_pull_request(State(state): State<Arc<AppState>>, Json(params): Json<domain_types::review_request::UnlinkPullRequestParams>) -> CommandResult<()> {
+  let key = session_key(&state, &params.repository_path).await?;
+  Ok(Json(
+    remote_facts::reviews::unlink_pull_request(&test_services(&state), &state.sessions, &key, params.number).await?,
+  ))
+}
+
+/// The services of the test repositories of `state`, as the app's
+fn test_services(state: &Arc<AppState>) -> TestServices {
+  TestServices {
+    state: Arc::downgrade(state),
+    git: state.git_executor.clone(),
+  }
 }
 
 /// The patches of a session to the event stream of `subscribe_view`

@@ -551,6 +551,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
     parked: grouping.parked.entries,
     stack_branches: stack_branches.reported_roots(),
+    target_branch: crate::patronus::target_branch_of(facts.upstream.as_ref()),
   })?;
 
   let tree_id_cache = seeded_tree_cache(tree_id_cache, branches.values().flatten());

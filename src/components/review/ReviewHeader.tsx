@@ -13,11 +13,14 @@ import { ActionButton } from "@/components/shared/ActionButton"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { WindowTitle } from "@/components/shared/WindowTitleBar"
-import type { ReviewRequest } from "@/lib/bindings"
+import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
+import type { ReviewInvolvement, ReviewRequest } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
+import type { ReviewSource } from "@/lib/pull-request-review"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
+import { formatAskedBy, formatReviewAge } from "@/presenters/reviews"
 import type { SubmittedReview } from "@/stores/review-requests"
 
 export interface ReviewToolbarProps {
@@ -28,15 +31,18 @@ export interface ReviewToolbarProps {
   onPrevious: (() => void) | null
   onNext: (() => void) | null
   actions: ReviewRequestActions
+  /** The list the window walks: "Your Turn", "Reviews" */
+  source: ReviewSource
 }
 
-/** ↑ ↓ and "Your Turn › 2 of 5": where the request is in the list, the start of the title bar of the review window */
-export function ReviewNavigation({ index, count, onPrevious, onNext }: Pick<ReviewToolbarProps, "index" | "count" | "onPrevious" | "onNext">) {
+/** ↑ ↓ and "Your Turn › 2 of 5" ("Reviews › 3 of 14"): where the request is in its list, the start of the title bar of the review window */
+export function ReviewNavigation({ index, count, onPrevious, onNext, source }: Pick<ReviewToolbarProps, "index" | "count" | "onPrevious" | "onNext" | "source">) {
+  const list = source === "reviews" ? "Reviews" : "Your Turn"
   return (
     <div className="flex min-w-0 items-center gap-2" data-testid="review-navigation">
       <NavigationButton label="Previous request" keyHint="↑" icon={<ChevronUpIcon />} onClick={onPrevious} testId="review-previous" />
       <NavigationButton label="Next request" keyHint="↓" icon={<ChevronDownIcon />} onClick={onNext} testId="review-next" />
-      <WindowTitle parts={index === -1 ? ["Your Turn"] : ["Your Turn", { text: `${index + 1} of ${count}`, testId: "review-dialog-position" }]} className="tabular-nums" />
+      <WindowTitle parts={index === -1 ? [list] : [list, { text: `${index + 1} of ${count}`, testId: "review-dialog-position" }]} className="tabular-nums" />
     </div>
   )
 }
@@ -96,6 +102,8 @@ function MenuItemAction({ item, label, "data-testid": testId }: { item: MenuItem
 
 export interface ReviewHeaderProps {
   request: ReviewRequest
+  /** How the user takes part in a pull request of Reviews; null for a request by name */
+  involvement: ReviewInvolvement | null
   submitted: SubmittedReview | undefined
   /** The review of the changes shows: the title alone, the rest gives the diffs room */
   compact: boolean
@@ -108,10 +116,10 @@ export interface ReviewHeaderProps {
  * Who asks and for how long ("bob asks for your review · waiting 2 days"), the title, and the chips: the number, `base ←
  * head`, the size, the checks, the decision of GitHub, the review of the user
  */
-export function ReviewHeader({ request, submitted, compact, onOpenOnGitHub, children }: ReviewHeaderProps) {
+export function ReviewHeader({ request, involvement, submitted, compact, onOpenOnGitHub, children }: ReviewHeaderProps) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      {!compact && <AskedBy request={request} />}
+      {!compact && (involvement === null ? <AskedBy request={request} /> : <TakesPart request={request} involvement={involvement} />)}
       <h2 className="min-w-0 text-base leading-6 font-medium text-pretty text-foreground select-text">{request.title}</h2>
       {!compact && <RequestChips request={request} submitted={submitted} onOpenOnGitHub={onOpenOnGitHub} />}
       {children}
@@ -132,6 +140,21 @@ function AskedBy({ request }: { request: ReviewRequest }) {
       </span>
       <span aria-hidden>·</span>
       <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} backToYou={request.backToYou} testId="review-dialog-age" />
+    </div>
+  )
+}
+
+/** How the user takes part in a pull request of Reviews: "Added by link: carol's pull request · updated 3 hours ago" */
+function TakesPart({ request, involvement }: { request: ReviewRequest; involvement: ReviewInvolvement }) {
+  const now = useNow(RELATIVE_TIME_TICK_MS)
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground" data-testid="review-asked-by">
+      <Avatar login={request.author} />
+      <span className="truncate">{formatAskedBy(request, involvement)}</span>
+      <span aria-hidden>·</span>
+      <span className="whitespace-nowrap tabular-nums" data-testid="review-dialog-age">
+        {formatReviewAge({ request, involvement }, now)}
+      </span>
     </div>
   )
 }

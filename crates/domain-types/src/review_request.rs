@@ -1,4 +1,4 @@
-use crate::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision};
+use crate::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, Reviewer, ReviewerState};
 use serde::{Deserialize, Serialize};
 
 /// A pull request of someone else that waits for the user's review: the user is a requested reviewer by name
@@ -39,6 +39,8 @@ pub struct ReviewRequest {
   pub re_requested: bool,
   /// The commit the user's latest submitted review was on; None if the user has not reviewed
   pub reviewed_commit: Option<String>,
+  /// The state of the user's latest submitted review; None if the user has not reviewed
+  pub reviewed_state: Option<ReviewerState>,
   /// The branch of the pull request, e.g. `alice/virtual/feature-auth`
   pub head_ref_name: String,
   /// The commit the pull request shows
@@ -63,6 +65,12 @@ pub struct ReviewRequestsResult {
   pub total_count: u32,
   /// At most 50, as GitHub returns them; empty unless available
   pub requests: Vec<ReviewRequest>,
+  /// The requests by name the user answered with a comment, which don't wait (Reviews shows them as reviewed)
+  #[serde(default)]
+  pub answered: Vec<AnsweredRequest>,
+  /// The rest of Reviews, asked in the same request while the Reviews view shows (`ReviewsAsk`); None otherwise
+  #[serde(default)]
+  pub others: Option<ReviewsAnswer>,
 }
 
 impl ReviewRequestsResult {
@@ -71,8 +79,150 @@ impl ReviewRequestsResult {
       availability,
       total_count: 0,
       requests: Vec::new(),
+      answered: Vec::new(),
+      others: None,
     }
   }
+}
+
+/// A request by name the user answered with a comment, and when (unix seconds): it waits for the other side
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct AnsweredRequest {
+  pub request: ReviewRequest,
+  pub replied_at: u32,
+}
+
+/// What Reviews asks GitHub beside the requests by name (spec/repository/reviews.spec.md): the pull requests the user
+/// added by their links
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReviewsAsk {
+  pub linked: Vec<LinkedPullRequest>,
+}
+
+/// A pull request the user added to Reviews by its link, kept per GitHub repository (`linkedPullRequests` of
+/// `repository-state.json`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedPullRequest {
+  pub number: u32,
+  /// Unix seconds
+  pub linked_at: u32,
+}
+
+/// How the user takes part in a pull request of Reviews
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ReviewInvolvement {
+  /// The user added it by its link (unix seconds)
+  Linked { linked_at: u32 },
+  /// It asks for the review of teams, not of the user by name: the slugs GitHub names (none without `read:org`)
+  Team { teams: Vec<String> },
+  /// The user reviewed it: the state of the latest review, or none and `replied_at` for a request the user answered
+  /// with a comment; `new_commits` when its head is not the commit of that review
+  Reviewed {
+    state: Option<ReviewerState>,
+    replied_at: Option<u32>,
+    new_commits: bool,
+  },
+  /// The user's own: its reviewers by their latest review, a draft, the branch of the table it is of
+  Authored {
+    reviewers: Vec<Reviewer>,
+    is_draft: bool,
+    branch: Option<String>,
+  },
+}
+
+/// A pull request of Reviews: what GitHub says of it, in the fields of a request (`requested_at` and `waiting_since`
+/// are when a team was asked, of a team request; else `updated_at`), and how the user takes part in it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewEntry {
+  pub request: ReviewRequest,
+  pub involvement: ReviewInvolvement,
+}
+
+/// One search of Reviews: at most 50 pull requests as GitHub returns them, and how many match
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSearch {
+  pub total_count: u32,
+  pub entries: Vec<ReviewEntry>,
+}
+
+/// What GitHub answered of a linked pull request
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum LinkedAnswer {
+  Open {
+    entry: Box<ReviewEntry>,
+  },
+  /// Merged or closed: the link goes
+  Closed {
+    number: u32,
+  },
+  /// The repository has no pull request of the number: the link goes
+  Missing {
+    number: u32,
+  },
+}
+
+impl LinkedAnswer {
+  #[must_use]
+  pub const fn number(&self) -> u32 {
+    match self {
+      Self::Open { entry } => entry.request.number,
+      Self::Closed { number } | Self::Missing { number } => *number,
+    }
+  }
+}
+
+/// The rest of Reviews beside the requests by name, as one request asked it; a part an answer lacks is empty
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReviewsAnswer {
+  /// `review-requested:@me` without the requests by name
+  pub team: ReviewSearch,
+  /// `reviewed-by:@me -author:@me`
+  pub reviewed: ReviewSearch,
+  /// `author:@me`
+  pub authored: ReviewSearch,
+  /// The linked pull requests, newest link first
+  pub linked: Vec<LinkedAnswer>,
+}
+
+/// The parameters of a link the user adds to Reviews: a URL of a pull request, `owner/name#123`, `#123` or `123`
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LinkPullRequestParams {
+  pub repository_path: String,
+  pub input: String,
+}
+
+/// A pull request the user added by its link, as GitHub answered it: kept in Reviews while open, opened but not kept
+/// once merged or closed
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedPullRequestAnswer {
+  pub entry: ReviewEntry,
+  pub kept: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UnlinkPullRequestParams {
+  pub repository_path: String,
+  pub number: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]

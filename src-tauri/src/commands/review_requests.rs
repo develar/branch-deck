@@ -1,15 +1,21 @@
+use crate::commands::branch_prefix::{PrefixInputs, Prefixes, Settings};
+use crate::commands::session::{AppServices, SessionsState, session_key};
 use crate::operation::{operation, run_blocking};
 use crate::window_requests::WindowRequests;
 use domain_types::error::ApiError;
-use domain_types::review_request::{FetchReviewHeadParams, GetRangeParams, PruneReviewRefsParams, ReviewRange};
+use domain_types::review_request::{
+  FetchReviewHeadParams, GetRangeParams, LinkPullRequestParams, LinkedPullRequestAnswer, PruneReviewRefsParams, ReviewRange, UnlinkPullRequestParams,
+};
 use file_diffs::range_files::RangeFilesCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::{CommitFiles, DiffSubject};
+use remote_facts::reviews::{link_pull_request as core_link_pull_request, unlink_pull_request as core_unlink_pull_request};
 use std::sync::Arc;
 use sync_core::review_fetch::{fetch_review_head as core_fetch_review_head, prune_review_refs as core_prune_review_refs};
 use sync_core::transfer_progress::TransferProgress;
+use sync_utils::timestamp::unix_now;
 use tauri::ipc::Channel;
-use tauri::{State, Webview};
+use tauri::{AppHandle, State, Webview};
 use tracing::{instrument, warn};
 
 /// The latest review fetch of each window: a newer call of the window, `cancel_review_fetch` of it, or its close kills
@@ -81,4 +87,46 @@ pub async fn get_range_files(git_executor: State<'_, GitCommandExecutor>, range_
 
 const fn range_subject(base: String, head: String) -> DiffSubject {
   DiffSubject::Range { base, head }
+}
+
+/// Adds a pull request to Reviews by its link, `#number` or number (`remote_facts::reviews::link_pull_request`): GitHub
+/// is asked for it, an open one is kept for the repository, and the session reads Reviews again with it. Answers the
+/// pull request, which the page opens in the review window
+#[tauri::command]
+#[instrument(skip_all, fields(repository_path = %params.repository_path))]
+#[specta::specta]
+pub async fn link_pull_request(
+  app: AppHandle,
+  git_executor: State<'_, GitCommandExecutor>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
+  state: State<'_, SessionsState>,
+  params: LinkPullRequestParams,
+) -> Result<LinkedPullRequestAnswer, ApiError> {
+  operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    let key = session_key(inputs, &params.repository_path).await?;
+    let (entry, kept) = core_link_pull_request(&AppServices { app }, state.sessions(), &key, &params.input, unix_now()).await?;
+    Ok(LinkedPullRequestAnswer { entry, kept })
+  })
+  .await
+}
+
+/// Removes a pull request the user added by its link from Reviews, and the session reads Reviews again
+#[tauri::command]
+#[instrument(skip_all, fields(repository_path = %params.repository_path, number = params.number))]
+#[specta::specta]
+pub async fn unlink_pull_request(
+  app: AppHandle,
+  git_executor: State<'_, GitCommandExecutor>,
+  settings: Settings<'_>,
+  prefixes: Prefixes<'_>,
+  state: State<'_, SessionsState>,
+  params: UnlinkPullRequestParams,
+) -> Result<(), ApiError> {
+  operation(async move {
+    let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
+    core_unlink_pull_request(&AppServices { app }, state.sessions(), &session_key(inputs, &params.repository_path).await?, params.number).await
+  })
+  .await
 }

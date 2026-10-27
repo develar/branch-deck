@@ -43,6 +43,8 @@ const { gh } = vi.hoisted(() => ({
     safePushes: [] as { number: number }[],
     safePushResult: null as unknown,
     announced: [] as string[],
+    /** The actions the session decided, by subject (`pull:<number>`) */
+    actions: {} as Record<string, unknown[]>,
   },
 }))
 
@@ -148,6 +150,7 @@ vi.mock("@/model/store", () => ({
     }
     return true
   },
+  getRowPart: (subject: string, part: string) => (part === "actions" ? gh.actions[subject] : undefined),
 }))
 
 function available(...requests: ReviewRequest[]): Listing {
@@ -185,6 +188,7 @@ connectReviewWindow({
     reviewWindow.opens.push({ number: request.number, index, intent })
     reviewWindow.shown = request.number
   },
+  rowsOf: () => [],
 })
 
 beforeEach(() => {
@@ -209,6 +213,7 @@ beforeEach(() => {
   gh.safePushes = []
   gh.safePushResult = null
   gh.announced = []
+  gh.actions = {}
 })
 
 describe("answers", () => {
@@ -379,7 +384,8 @@ describe("Safe Push of a reviewed pull request", () => {
     expect(toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Safe Push started", "#7 Change 7", "Open Pull Request"]])
     expect(gh.activity).toEqual(["Approved #7", "Safe Push started on #7"])
 
-    // approved already: the Safe Push alone; a robot of the user's is announced as any
+    // approved already (the session says so): the Safe Push alone; a robot of the user's is announced as any
+    gh.actions["pull:7"] = [{ id: "approve", availability: { kind: "disabled", reason: { code: "approved", commit: HEAD } } }]
     gh.safePushResult = { id: "robot", url: "https://patronus/robot" }
     expect(await approveAndSafePush("/repo", request(7), HEAD)).toBe(true)
     expect(gh.reviews.at(-1)).toMatchObject({ verdict: null, thenLand: true })

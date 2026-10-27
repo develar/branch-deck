@@ -20,8 +20,7 @@ import type {
   StackLanding,
   TableChanges,
 } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
-import { commandFailure, getErrorDetails, notifyError } from "@/lib/errors"
+import { getErrorDetails, notifyError } from "@/lib/errors"
 import type { VcsRequest } from "@/lib/git/vcs-request"
 import { showMergeToast } from "@/lib/landing-toast"
 import { announce, resetOsNotification } from "@/lib/os-notification"
@@ -1154,23 +1153,6 @@ export function upsertPatronusRobot(robot: PatronusRobot, key: string | null = c
   if (key !== null) {
     storeRobot(key, robot)
   }
-}
-
-/**
- * The branch Patronus pushes into for the baseline of the selected repository; null when the baseline is no branch of
- * origin. Throws what failed: a failed read is no "the baseline is none"
- */
-export async function readPatronusTargetBranch(): Promise<string | null> {
-  const { repositoryPath } = patronusRequest()
-  const baselineBranch = branchSyncStore.getState().baselineBranch
-  if (baselineBranch === null) {
-    return null
-  }
-  const result = await commands.getPatronusTargetBranch({ repositoryPath, baselineBranch })
-  if (result.status === "error") {
-    throw commandFailure(result.error)
-  }
-  return result.data
 }
 
 /** Forgets the data (tests) */

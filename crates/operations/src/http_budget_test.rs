@@ -112,7 +112,7 @@ impl FactSources for Counted {
     self.answer("details", Ok(details))
   }
 
-  fn review_requests<'a>(&'a self, _key: &'a SessionKey, _github_repository: Option<String>) -> Read<'a, ReviewRequestsResult> {
+  fn review_requests<'a>(&'a self, _key: &'a SessionKey, _github_repository: Option<String>, _reviews: bool) -> Read<'a, ReviewRequestsResult> {
     self.answer("review_requests", ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub))
   }
 
@@ -217,6 +217,7 @@ pub(crate) fn session() -> OneShot {
     stack_parents: BTreeMap::new(),
     parked: BTreeMap::new(),
     stack_branches: Vec::new(),
+    target_branch: None,
   });
   state.apply(SyncEvent::CommitSynced {
     branch_name: "auth".to_owned(),

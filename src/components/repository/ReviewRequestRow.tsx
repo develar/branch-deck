@@ -1,5 +1,5 @@
 import { memo } from "react"
-import type { MouseEvent } from "react"
+import type { MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { ExternalLinkIcon, FileDiffIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,7 @@ import { StatusChipDot } from "@/components/branch/StatusChip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
-import type { ReviewRequest } from "@/lib/bindings"
+import type { ActionState, ReviewRequest } from "@/lib/bindings"
 import { reviewBlockerOf } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
@@ -19,16 +19,14 @@ import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatReturnedMeta } from "@/lib/outgoing-attention"
 import { isMac } from "@/lib/platform"
 import { openPullRequest } from "@/lib/pull-request"
-import type { ReviewPatronus } from "@/lib/pull-request-review"
-import { getReviewSafePush } from "@/lib/pull-request-review"
+import type { ReviewSource } from "@/lib/pull-request-review"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
 import { useRowPart } from "@/model/store"
 import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { usePatronusAvailable } from "@/stores/patronus"
-import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
-import { openRequestOnGitHub, openReviewRequest, useReviewAction, useSubmittedReview } from "@/stores/review-requests"
+import type { ReviewAction } from "@/stores/review-requests"
+import { openRequestOnGitHub, openReviewRequest, useReviewAction } from "@/stores/review-requests"
 
 export interface ReviewRequestRowProps {
   request: ReviewRequest
@@ -36,55 +34,80 @@ export interface ReviewRequestRowProps {
   unread: boolean
   /** The row the list's focus is on: the one tab stop of the list */
   tabStop: boolean
-  /** The branch Patronus pushes into for the baseline (`ReviewPatronus.target`), read once for the list */
-  patronusTarget: string | null | undefined
+  /** Where the row is: the review window walks the rows of the same list */
+  source?: ReviewSource
+  /** The meta after the title, by how the user takes part (Reviews); the request's ("#101 · carol · requested by dave") otherwise */
+  meta?: string
+  /** What the age at the end says (Reviews); how long the request waits otherwise */
+  age?: ReactNode
+  /** An own pull request of the table: its branch row shows */
+  onShowBranch?: () => void
+  /** A pull request the user added by its link leaves Reviews */
+  onRemoveFromReviews?: () => void
+}
+
+/** The actions of the pull request `number` as Rust decides them */
+function usePullRequestActions(number: number): readonly ActionState[] | undefined {
+  return useRowPart(`pull:${number}`, "actions")
 }
 
 /**
  * The menu of a row, the right-click and the context menu key: the actions of the pull request, as the header of its
  * review has them (Review, Approve…, Approve and Safe Push… where Patronus merges, Request Changes…, Open Pull Request,
- * the copy actions); a write opens the review window for it
+ * the copy actions; Show Branch of an own one, Remove from Reviews of a link); a write opens the review window for it
  */
 function requestMenu(
   request: ReviewRequest,
   repositoryPath: string,
-  submitted: SubmittedReview | undefined,
+  source: ReviewSource,
+  actions: readonly ActionState[] | undefined,
   busy: ReviewAction | undefined,
-  patronus: ReviewPatronus,
+  extra: Pick<ReviewRequestRowProps, "onShowBranch" | "onRemoveFromReviews">,
 ): MenuItemGroups {
-  const actions = getReviewRequestActions(
+  const items = getReviewRequestActions(
     request,
     {
       reviewedCommit: { id: null, reason: "" },
-      submitted,
+      actions,
       busy,
-      // as the dialog: disabled with the reason when Patronus would merge it into another base
-      safePush: getReviewSafePush(request, patronus),
-      onReview: () => openReviewRequest(repositoryPath, request.number),
-      onApprove: () => openReviewRequest(repositoryPath, request.number, "approve"),
-      onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush"),
-      onRequestChanges: () => openReviewRequest(repositoryPath, request.number, "requestChanges"),
+      onReview: () => openReviewRequest(repositoryPath, request.number, undefined, source),
+      onApprove: () => openReviewRequest(repositoryPath, request.number, "approve", source),
+      onSafePush: () => openReviewRequest(repositoryPath, request.number, "safePush", source),
+      onRequestChanges: () => openReviewRequest(repositoryPath, request.number, "requestChanges", source),
       onOpenPullRequest: () => openRequestOnGitHub(request),
+      ...extra,
     },
     "rowMenu",
   )
-  return reviewRequestMenu(actions)
+  return reviewRequestMenu(items)
 }
 
 /**
  * A pull request that waits for the user's review, one 36 px line: the unread dot, the title, the muted meta ("#123 ·
  * alice · 8 files · +120 −30", the base when it is not the default branch), a dot for failing or running checks and how
  * long it waits. A click reviews it in the review window; ⌘-click and O open it on GitHub, as the button on hover does.
+ * Reviews shows its pull requests in the same row, with the meta and the age of how the user takes part.
  */
-export const ReviewRequestRow = memo(function ReviewRequestRow({ request, repositoryPath, unread, tabStop, patronusTarget }: ReviewRequestRowProps) {
-  const submitted = useSubmittedReview(request.number)
+export const ReviewRequestRow = memo(function ReviewRequestRow({
+  request,
+  repositoryPath,
+  unread,
+  tabStop,
+  source = "yourTurn",
+  meta,
+  age,
+  onShowBranch,
+  onRemoveFromReviews,
+}: ReviewRequestRowProps) {
+  const actions = usePullRequestActions(request.number)
   const busy = useReviewAction(request.number)
-  const patronusAvailable = usePatronusAvailable()
   const onClick = (event: MouseEvent) => {
     if (isMac ? event.metaKey : event.ctrlKey) {
       openRequestOnGitHub(request)
+    } else if (onShowBranch === undefined) {
+      openReviewRequest(repositoryPath, request.number, undefined, source)
     } else {
-      openReviewRequest(repositoryPath, request.number)
+      onShowBranch()
     }
   }
   const files = formatFileCount(request.changedFiles)
@@ -109,7 +132,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
           {request.title}
         </span>
         <span className="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:flex" data-testid="review-request-meta">
-          {`${formatRequestMeta(request)} · ${files} · `}
+          {`${meta ?? formatRequestMeta(request)} · ${files} · `}
           <LineCounts additions={request.additions} deletions={request.deletions} colored={false} />
           {!request.baseIsDefault && ` · → ${request.baseRefName}`}
         </span>
@@ -137,11 +160,11 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
             </TooltipTrigger>
             <TooltipContent>Open Pull Request</TooltipContent>
           </Tooltip>
-          <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} backToYou={request.backToYou} />
+          {age ?? <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} backToYou={request.backToYou} />}
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItems groups={requestMenu(request, repositoryPath, submitted, busy, { available: patronusAvailable, target: patronusTarget })} />
+        <ContextMenuItems groups={requestMenu(request, repositoryPath, source, actions, busy, { onShowBranch, onRemoveFromReviews })} />
       </ContextMenuContent>
     </ContextMenu>
   )

@@ -47,6 +47,11 @@ describe("the actions Rust offers", () => {
       "The branches of the stack are on the remote. The whole stack branch stays: its push would drop remote commits it lacks",
       "Nothing to push: the stack is on the remote",
       "Landed in origin/master",
+      "Your own pull request: GitHub takes no review of its author",
+      "You approved 01234567",
+      "Reading the branch Patronus pushes into…",
+      "Patronus pushes into a branch of origin: the baseline is none",
+      "#101 merges into release/253: Patronus would merge it there, not into master",
     ])
   })
 

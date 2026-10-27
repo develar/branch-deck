@@ -380,8 +380,13 @@ export class TestRepositoryBuilder {
     return (await this.getReviewRequestsFixture()).calls
   }
 
-  /** The calls of the review commands: the requests, the fetches, and the `keep` of each prune of the review refs */
-  async getReviewRequestsFixture(): Promise<{ calls: number; fetchCalls: number; prunes: number[][] }> {
+  /** How often the session read the rest of Reviews with the review requests (the Reviews view showed) */
+  async getReviewsCalls(): Promise<number> {
+    return (await this.getReviewRequestsFixture()).reviewsCalls
+  }
+
+  /** The calls of the review commands: the requests (of them with Reviews), the fetches, and the `keep` of each prune of the review refs */
+  async getReviewRequestsFixture(): Promise<{ calls: number; reviewsCalls: number; fetchCalls: number; prunes: number[][] }> {
     return this.getFixture("review-requests")
   }
 

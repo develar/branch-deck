@@ -49,12 +49,12 @@ use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_statu
 use commands::move_commits::move_commits_to_branch;
 use commands::operations::{cancel_operation, execute, prepare};
 use commands::parked_branches::{park_branches, unpark_branches};
-use commands::patronus::{PatronusState, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_stats};
+use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
 use commands::pick_remote_commits::{pick_remote_commits, undo_pick_remote_commits};
 use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
-use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, prune_review_refs};
+use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, link_pull_request, prune_review_refs, unlink_pull_request};
 use commands::reword::reword;
 use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
@@ -114,6 +114,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
       sign_out_of_youtrack,
       get_youtrack_issue,
       fetch_review_head,
+      link_pull_request,
+      unlink_pull_request,
       cancel_review_fetch,
       prune_review_refs,
       get_range_files,
@@ -126,7 +128,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       cancel_operation,
       get_robot_failure,
       get_robot_commit_map,
-      get_patronus_target_branch,
       get_snapshot,
       subscribe_view,
       unsubscribe_view,

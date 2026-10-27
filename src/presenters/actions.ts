@@ -21,11 +21,15 @@ import {
   FileDiffIcon,
   FlaskConicalIcon,
   FolderInputIcon,
+  GitBranchIcon,
+  GitMergeIcon,
   GitPullRequestArrowIcon,
   GitPullRequestCreateIcon,
   GitPullRequestIcon,
   Layers2Icon,
   LayersIcon,
+  ListXIcon,
+  MessageSquareDiffIcon,
   PencilIcon,
   PenLineIcon,
   RefreshCwIcon,
@@ -36,7 +40,9 @@ import {
   TagIcon,
   UngroupIcon,
   UploadIcon,
+  UserCheckIcon,
   UserPlusIcon,
+  CheckIcon,
 } from "lucide-react"
 import type { ActionBlocker, ActionId, ActionState, NothingBeyond, PatronusRobot, RunningOperation } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
@@ -97,6 +103,12 @@ export const ACTION_LOOKS = {
   "copy-robot-full-prompt": { label: "Copy Prompt with CI Details", icon: ClipboardListIcon },
   "open-robot": { label: "Open in Patronus", icon: ExternalLinkIcon },
   "open-robot-pull-request": { label: "Open Pull Request", icon: GitPullRequestIcon },
+  review: { label: "Review", icon: UserCheckIcon },
+  approve: { label: "Approve", icon: CheckIcon },
+  "safe-push-pull-request": { label: "Approve and Safe Push…", icon: GitMergeIcon },
+  "request-changes": { label: "Request Changes…", icon: MessageSquareDiffIcon },
+  "show-branch": { label: "Show Branch", icon: GitBranchIcon },
+  "remove-from-reviews": { label: "Remove from Reviews", icon: ListXIcon },
 } as const satisfies Record<ActionId, ActionLook>
 
 /** What the words of a blocker read beside it, of the page: the subject it refuses and what the page shows of it */
@@ -186,6 +198,11 @@ const BLOCKERS = {
   parkHeld: ({ reason }) => `${formatReason(reason)}: it lands whatever a park says`,
   nothingBeyond: ({ why }, _id, words) => nothingBeyondWords(words.subject, why),
   landed: ({ landed }) => formatLanded(landed),
+  ownPullRequest: () => "Your own pull request: GitHub takes no review of its author",
+  approved: ({ commit }) => `You approved ${formatShortHash(commit)}`,
+  targetUnread: () => "Reading the branch Patronus pushes into…",
+  noTarget: () => "Patronus pushes into a branch of origin: the baseline is none",
+  otherBase: ({ number, base, target }) => `#${number} merges into ${base}: Patronus would merge it there, not into ${target}`,
 } satisfies BlockerFormatters as BlockerFormatters
 
 /** The page's words of why the action `id` can't run now */

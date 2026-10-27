@@ -213,7 +213,7 @@ struct GhSearch {
 /// A connection's `nodes`, without the null ones
 #[derive(Debug, Deserialize)]
 #[serde(bound(deserialize = "T: Deserialize<'de>"))]
-struct Nodes<T> {
+pub(crate) struct Nodes<T> {
   #[serde(default = "Vec::new", deserialize_with = "skip_null_nodes")]
   nodes: Vec<T>,
 }
@@ -224,7 +224,7 @@ fn skip_null_nodes<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(deseri
 }
 
 impl<T> Nodes<T> {
-  fn into_nodes(nodes: Option<Self>) -> Vec<T> {
+  pub(crate) fn into_nodes(nodes: Option<Self>) -> Vec<T> {
     nodes.map_or_default(|nodes| nodes.nodes)
   }
 }
@@ -282,8 +282,8 @@ struct GhLabel {
 }
 
 #[derive(Debug, Deserialize)]
-struct GhLogin {
-  login: Option<String>,
+pub(crate) struct GhLogin {
+  pub(crate) login: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -303,23 +303,23 @@ enum GhCheck {
 }
 
 #[derive(Debug, Deserialize)]
-struct GhReview {
+pub(crate) struct GhReview {
   author: Option<GhLogin>,
   state: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct GhReviewRequestNode {
-  requested_reviewer: Option<GhReviewRequest>,
+pub(crate) struct GhReviewRequestNode {
+  pub(crate) requested_reviewer: Option<GhReviewRequest>,
 }
 
 #[derive(Debug, Deserialize)]
-struct GhReviewRequest {
+pub(crate) struct GhReviewRequest {
   /// A user, a bot or a mannequin
-  login: Option<String>,
+  pub(crate) login: Option<String>,
   /// A team (asked only with `read:org`)
-  slug: Option<String>,
+  pub(crate) slug: Option<String>,
 }
 
 /// Parses the `data` of `PULL_REQUESTS_QUERY`: the pull requests of the virtual branches, see `to_pull_requests`
@@ -487,7 +487,7 @@ fn summarize_checks(checks: &[GhCheck]) -> Option<ChecksSummary> {
 /// The latest submitted review per reviewer (pending and dismissed ones say nothing), then the open review requests: a
 /// reviewer asked again after a review keeps the state of the review and is `requested` (a re-requested approval still
 /// counts for Patronus), one never reviewed is `Requested`.
-fn collect_reviewers(reviews: Vec<GhReview>, requests: Vec<GhReviewRequest>) -> Vec<Reviewer> {
+pub(crate) fn collect_reviewers(reviews: Vec<GhReview>, requests: Vec<GhReviewRequest>) -> Vec<Reviewer> {
   let mut reviewers: Vec<Reviewer> = reviews
     .into_iter()
     .filter_map(|review| {

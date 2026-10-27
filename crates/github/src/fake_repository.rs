@@ -87,6 +87,9 @@ pub struct RepositoryState {
   pub clock: u32,
   /// How the Patronus bot answers a `/patronus` comment, by pull request number; accepted for one not named
   pub patronus_replies: BTreeMap<u32, PatronusCommandReply>,
+  /// The node GraphQL answers for a pull request asked by its number (`pullRequest(number: $number)`), by number; a
+  /// number it lacks is null with a `NOT_FOUND`
+  pub pull_request_nodes: BTreeMap<u32, Value>,
 }
 
 #[derive(Default)]
@@ -370,6 +373,17 @@ impl FakeGitHubRepository {
     if query.contains("search(") {
       let pulls: Vec<PullRequest> = state.pulls.iter().map(|pull| self.resolved(&pull.pull_request, state)).collect();
       return Some(FakeAnswer::ok(json!({"data": search_data(&state.owner, &state.viewer, pulls)})));
+    }
+    if query.contains("pullRequest(number: $number)") {
+      let number = variables["number"].as_u64().and_then(|number| u32::try_from(number).ok()).unwrap_or_default();
+      let node = state.pull_request_nodes.get(&number).cloned();
+      let errors = if node.is_none() {
+        json!([{"type": "NOT_FOUND", "message": format!("Could not resolve to a PullRequest with the number of {number}.")}])
+      } else {
+        json!([])
+      };
+      let data = json!({"viewer": {"login": state.viewer}, "repository": {"viewerPermission": "READ", "pullRequest": node}});
+      return Some(FakeAnswer::ok(json!({"data": data, "errors": errors})));
     }
     if query.contains("assignableUsers") {
       let wanted = variables["q"].as_str().unwrap_or_default().to_lowercase();

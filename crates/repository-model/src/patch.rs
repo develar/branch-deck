@@ -100,6 +100,7 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     archived,
     unapplied,
     landed,
+    reviews,
     patronus,
     facts,
     news,
@@ -154,6 +155,7 @@ pub fn apply_patch(view: &mut RepositoryView, patch: ViewPatch) -> Result<(), Pa
     view.operations.remove(id);
   }
   view.operations.extend(operations);
+  set_if_some(&mut view.reviews, reviews);
   let sections = &mut view.sections;
   set_if_some(&mut sections.unassigned, unassigned);
   set_if_some(&mut sections.unapplied, unapplied);

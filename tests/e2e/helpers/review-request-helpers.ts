@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "@playwright/test"
-import type { PullRequestAvailability, ReviewRequest } from "../../../src/lib/bindings"
+import type { PullRequestAvailability, ReviewEntry, ReviewRequest } from "../../../src/lib/bindings"
 import type { PullRequestReviewWindowData } from "../../../src/lib/pull-request-review"
 import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
@@ -14,6 +14,18 @@ export interface ReviewRequestsFixture {
   readonly availability: PullRequestAvailability
   readonly totalCount: number
   readonly requests: readonly ReviewRequest[]
+  /** The requests by name the user answered with a comment, and when */
+  readonly answered?: readonly { readonly request: ReviewRequest; readonly repliedAt: number }[]
+  /** The rest of Reviews, read while the Reviews view shows (`ReviewsAnswer`; its links come of those the user added) */
+  readonly others?: { readonly team?: ReviewSearchFixture; readonly reviewed?: ReviewSearchFixture; readonly authored?: ReviewSearchFixture }
+  /** The pull requests the fake GitHub has beside them, which a link of the user can name; `closed` merged or closed */
+  readonly linkable?: readonly (ReviewRequest & { readonly closed?: boolean })[]
+}
+
+/** One search of Reviews as GitHub answers it (`ReviewSearch`): how many match, and the pull requests it returns */
+export interface ReviewSearchFixture {
+  readonly totalCount: number
+  readonly entries: readonly ReviewEntry[]
 }
 
 /** The GitHub repository of the review requests of the E2E repositories */
@@ -50,6 +62,7 @@ export function reviewRequest(branch: string, number: number, hoursAgo: number, 
     reviewDecision: "reviewRequired",
     reRequested: false,
     reviewedCommit: null,
+    reviewedState: null,
     headRefName: `user-name/virtual/${branch}`,
     headRefOid: "",
     baseRefName: "master",

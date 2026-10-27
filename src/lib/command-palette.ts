@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { AppWindowIcon, GitBranchIcon, HistoryIcon } from "lucide-react"
+import { AppWindowIcon, GitBranchIcon, HistoryIcon, LinkIcon } from "lucide-react"
 import { mainMenus } from "@/lib/main-menu"
 import type { MainMenuState } from "@/lib/main-menu"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -47,6 +47,8 @@ export interface PaletteSources {
   readonly goToBranch: (name: string) => void
   /** The branch whose row has the focus, with the groups of its menu; null without one */
   readonly branchMenu: { readonly name: string; readonly groups: MenuItemGroups } | null
+  /** Shows Reviews with the focus in its field of a link: a pull request the author forgot to ask the user for */
+  readonly addPullRequestByLink?: () => void
 }
 
 /**
@@ -92,6 +94,9 @@ export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
     })),
     { id: "activity:panel", label: "Activity Panel", group: "Activity", icon: HistoryIcon, run: sources.toggleActivityPanel },
     { id: "activity:window", label: "Activity Window", group: "Activity", icon: AppWindowIcon, run: sources.openActivityWindow },
+    ...(sources.addPullRequestByLink === undefined
+      ? []
+      : [{ id: "reviews:link", label: "Add Pull Request by Link…", group: "Commands" as const, icon: LinkIcon, run: sources.addPullRequestByLink }]),
     ...MENU_COMMANDS.flatMap(id => {
       const item = menus.map(groups => findMenuItem(groups, id)).find(found => found !== undefined)
       if (item === undefined) {

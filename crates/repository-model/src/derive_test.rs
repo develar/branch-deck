@@ -46,6 +46,7 @@ fn grouping(branches: Vec<GroupedBranchInfo>, parked: &[(&str, &str)], stack_bra
     stack_parents: BTreeMap::new(),
     parked: parked.iter().map(|(name, note)| ((*name).to_string(), (*note).to_string())).collect(),
     stack_branches: stack_branches.iter().map(ToString::to_string).collect(),
+    target_branch: None,
   }
 }
 

@@ -292,9 +292,13 @@ Mock implementation:
   fixture of the repository, or from a route of the test
 - **Review requests**: the session of a repository reads `NotGitHub` (`TestFactSources::review_requests`,
   `review_requests_of`) until a test posts a fixture to `/repositories/{id}/review-requests` (a `ReviewRequestsFixture`
-  plus an optional `fetchError`; `GET` returns the counts of the session's lists and of the fetches, and the `keep` of
-  every prune); it lists them after a sync, on a focus and five minutes after its last answer on the clock of the
-  repository (`repo.advanceBackendClock`). `fetch_review_head` never fetches: an empty `headRefOid`
+  plus an optional `fetchError`, and for [Reviews](../../spec/repository/reviews.spec.md) `others` (the searches the
+  Reviews view reads), `answered` and `linkable`, the pull requests a link can name, `closed` for a merged one; `GET`
+  returns the counts of the session's lists, of those that read the rest of Reviews (`reviewsCalls`) and of the
+  fetches, and the `keep` of every prune); it lists them after a sync, on a focus and five minutes after its last answer
+  on the clock of the repository (`repo.advanceBackendClock`). An empty `headRefOid` of the fixture is answered as the
+  tip of the branch it names, read from the refs without a git process. The links the user adds live in the settings of
+  the test repository, and the fake GitHub answers `pullRequest(number:)` from the nodes of the fixture. `fetch_review_head` never fetches: an empty `headRefOid`
   is the tip of the local branch `headRefName` (else of `HEAD`),
   an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
   answers a range of source `local`; `fetchError` fails it instead. `get_range_files` and
@@ -456,7 +460,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   is the head the test's pull request then shows.
 - **Bridge**: the reads of the session's robots (`TestFactSources`: the app's reads, `ServiceFactSources`, over the
   services of each test repository, `TestServices`, the lists, polls and details counted; the merge profiles and the
-  review readiness held as the tests hold them), `get_robot_failure` and `get_patronus_target_branch` call the
+  review readiness held as the tests hold them), `get_robot_failure` calls the
   service as `src-tauri/src/commands/patronus.rs` does: the list answers `notPatronus` while the repository is not on
   Space and names the GitHub repository by the real `resolve_github_repository`; the start options need Space and the
   target branch of the baseline (`required_target_branch`). A start, a restart and a cancel of a robot and a retarget

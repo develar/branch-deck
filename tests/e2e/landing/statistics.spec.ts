@@ -180,6 +180,8 @@ test.describe("Landing view", () => {
     // the switcher by its keys: an arrow moves the focus, Enter shows the focused view
     await page.getByTestId("main-view-landing").focus()
     await page.keyboard.press("ArrowLeft")
+    await expect(page.getByTestId("main-view-reviews")).toBeFocused()
+    await page.keyboard.press("ArrowLeft")
     await expect(page.getByTestId("main-view-branches")).toBeFocused()
     await expect(row).toBeHidden()
     await page.keyboard.press("Enter")
@@ -305,10 +307,10 @@ test.describe("Landing view", () => {
 })
 
 test.describe("Landing view of a custom title bar", () => {
-  test("should open from Ctrl+2 and from View → Landing of ☰, and come back by Ctrl+1", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should open from Ctrl+3 and from View → Landing of ☰, and come back by Ctrl+1", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await useTitleBar(page, TITLE_BARS.gnome)
     await setupHistory(page, setupRepo, syncAndWaitForBranches)
-    await page.keyboard.press("Control+Digit2")
+    await page.keyboard.press("Control+Digit3")
     await expectStatisticsShown(page)
     await page.keyboard.press("Control+Digit1")
     await expect(findBranchRow(page, "ABC-123")).toBeVisible()

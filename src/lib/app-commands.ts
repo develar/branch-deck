@@ -14,6 +14,7 @@ export type AppCommand =
   | "open_activity"
   | "open_command_palette"
   | "show_branches"
+  | "show_reviews"
   | "show_landing"
   | "zoom"
   | "install_agent_cli"

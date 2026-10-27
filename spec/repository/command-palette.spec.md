@@ -53,9 +53,10 @@ names and reasons.
 
 ### Sources
 
-- The groups, in this order (`paletteCommands`): Views (`MAIN_VIEWS` of `src/stores/main-view.ts`, Branches and
-  Landing: a view joins the palette by its entry there), Activity (Activity Panel, which toggles the side panel as the header button does, and
-  Activity Window), Commands (the items Sync Branches, Update Project, Settings…, Install Agent CLI… and, where the
+- The groups, in this order (`paletteCommands`): Views (`MAIN_VIEWS` of `src/stores/main-view.ts`, Branches, Reviews
+  and Landing: a view joins the palette by its entry there), Activity (Activity Panel, which toggles the side panel as the header button does, and
+  Activity Window), Commands (Add Pull Request by Link…, which shows Reviews with the focus in its field of a link
+  ([Reviews](reviews.spec.md#links)), then the items Sync Branches, Update Project, Settings…, Install Agent CLI… and, where the
   build updates itself, Check for Updates… of `mainMenus`, disabled with the reason where the menu disables them), the
   actions of the branch at hand (below) and Branches ("Go to <branch>" for every branch of the table, in its order).
   [@test] ../../src/lib/command-palette.test.ts (`lists the views, Activity, the commands of the app's menu and the branches, by namespaced ids`, `hints only the keys of the window, disables Sync with its reason, offers updates where the build updates itself`)
@@ -70,8 +71,10 @@ names and reasons.
 - Every command has an id in the namespace of its source (`view:branches`, `activity:panel`, `app:sync_branches`,
   `action:auth:review-changes`, `branch:auth`); an id that a source gave before is left out, so a command shows once.
   [@test] ../../src/lib/command-palette.test.ts (`keeps one entry per id, the first source's`)
-- Landing of the Views shows the Landing view; Go to <branch> from it shows the branches first.
+- Landing of the Views shows the Landing view, Reviews the Reviews view; Go to <branch> from either shows the branches
+  first.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should change the view only by the user: a sync keeps it, a reveal of a branch shows the branches`)
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should show every pull request the user takes part in once, by section, and read them only while the view shows`, `should add a pull request by its link from the field the palette focuses, keep it, and remove it from its menu`)
 - A key hint only for a key of the window (⌘R, ⌘T, ⌘,; a view's key once it has one), none for a branch or Activity.
   [@test] ../../src/lib/command-palette.test.ts (`hints only the keys of the window, disables Sync with its reason, offers updates where the build updates itself`)
   [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from ⌘K of the native menu, list every source and give the focus back on Escape`)

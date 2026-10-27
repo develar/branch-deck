@@ -77,6 +77,7 @@ pub fn review_request(number: u32, requested_at: u32) -> ReviewRequest {
     review_decision: None,
     re_requested: false,
     reviewed_commit: None,
+    reviewed_state: None,
     head_ref_name: format!("alice/change-{number}"),
     head_ref_oid: String::new(),
     base_ref_name: "master".to_string(),

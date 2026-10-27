@@ -78,6 +78,8 @@ struct ScriptedSources {
   readiness_unavailable: AtomicBool,
   /// The lists of the review requests: the GitHub repository each named
   review_request_calls: Mutex<Vec<Option<String>>>,
+  /// Whether each list of the review requests read the rest of Reviews
+  review_reads: Mutex<Vec<bool>>,
   /// What the lists of the review requests answer; available without requests unless a test says otherwise
   review_requests: Mutex<Option<ReviewRequestsResult>>,
 }
@@ -131,12 +133,15 @@ impl FactSources for ScriptedSources {
     Box::pin(async move { Err(ApiError::internal("the details are the session's")) })
   }
 
-  fn review_requests<'a>(&'a self, _key: &'a SessionKey, github_repository: Option<String>) -> Read<'a, ReviewRequestsResult> {
+  fn review_requests<'a>(&'a self, _key: &'a SessionKey, github_repository: Option<String>, reviews: bool) -> Read<'a, ReviewRequestsResult> {
     lock(&self.review_request_calls).push(github_repository);
+    lock(&self.review_reads).push(reviews);
     let answer = lock(&self.review_requests).clone().unwrap_or_else(|| ReviewRequestsResult {
       availability: available_on_github(),
       total_count: 0,
       requests: Vec::new(),
+      answered: Vec::new(),
+      others: None,
     });
     Box::pin(async move { answer })
   }
@@ -1160,6 +1165,10 @@ async fn a_repository_change_during_a_batch_does_not_wait_for_it() {
 
 impl Harness {
   /// The lists of the review requests since the last call: the GitHub repository each named
+  fn review_reads(&self) -> Vec<bool> {
+    std::mem::take(&mut *lock(&self.sources.review_reads))
+  }
+
   fn review_request_calls(&self) -> Vec<Option<String>> {
     std::mem::take(&mut *lock(&self.sources.review_request_calls))
   }
@@ -1322,4 +1331,31 @@ async fn a_poll_lists_the_pull_requests_while_a_subject_waits_for_approvals() {
   session.send(digest(false)).await;
   session.advance(300).await;
   assert_eq!((session.review_request_calls().len(), session.github_calls()), (1, vec![]));
+}
+
+/// The Reviews view that shows reads the rest of Reviews with the review requests at once, unless it was read less than
+/// two minutes ago; while it shows every list reads it, a hidden one none
+#[tokio::test]
+async fn the_reviews_view_reads_the_rest_of_reviews_with_the_review_requests_while_it_shows() {
+  let session = Harness::watched().await;
+  session.review_reads();
+  let shown = |reviews| {
+    SessionEventKind::Demand(Demand {
+      online: true,
+      reviews,
+      ..Demand::default()
+    })
+  };
+  session.send(shown(true)).await;
+  assert_eq!(session.review_reads(), vec![true], "the view shows: read at once");
+  session.send(shown(false)).await;
+  session.send(shown(true)).await;
+  assert_eq!(session.review_reads(), Vec::<bool>::new(), "read just now");
+  session.advance(300).await;
+  assert_eq!(session.review_reads(), vec![true], "the poll reads it while the view shows");
+  session.send(shown(false)).await;
+  session.advance(300).await;
+  assert_eq!(session.review_reads(), vec![false], "hidden: the poll lists the requests alone");
+  session.send(shown(true)).await;
+  assert_eq!(session.review_reads(), vec![true], "older than two minutes: read when it shows again");
 }

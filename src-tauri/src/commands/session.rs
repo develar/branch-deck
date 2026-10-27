@@ -19,12 +19,15 @@ use crate::commands::pull_requests::github_repository;
 use crate::commands::youtrack::YouTrackState;
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
+use crate::settings::emit_change;
 use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
+use app_settings::linked_pull_requests::{forget, linked};
 use app_settings::service::SettingsService;
 use domain_types::error::ApiError;
 use domain_types::operation::Intent;
 use domain_types::patronus::PatronusRobot;
+use domain_types::review_request::LinkedPullRequest;
 use domain_types::session::{RefreshFactsParams, RepositoryView, SetDemandParams, SyncAnswer, SyncReason, Version, ViewPatch, ViewSubscription};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
@@ -51,7 +54,7 @@ use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_utils::clock::SystemClock;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Webview};
-use tracing::instrument;
+use tracing::{instrument, warn};
 use trial_check::landing_gate::landing_needs_of;
 use youtrack::service::YouTrackService;
 
@@ -226,8 +229,8 @@ impl SessionEnvironment for AppEnvironment {
 /// What the reads of the facts of the app's sessions are made with (`ServiceFactSources`): the Patronus service of the
 /// app with the Space repository it keeps by worktree (`PatronusState`), the GitHub service, the GitHub repository and
 /// the object cache the app keeps by worktree (`RepositoryStateCache`), the settings when a read starts
-struct AppServices {
-  app: AppHandle,
+pub(crate) struct AppServices {
+  pub(crate) app: AppHandle,
 }
 
 impl ServiceHost for AppServices {
@@ -283,6 +286,25 @@ impl ServiceHost for AppServices {
 
   fn api_error(&self, error: anyhow::Error) -> ApiError {
     api_error(error)
+  }
+
+  fn linked_pull_requests(&self, _key: &SessionKey, repository: &GitHubRepository) -> Vec<LinkedPullRequest> {
+    linked(&self.app.state::<SettingsService>(), &repository.full_name())
+  }
+
+  fn link_pull_request(&self, _key: &SessionKey, repository: &GitHubRepository, link: LinkedPullRequest) -> Result<(), ApiError> {
+    let change =
+      app_settings::linked_pull_requests::link(&self.app.state::<SettingsService>(), &repository.full_name(), link).map_err(|error| ApiError::internal(error.to_string()))?;
+    emit_change(&self.app, &change);
+    Ok(())
+  }
+
+  fn forget_linked_pull_requests(&self, _key: &SessionKey, repository: &GitHubRepository, numbers: &[u32]) {
+    match forget(&self.app.state::<SettingsService>(), &repository.full_name(), numbers) {
+      Ok(Some(change)) => emit_change(&self.app, &change),
+      Ok(None) => {}
+      Err(error) => warn!(%error, "cannot forget the links of Reviews"),
+    }
   }
 }
 

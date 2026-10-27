@@ -20,9 +20,15 @@ pub const SETTINGS_FILE_NAME: &str = "settings.json";
 /// The name of the file beside `settings.json` that keeps `repositoryState` (`REPOSITORY_STATE_KEY`)
 pub const REPOSITORY_STATE_FILE_NAME: &str = "repository-state.json";
 
-/// The key of what the syncs and the updates record of each repository, by its path: the one key of
-/// `repository-state.json`
+/// The key of what the syncs and the updates record of each repository, by its path, in `repository-state.json`
 pub const REPOSITORY_STATE_KEY: &str = "repositoryState";
+
+/// The key of the pull requests the user added to Reviews by their links, by GitHub repository (`owner/name`), in
+/// `repository-state.json`: Rust alone writes it (`linked_pull_requests`), no window reads it
+pub const LINKED_PULL_REQUESTS_KEY: &str = "linkedPullRequests";
+
+/// The keys of `repository-state.json`
+pub const REPOSITORY_STATE_KEYS: [&str; 2] = [REPOSITORY_STATE_KEY, LINKED_PULL_REQUESTS_KEY];
 
 /// The fields of a repository in `repositoryState`: when it was synced last, how many branches that sync had, how long
 /// the steps of Update Project and of a sync took, when Branch Deck fetched its baseline last, up to when the Landed

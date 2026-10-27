@@ -1,6 +1,6 @@
 ---
 name: Main Views
-description: Requirements for the two views of the main window, Branches and Landing (the Safe Push statistics): switched only by the user, the branches given back as they were left, a hidden view reading nothing, a calm view that tells a failed read as its state.
+description: Requirements for the three views of the main window, Branches, Reviews (the pull requests the user takes part in) and Landing (the Safe Push statistics): switched only by the user, the branches given back as they were left, a hidden view reading nothing, a calm view that tells a failed read as its state.
 style: plain-1
 targets:
   - ../../src/stores/main-view.ts
@@ -10,6 +10,7 @@ targets:
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/repository/LandingPopover.tsx
   - ../../src/components/landing/LandingView.tsx
+  - ../../src/components/reviews/ReviewsView.tsx
   - ../../src/components/landing/charts/WeekChart.tsx
   - ../../src/components/landing/charts/MergeTimeChart.tsx
   - ../../src/components/landing/charts/TimeChart.tsx
@@ -41,9 +42,10 @@ Date: 2026-10-22
 
 ## Summary
 
-The main window has two views of the repository: Branches, the branch tables where the work is cut into pieces, and
-Landing, how those pieces went into master ([Safe Push Statistics](safe-push-statistics.spec.md)). The switcher in the
-title bar names where the user is; ⌘1 and ⌘2 switch, as the View menu, ☰ and the palette do. What runs now stays in
+The main window has three views of the repository: Branches, the branch tables where the work is cut into pieces;
+Reviews, every open pull request the user takes part in on GitHub ([Reviews](reviews.spec.md)); and Landing, how those
+pieces went into master ([Safe Push Statistics](safe-push-statistics.spec.md)). The switcher in the title bar names
+where the user is; ⌘1, ⌘2 and ⌘3 switch, as the View menu, ☰ and the palette do. What runs now stays in
 the landing overview beside the table: its steps run at their rows. Landing is for a deliberate look back, so it takes
 nothing from the work: the view changes only when the user changes it, and the branches come back as they were left.
 
@@ -51,7 +53,8 @@ nothing from the work: the view changes only when the user changes it, and the b
 
 - Never change the view for the user: a robot, a sync, an error or a start leave it as it is.
 - Give the branches back as they were: the rows, their forms, the scroll position and the focus.
-- Read the statistics only while they show; tell a read nobody asked for as a state of the view, not a toast.
+- Read the statistics and the rest of Reviews only while they show; tell a read nobody asked for as a state of the
+  view, not a toast.
 
 ## Non-goals
 
@@ -62,19 +65,20 @@ nothing from the work: the view changes only when the user changes it, and the b
 
 ### Switching
 
-- The switcher after the repository in the title bar (Branches · Landing, one option set: the stock `ToggleGroup`)
-  shows the view, the shown one pressed; a click, ⌘1 and ⌘2 of the native View menu, ☰ View → Branches / Landing with
-  Ctrl+1 and Ctrl+2 of a custom title bar, and the palette's Views switch it; the arrow keys move the focus between the
+- The switcher after the repository in the title bar (Branches · Reviews · Landing, one option set: the stock
+  `ToggleGroup`) shows the view, the shown one pressed; a click, ⌘1, ⌘2 and ⌘3 of the native View menu, ☰ View →
+  Branches / Reviews / Landing with Ctrl+1, Ctrl+2 and Ctrl+3 of a custom title bar, and the palette's Views switch it; the arrow keys move the focus between the
   views, and Enter or Space shows the focused one. "Show Statistics" of the landing overview closes
   it and shows Landing.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from the native View menu and Show Statistics, and give the branches back as they were`)
-  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from Ctrl+2 and from View → Landing of ☰, and come back by Ctrl+1`)
+  [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from Ctrl+3 and from View → Landing of ☰, and come back by Ctrl+1`)
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should open Reviews by its keys of a custom title bar: Ctrl+2`)
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should change the view only by the user: a sync keeps it, a reveal of a branch shows the branches`)
   [@test] ../../src/lib/main-menu.test.ts (`maps the accelerators of the native menu to their commands`)
 - Only the user changes the view: a sync keeps Landing; a reveal of a branch (a toast, the Activity window, a review
   window, F2, Go to <branch>) shows the branches first, committed at once, so the row it focuses takes the focus.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should change the view only by the user: a sync keeps it, a reveal of a branch shows the branches`)
-- Both views stay mounted (React's `Activity`); the branches keep their scroll position and their focused row: a switch
+- The views stay mounted once shown (React's `Activity`); the branches keep their scroll position and their focused row: a switch
   that leaves the focus inside the view that hides moves it to the heading of the other, a click on the switcher keeps
   it there. Every start shows the branches.
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should open from the native View menu and Show Statistics, and give the branches back as they were`)
@@ -123,8 +127,8 @@ nothing from the work: the view changes only when the user changes it, and the b
 ## User Experience
 
 - The switcher is the stock `ToggleGroup` (`outline`, `sm`, `spacing={0}`) on the canvas, the shown view in its
-  pressed state, no colour of its own; the names give way to the icons below `@4xl`, the name then the accessible name
-  and the tooltip with ⌘1 and ⌘2.
+  pressed state, no colour of its own; the names give way to the icons below `@5xl` (the three of them would crowd the row of a narrow window), the name then the accessible name
+  and the tooltip with ⌘1, ⌘2 and ⌘3.
 - The charts are shadcn Charts (Recharts, `src/components/ui/chart.tsx`), in a chunk of their own that loads the first
   time Landing shows. Their series take the chart palette `--chart-1…4` of `src/index.css` (blue, orange, a neutral,
   yellow: slots 1, 2 and 4 of the dataviz reference palette and a neutral for Canceled, which ended without an

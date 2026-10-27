@@ -1,8 +1,8 @@
 use crate::refresh::{
   ActiveRobots, DetailsRead, FactTiming, ListWindow, MOVED_REMOTE_RETRIES, MovedRemoteFetch, ProfilesRead, READINESS_PARALLEL, ReadState, ReadinessAsks, ReadinessPriority,
   ReadinessRead, RefreshReason, ServiceState, branch_rules_due, moved_remote_fetch_due, profiles_due, pull_requests_due, pull_requests_follows_up, pull_requests_push_recheck_at,
-  readiness_asks, readiness_due, readiness_priority, review_requests_due, review_requests_follows_up, review_requests_poll_delay, robot_details_due, robot_failing_due,
-  robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
+  readiness_asks, readiness_due, readiness_priority, review_requests_due, review_requests_follows_up, review_requests_poll_delay, reviews_shown_due, robot_details_due,
+  robot_failing_due, robot_problems_due, robots_list_due, robots_list_follows_up, robots_list_window, robots_poll_at, robots_poll_due,
 };
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::pull_request::{PullRequestAvailability, TokenSource};
@@ -382,4 +382,42 @@ fn a_remote_branch_whose_pull_request_moved_is_fetched_once_per_head() {
     assert_eq!(moved_remote_fetch_due(NOW, head, tip, pushing, last.as_ref()), due, "{case}");
   }
   assert_eq!(MOVED_REMOTE_RETRIES.len(), 3);
+}
+
+#[test]
+fn the_reviews_view_lists_the_rest_of_reviews_when_it_is_older_than_two_minutes_or_never_read() {
+  let at = |seconds: u64| Some(NOW.checked_sub(Duration::from_secs(seconds)).unwrap());
+  assert!(reviews_shown_due(NOW, FactTiming::default(), ON_SERVICE), "never read");
+  assert!(
+    !reviews_shown_due(
+      NOW,
+      FactTiming {
+        started_at: at(30),
+        answered_at: at(29)
+      },
+      ON_SERVICE
+    ),
+    "read just now"
+  );
+  assert!(
+    reviews_shown_due(
+      NOW,
+      FactTiming {
+        started_at: at(130),
+        answered_at: at(129)
+      },
+      ON_SERVICE
+    ),
+    "older than two minutes"
+  );
+  let off = ServiceState {
+    off_service: true,
+    retry_at: None,
+  };
+  assert!(!reviews_shown_due(NOW, FactTiming::default(), off), "off GitHub only the refresh button asks");
+  let limited = ServiceState {
+    off_service: false,
+    retry_at: Some(NOW + Duration::from_secs(60)),
+  };
+  assert!(!reviews_shown_due(NOW, FactTiming::default(), limited), "a rate limit holds it back");
 }

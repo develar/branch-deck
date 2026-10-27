@@ -7,14 +7,14 @@ import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, openRobotUrl } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
-import type { ReviewFeedback } from "@/lib/pull-request-review"
+import type { ReviewFeedback, ReviewSource } from "@/lib/pull-request-review"
 import { reviewToastActionLabel } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
-import { isApprovedCommit } from "@/lib/review-request-actions"
+import { approvedCommitOf } from "@/lib/review-request-actions"
 import { describeNewRequests, mergeReviewRequests, reviewRequestKey } from "@/lib/review-requests"
 import { runFailure, runIntent } from "@/lib/run-intent"
 import { showRepository } from "@/lib/show-repository"
-import { refreshSessionFacts } from "@/model/store"
+import { getRowPart, refreshSessionFacts } from "@/model/store"
 import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { watchRobot } from "@/stores/patronus"
@@ -108,11 +108,6 @@ export function useUnreadReviewRequests(): ReadonlySet<string> {
 /** What waits for the user's review, for the badge of the Dock */
 export function useReviewRequestCount(): number {
   return useEntry(entry => (entry.availability?.status === "available" || entry.requests.length > 0 ? entry.totalCount : 0))
-}
-
-/** The review the user submitted on pull request `number` of the selected repository in this session, if any */
-export function useSubmittedReview(number: number): SubmittedReview | undefined {
-  return useEntry(entry => entry.reviewed[number])
 }
 
 /** What runs for pull request `number` of the selected repository now, if anything */
@@ -257,18 +252,18 @@ function tellNews(repositoryPath: string, news: readonly ReviewRequest[]): void 
  * Opens the review of a request of the repository (it must be the selected one) in its window, marking it read.
  * `intent` is the write the row's menu asked for, or "review" (D on the row).
  */
-export function openReviewRequest(repositoryPath: string, number: number, intent: ReviewIntent | null = null): void {
+export function openReviewRequest(repositoryPath: string, number: number, intent: ReviewIntent | null = null, source: ReviewSource = "yourTurn"): void {
   if (repositoryPath !== currentRepositoryPath()) {
     return
   }
-  const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
-  const index = entry.requests.findIndex(it => it.number === number)
+  const requests = source === "yourTurn" ? (reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY).requests : reviewWindow.rowsOf(repositoryPath, source)
+  const index = requests.findIndex(it => it.number === number)
   if (index === -1) {
     return
   }
-  const request = entry.requests[index]!
+  const request = requests[index]!
   markRead(repositoryPath, request)
-  reviewWindow.open(repositoryPath, request, index, intent)
+  reviewWindow.open(repositoryPath, request, index, intent, source)
 }
 
 /**
@@ -373,8 +368,8 @@ export async function approveAndSafePush(
     feedback.error(SAFE_PUSH_FAILURE, notShown)
     return false
   }
-  const entry = reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY
-  const approved = isApprovedCommit(entry.reviewed[number], commitId)
+  // Rust knows whether the user approved this commit: then the Safe Push alone is left
+  const approved = approvedCommitOf(getRowPart(`pull:${number}`, "actions")) === commitId
   let told = approved
   const tellApproval = () => {
     if (!told) {
@@ -456,10 +451,12 @@ export interface ReviewWindowConnection {
   /** The request the window shows in the repository, whose refs stay; null when it shows none */
   readonly shownNumber: (repositoryPath: string) => number | null
   /** Shows the request in the window, opened or reused */
-  readonly open: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null) => void
+  readonly open: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, source: ReviewSource) => void
+  /** The rows of a list other than Your Turn the window walks (Reviews) */
+  readonly rowsOf: (repositoryPath: string, source: ReviewSource) => readonly ReviewRequest[]
 }
 
-let reviewWindow: ReviewWindowConnection = { shownNumber: () => null, open: () => {} }
+let reviewWindow: ReviewWindowConnection = { shownNumber: () => null, open: () => {}, rowsOf: () => [] }
 
 export function connectReviewWindow(connection: ReviewWindowConnection): void {
   reviewWindow = connection

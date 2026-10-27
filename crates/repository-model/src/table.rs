@@ -269,10 +269,12 @@ impl TableState {
         stack_parents,
         parked,
         stack_branches,
+        target_branch,
       } => {
         self.set_step(SyncStep::Building);
         let header = &mut self.parts.header;
         header.baseline_branch = baseline_branch;
+        header.target_branch = target_branch;
         header.stacks_enabled = stacks;
         header.issue_groups = issue_groups;
         header.stack_parents = stack_parents;

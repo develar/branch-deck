@@ -98,6 +98,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     stack_parents: BTreeMap::new(),
     parked: BTreeMap::new(),
     stack_branches: stacks.iter().map(|stack| stack.root.clone()).collect(),
+    target_branch: None,
   }];
   for branch in &branches {
     for commit in &branch.commits {

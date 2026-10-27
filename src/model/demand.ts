@@ -2,7 +2,7 @@
  * What this window shows and needs of the session of its repository (docs/design/rust-domain-authority.md, "Demand"):
  * the one thing the page tells Rust of itself (`set_demand`, by the window's subscription), which the session asks its
  * facts by. A surface holds a part while it shows it (`showBranch`, `showStack`, `needBranch`, `previewBranch`,
- * `showReviewWindow`, `showRobotDetails`): each answers its release and is counted, so two surfaces of one branch hold it
+ * `showReviews`, `showReviewWindowPullRequest`, `showRobotDetails`): each answers its release and is counted, so two surfaces of one branch hold it
  * once; a watched robot of no branch is held for the life of the window (`watchRobotInDemand`). The focus of the window
  * and whether the machine is online come with them.
  *
@@ -24,9 +24,9 @@ import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 /** The least time between two sends of the demand */
 export const DEMAND_SEND_INTERVAL_MS = 250
 
-type Part = "visibleBranches" | "visibleStacks" | "needed" | "robotDetails" | "watchedRobots"
+type Part = "visibleBranches" | "visibleStacks" | "needed" | "robotDetails" | "watchedRobots" | "reviews" | "reviewWindows"
 
-const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "robotDetails", "watchedRobots"]
+const PARTS: readonly Part[] = ["visibleBranches", "visibleStacks", "needed", "robotDetails", "watchedRobots", "reviews", "reviewWindows"]
 
 /** By part, each name with the number of surfaces that hold it */
 const held = new Map<Part, Map<string, number>>(PARTS.map(part => [part, new Map()]))
@@ -90,6 +90,19 @@ export function watchRobotInDemand(robotId: string): void {
   hold("watchedRobots", robotId)
 }
 
+/** The Reviews view shows until the returned function is called: the session reads the rest of Reviews */
+export function showReviews(): () => void {
+  return hold("reviews", "reviews")
+}
+
+/**
+ * A review window shows the pull request `number` until the returned function is called: its actions stay in the view
+ * also once no listing has it
+ */
+export function showReviewWindowPullRequest(number: number): () => void {
+  return hold("reviewWindows", String(number))
+}
+
 /** A surface needs the readiness of the subject now (the Safe Push popover and its click, the "Create pull request" dialog) until the returned function is called */
 export function demandReviewReadiness(subject: string): () => void {
   return hold("needed", subject)
@@ -145,6 +158,10 @@ export function currentDemand(): Demand {
     needed: names("needed"),
     robotDetails: names("robotDetails"),
     watchedRobots: names("watchedRobots"),
+    reviews: held.get("reviews")!.size > 0,
+    reviewWindows: names("reviewWindows")
+      .map(Number)
+      .toSorted((a, b) => a - b),
   }
 }
 

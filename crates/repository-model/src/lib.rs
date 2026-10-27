@@ -39,6 +39,8 @@
 //!   their order, the news that approvals arrived
 //! - `review_request_facts`: the pull requests of others that wait for the user's review, as the listings leave them,
 //!   and the news of the requests a listing added
+//! - `review_view`: what the view derives of the pull requests to review: the sections of Reviews and the actions of
+//!   each pull request by `pull:<number>`
 //! - `refusal_words`: the words of the refusals of the rules for `bd`, the engine and the push guard
 //!   (`start_refusal_text`), and why the stack branch of a whole stack is no build of its commits
 //! - `runtime`: the actor of a session: its mailbox, the runs of its syncs with the mailbox as their reporter, the
@@ -78,6 +80,7 @@ pub mod readiness_facts;
 pub mod ref_claims;
 pub mod refusal_words;
 pub mod review_request_facts;
+pub mod review_view;
 pub mod runtime;
 pub mod session;
 pub mod state;

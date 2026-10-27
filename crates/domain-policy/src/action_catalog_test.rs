@@ -32,10 +32,15 @@ const fn code_index(blocker: &ActionBlocker) -> usize {
     ActionBlocker::ParkHeld { .. } => 11,
     ActionBlocker::NothingBeyond { .. } => 12,
     ActionBlocker::Landed { .. } => 13,
+    ActionBlocker::OwnPullRequest => 14,
+    ActionBlocker::Approved { .. } => 15,
+    ActionBlocker::TargetUnread => 16,
+    ActionBlocker::NoTarget => 17,
+    ActionBlocker::OtherBase { .. } => 18,
   }
 }
 
-const CODES: usize = 14;
+const CODES: usize = 19;
 
 /// What the page reads: every id, and the blockers with the action each is an example of
 #[derive(Serialize)]
@@ -111,6 +116,18 @@ fn examples() -> Vec<(ActionId, ActionBlocker)> {
         },
       },
     ),
+    (ActionId::Approve, ActionBlocker::OwnPullRequest),
+    (ActionId::Approve, ActionBlocker::Approved { commit: s("0123456789abcdef") }),
+    (ActionId::SafePushPullRequest, ActionBlocker::TargetUnread),
+    (ActionId::SafePushPullRequest, ActionBlocker::NoTarget),
+    (
+      ActionId::SafePushPullRequest,
+      ActionBlocker::OtherBase {
+        number: 101,
+        base: s("release/253"),
+        target: s("master"),
+      },
+    ),
   ]
 }
 
@@ -177,7 +194,13 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::CopyRobotPrompt
       | ActionId::CopyRobotFullPrompt
       | ActionId::OpenRobot
-      | ActionId::OpenRobotPullRequest => {}
+      | ActionId::OpenRobotPullRequest
+      | ActionId::Review
+      | ActionId::Approve
+      | ActionId::SafePushPullRequest
+      | ActionId::RequestChanges
+      | ActionId::ShowBranch
+      | ActionId::RemoveFromReviews => {}
     }
   }
 }

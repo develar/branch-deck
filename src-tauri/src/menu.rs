@@ -90,11 +90,13 @@ pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), B
   let command_palette = MenuItemBuilder::with_id(OPEN_COMMAND_PALETTE, "Command Palette…").accelerator("CmdOrCtrl+K").build(app)?;
   // the views of the main window (`MAIN_VIEWS` of `src/stores/main-view.ts`)
   let show_branches = MenuItemBuilder::with_id(SHOW_BRANCHES, "Branches").accelerator("CmdOrCtrl+1").build(app)?;
-  let show_landing = MenuItemBuilder::with_id(SHOW_LANDING, "Landing").accelerator("CmdOrCtrl+2").build(app)?;
+  let show_reviews = MenuItemBuilder::with_id(SHOW_REVIEWS, "Reviews").accelerator("CmdOrCtrl+2").build(app)?;
+  let show_landing = MenuItemBuilder::with_id(SHOW_LANDING, "Landing").accelerator("CmdOrCtrl+3").build(app)?;
   let view_menu_builder = SubmenuBuilder::new(app, VIEW)
     .item(&command_palette)
     .separator()
     .item(&show_branches)
+    .item(&show_reviews)
     .item(&show_landing)
     .separator()
     .item(&actual_size)
@@ -162,6 +164,7 @@ const OPEN_SETTINGS: &str = "open_settings";
 const OPEN_ACTIVITY: &str = "open_activity";
 const OPEN_COMMAND_PALETTE: &str = "open_command_palette";
 const SHOW_BRANCHES: &str = "show_branches";
+const SHOW_REVIEWS: &str = "show_reviews";
 const SHOW_LANDING: &str = "show_landing";
 const SYNC_BRANCHES: &str = "sync_branches";
 const UPDATE_PROJECT: &str = "update_project";
@@ -233,7 +236,8 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
   match event.id().as_ref() {
     "github_link" => open_url("https://github.com/develar/branch-deck"),
     "getting_started" => open_url("https://github.com/develar/branch-deck#getting-started"),
-    id @ (SYNC_BRANCHES | UPDATE_PROJECT | OPEN_SETTINGS | OPEN_ACTIVITY | OPEN_COMMAND_PALETTE | SHOW_BRANCHES | SHOW_LANDING | INSTALL_AGENT_CLI | CHECK_FOR_UPDATES) => {
+    id @ (SYNC_BRANCHES | UPDATE_PROJECT | OPEN_SETTINGS | OPEN_ACTIVITY | OPEN_COMMAND_PALETTE | SHOW_BRANCHES | SHOW_REVIEWS | SHOW_LANDING | INSTALL_AGENT_CLI
+    | CHECK_FOR_UPDATES) => {
       emit_to_main(app, id, ());
     }
     // one level for all windows: the main window changes it, the settings sync carries it to the others

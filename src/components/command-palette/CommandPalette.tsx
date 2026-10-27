@@ -16,6 +16,7 @@ import { titleBar } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { getSelectedBranches, requestReveal, selectBranches } from "@/stores/commit-move"
 import { MAIN_VIEWS, showMainView } from "@/stores/main-view"
+import { requestLinkFieldFocus } from "@/stores/reviews"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
 interface CommandGroup {
@@ -100,6 +101,10 @@ export function CommandPalette() {
         openActivityWindow: () => openActivityInWindow(null),
         goToBranch,
         branchMenu: actionBranch === null || branchGroups === null ? null : { name: actionBranch, groups: branchGroups },
+        addPullRequestByLink: () => {
+          requestLinkFieldFocus()
+          showMainView("reviews")
+        },
       })
     : []
   const groups: CommandGroup[] = PALETTE_GROUPS.map(group => ({ value: group, items: commands.filter(command => command.group === group) })).filter(group => group.items.length > 0)

@@ -1,11 +1,11 @@
 import { flushSync } from "react-dom"
 import type { LucideIcon } from "lucide-react"
-import { ChartColumnIcon, ListTreeIcon } from "lucide-react"
+import { ChartColumnIcon, GitPullRequestIcon, ListTreeIcon } from "lucide-react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 
-/** The views of the main window: the branch tables, the statistics of the landing into master */
-export type MainView = "branches" | "landing"
+/** The views of the main window: the branch tables, the pull requests the user takes part in, the statistics of the landing into master */
+export type MainView = "branches" | "reviews" | "landing"
 
 /** A view as the surfaces that switch to it name it (the command palette) */
 export interface MainViewEntry {
@@ -19,7 +19,8 @@ export interface MainViewEntry {
 /** The views the window has, in their order: a view joins the surfaces that switch to it by its entry here */
 export const MAIN_VIEWS: readonly MainViewEntry[] = [
   { view: "branches", label: "Branches", icon: ListTreeIcon, kbds: ["mod", "1"] },
-  { view: "landing", label: "Landing", icon: ChartColumnIcon, kbds: ["mod", "2"] },
+  { view: "reviews", label: "Reviews", icon: GitPullRequestIcon, kbds: ["mod", "2"] },
+  { view: "landing", label: "Landing", icon: ChartColumnIcon, kbds: ["mod", "3"] },
 ]
 
 interface MainViewState {

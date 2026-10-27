@@ -5,8 +5,9 @@
 //!
 //! - `admission`: how a new operation of the remote is admitted over those that run or wait (`admit`): it joins the same
 //!   intent, waits behind the newest one that holds a resource it needs, runs beside the rest; busy over another process
-//! - `actions`: the actions a branch, a whole stack or a robot offers and whether each can run now, disabled with the
-//!   reason (`branch_actions`, `stack_actions`, `robot_actions`), for every surface of the app
+//! - `actions`: the actions a branch, a whole stack, a robot or a pull request to review offers and whether each can run
+//!   now, disabled with the reason (`branch_actions`, `stack_actions`, `robot_actions`, `review_actions`), for every
+//!   surface of the app
 //! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
 //!   session or from the grouped branches of a sync, the robots of the user by id (`Robots`) and what is known of a
 //!   remote branch (`RemoteBranch`)
@@ -50,6 +51,8 @@
 //! - `refresh`: when a fact of the remote is asked again: the cadence of the robots of Patronus (the list, the poll, the
 //!   failing robots, the problems, the details), of the merge profiles, of the pull requests and the branch rules of
 //!   GitHub, of the review readiness and of the review requests, by the reason that asks and the clock of the session
+//! - `reviews`: the sections of Reviews beside the requests by name, each open pull request the user takes part in once
+//!   (`sections`), and the links that go (`gone_links`)
 //! - `robot_match`: which robot belongs to a virtual branch and which to the whole stack of a root (`RobotIndex`,
 //!   `match_table`)
 //! - `stack`: the stacks of a table: the declared parent (D8), the branch a branch is built on, the ancestors by
@@ -73,6 +76,7 @@ pub mod readiness;
 pub mod reasons;
 pub mod refresh;
 pub mod review;
+pub mod reviews;
 pub mod robot_match;
 pub mod stack;
 
@@ -110,6 +114,8 @@ mod reason_catalog_test;
 mod refresh_test;
 #[cfg(test)]
 mod review_test;
+#[cfg(test)]
+mod reviews_test;
 #[cfg(test)]
 mod robot_match_test;
 #[cfg(test)]

@@ -549,8 +549,9 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
     missing_branches: fixture.missing_branches,
     dismiss_stale_reviews_on_push: fixture.dismiss_stale_reviews_on_push,
     clock: PAGE_CLOCK_START,
-    // the host keeps the replies of the fixture before
+    // the host keeps the replies and the pull request nodes of the fixtures before
     patronus_replies: std::collections::BTreeMap::new(),
+    pull_request_nodes: std::collections::BTreeMap::new(),
   };
   host.set_github(github, answers.signed_in);
   Ok(StatusCode::OK)

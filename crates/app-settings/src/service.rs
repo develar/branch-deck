@@ -1,8 +1,8 @@
 //! `SettingsService`: the one writer of the settings files of the app data directory. Every change, from any window or
 //! from Rust, is a `SettingsPatch` that `set` applies to the copy in memory under one mutex, in the order it arrives,
 //! and answers at once with the `SettingsChange` (the new version and the whole key) that the caller sends to every
-//! window. A key lives in one file (`StoreFile::of`): `repositoryState`, which every sync, fetch and update changes, in
-//! `repository-state.json`, every other key in `settings.json`, which so changes only when the user changes a setting or
+//! window. A key lives in one file (`StoreFile::of`): `repositoryState`, which every sync, fetch and update changes, and
+//! `linkedPullRequests` in `repository-state.json`, every other key in `settings.json`, which so changes only when the user changes a setting or
 //! the list of projects; the versions count the changes of both. The disk lags: one writer thread saves the stored form of each changed file
 //! (`SettingsFile::save`: only the non-default fields, a temporary file renamed over the file) at most `debounce` after
 //! the first unsaved change, so a burst of changes costs one write, and a file nothing changed is not written; `flush`
@@ -19,7 +19,7 @@
 //! (`SettingsFile::take_repository_state`) into `repository-state.json`, which is saved within the debounce, and
 //! `settings.json` loses them with its next save, not before.
 
-use crate::file::{REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, SETTINGS_FILE_NAME, SettingsFile};
+use crate::file::{REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile};
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, SettingsPatch};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -85,9 +85,10 @@ impl StoreFile {
   /// `settings.json` drops them there
   const SAVE_ORDER: [Self; 2] = [Self::RepositoryState, Self::Settings];
 
-  /// The file of `key`: `repositoryState` in `repository-state.json`, every other key in `settings.json`
+  /// The file of `key`: `repositoryState` and `linkedPullRequests` in `repository-state.json`, every other key in
+  /// `settings.json`
   fn of(key: &str) -> Self {
-    if key == REPOSITORY_STATE_KEY { Self::RepositoryState } else { Self::Settings }
+    if REPOSITORY_STATE_KEYS.contains(&key) { Self::RepositoryState } else { Self::Settings }
   }
 
   const fn name(self) -> &'static str {
@@ -159,10 +160,12 @@ impl State {
   /// same repository wins, being newer, and that file is due for a save
   fn load(directory: &Path) -> Self {
     let mut settings = SettingsFile::load(&directory.join(SETTINGS_FILE_NAME));
-    settings.other.remove(REPOSITORY_STATE_KEY);
+    for key in REPOSITORY_STATE_KEYS {
+      settings.other.remove(key);
+    }
     let mut repository_state = SettingsFile::load(&directory.join(REPOSITORY_STATE_FILE_NAME));
     repository_state.app = AppSettings::default();
-    repository_state.other.retain(|key, _| key == REPOSITORY_STATE_KEY);
+    repository_state.other.retain(|key, _| REPOSITORY_STATE_KEYS.contains(&key.as_str()));
 
     let moved = settings.take_repository_state();
     let mut state = Self::default();
@@ -328,6 +331,12 @@ impl SettingsService {
       .collect();
     changes.sort_by_key(|change| change.version);
     changes
+  }
+
+  /// The value of `key` as it is now; `null` for a key that is not set
+  #[must_use]
+  pub fn value(&self, key: &str) -> Value {
+    key_value(&self.shared.lock(), key)
   }
 
   /// The settings of the app as they are now

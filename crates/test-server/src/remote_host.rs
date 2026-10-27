@@ -341,6 +341,7 @@ impl RemoteHost {
   pub fn set_github(&self, mut state: RepositoryState, signed_in: bool) {
     let before = self.github_repository().state();
     state.patronus_replies = before.patronus_replies;
+    state.pull_request_nodes = before.pull_request_nodes;
     let review_pulls = self.review_pulls.lock().expect("review pulls lock").clone();
     add_pulls(&mut state, review_pulls);
     self.github_repository().set(state);
@@ -362,6 +363,11 @@ impl RemoteHost {
         name.clone_into(&mut state.name);
       }
     });
+  }
+
+  /// The nodes the fake GitHub answers for the pull requests asked by their numbers (`pullRequest(number: $number)`)
+  pub fn set_pull_request_nodes(&self, nodes: std::collections::BTreeMap<u32, serde_json::Value>) {
+    self.github_repository().update(|state| state.pull_request_nodes = nodes);
   }
 
   /// How the Patronus bot answers a `/patronus` comment from now on, by pull request number

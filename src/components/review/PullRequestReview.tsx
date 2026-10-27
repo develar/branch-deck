@@ -16,12 +16,13 @@ import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
-import type { ReviewRange, ReviewRequest } from "@/lib/bindings"
+import type { ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import { FROM_MENU } from "@/lib/menu"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
+import type { ReviewSource } from "@/lib/pull-request-review"
 import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, rangePosition, shownKey } from "@/lib/range-review"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
@@ -35,8 +36,12 @@ import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 /** What the review window of a pull request shows and does: its writes ask the main window (`PullRequestReviewPage`) */
 export interface PullRequestReviewHost {
   readonly repositoryPath: string
-  /** Waiting the longest first, as in Your Turn */
+  /** The list the window walks */
+  readonly source: ReviewSource
+  /** The rows of that list: waiting the longest first, as in Your Turn; in the order of Reviews */
   readonly requests: readonly ReviewRequest[]
+  /** How the user takes part in the pull request of Reviews; null for a request by name */
+  readonly involvement: ReviewInvolvement | null
   readonly request: ReviewRequest
   /** Its place in `requests`; -1 once it left the list (reviewed, or withdrawn) */
   readonly index: number
@@ -44,9 +49,11 @@ export interface PullRequestReviewHost {
   readonly openedIndex: number
   /** No longer waiting for the user's review, and not reviewed by the user here */
   readonly withdrawn: boolean
+  /** The review the user submitted here, until the main window's state says it */
   readonly submitted: SubmittedReview | undefined
+  /** The actions Rust decides of the pull request (`pull:<number>`) */
+  readonly actions: ReviewRequestActionContext["actions"]
   readonly busy: ReviewAction | undefined
-  readonly safePush: ReviewRequestActionContext["safePush"]
   /** The write the row's menu asked for, offered once per open (`openToken`); "review" shows the changes */
   readonly intent: ReviewIntent | null
   readonly openToken: unknown
@@ -135,7 +142,7 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
 
   // the commit column: the scopes, then the commits newest first; a scope that left (the user reviewed the head) or a
   // commit a force push dropped shows all changes
-  const items = range === null ? [] : pullRequestItems(range.commits, canShowSinceReview(request, range) ? request.reviewedCommit : null)
+  const items = range === null ? [] : pullRequestItems(range.commits, canShowSinceReview(request, host.involvement, range) ? request.reviewedCommit : null)
   const selectedKey = shownKey(items, selected)
   const subject: DiffSubject | null =
     range === null
@@ -193,9 +200,8 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     request,
     {
       reviewedCommit,
-      submitted: host.submitted,
+      actions: host.actions,
       busy: host.busy,
-      safePush: host.safePush,
       onReview: () => showTab("changes"),
       onApprove: () => {
         if (reviewedCommit.id !== null) {
@@ -284,11 +290,12 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     onPrevious: previousOf(host) === null ? null : () => showRequest(previousOf(host)!),
     onNext: nextOf(host) === null ? null : () => showRequest(nextOf(host)!),
     actions,
+    source: host.source,
   }
   const top = (
     <div className="flex min-w-0 flex-col">
       <div className={cn("flex min-w-0 flex-col px-6", reviewing ? "gap-2 pt-3 pb-2" : "gap-4 pt-4 pb-3")}>
-        <ReviewHeader request={request} submitted={host.submitted} compact={reviewing} onOpenOnGitHub={host.openOnGitHub}>
+        <ReviewHeader request={request} involvement={host.involvement} submitted={host.submitted} compact={reviewing} onOpenOnGitHub={host.openOnGitHub}>
           {range !== null && firstHead?.number === request.number && firstHead.head !== range.head && (
             <p className="text-xs text-warning" data-testid="review-new-commits">
               {`#${request.number} got new commits while it was open: the review shows ${formatShortHash(range.head)} now`}
@@ -319,7 +326,7 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
         {host.withdrawn && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="review-withdrawn">
             <InfoIcon aria-hidden className="size-4 shrink-0" />
-            No longer waiting for your review
+            {host.source === "reviews" ? "No longer in Reviews" : "No longer waiting for your review"}
           </p>
         )}
         {fetch?.status === "failed" && (
@@ -460,10 +467,14 @@ function getReviewedCommit(request: ReviewRequest, fetch: ReviewFetch | undefine
   return { id: null, reason: `Wait until #${request.number} is fetched: a review is on the commit you saw` }
 }
 
-/** The user's last review is on a commit of the pull request (so an ancestor of the head), before the head */
-function canShowSinceReview(request: ReviewRequest, range: ReviewRange): boolean {
+/**
+ * The user's last review is on a commit of the pull request (so an ancestor of the head), before the head: a request
+ * asked again, or a pull request of Reviews the user reviewed
+ */
+function canShowSinceReview(request: ReviewRequest, involvement: ReviewInvolvement | null, range: ReviewRange): boolean {
   const reviewed = request.reviewedCommit
-  return request.reRequested && reviewed !== null && reviewed !== range.head && range.commits.some(commit => commit.id === reviewed)
+  const again = request.reRequested || (involvement !== null && involvement.kind !== "authored")
+  return again && reviewed !== null && reviewed !== range.head && range.commits.some(commit => commit.id === reviewed)
 }
 
 /** "origin", or "GitHub" for a fork (and for a mirror without the commit) */

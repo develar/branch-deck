@@ -110,7 +110,7 @@ export function zoomMenuItems(): MenuItem[] {
 }
 
 /**
- * The command of a key the native menu's accelerator had: Ctrl+R, Ctrl+T, Ctrl+,, Ctrl+K, Ctrl+1 and Ctrl+2 and the zoom keys (Ctrl+0,
+ * The command of a key the native menu's accelerator had: Ctrl+R, Ctrl+T, Ctrl+,, Ctrl+K, Ctrl+1, Ctrl+2 and Ctrl+3 and the zoom keys (Ctrl+0,
  * Ctrl+=, Ctrl+-). The physical key, as the native accelerators go by the virtual key: a Cyrillic layout's Ctrl+R still syncs
  * (and WebView2 doesn't reload). Ctrl+Shift+= is `useZoom`'s other Zoom In key.
  */
@@ -130,6 +130,8 @@ export function matchMainMenuKey(event: Pick<KeyboardEvent, "code" | "ctrlKey" |
     case "Digit1":
       return { command: "show_branches" }
     case "Digit2":
+      return { command: "show_reviews" }
+    case "Digit3":
       return { command: "show_landing" }
     case "Digit0":
     case "Numpad0":

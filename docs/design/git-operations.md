@@ -3630,7 +3630,7 @@ landing of a session](#the-landing-of-a-session)).
 | branch rules | `facts.rules`, by base | `branch_rules` | `branch_rules_due`, once per base | — |
 | merge profiles | `facts.profiles` | `profiles` (of the target of the baseline) | `profiles_due` | — |
 | review readiness | `facts.readiness`, by subject | `readiness`, `cached_readiness` (the object cache) | `readiness_due`, `readiness_priority` | — |
-| review requests | `facts.reviewRequests` | `review_requests` | `review_requests_due`, `review_requests_poll_delay` | — |
+| review requests | `facts.reviewRequests`; the rest of Reviews derived into `reviews` | `review_requests` (with the rest of Reviews while `Demand::reviews`) | `review_requests_due`, `review_requests_poll_delay`, `reviews_shown_due` | `write_review` |
 | landing needs | `patronus.landingNeeds`, by branch | the host (`SessionEnvironment::landing_needs`) | when their inputs change | — |
 | the Patronus view | `patronus.view`, by branch and stack root | derived by the session (`facts::derive_patronus`) | when its inputs change | — |
 
@@ -3730,7 +3730,15 @@ after two minutes, the refresh button, a poll five minutes after each answer and
 without a token GitHub accepts); a failure keeps the last list `Stale` (no token and a repository off GitHub drop it),
 and the requests a listing adds are news (`NewsEvent::ReviewRequested`, `domain_policy::news::review_requested`), none in the first answer after a window began
 to watch the session (`watched_anew`). While a subject waits for approvals, each
-poll lists the pull requests too.
+poll lists the pull requests too. While a window shows the Reviews view (`Demand::reviews`, [Reviews](../../spec/repository/reviews.spec.md)) every
+list reads the rest of Reviews in the same GraphQL request (the teams' requests, the reviewed, the own, the pull
+requests the user added by link, which the host keeps in `linkedPullRequests` of `repository-state.json`); the view
+that shows asks at once when that rest is older than two minutes (`reviews_shown_due`). The fact keeps the rest through a
+list without it, the requests the user answered with a comment, the reviews the app submitted (`write_review`, until
+a list gives them) and the last pull request of every number, so the actions of a pull request a review window shows
+(`Demand::review_windows`) stay. The view derives the sections (`domain_policy::reviews`) and the actions of each pull
+request to review by `pull:<number>` (`domain_policy::actions::review_actions`, the target of the baseline from the
+sync's `TableHeader::target_branch`): no git of their own.
 
 #### The Patronus view
 

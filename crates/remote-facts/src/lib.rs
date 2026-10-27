@@ -12,6 +12,8 @@
 //! - `stack_pull_request`: the title and the body of the pull request of the whole stack, from what the sync read
 //! - `pull_request_writes`: the base of a stacked pull request, reviews, reviewers and the closing of landed ones
 //! - `review_requests`: the pull requests of others that wait for the user's review
+//! - `reviews`: the rest of Reviews in the same request (the teams' requests, the reviewed, the own and the linked pull
+//!   requests), a link of the user and the pull request it names
 //! - `branch_rules`: the rules GitHub applies to pull requests into a branch
 //! - `cli_tool_releases`: the newest release of the CLIs of Settings → Tools, once a day
 //! - `youtrack_cli`: the `youtrack` CLI signed in with a permanent token of the app's YouTrack
@@ -44,6 +46,7 @@ pub mod pull_request_writes;
 pub mod pull_requests;
 pub mod review_readiness;
 pub mod review_requests;
+pub mod reviews;
 pub mod robot_stats;
 pub mod robot_stats_aggregate;
 pub mod scheduler;

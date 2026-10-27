@@ -11,7 +11,7 @@ describe("mainMenus", () => {
   it("holds the items of the native menu, File, View and Help", () => {
     expect(mainMenus(ready).map(menu => [menu.label, menu.groups.flat().map(item => item.label)])).toEqual([
       ["File", ["Sync Branches", "Update Project", "Auto-sync on Focus", "Settings…"]],
-      ["View", ["Command Palette…", "Branches", "Landing", "Actual Size", "Zoom In", "Zoom Out", "Activity"]],
+      ["View", ["Command Palette…", "Branches", "Reviews", "Landing", "Actual Size", "Zoom In", "Zoom Out", "Activity"]],
       ["Help", ["Getting Started", "Install Agent CLI…", "GitHub Repository"]],
     ])
   })
@@ -34,7 +34,8 @@ describe("matchMainMenuKey", () => {
     expect(matchMainMenuKey(key({ code: "Comma", ctrlKey: true }))).toEqual({ command: "open_settings" })
     expect(matchMainMenuKey(key({ code: "KeyK", ctrlKey: true }))).toEqual({ command: "open_command_palette" })
     expect(matchMainMenuKey(key({ code: "Digit1", ctrlKey: true }))).toEqual({ command: "show_branches" })
-    expect(matchMainMenuKey(key({ code: "Digit2", ctrlKey: true }))).toEqual({ command: "show_landing" })
+    expect(matchMainMenuKey(key({ code: "Digit2", ctrlKey: true }))).toEqual({ command: "show_reviews" })
+    expect(matchMainMenuKey(key({ code: "Digit3", ctrlKey: true }))).toEqual({ command: "show_landing" })
     expect(matchMainMenuKey(key({ code: "Equal", ctrlKey: true }))).toEqual({ command: "zoom", payload: "in" })
     expect(matchMainMenuKey(key({ code: "Minus", ctrlKey: true }))).toEqual({ command: "zoom", payload: "out" })
     expect(matchMainMenuKey(key({ code: "Digit0", ctrlKey: true }))).toEqual({ command: "zoom", payload: "reset" })

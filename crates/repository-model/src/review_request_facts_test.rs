@@ -7,7 +7,8 @@ use domain_types::session::{FactState, NewsEvent};
 use pretty_assertions::assert_eq;
 use std::time::Duration;
 
-fn at(seq: u32) -> Observation {
+/// The observation `seq` of the review requests, a second per seq on the clock of the session
+pub(crate) fn at(seq: u32) -> Observation {
   Observation {
     seq: Seq(seq),
     inputs: 0,
@@ -24,6 +25,8 @@ fn available(requests: Vec<ReviewRequest>) -> ReviewRequestsResult {
     },
     total_count: u32::try_from(requests.len()).unwrap(),
     requests,
+    answered: Vec::new(),
+    others: None,
   }
 }
 
@@ -109,4 +112,88 @@ fn the_first_listing_after_a_window_watches_anew_is_silent() {
       .1,
     Some(told(&[3]))
   );
+}
+
+fn with_reviews(requests: Vec<ReviewRequest>, others: domain_types::review_request::ReviewsAnswer) -> ReviewRequestsResult {
+  ReviewRequestsResult {
+    others: Some(others),
+    ..available(requests)
+  }
+}
+
+/// The rest of Reviews is unknown until the view shows, loading until a listing brings it, then kept through a listing
+/// without it; a rejected token drops it with the requests
+#[test]
+fn the_rest_of_reviews_stands_by_its_listing_and_stays_through_one_without_it() {
+  use domain_types::review_request::{ReviewEntry, ReviewInvolvement, ReviewSearch, ReviewsAnswer};
+  use domain_types::session::Demand;
+  let mut fact = ReviewRequestsFact::default();
+  assert_eq!(fact.reviews().0.state, FactState::Unknown);
+  fact.demand(&Demand {
+    reviews: true,
+    ..Demand::default()
+  });
+  assert_eq!(fact.reviews().0.state, FactState::Loading);
+  fact.answer(at(1), available(Vec::new()));
+  assert_eq!(fact.reviews().0.state, FactState::Loading, "a listing that didn't ask it leaves it unread");
+  let others = ReviewsAnswer {
+    team: ReviewSearch {
+      total_count: 1,
+      entries: vec![ReviewEntry {
+        request: review_request(7, 100),
+        involvement: ReviewInvolvement::Team { teams: Vec::new() },
+      }],
+    },
+    ..ReviewsAnswer::default()
+  };
+  let (changed, _) = fact.answer(at(2), with_reviews(Vec::new(), others.clone()));
+  assert!(changed);
+  let (head, answer, checked_at) = fact.reviews();
+  assert_eq!((head.state, answer, checked_at), (FactState::Fresh, Some(&others), 1_700_000_002));
+  fact.answer(at(3), available(Vec::new()));
+  assert_eq!(fact.reviews().1, Some(&others), "kept through a listing without it");
+
+  fact.answer(
+    at(4),
+    ReviewRequestsResult::unavailable(PullRequestAvailability::NotAuthenticated { source: TokenSource::Environment }),
+  );
+  let (head, answer, _) = fact.reviews();
+  assert_eq!(answer, None);
+  assert!(matches!(head.state, FactState::Unavailable { .. }), "{head:?}");
+}
+
+/// The review the user submitted from the app approves until a listing has the user's review; a review window keeps the
+/// pull request it shows once no listing has it
+#[test]
+fn a_submitted_review_and_a_shown_pull_request_outlive_the_listing() {
+  use domain_types::pull_request::{PullRequestReviewEvent, ReviewerState};
+  use domain_types::session::Demand;
+  let mut fact = ReviewRequestsFact::default();
+  let request = ReviewRequest {
+    head_ref_oid: "head".to_owned(),
+    ..review_request(7, 100)
+  };
+  fact.answer(at(1), available(vec![request.clone()]));
+  assert_eq!(fact.approved(&request), None);
+  fact.submitted(7, PullRequestReviewEvent::Approve, "head".to_owned());
+  assert_eq!(fact.approved(&request), Some("head"));
+
+  fact.demand(&Demand {
+    review_windows: vec![7],
+    ..Demand::default()
+  });
+  // the listing after the approval no longer has the request
+  fact.answer(at(2), available(Vec::new()));
+  let shown: Vec<u32> = fact.windows().map(|(request, _)| request.number).collect();
+  assert_eq!(shown, vec![7]);
+  assert_eq!(fact.approved(&request), Some("head"), "GitHub doesn't give the review yet");
+
+  // GitHub gives the review: its own answer counts from now
+  let reviewed = ReviewRequest {
+    reviewed_commit: Some("head".to_owned()),
+    reviewed_state: Some(ReviewerState::Approved),
+    ..request
+  };
+  fact.answer(at(3), available(vec![reviewed.clone()]));
+  assert_eq!(fact.approved(&reviewed), Some("head"));
 }

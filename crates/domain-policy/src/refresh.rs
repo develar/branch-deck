@@ -412,6 +412,13 @@ pub fn review_requests_due(reason: RefreshReason, now: Duration, list: FactTimin
   }
 }
 
+/// A window shows the Reviews view (`Demand::reviews`): the review requests are listed with the rest of Reviews when
+/// that rest was never read or is older than two minutes, at least a minute after it was asked; off GitHub and before
+/// the `retry_at` of a rate limit not. While the view shows, every list of the review requests reads the rest with it
+pub fn reviews_shown_due(now: Duration, reviews: FactTiming, service: ServiceState) -> bool {
+  !refused_by_service(RefreshReason::Demand, now, service) && focus_due(now, reviews)
+}
+
 /// The refresh button during a list asks once more after it
 pub fn review_requests_follows_up(reason: RefreshReason) -> bool {
   reason == RefreshReason::Manual

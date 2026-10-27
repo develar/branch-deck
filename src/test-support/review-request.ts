@@ -21,6 +21,7 @@ export function reviewRequest(number: number, patch: Partial<ReviewRequest> = {}
     reviewDecision: "reviewRequired",
     reRequested: false,
     reviewedCommit: null,
+    reviewedState: null,
     headRefName: `alice/feature-${number}`,
     headRefOid: "head",
     baseRefName: "master",

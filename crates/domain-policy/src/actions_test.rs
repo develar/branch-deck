@@ -825,3 +825,83 @@ fn a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count() 
     [CancelRobot, OpenRobot, OpenRobotPullRequest]
   );
 }
+
+/// A pull request of someone else into master, not approved, Patronus pushing into master
+fn pull_request_to_review() -> crate::actions::PullRequestFacts<'static> {
+  crate::actions::PullRequestFacts {
+    number: 101,
+    head: "head",
+    base: "master",
+    own: false,
+    linked: false,
+    branch: None,
+    approved: None,
+    target: crate::actions::Target::Branch("master"),
+  }
+}
+
+#[test]
+fn a_pull_request_to_review_offers_the_review_the_decisions_and_its_safe_push_into_the_target() {
+  use crate::actions::{Target, review_actions};
+  use ActionId::{Approve, RemoveFromReviews, RequestChanges, Review, SafePushPullRequest, ShowBranch};
+  let facts = pull_request_to_review();
+  assert_eq!(
+    table(&review_actions(&facts)),
+    vec![
+      (Review, None),
+      (Approve, None),
+      (SafePushPullRequest, None),
+      (RequestChanges, None),
+      (OpenPullRequest, None)
+    ]
+  );
+  // a link can be removed; an own pull request of the table shows its branch
+  let linked = review_actions(&crate::actions::PullRequestFacts { linked: true, ..facts });
+  assert_eq!(ids(&linked).last(), Some(&RemoveFromReviews));
+  let own = review_actions(&crate::actions::PullRequestFacts {
+    own: true,
+    branch: Some("auth"),
+    ..facts
+  });
+  assert_eq!(
+    table(&own),
+    vec![
+      (Review, None),
+      (Approve, Some(ActionBlocker::OwnPullRequest)),
+      (SafePushPullRequest, Some(ActionBlocker::OwnPullRequest)),
+      (RequestChanges, Some(ActionBlocker::OwnPullRequest)),
+      (OpenPullRequest, None),
+      (ShowBranch, None),
+    ]
+  );
+  // where Patronus doesn't merge, no Safe Push
+  let off_patronus = review_actions(&crate::actions::PullRequestFacts {
+    target: Target::NoPatronus,
+    ..facts
+  });
+  assert!(!ids(&off_patronus).contains(&SafePushPullRequest));
+}
+
+#[test]
+fn an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patronus_pushes_into() {
+  use crate::actions::{PullRequestFacts, Target, review_actions};
+  use ActionId::{Approve, SafePushPullRequest};
+  let facts = pull_request_to_review();
+  let approved = review_actions(&PullRequestFacts { approved: Some("head"), ..facts });
+  assert_eq!(reason_of(&approved, Approve), Some(ActionBlocker::Approved { commit: "head".to_owned() }));
+  assert_eq!(reason_of(&approved, SafePushPullRequest), None);
+  // an approval of an older commit approves nothing of the head
+  let older = review_actions(&PullRequestFacts { approved: Some("older"), ..facts });
+  assert_eq!(reason_of(&older, Approve), None);
+  let safe_push = |target| reason_of(&review_actions(&PullRequestFacts { target, ..facts }), SafePushPullRequest);
+  assert_eq!(safe_push(Target::Unread), Some(ActionBlocker::TargetUnread));
+  assert_eq!(safe_push(Target::None), Some(ActionBlocker::NoTarget));
+  assert_eq!(
+    safe_push(Target::Branch("release/253")),
+    Some(ActionBlocker::OtherBase {
+      number: 101,
+      base: "master".to_owned(),
+      target: "release/253".to_owned(),
+    })
+  );
+}

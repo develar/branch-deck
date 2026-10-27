@@ -8,6 +8,7 @@ use crate::action_view::{ActionSources, actions_of};
 use crate::derive::{landed_states_of, lands_of, next_steps_of, push_view, session_open_pull_requests};
 use crate::facts::FactStore;
 use crate::patch::{apply_patch, branch_change, changed, changed_commits, diff_keyed};
+use crate::review_view::{review_actions_of, reviews_view};
 use crate::table::TableState;
 use domain_types::operation::{OperationId, RunningOperation};
 use domain_types::session::{
@@ -90,7 +91,10 @@ impl View {
       open_pull_requests: &open,
       landed: &landed,
     };
-    let (actions, removed_actions) = diff_keyed(&last.actions, &actions_of(state, facts, &sources));
+    let reviews = reviews_view(state, facts);
+    let mut actions_now = actions_of(state, facts, &sources);
+    actions_now.extend(review_actions_of(state, facts, &reviews));
+    let (actions, removed_actions) = diff_keyed(&last.actions, &actions_now);
     let (operations, removed_operations) = operations_change(&last.operations, state.operations());
     let (last_archived, archived) = (&last.sections.archived, &parts.sections.archived);
     let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
@@ -126,6 +130,7 @@ impl View {
       archived: (archived_changes != ArchivedChanges::default()).then_some(archived_changes),
       unapplied: changed(&last.sections.unapplied, &parts.sections.unapplied),
       landed: changed(&last.sections.landed, &parts.sections.landed),
+      reviews: changed(&last.reviews, &reviews),
       patronus: patronus_change(&last.patronus, facts.patronus.part()),
       facts: facts_change(&last.facts, facts),
       news: new_news(&last.news, facts.news()),

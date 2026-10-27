@@ -262,6 +262,11 @@ pub enum SyncEvent {
     /// and the stack branches kept for their remote branch; any other stack branch is gone
     #[cfg_attr(feature = "specta", specta(optional))]
     stack_branches: Vec<String>,
+    /// The branch of origin the baseline tracks, which the robots of Patronus push into (`master` for
+    /// `origin/master`); none for a baseline that is no branch of origin
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    target_branch: Option<String>,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },

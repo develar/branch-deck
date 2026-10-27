@@ -60,11 +60,21 @@ pub enum ActionId {
   CopyRobotFullPrompt,
   OpenRobot,
   OpenRobotPullRequest,
+  // a pull request to review (Your Turn, Reviews and the review window)
+  Review,
+  Approve,
+  /// Approve and Safe Push, or the Safe Push alone after an approval of the head
+  SafePushPullRequest,
+  RequestChanges,
+  /// The branch of the table an own pull request is of
+  ShowBranch,
+  /// A pull request the user added by its link leaves Reviews
+  RemoveFromReviews,
 }
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 37] = [
+  pub const ALL: [Self; 43] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -102,6 +112,12 @@ impl ActionId {
     Self::CopyRobotFullPrompt,
     Self::OpenRobot,
     Self::OpenRobotPullRequest,
+    Self::Review,
+    Self::Approve,
+    Self::SafePushPullRequest,
+    Self::RequestChanges,
+    Self::ShowBranch,
+    Self::RemoveFromReviews,
   ];
 }
 
@@ -175,6 +191,22 @@ pub enum ActionBlocker {
   /// All of it landed: nothing is left to review in a new pull request
   Landed {
     landed: Landed,
+  },
+  /// The pull request is the user's own: GitHub takes no review of its author
+  OwnPullRequest,
+  /// The user approved the commit the pull request shows
+  Approved {
+    commit: String,
+  },
+  /// The branch Patronus pushes into for the baseline is known after the first sync
+  TargetUnread,
+  /// The baseline is no branch of origin, which Patronus pushes into
+  NoTarget,
+  /// The pull request goes into another branch than the one Patronus pushes into: Patronus would merge it there
+  OtherBase {
+    number: u32,
+    base: String,
+    target: String,
   },
 }
 

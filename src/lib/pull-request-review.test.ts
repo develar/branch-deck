@@ -1,7 +1,7 @@
 // @spec spec/repository/review-requests.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { PullRequestReviewWindowData } from "@/lib/pull-request-review"
-import { getReviewSafePush, pullRequestReviewWindowKey } from "@/lib/pull-request-review"
+import { pullRequestReviewWindowKey } from "@/lib/pull-request-review"
 import { reviewRequest } from "@/test-support/review-request"
 
 function data(patch: Partial<PullRequestReviewWindowData>): PullRequestReviewWindowData {
@@ -12,8 +12,9 @@ function data(patch: Partial<PullRequestReviewWindowData>): PullRequestReviewWin
     request,
     index: 0,
     intent: null,
+    source: "yourTurn",
     openedAt: 1,
-    state: { repositoryPath: "/repo", selected: true, requests: [request], reviewed: {}, busy: {}, patronus: { available: false, target: null } },
+    state: { repositoryPath: "/repo", selected: true, source: "yourTurn", requests: [request], involvements: {}, actions: {}, busy: {} },
     ...patch,
   }
 }
@@ -23,20 +24,11 @@ describe("the review window of a pull request", () => {
     const shown = pullRequestReviewWindowKey(data({}))
     expect(pullRequestReviewWindowKey(data({ openedAt: 2 }))).toBe(shown)
     expect(pullRequestReviewWindowKey(data({ number: 8 }))).not.toBe(shown)
+    // the same pull request opened from Reviews walks another list
+    expect(pullRequestReviewWindowKey(data({ source: "reviews" }))).not.toBe(shown)
     // a write of the row's menu, D on the row: every time
     const withIntent = data({ intent: "requestChanges", openedAt: 3 })
     expect(pullRequestReviewWindowKey(withIntent)).not.toBe(shown)
     expect(pullRequestReviewWindowKey({ ...withIntent, openedAt: 4 })).not.toBe(pullRequestReviewWindowKey(withIntent))
-  })
-
-  it("says why Approve and Safe Push waits for the branch Patronus pushes into, and a read that failed as a failure", () => {
-    const request = reviewRequest(7)
-    expect(getReviewSafePush(request, { available: true, target: undefined })).toEqual({ blocked: "Reading the branch Patronus pushes into…" })
-    // a failed read is no "the baseline is none"
-    expect(getReviewSafePush(request, { available: true, target: undefined, targetError: "Patronus answered 503" })).toEqual({
-      blocked: "Cannot read the branch Patronus pushes into: Patronus answered 503",
-    })
-    expect(getReviewSafePush(request, { available: true, target: null })).toEqual({ blocked: "Patronus pushes into a branch of origin: the baseline is none" })
-    expect(getReviewSafePush(request, { available: true, target: "master" })).toEqual({ blocked: null })
   })
 })

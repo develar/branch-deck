@@ -7,7 +7,7 @@ use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::service::SettingsService;
 use domain_types::calendar::Calendar;
 use domain_types::error::ApiError;
-use domain_types::patronus::{GetPatronusTargetBranchParams, PatronusAvailability};
+use domain_types::patronus::PatronusAvailability;
 use domain_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsEvent, RobotStatsResult};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -19,7 +19,7 @@ use patronus::token::find_user_token;
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use std::sync::Arc;
 use std::time::Duration;
-use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch, required_target_branch};
+use sync_core::patronus::{SpaceRepository, find_space_repository, required_target_branch};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
 use sync_utils::timestamp::unix_now;
 use tauri::State;
@@ -198,14 +198,4 @@ pub async fn get_robot_commit_map(
     .map(Option::unwrap_or_default)
   })
   .await
-}
-
-/// The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
-/// of origin
-#[tauri::command]
-#[instrument(skip(git_executor))]
-#[specta::specta]
-pub async fn get_patronus_target_branch(git_executor: State<'_, GitCommandExecutor>, params: GetPatronusTargetBranchParams) -> Result<Option<String>, ApiError> {
-  let git = (*git_executor).clone();
-  run_blocking(move || find_target_branch(&git, &params.repository_path, &params.baseline_branch)).await
 }

@@ -334,12 +334,13 @@ flowchart TD
 | Piece, предки, whole stack, порядок push, родитель | `domain-policy/src/stack.rs` (`whole_stack_of`, `whole_stack_members`, `whole_stack_rest`), `push.rs` (`push_plan`, `branch_push`, `stack_branch_along`), раскладка в вид — `repository-model/src/derive.rs` (`BranchStructure.wholeStack`, `StackLanding.rest`, `push_view` → `RepositoryView.pushes`, s8-4) | `stack.ts` (`stackAncestors`, `stackPushOrder`, `buttonStackPushOrder`, `stackChildrenPushOrder`, `stackAskFirst`, `offersPushWithChildren`), `useStackNextStep.ts` (`getWholeStackMembers`, `getWholeStackRest`, `isForkingStack`), `whole-stack.ts` (`getStackBranchBlocker`, `getStackBranchAlong`), `takesStackBranchAlong`, `stack_summary::whole_stack_of`, решение `stack_branches_to_push` (D8) |
 | Parked | `domain-policy/src/parked.rs` | `parked.ts`, `sync_core::parked::parked_state` (R3) |
 | Допустимость Safe Push и Dry Run | `domain-policy/src/land.rs` | `safe-push-decision.ts`, `readSafePush`, решающая половина `plan()` (R6, D2, D3b) |
+| Разделы Reviews: каждый PR, в котором участвует пользователь, один раз; ссылки, которые уходят | `domain-policy/src/reviews.rs`, раскладка в вид — `repository-model/src/review_view.rs` (`RepositoryView.reviews`), слова — `src/presenters/reviews.ts` | — |
 | Review: что считается, сброс push'ем, кандидаты | `domain-policy/src/review.rs` | `useDismissesStaleReviews.ts`, `request-review.ts` (с s9-10 — только слова, `presenters/review.ts`), `suggested_reviewers` (D1, D5, D9) |
 | База PR, retarget, другая база | `domain-policy/src/pull_request.rs` | `branch-next-step.ts:505-524`, `push.ts:136`, `safe_push_command.rs:1090-1097` (D3a, D3b) |
 | Next step ветки и whole stack | `domain-policy/src/next_step.rs` (s8-9), раскладка в вид — `repository-model/src/derive.rs` (`next_steps` → `RepositoryView.nextSteps`), слова `bd` — `bd-core/src/next_step_summary.rs` | `branch-next-step.ts` и сборка фактов `useStackNextStep.ts` удалены (s8-10): страница читает `nextSteps` (`useRowPart(name, "landing")`), слова — `src/presenters/next-step.ts` |
 | Landing node | `domain-policy/src/landing_node.rs` (s8-9) | `landing-node.ts` удалён (s8-10): узел — `view.node`, слова и наложение идущего хода — `src/presenters/landing-node.ts` |
 | Что перенесено и какие PR закрыть | `domain-policy/src/landed.rs` | `landed-stack.ts`, `landed_by` (D7) |
-| Доступность каждого действия (disabled с причиной) | `domain-policy/src/actions.rs` (s8-12), раскладка в вид — `repository-model/src/action_view.rs` (`RepositoryView.actions`), слова — `src/presenters/actions.ts` | предметная половина `useBranchContextActions.ts` (860 строк), `getRobotActions`; палитра ⌘K показывает действия ветки в фокусе из того же строителя меню (`spec/repository/command-palette.spec.md`) |
+| Доступность каждого действия (disabled с причиной) | `domain-policy/src/actions.rs` (s8-12; PR к ревью — `review_actions`, ключ `pull:<number>`), раскладка в вид — `repository-model/src/action_view.rs` и `review_view.rs` (`RepositoryView.actions`), слова — `src/presenters/actions.ts` | предметная половина `useBranchContextActions.ts` (860 строк), `getRobotActions`; палитра ⌘K показывает действия ветки в фокусе из того же строителя меню (`spec/repository/command-palette.spec.md`) |
 | Допуск операции (join, wait, side by side) | `domain-policy/src/admission.rs` | `getOperationBlocker` (`src/stores/operations.ts:87`) |
 | Когда обновлять факт (каденция, demand, батчи) | `domain-policy/src/refresh.rs` | константы и таймеры `patronus.ts:56-72`, `pull-requests.ts`, `review-readiness.ts`, `review-requests.ts` |
 | PR, с которого стартует Safe Push; пришли ли approvals; ждёт ли subject approvals; у каких показанных subject спрашивать readiness | `domain-policy/src/readiness.rs` (s7; `wanted` — s8-9) | `findApprovalNews`, правило `getPullRequestStart` для readiness сессии (страница держит своё до s8) |
@@ -372,7 +373,8 @@ Unavailable(reason) | Unknown`.
 - `inputs` — хеш того, из чего факт вычислен (head и base PR для readiness; отпечаток таблицы и запись роботов для
   раздела Patronus). Факт, чьи `inputs` разошлись с моделью, становится `Stale` без TTL.
 - Семейства: `remote` (tips и up-to-date по содержимому), `robots`, `robot_details` (по demand), `pull_requests`,
-  `readiness` (по subject), `branch_rules` (по target), `profiles`, `review_requests`, `youtrack_issues` (по demand),
+  `readiness` (по subject), `branch_rules` (по target), `profiles`, `review_requests` (с остальной частью Reviews по
+  demand), `youtrack_issues` (по demand),
   `auth`, `settings`.
 - Опрос поднят в Rust и работает на `Clock` (`SystemClock`, `TestClock` в тестах и test-server, без `sleep`):
   роботы 60 с в фокусе и 5 мин в фоне одним запросом с `since`, проблемы и детали только для роботов, чьё состояние
@@ -424,14 +426,17 @@ confirmations }` для Safe Push и Dry Run — результат того ж�
 
 ### Demand
 
-`Demand { focused, online, visible_branches, visible_stacks, needed, robot_details, watched_robots }`
-(`domain_types::session`, s7) — единственное, что страница сообщает о себе. Он управляет readiness (`needed` сразу
-отдельным вызовом, показанные раньше скрытых), деталями роботов (`robot_details`: читаются, пока их показывает
-поверхность, вместо интервала на поповер), опросом роботов без ветки (`watched_robots`) и каденцией опроса (фокус,
-offline); сессия держит demand каждой подписки и спрашивает по объединению. Части приходят со своими потребителями:
-`issues` (YouTrack) и `robot_stats` (вид Landing: пока он виден, `remote-facts` читает статистику, сейчас это
-`get_robot_stats` при показе и фокусе окна); `previewed` и `review_windows` плана s7 удалены в s7-8, их не читал ни
-один факт. `set_demand` — ≤ 4 в секунду и только изменение, без ожидания ([Session
+`Demand { focused, online, visible_branches, visible_stacks, needed, robot_details, watched_robots, reviews,
+review_windows }` (`domain_types::session`, s7) — единственное, что страница сообщает о себе. Он управляет readiness
+(`needed` сразу отдельным вызовом, показанные раньше скрытых), деталями роботов (`robot_details`: читаются, пока их
+показывает поверхность, вместо интервала на поповер), опросом роботов без ветки (`watched_robots`), остальной частью
+Reviews (`reviews`: пока вид Reviews показан, каждый список review requests читает её тем же GraphQL-запросом,
+[Reviews](../../spec/repository/reviews.spec.md)), действиями PR, которые показывают окна ревью (`review_windows`: они
+остаются в виде, и когда ни один список их уже не называет), и каденцией опроса (фокус, offline); сессия держит demand
+каждой подписки и спрашивает по объединению. Части приходят со своими потребителями: `issues` (YouTrack) и
+`robot_stats` (вид Landing: пока он виден, `remote-facts` читает статистику, сейчас это `get_robot_stats` при показе
+и фокусе окна); `previewed` и `review_windows` плана s7 удалены в s7-8, их не читал ни один факт, а `review_windows`
+вернулся со своим потребителем — действиями `pull:<number>`. `set_demand` — ≤ 4 в секунду и только изменение, без ожидания ([Session
 facts](git-operations.md#session-facts)).
 
 ## Планирование и исполнение операций

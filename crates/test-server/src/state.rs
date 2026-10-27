@@ -65,6 +65,8 @@ pub struct TestRepository {
   pub review_requests: RwLock<ReviewRequestsFixture>,
   /// How often the app asked for review requests and fetched a review
   pub review_request_calls: AtomicU32,
+  /// How many of them read the rest of Reviews too (the Reviews view showed)
+  pub reviews_calls: AtomicU32,
   pub review_fetch_calls: AtomicU32,
   /// The `keep` of every `prune_review_refs`, in call order
   pub review_prune_keeps: std::sync::Mutex<Vec<Vec<u32>>>,
@@ -123,6 +125,20 @@ pub struct ReviewRequestsFixture {
   /// The error `fetch_review_head` fails with; None: it answers the range of the test repository
   #[serde(default)]
   pub fetch_error: Option<String>,
+  /// The pull requests the fake GitHub has beside the requests and the rest of Reviews, which a link of the user can
+  /// name (`link_pull_request`)
+  #[serde(default)]
+  pub linkable: Vec<LinkablePull>,
+}
+
+/// A pull request a link can name: open, or merged or closed
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkablePull {
+  #[serde(flatten)]
+  pub request: domain_types::review_request::ReviewRequest,
+  #[serde(default)]
+  pub closed: bool,
 }
 
 impl Default for ReviewRequestsFixture {
@@ -130,6 +146,7 @@ impl Default for ReviewRequestsFixture {
     Self {
       result: ReviewRequestsResult::unavailable(PullRequestAvailability::NotGitHub),
       fetch_error: None,
+      linkable: Vec::new(),
     }
   }
 }

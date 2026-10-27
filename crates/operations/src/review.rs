@@ -23,7 +23,7 @@ use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, StartRoute};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, NewsKey, OperationResult, OperationStep, Plan, PullRequestField, Resource, ReviewResult, StartComment};
 use domain_types::patronus::{PatronusCommandSubject, PatronusPushMode, PatronusRobot};
-use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent};
+use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::session::{FactFamily, FactRefreshReason};
 use git_ops::revs::short_id;
 use github::service::GitHubService;
@@ -155,13 +155,16 @@ impl Review<'_> {
     records
   }
 
-  /// The review on GitHub; the session lists the review requests again at once, not waited for
+  /// The review on GitHub, into the session; the session lists the review requests again at once (with the rest of
+  /// Reviews while a window shows it), not waited for
   async fn submit(&self, number: u32, verdict: PullRequestReviewEvent, commit: &str, body: Option<&str>) -> EffectStatus {
     self.guard.step(OperationStep::Writing);
     let submitted = submit_pull_request_review(&self.github, &self.key.worktree, &self.repository, number, verdict, commit, body).await;
     if let Err(error) = submitted {
       return EffectStatus::Failed { error: review_failure(error) };
     }
+    // the actions of the pull request know the review until a listing gives it
+    self.sessions.write_review(self.key, number, verdict, commit.to_owned()).await;
     let (sessions, key) = (Arc::clone(self.sessions), self.key.clone());
     tokio::spawn(async move { sessions.refresh(&key, FactFamily::ReviewRequests, FactRefreshReason::Manual, None).await }.in_current_span());
     EffectStatus::Done
@@ -239,16 +242,7 @@ impl Review<'_> {
 /// # Errors
 /// Neither is known, a host without GitHub
 async fn review_github(sessions: &Sessions, services: &dyn ServiceHost, key: &SessionKey) -> Result<(Arc<GitHubService>, GitHubRepository), ApiError> {
-  let listed = sessions
-    .read(key, |_, facts| match &facts.review_requests.view().head.value {
-      Some(PullRequestAvailability::Available { owner, name }) => Some(GitHubRepository {
-        owner: owner.clone(),
-        name: name.clone(),
-      }),
-      _ => None,
-    })
-    .await
-    .flatten();
+  let listed = sessions.read(key, |_, facts| facts.review_requests.github_repository()).await.flatten();
   match listed {
     Some(repository) => Ok((services.github(key)?, repository)),
     None => github_of(services, key).await,

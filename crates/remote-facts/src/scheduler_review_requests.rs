@@ -1,7 +1,10 @@
-//! The review requests of others, as the task of a session asks them (the parent module's header)
+//! The review requests of others, as the task of a session asks them (the parent module's header); while a window
+//! shows the Reviews view each list reads the rest of Reviews with them, and the view asks once when it shows
 
 use super::{InFlight, Input, Reply, SessionFacts};
-use domain_policy::refresh::{FactTiming, REVIEW_REQUESTS_POLL_INTERVAL, RefreshReason, ServiceState, review_requests_due, review_requests_follows_up, review_requests_poll_delay};
+use domain_policy::refresh::{
+  FactTiming, REVIEW_REQUESTS_POLL_INTERVAL, RefreshReason, ServiceState, review_requests_due, review_requests_follows_up, review_requests_poll_delay, reviews_shown_due,
+};
 use domain_types::pull_request::PullRequestAvailability;
 use domain_types::session::{FactRefreshReason, Version};
 use repository_model::facts::FactResult;
@@ -28,6 +31,19 @@ pub(super) struct ReviewRequestsSchedule {
   ask_on_focus: bool,
   /// `owner/name` of the GitHub repository as the last listing of the pull requests named it
   pub(super) github_repository: Option<String>,
+  /// The rest of Reviews, read with the lists while a window shows the view
+  reviews: ReviewsSchedule,
+}
+
+/// The rest of Reviews in the lists of the review requests
+#[derive(Default)]
+struct ReviewsSchedule {
+  /// A window shows the Reviews view (`Demand::reviews`): every list reads the rest of Reviews
+  shown: bool,
+  /// The lists that read it
+  list: FactTiming,
+  /// The list in flight reads it
+  in_flight: bool,
 }
 
 impl ReviewRequestsSchedule {
@@ -43,7 +59,9 @@ impl SessionFacts {
     let now = self.now();
     let schedule = &mut self.review_requests;
     if schedule.in_flight.listing {
-      schedule.in_flight.join(review_requests_follows_up(reason), reply);
+      // a list for the Reviews view that the one in flight doesn't serve asks once more after it
+      let follows_up = review_requests_follows_up(reason) || (schedule.reviews.shown && !schedule.reviews.in_flight && reason == RefreshReason::Demand);
+      schedule.in_flight.join(follows_up, reply);
       return;
     }
     let service = ServiceState {
@@ -57,6 +75,29 @@ impl SessionFacts {
       return;
     }
     self.start_review_requests(reply.into_iter().collect());
+  }
+
+  /// The windows show the Reviews view (`reviews`) or no longer: when it shows, the rest of Reviews is read with the
+  /// review requests if it is older than two minutes or was never read (`reviews_shown_due`)
+  pub(super) fn reviews_demanded(&mut self, reviews: bool) {
+    let now = self.now();
+    let schedule = &mut self.review_requests;
+    if schedule.reviews.shown == reviews {
+      return;
+    }
+    schedule.reviews.shown = reviews;
+    let service = ServiceState {
+      off_service: schedule.off_service,
+      retry_at: schedule.retry_at,
+    };
+    if !reviews || !reviews_shown_due(now, schedule.reviews.list, service) {
+      return;
+    }
+    if schedule.in_flight.listing {
+      self.ask_review_requests(RefreshReason::Demand, None);
+    } else if self.watched {
+      self.start_review_requests(Vec::new());
+    }
   }
 
   /// A window asks to read the review requests (`Manual`), or opened one on GitHub (`AfterWrite`): then the next focus
@@ -116,13 +157,18 @@ impl SessionFacts {
     let schedule = &mut self.review_requests;
     schedule.in_flight.start(waiters);
     schedule.list.started_at = Some(now);
+    let reviews = schedule.reviews.shown;
+    schedule.reviews.in_flight = reviews;
+    if reviews {
+      schedule.reviews.list.started_at = Some(now);
+    }
     let github_repository = schedule.github_repository.clone();
     let (scheduler, key) = (self.scheduler.clone(), self.key.clone());
     tokio::spawn(
       async move {
         let (availability, version) = match scheduler.port.begin(&key).await {
           Some(ticket) => {
-            let result = scheduler.sources.review_requests(&key, github_repository).await;
+            let result = scheduler.sources.review_requests(&key, github_repository, reviews).await;
             let availability = result.availability.clone();
             let applied = scheduler.port.apply(&key, ticket, FactResult::ReviewRequests(result)).await;
             (Some(availability), applied.map(|applied| applied.version))
@@ -142,6 +188,9 @@ impl SessionFacts {
     let watched = self.watched;
     let schedule = &mut self.review_requests;
     schedule.list.answered_at = Some(now);
+    if std::mem::take(&mut schedule.reviews.in_flight) {
+      schedule.reviews.list.answered_at = Some(now);
+    }
     let follow_up = schedule.in_flight.end(version);
     if let Some(availability) = availability {
       let failed = matches!(availability, PullRequestAvailability::Error { .. } | PullRequestAvailability::RateLimited { .. });

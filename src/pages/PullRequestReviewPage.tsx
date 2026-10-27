@@ -9,7 +9,7 @@ import type { PullRequestReviewEvent, ReviewRequest } from "@/lib/bindings"
 import { logError, notifyError } from "@/lib/errors"
 import { showEventToast } from "@/lib/event-toast"
 import { openRobotUrl } from "@/lib/patronus"
-import { PULL_REQUEST_REVIEW_WINDOW, getReviewSafePush, pullRequestReviewWindowKey, reviewWindowTitle } from "@/lib/pull-request-review"
+import { PULL_REQUEST_REVIEW_WINDOW, pullRequestReviewWindowKey, reviewWindowTitle } from "@/lib/pull-request-review"
 import type { PullRequestReviewWindowData, ReviewWindowFeedback, ReviewWindowRequest } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
@@ -56,11 +56,11 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
   // what runs and what the user submitted, until the main window's state says it
   const [localBusy, setLocalBusy] = useState<Readonly<Record<number, ReviewAction>>>({})
   const [localReviewed, setLocalReviewed] = useState<Readonly<Record<number, SubmittedReview>>>({})
-  // Patronus as the main window showed it for this repository: while it shows another one, Safe Push stays (its click
-  // switches the main window to this repository first)
-  const [seenPatronus, setSeenPatronus] = useState(data.state.patronus)
-  if (state.selected && state.patronus !== seenPatronus) {
-    setSeenPatronus(state.patronus)
+  // the actions Rust decided as the main window showed them for this repository: while it shows another one, Safe Push
+  // stays (its click switches the main window to this repository first)
+  const [seenActions, setSeenActions] = useState(data.state.actions)
+  if (state.selected && state.actions !== seenActions) {
+    setSeenActions(state.actions)
   }
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -68,7 +68,7 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
   const request = live ?? shown.request
   const index = live === undefined ? -1 : state.requests.indexOf(live)
   const number = request.number
-  const submitted = state.reviewed[number] ?? localReviewed[number]
+  const submitted = localReviewed[number]
   const busy = localBusy[number] ?? state.busy[number]
 
   const openOnGitHub = () => void ask({ action: "openOnGitHub", repositoryPath, request })
@@ -93,18 +93,18 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
   const review = (event: PullRequestReviewEvent, commitId: string, body: string | null) =>
     run(event, () => ask({ action: event, repositoryPath, request, commitId, body }), { event, commitId })
 
-  const safePush = getReviewSafePush(request, state.selected ? state.patronus : seenPatronus)
-
   const host: PullRequestReviewHost = {
     repositoryPath,
+    source: state.source,
     requests: state.requests,
+    involvement: state.involvements[number] ?? null,
     request,
     index,
     openedIndex: shown.index,
     withdrawn: live === undefined && submitted === undefined,
     submitted,
+    actions: (state.selected ? state.actions : seenActions)[number],
     busy,
-    safePush,
     intent: shown.intent,
     openToken: shown.token,
     showRequest: next => {

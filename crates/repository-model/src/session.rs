@@ -26,6 +26,7 @@ use crate::table::{RemoteSubject, TableState};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::ApiError;
 use domain_types::patronus::PatronusRobot;
+use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewPatch};
 use std::collections::{HashMap, HashSet};
@@ -369,6 +370,13 @@ impl Sessions {
   /// its patch; `None` for a session that is not open
   pub async fn write_robot(&self, key: &SessionKey, robot: PatronusRobot) -> Option<Version> {
     self.ask(key, |reply| Message::WriteRobot { robot, reply }).await
+  }
+
+  /// The review the user submitted from the app on `commit` goes into the review requests of the open session of `key`:
+  /// the actions of the pull request know it until a listing gives it. Answers the version of the view after its patch;
+  /// `None` for a session that is not open
+  pub async fn write_review(&self, key: &SessionKey, number: u32, verdict: PullRequestReviewEvent, commit: String) -> Option<Version> {
+    self.ask(key, |reply| Message::WriteReview { number, verdict, commit, reply }).await
   }
 
   /// The write of the app to a pull request (`PullRequestWrite`, as its command answered it) goes into the pull

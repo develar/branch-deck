@@ -54,6 +54,7 @@ pub(crate) fn grouping(branches: Vec<GroupedBranchInfo>) -> SyncEvent {
     stack_parents: BTreeMap::new(),
     parked: BTreeMap::new(),
     stack_branches: Vec::new(),
+    target_branch: None,
   }
 }
 
@@ -78,6 +79,7 @@ fn stack_grouping(roots: &[&str]) -> SyncEvent {
     stack_parents,
     parked,
     stack_branches: roots.iter().map(ToString::to_string).collect(),
+    target_branch: None,
   }
 }
 

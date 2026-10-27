@@ -557,14 +557,6 @@ pub struct BranchReviewReadiness {
   pub readiness: ReviewReadiness,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetPatronusTargetBranchParams {
-  pub repository_path: String,
-  pub baseline_branch: String,
-}
-
 /// Whose pull request a `/patronus` comment starts: the text of a merge depends on it
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

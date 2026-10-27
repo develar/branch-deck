@@ -69,6 +69,14 @@ export const commands = {
 	 *  same window, `cancel_review_fetch` of it, or its close kills the fetch.
 	 */
 	fetchReviewHead: (params: FetchReviewHeadParams, progress: Channel<TransferProgress>) => typedError<ReviewRange, ApiError>(__TAURI_INVOKE("fetch_review_head", { params, progress })),
+	/**
+	 *  Adds a pull request to Reviews by its link, `#number` or number (`remote_facts::reviews::link_pull_request`): GitHub
+	 *  is asked for it, an open one is kept for the repository, and the session reads Reviews again with it. Answers the
+	 *  pull request, which the page opens in the review window
+	 */
+	linkPullRequest: (params: LinkPullRequestParams) => typedError<LinkedPullRequestAnswer, ApiError>(__TAURI_INVOKE("link_pull_request", { params })),
+	/**  Removes a pull request the user added by its link from Reviews, and the session reads Reviews again */
+	unlinkPullRequest: (params: UnlinkPullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("unlink_pull_request", { params })),
 	/**  Kills the review fetch of the calling window in flight, if any */
 	cancelReviewFetch: () => typedError<null, ApiError>(__TAURI_INVOKE("cancel_review_fetch")),
 	/**  Deletes the review refs of the pull requests not in `keep` (one CAS transaction) */
@@ -130,11 +138,6 @@ export const commands = {
 	 *  the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
-	/**
-	 *  The branch Patronus pushes into for the baseline (`master` for `origin/master`); None when the baseline is no branch
-	 *  of origin
-	 */
-	getPatronusTargetBranch: (params: GetPatronusTargetBranchParams) => typedError<string | null, ApiError>(__TAURI_INVOKE("get_patronus_target_branch", { params })),
 	/**
 	 *  The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
 	 *  null when the session is not open, so the window subscribes again
@@ -474,12 +477,28 @@ export type ActionBlocker =
 /**  Push with Children has nothing to push beyond the branch itself */
 { code: "nothingBeyond"; why: NothingBeyond } | 
 /**  All of it landed: nothing is left to review in a new pull request */
-{ code: "landed"; landed: Landed };
+{ code: "landed"; landed: Landed } | 
+/**  The pull request is the user's own: GitHub takes no review of its author */
+{ code: "ownPullRequest" } | 
+/**  The user approved the commit the pull request shows */
+{ code: "approved"; commit: string } | 
+/**  The branch Patronus pushes into for the baseline is known after the first sync */
+{ code: "targetUnread" } | 
+/**  The baseline is no branch of origin, which Patronus pushes into */
+{ code: "noTarget" } | 
+/**  The pull request goes into another branch than the one Patronus pushes into: Patronus would merge it there */
+{ code: "otherBase"; number: number; base: string; target: string };
 
 /**  An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface */
 export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | "push" | "push-with-children" | 
 /**  The commits someone else pushed to its remote branch, taken into the branch (`bd pick --remote`) */
-"pick-remote-commits" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request";
+"pick-remote-commits" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
+/**  Approve and Safe Push, or the Safe Push alone after an approval of the head */
+"safe-push-pull-request" | "request-changes" | 
+/**  The branch of the table an own pull request is of */
+"show-branch" | 
+/**  A pull request the user added by its link leaves Reviews */
+"remove-from-reviews";
 
 /**  An action a subject offers now, and whether it can run */
 export type ActionState = {
@@ -1469,6 +1488,13 @@ export type Demand = {
 	 *  request): polled with the robots of the branches
 	 */
 	watchedRobots: string[],
+	/**  The window shows the Reviews view: the review requests are read with the rest of Reviews */
+	reviews?: boolean,
+	/**
+	 *  The pull requests the review windows of the window show: their actions stay in the view while a window shows them,
+	 *  also once no listing has them any more
+	 */
+	reviewWindows?: number[],
 };
 
 /**  The GitHub repository found without `branchdeck.githubRepository` */
@@ -2477,11 +2503,6 @@ export type GetNewStackPullRequestParams = {
 	target: string,
 };
 
-export type GetPatronusTargetBranchParams = {
-	repositoryPath: string,
-	baselineBranch: string,
-};
-
 /**  Two commits of the repository to diff, `base..head` */
 export type GetRangeParams = {
 	repositoryPath: string,
@@ -2988,6 +3009,21 @@ export type LineEnds = {
 	new: LineEndKind,
 	/**  The files differ in their line ends only */
 	only: boolean,
+};
+
+/**  The parameters of a link the user adds to Reviews: a URL of a pull request, `owner/name#123`, `#123` or `123` */
+export type LinkPullRequestParams = {
+	repositoryPath: string,
+	input: string,
+};
+
+/**
+ *  A pull request the user added by its link, as GitHub answered it: kept in Reviews while open, opened but not kept
+ *  once merged or closed
+ */
+export type LinkedPullRequestAnswer = {
+	entry: ReviewEntry,
+	kept: boolean,
 };
 
 /**  The holder of the repository lock as the page names it: "`bd push auth` (pid 4242) has held the repository for 40 s" */
@@ -4576,6 +4612,11 @@ export type RepositoryView = {
 	/**  The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them */
 	operations: { [key in OperationId]: RunningOperation },
 	sections: TableSections,
+	/**
+	 *  Every open pull request of the repository the user takes part in beside the requests by name, by section, as
+	 *  `domain_policy::reviews` orders them over the review requests and the table
+	 */
+	reviews: ReviewsView,
 	/**  What the robots of Patronus land, landed and hold of the table, as the session derives it */
 	patronus: PatronusPart,
 	/**  What the remote services answered, beside the table */
@@ -4685,6 +4726,15 @@ export type ReviewCommit = {
 
 export type ReviewDecision = "approved" | "changesRequested" | "reviewRequired";
 
+/**
+ *  A pull request of Reviews: what GitHub says of it, in the fields of a request (`requested_at` and `waiting_since`
+ *  are when a team was asked, of a team request; else `updated_at`), and how the user takes part in it
+ */
+export type ReviewEntry = {
+	request: ReviewRequest,
+	involvement: ReviewInvolvement,
+};
+
 /**  A changed file of a review with the blobs of its sides */
 export type ReviewFileSides = {
 	path: string,
@@ -4705,6 +4755,20 @@ export type ReviewHeadState =
 "diverged" | 
 /**  The commit the pull request shows could not be fetched: the review shows the source branch */
 "missing";
+
+/**  How the user takes part in a pull request of Reviews */
+export type ReviewInvolvement = 
+/**  The user added it by its link (unix seconds) */
+{ kind: "linked"; linkedAt: number } | 
+/**  It asks for the review of teams, not of the user by name: the slugs GitHub names (none without `read:org`) */
+{ kind: "team"; teams: string[] } | 
+/**
+ *  The user reviewed it: the state of the latest review, or none and `replied_at` for a request the user answered
+ *  with a comment; `new_commits` when its head is not the commit of that review
+ */
+{ kind: "reviewed"; state: ReviewerState | null; repliedAt: number | null; newCommits: boolean } | 
+/**  The user's own: its reviewers by their latest review, a draft, the branch of the table it is of */
+{ kind: "authored"; reviewers: Reviewer[]; isDraft: boolean; branch: string | null };
 
 /**  Who told which paths a reviewer group owes */
 export type ReviewPathsSource = 
@@ -4811,6 +4875,8 @@ export type ReviewRequest = {
 	reRequested: boolean,
 	/**  The commit the user's latest submitted review was on; None if the user has not reviewed */
 	reviewedCommit: string | null,
+	/**  The state of the user's latest submitted review; None if the user has not reviewed */
+	reviewedState: ReviewerState | null,
 	/**  The branch of the pull request, e.g. `alice/virtual/feature-auth` */
 	headRefName: string,
 	/**  The commit the pull request shows */
@@ -4856,6 +4922,24 @@ export type ReviewResult = {
 	robot: PatronusRobot | null,
 };
 
+export type ReviewSection = {
+	kind: ReviewSectionKind,
+	entries: ReviewEntry[],
+	/**  How many match the search of the section, also beyond the 50 GitHub returns; the entries of a linked section */
+	totalCount: number,
+};
+
+/**  A section of Reviews after the requests by name (Your Turn's rows lead it) */
+export type ReviewSectionKind = 
+/**  Added by link */
+"linked" | 
+/**  Requested from the user's teams */
+"team" | 
+/**  Reviewed by the user */
+"reviewed" | 
+/**  The user's own pull requests */
+"authored";
+
 /**  Where the review of a pull request was fetched from */
 export type ReviewSource = 
 /**  Both commits were local: nothing was fetched */
@@ -4897,6 +4981,19 @@ export type ReviewerApprovalState =
 export type ReviewerState = "approved" | "changesRequested" | "commented" | 
 /**  Asked to review, no review submitted yet */
 "requested";
+
+/**
+ *  Reviews (spec/repository/reviews.spec.md) as the session derives it: how the rest of Reviews beside the requests by
+ *  name stands (`head`: `Unknown` while no window shows the view and nothing was read, `Loading` until its first answer,
+ *  then as the review requests), its sections in their order, the empty ones left out, each pull request in the first
+ *  section that has it, and when GitHub gave them
+ */
+export type ReviewsView = {
+	head: Fact<PullRequestAvailability>,
+	sections: ReviewSection[],
+	/**  Unix seconds of the last answer with them, 0 = never */
+	checkedAt: number,
+};
 
 /**  The app's reword: the commits of `rewords` (the app sends full ids and whole messages) in the repository */
 export type RewordRequest = {
@@ -5942,6 +6039,7 @@ export type TableChanges = {
 	archived?: ArchivedChanges | null,
 	unapplied?: UnappliedBranchInfo[] | null,
 	landed?: LandedSection | null,
+	reviews?: ReviewsView | null,
 	patronus?: PatronusChange | null,
 	facts?: FactsChanges | null,
 	/**  The news since the patch before, oldest first */
@@ -5962,6 +6060,11 @@ export type TableHeader = {
 	parked: { [key in string]: string },
 	/**  The issue links of the IntelliJ IDEA configuration, the last a sync found */
 	issueNavigationConfig: IssueNavigationConfig | null,
+	/**
+	 *  The branch of origin the baseline tracks, which Patronus pushes into; none before the first grouping and for a
+	 *  baseline that is no branch of origin
+	 */
+	targetBranch: string | null,
 };
 
 /**  The sections below the branch table */
@@ -6181,6 +6284,11 @@ export type UnknownReadinessReason =
 "approvalsNotEvaluated" | 
 /**  The branch has too many commits to check, as in the IDE; the robot checks them anyway */
 "skipped";
+
+export type UnlinkPullRequestParams = {
+	repositoryPath: string,
+	number: number,
+};
 
 export type UnparkBranchesParams = {
 	repositoryPath: string,

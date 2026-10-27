@@ -46,7 +46,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
   return {
     version,
     sync: { kind: "idle" },
-    header: { baselineBranch: "", stacksEnabled: false, issueGroups: {}, stackParents: {}, parked: {}, issueNavigationConfig: null },
+    header: { baselineBranch: "", stacksEnabled: false, issueGroups: {}, stackParents: {}, parked: {}, issueNavigationConfig: null, targetBranch: null },
     order: [],
     branches: {},
     stacks: {},
@@ -58,6 +58,7 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
     actions: {},
     operations: {},
     sections: { unassigned: [], archived: { names: [], newlyArchived: [], integration: {} }, unapplied: [], landed: { baseline: null, landing: [], landed: [] } },
+    reviews: { head: { value: null, state: { kind: "unknown" }, seq: 0, observedAt: 0 }, sections: [], checkedAt: 0 },
     patronus: { state: { kind: "loading" }, landingNeeds: { kind: "loading" }, view: { branches: {}, stacks: {}, landedByRobot: {}, restarts: {} } },
     facts: {
       robots: { head: { value: null, state: { kind: "loading" }, seq: 0, observedAt: 0 }, robots: {}, failing: [], needsReview: {}, problemsFailed: {} },
@@ -87,7 +88,7 @@ export function grouping(...names: string[]): TableChanges {
   return {
     order: names,
     branches,
-    header: { baselineBranch: "origin/master", stacksEnabled: false, issueGroups: {}, stackParents: {}, parked: {}, issueNavigationConfig: null },
+    header: { baselineBranch: "origin/master", stacksEnabled: false, issueGroups: {}, stackParents: {}, parked: {}, issueNavigationConfig: null, targetBranch: null },
   }
 }
 

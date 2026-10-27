@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, Ref } from "react"
 import { cn } from "cn"
-import { ExternalLinkIcon, RefreshCwIcon, SettingsIcon, UserCheckIcon } from "lucide-react"
+import { ExternalLinkIcon, GitPullRequestIcon, RefreshCwIcon, SettingsIcon, UserCheckIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -14,18 +14,17 @@ import { HelpList, HelpPopover, HelpSection } from "@/components/shared/HelpPopo
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
-import { useReviewPatronus } from "@/hooks/useReviewPatronus"
+import { useReturnedToYou } from "@/hooks/useReturnedToYou"
 import { saveSettledLayout, useLayoutSettled, useSettledLayout } from "@/hooks/useSettledLayout"
 import type { ReviewRequest } from "@/lib/bindings"
 import { neighbourRow } from "@/lib/branch-row-keys"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
-import { collectReturnedToYou } from "@/lib/outgoing-attention"
 import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
 import { formatOldestWaiting, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
+import { handleReviewRowKeys } from "@/lib/review-row-keys"
 import { openSettings } from "@/lib/settings-window"
 import { formatRelativeTime } from "@/lib/time"
-import { useBranchTableRows } from "@/stores/branch-sync"
-import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
+import { showMainView } from "@/stores/main-view"
 import { useSelectedProjectPath } from "@/stores/repository"
 import {
   openRequestOnGitHub,
@@ -81,13 +80,6 @@ function YourTurnChecking() {
       </div>
     </Card>
   )
-}
-
-/** The own pull requests of the table a reviewer handed back (`collectReturnedToYou`), in the table order */
-function useReturnedToYou(): readonly ReturnedPullRequest[] {
-  const rows = useBranchTableRows()
-  const pullRequests = useRepositoryPullRequestMap()
-  return useMemo(() => collectReturnedToYou(rows, pullRequests), [rows, pullRequests])
 }
 
 /**
@@ -198,13 +190,14 @@ function YourTurnMenu({ requests, returned }: { requests: readonly ReviewRequest
         repository === null || requests.length === 0
           ? []
           : [{ label: "Open All on GitHub", icon: ExternalLinkIcon, onSelect: () => openPullRequestUrl(reviewRequestsSearchUrl(repository)) }],
+        [{ id: "show-all-reviews", label: "Show All Reviews", icon: GitPullRequestIcon, kbds: ["mod", "2"], onSelect: () => showMainView("reviews") }],
         [{ label: "Notification Settings…", icon: SettingsIcon, onSelect: () => openSettings({ page: "notifications" }) }],
       ]}
     />
   )
 }
 
-interface YourTurnBodyProps {
+export interface YourTurnBodyProps {
   requests: readonly ReviewRequest[]
   returned: readonly ReturnedPullRequest[]
   repositoryPath: string
@@ -214,7 +207,7 @@ interface YourTurnBodyProps {
  * The rows (3, then "Show N More"; unread ones always), "50 of 63" while GitHub has more than it lists, expanded or
  * not, the returned pull requests, and while GitHub can't be asked the line that says why
  */
-function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps) {
+export function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps) {
   const unread = useUnreadReviewRequests()
   const totalCount = useReviewRequestsTotalCount()
   const [expanded, setExpanded] = useState(false)
@@ -224,57 +217,24 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
   const moreOnGitHub = totalCount > requests.length
   const [focused, setFocused] = useState<number | null>(null)
   const tabStop = visible.some(it => it.number === focused) ? focused : visible[0]?.number
-  // once for the list: the row menus block "Approve and Safe Push…" of a pull request into another base, as the review does
-  const patronus = useReviewPatronus(requests.length > 0)
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
-    if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey) {
-      return
-    }
-    const row = (event.target as HTMLElement).closest<HTMLElement>("[data-review-number]")
-    const number = row?.dataset.reviewNumber ?? null
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault()
-      const next = neighbourRow(
-        visible.map(it => String(it.number)),
-        number,
-        event.key === "ArrowDown" ? 1 : -1,
-      )
-      const target = next === null ? null : event.currentTarget.querySelector<HTMLElement>(`[data-review-number="${next}"]`)
-      if (target != null) {
-        setFocused(Number(next))
-        target.focus()
-      }
-      return
-    }
-    if (row == null || number === null || event.target !== row) {
-      return
-    }
-    // Enter reviews it; Space is Quick Look elsewhere, and a pull request has none
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault()
-      openReviewRequest(repositoryPath, Number(number))
-    }
-    // the physical keys, in any keyboard layout: D reviews the changes, as D in the review shows them
-    else if (event.code === "KeyD" && !event.shiftKey) {
-      event.preventDefault()
-      openReviewRequest(repositoryPath, Number(number), "review")
-    }
-    // the key of Open Pull Request in the row's menu
-    else if (event.code === "KeyO" && !event.shiftKey) {
-      const request = visible.find(it => it.number === Number(number))
-      if (request !== undefined) {
-        event.preventDefault()
-        openRequestOnGitHub(request)
-      }
-    }
-    // the context menu key and Shift+F10: the menu of the row, at its start
-    else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
-      event.preventDefault()
-      const rect = row.getBoundingClientRect()
-      row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 24, clientY: rect.bottom, button: 2 }))
-    }
-  }
+  const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) =>
+    handleReviewRowKeys(
+      event,
+      visible.map(it => it.number),
+      {
+        onEnter: number => openReviewRequest(repositoryPath, number),
+        // D reviews the changes, as D in the review shows them
+        onReview: number => openReviewRequest(repositoryPath, number, "review"),
+        onOpen: number => {
+          const request = visible.find(it => it.number === number)
+          if (request !== undefined) {
+            openRequestOnGitHub(request)
+          }
+        },
+      },
+      setFocused,
+    )
 
   return (
     <div className="flex flex-col divide-y divide-border">
@@ -287,7 +247,6 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
               repositoryPath={repositoryPath}
               unread={unread.has(reviewRequestKey(request))}
               tabStop={request.number === tabStop}
-              patronusTarget={patronus.target}
             />
           ))}
         </ul>

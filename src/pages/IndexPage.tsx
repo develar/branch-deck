@@ -48,6 +48,7 @@ function openSettingsWindow(target: SettingsTarget): void {
 
 // the statistics and their charts (Recharts): loaded the first time Landing shows, then kept mounted
 const LandingView = lazy(() => import("@/components/landing/LandingView").then(it => ({ default: it.LandingView })))
+const ReviewsView = lazy(() => import("@/components/reviews/ReviewsView").then(it => ({ default: it.ReviewsView })))
 
 // loaded on the first open, then kept mounted (a dialog animates and returns the focus when it closes)
 const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
@@ -64,6 +65,8 @@ const ACTIVITY_PANEL_WIDTH = "24rem"
 function useKeptViewPlace() {
   const view = useMainView()
   const branches = useRef<HTMLElement>(null)
+  const reviews = useRef<HTMLElement>(null)
+  const reviewsHeading = useRef<HTMLHeadingElement>(null)
   const landing = useRef<HTMLElement>(null)
   const landingHeading = useRef<HTMLHeadingElement>(null)
   const kept = useRef<{ element: HTMLElement | null; scrollTop: number; moveFocus: boolean }>({ element: null, scrollTop: 0, moveFocus: false })
@@ -75,7 +78,7 @@ function useKeptViewPlace() {
           return
         }
         const active = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null
-        const left = previous.view === "branches" ? branches.current : landing.current
+        const left = { branches, reviews, landing }[previous.view].current
         const moveFocus = active === null || (left?.contains(active) ?? false)
         if (previous.view === "branches") {
           kept.current = { element: moveFocus ? active : kept.current.element, scrollTop: branches.current?.scrollTop ?? 0, moveFocus }
@@ -99,10 +102,10 @@ function useKeptViewPlace() {
         kept.current.element.focus({ preventScroll: true })
       }
     } else if (kept.current.moveFocus) {
-      landingHeading.current?.focus({ preventScroll: true })
+      ;(view === "reviews" ? reviewsHeading : landingHeading).current?.focus({ preventScroll: true })
     }
   }, [view])
-  return { view, branches, landing, landingHeading }
+  return { view, branches, reviews, reviewsHeading, landing, landingHeading }
 }
 
 /**
@@ -148,13 +151,18 @@ export function IndexPage() {
   const isActivityPanelShown = useActivityPanel(area)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "activity-panel", storage: localStorage, onlySaveAfterUserInteractions: true })
   useActivityWindowLink()
-  // Branches · Landing (⌘1, ⌘2): the native View menu, ☰ and its keys, the palette
-  const { view, branches, landing, landingHeading } = useKeptViewPlace()
+  // Branches · Reviews · Landing (⌘1, ⌘2, ⌘3): the native View menu, ☰ and its keys, the palette
+  const { view, branches, reviews, reviewsHeading, landing, landingHeading } = useKeptViewPlace()
   const [isLandingLoaded, setLandingLoaded] = useState(false)
   if (view === "landing" && !isLandingLoaded) {
     setLandingLoaded(true)
   }
+  const [isReviewsLoaded, setReviewsLoaded] = useState(false)
+  if (view === "reviews" && !isReviewsLoaded) {
+    setReviewsLoaded(true)
+  }
   useAppCommand("show_branches", () => showMainView("branches"))
+  useAppCommand("show_reviews", () => showMainView("reviews"))
   useAppCommand("show_landing", () => showMainView("landing"))
   // "Create Pull Request…" of a branch (the review window has its own, `WindowCreatePullRequestDialog`)
   const createPullRequestOpen = useCreatePullRequestBranch() !== null
@@ -178,6 +186,17 @@ export function IndexPage() {
                 </Container>
                 {/* after the content, out of its gaps: its room at the end moves no row */}
                 <DragTargetBar />
+              </main>
+            </KeepMounted>
+            <KeepMounted mode={view === "reviews" ? "visible" : "hidden"}>
+              <main ref={reviews} className="h-full overflow-y-auto">
+                <Container className="pb-2">
+                  {isReviewsLoaded && (
+                    <Suspense fallback={null}>
+                      <ReviewsView visible={view === "reviews"} headingRef={reviewsHeading} />
+                    </Suspense>
+                  )}
+                </Container>
               </main>
             </KeepMounted>
             <KeepMounted mode={view === "landing" ? "visible" : "hidden"}>

@@ -1,6 +1,6 @@
-import type { ReviewRequest } from "@/lib/bindings"
+import type { ActionState, ReviewInvolvement, ReviewRequest } from "@/lib/bindings"
 import type { ReviewIntent } from "@/lib/review-request-actions"
-import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
+import type { ReviewAction } from "@/stores/review-requests"
 
 /*
  * The review window of a pull request (`pull-request-review`, spec/repository/review-requests.spec.md#review-window):
@@ -14,24 +14,24 @@ import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
  */
 export const PULL_REQUEST_REVIEW_WINDOW = "pull-request-review"
 
-/** Where Patronus merges, as the main window knows it: Approve and Safe Push is offered for a pull request into `target` */
-export interface ReviewPatronus {
-  readonly available: boolean
-  /** The branch Patronus pushes into for the baseline; undefined while it is read, null when the baseline is none */
-  readonly target: string | null | undefined
-  /** Why the target couldn't be read (`target` undefined then): no "the baseline is none" */
-  readonly targetError?: string
-}
+/**
+ * Where the review window was opened from: its ↑/↓ walk the rows of that list, its title names it ("Your Turn › 2 of
+ * 5", "Reviews › 3 of 14")
+ */
+export type ReviewSource = "yourTurn" | "reviews"
 
 export interface ReviewWindowState {
   readonly repositoryPath: string
   /** The main window shows this repository: only then can it start a Safe Push (Patronus asks for the selected one) */
   readonly selected: boolean
-  /** Waiting the longest first, as in Your Turn */
+  readonly source: ReviewSource
+  /** The rows of the source: the requests waiting the longest first, as in Your Turn; the pull requests of Reviews in its order */
   readonly requests: readonly ReviewRequest[]
-  readonly reviewed: Readonly<Record<number, SubmittedReview>>
+  /** How the user takes part in each pull request of Reviews, by number; none of a request by name */
+  readonly involvements: Readonly<Record<number, ReviewInvolvement>>
+  /** The actions of each pull request Rust decides (`pull:<number>` of the view), of the repository the main window shows */
+  readonly actions: Readonly<Record<number, readonly ActionState[]>>
   readonly busy: Readonly<Record<number, ReviewAction>>
-  readonly patronus: ReviewPatronus
 }
 
 /** `__INIT_DATA__` of the review window (`openPullRequestReviewWindow`) */
@@ -45,6 +45,7 @@ export interface PullRequestReviewWindowData {
   readonly index: number
   /** The write the row's menu asked for, or "review" (D on the row): an open with one starts the window over */
   readonly intent: ReviewIntent | null
+  readonly source: ReviewSource
   /** A new value on every open */
   readonly openedAt: number
   readonly state: ReviewWindowState
@@ -106,31 +107,11 @@ export type ReviewWindowRequest =
 export type ReviewWindowFeedback = { readonly kind: "toast"; readonly toast: ReviewToast } | { readonly kind: "error"; readonly title: string; readonly message: string }
 
 /**
- * Whether Patronus merges `request`: it does in a repository it guards, into the branch it pushes into for the baseline
- * only (a pull request into another base, e.g. of a stacked branch, would be merged there). null: no item.
- */
-export function getReviewSafePush(request: ReviewRequest, patronus: ReviewPatronus): { blocked: string | null } | null {
-  if (!patronus.available) {
-    return null
-  }
-  if (patronus.target === undefined) {
-    return { blocked: patronus.targetError === undefined ? "Reading the branch Patronus pushes into…" : `Cannot read the branch Patronus pushes into: ${patronus.targetError}` }
-  }
-  if (patronus.target === null) {
-    return { blocked: "Patronus pushes into a branch of origin: the baseline is none" }
-  }
-  if (request.baseRefName !== patronus.target) {
-    return { blocked: `#${request.number} merges into ${request.baseRefName}: Patronus would merge it there, not into ${patronus.target}` }
-  }
-  return { blocked: null }
-}
-
-/**
  * What the review window of a pull request is keyed by: another request, or an open with an intent (a write of the
  * row's menu, D on the row) starts it over; a plain open of the request on screen only brings the window to the front,
  * where the review is
  */
 export function pullRequestReviewWindowKey(data: PullRequestReviewWindowData): string {
-  const subject = `${data.repositoryPath}\n${data.number}`
+  const subject = `${data.repositoryPath}\n${data.number}\n${data.source}`
   return data.intent === null ? subject : `${subject}\n${data.openedAt}`
 }

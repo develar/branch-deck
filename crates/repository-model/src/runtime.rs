@@ -46,6 +46,7 @@ use crate::sync_scheduler::{Decision, RunEnd, RunId, Step, SyncScheduler};
 use crate::table::{RemoteSubject, TableState};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
+use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncReason, SyncState, SyncStep, Version};
 use domain_types::stack::BlockReason;
@@ -109,6 +110,13 @@ pub(crate) enum Message {
   /// The robot an action of the app answered; `reply` gets the version of the view after its patch
   WriteRobot {
     robot: PatronusRobot,
+    reply: oneshot::Sender<Version>,
+  },
+  /// The review the user submitted from the app; `reply` gets the version of the view after its patch
+  WriteReview {
+    number: u32,
+    verdict: PullRequestReviewEvent,
+    commit: String,
     reply: oneshot::Sender<Version>,
   },
   /// Check Approvals Again for `subject`: its readiness is `Stale` at once and asked again; the scheduler answers `reply`
@@ -383,6 +391,11 @@ impl Actor {
         self.flush();
         let _ = reply.send(self.view.version());
       }
+      Message::WriteReview { number, verdict, commit, reply } => {
+        self.facts.review_requests.submitted(number, verdict, commit);
+        self.flush();
+        let _ = reply.send(self.view.version());
+      }
       #[cfg(test)]
       Message::DemandOf(reply) => {
         let _ = reply.send(self.demand());
@@ -553,6 +566,12 @@ impl Actor {
       needed: union(demands().map(|demand| &demand.needed)),
       robot_details: union(demands().map(|demand| &demand.robot_details)),
       watched_robots: union(demands().map(|demand| &demand.watched_robots)),
+      reviews: demands().any(|demand| demand.reviews),
+      review_windows: demands()
+        .flat_map(|demand| demand.review_windows.iter().copied())
+        .collect::<BTreeSet<u32>>()
+        .into_iter()
+        .collect(),
     }
   }
 
@@ -738,6 +757,8 @@ impl Actor {
       .update(&self.state, self.facts.pull_requests.view(), robots, &self.told_demand, &self.key.prefix, &wanted);
     // the details a window asks for are `Loading` in the patch of its demand, and go with the demand
     self.facts.demand_details(&self.told_demand.robot_details);
+    // Reviews and the review windows the windows show
+    self.facts.review_requests.demand(&self.told_demand);
     let Some(patch) = self.view.diff(&self.state, &self.facts) else {
       self.tell_digest();
       return;

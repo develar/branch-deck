@@ -93,6 +93,7 @@ export function applyViewPatch(view: RepositoryView, patch: ViewPatch): Reposito
               integration: { ...withoutKeys(sections.archived.integration, archived.removedIntegration ?? []), ...archived.integration },
             },
     },
+    reviews: changes.reviews ?? view.reviews,
     patronus: changes.patronus == null ? view.patronus : patchedPatronus(view.patronus, changes.patronus),
     facts: changes.facts == null ? view.facts : patchedFacts(view.facts, changes.facts),
     news: (changes.news?.length ?? 0) === 0 ? view.news : [...view.news, ...changes.news!].slice(-NEWS_KEPT),

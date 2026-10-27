@@ -128,7 +128,7 @@ publisher: choose More info → Run anyway.
   asked to review. Each row shows its next step, such as the review it waits for, and never offers a push that is
   known to fail; the header says which moves on the way to master are yours
   ([outgoing](spec/repository/outgoing.spec.md), [pull requests](spec/branch/pull-requests.spec.md), [next step](spec/branch/next-step.spec.md), [landing overview](spec/repository/landing-overview.spec.md)).
-  The Landing view (⌘2) shows how your landings went: merges, how many tries each took, where the time went and why
+  The Landing view (⌘3) shows how your landings went: merges, how many tries each took, where the time went and why
   it failed, against everyone else ([statistics](spec/repository/main-views.spec.md)).
   A branch you keep only locally, waiting for a proper fix, can be parked with a note: no push sends it and it is not
   your move ([parked branches](spec/branch/parked-branches.spec.md)).
@@ -140,8 +140,9 @@ publisher: choose More info → Run anyway.
 - **Review**: the changed files of a commit as a tree with diffs; `D` reviews a commit or a whole branch in a window
   of its own, one scrolling view (`J`/`K` files, `N`/`P` changes), coloured as IntelliJ colours the code, a ⌘-click
   on a name going to its declaration, ⌥F7 listing its usages. Your Turn lists the pull requests that wait for your
-  review and opens them in the same window to approve or request changes ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md),
-  [navigation](spec/commit/symbol-navigation.spec.md), [Your Turn](spec/repository/review-requests.spec.md)).
+  review and opens them in the same window to approve or request changes; the Reviews view (⌘2) shows every pull
+  request you take part in, and one added by its link ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md),
+  [navigation](spec/commit/symbol-navigation.spec.md), [Your Turn](spec/repository/review-requests.spec.md), [Reviews](spec/repository/reviews.spec.md)).
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/review-dark.png">

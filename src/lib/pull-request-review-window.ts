@@ -1,11 +1,11 @@
-import type { ReviewRequest } from "@/lib/bindings"
-import { getErrorDetails, logError, notifyError, recordError } from "@/lib/errors"
+import type { ActionState, ReviewRequest } from "@/lib/bindings"
+import { notifyError, recordError } from "@/lib/errors"
 import { closeEventToasts } from "@/lib/event-toast"
 import { PULL_REQUEST_REVIEW_WINDOW, reviewWindowTitle } from "@/lib/pull-request-review"
 import type {
   PullRequestReviewWindowData,
   ReviewFeedback,
-  ReviewPatronus,
+  ReviewSource,
   ReviewToast,
   ReviewWindowFeedback,
   ReviewWindowRequest,
@@ -13,9 +13,9 @@ import type {
 } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { createWindowLink } from "@/lib/sub-window-link"
-import { sessionRepositoryPath } from "@/model/store"
+import { showReviewWindowPullRequest } from "@/model/demand"
+import { getRowPart, sessionRepositoryPath } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { isPatronusAvailable, readPatronusTargetBranch } from "@/stores/patronus"
 import { getSelectedProject } from "@/stores/repository"
 import {
   approveAndSafePush,
@@ -29,6 +29,7 @@ import {
   reviewRequestsStore,
   submitReview,
 } from "@/stores/review-requests"
+import { reviewRows } from "@/stores/reviews"
 
 /*
  * The main window's side of the review window (`pull-request-review`, spec/repository/review-requests.spec.md#review-window):
@@ -36,18 +37,37 @@ import {
  */
 
 /** The request the review window shows, while it is open: its review refs stay */
-const link = createWindowLink<{ repositoryPath: string; number: number }, ReviewWindowState>({
+const link = createWindowLink<Shown, ReviewWindowState>({
   label: PULL_REQUEST_REVIEW_WINDOW,
-  buildState: shown => buildState(shown.repositoryPath),
-  // its refs go with it
-  onClose: closed => pruneReviewRefsOf(closed.repositoryPath),
+  buildState: shown => buildState(shown.repositoryPath, shown.source),
+  // its refs go with it, and the session no longer keeps its actions for it
+  onClose: closed => {
+    releaseShownDemand()
+    pruneReviewRefsOf(closed.repositoryPath)
+  },
 })
-/** The branch Patronus pushes into, by repository, once read */
-const patronusTargets = new Map<string, string | null>()
-/** Why the read of the target of a repository failed: said until the next open of a review window reads it again */
-const patronusTargetErrors = new Map<string, string>()
-/** The reads of `patronusTargets` in flight */
-const patronusReads = new Map<string, Promise<void>>()
+
+/** What the review window shows: the pull request, and the list it walks */
+interface Shown {
+  readonly repositoryPath: string
+  readonly number: number
+  readonly source: ReviewSource
+}
+
+/** The release of the demand of the pull request the window shows: its actions stay in the view while it shows it */
+let releaseShown: (() => void) | null = null
+
+function releaseShownDemand(): void {
+  releaseShown?.()
+  releaseShown = null
+}
+
+/** The window shows `shown` from now: its refs stay, the session keeps its actions */
+function setShown(shown: Shown): void {
+  link.setShown(shown)
+  releaseShownDemand()
+  releaseShown = showReviewWindowPullRequest(shown.number)
+}
 
 /** The number of the request the review window shows in `repositoryPath`, if any: its refs stay */
 export function reviewWindowNumber(repositoryPath: string): number | null {
@@ -57,25 +77,29 @@ export function reviewWindowNumber(repositoryPath: string): number | null {
 
 connectReviewWindow({
   shownNumber: reviewWindowNumber,
-  open: (repositoryPath, request, index, intent) => void openPullRequestReviewWindow(repositoryPath, request, index, intent),
+  open: (repositoryPath, request, index, intent, source) => void openPullRequestReviewWindow(repositoryPath, request, index, intent, source),
+  rowsOf: repositoryPath => reviewRows(repositoryPath).requests,
 })
 
 /**
  * Opens the review window on `request` (or shows it in the open one), the only review of a pull request: its data is
- * the state of the requests of the repository and the write the row's menu asked for (`intent`); the window fetches the
- * pull request itself. Its close forgets it and prunes the review refs.
+ * the state of the requests of the list it was opened from (`source`) and the write the row's menu asked for
+ * (`intent`); the window fetches the pull request itself. Its close forgets it and prunes the review refs.
  */
-export async function openPullRequestReviewWindow(repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null): Promise<void> {
+export async function openPullRequestReviewWindow(
+  repositoryPath: string,
+  request: ReviewRequest,
+  index: number,
+  intent: ReviewIntent | null,
+  source: ReviewSource = "yourTurn",
+): Promise<void> {
   // the window fetches it: the next prune keeps its refs, deletes those of the request it showed before
-  const shown = { repositoryPath, number: request.number }
-  link.setShown(shown)
+  const shown = { repositoryPath, number: request.number, source }
+  setShown(shown)
   noteReviewRefsWritten(repositoryPath)
   markReviewRequestRead(repositoryPath, request)
-  // the window opens knowing whether Patronus merges the request; a read that failed before is tried again
-  patronusTargetErrors.delete(repositoryPath)
-  await readPatronusTarget(repositoryPath)
   const state = link.takeState()!
-  const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, openedAt: Date.now(), state }
+  const data: PullRequestReviewWindowData = { repositoryPath, number: request.number, request, index, intent, source, openedAt: Date.now(), state }
   try {
     await link.open(shown, { url: "/pull-request-review", title: reviewWindowTitle(request), data })
   } catch (error) {
@@ -83,55 +107,36 @@ export async function openPullRequestReviewWindow(repositoryPath: string, reques
   }
 }
 
-/** What the window shows of the requests of its repository; Patronus as the main window knows it for the selected one */
-function buildState(repositoryPath: string): ReviewWindowState {
+/**
+ * What the window shows of the list it was opened from: the requests of Your Turn, or the pull requests of Reviews with
+ * how the user takes part in each; the actions Rust decides of each, of the repository the main window shows
+ */
+function buildState(repositoryPath: string, source: ReviewSource): ReviewWindowState {
   const entry = reviewRequestsStore.getState().repositories[repositoryPath]
   const selected = getSelectedProject()?.path === repositoryPath
+  const { requests, involvements } = source === "yourTurn" ? { requests: entry?.requests ?? [], involvements: {} } : reviewRows(repositoryPath)
+  // the reviews run in the session of the repository: of the one the main window shows, its view has them
+  const inSession = sessionRepositoryPath() === repositoryPath
+  const shown = link.shown()
+  const numbers = new Set([...requests.map(request => request.number), ...(shown?.repositoryPath === repositoryPath ? [shown.number] : [])])
+  const actions: Record<number, readonly ActionState[]> = {}
+  if (inSession) {
+    for (const number of numbers) {
+      const of = getRowPart(`pull:${number}`, "actions")
+      if (of !== undefined) {
+        actions[number] = of
+      }
+    }
+  }
   return {
     repositoryPath,
     selected,
-    requests: entry?.requests ?? [],
-    reviewed: entry?.reviewed ?? {},
-    // the reviews run in the session of the repository: of the one the main window shows, its view has them
-    busy: sessionRepositoryPath() === repositoryPath ? getReviewBusy(branchSyncStore.getState().operations) : {},
-    patronus: selected ? reviewPatronus(repositoryPath) : { available: false, target: null },
+    source,
+    requests,
+    involvements,
+    actions,
+    busy: inSession ? getReviewBusy(branchSyncStore.getState().operations) : {},
   }
-}
-
-/** Patronus of the selected repository: the target is read once per repository, then the window is told again */
-function reviewPatronus(repositoryPath: string): ReviewPatronus {
-  if (!isPatronusAvailable()) {
-    return { available: false, target: null }
-  }
-  const targetError = patronusTargetErrors.get(repositoryPath)
-  if (targetError !== undefined) {
-    return { available: true, target: undefined, targetError }
-  }
-  if (!patronusTargets.has(repositoryPath)) {
-    void readPatronusTarget(repositoryPath).then(broadcastReviewWindowState)
-  }
-  return { available: true, target: patronusTargets.get(repositoryPath) }
-}
-
-/** Reads the branch Patronus pushes into for the selected repository, once; nothing without Patronus */
-function readPatronusTarget(repositoryPath: string): Promise<void> {
-  if (!isPatronusAvailable() || patronusTargets.has(repositoryPath) || getSelectedProject()?.path !== repositoryPath) {
-    return Promise.resolve()
-  }
-  let read = patronusReads.get(repositoryPath)
-  if (read === undefined) {
-    read = readPatronusTargetBranch()
-      .then(
-        target => void patronusTargets.set(repositoryPath, target),
-        (error: unknown) => {
-          logError("Cannot read the branch Patronus pushes into", error)
-          patronusTargetErrors.set(repositoryPath, getErrorDetails(error))
-        },
-      )
-      .finally(() => patronusReads.delete(repositoryPath))
-    patronusReads.set(repositoryPath, read)
-  }
-  return read
 }
 
 /**
@@ -169,7 +174,7 @@ export const runReviewWindowRequest = link.serve<ReviewWindowRequest, ReviewWind
   const { repositoryPath } = request
   switch (request.action) {
     case "shown":
-      link.setShown({ repositoryPath, number: request.request.number })
+      setShown({ repositoryPath, number: request.request.number, source: link.shown()?.source ?? "yourTurn" })
       noteReviewRefsWritten(repositoryPath)
       markReviewRequestRead(repositoryPath, request.request)
       broadcastReviewWindowState()

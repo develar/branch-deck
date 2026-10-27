@@ -11,11 +11,13 @@ use crate::fact_sources::{FactSources, Read};
 use crate::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message, list_pull_requests};
 use crate::review_readiness::{ReadinessInputs, branch_review_readiness, kept_review_readiness, readiness_inputs};
 use crate::review_requests::list_review_requests;
+use domain_policy::reviews::gone_links;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{
   BranchReviewReadiness, KnownRobotStatus, PatronusAvailability, PatronusProblem, PatronusRobotDetails, PatronusRobotsResult, PatronusStartOptions, ReviewReadinessBranch,
 };
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, PullRequestsResult};
+use domain_types::review_request::{LinkedPullRequest, ReviewRequestsResult, ReviewsAsk};
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
 use object_cache::cache::ObjectCache;
@@ -90,6 +92,23 @@ pub trait ServiceHost: Send + Sync + 'static {
   /// The fetch of the remote branches a listing of the pull requests showed at a head their remote-tracking refs lack:
   /// run in the session of `key` (`moved_remote::fetch_in_session`), as the host keeps its sessions
   fn fetch_moved_remotes<'a>(&'a self, key: &'a SessionKey, asks: Vec<MovedRemoteAsk>) -> Read<'a, ()>;
+
+  /// The pull requests the user added to Reviews by their links in `repository` (`linkedPullRequests` of the app's
+  /// repository state); a host without them (`bd`) has none
+  fn linked_pull_requests(&self, _key: &SessionKey, _repository: &GitHubRepository) -> Vec<LinkedPullRequest> {
+    Vec::new()
+  }
+
+  /// `link` joins the links of `repository`, or moves to its time when it is one
+  ///
+  /// # Errors
+  /// A host that keeps no links
+  fn link_pull_request(&self, _key: &SessionKey, _repository: &GitHubRepository, _link: LinkedPullRequest) -> Result<(), ApiError> {
+    Err(ApiError::new(ErrorCode::InvalidArguments, "No Reviews here: the app keeps the links of pull requests"))
+  }
+
+  /// The links of `numbers` leave the links of `repository`
+  fn forget_linked_pull_requests(&self, _key: &SessionKey, _repository: &GitHubRepository, _numbers: &[u32]) {}
 }
 
 /// The reads of the facts over the services of `host`
@@ -204,15 +223,26 @@ impl<H: ServiceHost> FactSources for ServiceFactSources<H> {
     })
   }
 
-  fn review_requests<'a>(&'a self, key: &'a SessionKey, known: Option<String>) -> Read<'a, domain_types::review_request::ReviewRequestsResult> {
-    let unavailable = domain_types::review_request::ReviewRequestsResult::unavailable;
+  fn review_requests<'a>(&'a self, key: &'a SessionKey, known: Option<String>, reviews: bool) -> Read<'a, ReviewRequestsResult> {
+    let unavailable = ReviewRequestsResult::unavailable;
     Box::pin(async move {
       let github = match self.host.github(key) {
         Ok(github) => github,
         Err(error) => return unavailable(github_unavailable(error)),
       };
       match self.github_repository(key, known.as_deref()).await {
-        Ok(Some(repository)) => list_review_requests(&github, &key.worktree, &repository).await,
+        Ok(Some(repository)) => {
+          let also = reviews.then(|| ReviewsAsk {
+            linked: self.host.linked_pull_requests(key, &repository),
+          });
+          let result = list_review_requests(&github, &key.worktree, &repository, also.as_ref()).await;
+          // a link of a merged, closed or missing pull request goes
+          let gone = result.others.as_ref().map_or_default(gone_links);
+          if !gone.is_empty() {
+            self.host.forget_linked_pull_requests(key, &repository, &gone);
+          }
+          result
+        }
         Ok(None) => unavailable(PullRequestAvailability::NotGitHub),
         Err(error) => unavailable(github_unavailable(error)),
       }

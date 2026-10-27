@@ -4,12 +4,13 @@
 //! and a scripted answer of the fake GitHub for a failure no state of it gives (`/github-answer`).
 
 use crate::remote_fixtures::{FixtureResult, host_of, unknown_repository};
+use crate::state::ReviewRequestsFixture;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use domain_types::patronus::{PatronusCommandReply, PatronusMergeRequest, PatronusReviewRequirement, PatronusReviewer, ReviewPathsSource, ReviewerApprovalState};
 use domain_types::pull_request::{PullRequest, PullRequestState, Reviewer, ReviewerState};
-use domain_types::review_request::{ReviewRequest, ReviewRequestsResult};
+use domain_types::review_request::{LinkedAnswer, LinkedPullRequest, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
 use git_ops::ownership::read_file_owners;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
@@ -20,6 +21,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
+use sync_utils::timestamp::format_utc_timestamp;
 
 /// What the Patronus pre-check answers for the branches of a test repository
 #[derive(Debug, Default, Deserialize)]
@@ -231,6 +233,100 @@ pub async fn set_github_answer(Path(id): Path<String>, State(state): State<Arc<c
 /// review; an empty head is the tip of the branch the request names when GitHub is asked
 pub fn review_request_pulls(result: &ReviewRequestsResult) -> Vec<FakePull> {
   result.requests.iter().map(review_request_pull).collect()
+}
+
+/// Every pull request of the fixture the fake GitHub has: the requests, the rest of Reviews and those a link can name,
+/// with the node GraphQL answers for each asked by its number
+pub fn fixture_pulls(fixture: &ReviewRequestsFixture) -> (Vec<FakePull>, BTreeMap<u32, Value>) {
+  let result = &fixture.result;
+  let others = result
+    .others
+    .iter()
+    .flat_map(|others| others.team.entries.iter().chain(&others.reviewed.entries).chain(&others.authored.entries));
+  let mut requests: Vec<(&ReviewRequest, bool)> = result.requests.iter().map(|request| (request, true)).collect();
+  requests.extend(result.answered.iter().map(|answered| (&answered.request, true)));
+  requests.extend(others.map(|entry| (&entry.request, true)));
+  requests.extend(fixture.linkable.iter().map(|pull| (&pull.request, !pull.closed)));
+  let pulls = requests.iter().map(|(request, _)| review_request_pull(request)).collect();
+  let nodes = requests.iter().map(|(request, open)| (request.number, pull_request_node(request, *open))).collect();
+  (pulls, nodes)
+}
+
+/// The rest of Reviews the session of a test repository reads while the Reviews view shows: that of the fixture, and
+/// each link of the user as the fixture has its pull request (open, merged or closed, or none)
+pub fn fixture_reviews(fixture: &ReviewRequestsFixture, links: &[LinkedPullRequest]) -> ReviewsAnswer {
+  let mut answer = fixture.result.others.clone().unwrap_or_default();
+  let known = |number: u32| {
+    let others = answer
+      .team
+      .entries
+      .iter()
+      .chain(&answer.reviewed.entries)
+      .chain(&answer.authored.entries)
+      .map(|entry| (&entry.request, true));
+    let requests = fixture.result.requests.iter().map(|request| (request, true));
+    let linkable = fixture.linkable.iter().map(|pull| (&pull.request, !pull.closed));
+    others
+      .chain(requests)
+      .chain(linkable)
+      .find(|(request, _)| request.number == number)
+      .map(|(request, open)| (request.clone(), open))
+  };
+  let mut links = links.to_vec();
+  links.sort_by_key(|link| std::cmp::Reverse(link.linked_at));
+  let linked = links
+    .iter()
+    .map(|link| match known(link.number) {
+      Some((request, true)) => LinkedAnswer::Open {
+        entry: Box::new(ReviewEntry {
+          request,
+          involvement: ReviewInvolvement::Linked { linked_at: link.linked_at },
+        }),
+      },
+      Some((_, false)) => LinkedAnswer::Closed { number: link.number },
+      None => LinkedAnswer::Missing { number: link.number },
+    })
+    .collect();
+  answer.linked = linked;
+  answer
+}
+
+/// The node of `request` as the GraphQL of Reviews reads it (`remote_facts::reviews`)
+fn pull_request_node(request: &ReviewRequest, open: bool) -> Value {
+  let review = request.reviewed_commit.as_ref().map(|commit| {
+    let state = match request.reviewed_state {
+      Some(ReviewerState::Approved) => "APPROVED",
+      Some(ReviewerState::ChangesRequested) => "CHANGES_REQUESTED",
+      _ => "COMMENTED",
+    };
+    serde_json::json!({"state": state, "submittedAt": "2026-01-01T00:00:00Z", "commit": {"oid": commit}})
+  });
+  let time = format_utc_timestamp;
+  serde_json::json!({
+    "number": request.number,
+    "title": request.title,
+    "url": request.url,
+    "bodyText": request.body_text,
+    "state": if open { "OPEN" } else { "MERGED" },
+    "isDraft": false,
+    "author": request.author.as_ref().map(|login| serde_json::json!({"login": login})),
+    "createdAt": time(request.created_at),
+    "updatedAt": time(request.updated_at),
+    "additions": request.additions,
+    "deletions": request.deletions,
+    "changedFiles": request.changed_files,
+    "reviewDecision": null,
+    "headRefName": request.head_ref_name,
+    "headRefOid": request.head_ref_oid,
+    "baseRefName": request.base_ref_name,
+    "baseRefOid": request.base_ref_oid,
+    "isCrossRepository": request.is_cross_repository,
+    "baseRepository": {"defaultBranchRef": {"name": if request.base_is_default { request.base_ref_name.as_str() } else { "master" }}},
+    "statusCheckRollup": null,
+    "viewerLatestReview": review,
+    "latestReviews": {"nodes": []},
+    "reviewRequests": {"nodes": []}
+  })
 }
 
 fn review_request_pull(request: &ReviewRequest) -> FakePull {

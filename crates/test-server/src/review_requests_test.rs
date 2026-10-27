@@ -20,7 +20,7 @@ fn request(head_ref_oid: &str) -> Value {
   json!({
     "number": 7, "title": "Add login", "url": "https://github.com/acme/monorepo/pull/7", "bodyText": "", "author": "alice",
     "requestedBy": "alice", "createdAt": 1, "updatedAt": 1, "requestedAt": 1, "waitingSince": 1, "backToYou": null, "additions": 1, "deletions": 0, "changedFiles": 1,
-    "checksState": null, "reviewDecision": null, "reRequested": false, "reviewedCommit": null, "headRefName": "alice/login",
+    "checksState": null, "reviewDecision": null, "reRequested": false, "reviewedCommit": null, "reviewedState": null, "headRefName": "alice/login",
     "headRefOid": head_ref_oid, "baseRefName": "master", "baseRefOid": "", "isCrossRepository": false, "baseIsDefault": true,
   })
 }
@@ -46,9 +46,12 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   post_as(&client, addr, Named::Id(&id), "/invoke/refresh_facts", refresh).await;
   let view = view_when(&client, addr, &repository_path, |view| view["facts"]["reviewRequests"]["requests"][0].is_object()).await;
   let part = &view["facts"]["reviewRequests"];
+  // an empty head is answered as the tip of the branch it names, else of HEAD
+  let mut requests = result["requests"].clone();
+  requests[0]["headRefOid"] = json!(ids[0]);
   assert_eq!(
     (&part["head"]["value"], &part["requests"], &part["totalCount"]),
-    (&result["availability"], &result["requests"], &json!(1))
+    (&result["availability"], &requests, &json!(1))
   );
 
   // an empty head is HEAD, an empty base the baseline, else the commit before: both local, nothing fetched
@@ -92,5 +95,67 @@ async fn review_routes_answer_the_fixture_without_a_network() {
     })
   );
 
-  assert_eq!(fixture_calls(&client, addr, &id).await, json!({ "calls": 2, "fetchCalls": 2, "prunes": [[7]] }));
+  assert_eq!(
+    fixture_calls(&client, addr, &id).await,
+    json!({ "calls": 2, "reviewsCalls": 0, "fetchCalls": 2, "prunes": [[7]] })
+  );
+}
+
+/// While the window shows Reviews the session reads its rest from the fixture; a link the user adds is asked of the fake
+/// GitHub, kept, and comes back in the section of the links; a number the fake lacks is refused
+#[tokio::test]
+async fn a_link_joins_reviews_from_the_fake_github() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, repository_path) = create_repository(&client, addr).await;
+  let mut messages = subscribe(&client, addr, &id, &repository_path, 52).await;
+  let subscribed = subscription(&mut messages).await;
+  sync(&client, addr, &repository_path).await;
+  let mut linkable = request("");
+  linkable["number"] = json!(105);
+  linkable["title"] = json!("Forgot to ask you");
+  let fixture = json!({
+    "availability": { "status": "available", "owner": "acme", "name": "monorepo" }, "totalCount": 0, "requests": [],
+    "linkable": [linkable],
+  });
+  post(&client, addr, &format!("/repositories/{id}/review-requests"), fixture).await;
+  let demand = json!({
+    "focused": true, "online": true, "visibleBranches": [], "visibleStacks": [], "needed": [], "robotDetails": [], "watchedRobots": [],
+    "reviews": true, "reviewWindows": [],
+  });
+  post_as(
+    &client,
+    addr,
+    Named::Id(&id),
+    "/invoke/set_demand",
+    json!({ "subscription": subscribed["id"], "demand": demand }),
+  )
+  .await;
+  let refresh = json!({ "repositoryPath": repository_path, "family": "reviewRequests", "reason": "manual" });
+  post_as(&client, addr, Named::Id(&id), "/invoke/refresh_facts", refresh).await;
+  let view = view_when(&client, addr, &repository_path, |view| view["reviews"]["head"]["value"]["status"] == "available").await;
+  assert_eq!((&view["reviews"]["head"]["state"], &view["reviews"]["sections"]), (&json!({ "kind": "fresh" }), &json!([])));
+
+  let answer = post(
+    &client,
+    addr,
+    "/invoke/link_pull_request",
+    json!({ "repositoryPath": repository_path, "input": "https://github.com/acme/monorepo/pull/105" }),
+  )
+  .await;
+  assert_eq!(
+    (answer["kept"].as_bool(), &answer["entry"]["request"]["title"]),
+    (Some(true), &json!("Forgot to ask you")),
+    "{answer}"
+  );
+  let view = view_when(&client, addr, &repository_path, |view| view["reviews"]["sections"][0].is_object()).await;
+  assert_eq!(view["reviews"]["sections"][0]["kind"], "linked");
+  assert_eq!(view["reviews"]["sections"][0]["entries"][0]["request"]["number"], 105);
+  assert!(view["actions"]["pull:105"].as_array().unwrap().iter().any(|action| action["id"] == "remove-from-reviews"));
+
+  let missing = post(&client, addr, "/invoke/link_pull_request", json!({ "repositoryPath": repository_path, "input": "#999" })).await;
+  assert_eq!(missing["error"]["code"], "no_pull_request", "{missing}");
+
+  post(&client, addr, "/invoke/unlink_pull_request", json!({ "repositoryPath": repository_path, "number": 105 })).await;
+  view_when(&client, addr, &repository_path, |view| view["reviews"]["sections"] == json!([])).await;
 }

@@ -491,3 +491,72 @@ const fn waits_for_approvals(kind: &StepKind) -> bool {
       | StepKind::AwaitingUnjudged { .. }
   )
 }
+
+/// What is known of the branch Patronus pushes into for the baseline, which merges a reviewed pull request
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target<'a> {
+  /// Patronus doesn't merge in the repository (or hasn't answered): no Safe Push
+  NoPatronus,
+  /// Before the first sync
+  Unread,
+  /// The baseline is no branch of origin
+  None,
+  Branch(&'a str),
+}
+
+/// The facts the actions of a pull request to review are decided on (Your Turn, Reviews, the review window)
+#[derive(Clone, Copy, Debug)]
+pub struct PullRequestFacts<'a> {
+  pub number: u32,
+  /// The commit it shows
+  pub head: &'a str,
+  /// The branch it goes into
+  pub base: &'a str,
+  /// The user's own
+  pub own: bool,
+  /// The user added it by its link
+  pub linked: bool,
+  /// The branch of the table an own pull request is of
+  pub branch: Option<&'a str>,
+  /// The commit the user approved last: the session's review, else GitHub's latest review of the user
+  pub approved: Option<&'a str>,
+  pub target: Target<'a>,
+}
+
+/// The actions of a pull request to review, one list for its row, its menu and the header of its review window:
+/// Review, Approve (done once the user approved its head), the Safe Push Patronus makes of it into the target, Request
+/// Changes, Open Pull Request, then Show Branch of an own one of the table and Remove from Reviews of a linked one. GitHub
+/// takes no review of the author. The window's own state (the commit it shows, a write that runs) lies over them in the
+/// page
+#[must_use]
+pub fn review_actions(facts: &PullRequestFacts<'_>) -> Vec<ActionState> {
+  let own = facts.own.then_some(ActionBlocker::OwnPullRequest);
+  let approved = facts
+    .approved
+    .filter(|commit| *commit == facts.head)
+    .map(|commit| ActionBlocker::Approved { commit: commit.to_owned() });
+  let mut actions = vec![state(ActionId::Review, None), state(ActionId::Approve, own.clone().or(approved))];
+  let safe_push = match facts.target {
+    Target::NoPatronus => None,
+    Target::Unread => Some(Some(ActionBlocker::TargetUnread)),
+    Target::None => Some(Some(ActionBlocker::NoTarget)),
+    Target::Branch(target) if target != facts.base => Some(Some(ActionBlocker::OtherBase {
+      number: facts.number,
+      base: facts.base.to_owned(),
+      target: target.to_owned(),
+    })),
+    Target::Branch(_) => Some(None),
+  };
+  if let Some(blocker) = safe_push {
+    actions.push(state(ActionId::SafePushPullRequest, own.clone().or(blocker)));
+  }
+  actions.push(state(ActionId::RequestChanges, own));
+  actions.push(state(ActionId::OpenPullRequest, None));
+  if facts.branch.is_some() {
+    actions.push(state(ActionId::ShowBranch, None));
+  }
+  if facts.linked {
+    actions.push(state(ActionId::RemoveFromReviews, None));
+  }
+  actions
+}

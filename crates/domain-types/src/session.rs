@@ -29,7 +29,7 @@ use crate::patronus::{PatronusAvailability, PatronusReviewRequirement, PatronusR
 use crate::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestView};
 use crate::reason::Reason;
 use crate::repository_view::{BranchPatronus, PatronusView, RobotLandedBranch, RobotRestart, StackPatronus};
-use crate::review_request::ReviewRequest;
+use crate::review_request::{ReviewEntry, ReviewRequest};
 use crate::stack::{BranchStack, StackBranchUpdate};
 use crate::update_project::UpdateCheck;
 use crate::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, RemoteStatusUpdate, UnappliedBranchInfo};
@@ -133,6 +133,13 @@ pub struct Demand {
   /// The robots of no branch the window started and follows until they finish (the Safe Push of a reviewed pull
   /// request): polled with the robots of the branches
   pub watched_robots: Vec<String>,
+  /// The window shows the Reviews view: the review requests are read with the rest of Reviews
+  #[serde(default)]
+  pub reviews: bool,
+  /// The pull requests the review windows of the window show: their actions stay in the view while a window shows them,
+  /// also once no listing has them any more
+  #[serde(default)]
+  pub review_windows: Vec<u32>,
 }
 
 /// The demand of a window, by its subscription to the session (`ViewSubscription::id`)
@@ -365,6 +372,9 @@ pub struct RepositoryView {
   /// The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them
   pub operations: BTreeMap<OperationId, RunningOperation>,
   pub sections: TableSections,
+  /// Every open pull request of the repository the user takes part in beside the requests by name, by section, as
+  /// `domain_policy::reviews` orders them over the review requests and the table
+  pub reviews: ReviewsView,
   /// What the robots of Patronus land, landed and hold of the table, as the session derives it
   pub patronus: PatronusPart,
   /// What the remote services answered, beside the table
@@ -438,6 +448,45 @@ pub struct ReviewRequestsView {
   pub total_count: u32,
   /// Unix seconds of the last answer with the requests, 0 = never: how old the rows are after a failure
   pub checked_at: u32,
+}
+
+/// Reviews (spec/repository/reviews.spec.md) as the session derives it: how the rest of Reviews beside the requests by
+/// name stands (`head`: `Unknown` while no window shows the view and nothing was read, `Loading` until its first answer,
+/// then as the review requests), its sections in their order, the empty ones left out, each pull request in the first
+/// section that has it, and when GitHub gave them
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewsView {
+  pub head: Fact<PullRequestAvailability>,
+  pub sections: Vec<ReviewSection>,
+  /// Unix seconds of the last answer with them, 0 = never
+  pub checked_at: u32,
+}
+
+/// A section of Reviews after the requests by name (Your Turn's rows lead it)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum ReviewSectionKind {
+  /// Added by link
+  Linked,
+  /// Requested from the user's teams
+  Team,
+  /// Reviewed by the user
+  Reviewed,
+  /// The user's own pull requests
+  Authored,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSection {
+  pub kind: ReviewSectionKind,
+  pub entries: Vec<ReviewEntry>,
+  /// How many match the search of the section, also beyond the 50 GitHub returns; the entries of a linked section
+  pub total_count: u32,
 }
 
 /// The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the
@@ -568,6 +617,9 @@ pub struct TableHeader {
   pub parked: BTreeMap<String, String>,
   /// The issue links of the IntelliJ IDEA configuration, the last a sync found
   pub issue_navigation_config: Option<IssueNavigationConfig>,
+  /// The branch of origin the baseline tracks, which Patronus pushes into; none before the first grouping and for a
+  /// baseline that is no branch of origin
+  pub target_branch: Option<String>,
 }
 
 /// The check of the checked out branch against the last fetched baseline
@@ -1059,6 +1111,9 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub landed: Option<LandedSection>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub reviews: Option<ReviewsView>,
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub patronus: Option<PatronusChange>,

@@ -498,13 +498,14 @@ impl SessionFacts {
   }
 
   /// The windows of the session: the focus of one of them sets the cadence of the poll, the first demand only tells
-  /// it; offline no poll asks
+  /// it; offline no poll asks; the Reviews view that shows asks the rest of Reviews
   fn demand(&mut self, demand: &Demand) {
     self.online = Some(demand.online);
     if self.focused != Some(demand.focused) {
       self.focused = Some(demand.focused);
       self.schedule_poll(true);
     }
+    self.reviews_demanded(demand.reviews);
   }
 
   /// A list for `reason`, if the rules say so now; a reason that follows up asks once more after the list in flight,

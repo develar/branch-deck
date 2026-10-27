@@ -246,6 +246,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/set_window_focus", post(session_routes::set_window_focus))
     .route("/invoke/set_demand", post(session_routes::set_demand))
     .route("/invoke/refresh_facts", post(session_routes::refresh_facts))
+    .route("/invoke/link_pull_request", post(session_routes::link_pull_request))
+    .route("/invoke/unlink_pull_request", post(session_routes::unlink_pull_request))
     .route("/invoke/sync", post(session_routes::sync))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
     .route("/invoke/reword", post(tauri_command_bridge::reword))
@@ -298,7 +300,6 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_robot_stats", post(tauri_command_bridge::get_robot_stats))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
-    .route("/invoke/get_patronus_target_branch", post(tauri_command_bridge::get_patronus_target_branch))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/get_archived_branch_commits", post(tauri_command_bridge::get_archived_branch_commits))
     .route("/invoke/get_unapplied_branch_commits", post(tauri_command_bridge::get_unapplied_branch_commits))
@@ -700,6 +701,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, se
     pull_request_calls: std::sync::atomic::AtomicU32::new(0),
     review_requests: std::sync::RwLock::default(),
     review_request_calls: std::sync::atomic::AtomicU32::new(0),
+    reviews_calls: std::sync::atomic::AtomicU32::new(0),
     review_fetch_calls: std::sync::atomic::AtomicU32::new(0),
     review_prune_keeps: std::sync::Mutex::default(),
     remote: std::sync::OnceLock::new(),
@@ -847,8 +849,10 @@ pub async fn set_review_requests(
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   // GitHub has the pull requests the user is asked to review: the reviews and the comments go there
   if let domain_types::pull_request::PullRequestAvailability::Available { owner, name } = &fixture.result.availability {
-    let pulls = review_fixtures::review_request_pulls(&fixture.result);
-    repo.remote(&state.git_executor).add_review_pulls(owner, name, pulls);
+    let (pulls, nodes) = review_fixtures::fixture_pulls(&fixture);
+    let remote = repo.remote(&state.git_executor);
+    remote.add_review_pulls(owner, name, pulls);
+    remote.set_pull_request_nodes(nodes);
   }
   *repo.review_requests.write().expect("review request fixture lock") = fixture;
   Ok(StatusCode::OK)
@@ -860,6 +864,7 @@ pub async fn get_review_request_fixture(axum::extract::Path(id): axum::extract::
   let ordering = Ordering::SeqCst;
   Ok(Json(serde_json::json!({
     "calls": repo.review_request_calls.load(ordering),
+    "reviewsCalls": repo.reviews_calls.load(ordering),
     "fetchCalls": repo.review_fetch_calls.load(ordering),
     "prunes": repo.review_prune_keeps.lock().expect("review prune lock").clone(),
   })))

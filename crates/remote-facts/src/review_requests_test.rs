@@ -116,7 +116,7 @@ fn repository() -> GitHubRepository {
 async fn list(answer: FakeAnswer) -> (ReviewRequestsResult, Vec<FakeRequest>) {
   let (fake, github) = start_fake_service("t0ken").await;
   fake.answer("POST", "/graphql", answer);
-  let result = list_review_requests(&github, ".", &repository()).await;
+  let result = list_review_requests(&github, ".", &repository(), None).await;
   (result, fake.requests_to("POST", "/graphql"))
 }
 
@@ -163,6 +163,7 @@ async fn maps_the_review_requests_of_the_search() {
       review_decision: Some(ReviewDecision::ReviewRequired),
       re_requested: false,
       reviewed_commit: None,
+      reviewed_state: None,
       head_ref_name: "alice/registry-race".to_string(),
       head_ref_oid: "1111111111111111111111111111111111111111".to_string(),
       base_ref_name: "master".to_string(),
@@ -315,6 +316,9 @@ async fn a_request_the_user_answered_with_a_comment_is_not_their_turn() {
   assert_eq!(result.requests, Vec::<ReviewRequest>::new());
   // the count is what waits
   assert_eq!(result.total_count, 0);
+  // Reviews shows it as reviewed by the user, since the newest answer
+  let replied: Vec<u32> = result.answered.iter().map(|answered| answered.replied_at).collect();
+  assert_eq!(replied, vec![sync_utils::timestamp::parse_rfc3339_timestamp("2026-10-19T11:30:00Z").unwrap()]);
 
   // a command alone is no answer
   let (result, _) = list(answered(&serde_json::json!([comment("2026-10-19T10:01:00Z", true, "/patronus dry-run", &user("carol"))]))).await;

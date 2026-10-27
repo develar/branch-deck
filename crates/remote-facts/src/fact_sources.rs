@@ -40,8 +40,9 @@ pub trait FactSources: Send + Sync + 'static {
 
   /// The pull requests of others that wait for the user's review in the GitHub repository of the worktree of `key`
   /// (`review_requests::list_review_requests`, one search); `github_repository` (`owner/name`, as the last listing of
-  /// the pull requests named it) skips resolving it; `NotGitHub` without one
-  fn review_requests<'a>(&'a self, key: &'a SessionKey, github_repository: Option<String>) -> Read<'a, ReviewRequestsResult>;
+  /// the pull requests named it) skips resolving it; `NotGitHub` without one. With `reviews` (a window shows the Reviews
+  /// view) the same request reads the rest of Reviews, the links the host keeps among them
+  fn review_requests<'a>(&'a self, key: &'a SessionKey, github_repository: Option<String>, reviews: bool) -> Read<'a, ReviewRequestsResult>;
 
   /// The GitHub pull requests of the branches and whole stacks of `key` (`pull_requests::list_pull_requests`, one
   /// search), in the GitHub repository of its worktree; `NotGitHub` without one

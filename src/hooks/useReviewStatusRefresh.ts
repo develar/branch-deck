@@ -14,6 +14,7 @@ import { applySessionFacts } from "@/stores/patronus"
 import { applyPullRequestsFacts, refreshPullRequests } from "@/stores/pull-requests"
 import { applyReadinessFacts } from "@/stores/review-readiness"
 import { applyReviewRequestsFacts, refreshReviewRequests } from "@/stores/review-requests"
+import { applyReviewsView } from "@/stores/reviews"
 import { watchRobotCoverage } from "@/stores/robot-coverage"
 import { applyRobotDetailsFacts } from "@/stores/robot-details"
 
@@ -49,6 +50,7 @@ export function useReviewStatusRefresh(): void {
         applyReadinessFacts(repositoryPath, view.facts, changes?.facts ?? null)
         applyRobotDetailsFacts(repositoryPath, view.facts, changes?.facts ?? null)
         applyReviewRequestsFacts(repositoryPath, view.facts, changes?.facts ?? null, news)
+        applyReviewsView(repositoryPath, view, changes)
         tellRobotNews(repositoryPath, news)
         approvalNewsOf(news).forEach(tellReadinessNews)
         tellRemoteCommitsNews(repositoryPath, news)

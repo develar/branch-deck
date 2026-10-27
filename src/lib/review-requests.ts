@@ -39,7 +39,7 @@ export function hasWaitedWorkingDay(since: number, now: number): boolean {
 }
 
 /** "5 minutes", "3 hours", "2 days": how long from `since` to `now` (both ms), at least a minute */
-function formatDuration(since: number, now: number): string {
+export function formatDuration(since: number, now: number): string {
   const minutes = Math.max(1, Math.floor((now - since) / 60_000))
   if (minutes < 60) {
     return minutes === 1 ? "1 minute" : `${minutes} minutes`

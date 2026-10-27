@@ -32,7 +32,7 @@ export function MainViewSwitcher() {
         <Tooltip key={entry.view}>
           <TooltipTrigger render={<ToggleGroupItem value={entry.view} aria-label={entry.label} data-testid={`main-view-${entry.view}`} />}>
             <entry.icon data-icon="inline-start" />
-            <span className="hidden @4xl:inline">{entry.label}</span>
+            <span className="hidden @5xl:inline">{entry.label}</span>
           </TooltipTrigger>
           <TooltipContent>
             <span className="flex items-center gap-1.5">
