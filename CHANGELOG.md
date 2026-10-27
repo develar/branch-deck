@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.34.0](https://github.com/develar/branch-deck/compare/v0.33.1...v0.34.0) (2026-10-27)
+
+
+### Features
+
+* **app:** a Safe Push starts through execute(Land); safe-push-start, landing-gate, target-conflict and their IPC removed ([37a73f3](https://github.com/develar/branch-deck/commit/37a73f36b8f64c719c10d7996179e0f3465d7769))
+* **app:** the push of a branch is execute(Push); git/push.ts, unapplied-push.ts, new-pull-request.ts, usePushButton.ts and push_branch removed ([462e081](https://github.com/develar/branch-deck/commit/462e08127460584835a9cf106b7892d8cdcd133e))
+* **app:** the pushes of a stack are execute(Push) by push_plan; stack-push.ts, push-up-to.ts and push_branches removed; operations.md rewritten ([09cbe18](https://github.com/develar/branch-deck/commit/09cbe1880330c26bc424d1130883805e6d6f20be))
+* **bd:** a conflict of `bd lease pick` comes back to the lease as a resolve session ([6f6edfc](https://github.com/develar/branch-deck/commit/6f6edfcb1a689b5c4863c7bd46a5c46ae6c4e7bc))
+* **bd:** a lease names where its commits land, and `bd lease pick` lands them there ([cb71e01](https://github.com/develar/branch-deck/commit/cb71e01ef5cb402d65bfa1d0515da521590f9808))
+* **diff:** an added or a deleted file shows its one side, as the one-sided viewer of IntelliJ ([a9602c4](https://github.com/develar/branch-deck/commit/a9602c406622c45a05eb5758b9cfe5f9e403fded))
+* **lease:** bd lease host lends, gives back, fills, reclaims and shrinks the host slots for the remote-run agent of a host ([25709c0](https://github.com/develar/branch-deck/commit/25709c0a33a1901767d00d702884659205f666b4))
+* **operations:** ClosePullRequest and CloseLandedPullRequests as intents; close_pull_request and landed-stack.ts removed ([9756a52](https://github.com/develar/branch-deck/commit/9756a5210481ad118f32fd1bb77f63f030485035))
+* **operations:** CreatePullRequest and RequestReview as intents with their push step; create_pull_request, wait_for_github_branch and request_pull_request_reviewers removed ([63e4382](https://github.com/develar/branch-deck/commit/63e4382e175fb8565c37580341e298f3248e4dd5))
+* **operations:** execute(Land) runs a Safe Push or a Dry Run by its plan: witness, freeze, retarget, cancel, push, start ([e6761d6](https://github.com/develar/branch-deck/commit/e6761d6777f8af75e830879cdfdd4899a9f077d8))
+* **operations:** prepare(Land) answers the plan of a start; the popover reads plan.confirmations; decide_land removed ([590967c](https://github.com/develar/branch-deck/commit/590967cf5d8636d36cc645737e0cf28a5da54835))
+* **operations:** RestartRobot, CancelRobot and Retarget as intents; patronus-actions.ts, restart/cancel/status/retarget IPC removed ([5dc1702](https://github.com/develar/branch-deck/commit/5dc1702d0ab069870b77bac2899e887062188d24))
+* **operations:** SetIssueState as an intent, its undo the same intent; set_youtrack_issue_state removed ([3594f2e](https://github.com/develar/branch-deck/commit/3594f2ed48f3f3858ae814ffc2bf1e80df60e945))
+* **operations:** SubmitReview as an intent with its Safe Push; review, head and /patronus comment IPC removed ([ed610f3](https://github.com/develar/branch-deck/commit/ed610f39c60fa6d3d3ed450b81968c61f0345d28))
+* **operations:** the operations crate, the intents and plans, domain_policy::admission and the in-process registry ([16a4d46](https://github.com/develar/branch-deck/commit/16a4d46221bf26378e8af4f26a76d1a946f629d9))
+* **operations:** the pushes of a stack are planned by push_plan: Push Stack, the button, Push with Children, Push Up to Here and the stack branch of a whole stack ([4cb9e04](https://github.com/develar/branch-deck/commit/4cb9e0427e5b21ecc36dd023430819df91ec4a3c))
+* **pick:** Pick Remote Commits takes the commits of others on a remote branch into the branch ([23cb5d0](https://github.com/develar/branch-deck/commit/23cb5d0a7c5b2bd5ecf1f97f878926562874b67f))
+* **review:** the scopes of the stack bar are a toggle group, and the sidebar gives the commit subject the width ([2eb9ade](https://github.com/develar/branch-deck/commit/2eb9ade2d2a1f0650297135408679b90e5ca9131))
+* **sync:** a pull request whose head moved past its remote branch fetches it, and the status names the commits of others ([de84cc4](https://github.com/develar/branch-deck/commit/de84cc43654798b94f054741200f17466443e1d1))
+* **ui:** an up to date branch offers Push with Children in its row while branches stacked on it have work, and the overview names what its count counts ([4e15a2c](https://github.com/develar/branch-deck/commit/4e15a2c518ac5a2b8c6ad1813e5384e3deeb9050))
+* **ui:** the normal state of a branch row is quiet, so the rows that need the user stand out ([336eda3](https://github.com/develar/branch-deck/commit/336eda3b33ecdf5fa0e41eb648ac25b0d15cf766))
+* **ui:** the views of the main window, the chips of a filter and the layouts of a diff are the stock toggle group ([692c4a5](https://github.com/develar/branch-deck/commit/692c4a519b75627abc75d384b5f1e7762f59d2b2))
+
+
+### Bug Fixes
+
+* **bd:** the error code table of the exit-code test names needs_push ([fb8b909](https://github.com/develar/branch-deck/commit/fb8b909bcb717d62c269027ccdca77a2637702b0))
+* **lease:** a give-back never stops a process that started in the millisecond of the lend, before it ([7e72de1](https://github.com/develar/branch-deck/commit/7e72de1045f40e20ffeaabd1f5f8006fa1968001))
+* **lease:** a host slot counts the generations of its files, and a lend of a pid whose start a sandbox hides passes ([11a5c2c](https://github.com/develar/branch-deck/commit/11a5c2c21d994a55fc1907ddc480a0b38d83e07a))
+* **lease:** a host slot moves its generation before a give-back discards or a clean deletes, and a gone pid refuses a lend on Windows too ([55232ef](https://github.com/develar/branch-deck/commit/55232efa59901ff63e1aa99ff61440c7ca349157))
+* **operations:** a queued operation runs on the plan its wait left; pushes count the user's commits, a stack push asks first, bd push reads the remote before its lock ([79dc2af](https://github.com/develar/branch-deck/commit/79dc2af45335eaacbd3fe5aa9591ee8062b9963d))
+* **push:** the Force Push of a stack push that asked leases its branch on the remote head the row shows at the click ([d3ead71](https://github.com/develar/branch-deck/commit/d3ead71691cd33de0c179d963f0965aca647146f))
+* **push:** the Force Push of a stack push that asked runs it again on that drop, never forced; a stack branch's push counts its members' author ([58efbd0](https://github.com/develar/branch-deck/commit/58efbd004381e74f3800403097706cbc0f395deb))
+* **test:** the atomics of the process group test are imported only where it compiles, so Windows clippy passes ([ed992b1](https://github.com/develar/branch-deck/commit/ed992b1cb3bf36f79674302158c9c61f922e3eff))
+* **test:** the bare origin of the stack push fixture commits as someone else of its own, so a runner without a global identity makes their commits too ([bc3b62f](https://github.com/develar/branch-deck/commit/bc3b62f0f7482d401f47fa86a15c37f94d213f7f))
+* **test:** the forced push of the queued push test is clicked once the push runs, so the registry admits them in the order the test means ([64bba3b](https://github.com/develar/branch-deck/commit/64bba3baf5ca3ffac6f7d9e1a675367d950c71b0))
+* **test:** the lease pick tests compare the lease and its home as paths, so the forward slashes of git on Windows pass ([6ddf346](https://github.com/develar/branch-deck/commit/6ddf3464adf5b8066f24904facd1fd8c27bceef0))
+* **test:** the lease pick that conflicts gives its two commits subjects of their own, so the update never pairs them by the second they fall into ([48fbf59](https://github.com/develar/branch-deck/commit/48fbf599ecc9e7c9950a47c55afddc1e049ae474))
+* **test:** the session tests find the patch of an answer by its version, not as the last one ([112cda4](https://github.com/develar/branch-deck/commit/112cda406e907b8f21d40aa86d84f3ea40426474))
+* **test:** the tests of a Safe Push by comment move the clock only while the start waits on it, never while GitHub answers ([f9b4cbb](https://github.com/develar/branch-deck/commit/f9b4cbb199233b0382673d9ad643d46b2b34e8ff))
+* **test:** the tests of git, the child processes and the sync give their commits dates and wait for the event they mean, not for a pause ([5135ad0](https://github.com/develar/branch-deck/commit/5135ad0190b90a9b8d735b4aa1d0ab4e80a63d4b))
+* **test:** the tests of GitHub, YouTrack and Patronus wait for the event they mean, not for a pause ([6736589](https://github.com/develar/branch-deck/commit/673658994adc48eeb81d492334506d1c96627a93))
+* **test:** the tests of the diffs compare without the wall-time limits of the views, so a loaded machine gives them the same blocks ([6ab0e16](https://github.com/develar/branch-deck/commit/6ab0e165155e63780be85c71b11240f7c5e2a937))
+* **ui:** the pressed item of an option set has the selection tint of the app, not the faint stock muted ([f77ed04](https://github.com/develar/branch-deck/commit/f77ed04c70774b69695a2c7bdc89123628cf33ed))
+
+
+### Performance Improvements
+
+* **page:** the hooks of a row wake only for their own part; the CPU profile of the first sync of perf:table ([c10fb78](https://github.com/develar/branch-deck/commit/c10fb78713e356c2da052599e0b5b708f5b67720))
+
 ## [0.33.1](https://github.com/develar/branch-deck/compare/v0.33.0...v0.33.1) (2026-10-26)
 
 
