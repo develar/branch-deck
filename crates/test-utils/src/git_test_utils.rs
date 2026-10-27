@@ -115,16 +115,28 @@ pub fn baseline_repo(stacks: bool) -> TestRepo {
   repo
 }
 
-/// A repository on a bare `origin` (`.git/origin.git`, no background maintenance) that has only its `master`, with
-/// `alpha` and `beta` built on it committed ahead and their virtual branches (`test/virtual/…`) at their commits: what
-/// the tests of the app's stack push push
+/// The config of the bare `origin` of `stack_ahead_of_bare_origin`: `NO_BACKGROUND_MAINTENANCE`, and someone else, who
+/// is not the test user, without signing. A test commits as them straight into it (`--git-dir .git/origin.git
+/// commit-tree`), and without an identity of its own git takes the machine's, which a CI runner lacks ("empty ident
+/// name not allowed")
+const BARE_ORIGIN_CONFIG: [(&str, &str); 5] = [
+  NO_BACKGROUND_MAINTENANCE[0],
+  NO_BACKGROUND_MAINTENANCE[1],
+  ("user.name", "Other"),
+  ("user.email", "other@example.com"),
+  ("commit.gpgsign", "false"),
+];
+
+/// A repository on a bare `origin` (`.git/origin.git`, `BARE_ORIGIN_CONFIG`) that has only its `master`, with `alpha`
+/// and `beta` built on it committed ahead and their virtual branches (`test/virtual/…`) at their commits: what the tests
+/// of the app's stack push push
 pub fn stack_ahead_of_bare_origin() -> TestRepo {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test Project\n");
   let origin = repo.path().join(".git/origin.git");
   let origin = origin.to_str().expect("a UTF-8 path");
   repo.git(&["init", "--bare", "-q", "--initial-branch=master", origin]);
-  disable_background_maintenance(Path::new(origin));
+  append_config(Path::new(origin), &BARE_ORIGIN_CONFIG);
   repo.git(&["remote", "add", "origin", origin]);
   repo.git(&["push", "-q", "origin", "master"]);
   let alpha = repo.create_commit("(alpha) Alpha", "alpha.txt", "alpha\n");
