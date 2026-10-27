@@ -1151,6 +1151,22 @@ describe("failed robots", () => {
     stop()
   })
 
+  it("leaves the toast of the start that replaced a robot whose failure is told after it", async () => {
+    patronus.problems = []
+    const stop = watchFailures()
+    patronus.list = available(robot())
+    await list()
+    await vi.advanceTimersByTimeAsync(0)
+    // the start that replaced r1 told its robot first (`tellOutcome` of `useSafePush.ts`), before the failure of r1
+    showRobotToast("Safe Push started", robot({ id: "r2", startTime: 300 }))
+    const started = openToasts()[0]!
+    patronus.poll = available(robot({ status: "failure", finishTime: 200 }))
+    await poll()
+    expect(openToasts()).toEqual([started])
+    expect(openToasts().map(describeToast)).toEqual([["Safe Push started", "auth → master", "Open in Patronus", undefined]])
+    stop()
+  })
+
   it("tells a robot whose builds never started with Restart Safe Push: the CI failed, not the branch", async () => {
     patronus.problems = []
     patronus.failureKind = "infrastructure"

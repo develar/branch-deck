@@ -1157,9 +1157,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   disabled one is not offered, and a robot of another repository than the shown one offers no step of a branch (the
   branch of the same name there is another one). A restart made here takes the place of the toast; one made elsewhere
   (a newer robot of the same subject and push mode in the next list) turns it into an `info` toast "Safe Push of auth
-  was restarted" / "auth → master" with "Open in Patronus" of the newer robot. The pull request step opens what the
-  branch has at the click.
-  [@test] ../../src/stores/patronus.test.ts (`drops Cancel Safe Push once the robot was canceled elsewhere, in place: the toast keeps the robot page`, `says in place that the robot was restarted elsewhere, and opens the newer one`)
+  was restarted" / "auth → master" with "Open in Patronus" of the newer robot. A state of an older robot never takes
+  the place of the toast of a newer robot of its subject: the failure of the robot a start replaced, told after the
+  start's toast (a robot that finished while the start checked), leaves "Safe Push started" as it is, and Activity
+  records the failure. The pull request step opens what the branch has at the click.
+  [@test] ../../src/stores/patronus.test.ts (`drops Cancel Safe Push once the robot was canceled elsewhere, in place: the toast keeps the robot page`, `says in place that the robot was restarted elsewhere, and opens the newer one`, `leaves the toast of the start that replaced a robot whose failure is told after it`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start the Safe Push that replaces a robot which finished meanwhile, without a cancel`)
 
 ### Code-owner review
 

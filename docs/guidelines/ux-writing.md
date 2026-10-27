@@ -70,6 +70,8 @@ states are that toast, not new ones.
   toast of the approvals it starts on, a review the toast of the request, the start of Approve and Safe Push the
   toast of its approval, a push of a branch the toast of its earlier push. Several toasts it supersedes become one:
   the update that lands three merges is one toast, "3 branches landed in origin/master", in the place of the newest.
+  An earlier event told late never takes the place of a later one: the failure of the robot a start replaced, told
+  after "Safe Push started", leaves that toast, and Activity has the failure.
 - **Its actions are those of the state now**: the toast renders its state from the stores it reads, at the show and
   on every change of them. Update Project leaves once the update landed the merge; it is "Updating…", disabled, while
   an update runs, started from the toast, the header or a key, and the toast stays until its outcome; Cancel Safe Push
