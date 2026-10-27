@@ -3,9 +3,9 @@
  * and words: each action by its stable id has one look (`ACTION_LOOKS`: its label where no fact names it, its icon, its
  * key), and a blocker one sentence (`formatActionBlocker`). Every surface builds its items here (`presentAction`): the
  * "⋯" and right-click menus, the row's keys, the branch preview, the review window, the stack island and the command
- * palette, so an action is offered, named and refused alike everywhere. What runs on the page (an operation, a push) lies
- * over an item until the operations move into Rust (`operationItem`, s10); so does a sync of the table over a rewrite
- * (`whileSyncing`), which queues behind it then. The actions of a robot run in the session (`getRobotActionItems`): a
+ * palette, so an action is offered, named and refused alike everywhere. What runs (an operation of the view, a rewrite of
+ * the page, a push) lies over an item (`operationItem`); so does a sync of the table over a rewrite (`whileSyncing`),
+ * which queues behind it then. The actions of a robot run in the session (`getRobotActionItems`): a
  * restart or a cancel that runs there is running on every surface.
  */
 import type { LucideIcon } from "lucide-react"

@@ -3,9 +3,9 @@
 //! state that matches over the facts of its next step (`next_step::StepFacts`) with what the step doesn't tell apart.
 //! A sync of the row passes, so the node keeps the state it started from; a parked branch, a failure, a landing, a
 //! block and its own robot running are the subject's own; the rest the next step decides, as the slot shows it, with no
-//! start refused by the robots (a robot that lands an ancestor is said apart). A running move of the row (a start, a
-//! review request) is the page's until the operations move into Rust (s10): it shows in place of a node that says so
-//! (`move_shows`).
+//! start refused by the robots (a robot that lands an ancestor is said apart). The page lays a running move of the row
+//! (a start, a review request: the `moves` of an operation of the view) over the node: it shows in place of a node that
+//! says so (`move_shows`).
 
 use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, changes_requested_by, landed_whole, next_step, problems_failed, problems_pending, slot};
 use crate::readiness::waiting_reviewers;
@@ -26,9 +26,8 @@ pub struct NodeFacts<'a> {
   pub blocked_by: Option<&'a str>,
   /// A running Safe Push (not a Dry Run) of a branch built on it, or of the whole stack, lands it
   pub lands_with: Option<&'a RobotOf>,
-  /// The remote lacks work of it: the step a repository without Patronus and GitHub shows. A push of it that runs is
-  /// the page's until the operations move into Rust (s10): the page shows the pushed branch from its click on
-  /// (`presentLandingNode`)
+  /// The remote lacks work of it: the step a repository without Patronus and GitHub shows. The page lays a push of it
+  /// that runs over the node: it shows the pushed branch from the click on (`presentLandingNode`)
   pub push_pending: bool,
 }
 

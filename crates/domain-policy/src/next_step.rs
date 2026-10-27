@@ -17,7 +17,7 @@
 //!
 //! The whole stack of a root that forks takes the same table over the facts of its stack branch: its robot, the robot
 //! of a branch of it that lands a part of it, its own pull request (never retargeted), the readiness of `stack:<root>`.
-//! What runs on the row (an operation, a start, a push) is the page's until the operations move into Rust (s10).
+//! What runs on the row (an operation, a start, a push) the page lays over the step, which the facts alone decide.
 
 use crate::facts::RemoteBranch;
 use crate::holds::is_active;

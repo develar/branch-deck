@@ -1,7 +1,6 @@
 // The page's words of the moves the operations of the session make while they run (`RunningOperation.moves` of the
 // view's `operations`, written by `operations::registry`; [Landing](../../docs/design/landing.md)): each the
-// `RunningMove` of the node of its row, as the page's own operations declare theirs until their families move into
-// Rust (s9: the restart of a robot, the creation of a pull request, a review request).
+// `RunningMove` of the node of its row. The page's own operations declare none.
 import type { RunningMove as MoveView, PatronusPushMode, RunningOperation } from "@/lib/bindings"
 import { formatReadinessSubject } from "@/lib/whole-stack"
 

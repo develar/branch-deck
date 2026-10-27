@@ -83,7 +83,7 @@ export function fixLanding(fix: LandingFix): void {
 /**
  * What the words and the items of the step of a subject read of the stores beside the step itself (`nextSteps` of the
  * view): each a kept reference or a primitive, so a surface renders again only when one of them changes. The parts
- * still the page's: what runs on the row (an operation, a start: s10), the restart of its robot and the Request
+ * still the page's: what runs on the row (an operation, a start), the restart of its robot and the Request
  * Review… of its pull request (their items, until the actions are Rust's)
  */
 export interface StepInputs {

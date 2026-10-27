@@ -2,8 +2,7 @@
 // `domain_policy::next_step`; spec/branch/next-step.spec.md): the label, the icon, the tone and the `MenuItem` of the
 // slot, the reason every surface disables "Safe Push" with, the notice of S. It decides nothing: the row and its facts
 // are Rust's, the items run what the caller gives (today's orchestrators: the start, the retarget, the pull request),
-// and what runs on the row (an operation, its own start: `NextStepBusy`) is the page's local state until the operations
-// move into Rust (s10), laid over the step here.
+// and what runs on the row (an operation, its own start: `NextStepBusy`) is laid over the step here.
 import {
   ClipboardCopyIcon,
   ClockIcon,

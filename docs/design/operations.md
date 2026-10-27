@@ -54,8 +54,8 @@ flowchart LR
 
 An `Operation` is the action's `id` (the `id` of its menu item: `unstack`, `move-to`, `squash-fixups`), its `subject`
 (`branch:auth`, the row whose menu starts it), the `objects` it works on (the branches whose rows are busy), its `kind`,
-its busy state (`label`: "Unstacking tool-events"), its repository, the `surface` that started it, and, for an action
-that is the move of a row, its `move` ([Moves](#moves)).
+its busy state (`label`: "Unstacking tool-events"), its repository and the `surface` that started it. It declares no
+move: the moves of a row are those of the operations of the session ([Moves](#moves)).
 
 ### Conflicts
 
@@ -304,3 +304,11 @@ operation.
    the start run: a second click joins in Rust, a push of a ref another push writes waits there, every window shows the
    same operation. The operations are of the repository the main window shows: a push or a start that runs on after a
    switch of the repository shows nothing on the branch of the same name there, nor holds its push or start back.
+7. **Decision**: between processes, one file of the repository (the operations registry), changed under a lock of its
+   own for one read-modify-write at a time, no daemon; an operation of the remote that needs what an operation of
+   another process holds is `busy`, never joined or queued.
+   **Rationale**: the app and every `bd` of the repository (the agents in their leases share its common dir) run
+   without a service between them, and the outcome of another process never reaches the caller: it could neither
+   resolve with it nor be decided again on what it left. So the refusal names the holder, and only the short section of
+   the repository lock of another process is waited for, as long as its holder lives. A start whose answer was lost
+   keeps its record, so no process sends it again until Patronus settles it or the user forgets it.

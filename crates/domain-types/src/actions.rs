@@ -1,8 +1,8 @@
 //! The actions of a subject and whether each can run now, as Rust decides them for every surface of the app
 //! (spec/branch/branch-row.spec.md, "Branch menu"; docs/design/rust-domain-authority.md, s8-policy): `domain_policy::actions`
 //! answers an `ActionState` for each action a subject offers, by a stable id; the page presents each by its id (its
-//! label, key, icon and what it runs, `src/presenters/actions.ts`) and words a blocker. What runs (an operation, a push)
-//! lies over them in the page until the operations move into Rust (s10).
+//! label, key, icon and what it runs, `src/presenters/actions.ts`) and words a blocker. What runs (an operation of the
+//! view, a rewrite of the page, a push) the page lays over them.
 
 use crate::landing::Landed;
 use crate::next_step::{StepBlocker, StepFact};

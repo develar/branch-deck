@@ -14,9 +14,9 @@
 //! - A robot's restart waits for why it failed and for the approvals its step misses; a fact without an answer is never
 //!   "no": `Pending`.
 //!
-//! Offered by facts only; what runs (an operation, a push) is the page's until the operations move into Rust (s10), and
-//! what the page alone knows decides the presence of a few items (the fixups of the autosquash plan, the label of
-//! Ungroup, an orphaned pull request of a whole stack).
+//! Offered by the facts only (a lost start by its record): what runs on the subject (an operation of the view, a rewrite
+//! of the page, a push) the page lays over them (`operationItem`), and what the page alone knows decides the presence of
+//! a few items (the fixups of the autosquash plan, the label of Ungroup, an orphaned pull request of a whole stack).
 
 use crate::next_step::{Listing, PatronusAnswer};
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, NothingBeyond};

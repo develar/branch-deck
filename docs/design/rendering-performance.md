@@ -1,7 +1,7 @@
 # Rendering Performance
 
 **Status:** Implemented  
-**Updated:** 2026-10-24  
+**Updated:** 2026-10-27  
 **Tags:** [frontend, react, zustand, performance]
 
 ## Problem
@@ -95,8 +95,8 @@ flowchart LR
   `presentAction`): no row derives a rule, and no selector reads the seven stores the step was made of
   (`useNextStepStores` and its `getBranchNextStepNow` per row on every change of a store are gone). Beside the part
   a row selects only what its words need (`useStepInputs`: the target, the operation and the start that run on it,
-  the robot of a restart and its actions, the pull request a review step names) and the move that runs on it, the
-  page's until s10.
+  the robot of a restart and its actions, the pull request a review step names) and the move that runs on it, which
+  the page lays over the step.
   [@test] ../../crates/repository-model/src/derive_budget_test.rs (`a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_budget`)
 - **Push progress** has its own store (`pushProgressStore`). Its ticks, every 100 ms, reach only
   `useBranchPushProgress`, not every selector of the branch store. The one push of a stack writes the tick of all
@@ -139,7 +139,7 @@ flowchart LR
    Safe Push the pull request no longer allowed). The "⋯" of an island opened before the pull requests loaded showed
    "Create Pull Request of the Stack…" and never the items of #12. The node of a row is its part of the view, one kept
    reference (`useRowPart(name, "landing")`), worded in the render (`useLandingNode`, `presentLandingNode`); only the
-   move that runs on the row, the page's until s10, is a selector of its text. What reads the nodes of many rows (the
+   move that runs on the row, which the page lays over the node, is a selector of its text. What reads the nodes of many rows (the
    filter chips, the states of a stack, the landing overview) counts their kinds without the words (`getNodeKindNow`)
    and words only the nodes it lists.
 

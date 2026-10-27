@@ -1,8 +1,8 @@
 // The page's words and look of the node of a row as Rust decides it (`LandingNode` of the view's `nextSteps`,
 // `domain_policy::landing_node`; [Landing](../../docs/design/landing.md)): its kind, the hover in the words the row uses
 // elsewhere, the robot its hover shows, the branch it offers to show. It decides nothing: a running move of the row (a
-// start, a review request: `FoundMove`; without Patronus its push) is the page's local state until the operations move
-// into Rust (s10), and shows in place of a node that says so (`moveShows`; the push in place of `pushIt`).
+// start, a review request: `FoundMove` of the view's operations; without Patronus its push) is laid over the node here,
+// in place of a node that says so (`moveShows`; the push in place of `pushIt`).
 import type { LandingNode as NodeView, LandingNodeKind, NodeLabel } from "@/lib/bindings"
 import { formatParkedLabel } from "@/lib/parked"
 import { formatLandingSubject } from "@/lib/patronus"

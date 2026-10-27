@@ -1,7 +1,7 @@
 # Landing Work into Master
 
 **Status:** Implemented  
-**Updated:** 2026-10-19  
+**Updated:** 2026-10-27  
 **Tags:** [product, stacks, patronus, pull-requests]
 
 ## Problem
@@ -123,6 +123,9 @@ The specs are the contract of each part:
   only where the facts live differs (the one-shot session of the command, the session of the app's window). `lands` names root..branch, in the start and in `--check`; only
   `--check` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
   the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
+  The app's start and `bd safe-push` of one piece never run side by side: the operations registry of the repository
+  makes the second one `busy`, naming the first ([Running Operations](operations.md)), and a start whose answer was
+  lost holds the piece for both until Patronus settles it or the user forgets it.
   bd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a
   robot bd started included (`CloseLandedPullRequests`, an operation of the session of the robot's repository, D7), so
   after a bd landing they stay open while the app doesn't run, and the agent says so.
