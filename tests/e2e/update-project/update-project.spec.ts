@@ -6,7 +6,7 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
 import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
-import { holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommandError } from "../helpers/wait-helpers"
+import { animationsEnded, holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommandError } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
 // at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-02) and
@@ -94,7 +94,9 @@ test.describe("Update Project", () => {
     // git's percent moves the bar on
     await fetch.send({ percent: 20, transferred: "1.20 MiB", speed: null, line: "Receiving objects:  20% (2/10)" })
     await expect(steps.first()).toHaveText("Receiving objects:  20% (2/10)")
-    // the button grew to its running width when the run started (its transition is over by now)
+    // the button grew to its running width when the run started: measured once its transition ended, which under load
+    // can still run its last frames
+    await animationsEnded(button)
     const width = (await button.boundingBox())!.width
     const atTwenty = Number(await progress.getAttribute("aria-valuenow"))
     await fetch.send({ percent: 90, transferred: "5.79 MiB", speed: null, line: "Receiving objects:  90% (9/10)" })
