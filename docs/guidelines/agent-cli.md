@@ -1,7 +1,7 @@
 # Agent CLI (`bd`)
 
 **Status:** Active  
-**Updated:** 2026-10-21  
+**Updated:** 2026-10-27  
 **Tags:** [cli, agents, json]
 
 ## Summary
@@ -22,6 +22,16 @@ commit subject; `fold` folds the fixup commits, and
 `move-hunk` moves the change of a file from one commit into another. `install` puts `bd` and its skill where agents
 find them; `help agent`, `help update` and `help worktrees` print the texts an agent follows, `help <command>` the
 `--help` of a command.
+
+`safe-push` and `request-review` write to the remote as the app's actions do: an intent of the engine of the
+operations (`crates/operations`), its plan prepared over the facts it needs (`needs`, a one-shot session of the sync),
+its effects executed after its witness, with the same plans, refusals and outcomes as the app. `push` plans its refs
+itself and sends them through the push of the engine (`operations::push::send`, its cancel and restart of robots
+there too); the intent `Push` takes it over with the registry file. The log lines of a start carry the span of its
+operation (`op=<ULID>`, inside the root span below), and a plan whose facts changed before its first effect fails as
+`plan_changed` (exit 3, nothing done). The JSON does not name the operation yet: its id and the `busy` of another
+process's come with the registry file (s10-registry-journal of [Rust as the Domain
+Authority](../design/rust-domain-authority.md)).
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or

@@ -45,7 +45,7 @@ export const ALLOWLIST = [
     file: "src/lib/patronus.ts",
     rule: "rule-module",
     reason:
-      "needsRobotAttention and its branch and stack forms: the failed robots the landing overview, Attention and the Dock badge count, until the robots overview is a part of the view (s9)",
+      "needsRobotAttention and its branch and stack forms: the failed robots the landing overview, Attention and the Dock badge count, until the robots overview is a part of the view (s10-registry-journal)",
   },
   {
     file: "src/hooks/useCommitReviewActions.ts",
