@@ -745,7 +745,9 @@ fn leased_repo() -> (TestRepo, tempfile::TempDir, bd_core::context::Environment,
 
 /// `bd lease pick` whose pick conflicts: the check of the pick in the home checkout (no lock, nothing moves), then the
 /// update of the lease onto the home branch without a fetch: the check of the update (a binary search of `replay`) and
-/// the start of a resolve session in the lease under the lock
+/// the start of a resolve session in the lease under the lock. The two commits have subjects of their own: with one
+/// subject they share an identity (`CommitKey`: the author, the second and the subject without the prefix) whenever they
+/// fall into the same second, and the update then proves the pair by its replay and its changed lines
 #[test]
 fn a_lease_pick_that_conflicts() {
   let (repo, _home, environment, got) = leased_repo();
@@ -756,7 +758,7 @@ fn a_lease_pick_that_conflicts() {
     .current_dir(lane)
     .output()
     .unwrap();
-  repo.create_commit("(own) Change readme", "README.md", "own\n");
+  repo.create_commit("(own) Rewrite readme", "README.md", "own\n");
   let context = context(&repo);
   let output = crate::lease_pick_in(&context, &got.path, "master".to_string(), &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
   assert_eq!(output.state, bd_update::pick_command::PickOutcome::Conflict);
@@ -792,17 +794,16 @@ fn a_lease_pick_that_conflicts() {
       ("cat-file", 6),
       ("check-attr", 2),
       ("config", 1),
-      ("diff-tree", 5),
+      ("diff-tree", 2),
       ("fast-import", 1),
       ("for-each-ref", 1),
       ("hash-object", 1),
-      ("log", 7),
+      ("log", 6),
       ("merge-base", 3),
-      ("merge-tree", 5),
-      ("patch-id", 1),
+      ("merge-tree", 3),
       ("replay", 1),
       ("rev-list", 2),
-      ("rev-parse", 6),
+      ("rev-parse", 4),
       ("show-ref", 1),
       ("symbolic-ref", 2),
       ("update-ref", 1),
