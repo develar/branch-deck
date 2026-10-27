@@ -77,11 +77,7 @@ fn reclaim_shrink_and_limit_answer_the_table() {
   host(&fixture, "lease_host_fill", &["fill"]);
   let (pid, _) = gone_process();
   let (exit_code, refused) = fixture.run(&["lease", "host", "lend", "--run", "gone", "--pid", &pid.to_string()]);
-  if cfg!(any(target_os = "macos", target_os = "linux")) {
-    assert_error(&refused, exit_code, (2, "invalid_arguments"));
-  } else {
-    assert_eq!(exit_code, 0, "{refused}");
-  }
+  assert_error(&refused, exit_code, (2, "invalid_arguments"));
   let reclaimed = host(&fixture, "lease_host_reclaim", &["reclaim"]);
   assert!(reclaimed["reclaimed"].is_array(), "{reclaimed}");
 

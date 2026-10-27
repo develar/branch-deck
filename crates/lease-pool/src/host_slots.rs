@@ -87,9 +87,9 @@ pub struct HostSlot {
   /// When it was last cleaned (or filled), in Unix seconds
   #[serde(default)]
   pub cleaned_at: u64,
-  /// One more each time something removed files of the slot: a give-back that discarded changes, a clean. What an agent
+  /// One more each time something removes files of the slot: a give-back that discards changes, a clean. What an agent
   /// made in the slot (the outputs of its prepare steps) holds only within one generation, and the table moves it before
-  /// the slot is idle again, so no next run sees a stale one
+  /// the removal, so no next run and no retry after a crash sees a stale one
   #[serde(default)]
   pub generation: u64,
   /// The affinity of the run it served last (`checkout-<12 hex>` of the client's checkout): a run of the same checkout
@@ -529,6 +529,9 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
     let config = lease_config(git_executor, &path)?;
     let changes = slot_changes(git_executor, &path, config.untracked)?;
     if !changes.is_empty() {
+      // the new generation is written before the discard: a give-back that dies after the discard leaves a clean slot,
+      // whose retry by `reclaim` discards nothing and would move no generation
+      set_state(params, n, mine, |slot| slot.generation = slot.generation.saturating_add(1))?;
       discard_slot_changes(git_executor, &path)?;
     }
     Ok::<_, anyhow::Error>((config, changes))
@@ -544,9 +547,6 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
   let slot = set_state(params, n, mine, |slot| {
     slot.state = HostState::Idle;
     slot.runs_since_clean = slot.runs_since_clean.saturating_add(1);
-    if !discarded.is_empty() {
-      slot.generation = slot.generation.saturating_add(1);
-    }
   })?;
   let cleaned = match clean_due(git_executor, &slot, &config) {
     Ok(true) => clean_core(git_executor, params, n, CleanOverrides::default(), Take::Idle)
@@ -711,6 +711,8 @@ fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
       bail!(busy(n, &slot.state));
     }
     slot.state = HostState::Cleaning(me.clone());
+    // before the delete, as a give-back moves it before its discard
+    slot.generation = slot.generation.saturating_add(1);
     Ok(slot.clone())
   })?;
   let cleaned = read_clean_rules(Path::new(&slot.path)).map(|rules| {
@@ -728,8 +730,6 @@ fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
   let succeeded = cleaned.is_ok();
   set_state(params, n, mine, |slot| {
     slot.state = HostState::Idle;
-    // a clean that failed partway can have removed files too
-    slot.generation = slot.generation.saturating_add(1);
     if succeeded {
       slot.runs_since_clean = 0;
       slot.cleaned_at = now_secs();

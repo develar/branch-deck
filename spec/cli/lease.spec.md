@@ -427,8 +427,8 @@ one run for the duration of that run only.
   else the run leaves the queue: `left_queue`), `fill` (its steps on stderr), `reclaim`, `shrink <keep>`, `limit <n>`
   or `limit --unset`, and `status` (each slot, its state in words, `abandoned`, the queue, the limit). bd reads the
   start of `--pid` itself; a pid that is gone is refused as `invalid_arguments`, and one whose start a sandbox hides
-  counts as alive while it exists. The `generation` of a slot grows by one with each give-back that discarded changes
-  and each clean, before the slot is idle again, so an agent that keys what its prepare steps made in the slot by it
+  counts as alive while it exists. The `generation` of a slot grows by one with each give-back that discards changes
+  and each clean, before their removal of files, so also before a retry after a crash, so an agent that keys what its prepare steps made in the slot by it
   never reuses a result that a give-back or a clean removed. A
   refusal of the table is `no_lease` (no such slot, or not this run's), `slot_busy` (another process acts on it) or
   `invalid_arguments` (a bad `branchdeck.hostSlots`). It is never a command of a coding agent.
