@@ -95,6 +95,27 @@ fn a_focus_runs_only_when_the_inputs_changed() {
   assert_eq!(scheduler.inputs_read(None, true).next, run(3, None, false));
 }
 
+/// A stamp of `bd` is a focus no window gained: it runs only when the inputs changed, a stamp while a run is in flight
+/// checks once after the chain, and a session no window shows runs nothing
+#[test]
+fn a_stamp_of_bd_runs_only_when_the_inputs_changed_as_a_focus() {
+  let mut scheduler = synced_once();
+  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(Some(inputs(1)), true).resolve, [("stamp", Ok(SyncOutcome::Unchanged))]);
+
+  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp", true).next, Step::CheckInputs);
+  assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).next, run(2, Some(inputs(2)), false));
+  assert_eq!(scheduler.request(SyncReason::Stamp, "stamp during the run", true).next, Step::Nothing);
+  let decision = scheduler.run_finished(2, Some(inputs(2)), OK, true);
+  assert_eq!(decision.resolve, [("stamp", SYNCED)]);
+  assert_eq!(decision.next, Step::CheckInputs, "one check after the chain");
+  assert_eq!(scheduler.inputs_read(Some(inputs(2)), true).resolve, [("stamp during the run", Ok(SyncOutcome::Unchanged))]);
+
+  let decision = scheduler.request(SyncReason::Stamp, "unwatched", false);
+  assert_eq!(decision.resolve, [("unwatched", Ok(SyncOutcome::Skipped))]);
+  assert!(scheduler.is_idle());
+}
+
 /// A run whose report asks for a retry runs once more, silently, for the same requests; a second ask is not retried
 #[test]
 fn a_run_that_asks_for_a_retry_is_retried_once() {

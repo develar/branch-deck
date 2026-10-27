@@ -266,9 +266,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   worktree of the repository) runs the same intent or holds what it needs: a branch it lands or pushes, a robot, a
   field of a pull request. `error.holder` must name that operation (`op`, `tool`, `pid`, `kind`, `subject`,
   `held_for`), the message who runs what. An operation of another branch must run beside it, and the record of an
-  operation must leave the registry once it ended, or at the next admission once its process is gone.
+  operation must leave the registry once it ended, or at the next admission once its process is gone. The app's
+  operation is such a holder too, and the app refuses its own the same way while `bd` holds what it needs.
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder`)
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app`, `the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)
   [@test] ../../crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`, `a_gone_process_of_this_host_leaves_at_once_and_one_of_another_host_after_five_minutes`, `a_registry_of_another_schema_is_busy_and_never_written`)
+- Every command of `bd` that succeeded and is no read (not in the read-only line of `bd --help`: a rewrite, a push, a
+  start, a sync, an update, a pick, a park, a description, the lease commands but `lease status`) must touch the stamp
+  of its repository once, after its run (`$GIT_COMMON_DIR/branch-deck/stamp`, its Unix time and pid): the app's windows
+  of the repository sync then without a focus. A read, a dry run and a command that failed must leave it as it was.
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_moves_the_stamp_of_its_repository_after_a_mutation_only`)
 - A typed error of a core must have one code in `bd` and in the app: the type names it (`ParkError::code`,
   `GuardRefusal::code`, `UnapplyRefusal::code`, `ReapplyRefusal::code`), local changes in the way of an unapply, a
   reapply or their undo are `uncommitted_overlap`, and an undo answers the code `in_undo` (`ErrorCode::in_undo`): a

@@ -12,6 +12,8 @@
 //! - `registry_file`: the operations registry of a repository (`operations.json` in `$GIT_COMMON_DIR/branch-deck/`), its
 //!   one writer: a record per operation of each process of the repository, `busy` while another process runs what an
 //!   operation needs, the records of processes that are gone dropped, the heartbeat of the records of this process
+//! - `registry_watch`: the watch of the registry and of the stamp of a repository while a window shows a session of it:
+//!   the operations of the other processes in the session, a sync after a mutation of `bd` (`touch_stamp`)
 //! - `engine`: the frame of every family: admitted, the body of the family runs and ends the operation with its answer;
 //!   joined, the answer of the operation it joined; `prepare` and `execute` by the family of the intent; the start of
 //!   the app admitted with what its plan reserves (`execute_land`); what the run of a plan asks the registry for, the
@@ -65,6 +67,7 @@ pub mod pull_request;
 pub mod push;
 pub mod registry;
 pub mod registry_file;
+pub mod registry_watch;
 pub mod review;
 pub mod robot;
 pub mod robot_start;

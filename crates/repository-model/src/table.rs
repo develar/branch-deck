@@ -24,13 +24,16 @@
 //! Beside the table the state keeps the operations of the remote that run or wait in the session (`operations`, in the
 //! order they were admitted), the `operations` part of the view: `operations::registry` admits them by
 //! `domain_policy::admission` and changes them through `apply_operation` on the actor of the session
-//! (`Sessions::apply_with`), the one writer of that part.
+//! (`Sessions::apply_with`), the one writer of that part. Among them are the operations of other processes of the
+//! repository (`Origin::OtherProcess`, an agent's `bd safe-push`), as the operations registry of the repository has them
+//! (`operations::registry_watch`): each read of it replaces them all (`OperationPatch::Foreign`), and the ones of this
+//! process stay as they are.
 
 use crate::derive;
 use crate::facts::{Seq, Sequence};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::operation::{OperationId, OperationStep, RunningMove, RunningOperation};
+use domain_types::operation::{OperationId, OperationStep, Origin, RunningMove, RunningOperation};
 use domain_types::session::{
   ArchivedSection, BaselineStatus, BranchHead, BranchRemote, BranchStatus, BranchStructure, BranchSync, BranchView, CommitSync, LandedSection, SyncState, SyncStep, TableHeader,
   TableSections,
@@ -89,6 +92,9 @@ pub enum OperationPatch {
   Moves { id: OperationId, moves: Vec<RunningMove> },
   /// An operation ended, or stopped waiting
   Ended(OperationId),
+  /// The operations of other processes in the session as the operations registry of the repository has them now, in
+  /// place of the ones read before; those of this process stay
+  Foreign(Vec<RunningOperation>),
 }
 
 /// What a push sends, as the table keys its remote status: a virtual branch by its name, the stack branch of the whole
@@ -448,6 +454,10 @@ impl TableState {
         }
       }
       OperationPatch::Ended(id) => self.operations.retain(|operation| operation.id != id),
+      OperationPatch::Foreign(foreign) => {
+        self.operations.retain(|operation| operation.origin == Origin::ThisProcess);
+        self.operations.extend(foreign);
+      }
     }
   }
 

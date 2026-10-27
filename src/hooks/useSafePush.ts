@@ -439,7 +439,7 @@ function currentStepOf(branchName: string): BranchNextStep | undefined {
 /**
  * A start of a Safe Push or a Dry Run, asked from any surface: the slot of the row or of the island header, the branch
  * menu, S, the preview, the review window, a toast. What every surface knows refuses it first, as the step says it (an
- * `info` toast). S opens the popover at once, which reads the facts as they load. A click waits for the facts, its
+ * `info` toast), a start another process runs on the row too ("`bd` (pid 4242) runs the Safe Push of auth…"). S opens the popover at once, which reads the facts as they load. A click waits for the facts, its
  * button busy ("Checking…"), and then starts at once when there is nothing to say (`presentLand` of Rust's plan), else opens
  * the popover at the slot of the branch (a hidden row revealed first), or says why it can't start.
  */
@@ -457,10 +457,17 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   // the row of the start: the branch, the root for the whole stack
   const row = root ?? branchName
   const branch = getBranch(row)
-  if (branch === undefined || !isPatronusAvailable() || getLandRun(branchName) !== null) {
+  const run = getLandRun(branchName)
+  // a start of the row that runs shows in its slot: a second ask has nothing to add
+  if (branch === undefined || !isPatronusAvailable() || (run !== null && run.by === null)) {
     return
   }
   const { mode } = request
+  if (run?.by != null) {
+    // another process runs a start of the row (an agent's `bd safe-push`): it holds what it lands until it ends
+    tellRefusal(branchName, mode, run.by.description, false)
+    return
+  }
   // the whole stack of an island starts at its header, of a small stack at the root's row
   const placement = request.placement ?? (root !== null && getStackIslandRoots().has(root) ? "stack-header" : "row")
   const step = root === null ? getBranchNextStep(row) : getStackNextStep(root)?.step

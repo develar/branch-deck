@@ -224,6 +224,13 @@ Between processes, the operations registry of the repository admits an operation
 `bd request-review` runs what it needs (the same intent, a branch it lands or pushes, a robot, a field of a pull
 request), the app's operation is refused as `busy`, its toast naming the holder ("`bd` (pid 4242) has run the Safe
 Push of auth for 12 s", `describeError`), and the other way round; operations of one process never refuse each other.
+While a window shows the session, the registry is watched (`operations::registry_watch`, `Registry::subscribe`): the
+operations of `bd` of the branch prefix of the session are in its view as operations of another process
+(`Origin::OtherProcess`), so the slot of a row shows the start an agent runs ("bd: Safe Push of auth…", the pid on
+hover, `presentOtherProcess` of `src/presenters/operations.ts`, `LandRun.by`) and a start of the row says why it can't
+start before it asks Rust; they decide no admission of the session, the file does. Without a watch the registry is read
+again on a focus and after each admission. `bd` touches the stamp of the repository after each mutation, and the watch
+syncs the sessions a window shows (`SyncReason::Stamp`): what an agent changed shows without a focus.
 
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
 and back. The other operations pass, as a sync does: the node keeps the state they started from.

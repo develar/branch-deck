@@ -146,14 +146,16 @@ export const commands = {
 	/**
 	 *  Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer has the
 	 *  view at the subscription, the channel every patch after it until `unsubscribe_view`, the window's close or its next
-	 *  page load
+	 *  page load. While it lasts, the operations registry of the repository is watched (`Registry::subscribe`): the
+	 *  operations of `bd` show in the view, and a stamp of `bd` syncs the session
 	 */
 	subscribeView: (params: SessionParams, patches: Channel<ViewPatch>) => typedError<ViewSubscription, ApiError>(__TAURI_INVOKE("subscribe_view", { params, patches })),
 	/**  Ends a subscription of the calling window; the last one of a session makes it idle */
 	unsubscribeView: (params: UnsubscribeViewParams) => __TAURI_INVOKE<void>("unsubscribe_view", { params }),
 	/**
-	 *  A window of the repository gained or lost focus; a gained one syncs when what a sync reads changed and Settings sync
-	 *  on focus, and answers when that ends. Null when nothing was asked (focus lost, the setting off, the session not open)
+	 *  A window of the repository gained or lost focus; a gained one reads the operations registry of the repository again
+	 *  and syncs when what a sync reads changed and Settings sync on focus, and answers when that ends. Null when nothing
+	 *  was asked (focus lost, the setting off, the session not open)
 	 */
 	setWindowFocus: (params: WindowFocusParams) => typedError<SyncAnswer | null, ApiError>(__TAURI_INVOKE("set_window_focus", { params })),
 	/**
@@ -3546,8 +3548,9 @@ export type Origin =
 /**  In the process of the session: a request of it joins or waits for the operation */
 { kind: "thisProcess" } | 
 /**
- *  In another process (its record in the operations registry of the repository, `operations::registry_file`): a
- *  request of it is busy, it can't wait for a process
+ *  In another process of the repository (its record in the operations registry of the repository,
+ *  `operations::registry_file`, as the watch of the session read it last, `operations::registry_watch`): a request
+ *  that needs what it holds is busy, as the registry decides it, it can't wait for a process
  */
 { kind: "otherProcess"; tool: HolderTool; pid: number };
 
@@ -6010,7 +6013,12 @@ export type SyncReason =
 /**  A rewrite, its undo or a fetch changed the branches: always runs, as a quiet follow-up while one is in flight */
 "afterRewrite" | 
 /**  A window opened the session: runs when the inputs changed, or joins the run in flight */
-"open";
+"open" | 
+/**
+ *  `bd` changed the repository: it touched `$GIT_COMMON_DIR/branch-deck/stamp` after a mutation, which
+ *  `operations::registry_watch` saw; runs when the inputs changed, as a focus does
+ */
+"stamp";
 
 /**  Whether a sync runs, and what it does */
 export type SyncState = { kind: "idle" } | { kind: "running"; step: SyncStep } | 

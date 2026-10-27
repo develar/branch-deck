@@ -2816,12 +2816,33 @@ anywhere else):
   stale, and deleting a lock file another process still holds would let two holders in; the record of a process that
   is gone leaves at the next admission. The clean rules of `.branchdeck.toml` clean the working tree of a slot, and the
   common dir is not in it.
+- **The watch** (`operations::registry_watch`): while a window subscribes to a session (`Registry::subscribe`, the
+  app's and the E2E server's `subscribe_view`; the watch rides in the subscription and ends with it), the directory
+  `$GIT_COMMON_DIR/branch-deck` is watched (`notify`: FSEvents, inotify, `ReadDirectoryChangesW`; one watch per
+  repository for all its sessions, no git process). A change of `operations.json` reads it again without the lock, on
+  one task per repository that applies one read at a time: the records of the other processes that hold what they hold
+  (alive, or `unknown`) of the branch prefix of each session, of any worktree, become its operations of other processes
+  (`OperationPatch::Foreign`, `Origin::OtherProcess { tool, pid }`), in place of the ones read before. The rows show them
+  ("bd: Safe Push of auth…", the pid on hover), and a start of their row says why it can't start before any IPC; any
+  other operation that needs what they hold is `busy` from the file, as above. They decide no
+  admission in the session (`domain_policy::admission::admit` skips them): the file decided across processes, and a
+  record the session shows may have left it since. Without a watch (the system refused one) the file is read again
+  when a window of the session gains the focus (`set_window_focus`) and after each admission of the app, which read it.
+- **The stamp**: `bd` touches `$GIT_COMMON_DIR/branch-deck/stamp` (its Unix time and pid, written by a rename) after
+  every command that succeeded and is no read (`bd-cli::execute`, the commands `READ_ONLY` of `bd --help` leaves out:
+  a rewrite, a push, a start, a sync, an update, a pick, a park, a description), once, in one place. The watch asks each
+  session of the repository a window shows for a sync that runs when the inputs changed (`SyncReason::Stamp`, a focus
+  no window gained): the regroup of an agent shows within a second, without a focus.
 
 `operations/src/registry_file_test.rs` pins the rules (a holder of this host until it is gone, a reused pid, another
-host after five minutes, a start in flight, another prefix, another schema never written, the heartbeat), and
-`bd-cli/src/cross_process_test.rs` two processes: the `bd safe-push auth` of a child, held at its start by the fake
-Patronus, makes a `bd safe-push auth` beside it `busy` with its id, a `bd push docs` runs beside it, and the file is
-empty once both ended.
+host after five minutes, a start in flight, another prefix, another schema never written, the heartbeat, what a session
+shows), `operations/src/registry_watch_test.rs` the watch (the operations of another process of the prefix of a session,
+in any worktree, while a window watches; a stamp syncs it), and `bd-cli/src/cross_process_test.rs` two processes: the
+`bd safe-push auth` of a child, held at its start by the fake Patronus, makes a `bd safe-push auth` beside it and the
+Safe Push of auth of the app (`Sessions`, the scheduler of the facts and the registry of the app in the test, as the
+app runs them) `busy` with its id, while the app's window shows it; the app's Safe Push of auth, held so, makes the
+`bd safe-push auth` of a child `busy` with the app's id; a push of docs runs beside either, and the file is empty once
+both ended; a mutation of `bd` touches the stamp, a read, a dry run and a failure don't.
 
 #### Push and land
 

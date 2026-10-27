@@ -50,7 +50,9 @@ use clap::error::ErrorKind;
 use clap::{ArgAction, ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use domain_types::error::ErrorCode;
 use lease_pool::check_record::{CheckState, NAMED_PATHS, TreeCheck};
+use operations::registry_watch::touch_stamp;
 use serde::Serialize;
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -430,31 +432,51 @@ fn init_logging(verbose: u8) {
     .try_init();
 }
 
+/// Runs the command and prints its output; after a mutation that succeeded, the stamp of its repository moves
+/// (`operations::registry_watch::touch_stamp`), so the app's windows of the repository sync without a focus
 fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
+  // the repository the command resolved, whose stamp moves after its mutation
+  let common_dir = RefCell::new(None);
+  let result = dispatch(cli, environment, out, &common_dir);
+  if result.is_ok()
+    && !reads_only(&cli.command)
+    && let Some(common_dir) = common_dir.borrow().as_deref()
+  {
+    touch_stamp(common_dir);
+  }
+  result.unwrap_or_else(|error| print_error(out, &error))
+}
+
+/// Runs the command of `cli` and prints its output, answering its exit code: 0, or the one its output says (a conflict);
+/// the error of a command that failed is the caller's to print. `common_dir` gets the `$GIT_COMMON_DIR` of the
+/// repository it resolved
+fn dispatch(cli: &Cli, environment: &Environment, out: &mut dyn Write, common_dir: &RefCell<Option<PathBuf>>) -> Result<i32, CliError> {
   let options = RepoOptions {
     repo: cli.repo.as_deref(),
     prefix: cli.prefix.as_deref(),
     full_ids: cli.full_ids,
     no_cache: cli.no_cache,
   };
-  let context = || RepoContext::resolve(environment, &options);
+  let context = || RepoContext::resolve(environment, &options).inspect(|context| *common_dir.borrow_mut() = Some(context.git_common_dir.clone()));
   // a lease needs no branch prefix: git and the worktree of `directory`, else of -C, else of the current directory
-  let lease_context = |directory: Option<&std::path::Path>| LeaseContext::resolve(environment, directory.or(options.repo));
-  let result = match &cli.command {
+  let lease_context = |directory: Option<&std::path::Path>| {
+    LeaseContext::resolve(environment, directory.or(options.repo)).inspect(|context| *common_dir.borrow_mut() = Some(PathBuf::from(&context.dirs.git_common_dir)))
+  };
+  match &cli.command {
     Command::Status(args) if args.brief => context()
       .and_then(|context| status_brief(&context, args, environment))
-      .and_then(|output| print(out, &output)),
-    Command::Status(args) => context().and_then(|context| status(&context, args, environment)).and_then(|output| print(out, &output)),
-    Command::Commits(args) if args.symbol_stats => context().and_then(|context| symbol_stats(&context, args.sample)).and_then(|output| print(out, &output)),
-    Command::Commits(args) if args.brief => context().and_then(|context| commits_brief(&context, args)).and_then(|output| print(out, &output)),
-    Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| print(out, &output)),
+      .and_then(|output| printed(out, &output)),
+    Command::Status(args) => context().and_then(|context| status(&context, args, environment)).and_then(|output| printed(out, &output)),
+    Command::Commits(args) if args.symbol_stats => context().and_then(|context| symbol_stats(&context, args.sample)).and_then(|output| printed(out, &output)),
+    Command::Commits(args) if args.brief => context().and_then(|context| commits_brief(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Commits(args) => context().and_then(|context| commits(&context, args)).and_then(|output| printed(out, &output)),
     // with --sync, a conflict changes only the exit code, as for `bd sync`
-    Command::Group(args) => return print_summary(out, context().and_then(|context| group(&context, args)), RewriteOutput::exit_code),
-    Command::Rename(args) => return print_summary(out, context().and_then(|context| rename(&context, args)), RewriteOutput::exit_code),
-    Command::Restack(args) => return print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
-    Command::Unstack(args) => return print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
-    Command::Reword(args) => return print_summary(out, context().and_then(|context| reword(&context, args)), RewriteOutput::exit_code),
-    Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
+    Command::Group(args) => print_summary(out, context().and_then(|context| group(&context, args)), RewriteOutput::exit_code),
+    Command::Rename(args) => print_summary(out, context().and_then(|context| rename(&context, args)), RewriteOutput::exit_code),
+    Command::Restack(args) => print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
+    Command::Unstack(args) => print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
+    Command::Reword(args) => print_summary(out, context().and_then(|context| reword(&context, args)), RewriteOutput::exit_code),
+    Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| printed(out, &output)),
     Command::Update(args) => {
       let run = |context: RepoContext| {
         // the steps of a resolve session and a dry run go on in a lease; an update onto the baseline does not
@@ -463,107 +485,144 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
         }
         update(&context, args)
       };
-      return print_summary(out, context().and_then(run), UpdateCommandOutput::exit_code);
+      print_summary(out, context().and_then(run), UpdateCommandOutput::exit_code)
     }
-    Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
+    Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs { command: LeaseCommand::Get(args) }) => lease_context(None)
       .and_then(|context| lease_get(&context, environment, args))
-      .and_then(|output| print(out, &output)),
+      .and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Pick(args),
-    }) => {
-      return print_summary(
-        out,
-        lease_context(None).and_then(|lease| lease_pick(&lease, environment, &options, args)),
-        LeasePickOutput::exit_code,
-      );
-    }
+    }) => print_summary(
+      out,
+      lease_context(None).and_then(|lease| lease_pick(&lease, environment, &options, args)),
+      LeasePickOutput::exit_code,
+    ),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Return(args),
     }) => lease_context(args.workspace.as_deref())
       .and_then(|context| lease_return(&context, args))
-      .and_then(|output| print(out, &output)),
+      .and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Status(args),
     }) => lease_context(None)
       .and_then(|context| lease_status(&context, environment, args))
-      .and_then(|output| print(out, &output)),
+      .and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Clean(args),
     }) => lease_context(None)
       .and_then(|context| lease_clean(&context, environment, args))
-      .and_then(|output| print(out, &output)),
+      .and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Host(LeaseHostArgs { command }),
     }) => lease_context(None).and_then(|context| match command {
-      LeaseHostCommand::Lend(args) => lease_host_lend(&context, environment, args).and_then(|output| print(out, &output)),
-      LeaseHostCommand::Checkout(args) => lease_host_checkout(&context, environment, args).and_then(|output| print(out, &output)),
-      LeaseHostCommand::GiveBack(args) => lease_host_give_back(&context, environment, args).and_then(|output| print(out, &output)),
-      LeaseHostCommand::Fill => lease_host_fill(&context, environment).and_then(|output| print(out, &output)),
-      LeaseHostCommand::Reclaim => lease_host_reclaim(&context, environment).and_then(|output| print(out, &output)),
-      LeaseHostCommand::Shrink(args) => lease_host_shrink(&context, environment, args).and_then(|output| print(out, &output)),
-      LeaseHostCommand::Limit(args) => lease_host_limit(&context, environment, args).and_then(|output| print(out, &output)),
-      LeaseHostCommand::Status => lease_host_status(&context).and_then(|output| print(out, &output)),
+      LeaseHostCommand::Lend(args) => lease_host_lend(&context, environment, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Checkout(args) => lease_host_checkout(&context, environment, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::GiveBack(args) => lease_host_give_back(&context, environment, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Fill => lease_host_fill(&context, environment).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Reclaim => lease_host_reclaim(&context, environment).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Shrink(args) => lease_host_shrink(&context, environment, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Limit(args) => lease_host_limit(&context, environment, args).and_then(|output| printed(out, &output)),
+      LeaseHostCommand::Status => lease_host_status(&context).and_then(|output| printed(out, &output)),
     }),
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),
-    }) => {
-      return print_summary(
-        out,
-        lease_context(None).and_then(|context| lease_adopt(&context, environment, args)),
-        LeaseAdoptOutput::exit_code,
-      );
-    }
-    Command::Pick(args) => return print_summary(out, context().and_then(|context| pick(&context, args, environment)), PickOutput::exit_code),
-    Command::MoveHunk(args) => return print_summary(out, context().and_then(|context| move_hunk(&context, args)), MoveHunkOutput::exit_code),
+    }) => print_summary(
+      out,
+      lease_context(None).and_then(|context| lease_adopt(&context, environment, args)),
+      LeaseAdoptOutput::exit_code,
+    ),
+    Command::Pick(args) => print_summary(out, context().and_then(|context| pick(&context, args, environment)), PickOutput::exit_code),
+    Command::MoveHunk(args) => print_summary(out, context().and_then(|context| move_hunk(&context, args)), MoveHunkOutput::exit_code),
     // the summary is the output either way; a branch that was not built only changes the exit code
-    Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_unbuilt())),
-    Command::Suggest(args) if args.dump_input => context().and_then(|context| suggest_input_dump(&context)).and_then(|output| print(out, &output)),
-    Command::Suggest(args) => return print_summary(out, context().and_then(|context| suggest(&context, args)), |output| conflict_if(!output.check.ok)),
-    Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| conflict_if(!output.ok)),
-    Command::Push(args) => context().and_then(|context| push(&context, args, environment)).and_then(|output| print(out, &output)),
-    Command::SafePush(args) => context().and_then(|context| safe_push(&context, args, environment)).and_then(|output| print(out, &output)),
+    Command::Sync => print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_unbuilt())),
+    Command::Suggest(args) if args.dump_input => context().and_then(|context| suggest_input_dump(&context)).and_then(|output| printed(out, &output)),
+    Command::Suggest(args) => print_summary(out, context().and_then(|context| suggest(&context, args)), |output| conflict_if(!output.check.ok)),
+    Command::Check(args) => print_summary(out, context().and_then(|context| check(&context, args)), |output| conflict_if(!output.ok)),
+    Command::Push(args) => context().and_then(|context| push(&context, args, environment)).and_then(|output| printed(out, &output)),
+    Command::SafePush(args) => context()
+      .and_then(|context| safe_push(&context, args, environment))
+      .and_then(|output| printed(out, &output)),
     Command::RequestReview(args) => context()
       .and_then(|context| request_review(&context, args, environment))
-      .and_then(|output| print(out, &output)),
-    Command::Robot(args) => context().and_then(|context| robot(&context, args, environment)).and_then(|output| print(out, &output)),
+      .and_then(|output| printed(out, &output)),
+    Command::Robot(args) => context().and_then(|context| robot(&context, args, environment)).and_then(|output| printed(out, &output)),
     Command::RobotStats(args) => context()
       .and_then(|context| robot_stats(&context, args, environment))
-      .and_then(|output| print(out, &output)),
-    Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
-    Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| print(out, &output)),
-    Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| print(out, &output)),
-    Command::Unapply(args) => context().and_then(|context| unapply(&context, args)).and_then(|output| print(out, &output)),
-    Command::Reapply(args) => context().and_then(|context| reapply(&context, args)).and_then(|output| print(out, &output)),
-    Command::Workspace => workspace(environment, options.repo).and_then(|output| print(out, &output)),
-    Command::Schema(args) => schema(args).and_then(|output| print(out, &output)),
-    Command::Version => print(out, &version(environment)),
-    Command::Install(args) => install(environment, args).and_then(|output| print(out, &output)),
-    Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
-    Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map_err(io_error),
-    Command::Help { topic: Some(topic) } if topic == "update" => out.write_all(UPDATE_HELP.as_bytes()).map_err(io_error),
-    Command::Help { topic: Some(topic) } if topic == "worktrees" => out.write_all(WORKTREES_HELP.as_bytes()).map_err(io_error),
-    Command::Help { topic: Some(topic) } if topic == "skill" => out.write_all(skill_text(&skill_command(environment)).as_bytes()).map_err(io_error),
+      .and_then(|output| printed(out, &output)),
+    Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Unapply(args) => context().and_then(|context| unapply(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Reapply(args) => context().and_then(|context| reapply(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Workspace => workspace(environment, options.repo).and_then(|output| printed(out, &output)),
+    Command::Schema(args) => schema(args).and_then(|output| printed(out, &output)),
+    Command::Version => printed(out, &version(environment)),
+    Command::Install(args) => install(environment, args).and_then(|output| printed(out, &output)),
+    Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map(|()| 0).map_err(io_error),
+    Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map(|()| 0).map_err(io_error),
+    Command::Help { topic: Some(topic) } if topic == "update" => out.write_all(UPDATE_HELP.as_bytes()).map(|()| 0).map_err(io_error),
+    Command::Help { topic: Some(topic) } if topic == "worktrees" => out.write_all(WORKTREES_HELP.as_bytes()).map(|()| 0).map_err(io_error),
+    Command::Help { topic: Some(topic) } if topic == "skill" => out.write_all(skill_text(&skill_command(environment)).as_bytes()).map(|()| 0).map_err(io_error),
     // `bd help push` as `bd push --help`, which agents try first
     Command::Help { topic: Some(topic) } => match built_command().find_subcommand_mut(topic) {
-      Some(command) => write!(out, "{}", command.render_long_help()).map_err(io_error),
+      Some(command) => write!(out, "{}", command.render_long_help()).map(|()| 0).map_err(io_error),
       None => Err(CliError::new(
         ErrorCode::InvalidArguments,
         format!("No help topic {topic:?}; try `bd help agent`, `bd help update`, `bd help worktrees`, `bd help skill` or `bd help <command>`"),
       )),
     },
-  };
-  match result {
-    Ok(()) => 0,
-    Err(error) => print_error(out, &error),
   }
 }
 
 /// Print the output of a command that fails softly, with the exit code `exit_code` gives it, e.g. 1 for a conflict
-fn print_summary<T: Serialize>(out: &mut dyn Write, result: Result<T, CliError>, exit_code: impl Fn(&T) -> i32) -> i32 {
-  match result.and_then(|output| print(out, &output).map(|()| exit_code(&output))) {
-    Ok(exit_code) => exit_code,
-    Err(error) => print_error(out, &error),
+fn print_summary<T: Serialize>(out: &mut dyn Write, result: Result<T, CliError>, exit_code: impl Fn(&T) -> i32) -> Result<i32, CliError> {
+  result.and_then(|output| print(out, &output).map(|()| exit_code(&output)))
+}
+
+/// Print the output of a command that succeeded: exit code 0
+fn printed<T: Serialize>(out: &mut dyn Write, value: &T) -> Result<i32, CliError> {
+  print(out, value).map(|()| 0)
+}
+
+/// Whether the command reads only (`READ_ONLY`, the line of `bd --help`): it writes no ref, config, index or working
+/// tree, so its run moves no stamp; every other command that succeeds does (`execute`), a sync first included
+const fn reads_only(command: &Command) -> bool {
+  match command {
+    Command::Status(_)
+    | Command::Commits(_)
+    | Command::Suggest(_)
+    | Command::Check(_)
+    | Command::Robot(_)
+    | Command::RobotStats(_)
+    | Command::Schema(_)
+    | Command::Version
+    | Command::Workspace
+    | Command::Install(_)
+    | Command::Help { .. }
+    | Command::Lease(LeaseArgs {
+      command: LeaseCommand::Status(_)
+      | LeaseCommand::Host(LeaseHostArgs {
+        command: LeaseHostCommand::Status,
+      }),
+    }) => true,
+    Command::Describe(args) => args.title.is_none() && args.body.is_none() && args.body_file.is_none() && !args.clear,
+    Command::Update(args) => args.dry_run || (args.status && !args.materialize),
+    Command::Group(GroupArgs { rewrite, .. })
+    | Command::Rename(RenameArgs { rewrite, .. })
+    | Command::Restack(RestackArgs { rewrite, .. })
+    | Command::Unstack(UnstackArgs { rewrite, .. })
+    | Command::Reword(RewordArgs { rewrite, .. }) => rewrite.dry_run,
+    Command::Fold(args) => args.dry_run,
+    Command::MoveHunk(args) => args.dry_run,
+    Command::Pick(args) => args.dry_run,
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Pick(args),
+    }) => args.dry_run,
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Clean(args),
+    }) => args.dry_run,
+    _ => false,
   }
 }
 

@@ -414,7 +414,11 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   read-modify-write, never across git, HTTP, an `await` or the actor of a session; an operation of the remote (the
   app's, `bd push`, `bd safe-push`, `bd request-review`) is recorded before its session admits it, and an operation of
   another process that holds what it needs makes it `busy` (exit 3), never one of its own process; no clean rule
-  deletes the lock ([Operations registry](docs/design/git-operations.md#operations-registry)).
+  deletes the lock. A window's subscription watches the directory (`operations::registry_watch`, `notify`, no git): the
+  operations of other processes show in its session and decide no admission there; `bd` touches
+  `$GIT_COMMON_DIR/branch-deck/stamp` after every command that succeeded and is no read, in one place
+  (`bd-cli::execute`), which syncs the watching sessions (`SyncReason::Stamp`)
+  ([Operations registry](docs/design/git-operations.md#operations-registry)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
   A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done
@@ -670,7 +674,7 @@ session](docs/design/git-operations.md#the-landing-of-a-session)), which the pag
 | The sections of Reviews, each pull request the user takes part in once, the links that go | `reviews.rs` | `RepositoryView.reviews` (`review_view::reviews_view`); `bd`: none yet |
 | The news of a session (a robot merged or failed, approvals arrived, review requests) | `news.rs` | `RepositoryView.news` |
 | When a fact of the remote is asked again | `refresh.rs` | `remote_facts::scheduler` |
-| How a new operation of the remote is admitted: it joins the same intent, waits behind the newest one that holds a resource it needs, runs beside the rest; busy over another process | `admission.rs` | `RepositoryView.operations` (`operations::registry`); `bd`: none yet |
+| How a new operation of the remote is admitted: in its session it joins the same intent, waits behind the newest one of its process that holds a resource it needs, runs beside the rest; across processes the record of another one that holds what it needs makes it busy (`holds_across`, over the registry file) | `admission.rs` | `RepositoryView.operations` (`operations::registry`); `bd`: `holds_across` (`ProcessRegistry::admit`) |
 | The reasons the rules give: codes with their facts, no words | `reasons.rs` (types: `domain_types::reason`) | words: `src/presenters/reasons.ts`, `repository_model::refusal_words::start_refusal_text`, `bd-core/src/next_step_summary.rs` |
 
 Outside `domain-policy`: the grouping of the commits (`crates/history-rewrite/src/commit_grouper.rs`), what a robot

@@ -30,6 +30,8 @@ file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
 object-cache = { path = "../object-cache" }
+# the stamp `bd` touches after a mutation (`operations::registry_watch::touch_stamp`)
+operations = { path = "../operations" }
 patronus = { path = "../patronus" }
 github = { path = "../github" }
 sync-core = { path = "../sync-core" }
@@ -60,8 +62,10 @@ fixtures = ["dep:test-utils", "patronus/fake", "github/fake"]
 serde_json.workspace = true
 
 [dev-dependencies]
-# the records of the operations registry a test of two processes reads (`cross_process_test`)
-operations = { path = "../operations" }
+# the app's session beside `bd` in a test of two processes (`cross_process_test`): the sessions and the scheduler of
+# their facts
+repository-model = { path = "../repository-model" }
+remote-facts = { path = "../remote-facts" }
 patronus = { path = "../patronus", features = ["fake"] }
 github = { path = "../github", features = ["fake"] }
 test-utils = { path = "../test-utils" }

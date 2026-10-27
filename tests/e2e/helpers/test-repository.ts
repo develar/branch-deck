@@ -1,5 +1,6 @@
 import type {
   BranchNameSuggestionOutcome,
+  Intent,
   IssueNavigationConfig,
   PatronusMergeRequest,
   PatronusProfile,
@@ -7,6 +8,7 @@ import type {
   PatronusRobot,
   PatronusRobotProgress,
   RemoteStatusUpdate,
+  Resource,
   StackBranchUpdate,
 } from "../../../src/lib/bindings"
 import type { PatronusRobotsFixture } from "./patronus-helpers"
@@ -553,6 +555,22 @@ export class TestRepositoryBuilder {
    */
   async holdRepositoryLock(held: boolean): Promise<void> {
     await this.setFixture("repository-lock", { held })
+  }
+
+  /**
+   * `bd` of another process runs `intent` in the repository (an agent's `bd safe-push`): its record in the operations
+   * registry of the repository, naming a child of the test server that runs until the next call; the app's sessions show
+   * it from the watch of the registry and refuse what needs what it holds (by default what a start or a push of its branch
+   * holds). `null` ends the one before. Answers its operation and pid
+   */
+  async setForeignOperation(intent: Intent | null, resources?: Resource[]): Promise<{ op: string; pid: number } | null> {
+    const response = await this.postFixture("foreign-operation", { intent, ...(resources !== undefined && { resources }) })
+    return (await response.json()) as { op: string; pid: number } | null
+  }
+
+  /** `bd` did a mutation of the repository behind the app's back (an agent's `bd group`): it touched the stamp of the repository */
+  async touchStamp(): Promise<void> {
+    await this.setFixture("stamp", {})
   }
 
   private async setFixture(name: string, value: unknown): Promise<void> {

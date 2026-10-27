@@ -28,6 +28,8 @@ targets:
   - ../../crates/domain-types/src/landing.rs
   - ../../src/presenters/landing.ts
   - ../../src/presenters/lock-wait.ts
+  - ../../src/presenters/operations.ts
+  - ../../crates/operations/src/registry_watch.rs
   - ../../crates/remote-facts/src/patronus_review.rs
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus-failing.ts
@@ -1592,6 +1594,26 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should stop the wait of a Safe Push for another holder of the repository lock with Stop Waiting beside its step, nothing pushed or started`)
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should say whom a push waits for in the hover of its button, whose Stop Waiting pushes nothing`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should run two Safe Pushes and a move started while another process holds the repository lock once it released it`)
+- A Safe Push, a Dry Run or a push that another process of the repository runs (an agent's `bd safe-push auth`, in this
+  worktree or another one under the same branch prefix) must show on its row in every window while it runs: the slot
+  of the row busy with "bd: Safe Push of auth…", its hover naming the process ("`bd` (pid 4242) runs the Safe Push of
+  auth, which holds what it needs until it ends"). S, a click and the menu say why the start can't start in an info
+  toast ("Safe Push of auth can't start" with those words) and open no popover; a push or a start of the app that needs
+  what it holds is refused in Rust as `busy` before anything runs, its toast naming it ("Cannot push auth: `bd` (pid
+  4242) has run the Safe Push of auth for 12 s"); another branch pushes and starts beside it. Once the other process
+  ended (its record left the operations registry of the repository), the row offers the start again and it starts once.
+  The other way round, `bd safe-push auth` beside the app's Safe Push of auth is `busy` naming the app's operation.
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app`)
+  [@test] ../../crates/operations/src/registry_watch_test.rs (`a_window_shows_the_operations_another_process_runs_under_its_prefix_while_it_watches`)
+  [@test] ../../src/presenters/operations.test.ts (`words an operation of another process as its row says it and as the hover names its pid`)
+  [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should show the Safe Push bd runs on its row, refuse a start and a push of it, and push another branch beside it`)
+  [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should start the Safe Push of a branch once the operation of bd that held it ended`)
+- After a mutation of `bd` (an agent's `bd group`, `bd push`), the session a window shows must sync once what a sync
+  reads changed, without a focus: `bd` touched the stamp of the repository, which the window watches.
+  [@test] ../../crates/operations/src/registry_watch_test.rs (`a_stamp_of_bd_syncs_the_session_a_window_shows`)
+  [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_stamp_of_bd_runs_only_when_the_inputs_changed_as_a_focus`)
+  [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should sync when bd touched the stamp of the repository after a mutation, without a focus`)
 - The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the landing overview; "Cancels the run on 1a2b3c4, pushes auth and starts
   it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit, the steps of its plan in

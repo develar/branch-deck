@@ -15,14 +15,18 @@
 //! Between processes the operations registry of the repository admits first (`registry_file`, `RegistryFiles`): on the
 //! blocking pool, before the actor sees the operation, its record goes into the file of its repository unless an
 //! operation of another process holds what it needs, which makes it `busy`; once the actor ended it, its record leaves
-//! the file. The file is never read or written on the actor, and its lock is never held across an `await`.
+//! the file. The file is never read or written on the actor, and its lock is never held across an `await`. A window
+//! that subscribes through the registry (`subscribe`) watches the file while it shows the session
+//! (`registry_watch`): the operations of other processes are in its view, and a stamp of `bd` syncs it.
 
 use crate::events::EventSink;
 use crate::registry_file::{Entry, ProcessRegistry};
+use crate::registry_watch::{SessionWatch, Watches};
 use domain_policy::admission::admit;
-use domain_types::error::{ApiError, ErrorCode, HolderTool};
+use domain_types::error::{ApiError, HolderTool};
 use domain_types::operation::{Admission, Intent, OperationEvent, OperationId, OperationStep, Origin, Outcome, Resource, RunningMove, RunningOperation};
-use repository_model::session::{SessionHold, SessionKey, Sessions};
+use domain_types::session::{RepositoryView, ViewPatch};
+use repository_model::session::{SessionHold, SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::{OperationPatch, TableState};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -60,6 +64,8 @@ pub struct Registry {
   sessions: Arc<Sessions>,
   files: RegistryFiles,
   channels: Arc<Mutex<HashMap<OperationId, Channel>>>,
+  /// The watches of the registries of the repositories whose sessions a window shows
+  watches: Watches,
 }
 
 /// Where the operations of the sessions of a registry are recorded for the other processes of their repositories
@@ -107,6 +113,27 @@ impl RegistryFiles {
     .await
     .map_err(|error| ApiError::internal(format!("The admission into the operations registry failed: {error}")))?
   }
+
+  /// The registry of the repository of the session of `key`, resolved on the blocking pool; none when nothing is
+  /// recorded or outside a repository
+  async fn registry_of(&self, key: &SessionKey) -> Option<ProcessRegistry> {
+    let common_dir = self.common_dir.clone()?;
+    let key = key.clone();
+    let dir = tokio::task::spawn_blocking(in_current_span(move || common_dir(&key))).await.ok().flatten()?;
+    Some(ProcessRegistry::of(&dir))
+  }
+}
+
+/// A subscription that watches the registry of the repository of its session while it lives (`Registry::subscribe`)
+struct Watching {
+  subscriber: Box<dyn Subscriber>,
+  _watch: SessionWatch,
+}
+
+impl Subscriber for Watching {
+  fn send(&self, patch: &ViewPatch) -> Result<(), SubscriberGone> {
+    self.subscriber.send(patch)
+  }
 }
 
 /// What the registry keeps of an operation it admitted, from its admission until its end
@@ -135,9 +162,6 @@ enum Decision {
     op: OperationId,
     answer: watch::Receiver<Option<Answer>>,
   },
-  Busy {
-    holder: OperationId,
-  },
   /// The operation it would join is gone with its session
   Closed,
 }
@@ -150,6 +174,30 @@ impl Registry {
       sessions,
       files,
       channels: Arc::new(Mutex::new(HashMap::new())),
+      watches: Watches::default(),
+    }
+  }
+
+  /// Subscribes a window to the session of `key` (`Sessions::subscribe`, opening it), and watches the operations
+  /// registry of its repository while the subscription lives (`registry_watch`): the view shows the operations of the
+  /// other processes of the repository from the first read of the registry on, a patch after the snapshot, and a stamp of
+  /// `bd` syncs the session. `None` only when the session's actor is gone
+  pub async fn subscribe(&self, key: &SessionKey, subscriber: Box<dyn Subscriber>) -> Option<(SubscriptionId, RepositoryView)> {
+    let Some(registry) = self.files.registry_of(key).await else {
+      return self.sessions.subscribe(key, subscriber).await;
+    };
+    let watch = self.watches.watch(&self.sessions, &registry, key);
+    let subscribed = self.sessions.subscribe(key, Box::new(Watching { subscriber, _watch: watch })).await;
+    // the session is open now: the first read shows in it
+    self.watches.reread(&registry);
+    subscribed
+  }
+
+  /// Reads the operations registry of the repository of the session of `key` again, when a window watches it: a window
+  /// of it gained the focus, which stands in for a watch the system refused
+  pub async fn reread(&self, key: &SessionKey) {
+    if let Some(registry) = self.files.registry_of(key).await {
+      self.watches.reread(&registry);
     }
   }
 
@@ -174,12 +222,16 @@ impl Registry {
   /// the same intent
   ///
   /// # Errors
-  /// `busy` when an operation of another process holds what it needs (`registry_file`), with the errors of its registry
-  /// file; `internal` when the session closed meanwhile
+  /// `busy` when an operation of another process holds what it needs (`registry_file`, the only place that decides it),
+  /// with the errors of its registry file; `internal` when the session closed meanwhile
   pub async fn admit(&self, key: &SessionKey, request: OperationRequest, events: Arc<dyn EventSink>) -> Result<Admitted, ApiError> {
     let id = OperationId(sync_utils::operation_id::OperationId::new().to_string());
     // between processes first, and on the blocking pool: the actor never waits for the file
     let entry = self.files.enter(key, &id, &request).await?;
+    // the admission read the file: what the windows show of the other processes is read again too, without a watch
+    if let Some(entry) = &entry {
+      self.watches.reread(entry.registry());
+    }
     // from here on the guard ends what the actor admits: a caller that stops waiting, for the admission or in the queue,
     // gives the place up, as its end follows the admission on the actor
     let mut guard = RunningGuard {
@@ -213,13 +265,6 @@ impl Registry {
         guard.ended = true;
         Err(closed())
       }
-      Decision::Busy { holder } => {
-        guard.ended = true;
-        Err(ApiError::new(
-          ErrorCode::Busy,
-          format!("The operation {holder} of another process holds what this one needs; retry when it is done"),
-        ))
-      }
     }
   }
 }
@@ -247,7 +292,6 @@ fn decide(
       // an operation is in the session only while its channel is kept, but for a session that closed
       return answer.map_or(Decision::Closed, |answer| Decision::Join { op, answer });
     }
-    Admission::Busy { holder } => return Decision::Busy { holder },
   };
   let queued = waiting.is_some();
   let (answer, _) = watch::channel(None);

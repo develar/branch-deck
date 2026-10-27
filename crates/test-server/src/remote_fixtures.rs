@@ -9,12 +9,16 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
+use domain_types::error::HolderTool;
+use domain_types::operation::{Intent, OperationId, OperationStep, Resource};
 use domain_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
 use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
 use github::fake_repository::{FakePull, RepositoryState, search_data};
+use operations::registry_file::{ProcessRegistry, Record, RecordStatus};
+use operations::registry_watch::touch_stamp;
 use patronus::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, REVIEW_APPROVAL_CHECK_SKIP_OPTION};
 use remote_facts::pull_requests::parse_pull_request_maps;
 use serde::Deserialize;
@@ -22,6 +26,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::github_repository::{GITHUB_REPOSITORY_CONFIG, GitHubRepository, parse_known_github_repository};
+use sync_utils::process_scan::{host_name, process_started};
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 
@@ -620,4 +625,124 @@ pub async fn get_github_sign_in(Path(id): Path<String>, State(state): State<Arc<
     "codes": count("/login/device/code"),
     "polls": count("/login/oauth/access_token"),
   })))
+}
+
+/// The operation an agent's `bd` runs in a test repository (`set_foreign_operation`): its record in the operations
+/// registry of the repository and the process it names, which runs until the fixture ends
+pub struct ForeignOperation {
+  registry: ProcessRegistry,
+  id: OperationId,
+  process: std::process::Child,
+}
+
+impl ForeignOperation {
+  /// The record leaves the registry and its process ends: the agent's `bd` is done
+  pub fn end(mut self) {
+    if let Err(error) = self.registry.remove(&self.id) {
+      tracing::warn!("Cannot remove the record of the foreign operation: {}", error.message);
+    }
+    let _ = self.process.kill();
+    let _ = self.process.wait();
+  }
+}
+
+/// `POST /repositories/{id}/foreign-operation`: the operation `intent` that `bd` of another process runs in the
+/// repository, holding what it lands and pushes (`resources`, by default the branch of a start or a push: what it lands
+/// and its ref); `null` ends the one before
+#[derive(Deserialize)]
+pub struct ForeignOperationRequest {
+  intent: Option<Intent>,
+  resources: Option<Vec<Resource>>,
+}
+
+/// What a start or a push of a branch holds under `prefix`: what it lands and the ref of the branch
+fn held_by(intent: &Intent, prefix: &str) -> Vec<Resource> {
+  let branch = match intent {
+    Intent::Land(land) => Some((land.subject.name().to_string(), true)),
+    Intent::Push(push) => Some((push.subject.name().to_string(), false)),
+    _ => None,
+  };
+  branch.map_or_default(|(name, lands)| {
+    let reference = to_final_branch_name(prefix, &name).ok().map(|name| Resource::Ref { name });
+    lands.then(|| Resource::Lands { branch: name.clone() }).into_iter().chain(reference).collect()
+  })
+}
+
+/// A process of this host that runs until it is killed, which the record of a foreign operation names
+fn agent_process() -> std::io::Result<std::process::Child> {
+  let mut command = if cfg!(windows) {
+    let mut ping = sync_utils::child_process::windowless_command("ping");
+    ping.args(["-n", "3600", "127.0.0.1"]);
+    ping
+  } else {
+    let mut sleep = sync_utils::child_process::windowless_command("sleep");
+    sleep.arg("3600");
+    sleep
+  };
+  command.stdout(std::process::Stdio::null()).spawn()
+}
+
+/// Records `intent` in the operations registry of the repository as `bd` of another process runs it (a child of the
+/// server, alive until the fixture ends, so the record is of a process that runs): the app's sessions show it from the
+/// watch of the registry, and refuse what needs what it holds as `busy`. Answers the id of the operation and its pid
+pub async fn set_foreign_operation(
+  Path(id): Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<ForeignOperationRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let (path, foreign) = {
+    let repo = state.repositories.get(&id).ok_or_else(unknown_repository)?;
+    (repo.path.clone(), Arc::clone(&repo.foreign_operation))
+  };
+  let ended = foreign.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+  if let Some(ended) = ended {
+    ended.end();
+  }
+  let Some(intent) = request.intent else {
+    return Ok(Json(serde_json::Value::Null));
+  };
+  let key = crate::session_routes::session_key(&state, &path)
+    .await
+    .map_err(|_rejected| (StatusCode::UNPROCESSABLE_ENTITY, "the repository has no branch prefix".to_string()))?;
+  let failed = |error: String| (StatusCode::INTERNAL_SERVER_ERROR, error);
+  let process = agent_process().map_err(|error| failed(format!("Cannot start the process of the agent: {error}")))?;
+  let pid = process.id();
+  let now = unix_now();
+  let record = Record {
+    id: OperationId(sync_utils::operation_id::OperationId::new().to_string()),
+    tool: HolderTool::Bd,
+    pid,
+    process_started_at: process_started(pid),
+    host: host_name().to_string(),
+    started_at: now,
+    heartbeat_at: now,
+    resources: request.resources.unwrap_or_else(|| held_by(&intent, &key.prefix)),
+    session: key,
+    intent,
+    step: OperationStep::Checking,
+    status: RecordStatus::Running,
+    external: None,
+  };
+  let registry = ProcessRegistry::of(&std::path::Path::new(&path).join(".git"));
+  let operation = ForeignOperation {
+    id: record.id.clone(),
+    registry: registry.clone(),
+    process,
+  };
+  let op = record.id.0.clone();
+  let inserted = registry.insert_of_another_process(record);
+  if let Err(error) = inserted {
+    operation.end();
+    return Err(failed(error.message));
+  }
+  *foreign.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(operation);
+  Ok(Json(serde_json::json!({ "op": op, "pid": pid })))
+}
+
+/// `POST /repositories/{id}/stamp`: `bd` did a mutation in the repository behind the app's back, as after an agent's
+/// `bd group` (`touch_stamp`): the sessions a window shows sync once the inputs changed
+pub async fn touch_repository_stamp(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, (StatusCode, String)> {
+  let path = state.repositories.get(&id).map(|repo| repo.path.clone()).ok_or_else(unknown_repository)?;
+  touch_stamp(&std::path::Path::new(&path).join(".git"));
+  Ok(StatusCode::OK)
 }

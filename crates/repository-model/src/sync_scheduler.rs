@@ -15,7 +15,9 @@
 //!   push syncs nothing (the table has the push's outcome already). A focus while a run is in flight checks once after the
 //!   chain: a commit in the IDE during a long sync is not lost, and a sync that saw it costs no second one. A window that
 //!   opens while a run is in flight is served by that run: its end is the table the window shows.
-//! - A focus of a session without subscribers is skipped: no window shows it, so nothing runs.
+//! - `Stamp` (`bd` touched the stamp of the repository after a mutation, `operations::registry_watch`) is a focus that
+//!   no window gained: it runs only when the inputs changed, and while a run is in flight it checks once after the chain.
+//! - A focus or a stamp of a session without subscribers is skipped: no window shows it, so nothing runs.
 
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::session::{SyncOutcome, SyncReason};
@@ -68,7 +70,7 @@ pub(crate) enum RunEnd {
 #[derive(Debug, PartialEq, Eq)]
 enum Phase {
   Idle,
-  /// A fingerprint is being read for `Focus` or `Open`; `open`: an open waits for it, which a failed last run does not
+  /// A fingerprint is being read for `Focus`, `Stamp` or `Open`; `open`: an open waits for it, which a failed last run does not
   /// answer
   Checking {
     open: bool,
@@ -127,8 +129,9 @@ impl<W> SyncScheduler<W> {
 
   /// A request; `watched`: a window subscribes to the session
   pub(crate) fn request(&mut self, reason: SyncReason, waiter: W, watched: bool) -> Decision<W> {
-    let checks_inputs = matches!(reason, SyncReason::Focus | SyncReason::Open);
-    if reason == SyncReason::Focus && !watched {
+    let checks_inputs = matches!(reason, SyncReason::Focus | SyncReason::Stamp | SyncReason::Open);
+    let rechecks = matches!(reason, SyncReason::Focus | SyncReason::Stamp);
+    if rechecks && !watched {
       return Decision {
         resolve: vec![(waiter, Ok(SyncOutcome::Skipped))],
         next: Step::Nothing,
@@ -155,7 +158,7 @@ impl<W> SyncScheduler<W> {
         self.serving.push(waiter);
         Decision::next(Step::Nothing)
       }
-      Phase::Running { .. } if reason == SyncReason::Focus => {
+      Phase::Running { .. } if rechecks => {
         self.recheck.push(waiter);
         Decision::next(Step::Nothing)
       }

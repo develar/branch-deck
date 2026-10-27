@@ -15,8 +15,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use sync_core::sync_inputs::SyncInputs;
 use sync_utils::clock::TestClock;
 
-/// A host whose sessions never sync: no window asks one here
-pub(crate) struct IdleHost;
+/// A host whose sessions never sync: no window asks one here; a sync asked all the same fails, and wakes `runs`
+#[derive(Default)]
+pub(crate) struct IdleHost {
+  pub(crate) runs: Option<tokio::sync::mpsc::UnboundedSender<()>>,
+}
 
 impl SessionHost for IdleHost {
   fn inputs(&self, _key: &SessionKey) -> Option<SyncInputs> {
@@ -24,6 +27,9 @@ impl SessionHost for IdleHost {
   }
 
   fn run(&self, _key: &SessionKey, _reporter: RunReporter) -> SyncRun {
+    if let Some(runs) = &self.runs {
+      let _ = runs.send(());
+    }
     Box::pin(async { Err(ApiError::internal("no sync here")) })
   }
 
@@ -65,7 +71,7 @@ struct Fixture {
 /// The sessions of an `IdleHost` on a test clock
 pub(crate) fn sessions() -> Arc<Sessions> {
   let clock = OneClock(Arc::new(TestClock::new()));
-  Arc::new(Sessions::new(tokio::runtime::Handle::current(), Arc::new(IdleHost), Arc::new(clock)))
+  Arc::new(Sessions::new(tokio::runtime::Handle::current(), Arc::new(IdleHost::default()), Arc::new(clock)))
 }
 
 fn fixture() -> Fixture {

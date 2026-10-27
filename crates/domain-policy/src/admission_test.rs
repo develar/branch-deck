@@ -53,26 +53,34 @@ fn of_bd(operation: RunningOperation) -> RunningOperation {
 }
 
 /// A remote action over a remote action, row by row of the table "Конкурентность": the same intent joins, a resource
-/// held waits, nothing held runs; an operation of another process makes either busy
+/// held waits, nothing held runs
 #[test]
 fn a_remote_action_joins_the_same_intent_waits_for_a_held_resource_and_runs_beside_the_rest() {
   let auth = running("a", push("auth"), &[reference("auth")]);
   // the same intent and subject: a second click joins the first
   assert_eq!(admit(std::slice::from_ref(&auth), &push("auth"), &[reference("auth")]), Admission::Join { op: id("a") });
-  // of another process: busy, never a wait for a process
-  assert_eq!(admit(&[of_bd(auth.clone())], &push("auth"), &[reference("auth")]), Admission::Busy { holder: id("a") });
   // another intent that needs what it holds waits behind it: a Safe Push that pushes auth
   let safe_push = land("auth", PatronusPushMode::RebaseAutosquash);
   assert_eq!(
     admit(std::slice::from_ref(&auth), &safe_push, &[reference("auth"), lands("auth")]),
     Admission::Queue { op: id("a") }
   );
-  // of another process: busy
-  assert_eq!(admit(&[of_bd(auth.clone())], &safe_push, &[reference("auth")]), Admission::Busy { holder: id("a") });
   // nothing it holds: side by side
   assert_eq!(admit(std::slice::from_ref(&auth), &push("login"), &[reference("login")]), Admission::Run);
-  assert_eq!(admit(&[of_bd(auth)], &push("login"), &[reference("login")]), Admission::Run);
   assert_eq!(admit(&[], &push("auth"), &[reference("auth")]), Admission::Run);
+}
+
+/// An operation of another process that the session shows decides nothing in it: the operations registry of the
+/// repository admitted the new one over the file as it is now (`holds_across`), and the record the session shows may have
+/// left it since. The new one neither joins it nor waits behind it, and waits behind an operation of this process only
+#[test]
+fn an_operation_of_another_process_that_the_session_shows_decides_nothing() {
+  let auth = running("a", push("auth"), &[reference("auth")]);
+  let safe_push = land("auth", PatronusPushMode::RebaseAutosquash);
+  assert_eq!(admit(&[of_bd(auth.clone())], &push("auth"), &[reference("auth")]), Admission::Run);
+  assert_eq!(admit(&[of_bd(auth.clone())], &safe_push, &[reference("auth")]), Admission::Run);
+  let own = running("b", land("login", PatronusPushMode::DryRun), &[reference("auth")]);
+  assert_eq!(admit(&[own, of_bd(auth)], &safe_push, &[reference("auth")]), Admission::Queue { op: id("b") });
 }
 
 /// The ones that wait for a resource run in the order they came: a new one waits behind the newest that holds what it

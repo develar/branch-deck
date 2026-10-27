@@ -233,6 +233,9 @@ pub enum SyncReason {
   AfterRewrite,
   /// A window opened the session: runs when the inputs changed, or joins the run in flight
   Open,
+  /// `bd` changed the repository: it touched `$GIT_COMMON_DIR/branch-deck/stamp` after a mutation, which
+  /// `operations::registry_watch` saw; runs when the inputs changed, as a focus does
+  Stamp,
 }
 
 /// How the request of a sync ended, when it did not fail

@@ -363,7 +363,8 @@ pub async fn get_snapshot(
 
 /// Subscribes the calling window to the patches of the repository's session on `patches`, opening it: the answer has the
 /// view at the subscription, the channel every patch after it until `unsubscribe_view`, the window's close or its next
-/// page load
+/// page load. While it lasts, the operations registry of the repository is watched (`Registry::subscribe`): the
+/// operations of `bd` show in the view, and a stamp of `bd` syncs the session
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, window = webview.label()))]
 #[specta::specta]
@@ -382,8 +383,9 @@ pub async fn subscribe_view(
     let page = state.windows().page(&label);
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;
+    // through the registry: the window watches the operations registry of the repository while it subscribes
     let (id, view) = state
-      .sessions
+      .registry
       .subscribe(&key, Box::new(ChannelSubscriber(patches)))
       .await
       .ok_or_else(|| ApiError::internal("The session closed while the window subscribed"))?;
@@ -431,8 +433,9 @@ pub struct WindowFocusParams {
   pub focused: bool,
 }
 
-/// A window of the repository gained or lost focus; a gained one syncs when what a sync reads changed and Settings sync
-/// on focus, and answers when that ends. Null when nothing was asked (focus lost, the setting off, the session not open)
+/// A window of the repository gained or lost focus; a gained one reads the operations registry of the repository again
+/// and syncs when what a sync reads changed and Settings sync on focus, and answers when that ends. Null when nothing
+/// was asked (focus lost, the setting off, the session not open)
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, focused = params.focused))]
 #[specta::specta]
@@ -446,6 +449,10 @@ pub async fn set_window_focus(
   operation(async move {
     let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);
     let key = session_key(inputs, &params.repository_path).await?;
+    if params.focused {
+      // what the other processes run, read again: the stand-in for a watch the system refused
+      state.registry.reread(&key).await;
+    }
     match state.sessions.set_window_focus(&key, params.focused) {
       Some(ticket) => ticket.wait().await.map(Some),
       None => Ok(None),

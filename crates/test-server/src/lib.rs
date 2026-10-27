@@ -194,6 +194,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/reword", post(reword_commit))
     .route("/repositories/{id}/commit", post(commit_on_head))
     .route("/repositories/{id}/repository-lock", post(hold_repository_lock))
+    .route("/repositories/{id}/foreign-operation", post(remote_fixtures::set_foreign_operation))
+    .route("/repositories/{id}/stamp", post(remote_fixtures::touch_repository_stamp))
     .route("/repositories/{id}/sync-overrides", post(sync_overrides::set_sync_overrides))
     .route("/repositories/{id}/revision", get(sync_overrides::get_revision))
     .route("/repositories/{id}/rebase-in-progress", post(sync_overrides::set_rebase_in_progress))
@@ -733,6 +735,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, values: &[(&str, se
     available_update: std::sync::RwLock::default(),
     cli_tools: Arc::new(cli_tools_fixtures::CliToolsHost::new(&state.app_data_of(id))),
     held_lock: std::sync::Mutex::default(),
+    foreign_operation: Arc::default(),
     sync_overrides: std::sync::Mutex::default(),
   };
   state.repositories.insert(id.to_string(), repo);
@@ -921,6 +924,11 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
   // the lock first (`hold_repository_lock`), its holder record with it: a rewrite of the page that waits for it, as
   // long as its holder (this server) lives, runs and ends instead of keeping the deletion waiting
   drop(repo.held_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
+  // the process of the agent's operation ends with its record
+  let operation = repo.foreign_operation.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+  if let Some(operation) = operation {
+    operation.end();
+  }
   let no_commands = tokio::time::timeout(DELETE_WAIT, Arc::clone(&repo.in_flight).write_owned()).await;
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");

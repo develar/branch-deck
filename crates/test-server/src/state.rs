@@ -94,6 +94,8 @@ pub struct TestRepository {
   pub cli_tools: std::sync::Arc<crate::cli_tools_fixtures::CliToolsHost>,
   /// The repository lock the server holds for a test (`hold_repository_lock`), as another process (`bd pick`) would
   pub held_lock: std::sync::Mutex<Option<history_rewrite::repository_lock::RepositoryLock>>,
+  /// The operation an agent's `bd` runs in the repository for a test (`set_foreign_operation`)
+  pub foreign_operation: std::sync::Arc<std::sync::Mutex<Option<crate::remote_fixtures::ForeignOperation>>>,
   /// What the next sync of the repository's session reports differently (`sync_overrides`), until a run takes it (never,
   /// for the overrides of every sync)
   pub sync_overrides: std::sync::Mutex<Option<crate::sync_overrides::SyncOverrides>>,

@@ -230,6 +230,16 @@ pub(crate) fn admit_into(file: &mut RegistryFile, record: Record, this: &Process
   Ok(())
 }
 
+/// The records of other processes in `records` that hold what they hold, seen from `this` at `now`: the ones whose
+/// process runs, and the ones of a process that is gone with an external effect in flight, which hold it until what the
+/// effect did is known (`drop_gone`); a session shows them (`registry_watch`)
+pub(crate) fn others(records: Vec<Record>, this: &ProcessIdentity, now: u32, runs: &dyn Fn(u32, Option<u64>) -> bool) -> Vec<Record> {
+  records
+    .into_iter()
+    .filter(|record| !this.owns(record) && (record.external.is_some() || !is_gone(record, this, now, runs)))
+    .collect()
+}
+
 /// The heartbeat of the records of `this` process in `file` at `now`: the ones of `live` get it, the others leave (their
 /// removal failed, the file was of another Branch Deck then)
 pub(crate) fn beat(file: &mut RegistryFile, this: &ProcessIdentity, live: &HashSet<OperationId>, now: u32) {
@@ -267,6 +277,16 @@ impl ProcessRegistry {
     self.dir.join(FILE)
   }
 
+  /// The directory of the registry (`$GIT_COMMON_DIR/branch-deck`), which `registry_watch` watches
+  pub(crate) fn dir(&self) -> &Path {
+    &self.dir
+  }
+
+  /// Whether `name` is the name of the file of the registry in its directory (an event of `registry_watch`)
+  pub(crate) fn is_file_name(name: &std::ffi::OsStr) -> bool {
+    name == FILE
+  }
+
   /// The records as the file has them now, without the lock (a read sees one whole state); none without a file, and
   /// `None` for the registry of another Branch Deck
   ///
@@ -277,6 +297,33 @@ impl ProcessRegistry {
       Content::Known(file) => Some(file.operations),
       Content::Foreign => None,
     })
+  }
+
+  /// The records of the other processes that hold what they hold now (`others`), read without the lock; none for the
+  /// registry of another Branch Deck, whose records can't be read
+  ///
+  /// # Errors
+  /// The file can't be read
+  pub fn of_other_processes(&self) -> std::io::Result<Vec<Record>> {
+    let records = self.records()?.unwrap_or_default();
+    Ok(others(records, ProcessIdentity::this(), unix_now(), &is_running))
+  }
+
+  /// Writes `record`, of another process, as that process would admit it, without asking whether it is busy: the E2E
+  /// server's fixture of an agent's operation (`POST /repositories/{id}/foreign-operation`); `remove` takes it out
+  ///
+  /// # Errors
+  /// As `admit`, but never `busy`
+  pub fn insert_of_another_process(&self, record: Record) -> Result<(), ApiError> {
+    self.change(|file| file.operations.push(record)).map(drop)
+  }
+
+  /// Takes the record `id` out, of whichever process it is: the end of the E2E server's fixture
+  ///
+  /// # Errors
+  /// As `admit`, but never `busy`
+  pub fn remove(&self, id: &OperationId) -> Result<(), ApiError> {
+    self.change(|file| file.operations.retain(|record| record.id != *id)).map(drop)
   }
 
   fn read(&self) -> std::io::Result<Content> {
@@ -421,6 +468,11 @@ impl Entry {
   pub const fn id(&self) -> &OperationId {
     &self.id
   }
+
+  /// The registry it is in
+  pub(crate) const fn registry(&self) -> &ProcessRegistry {
+    &self.registry
+  }
 }
 
 impl Drop for Entry {
@@ -516,4 +568,4 @@ impl Keeper {
 
 #[cfg(test)]
 #[path = "registry_file_test.rs"]
-mod registry_file_test;
+pub(crate) mod registry_file_test;

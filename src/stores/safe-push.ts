@@ -4,6 +4,8 @@ import type { OperationId, OperationStep, PatronusPushMode, RunningOperation, Tr
 import { commands } from "@/lib/bindings"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import { presentOperationLockWait } from "@/presenters/lock-wait"
+import type { OtherProcessRun } from "@/presenters/operations"
+import { presentOtherProcess } from "@/presenters/operations"
 import { branchSyncStore, useBranchSyncField } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath, useSelectedProjectPath } from "@/stores/repository"
 
@@ -45,6 +47,11 @@ export interface LandRun {
   readonly op: OperationId | null
   /** The virtual branches its push sends, root first (the refs it reserves); empty without a push */
   readonly pushes: readonly string[]
+  /**
+   * Another process of the repository runs it (an agent's `bd safe-push`, `presentOtherProcess`): its words, which the
+   * slot shows in place of its step; null for a start of this app
+   */
+  readonly by: OtherProcessRun | null
 }
 
 export interface SafePushState {
@@ -110,9 +117,16 @@ function pushedBranches(operation: RunningOperation): string[] {
 function landRunOf(operation: RunningOperation | undefined, asking: SafePushMode | undefined): LandRun | null {
   if (operation !== undefined && operation.intent.kind === "land") {
     const mode = operation.intent.mode === "dryRun" ? "dryRun" : "rebaseAutosquash"
-    return { mode, step: slotStep(operation.step), waitingFor: presentOperationLockWait(operation), op: operation.id, pushes: pushedBranches(operation) }
+    return {
+      mode,
+      step: slotStep(operation.step),
+      waitingFor: presentOperationLockWait(operation),
+      op: operation.id,
+      pushes: pushedBranches(operation),
+      by: presentOtherProcess(operation),
+    }
   }
-  return asking === undefined ? null : { mode: asking, step: "checking", waitingFor: null, op: null, pushes: [] }
+  return asking === undefined ? null : { mode: asking, step: "checking", waitingFor: null, op: null, pushes: [], by: null }
 }
 
 /** The start of the subject `key` that runs in the selected repository */

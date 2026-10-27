@@ -431,7 +431,7 @@ pub struct SessionRequest {
 }
 
 /// The session key of the test repository at `repository_path`, as the app's `session_key`: refused without a prefix
-async fn session_key(state: &AppState, repository_path: &str) -> Result<SessionKey, Rejection> {
+pub(crate) async fn session_key(state: &AppState, repository_path: &str) -> Result<SessionKey, Rejection> {
   let prefix = branch_prefix_of(state, repository_path).await?;
   if prefix.is_empty() {
     return Err(failed("open the session", no_branch_prefix()));
@@ -495,8 +495,9 @@ pub async fn cancel_operation(State(state): State<Arc<AppState>>, Json(params): 
 pub async fn subscribe_view(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(request): Json<SessionRequest>) -> Response {
   answer_with_progress(progress_channel(&headers), move |progress| async move {
     let key = session_key(&state, &request.repository_path).await?;
+    // through the registry, as the app subscribes: the window watches the operations registry of the repository
     let (id, view) = state
-      .sessions
+      .registry
       .subscribe(&key, Box::new(StreamSubscriber(progress)))
       .await
       .ok_or_else(|| failed("subscribe to the view", ApiError::internal("The session closed while the window subscribed")))?;
@@ -555,6 +556,10 @@ pub struct WindowFocusRequest {
 
 pub async fn set_window_focus(State(state): State<Arc<AppState>>, Json(request): Json<WindowFocusRequest>) -> CommandResult<Option<SyncAnswer>> {
   let key = session_key(&state, &request.repository_path).await?;
+  if request.focused {
+    // as the app: a gained focus reads the operations registry again, where no watch would tell
+    state.registry.reread(&key).await;
+  }
   match state.sessions.set_window_focus(&key, request.focused) {
     Some(ticket) => ticket.wait().await.map(|answer| Json(Some(answer))).map_err(|error| failed("sync on focus", error)),
     None => Ok(Json(None)),

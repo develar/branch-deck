@@ -148,15 +148,17 @@ export function getStepInputs(key: string, step: NextStep | undefined): StepInpu
 
 /**
  * What runs on the row as the step says it: an operation of the registry, or the running start of a Safe Push of the
- * row, which is no reason against the start it runs itself (`forStart`)
+ * row, which is no reason against the start it runs itself (`forStart`), unless another process runs it ("bd: Safe Push
+ * of auth")
  */
 export function busyOf(inputs: StepInputs, forStart: boolean): NextStepBusy | null {
   const { operation } = inputs
   if (operation !== undefined) {
     return { id: operation.id, label: operationLabel(operation), ...(operation.resources === undefined ? null : { resources: operation.resources }) }
   }
-  const starting = forStart ? null : inputs.starting
-  return starting === null ? null : { id: "", label: `Starting the ${formatPushMode(starting.mode)}` }
+  // a start another process runs holds every start of the row, the one asked too
+  const starting = forStart && inputs.starting?.by == null ? null : inputs.starting
+  return starting === null ? null : { id: "", label: starting.by?.label ?? `Starting the ${formatPushMode(starting.mode)}` }
 }
 
 /**

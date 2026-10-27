@@ -209,7 +209,8 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
                 {shortcut !== undefined && !push.disabled && <Kbd>{shortcut}</Kbd>}
               </div>
             )}
-            <div className="break-words whitespace-pre-line">{waits ?? push.tooltip}</div>
+            {/* a Safe Push another process runs holds the push: its words say whose */}
+            <div className="break-words whitespace-pre-line">{waits ?? starting?.by?.description ?? push.tooltip}</div>
             {push.dropped !== null && <DroppedCommitList dropped={push.dropped} />}
             {push.retarget !== null && (
               <div data-testid="push-retarget" className={cn("break-words whitespace-pre-line", push.retarget.warning && "text-warning")}>

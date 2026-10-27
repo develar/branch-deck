@@ -93,6 +93,10 @@ specta-typescript = "0.0.13"
 # Additional tokio utilities
 tokio-stream = "0.1"
 
+# The watch of the operations registry of a repository by the app's sessions (`operations::registry_watch`): FSEvents,
+# inotify, ReadDirectoryChangesW
+notify = "8.2.0"
+
 # Every warning fails `pnpm lint:backend` and CI (`-D warnings`, all targets): a lint is either on or allowed below with
 # its reason, and a single exception in code is `#[expect(lint, reason = "...")]`, never `#[allow]`.
 [workspace.lints.rust]

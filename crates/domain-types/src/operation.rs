@@ -195,8 +195,9 @@ pub enum PullRequestField {
 pub enum Origin {
   /// In the process of the session: a request of it joins or waits for the operation
   ThisProcess,
-  /// In another process (its record in the operations registry of the repository, `operations::registry_file`): a
-  /// request of it is busy, it can't wait for a process
+  /// In another process of the repository (its record in the operations registry of the repository,
+  /// `operations::registry_file`, as the watch of the session read it last, `operations::registry_watch`): a request
+  /// that needs what it holds is busy, as the registry decides it, it can't wait for a process
   OtherProcess { tool: HolderTool, pid: u32 },
 }
 
@@ -282,8 +283,6 @@ pub enum Admission {
   Join { op: OperationId },
   /// `op`, the newest operation of this process that holds a resource it needs, runs or waits: it waits behind it
   Queue { op: OperationId },
-  /// An operation of another process holds a resource it needs, or runs the same intent
-  Busy { holder: OperationId },
 }
 
 /// What an intent does now, prepared over the facts of its session (the contract's `Plan`): it runs only while the facts

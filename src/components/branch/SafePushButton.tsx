@@ -95,20 +95,24 @@ export function SafePushButton({
   const pushing = starting?.step === "pushing" ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, starting.pushes) : "Pushing", progress) : null
   // whom its wait for the repository lock is for, as the view names the holder: every window says it
   const waiting = starting?.waitingFor ?? null
+  // another process runs the start (an agent's `bd safe-push`): its words take the place of its step
+  const elsewhere = starting?.by ?? null
   const label =
     starting === null
       ? (item?.label ?? "Safe Push")
-      : pushing !== null
-        ? compact
-          ? progress === null
-            ? null
-            : `${progress.percent}%`
-          : pushing
-        : starting.step === "waiting"
-          ? "Waiting…"
-          : starting.step === "checking"
-            ? "Checking…"
-            : "Starting…"
+      : elsewhere !== null
+        ? `${elsewhere.label}…`
+        : pushing !== null
+          ? compact
+            ? progress === null
+              ? null
+              : `${progress.percent}%`
+            : pushing
+          : starting.step === "waiting"
+            ? "Waiting…"
+            : starting.step === "checking"
+              ? "Checking…"
+              : "Starting…"
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const restWidth = useRef<number | null>(null)
   const busy = starting !== null
@@ -127,7 +131,7 @@ export function SafePushButton({
     }
   }, [compact, busy, label])
   // it waits for another holder of the repository lock: Stop Waiting beside it, the hover says whom for
-  const stopWaiting = waiting !== null && starting?.op != null ? stopStartItem(starting.op, waiting) : null
+  const stopWaiting = waiting !== null && starting?.op != null && elsewhere === null ? stopStartItem(starting.op, waiting) : null
   const button = (
     <Tooltip>
       <TooltipTrigger
@@ -140,7 +144,7 @@ export function SafePushButton({
             focusableWhenDisabled
             aria-busy={starting !== null || undefined}
             // the push a compact label says by its percent only, the wait by whom it is for
-            aria-label={waiting ?? (compact && pushing !== null ? pushing : undefined)}
+            aria-label={waiting ?? (compact && pushing !== null && elsewhere === null ? pushing : undefined)}
             className={cn("tabular-nums", compact && "min-w-26 justify-start", disabled && starting === null && "opacity-50", className)}
             data-testid="safe-push-button"
             ref={element => {
@@ -166,7 +170,7 @@ export function SafePushButton({
       </TooltipTrigger>
       <TooltipContent>
         {/* the branches a compact label leaves out: "Pushing 2 branches 45%"; whom the wait is for */}
-        {waiting ?? (pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description))}
+        {waiting ?? elsewhere?.description ?? (pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description))}
         {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>

@@ -1,5 +1,5 @@
 use crate::registry::OperationRequest;
-use crate::registry_file::{External, GONE_AFTER, PendingStart, ProcessIdentity, ProcessRegistry, Record, RecordStatus, RegistryFile, SCHEMA, admit_into, beat, is_gone};
+use crate::registry_file::{External, GONE_AFTER, PendingStart, ProcessIdentity, ProcessRegistry, Record, RecordStatus, RegistryFile, SCHEMA, admit_into, beat, is_gone, others};
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, OperationHolder, OperationKind};
 use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::landing::StartRoute;
@@ -13,11 +13,11 @@ use sync_utils::timestamp::unix_now;
 
 const NOW: u32 = 1_800_000_000;
 
-fn id(text: &str) -> OperationId {
+pub(crate) fn id(text: &str) -> OperationId {
   OperationId(text.to_string())
 }
 
-fn session(prefix: &str) -> SessionKey {
+pub(crate) fn session(prefix: &str) -> SessionKey {
   SessionKey {
     worktree: "/repo".to_string(),
     prefix: prefix.to_string(),
@@ -29,7 +29,7 @@ fn lands(branch: &str) -> Resource {
 }
 
 /// The Safe Push of `branch`, as `engine::request_of` asks for it: what it lands
-fn safe_push(branch: &str) -> OperationRequest {
+pub(crate) fn safe_push(branch: &str) -> OperationRequest {
   OperationRequest {
     intent: land_intent(branch, PatronusPushMode::RebaseAutosquash),
     resources: vec![lands(branch)],
@@ -48,7 +48,7 @@ fn process(pid: u32, started: Option<u64>) -> ProcessIdentity {
 }
 
 /// The record of `request` as the operation `op` of `of`, admitted and last beaten at `at`
-fn record(op: &str, of: &ProcessIdentity, request: &OperationRequest, at: u32) -> Record {
+pub(crate) fn record(op: &str, of: &ProcessIdentity, request: &OperationRequest, at: u32) -> Record {
   Record {
     id: id(op),
     tool: HolderTool::Bd,
@@ -225,8 +225,35 @@ fn a_heartbeat_beats_the_live_records_of_this_process_and_takes_out_its_others()
   assert_eq!(registry.operations.iter().map(|record| record.heartbeat_at).collect::<Vec<_>>(), [NOW + 30, NOW]);
 }
 
+/// A session shows the records of the other processes that hold what they hold: of a process that runs, and of one that
+/// is gone with a start in flight; never one of this process, and never one whose process is gone with nothing in flight
+#[test]
+fn a_session_shows_the_records_of_other_processes_that_hold_what_they_hold() {
+  let (this, bd, gone, elsewhere) = (
+    process(100, Some(1)),
+    process(200, Some(2)),
+    process(300, Some(3)),
+    ProcessIdentity {
+      host: "another-host".to_string(),
+      ..process(400, Some(4))
+    },
+  );
+  let mut in_flight = record("in-flight", &gone, &safe_push("api"), NOW);
+  in_flight.external = Some(External { pending_start: None });
+  let records = vec![
+    record("own", &this, &safe_push("auth"), NOW),
+    record("bd", &bd, &safe_push("docs"), NOW),
+    record("gone", &gone, &safe_push("login"), NOW),
+    in_flight,
+    record("elsewhere", &elsewhere, &safe_push("ui"), NOW - GONE_AFTER - 1),
+  ];
+  let runs = |pid: u32, _started: Option<u64>| pid == 200;
+  let shown = others(records, &this, NOW, &runs);
+  assert_eq!(shown.iter().map(|record| record.id.0.as_str()).collect::<Vec<_>>(), ["bd", "in-flight"]);
+}
+
 /// A child that runs until it is killed: another process of this host
-fn sleeping_child() -> std::process::Child {
+pub(crate) fn sleeping_child() -> std::process::Child {
   let mut command = if cfg!(windows) {
     let mut ping = sync_utils::child_process::windowless_command("ping");
     ping.args(["-n", "120", "127.0.0.1"]);
