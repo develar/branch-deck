@@ -1,5 +1,5 @@
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
-use crate::derive::derive_budget_test::at;
+use crate::derive::derive_budget_test::{answer_patronus, at, synced_facts};
 use crate::derive::{LandSources, attention_of, blocking_parent, decide_lands, land_decision, open_pull_requests_view, repository};
 use crate::facts::{FactResult, FactStore, RobotsRead};
 use crate::patronus_view::patronus_view_test::chain;
@@ -28,7 +28,6 @@ use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 fn on(name: &str, parent: Option<&str>) -> GroupedBranchInfo {
   GroupedBranchInfo {
@@ -553,14 +552,9 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
 /// table of the last sync has it (`BranchTable::in_baseline`)
 fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) -> (Option<Vec<String>>, Vec<String>, Vec<Reason>, Option<Reason>) {
   use crate::derive::decide_landing;
-  use crate::derive::derive_budget_test::at;
-  use crate::facts::{FactResult, RobotsRead, session_remote};
-  use domain_types::fixtures::{robot, robot_of};
-  use domain_types::landed::LandedBranch;
-  use domain_types::patronus::{PatronusAvailability, PatronusRobotStatus, PatronusRobotsResult};
-  use domain_types::repository_view::{BranchPatronus, LandedByView};
+  use crate::facts::session_remote;
+  use domain_types::repository_view::LandedByView;
   use std::collections::HashMap;
-  use std::sync::Arc;
 
   let branches = vec![on("login", Some("auth")), on("auth", Some("base")), on("base", None)];
   let mut auth = remote_status("auth", &[]);
@@ -608,8 +602,7 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
     in_baseline: crate::branch_table::in_baseline(&whole(in_baseline)).map(str::to_string).collect(),
     ..BranchTable::default()
   };
-  let mut facts = FactStore::new();
-  let _ = facts.table.answer(at(1), Ok(Arc::new(table.clone())));
+  let mut facts = synced_facts(&table);
   let mut robots = Vec::new();
   let mut view = PatronusView::default();
   if by_robot {
@@ -642,12 +635,7 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
   }
   // what the rules decide over these facts, as the session's derivation writes it into the view
   decide_landing(&mut view, &table, &session_remote(&table, &state), &robots, &HashMap::new(), &BTreeMap::new());
-  assert!(facts.patronus.begin(3, Duration::from_secs(3)));
-  facts.patronus.answer(at(3), Ok(view));
-  if let Some((inputs, _)) = facts.patronus.publish(&table) {
-    let _ = facts.patronus.needs_answer(inputs, Ok(BTreeMap::new()));
-    let _ = facts.patronus.publish(&table);
-  }
+  answer_patronus(&mut facts, 3, view, &table);
 
   let patch = View::new(1, "user").diff(&state, &facts).unwrap();
   let decision = &patch.changes.lands["login"].safe_push;
@@ -885,10 +873,8 @@ fn the_view_names_the_robots_that_need_the_user_over_the_rows_as_they_are() {
     )]),
     ..PatronusView::default()
   };
-  assert!(facts.patronus.begin(2, Duration::from_secs(2)));
-  facts.patronus.answer(at(2), Ok(view));
   // the part of the view, as the session publishes it after the derivation
-  let _ = facts.patronus.publish(&BranchTable::default());
+  answer_patronus(&mut facts, 2, view, &BranchTable::default());
   let needs = |facts: &FactStore, state: &TableState| attention_of(state, facts).into_iter().map(|(key, attention)| (key, attention.robot_id)).collect::<Vec<_>>();
   let pair = |key: &str, robot_id: &str| (key.to_string(), robot_id.to_string());
   assert_eq!(needs(&facts, &state), [pair("docs", "docs-failed")], "fixed, parked, held: only docs");

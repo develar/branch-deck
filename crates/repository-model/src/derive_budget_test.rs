@@ -36,6 +36,23 @@ pub(crate) fn at(seq: u32) -> Observation {
   }
 }
 
+/// The facts of a session whose last sync answered `table`, at the first observation
+pub(crate) fn synced_facts(table: &BranchTable) -> FactStore {
+  let mut facts = FactStore::new();
+  let _ = facts.table.answer(at(1), Ok(Arc::new(table.clone())));
+  facts
+}
+
+/// Patronus answered `view` at `seq`, and the landing needs of `table` are none: the part as the session publishes it
+pub(crate) fn answer_patronus(facts: &mut FactStore, seq: u32, view: PatronusView, table: &BranchTable) {
+  assert!(facts.patronus.begin(u64::from(seq), Duration::from_secs(u64::from(seq))));
+  facts.patronus.answer(at(seq), Ok(view));
+  if let Some((inputs, _)) = facts.patronus.publish(table) {
+    let _ = facts.patronus.needs_answer(inputs, Ok(BTreeMap::new()));
+    let _ = facts.patronus.publish(table);
+  }
+}
+
 fn stacked(name: &str, parent: &str) -> GroupedBranchInfo {
   GroupedBranchInfo {
     stack: Some(BranchStack {
@@ -140,8 +157,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     remote,
     ..BranchTable::default()
   };
-  let mut facts = FactStore::new();
-  let _ = facts.table.answer(at(1), Ok(Arc::new(table.clone())));
+  let mut facts = synced_facts(&table);
   let running: Vec<_> = branches
     .iter()
     .step_by(14)
@@ -177,13 +193,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
       .collect(),
     ..PatronusView::default()
   };
-  assert!(facts.patronus.begin(3, Duration::from_secs(3)));
-  facts.patronus.answer(at(3), Ok(view));
-  // the landing needs of the table: nothing is needed
-  if let Some((inputs, _)) = facts.patronus.publish(&table) {
-    let _ = facts.patronus.needs_answer(inputs, Ok(BTreeMap::new()));
-    let _ = facts.patronus.publish(&table);
-  }
+  answer_patronus(&mut facts, 3, view, &table);
   facts.apply(
     at(4),
     FactResult::PullRequests(PullRequestsResult {
