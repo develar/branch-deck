@@ -1,6 +1,6 @@
 //! The push of the tests of the core push: the branches of a stack, each leased on the remote head the user saw,
 //! frozen at their tips now (`prepare_push_expecting`) as the engine freezes the refs of a plan
-//! (`operations::land_execute`), sent through `PreparedPush::push`, and what the remote has after it. The app and `bd`
+//! (`operations::land_execute`), sent through `PreparedPush::push_leased`, and what the remote has after it. The app and `bd`
 //! push through the same `PreparedPush`; this is only the shape the tests name a push in
 
 use crate::config_snapshot::ConfigSnapshot;
@@ -100,7 +100,7 @@ pub(crate) fn send_prepared(
   params: &PushBranchesParams,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushBranchesOutcome> {
-  match prepared.push(git, on_progress)? {
+  match prepared.push_leased(git, on_progress)? {
     LeasedPush::Pushed(_) => Ok(PushBranchesOutcome::Pushed {
       remote_statuses: prepared.statuses(git)?,
       pushed_over: Vec::new(),

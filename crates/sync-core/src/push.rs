@@ -1,6 +1,6 @@
 //! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the intent
 //! `Push` of the engine and the push of a start (`operations::push`, `operations::land_execute`), and `bd push`, each
-//! freezing its commits and leases (`PreparedPush::leased`) and sending them through one leased push (`push_leased`).
+//! freezing its commits and leases (`PreparedPush::leased`) and sending them through one leased push (`PreparedPush::push_leased`).
 //! A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched and reported,
 //! never overwritten blindly: the push goes again over what it has now, once, only when nothing of it is lost
 //! (`domain_policy::push::over_moved_remote`, `PreparedPush::over_moved`, which `operations::push::send` runs for the
@@ -88,13 +88,13 @@ impl PreparedPush {
   }
 
   /// The network part of every push: one `git push --porcelain --progress` of the prepared commits, `--atomic` for more
-  /// than one ref (`push_leased`)
+  /// than one ref
   ///
   /// # Errors
   /// What git failed with
   #[instrument(skip_all, fields(repository_path = %self.repository_path, branches = self.branches.len()))]
-  pub fn push(&self, git_executor: &GitCommandExecutor, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<LeasedPush> {
-    push_leased(git_executor, &self.target(), &self.branches, self.options, Some(on_progress))
+  pub fn push_leased(&self, git_executor: &GitCommandExecutor, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<LeasedPush> {
+    send_leased(git_executor, &self.target(), &self.branches, self.options, Some(on_progress))
   }
 
   /// The push again over what the remote has now, after `refused` (the answer of this push) found remote branches
@@ -183,7 +183,7 @@ pub enum LeasedPush {
 /// branches whose remote moved are named, with the remote statuses after the fetch; when none moved, the remote
 /// refused for another reason.
 #[instrument(skip(git_executor, branches, on_progress), fields(remote = %target.remote, branches = branches.len()))]
-pub fn push_leased(
+fn send_leased(
   git_executor: &GitCommandExecutor,
   target: &PushTarget<'_>,
   branches: &[LeasedBranch],

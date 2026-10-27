@@ -47,7 +47,7 @@ pub struct ApiStart<'a> {
 #[instrument(skip_all, fields(source = start.source_ref, mode = ?start.mode))]
 pub async fn start_through_api(service: &PatronusService, start: ApiStart<'_>) -> Result<PatronusRobot, ApiError> {
   service
-    .start(start.space, start.prefix, start.source_ref, start.target, start.mode, start.profile, start.merge_request)
+    .start_robot(start.space, start.prefix, start.source_ref, start.target, start.mode, start.profile, start.merge_request)
     .await
     .map_err(patronus_failure)
 }

@@ -42,7 +42,6 @@ const MUTATING: &[&str] = &[
   // the operations of the remote (`operations::engine`)
   "execute",
   "cancel_operation",
-  // GitHub
   // the sign-ins
   "start_github_sign_in",
   "wait_github_sign_in",

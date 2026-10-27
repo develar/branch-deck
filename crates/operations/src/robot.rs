@@ -92,7 +92,7 @@ where
       version,
     });
   }
-  let robot = patronus.cancel(prefix, robot_id).await.map_err(patronus_failure)?;
+  let robot = patronus.cancel_robot(prefix, robot_id).await.map_err(patronus_failure)?;
   let version = write(robot.clone()).await;
   Ok(Canceled {
     robot,

@@ -605,7 +605,7 @@ fn app_push(repo: &TestRepo, branch: &str) {
     parent_ref: None,
   };
   let prepared = PreparedPush::leased(&target, vec![leased], PushOptions { atomic: false, dry_run: false });
-  assert!(matches!(prepared.push(repo.git_executor(), &mut |_| {}).unwrap(), LeasedPush::Pushed(_)));
+  assert!(matches!(prepared.push_leased(repo.git_executor(), &mut |_| {}).unwrap(), LeasedPush::Pushed(_)));
 }
 
 #[test_log::test]

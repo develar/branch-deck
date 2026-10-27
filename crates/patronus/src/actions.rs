@@ -457,7 +457,7 @@ impl PatronusService {
   /// Never repeated: Patronus fetches a branch pushed right before while it handles the start.
   #[expect(clippy::too_many_arguments, reason = "the fields of one start request of Patronus")]
   #[instrument(skip(self))]
-  pub async fn start(
+  pub async fn start_robot(
     &self,
     repository: &str,
     branch_prefix: &str,
@@ -503,7 +503,7 @@ impl PatronusService {
 
   /// Starts the robot again on the newest commit of its branch: a new robot
   #[instrument(skip(self))]
-  pub async fn restart(&self, branch_prefix: &str, robot_id: &str) -> Result<PatronusRobot, ActionError> {
+  pub async fn restart_robot(&self, branch_prefix: &str, robot_id: &str) -> Result<PatronusRobot, ActionError> {
     let token = self.action_token()?;
     let response = self.client().restart_robot(&token.value, robot_id).await;
     let robot_id = self.settle(response, &token.stamp).map_err(availability_message)?;
@@ -513,7 +513,7 @@ impl PatronusService {
 
   /// Asks Patronus to cancel the robot; it is canceling until its checks stopped
   #[instrument(skip(self))]
-  pub async fn cancel(&self, branch_prefix: &str, robot_id: &str) -> Result<PatronusRobot, ActionError> {
+  pub async fn cancel_robot(&self, branch_prefix: &str, robot_id: &str) -> Result<PatronusRobot, ActionError> {
     let token = self.action_token()?;
     let response = self.client().cancel_robot(&token.value, robot_id).await;
     self.settle(response, &token.stamp).map_err(availability_message)?;

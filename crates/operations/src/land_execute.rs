@@ -705,7 +705,7 @@ impl<'a> Run<'a> {
     }
     self.steps.step(OperationStep::Starting);
     let answer = match self.services.patronus() {
-      Ok(patronus) => patronus.restart(&self.services.prefix, robot_id).await.map_err(patronus_failure),
+      Ok(patronus) => patronus.restart_robot(&self.services.prefix, robot_id).await.map_err(patronus_failure),
       Err(error) => Err(error),
     };
     self.robot_started(answer).await

@@ -970,7 +970,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (exit 4, not retryable) with nothing pushed, listing the branches whose remote moved in `error.branches` with their
   remote status as fetched (`head`, `behind`, `dropped_commits`). A branch refused as behind is listed the same way,
   and `bd sync` prints the same remote status per branch. The app's stack push is the same push
-  (`sync_core::push::push_leased`). A push the remote refuses while every lease holds (a hook, a protected branch, a
+  (`sync_core::push::PreparedPush::push_leased`). A push the remote refuses while every lease holds (a hook, a protected branch, a
   pack too large) must be `push_refused` with what git said of each ref and what the remote said why (its `remote:`
   lines, git's `error:` lines, not the progress), nothing pushed.
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`, `a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved`, `a_push_the_remote_refuses_with_its_leases_holding_is_push_refused`)

@@ -2861,7 +2861,7 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    robot of a named branch over HTTP after the lock, before the push, and restarts it after it
    (`operations::push::{cancel_robots, restart_robots}`), as the app's restart that pushes first does.
 2. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <tip>:refs/heads/<b>…`
-   through `sync_core::push::push_leased`, the one leased push of the app's push too (below; `push_lease::push_refs`
+   through `sync_core::push::PreparedPush::push_leased`, the one leased push of the app's push too (below; `push_lease::push_refs`
    underneath: exit 1, a rejected ref, still prints the porcelain report), the tips those the sync left
    (`leased_push_refs`, no `for-each-ref`). Atomic: a stack is pushed whole or not at all.
 3. The lease comes from `push_lease`, which the app's push button uses as well (below): the remote head the sync of

@@ -66,3 +66,5 @@ pub mod witness;
 mod http_budget_test;
 #[cfg(test)]
 mod process_budget_test;
+#[cfg(test)]
+mod remote_write_scan_test;

@@ -100,7 +100,7 @@ impl Sent {
 /// What git failed with
 #[instrument(skip_all, fields(branches = prepared.branches().len()))]
 pub fn send(git: &GitCommandExecutor, prepared: PreparedPush, over: OverMoved, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<Sent> {
-  let answer = prepared.push(git, on_progress)?;
+  let answer = prepared.push_leased(git, on_progress)?;
   let again = match (over, &answer) {
     (OverMoved::Once, LeasedPush::RemoteMoved { moved, remote_statuses }) => prepared.over_moved(&answer).map(|again| {
       let found = Over {
@@ -115,7 +115,7 @@ pub fn send(git: &GitCommandExecutor, prepared: PreparedPush, over: OverMoved, o
     return Ok(Sent { prepared, answer, over: None });
   };
   debug!(moved = ?found.moved, "a remote branch moved without commits its branch lacks: the push goes again over it");
-  let answer = again.push(git, on_progress)?;
+  let answer = again.push_leased(git, on_progress)?;
   Ok(Sent {
     prepared: again,
     answer,
@@ -130,7 +130,7 @@ pub fn send(git: &GitCommandExecutor, prepared: PreparedPush, over: OverMoved, o
 /// What Patronus answered for the first that failed; the ones before it stay canceled
 pub async fn cancel_robots(service: &PatronusService, branch_prefix: &str, robots: &[PatronusRobot]) -> Result<(), String> {
   for robot in robots {
-    service.cancel(branch_prefix, &robot.id).await?;
+    service.cancel_robot(branch_prefix, &robot.id).await?;
   }
   Ok(())
 }
@@ -142,7 +142,7 @@ pub async fn cancel_robots(service: &PatronusService, branch_prefix: &str, robot
 pub async fn restart_robots(service: &PatronusService, branch_prefix: &str, robots: &[PatronusRobot]) -> Result<Vec<PatronusRobot>, String> {
   let mut restarted = Vec::with_capacity(robots.len());
   for robot in robots {
-    restarted.push(service.restart(branch_prefix, &robot.id).await?);
+    restarted.push(service.restart_robot(branch_prefix, &robot.id).await?);
   }
   Ok(restarted)
 }
