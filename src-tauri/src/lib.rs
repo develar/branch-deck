@@ -47,9 +47,7 @@ use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_confl
 use commands::fetch_baseline::fetch_baseline;
 use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
-use commands::move_commits::move_commits_to_branch;
 use commands::operations::{cancel_operation, execute, prepare};
-use commands::parked_branches::{park_branches, unpark_branches};
 use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
 use commands::pick_remote_commits::{pick_remote_commits, undo_pick_remote_commits};
 use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
@@ -61,7 +59,7 @@ use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, 
 use commands::settings::{get_settings_changes, set_setting};
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
-use commands::stack_operations::{get_stack_independence, rename_branch, restack_branch, undo_regroup};
+use commands::stack_operations::{get_stack_independence, preview_move};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
 use commands::unapply_branch::{reapply_branch, unapply_branch, undo_reapply_branch, undo_unapply_branch};
 use commands::uncommitted_changes::get_uncommitted_changes;
@@ -156,16 +154,11 @@ fn specta_builder() -> Builder<tauri::Wry> {
       restart_app,
       set_setting,
       get_settings_changes,
-      move_commits_to_branch,
+      preview_move,
       find_conflict_fix,
       cancel_conflict_fix,
       apply_conflict_fix,
-      rename_branch,
-      restack_branch,
-      park_branches,
-      unpark_branches,
       get_stack_independence,
-      undo_regroup,
       add_issue_reference_to_commits,
       reword,
       squash_commits,

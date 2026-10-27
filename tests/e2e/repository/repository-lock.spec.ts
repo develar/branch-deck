@@ -4,7 +4,7 @@ import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getMoreButton, getPushButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordCommand } from "../helpers/wait-helpers"
+import { recordCommand, recordRewrites } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -81,7 +81,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
 
   test("should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
-    const moves = await recordCommand(page, "move_commits_to_branch")
+    const moves = await recordRewrites(page, "move")
     await repo.holdRepositoryLock(true)
     await moveParserToDocsFromMenu(page)
 

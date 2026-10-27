@@ -226,13 +226,13 @@ The commit hash popover shows the same header and body.
 - After a save that changed the commit, a toast "Reworded <short id of the old commit>" with the new subject must offer
   Undo for 10 s, and Activity must record the reword with the same Undo, which runs once. The Undo must move HEAD back
   to what the save found (the old messages, and with them the old virtual commits), as the Undo of a move does
-  (`undo_regroup`). A click on the toast must keep the preview open; the preview on the reworded commit must follow the
+  (the rewrite `undo` of the engine). A click on the toast must keep the preview open; the preview on the reworded commit must follow the
   Undo back to the old commit. A preview stepped to another commit stays there, and one on a commit that the Undo
   removes closes.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should undo a reword from its toast and follow the preview back`, `should undo a reword from Activity`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`, `offers no Undo past the window of the toast`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`undo_of_a_reword_brings_back_the_old_virtual_commits`)
-  [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_token_that_undo_regroup_takes`)
+  [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_token_that_the_rewrite_undo_takes`)
 - The Undo must be refused, with nothing changed, once the branch moved after the save (another rewrite, a commit in a
   terminal): "Cannot undo the reword" with the reason.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should refuse to undo a reword after the branch moved`)

@@ -74,7 +74,8 @@ fn waits_with(count: usize) -> impl Fn(&[RunningOperation]) -> bool {
 
 /// A rewrite is run by its core and ends once it asked the sync that shows it: the move of beta's commit into `gamma`
 /// is one ref transaction of HEAD, its outcome the rewrite and the sync asked, what the move answered and its undo by
-/// the regroup's token; the undo of that token moves HEAD back
+/// the regroup's token; the answer comes once that sync ended, with the version of its last patch, so the table has the
+/// new HEAD then; the undo of that token moves HEAD back
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_undo() {
   let fixture = fixture(true).await;
@@ -101,6 +102,12 @@ async fn a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_u
   let undo = outcome.undo.clone().unwrap();
   assert_eq!(undo.kind, UndoKind::Regroup);
   assert_eq!(fixture.operations().await, Vec::new(), "it left the view with its end");
+  assert!(outcome.version_after.is_some(), "the version of the last patch of its sync: {outcome:?}");
+  assert_eq!(
+    fixture.registry.sessions().read(&fixture.key, |state, _| state.header().head.clone()).await,
+    Some(fixture.repo.rev_parse("HEAD").unwrap()),
+    "it answered once its sync showed the new HEAD"
+  );
 
   let undone = fixture.rewrite(&RewriteIntent::Undo { token: undo }).await.unwrap();
   assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));

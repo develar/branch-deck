@@ -46,17 +46,24 @@ vi.mock("@/stores/branch-sync", () => ({
   },
 }))
 vi.mock("@/stores/commit-move", () => ({ requestReveal: () => {} }))
+// the Undo runs in the engine: the window holds no session view in this test
+vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {}, getSessionWitness: () => ({ head: "", storeTips: { issueGroups: null, stackParents: null, parked: null } }) }))
 vi.mock("@/stores/stack-collapse", () => ({ forgetCollapsedStack: () => {}, renameCollapsedStack: () => {} }))
 vi.mock("@/lib/bindings", async importOriginal => {
   const original = await importOriginal<typeof import("@/lib/bindings")>()
   const { fakeActivity } = await import("@/test-support/fake-activity")
-  return { ...original, commands: { ...original.commands, ...fakeActivity.commands, reword: vi.fn(), undoRegroup: vi.fn() } }
+  return { ...original, commands: { ...original.commands, ...fakeActivity.commands, reword: vi.fn(), execute: vi.fn() } }
 })
 
 const OLD_ID = "1111111111111111111111111111111111111111"
 const NEW_ID = "2222222222222222222222222222222222222222"
 const TOKEN = `${OLD_ID}..${NEW_ID}`
 const commit = { originalHash: OLD_ID, message: "(auth) Add login" } as unknown as CommitUnion
+
+/** The `execute` of the Undo of the reword in `repositoryPath`: the rewrite `undo` of its regroup token */
+function undoOf(repositoryPath: string) {
+  return { repositoryPath, intent: { kind: "rewrite", rewrite: "undo", token: { kind: "regroup", token: TOKEN } }, fingerprint: "" }
+}
 
 function answer(result: RewordResult) {
   vi.mocked(commands.reword).mockResolvedValue({ status: "ok", data: result })
@@ -81,7 +88,20 @@ describe("rewordCommit", () => {
     renamed.clear()
     fakeActivity.reset()
     await clearActivity("/repo")
-    vi.mocked(commands.undoRegroup).mockResolvedValue({ status: "ok", data: null })
+    // the undo ends (`done` on its channel) before it answers
+    vi.mocked(commands.execute).mockImplementation(async (_params, events) => {
+      const outcome = {
+        op: "op-undo",
+        effects: [],
+        newsKey: null,
+        versionAfter: null,
+        result: { kind: "rewrite" as const, rewrite: "undone" as const, answer: { alreadyUndone: false } },
+        undo: null,
+        stats: { gitProcesses: {}, httpRequests: 0, millis: 1 },
+      }
+      events.onmessage({ kind: "done", outcome })
+      return { status: "ok", data: outcome }
+    })
   })
 
   afterEach(() => {
@@ -115,15 +135,15 @@ describe("rewordCommit", () => {
 
     undoActivity(entry)
     await vi.waitFor(() => expect(follow.mock.calls).toHaveLength(2))
-    expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", token: TOKEN }, expect.anything())
-    // the preview on the new commit follows the Undo back
+    expect(vi.mocked(commands.execute)).toHaveBeenCalledExactlyOnceWith(undoOf("/repo"), expect.anything())
+    // the preview on the new commit follows the Undo back, once it is written, before its sync
     expect(follow.mock.calls[1]).toEqual([NEW_ID, OLD_ID])
-    expect(entries()[0]!.undo?.undone).toBe(true)
+    await vi.waitFor(() => expect(entries()[0]!.undo?.undone).toBe(true))
 
     // the toast's Undo after the one in Activity undoes nothing more
     toasts[0]!.actionProps!.onClick!()
     await vi.advanceTimersByTimeAsync(0)
-    expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledOnce()
+    expect(vi.mocked(commands.execute)).toHaveBeenCalledOnce()
   })
 
   it("undoes the reword in its repository when the toast's Undo comes after a switch of the repository", async () => {
@@ -133,7 +153,7 @@ describe("rewordCommit", () => {
     selection.path = "/other"
 
     toasts[0]!.actionProps!.onClick!()
-    await vi.waitFor(() => expect(vi.mocked(commands.undoRegroup)).toHaveBeenCalledExactlyOnceWith({ repositoryPath: "/repo", token: TOKEN }, expect.anything()))
+    await vi.waitFor(() => expect(vi.mocked(commands.execute)).toHaveBeenCalledExactlyOnceWith(undoOf("/repo"), expect.anything()))
     // the table shows /other: nothing of it is synced for the undo of /repo
     await vi.advanceTimersByTimeAsync(0)
     expect(syncs.count).toBe(1)
@@ -165,7 +185,7 @@ describe("rewordCommit", () => {
     const entry = entries()[0]!
     expect(canUndoActivity(entry)).toBe(false)
     undoActivity(entry)
-    expect(vi.mocked(commands.undoRegroup)).not.toHaveBeenCalled()
+    expect(vi.mocked(commands.execute)).not.toHaveBeenCalled()
   })
 
   it("records nothing for an unchanged message", async () => {

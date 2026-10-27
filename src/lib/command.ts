@@ -17,12 +17,12 @@ export async function invokeCommand<T>(run: () => Promise<CommandResult<T>>): Pr
 
 /**
  * Success toast of a history rewrite of `repositoryPath`, with an Undo button for 10 seconds; Activity records it in
- * that repository with the same Undo.
- * `undo` resolves to whether it undid the rewrite: the toast closes then, and stays after an undo that failed (an error
- * toast says why), so its Undo can be pressed again. Returns the id of the toast, so a check that answers later can add
- * an action to it.
+ * that repository with the same Undo, naming the operation of the engine that ran it (`operationId`, its log lines).
+ * `undo` resolves to whether it undid the rewrite: the toast closes then, and stays after an undo that failed or whose
+ * wait for the lock the user stopped (a toast says why), so its Undo can be pressed again. Returns the id of the toast,
+ * so a check that answers later can add an action to it.
  */
-export function showUndoToast(repositoryPath: string, title: string, undo: () => Promise<boolean>, description?: string): string {
+export function showUndoToast(repositoryPath: string, title: string, undo: () => Promise<boolean>, description?: string, operationId?: string): string {
   const id = toast.add({
     type: "success",
     title,
@@ -45,6 +45,7 @@ export function showUndoToast(repositoryPath: string, title: string, undo: () =>
       return undone
     },
     description,
+    operationId,
   )
   return id
 }

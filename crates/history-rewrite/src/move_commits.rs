@@ -13,9 +13,9 @@ use std::collections::BTreeSet;
 use sync_utils::commit_subject::parse_subject;
 use tracing::{info, instrument};
 
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
+/// A move of commits as its core runs it: the rewrite `Move` of the engine (`operations::rewrite`), and its dry run, the
+/// preview of the "Move to…" form (`preview_move_core`)
+#[derive(Debug)]
 pub struct MoveCommitsParams {
   pub repository_path: String,
   /// Commits on the current branch (the original commits of virtual branch commits)
@@ -24,13 +24,21 @@ pub struct MoveCommitsParams {
   /// of the issue group of their key
   pub target_branch: Option<String>,
   /// Compute what the move would do, write nothing (the preview of the "Move to…" form)
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
   pub dry_run: bool,
   /// The HEAD the request was made for; another HEAD refuses the move
-  #[serde(default)]
-  #[cfg_attr(feature = "specta", specta(optional))]
   pub expect_head: Option<String>,
+}
+
+/// What the "Move to…" form previews as the user types (`preview_move`): the move of `commit_ids` into `target_branch`
+/// (`None`: back), computed and not written
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct MovePreviewParams {
+  pub repository_path: String,
+  /// Commits on the current branch (the original commits of virtual branch commits)
+  pub commit_ids: Vec<String>,
+  pub target_branch: Option<String>,
 }
 
 impl MoveCommitsParams {
@@ -72,6 +80,17 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
   let result = move_result(&outcome, &params.commit_ids, leaf);
   info!(commits = result.commits.len(), grouped = ?result.grouped_issues, ungrouped = ?result.ungrouped_issues, "Moved commits");
   Ok(result)
+}
+
+/// What the move of `params` would do (`move_commits_to_branch_core` as a dry run): the issues that go by their key and
+/// the commits that get a prefix, nothing written, no lock taken
+///
+/// # Errors
+/// An invalid target name, no commits, a plan the move refuses (a fixup separated from its target, a stack problem)
+pub fn preview_move_core(git_executor: &GitCommandExecutor, params: &MovePreviewParams) -> Result<MoveCommitsResult> {
+  let mut request = MoveCommitsParams::new(&params.repository_path, params.commit_ids.clone(), params.target_branch.as_deref());
+  request.dry_run = true;
+  move_commits_to_branch_core(git_executor, &request, LockWait::default())
 }
 
 /// The result of a regroup as a move: the `requested` commits (full or abbreviated ids) in request order, then every

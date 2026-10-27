@@ -3,9 +3,10 @@
 // the session admits it (a second click joins it, one that needs what another holds waits for it), shows its steps in
 // the view of every window and the moves of its rows. The page decides nothing of it: it words the plan's refusal and
 // the outcome. A start of a Safe Push or a Dry Run asks its confirmations first (`startPlanned` of `useSafePush.ts`);
-// the intents run here ask none.
+// the intents run here ask none. A rewrite names the table it was asked on in its intent and plans itself in the
+// session (`executeRewrite`): no `prepare`.
 import { Channel } from "@tauri-apps/api/core"
-import type { ApiError, ExecuteParams, Intent, OperationEvent, OperationId, Outcome, Plan, Reason } from "@/lib/bindings"
+import type { ApiError, ExecuteParams, Intent, OperationEvent, OperationId, Outcome, Plan, Reason, RewriteIntent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { whenSessionViewAt } from "@/model/store"
@@ -79,6 +80,26 @@ export async function executePlan(repositoryPath: string, plan: Plan, onEvent: (
   }
   await whenSessionViewAt(repositoryPath, executed.data.versionAfter)
   return { kind: "ran", plan, outcome: executed.data }
+}
+
+/** How a run of a rewrite went (`executeRewrite`) */
+export type RewriteExecution = { readonly kind: "ran"; readonly outcome: Outcome } | { readonly kind: "failed"; readonly error: ApiError }
+
+/**
+ * Runs the rewrite `rewrite` in the session of `repositoryPath` (`execute` of the intent `rewrite`), without a
+ * `prepare`: the rewrite names the table it was asked on (`TableWitness`) and asks nothing to accept, and the session
+ * plans it once admitted, also a session that is not open (the Undo of a repository the window left). Resolves once the
+ * view of the window has what the sync it asked showed (`versionAfter`), its steps to `onEvent` meanwhile
+ */
+export async function executeRewrite(repositoryPath: string, rewrite: RewriteIntent, onEvent: (event: OperationEvent) => void): Promise<RewriteExecution> {
+  const events = new Channel<OperationEvent>()
+  events.onmessage = onEvent
+  const executed = await executeIntent({ repositoryPath, intent: { kind: "rewrite", ...rewrite }, fingerprint: "" }, events)
+  if (executed.status === "error") {
+    return { kind: "failed", error: executed.error }
+  }
+  await whenSessionViewAt(repositoryPath, executed.data.versionAfter)
+  return { kind: "ran", outcome: executed.data }
 }
 
 /**

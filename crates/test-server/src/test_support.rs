@@ -185,6 +185,16 @@ pub(crate) async fn push_alone(client: &reqwest::Client, addr: SocketAddr, path:
   post(client, addr, "/invoke/execute", execute).await
 }
 
+/// The rewrite `rewrite` (`{"rewrite": "park", "branches": […]}`) of the repository at `path` through the engine, as
+/// the page runs it: named on the table at HEAD as it is now (an undo names none), its outcome
+pub(crate) async fn rewrite(client: &reqwest::Client, addr: SocketAddr, path: &str, mut rewrite: Value) -> Value {
+  if rewrite["rewrite"] != "undo" {
+    rewrite["witness"] = json!({"head": head(path), "storeTips": {"issueGroups": null, "stackParents": null, "parked": null}});
+  }
+  rewrite["kind"] = json!("rewrite");
+  post(client, addr, "/invoke/execute", json!({"repositoryPath": path, "intent": rewrite, "fingerprint": ""})).await
+}
+
 /// What the server logs from now on at warning level and above, for a test that asserts it logs none: the global
 /// subscriber, which sees the threads of the server too, sound because nextest runs each test in a process of its own
 pub(crate) fn capture_warnings() -> std::sync::Arc<std::sync::Mutex<Vec<u8>>> {

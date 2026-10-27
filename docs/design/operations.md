@@ -33,8 +33,12 @@ One registry of the operations that run (`src/stores/operations.ts`), and one wa
   running operation's busy state as the reason ("Restarting the Safe Push…");
 - **one indicator**: the surface that started it shows the spinner; a start from a menu, a key or a toast shows it on
   the "⋯" of the object's row;
-- **the whole action**: a rewrite runs until the sync that shows its result ends (`runRewrite`), so a row never offers
-  the action again while it still shows the state before it.
+- **the whole action**: a rewrite runs until the sync that shows its result ends (`runRewriteIntent`, `runRewrite`),
+  so a row never offers the action again while it still shows the state before it.
+
+The rewrites of the engine (Move, Rename, Stack On, Unstack, Park, Unpark and their Undo) are admitted by the session
+in Rust: their record here only shows them (`admittedBySession`), the session joins and queues them
+([Rewrites](#rewrites)).
 
 ## Design
 
@@ -42,8 +46,11 @@ One registry of the operations that run (`src/stores/operations.ts`), and one wa
 flowchart LR
     Menu[menu item, key, toast] -->|"onSelect({ surface: null })"| Action
     Button[MenuItemButton, form, dialog] -->|"onSelect({ surface })"| Action
-    Action[restackBranch, moveCommits, …] --> Rewrite[runRewrite]
+    Action[restackBranch, moveCommits, …] --> Rewrite[runRewriteIntent]
+    Squash[squashCommits, rewordCommit, …] --> PageRewrite[runRewrite]
     Rewrite --> Run[runOperation]
+    PageRewrite --> Run
+    Rewrite --> Execute["execute(rewrite): the session admits and queues it"]
     Run --> Registry[(operationsStore: running, claims)]
     Registry --> Item[operationItem: running / disabled]
     Registry --> Row["row: busy, ⋯ spinner"]
@@ -136,6 +143,9 @@ refused), then for another process as long as the holder lives ([Git Operations]
 lock"), and says whom for on its channel: `runRewrite`
 and `withRowProcessing` give the command of an operation `lockWaitChannel(key)`, whose messages set the operation's
 `lockWait` ("Waiting for `bd pick` (pid 4242, for 12 s)", told again about once a second, null once the wait ended).
+A rewrite of the engine hears its steps on the channel of its `execute` instead (`runRewriteIntent`, `setSessionStep`):
+`waitingForLock` with the holder sets `lockWait` (`presentLockWait`), `queued` behind another operation sets
+`waitsFor` (the busy state of that one), and its Stop Waiting is `cancel_operation` of its operation.
 `operationLabel` says it in place of the busy state, so every surface of the operation shows it: the spinner's hover
 on the "⋯" of its row (`useUnclaimedOperation`), the label of a `MenuItemButton`, the progress row of an inline form,
 and `LockWaitNotice` on the surfaces that show their own busy state (the squash dialog, the commit message editor,
@@ -143,7 +153,8 @@ the move form, the squash of the fixups, Apply Fix).
 
 Stop Waiting is one builder, `stopWaitingItem(operation)` (null while it waits for nobody), and every surface that
 shows the waiting operation renders it: the "⋯" opens a menu of it, a `MenuItemButton` and an inline form show it
-beside themselves, `LockWaitNotice` beside the text. It calls `cancel_lock_wait` of the channel's id: the command
+beside themselves, `LockWaitNotice` beside the text. It calls `cancel_lock_wait` of the channel's id (of a rewrite of
+the engine `cancel_operation`): the command
 answers the code `canceled`, nothing changed, and the rewrite says so in an info toast ("Canceled squashing 2 commits
 before it started"), never an error; the surface that started it stays (the squash dialog keeps its message). A push
 and a Safe Push start, operations of the session, say it in their step in the view (`OperationStep.waitingForLock`
@@ -154,7 +165,21 @@ operation); Update Project keeps it in its run (`UpdateRun.lockWait`, Stop Waiti
 
 ### Rewrites
 
-`runRewrite(spec, failureTitle, command, applied)` (`src/lib/rewrite.ts`) is the one runner of a rewrite: the command,
+`runRewriteIntent(spec, rewrite)` (`src/lib/rewrite-run.ts`) runs a rewrite of the engine (`execute` of the intent
+`rewrite`, no `prepare`: the rewrite names the table the window shows, `TableWitness` of the view's header, and asks
+nothing to accept): Move (a drag, Move to…, Ungroup, Remove Prefix), Rename, Stack On, Unstack, Park, Unpark, and the
+Undo of each (`undoRewrite`, the rewrite `undo` of the token of its outcome, in the repository of the click). The
+session admits it: a second click of the same rewrite joins it, another rewrite waits behind it in the queue of the
+session (an Undo clicked during an Unstack, a second drag during a move: no info toast, its rows say "Waits for
+Unstacking tool-events"), each decided again on what the one before left; it ends once it asked its sync, and its
+`execute` answers once that sync ended, with the version of its last patch, which the page waits for
+(`whenSessionViewAt`) before its toast with Undo. Its record in `operationsStore` (`admittedBySession`) shows it on its
+surfaces from the click until then, never queued by the page. A failure is an error toast in the words of the rewrite
+(`presentRewrite`), a stopped wait an info toast. The toast closes and the Activity entry (naming the operation) says
+"undone" only once the undo undid it (`recordRewrite`); after a failed or stopped one both keep their Undo.
+
+`runRewrite(spec, failureTitle, command, applied)` (`src/lib/rewrite.ts`) runs the rewrites the page still runs by their
+own commands: the command,
 `notifyError` on a failure, `applied` (reveal the moved commits, say whether anything changed), then the sync, then
 the toast `applied` returns, with Undo. The toast comes after the sync: the user sees the result beside its Undo, and
 an Undo clicked at once never meets its own running operation. An Undo is a rewrite of its own (`undoRegroup`,
@@ -163,17 +188,17 @@ an Undo clicked at once never meets its own running operation. An Undo is a rewr
 "Waits for Unstacking tool-events". The toast of the rewrite closes and its Activity entry says "undone" only once the
 undo undid it (`recordRewrite`); after a failed one both keep their Undo.
 
-Through it: Stack On and Unstack, rename, move (and ungroup, remove prefix), squash, squash fixups and squash into,
-reword, the conflict fix, park and unpark, unapply, and their undos. The inline forms run theirs through
-`withRowProcessing` (amend, add issue reference; delete archived as a remote action), whose function includes the sync,
-or `withRowProgress` around an action that is an operation itself (rename, ungroup, park, unapply, squash fixups, close
-the stack's pull request).
+Through it: squash, squash fixups and squash into, reword, the conflict fix, unapply, and their undos (the undo of a
+reword and of a fix is the rewrite `undo` of the engine). A rewrite of the page waits in its queue for a rewrite of the
+engine of the repository too. The inline forms run theirs through `withRowProcessing` (amend, add issue reference;
+delete archived as a remote action), whose function includes the sync, or `withRowProgress` around an action that is
+an operation itself (rename, ungroup, park, unapply, squash fixups, close the stack's pull request).
 
-The engine has the same rewrites as one family (`Intent::Rewrite`, [Rewrite in the
-engine](git-operations.md#rewrite-in-the-engine)), which the page does not call yet: each holds `Resource::Head`, so a
-second click joins it, another rewrite of the process (an undo too) waits in the queue of the session and is decided
-again on what it left, and a push runs beside it; a wait for the lock is its step `WaitingForLock`, stopped by
-`cancel_operation`; it ends once it asked its sync, with what its core answered and its undo (`Outcome::undo`).
+The family in the engine is `Intent::Rewrite` ([Rewrite in the engine](git-operations.md#rewrite-in-the-engine)):
+each holds `Resource::Head`, so a second click joins it, another rewrite of the process (an undo too) waits in the
+queue of the session and is decided again on what it left, and a push runs beside it; a wait for the lock is its step
+`WaitingForLock`, stopped by `cancel_operation`; every step the queue gives it (`Queued` behind another, then the step
+it starts at) goes to its caller as the view shows it.
 
 ### Remote actions
 
@@ -294,16 +319,16 @@ operation.
 2. **Decision**: a second start of the same action joins the first instead of being refused.
    **Rationale**: a double click is no mistake to report; the caller of the second start gets the first one's result.
 3. **Decision**: a rewrite of the engine (`Rewrite`, `operations::rewrite`) ends once it asked the sync that shows
-   it; the page's `runRewrite`, which runs the rewrites of the page until they move onto the engine, lasts until that
-   sync ends, and its toast comes then.
+   it, and its `execute` answers once that sync ended, so the toast of its window comes then; the page's `runRewrite`,
+   which runs the rewrites of the page until they move onto the engine, lasts until that sync ends.
    **Rationale**: the row shows the state before the rewrite until the sync; offering the action again then is what
    ran it three times. In Rust a second click joins the running rewrite, and a rewrite after it names its commits on
    what the first left (its `TableWitness`, the new ids the first reported, the commit keys), so it needs no wait for
    the sync, which would hold every rewrite queued behind it for as long; the page, which decides on its table, keeps
    the wait until its rewrites run in the engine.
-   A rewrite names the repository of its click (`RewriteSpec.repositoryPath`), and so does its Undo: one of a
-   repository the main window no longer shows (an Undo clicked after a switch) ends with its command, and that
-   repository syncs when it opens.
+   A rewrite names the repository of its click (`RewriteRunSpec.repositoryPath`, `RewriteSpec.repositoryPath`), and so
+   does its Undo: one of a repository the main window no longer shows (an Undo clicked after a switch) runs in the
+   session of that repository, which syncs it.
 4. **Decision**: no `expect_head` for the regroups.
    **Rationale**: an unstack writes only `refs/branch-deck/stack-parents`, HEAD may stay; the registry closes the
    double start in the app, and a `bd` process meanwhile gets the exact error under the lock.

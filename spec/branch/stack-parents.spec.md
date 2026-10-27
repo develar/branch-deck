@@ -10,6 +10,7 @@ targets:
   - ../../crates/history-rewrite/src/stack.rs
   - ../../crates/history-rewrite/src/regroup.rs
   - ../../crates/history-rewrite/src/move_plan.rs
+  - ../../crates/operations/src/rewrite.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/trial-check/src/check.rs
   - ../../crates/trial-check/src/dependencies.rs
@@ -190,6 +191,12 @@ only the stack parents ref.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_write_on_one_worktree_keeps_the_parents_of_another`, `renaming_a_level_without_commits_renames_its_stack_parent`)
 - `bd restack` and `bd unstack` of an issue branch and of an issue group must be valid, and rewrite nothing.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`an_issue_group_is_restacked_and_unstacked_without_a_rewrite`)
+- The app's Stack On, Unstack and Rename are the rewrites `restack`, `unstack` and `rename` of the engine
+  (`operations::rewrite`, over the same cores), named on the table the window shows: a second click of the same one
+  (a double click, three clicks from two windows) runs one rewrite with one outcome, another rewrite waits behind it in
+  the queue of the session, and its toast with Undo comes once the sync it asked showed the branch.
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_triple_unstack_is_one_rewrite_with_one_outcome`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`)
 
 ### A stacked branch that builds alone
 

@@ -1,12 +1,11 @@
 import { toast } from "@/components/ui/toast"
 import { offerUnstackAfterMove, undoRegroup } from "@/hooks/useStackActions"
-import type { Commit, MoveCommitsResult } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
+import type { Commit, MoveCommitsResult, RewriteIntent } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { capitalize, countMoved, describeMove } from "@/lib/move-summary"
-import { runRewrite } from "@/lib/rewrite"
-import { branchSyncStore, getBranchesOfCommits, resolveCommitsOf } from "@/stores/branch-sync"
+import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
+import { branchSyncStore, getBranchesOfCommits } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
@@ -22,65 +21,56 @@ export interface MoveOptions {
 
 /**
  * Moves commits to `targetBranch` (an existing or a new branch), or back (`null`: out of their prefix branch or out of
- * the issue group of their key), with the smallest change (`move_commits_to_branch`): a whole issue goes by the issue
- * groups, without a rewrite, the other commits by their `(branch)` prefix. One rewrite (`runRewrite`): the move, the
- * sync, then the toast with an undo of the whole move and the moved commits revealed in the target branch; when a
- * stacked branch of the move builds alone afterwards, the toast also offers its unstack. A move that waited for another
- * rewrite in the queue moves the commits as that rewrite left them (`resolveCommitsOf`). Resolves after the sync, to
- * false, after an error toast, if the commits could not be moved.
+ * the issue group of their key), with the smallest change: a whole issue goes by the issue groups, without a rewrite,
+ * the other commits by their `(branch)` prefix. The rewrite `move` of the engine (`runRewriteIntent`), named on the
+ * table the window shows: the move, the sync, then the toast with an undo of the whole move and the moved commits
+ * revealed in the target branch; when a stacked branch of the move builds alone afterwards, the toast also offers its
+ * unstack. A move that waits for another rewrite in the queue of the session moves the commits as that rewrite left
+ * them (the session follows their ids). Resolves after the sync, to false, after an error toast, if the commits could
+ * not be moved.
  */
 export async function moveCommits(commits: readonly Commit[], targetBranch: string | null, options: MoveOptions = {}): Promise<boolean> {
   const sources = getBranchesOfCommits(commits.map(commit => commit.originalHash))
   const stacked = stackedBranchesOfMove(sources, targetBranch)
   const objects = [...new Set([...sources, ...(targetBranch === null ? [] : [targetBranch])])]
-  const commitCount = formatCommitCount(commits.length)
+  const commitIds = commits.map(commit => commit.originalHash)
   // the repository of the move: the move and its Undo go there, whichever the main window shows when they run
   const repositoryPath = getSelectedRepositoryPath()
-  const result = await runRewrite(
+  const rewrite = witnessed<Extract<RewriteIntent, { rewrite: "move" }>>(repositoryPath, { rewrite: "move", commitIds, targetBranch })
+  const done = await runRewriteIntent(
     {
       repositoryPath,
       id: options.id ?? "move-to",
       subject: branchSubject(sources[0] ?? targetBranch ?? ""),
       // a move of other commits or to another target is a move of its own: it waits for this one, never joins it
-      parameters: JSON.stringify([commits.map(commit => commit.originalHash), targetBranch]),
+      parameters: JSON.stringify([commitIds, targetBranch]),
       objects,
-      label: options.label ?? (targetBranch === null ? `Moving ${commitCount} back` : `Moving ${commitCount} to ${targetBranch}`),
+      label: options.label,
       surface: options.surface,
     },
-    targetBranch === null ? "Cannot move the commits back" : `Cannot move the commits to ${targetBranch}`,
-    wait =>
-      commands.moveCommitsToBranch(
-        {
-          repositoryPath,
-          // the ids as the rewrite before it left them, while the table shows the repository of the move
-          commitIds: resolveCommitsOf(repositoryPath, commits).map(commit => commit.originalHash),
-          targetBranch,
-        },
-        wait,
-      ),
-    moved => {
-      const count = countMoved(moved)
-      if (count === 0) {
-        return { sync: false, after: () => toast.add({ type: "info", title: targetBranch === null ? "Nothing to move back" : `Already in ${moved.target ?? targetBranch}` }) }
-      }
-      const target = moved.target ?? null
-      requestReveal(target === null ? null : { branchName: target, commitIds: movedIds(moved) })
-      const description = describeMove(moved, target, true)
-      return {
-        sync: true,
-        after: () => {
-          const toastId = showUndoToast(
-            repositoryPath,
-            moveTitle(moved, target, count),
-            () => undoRegroup(repositoryPath, moved.undoToken, "Cannot undo the move", "Undoing the move"),
-            description === undefined ? undefined : capitalize(description),
-          )
-          void offerUnstackAfterMove(toastId, stacked, target)
-        },
-      }
-    },
+    rewrite,
   )
-  return result !== null
+  if (done === null || done.result.rewrite !== "moved") {
+    return false
+  }
+  const moved = done.result.answer
+  const count = countMoved(moved)
+  if (count === 0) {
+    toast.add({ type: "info", title: targetBranch === null ? "Nothing to move back" : `Already in ${moved.target ?? targetBranch}` })
+    return true
+  }
+  const target = moved.target ?? null
+  requestReveal(target === null ? null : { branchName: target, commitIds: movedIds(moved) })
+  const description = describeMove(moved, target, true)
+  const toastId = showUndoToast(
+    repositoryPath,
+    moveTitle(moved, target, count),
+    () => undoRegroup(repositoryPath, done.undo?.token, "Cannot undo the move", "Undoing the move"),
+    description === undefined ? undefined : capitalize(description),
+    done.outcome.op,
+  )
+  void offerUnstackAfterMove(toastId, stacked, target)
+  return true
 }
 
 /** The target and the source branches of a move that are stacked, as the last sync knows them: the target first */

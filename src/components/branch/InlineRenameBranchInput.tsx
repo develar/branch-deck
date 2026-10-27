@@ -7,7 +7,7 @@ import { getStackDescendants, useBranch, useStacksEnabled } from "@/stores/branc
 import { closeInline, inlineSurface, withRowProgress } from "@/stores/inline-row-action"
 
 /**
- * Renames a branch (`rename_branch`): a prefix branch in the prefixes of its commits; an issue branch and an issue
+ * Renames a branch (the rewrite `rename`): a prefix branch in the prefixes of its commits; an issue branch and an issue
  * group in the issue groups, without a rewrite (a stacked one by a prefix), and so are the issue groups of a prefix
  * branch. An existing name merges the branches. With stacked branches on, the branches stacked on it follow: the name
  * changes in their prefixes too.

@@ -204,6 +204,8 @@ struct Channel {
   answer: watch::Sender<Option<Answer>>,
   /// While it waits: its wake-up and the step it starts at
   waiting: Option<(oneshot::Sender<()>, OperationStep)>,
+  /// Its caller: it hears each step the queue gives it (`Queued` behind another, then the step it starts at)
+  events: Arc<dyn EventSink>,
   /// Set by `Registry::cancel`: the operation stops waiting for the lock and makes no effect after it
   canceled: Arc<AtomicBool>,
 }
@@ -389,6 +391,7 @@ impl Registry {
     }
     // from here on the guard ends what the actor admits: a caller that stops waiting, for the admission or in the queue,
     // gives the place up, as its end follows the admission on the actor
+    let queue_events = Arc::clone(&events);
     let mut guard = RunningGuard {
       id: id.clone(),
       key: key.clone(),
@@ -405,7 +408,10 @@ impl Registry {
     let (wake, woken) = oneshot::channel();
     let channels = Arc::clone(&self.channels);
     let decided_key = key.clone();
-    let decision = self.sessions.apply_with(key, move |state| decide(state, &channels, decided_key, id, request, wake)).await;
+    let decision = self
+      .sessions
+      .apply_with(key, move |state| decide(state, &channels, decided_key, id, request, (wake, queue_events)))
+      .await;
     match decision.unwrap_or(Decision::Closed) {
       Decision::Run => Ok(Admitted::Run(guard)),
       Decision::Queued => {
@@ -464,14 +470,15 @@ fn closed() -> ApiError {
 }
 
 /// The admission of `request` as `id`, on the actor of the session: an operation that runs or waits enters the session
-/// with its channel, so a request of the same intent always finds the channel of the one it joins
+/// with its channel, so a request of the same intent always finds the channel of the one it joins; one that waits tells
+/// its caller behind which operation (`events`), as the view shows it
 fn decide(
   state: &mut TableState,
   channels: &Mutex<HashMap<OperationId, Channel>>,
   key: SessionKey,
   id: OperationId,
   request: OperationRequest,
-  wake: oneshot::Sender<()>,
+  (wake, events): (oneshot::Sender<()>, Arc<dyn EventSink>),
 ) -> Decision {
   let (step, waiting) = match admit(state.operations(), &request.intent, &request.resources) {
     Admission::Run => (request.step, None),
@@ -486,6 +493,12 @@ fn decide(
     }
   };
   let queued = waiting.is_some();
+  if queued {
+    events.send(OperationEvent::Step {
+      op: id.clone(),
+      step: step.clone(),
+    });
+  }
   let (answer, _) = watch::channel(None);
   lock(channels).insert(
     id.clone(),
@@ -493,6 +506,7 @@ fn decide(
       key,
       answer,
       waiting,
+      events,
       canceled: Arc::new(AtomicBool::new(false)),
     },
   );
@@ -509,7 +523,8 @@ fn decide(
 }
 
 /// The end of `id` with `answer`, on the actor of the session: it leaves the session, the ones that waited are admitted
-/// again in the order they came (each over the ones before it), and the requests that joined it get its answer
+/// again in the order they came (each over the ones before it), each caller told its new step, and the requests that
+/// joined it get its answer
 fn end(state: &mut TableState, channels: &Mutex<HashMap<OperationId, Channel>>, id: &OperationId, answer: Answer) {
   state.apply_operation(OperationPatch::Ended(id.clone()));
   let mut channels = lock(channels);
@@ -520,16 +535,22 @@ fn end(state: &mut TableState, channels: &Mutex<HashMap<OperationId, Channel>>, 
     };
     match admit(&operations[..index], &operation.intent, &operation.resources) {
       Admission::Run => {
-        if let Some((wake, step)) = channels.get_mut(&operation.id).and_then(|channel| channel.waiting.take()) {
+        if let Some(channel) = channels.get_mut(&operation.id)
+          && let Some((wake, step)) = channel.waiting.take()
+        {
+          told(channel, &operation.id, &step);
           state.apply_operation(OperationPatch::Step { id: operation.id.clone(), step });
           // a request that stopped waiting has ended it already: its end follows on the actor
           let _ = wake.send(());
         }
       }
-      Admission::Queue { op } if op != *behind => state.apply_operation(OperationPatch::Step {
-        id: operation.id.clone(),
-        step: OperationStep::Queued { behind: op },
-      }),
+      Admission::Queue { op } if op != *behind => {
+        let step = OperationStep::Queued { behind: op };
+        if let Some(channel) = channels.get(&operation.id) {
+          told(channel, &operation.id, &step);
+        }
+        state.apply_operation(OperationPatch::Step { id: operation.id.clone(), step });
+      }
       // the same newest holder: it waits on
       _ => {}
     }
@@ -537,6 +558,14 @@ fn end(state: &mut TableState, channels: &Mutex<HashMap<OperationId, Channel>>, 
   if let Some(channel) = channels.remove(id) {
     channel.answer.send_replace(Some(answer));
   }
+}
+
+/// The caller of the operation `id` of `channel` hears its new `step`
+fn told(channel: &Channel, id: &OperationId, step: &OperationStep) {
+  channel.events.send(OperationEvent::Step {
+    op: id.clone(),
+    step: step.clone(),
+  });
 }
 
 /// The end of `id` when its session is gone: the requests that joined it get `answer`, and the ones of the session that

@@ -321,6 +321,39 @@ async fn an_operation_waits_for_what_it_needs_and_runs_in_the_order_it_came() {
   assert_eq!(fixture.until(<[RunningOperation]>::is_empty).await, Vec::new());
 }
 
+/// The caller of an operation that waits hears what the view shows of it: behind which operation it waits, then the step
+/// it starts at once that one ended (a window says "Waits for …" of its own rewrite by them)
+#[tokio::test]
+async fn the_caller_of_a_waiting_operation_hears_behind_which_it_waits_and_where_it_starts() {
+  let fixture = fixture();
+  let push_auth = running(fixture.admit(push("auth"), &Arc::new(Heard::default())).await);
+  let heard = Arc::new(Heard::default());
+  let (registry, key, events) = (Arc::clone(&fixture.registry), fixture.key.clone(), Arc::clone(&heard) as Arc<dyn EventSink>);
+  let dry_run = tokio::spawn(async move { running(registry.admit(&key, new_id(), land("auth", PatronusPushMode::DryRun), events).await.unwrap()) });
+  let waiting = fixture.until(|operations| operations.len() == 2).await;
+  let dry_run_id = waiting.iter().find(|operation| operation.id != *push_auth.id()).unwrap().id.clone();
+  let behind = OperationStep::Queued { behind: push_auth.id().clone() };
+  assert_eq!(
+    heard.take(),
+    vec![OperationEvent::Step {
+      op: dry_run_id.clone(),
+      step: behind
+    }]
+  );
+
+  let id = push_auth.id().clone();
+  let _ = push_auth.finish(Ok(outcome(&id))).await;
+  let dry_run = dry_run.await.unwrap();
+  assert_eq!(
+    heard.take(),
+    vec![OperationEvent::Step {
+      op: dry_run_id,
+      step: OperationStep::Checking
+    }]
+  );
+  drop(dry_run);
+}
+
 /// A request that stops waiting gives its place up: the ones behind it wait for what still holds, and the operation that
 /// was dropped without an answer answers the requests that joined it why
 #[tokio::test]

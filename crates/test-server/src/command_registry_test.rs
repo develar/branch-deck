@@ -14,7 +14,7 @@ use std::path::Path;
 
 /// The number of commands of `collect_commands!`: a new command gets a route (or, with a reason, a [`PAGE_MOCKED`]
 /// entry) and raises this number; it also proves the parse found the whole macro
-const COMMAND_COUNT: usize = 108;
+const COMMAND_COUNT: usize = 103;
 
 const SUB_WINDOW: &str = "a sub-window is a page of its own: the page mock records the call and the test opens the page";
 
@@ -39,7 +39,7 @@ const RAW_ROUTES: &[(&str, &str)] = &[(
 /// log, `getPatronusLog`, `getGitHubLog`, `getYouTrack`). The failure of a write stays a page answer
 /// (`routeCommandError`), as does a hold that lets the call go on to the server (`holdCommand`, `recordCommand`)
 const MUTATING: &[&str] = &[
-  // the operations of the remote (`operations::engine`)
+  // the operations of the remote and the rewrites (`operations::engine`)
   "execute",
   "cancel_operation",
   // the links of Reviews (`repository-state.json`)
@@ -65,12 +65,6 @@ const MUTATING: &[&str] = &[
   "sync",
   "set_window_focus",
   "update_project",
-  "move_commits_to_branch",
-  "rename_branch",
-  "restack_branch",
-  "park_branches",
-  "unpark_branches",
-  "undo_regroup",
   "add_issue_reference_to_commits",
   "reword",
   "squash_commits",

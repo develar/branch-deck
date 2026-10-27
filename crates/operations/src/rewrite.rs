@@ -17,7 +17,9 @@
 //! (`plan_changed`), and nothing is written. The core then runs on the blocking pool with that HEAD expected
 //! (`RewriteOptions::expect_head`), under the repository lock it takes itself; the operation ends once it asked the sync
 //! that shows what it changed (`SyncReason::AfterRewrite`), not when that sync ends, with what the core answered and its
-//! undo (`Outcome::undo`). An undo names no table: its token moves each ref back with compare-and-swap.
+//! undo (`Outcome::undo`); the request answers once that sync ended, with the version of its last patch
+//! (`Outcome::version_after`), which the toast of the window waits for. An undo names no table: its token moves each ref
+//! back with compare-and-swap.
 
 use crate::engine::{Hosts, outcome_of, run};
 use crate::events::EventSink;
@@ -43,11 +45,11 @@ use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use object_cache::cache::ObjectCache;
-use repository_model::session::{SessionKey, Sessions};
+use repository_model::session::{SessionKey, Sessions, SyncTicket};
 use repository_model::table::{RewriteLink, TableState};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use sync_core::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use sync_core::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core, delete_unapplied_branch_core};
@@ -178,7 +180,10 @@ pub(crate) fn rewrite_request(prefix: &str, rewrite: &RewriteIntent) -> Operatio
 /// Runs `rewrite` in the session of `key` over the services of `host` (the module's header): admitted on HEAD (a second
 /// click joins it, another rewrite waits in the queue), what it names resolved on HEAD as it is now, its core on the
 /// blocking pool with that HEAD expected and the lock waited for as long as its holder lives (`WaitingForLock`, stopped
-/// by `Registry::cancel`), then the sync asked; its steps in the view, its outcome to `events`
+/// by `Registry::cancel`), then the sync asked; its steps in the view, its outcome to `events`. The operation ends with
+/// the request of that sync, so a rewrite queued behind it runs beside the sync; the answer comes once the sync ended,
+/// with the version of its last patch (`Outcome::version_after`), so the window that asked shows its toast beside what
+/// it changed. A request that joined the operation answers as it ended, without that version
 ///
 /// # Errors
 /// What its core refused, with the code of its typed error; `plan_changed` for a commit no longer there; `canceled`
@@ -190,14 +195,23 @@ pub async fn execute_rewrite(registry: &Registry, key: &SessionKey, rewrite: Rew
   // what it names, read off the table of the click before a rewrite before it changes the table
   let intent = rewrite.clone();
   let planned = sessions.read(key, move |state, _| rewrite_plan(state, &intent)).await;
-  run(registry, key, request, events, async |guard| {
+  let asked = Mutex::new(None);
+  let mut answer = run(registry, key, request, events, async |guard| {
     // no session was open: what the intent itself names
     let planned = planned.unwrap_or_else(|| rewrite_plan(&TableState::new(), &rewrite));
     let (resolved, expect_head) = resolve(sessions, key, hosts, &rewrite, &planned).await?;
     let ran = run_core(guard, key, hosts, &resolved, expect_head.clone()).await?;
-    Ok(finish(sessions, key, guard, &planned.plan, &resolved, expect_head, ran).await)
+    let (outcome, sync) = finish(sessions, key, guard, &planned.plan, &resolved, expect_head, ran).await;
+    *asked.lock().unwrap_or_else(PoisonError::into_inner) = sync;
+    Ok(outcome)
   })
-  .await
+  .await;
+  let sync = asked.into_inner().unwrap_or_else(PoisonError::into_inner);
+  if let (Ok(outcome), Some(sync)) = (&mut answer, sync) {
+    // a sync that failed or was deferred shows nothing new: the toast comes at once
+    outcome.version_after = sync.wait().await.ok().map(|answer| answer.version);
+  }
+  answer
 }
 
 /// HEAD and the stores as the table of the session of `key` knows them, and the rewrites of this process since
@@ -735,7 +749,16 @@ fn kept(path: &str, branch_name: &str) -> DeleteArchivedBranchParams {
 /// The end of the rewrite `resolved` of the operation of `guard` planned as `plan`, whose core answered `ran` on HEAD
 /// `expect_head`: the link of HEAD it moved, for the rewrites queued behind it (`TableState::record_rewrite`), then the
 /// sync that shows what it changed, asked and not waited for (a delete: the table drops the branch at once); its outcome
-async fn finish(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, plan: &Plan, resolved: &RewriteIntent, expect_head: Option<String>, ran: Ran) -> Outcome {
+/// and the ticket of that sync
+async fn finish(
+  sessions: &Sessions,
+  key: &SessionKey,
+  guard: &RunningGuard,
+  plan: &Plan,
+  resolved: &RewriteIntent,
+  expect_head: Option<String>,
+  ran: Ran,
+) -> (Outcome, Option<SyncTicket>) {
   if let (Some(from), Some(to)) = (expect_head, ran.result.head())
     && from != to
   {
@@ -756,25 +779,22 @@ async fn finish(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, pla
     branches: named_branches(resolved),
   };
   let mut effects = vec![EffectRecord::new(rewrite, EffectStatus::Done)];
-  let version_after = match resolved {
-    RewriteIntent::DeleteArchived { branch_name, .. } => removed(sessions, key, branch_name, TableState::remove_archived).await,
-    RewriteIntent::DeleteUnapplied { branch_name, .. } => removed(sessions, key, branch_name, TableState::remove_unapplied).await,
+  let (version_after, sync) = match resolved {
+    RewriteIntent::DeleteArchived { branch_name, .. } => (removed(sessions, key, branch_name, TableState::remove_archived).await, None),
+    RewriteIntent::DeleteUnapplied { branch_name, .. } => (removed(sessions, key, branch_name, TableState::remove_unapplied).await, None),
     _ => {
-      let status = if ran.result.changes() {
-        // the operation ends with the request: the sync is the session's, and a rewrite after this one runs beside it
-        drop(sessions.sync(key, SyncReason::AfterRewrite));
-        EffectStatus::Done
-      } else {
-        EffectStatus::Skipped { reason: None }
-      };
+      // the operation ends with the request: the sync is the session's, and a rewrite after this one runs beside it
+      let sync = ran.result.changes().then(|| sessions.sync(key, SyncReason::AfterRewrite));
+      let status = if sync.is_some() { EffectStatus::Done } else { EffectStatus::Skipped { reason: None } };
       effects.push(EffectRecord::new(PlannedEffect::Sync, status));
-      None
+      (None, sync)
     }
   };
-  Outcome {
+  let outcome = Outcome {
     undo: ran.undo,
     ..outcome_of(guard.id().clone(), effects, None, version_after, OperationResult::Rewrite(Box::new(ran.result)))
-  }
+  };
+  (outcome, sync)
 }
 
 /// The kept branch `name` leaves the table of the session of `key` by `remove`: the version of the patch

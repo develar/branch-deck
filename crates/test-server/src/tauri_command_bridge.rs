@@ -338,86 +338,14 @@ pub async fn check_git_setup(State(state): State<Arc<AppState>>, Json(request): 
   .await
 }
 
-pub async fn move_commits_to_branch(
+/// The preview of a move of the "Move to…" form: the core's dry run, nothing written (`preview_move` of the app)
+pub async fn preview_move(
   State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<history_rewrite::move_commits::MoveCommitsParams>,
-) -> Result<Response, Rejection> {
+  Json(params): Json<history_rewrite::move_commits::MovePreviewParams>,
+) -> CommandResult<domain_types::rewrite::MoveCommitsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "move commits", move |lock_wait| {
-      history_rewrite::move_commits::move_commits_to_branch_core(&git_executor, &params, lock_wait)
-    })
-    .await,
-  )
-}
-
-pub async fn rename_branch(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::stack_operations::RenameBranchParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "rename branch", move |lock_wait| {
-      sync_core::stack_operations::rename_branch(&git_executor, &params, lock_wait)
-    })
-    .await,
-  )
-}
-
-pub async fn undo_regroup(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::stack_operations::UndoRegroupParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "undo regroup", move |lock_wait| {
-      sync_core::stack_operations::undo_regroup(&git_executor, &params, lock_wait).map_err(undo_error)
-    })
-    .await,
-  )
-}
-
-pub async fn restack_branch(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::stack_operations::RestackBranchParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "restack branch", move |lock_wait| {
-      sync_core::stack_operations::restack_branch(&git_executor, &params, lock_wait)
-    })
-    .await,
-  )
-}
-
-pub async fn park_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::parked::ParkBranchesParams>) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "park branches", move |lock_wait| {
-      sync_core::parked::park_branches(&git_executor, &params, lock_wait)
-    })
-    .await,
-  )
-}
-
-pub async fn unpark_branches(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<sync_core::parked::UnparkBranchesParams>) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "unpark branches", move |lock_wait| {
-      sync_core::parked::unpark_branches(&git_executor, &params, lock_wait)
-    })
-    .await,
-  )
+  run_command("preview a move", move || history_rewrite::move_commits::preview_move_core(&git_executor, &params)).await
 }
 
 pub async fn unapply_branch(

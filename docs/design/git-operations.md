@@ -451,8 +451,10 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    nothing read or written). The core takes the lock itself: the lock spans what it spanned before.
 5. **The end**: the operation asks the sync that shows what it changed (`SyncReason::AfterRewrite`, the effect `Sync`;
    none when the core changed nothing) and ends: it does not wait for that sync, a rewrite queued behind it runs beside
-   it, and the sync of the one after joins its chain as one follow-up. A delete asks no sync: the table drops the branch
-   at once (`version_after`). Its outcome has what the core answered (`OperationResult::Rewrite`, `RewriteResult` by
+   it, and the sync of the one after joins its chain as one follow-up. Its request answers once that sync ended, with
+   the version of its last patch (`Outcome::version_after`), so the toast of the window that asked shows beside what it
+   changed; a request that joined it answers as it ended. A delete asks no sync: the table drops the branch at once
+   (`version_after`). Its outcome has what the core answered (`OperationResult::Rewrite`, `RewriteResult` by
    kind), its undo and its git processes: those of its core and the one `for-each-ref` of its witness
    (`a_rewrite_costs_its_core_and_one_read_of_its_witness` in `crates/operations/src/process_budget_test.rs`); the undo
    reads no witness.
@@ -510,16 +512,18 @@ writes anything:
    HEAD of step 1, and the ref transaction's CAS uses it too. A change of the issue groups or of the stack parents
    joins that transaction (below).
 
-A move of the app (`move_commits_to_branch`) computes its plan from the snapshot of step 1, under the same lock
+A move of the app (the rewrite `Move`, `move_commits_to_branch_core`) computes its plan from the snapshot of step 1, under the same lock
 (`regroup_planned` and `plan_move` in `move_plan.rs`): a whole issue (every commit of its key without a prefix) goes into
 `issue_groups`, also into a stacked target, a part of one and a commit without a key into `branches` (a path `P/X`
 also writes the stack parent of `X`, with an empty list when the issue groups move every commit), and a prefixed commit
 that its key puts into the target anyway into `unassign`. So combining issues rewrites nothing, and a mixed move is one
-reword and one ref transaction. A dry run of it is the preview of the "Move to…" form.
+reword and one ref transaction. A dry run of it, without the lock, is the preview of the "Move to…" form
+(`preview_move`, `preview_move_core`).
 
-The app's move, rename, restack, unstack and reword in the engine run these cores with the HEAD of their witness
-expected ([Rewrite in the engine](#rewrite-in-the-engine)): `rename_branch_core` and `restack_branch_core` with
-`RegroupOptions::expect_head`, and `move_result` of their outcome, as the commands of the app answer them.
+The app's move, rename, restack, unstack, park, unpark and their undo run in the engine only (the page's
+`runRewriteIntent`), on these cores with the HEAD of their witness expected ([Rewrite in the
+engine](#rewrite-in-the-engine)): `rename_branch_core` and `restack_branch_core` with `RegroupOptions::expect_head`, and
+`move_result` of their outcome.
 
 `bd reword` (`crates/history-rewrite/src/reword.rs`) gives the regroup whole new messages by id (`Change::messages`,
 a `--subject` keeps the body it reads from the snapshot, under the lock), cleaned up as `git commit` does, before the
@@ -539,7 +543,7 @@ of a child with commits on this HEAD), without a rewrite; a restack writes the s
 commits whose prefix declares another parent, an unstack removes it and the parent levels. The undo token is
 `H1..H2` for a rewrite:
 `restore_branch_head` moves the branch back with CAS, which is valid because a message rewrite keeps HEAD's tree. The
-app undoes a move, a rename, a restack and a reword with that token too (`undo_regroup`), never by rewording the
+app undoes a move, a rename, a restack and a reword with that token too (the rewrite `undo` of the engine), never by rewording the
 messages back.
 
 **Issue groups.** The map of issue key to branch name lives in `refs/branch-deck/issue-groups`

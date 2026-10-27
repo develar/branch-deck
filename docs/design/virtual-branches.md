@@ -102,12 +102,12 @@ So `(lexer) ABC-123: Add lexer` belongs to `lexer`, and its pushed message is `A
 whose commits all carry one issue key belongs to that issue (`issue_key` of `GroupedBranchInfo`): the branch table
 nests it under the issue. `groupFor` in `src/lib/commit.ts` mirrors the rule for the editor's warning.
 
-A move makes the smallest change that puts the commits where they go (`move_commits_to_branch`,
-`crates/history-rewrite/src/move_plan.rs`). A branch is what ships together, and the user decides it per issue: the whole of
+A move makes the smallest change that puts the commits where they go (the rewrite `Move` of the engine,
+`move_commits_to_branch_core`, `crates/history-rewrite/src/move_plan.rs`). A branch is what ships together, and the user decides it per issue: the whole of
 an issue moves by the issue groups below, without a rewrite, so the next commit of the issue follows it, also into a
 stacked branch. Only a part of an issue and a commit without a key get the prefix, in one message rewrite; a prefix
 that the key makes redundant goes. The UI uses it to move commits and whole branches, split an issue, combine issues, rename a
-branch and ungroup one; an undo moves HEAD and the issue groups back in one transaction (`undo_regroup`). See
+branch and ungroup one; an undo moves HEAD and the issue groups back in one transaction (`undo_regroup_core`, the rewrite `Undo`). See
 [Move Commits](../../spec/branch/move-commits.spec.md). The issue groups and the stack parents are the grouping state
 outside the messages.
 
@@ -170,9 +170,10 @@ part of a flat name, as before. See [Stacked Branches](../../spec/branch/stacked
 
 In the UI, `branchTableRowsIn` (`src/stores/branch-sync.ts`) turns the stacks into a tree of typed rows with a depth;
 issue families come from the stack roots. `groupFor` (`src/lib/commit.ts`) mirrors `stack_path` for the commit editor
-and Move to…, with the stack parents of the `branchesGrouped` event. The branch menu restacks and renames over
-`rename_branch` and `restack_branch` (`crates/sync-core/src/stack_operations.rs`, wrapping the regroup cores), which
-write the stack parents and rewrite only the prefixes that need it, in one ref transaction.
+and Move to…, with the stack parents of the `branchesGrouped` event. The branch menu restacks and renames through the
+rewrites `Rename`, `Restack` and `Unstack` of the engine (`execute`, `crates/operations/src/rewrite.rs`, over the regroup
+cores `rename_branch_core` and `restack_branch_core`), which write the stack parents and rewrite only the prefixes that
+need it, in one ref transaction.
 
 ### Stack Branches
 

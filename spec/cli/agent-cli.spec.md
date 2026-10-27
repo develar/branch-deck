@@ -317,7 +317,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_the_code_of_each_typed_error_that_bd_answers_and_an_undo_its_code_in_undo`, `a_stale_undo_says_it_cannot_be_undone_instead_of_advising_a_retry`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
   [@test] ../../crates/domain-types/src/error_test.rs (`an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried`)
-  [@test] ../../crates/test-server/src/reword_test.rs (`undo_regroup_after_a_new_commit_answers_undo_stale_never_retried`)
+  [@test] ../../crates/test-server/src/reword_test.rs (`the_undo_of_a_regroup_after_a_new_commit_answers_undo_stale_never_retried`)
   [@test] ../../crates/test-server/src/squash_test.rs (`restore_branch_head_after_a_new_commit_answers_undo_stale_never_retried`)
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.

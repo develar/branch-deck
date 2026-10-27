@@ -1,13 +1,11 @@
-import type { Channel } from "@tauri-apps/api/core"
 import { toast } from "@/components/ui/toast"
-import type { LockWaitEvent, MoveCommitsResult } from "@/lib/bindings"
+import type { RewriteIntent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
-import type { CommandResult } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
 import { countMoved } from "@/lib/move-summary"
-import { runRewrite, runUndo } from "@/lib/rewrite"
-import type { RewriteSpec } from "@/lib/rewrite"
+import type { RewriteRunSpec } from "@/lib/rewrite-run"
+import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
 import { formatMoveUnstackAction } from "@/lib/stack"
 import { requestReveal } from "@/stores/commit-move"
 import { branchSubject } from "@/stores/operations"
@@ -22,41 +20,38 @@ export interface StackOperationOptions {
 }
 
 /**
- * Runs a regroup of a stack operation as one rewrite (`runRewrite`): the command, the sync, then the toast with an undo
- * (of the messages, the issue groups and the stack parents, in one transaction); reveals `revealBranch`
+ * Runs a regroup of a stack operation as a rewrite of the engine (`runRewriteIntent`) in the repository of the click:
+ * the rewrite, the sync, then the toast with its undo (of the messages, the issue groups and the stack parents, in one
+ * transaction); reveals `revealBranch`
  */
 async function runStackOperation(
-  spec: RewriteSpec,
-  /** The command in the repository of the click (`repositoryPath`), whichever the main window shows when it runs */
-  operation: (repositoryPath: string, wait: Channel<LockWaitEvent>) => Promise<CommandResult<MoveCommitsResult>>,
-  failureTitle: string,
+  spec: Omit<RewriteRunSpec, "repositoryPath">,
+  rewrite: (repositoryPath: string) => RewriteIntent,
   /** `suffix` is " (3 commits)", or empty when no commit moved */
   successTitle: (suffix: string) => string,
   revealBranch: string,
 ): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
-  const result = await runRewrite(
-    { ...spec, repositoryPath },
-    failureTitle,
-    wait => operation(repositoryPath, wait),
-    data => {
-      const { undoToken } = data
-      if (undoToken == null) {
-        return { sync: false, after: () => toast.add({ type: "info", title: "Nothing to change" }) }
-      }
-      requestReveal({ branchName: revealBranch, commitIds: [] })
-      // a change of the stack parents alone moves no commit
-      const moved = countMoved(data)
-      return {
-        sync: true,
-        after: () =>
-          showUndoToast(repositoryPath, successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`), () =>
-            undoRegroup(repositoryPath, undoToken, "Cannot undo the change", "Undoing the change"),
-          ),
-      }
-    },
+  const done = await runRewriteIntent({ ...spec, repositoryPath }, rewrite(repositoryPath))
+  if (done === null || done.result.rewrite !== "moved") {
+    return false
+  }
+  const { undo } = done
+  if (undo === null) {
+    toast.add({ type: "info", title: "Nothing to change" })
+    return true
+  }
+  requestReveal({ branchName: revealBranch, commitIds: [] })
+  // a change of the stack parents alone moves no commit
+  const moved = countMoved(done.result.answer)
+  showUndoToast(
+    repositoryPath,
+    successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`),
+    () => undoRegroup(repositoryPath, undo.token, "Cannot undo the change", "Undoing the change"),
+    undefined,
+    done.outcome.op,
   )
-  return result !== null
+  return true
 }
 
 /**
@@ -66,15 +61,8 @@ async function runStackOperation(
  */
 export async function restackBranch(branchName: string, parent: string | null, options: StackOperationOptions = {}): Promise<boolean> {
   const done = await runStackOperation(
-    {
-      id: parent === null ? "unstack" : "stack-on",
-      subject: branchSubject(branchName),
-      objects: [branchName],
-      label: parent === null ? `Unstacking ${branchName}` : `Stacking ${branchName} on ${parent}`,
-      surface: options.surface,
-    },
-    (repositoryPath, wait) => commands.restackBranch({ repositoryPath, branchName, parent }, wait),
-    parent === null ? `Cannot unstack ${branchName}` : `Cannot stack ${branchName} on ${parent}`,
+    { id: parent === null ? "unstack" : "stack-on", subject: branchSubject(branchName), objects: [branchName], surface: options.surface },
+    repositoryPath => (parent === null ? witnessed(repositoryPath, { rewrite: "unstack", branchName }) : witnessed(repositoryPath, { rewrite: "restack", branchName, parent })),
     suffix => (parent === null ? `Unstacked ${branchName}${suffix}` : `Stacked ${branchName} on ${parent}${suffix}`),
     branchName,
   )
@@ -88,9 +76,8 @@ export async function restackBranch(branchName: string, parent: string | null, o
 /** Renames a branch together with its name in the prefixes of the branches stacked on it */
 export async function renameBranch(branchName: string, newName: string, options: StackOperationOptions = {}): Promise<boolean> {
   const done = await runStackOperation(
-    { id: "rename", subject: branchSubject(branchName), objects: [branchName], label: options.label ?? `Renaming ${branchName} to ${newName}`, surface: options.surface },
-    (repositoryPath, wait) => commands.renameBranch({ repositoryPath, branchName, newName }, wait),
-    `Cannot rename ${branchName}`,
+    { id: "rename", subject: branchSubject(branchName), objects: [branchName], label: options.label, surface: options.surface },
+    repositoryPath => witnessed(repositoryPath, { rewrite: "rename", branchName, newName }),
     suffix => `Renamed ${branchName} to ${newName}${suffix}`,
     newName,
   )
@@ -102,24 +89,19 @@ export async function renameBranch(branchName: string, newName: string, options:
 }
 
 /**
- * Moves back what a move, a rename, a restack or a reword wrote in `repositoryPath` (the repository it was made in,
- * whichever the main window shows at the click), HEAD and the issue groups in one transaction, then syncs; a rewrite of
- * its own (`label`: "Undoing the move"). `applied` runs once the undo is written, before the sync (a preview follows
- * its commit back)
+ * The Undo of a move, a rename, a restack, an unstack, a reword or a fix in `repositoryPath` (the repository it was
+ * made in, whichever the main window shows at the click): the rewrite `undo` of its regroup token, HEAD and the stores
+ * back in one transaction, then the sync; queued behind a rewrite that runs (`label`: "Undoing the move"). `applied`
+ * runs once the undo is written, before the sync shows it (a preview follows its commit back while it is there)
  */
 export async function undoRegroup(repositoryPath: string, token: string | null | undefined, failureTitle: string, label: string, applied?: () => void): Promise<boolean> {
   if (token == null) {
     return false
   }
-  return await runUndo(
-    { id: "undo", subject: `undo:${token}`, objects: [], label, repositoryPath },
-    failureTitle,
-    wait => commands.undoRegroup({ repositoryPath, token }, wait),
-    () => {
-      requestReveal(null)
-      applied?.()
-    },
-  )
+  return await undoRewrite(repositoryPath, { kind: "regroup", token }, label, failureTitle, () => {
+    requestReveal(null)
+    applied?.()
+  })
 }
 
 /**

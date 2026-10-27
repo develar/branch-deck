@@ -1,4 +1,4 @@
-use crate::test_support::{assert_stale_undo, create_repository, head, post, post_error, start_test_server};
+use crate::test_support::{assert_stale_undo, create_repository, head, post, post_error, rewrite, start_test_server};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::net::SocketAddr;
@@ -21,15 +21,20 @@ pub(crate) fn commit_on_top(path: &str, message: &str) -> String {
   head(path)
 }
 
+/// The rewrite `Undo` of the regroup token `token`
+fn undo_of(token: &str) -> serde_json::Value {
+  json!({"rewrite": "undo", "token": {"kind": "regroup", "token": token}})
+}
+
 /// The body of a reword of `commit` to `message`
 fn reword_of(path: &str, commit: &str, message: &str) -> serde_json::Value {
   json!({ "repositoryPath": path, "rewords": [{ "commit": commit, "text": { "message": message } }] })
 }
 
-/// The page's `reword` reaches the app's core: the answer carries the undo token, and `undo_regroup` with it brings the
-/// old HEAD back; a message equal after the cleanup answers no token
+/// The page's `reword` reaches the app's core: the answer carries the undo token, and the rewrite `Undo` of the engine
+/// with it brings the old HEAD back; a message equal after the cleanup answers no token
 #[tokio::test]
-async fn a_reword_answers_the_undo_token_that_undo_regroup_takes() {
+async fn a_reword_answers_the_undo_token_that_the_rewrite_undo_takes() {
   let (addr, client, path, previous) = repository().await;
 
   let reword = |message: &str| reword_of(&path, &previous, message);
@@ -48,20 +53,27 @@ async fn a_reword_answers_the_undo_token_that_undo_regroup_takes() {
   let token = answer["undoToken"].as_str().unwrap();
   assert_eq!(token, format!("{previous}..{new_head}"));
 
-  post(&client, addr, "/invoke/undo_regroup", json!({ "repositoryPath": path, "token": token })).await;
+  let undone = rewrite(&client, addr, &path, undo_of(token)).await;
+  assert_eq!(
+    undone["result"],
+    json!({"kind": "rewrite", "rewrite": "undone", "answer": {"alreadyUndone": false}}),
+    "{undone}"
+  );
   assert_eq!(head(&path), previous);
 }
 
-/// An undo whose branch moved on since the rewrite is stale for good: `undo_regroup` answers `undo_stale` with `retry:
-/// no`, as `bd undo` does (`ErrorCode::in_undo`), never `head_moved`, which tells the page that a retry may succeed; its
-/// words say it can't be undone, not that a retry may help
+/// An undo whose branch moved on since the rewrite is stale for good: the rewrite `Undo` answers `undo_stale` with
+/// `retry: no`, as `bd undo` does (`ErrorCode::in_undo`), never `head_moved`, which tells the page that a retry may
+/// succeed; its words say it can't be undone, not that a retry may help
 #[tokio::test]
-async fn undo_regroup_after_a_new_commit_answers_undo_stale_never_retried() {
+async fn the_undo_of_a_regroup_after_a_new_commit_answers_undo_stale_never_retried() {
   let (addr, client, path, previous) = repository().await;
   let answer = post(&client, addr, "/invoke/reword", reword_of(&path, &previous, "(test-branch) foo 2, reworded")).await;
   let token = answer["undoToken"].as_str().unwrap().to_string();
   let moved = commit_on_top(&path, "(test-branch) after the reword");
 
-  let error = post_error(&client, addr, "/invoke/undo_regroup", json!({ "repositoryPath": path, "token": token })).await;
+  let mut intent = undo_of(&token);
+  intent["kind"] = json!("rewrite");
+  let error = post_error(&client, addr, "/invoke/execute", json!({ "repositoryPath": path, "intent": intent, "fingerprint": "" })).await;
   assert_stale_undo(&error, &path, &moved);
 }

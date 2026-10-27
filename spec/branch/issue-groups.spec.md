@@ -16,7 +16,7 @@ targets:
   - ../../crates/git-ops/src/autosquash_targets.rs
   - ../../crates/sync-core/src/landed.rs
   - ../../crates/update-core/src/update_project.rs
-  - ../../crates/sync-core/src/stack_operations.rs
+  - ../../crates/operations/src/rewrite.rs
   - ../../crates/history-rewrite/src/move_commits.rs
   - ../../crates/history-rewrite/src/move_plan.rs
   - ../../crates/git-ops/src/commit_writer.rs
@@ -159,7 +159,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 - A move of a whole issue must write the map, a move back of one must remove its key (`plan_move`, see
   [Move Commits](move-commits.spec.md)); "Ungroup" of an issue group moves all its issues back.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`whole_issues_join_a_branch_without_a_rewrite_and_their_next_commits_follow`, `moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them`)
-- The undo of a move, a rename and a restack must be `bd undo` of the token of the result (`undo_regroup`): HEAD and
+- The undo of a move, a rename and a restack must be `bd undo` of the token of the result (the rewrite `undo` of the app): HEAD and
   the map in one transaction.
   [@test] ../../tests/e2e/issue-groups/issue-groups.spec.ts (`should rename an issue group without a rewrite and undo the rename`)
 - The commit editor and "Move Back to …" must name the issue group of a key.

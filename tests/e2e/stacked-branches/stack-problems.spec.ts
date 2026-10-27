@@ -6,7 +6,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { expectDisabledItems } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
-import { holdCommandCalls } from "../helpers/wait-helpers"
+import { holdRewrites } from "../helpers/wait-helpers"
 
 /** The branch row above `name` one level up, the parent the table shows it under; null for a root */
 async function shownParent(page: Page, name: string): Promise<string | null> {
@@ -50,7 +50,7 @@ test.describe("Stack problems", () => {
     // the child is blocked by it and says why
     await expect(findBranchRow(page, "viewer-docs")).toContainText("blocked by publish-viewer")
 
-    const restack = await holdCommandCalls(page, "restack_branch")
+    const restack = await holdRewrites(page, "restack")
     // the button says the running action instead of its name: take it by its place
     const fix = alert.getByTestId("stack-problem-fix").first()
     await fix.click()

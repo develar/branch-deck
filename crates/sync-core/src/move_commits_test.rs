@@ -1,10 +1,9 @@
 use crate::regroup_test::{commits, path, regroup};
-use crate::stack_operations::{UndoRegroupParams, undo_regroup};
 use domain_types::rewrite::{MoveChange, MoveCommitsResult};
 use domain_types::{BranchOrigin, GroupedBranchInfo, SyncEvent};
 use history_rewrite::issue_groups::ISSUE_GROUPS;
 use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
-use history_rewrite::regroup::RegroupError;
+use history_rewrite::regroup::{RegroupError, UndoToken, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::test_commit::issue_group_plan;
 use pretty_assertions::assert_eq;
@@ -41,11 +40,8 @@ fn pairs(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 fn undo(test_repo: &TestRepo, result: &MoveCommitsResult) {
-  let params = UndoRegroupParams {
-    repository_path: path(test_repo).to_string(),
-    token: result.undo_token.clone().unwrap(),
-  };
-  undo_regroup(test_repo.git_executor(), &params, LockWait::default()).unwrap();
+  let token = UndoToken::parse(result.undo_token.as_deref().unwrap()).unwrap();
+  undo_regroup_core(test_repo.git_executor(), path(test_repo), &token, LockWait::default()).unwrap();
 }
 
 /// Oldest first

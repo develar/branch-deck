@@ -119,6 +119,59 @@ export async function recordCommand(page: Page, command: string): Promise<Record
   return calls
 }
 
+/** A rewrite of the engine the page asked (`execute` of the intent `rewrite`): its repository and the rewrite */
+export interface RewriteCall {
+  readonly repositoryPath: string
+  /** `{ rewrite: "unstack", branchName, witness }`, the `kind` of the intent left out */
+  readonly rewrite: Record<string, unknown>
+}
+
+/** The rewrite of the `execute` `params` of the page, of `kind` (every rewrite without it); null for another intent */
+function rewriteCall(params: Record<string, unknown>, kind: string | undefined): RewriteCall | null {
+  const { kind: family, ...rewrite } = (params.intent ?? {}) as Record<string, unknown>
+  return family === "rewrite" && (kind === undefined || rewrite.rewrite === kind) ? { repositoryPath: params.repositoryPath as string, rewrite } : null
+}
+
+/**
+ * Records each `execute` of the page that runs a rewrite of the engine (`kind`: `"move"`, `"park"`, `"undo"`; every
+ * rewrite without it), which the test server runs: a test of a rewrite that must run once counts what reached the
+ * backend
+ */
+export async function recordRewrites(page: Page, kind?: string): Promise<RewriteCall[]> {
+  const calls: RewriteCall[] = []
+  await page.route("**/invoke/execute", async route => {
+    const call = rewriteCall(route.request().postDataJSON() as Record<string, unknown>, kind)
+    if (call !== null) {
+      calls.push(call)
+    }
+    await route.fallback()
+  })
+  return calls
+}
+
+/**
+ * Holds each `execute` of a rewrite of the engine (`kind`, every rewrite without it) in the page mock until `release`,
+ * recording it: the page shows the rewrite running while the session has not got it yet; the other intents go on. A
+ * rewrite that must wait in the queue of the session holds behind the repository lock instead
+ * (`TestRepositoryBuilder.holdRepositoryLock`)
+ */
+export async function holdRewrites(page: Page, kind?: string): Promise<{ calls: RewriteCall[]; release: () => void }> {
+  const calls: RewriteCall[] = []
+  let release!: () => void
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+  await page.route("**/invoke/execute", async route => {
+    const call = rewriteCall(route.request().postDataJSON() as Record<string, unknown>, kind)
+    if (call !== null) {
+      calls.push(call)
+      await held
+    }
+    await route.fallback()
+  })
+  return { calls, release }
+}
+
 /**
  * Fails `command` with an `ApiError`, as the mock server answers a failed command and Tauri rejects it: the code the
  * page branches on (`internal` for a failure without one), the message for the user, the data of the code (`details`,

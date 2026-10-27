@@ -1,6 +1,5 @@
-use crate::parked::{ParkBranchesParams, UnparkBranchesParams, park_branches, unpark_branches};
+use crate::parked::park_result;
 use crate::regroup_test::{commits, entries, path, plant_store, sync};
-use domain_types::rewrite::ParkBranchLine;
 use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository_as_another_process};
@@ -100,33 +99,15 @@ fn park_waits_for_the_repository_lock() {
   assert_eq!(history(&repo), 0);
 }
 
+/// What the rewrites `Park` and `Unpark` answer: the note of each branch and the note it had before
 #[test]
-fn the_app_wrapper_reports_the_notes() {
+fn the_result_of_a_park_reports_the_notes() {
   let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
-  let parked_result = park_branches(
-    repo.git_executor(),
-    &ParkBranchesParams {
-      repository_path: path(&repo).to_string(),
-      branches: vec![ParkBranchLine {
-        branch_name: "auth".to_string(),
-        note: "later".to_string(),
-      }],
-    },
-    LockWait::default(),
-  )
-  .unwrap();
+  let parked_result = park_result(park(&repo, "auth", "later").unwrap());
   assert!(parked_result.changed);
   assert_eq!(parked_result.branches[0].note.as_deref(), Some("later"));
-  let unparked = unpark_branches(
-    repo.git_executor(),
-    &UnparkBranchesParams {
-      repository_path: path(&repo).to_string(),
-      branch_names: vec!["auth".to_string()],
-    },
-    LockWait::default(),
-  )
-  .unwrap();
+  let unparked = park_result(unpark(&repo, "auth").unwrap());
   assert_eq!((unparked.branches[0].note.as_deref(), unparked.branches[0].previous_note.as_deref()), (None, Some("later")));
 }
 

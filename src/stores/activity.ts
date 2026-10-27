@@ -213,7 +213,7 @@ const undoActions = new Map<string, () => void>()
  * second one while it runs joins it. `undo` resolves to whether it undid the rewrite: only then is the entry marked
  * undone and its Undo gone; an undo that failed (an error toast said why) is offered again, in its window.
  */
-export function recordRewrite(repositoryPath: string, title: string, undo: () => Promise<boolean>, description?: string): () => void {
+export function recordRewrite(repositoryPath: string, title: string, undo: () => Promise<boolean>, description?: string, operationId?: string): () => void {
   const until = Date.now() + UNDO_WINDOW_MS
   let state: "offered" | "running" | "done" = "offered"
   let entryId: string | null = null
@@ -234,7 +234,7 @@ export function recordRewrite(repositoryPath: string, title: string, undo: () =>
       setUndo(entryId, { until, undone: true })
     }
   }
-  void recordActivity(repositoryPath, { kind: "rewrite", title, description }).then(id => {
+  void recordActivity(repositoryPath, { kind: "rewrite", title, description, operationId }).then(id => {
     if (id === null) {
       return
     }

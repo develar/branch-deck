@@ -5,7 +5,7 @@ import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRows, getMo
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { dropAt, dropOn, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
-import { recordCommand } from "../helpers/wait-helpers"
+import { recordRewrites } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own;
 // neither Patronus nor GitHub, so every branch the remote lacks is the user's move, its push
@@ -27,7 +27,7 @@ function parkedHeader(page: Page): Locator {
     .first()
 }
 
-function toast(page: Page, title: string): Locator {
+function toast(page: Page, title: string | RegExp): Locator {
   return page.locator("[data-slot=toast]").filter({ hasText: title })
 }
 
@@ -177,17 +177,20 @@ test.describe("Parked branches", () => {
     await addRecentProject(page)
     await syncAndWaitForBranches()
     await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
-    const parks = await recordCommand(page, "park_branches")
-    const unparks = await recordCommand(page, "unpark_branches")
+    const parks = await recordRewrites(page, "park")
+    const undos = await recordRewrites(page, "undo")
     await parkWithForm(page, () => findBranchRow(page, "docs").click({ button: "right" }), "")
     expect(await parkedRows(page)).toEqual(["docs"])
-    const repositoryPath = parks[0]!.repositoryPath as string
+    const repositoryPath = parks[0]!.repositoryPath
 
-    // another repository opens; the Undo of the toast is still the park of the first one
+    // another repository opens; the Undo of the toast is still the park of the first one: its token, in its repository
     await switchRepository(page, OTHER_REPOSITORY)
     await toast(page, "Parked docs").getByRole("button", { name: "Undo" }).click()
-    await expect.poll(() => unparks).toEqual([{ repositoryPath, branchNames: ["docs"] }])
-    await expect(toast(page, "Cannot unpark docs")).toHaveCount(0)
+    // never the repository the window shows now
+    await expect.poll(() => undos.map(undo => undo.repositoryPath)).toEqual([repositoryPath])
+    // it undid: the toast closed, without an error
+    await expect(toast(page, "Parked docs")).toHaveCount(0)
+    await expect(toast(page, /^Cannot undo/)).toHaveCount(0)
 
     // back in it, docs is a branch to land again
     await switchRepository(page, repositoryPath)

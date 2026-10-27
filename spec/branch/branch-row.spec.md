@@ -623,7 +623,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites disabled with the reason`)
 - An action of the menu must run once ([Running Operations](../../docs/design/operations.md)): while it runs, until the
   sync that shows its result ends, its item is running (disabled, a spinner in place of its icon) on every surface, a
-  second start joins it (a double click runs one `restack_branch`); a start of it with other commits, another target or
+  second start joins it (a double click runs one unstack); a start of it with other commits, another target or
   another message (a drag of another commit of the branch onto the same branch, a reword of another commit) is a start
   of its own, which waits in the queue. Every other rewrite of the repository, in every branch and commit menu, by a
   drag, a key or a toast's Undo, stays offered and is never refused: its start waits for the running one in the queue,

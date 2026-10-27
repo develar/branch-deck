@@ -58,10 +58,10 @@ import {
 } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync, syncBranches, syncFromMenu } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync, syncBranches, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { holdCommand, holdCommandCalls, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import { holdCommand, holdRewrites, recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/acme/monorepo/compare"
 
@@ -76,10 +76,13 @@ async function expectRewritesWaitAndUnstackOnce(page: Page, restack: { calls: re
     await expect(page.getByRole("menuitem", { name })).not.toHaveAttribute("aria-disabled", "true")
   }
   await page.keyboard.press("Escape")
+  const syncs = await finishedSyncCount(page)
   await runAndWaitForSync(page, async () => restack.release())
   // its toast comes once the sync showed the result
   await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
+  // one rewrite reached the backend, and one sync showed it
   expect(restack.calls).toHaveLength(1)
+  expect(await finishedSyncCount(page)).toBe(syncs + 1)
 }
 
 /** `name@depth` of the branch rows in display order */
@@ -498,7 +501,7 @@ test.describe("Stacked branches", () => {
     const unstack = alert.getByTestId("unstack-from-parent")
     await expect(unstack).toHaveText("Unstack from login")
 
-    const restack = await holdCommandCalls(page, "restack_branch")
+    const restack = await holdRewrites(page, "unstack")
     // a double click, as the triple click that once ran three unstacks
     await unstack.dblclick()
     await expect(unstack).toHaveAttribute("aria-busy", "true")
@@ -522,7 +525,7 @@ test.describe("Stacked branches", () => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
 
-    const restack = await holdCommandCalls(page, "restack_branch")
+    const restack = await holdRewrites(page, "unstack")
     await openContextMenu(page, findBranchRow(page, "oauth"))
     await clickContextMenuItem(page, "Unstack from login")
     const more = findBranchRow(page, "oauth").getByRole("button", { name: "More actions for oauth" })

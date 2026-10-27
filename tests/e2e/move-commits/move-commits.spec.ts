@@ -1,11 +1,13 @@
 // @spec spec/branch/move-commits.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getMoreButton, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, dropAt, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
-import { runAndWaitForSync } from "../helpers/sync-helpers"
-import { holdCommandCalls, recordCommand } from "../helpers/wait-helpers"
+import { finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import type { RewriteCall } from "../helpers/wait-helpers"
+import { recordRewrites } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -18,28 +20,27 @@ async function moveParserToDocs(page: Page): Promise<void> {
   await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
 }
 
-/** Drags "Add parser" of the issue branch onto docs and holds its move in the backend; returns the held moves */
-async function holdParserMoveToDocs(page: Page): Promise<{ calls: Record<string, unknown>[]; release: () => void }> {
+/**
+ * Drags "Add parser" of the issue branch onto docs while another process holds the repository lock (the test server,
+ * whose record names it): the move reaches the session and waits there for the lock, the "⋯" of the issue row busy;
+ * the moves the page sends from now on
+ */
+async function lockedParserMoveToDocs(page: Page, repo: TestRepositoryBuilder): Promise<RewriteCall[]> {
   await expandBranch(page, findBranchRow(page, ISSUE))
-  const moves = await holdCommandCalls(page, "move_commits_to_branch")
+  const moves = await recordRewrites(page, "move")
+  await repo.holdRepositoryLock(true)
   await startDrag(page, getBranchCommitRow(page, ISSUE, "Add parser"))
   await dropOn(page, findBranchRow(page, "docs"))
-  await expect.poll(() => moves.calls.length).toBe(1)
+  await expect(getMoreButton(findBranchRow(page, ISSUE))).toHaveAttribute("aria-busy", "true")
+  expect(moves).toHaveLength(1)
   return moves
 }
 
-/** Drags `row` onto docs while the held move runs: the drop is taken, its move waits for the held one */
-async function dropOnDocsDuringMove(page: Page, row: Locator): Promise<void> {
+/** Drags `row` onto `target` while the held move waits: the drop is taken, its move waits behind it in the session */
+async function dropDuringMove(page: Page, row: Locator, target = "docs"): Promise<void> {
   await startDrag(page, row)
-  await expect(findBranchRow(page, "docs")).toHaveAttribute("data-drop-target", "ready")
-  await dropOn(page, findBranchRow(page, "docs"))
-}
-
-/** Releases the held move: it and the one that waited for it run, one after the other, into docs */
-async function releaseMovesToDocs(page: Page, moves: { calls: Record<string, unknown>[]; release: () => void }): Promise<void> {
-  await runAndWaitForSync(page, async () => moves.release())
-  await expect.poll(() => moves.calls.length).toBe(2)
-  await verifyCommitCount(findBranchRow(page, "docs"), 3)
+  await expect(findBranchRow(page, target)).toHaveAttribute("data-drop-target", "ready")
+  await dropOn(page, findBranchRow(page, target))
 }
 
 async function branchOrder(page: Page): Promise<string[]> {
@@ -47,8 +48,10 @@ async function branchOrder(page: Page): Promise<string[]> {
 }
 
 test.describe("Move commits", () => {
+  let repo: TestRepositoryBuilder
+
   test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_split")
+    repo = await setupRepo("issue_split")
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
   })
@@ -133,24 +136,29 @@ test.describe("Move commits", () => {
     const moved = page.locator("[data-slot=toast]", { hasText: "Moved 1 commit to docs" })
     await expect(moved).toBeVisible()
 
-    // a park of the issue branch runs, held
-    const parks = await holdCommandCalls(page, "park_branches")
-    const undos = await recordCommand(page, "undo_regroup")
+    // a park of the issue branch waits for the repository lock another process holds
+    const parks = await recordRewrites(page, "park")
+    const undos = await recordRewrites(page, "undo")
+    await repo.holdRepositoryLock(true)
     await startDrag(page, findBranchRow(page, ISSUE))
     await dropAt(page, page.getByTestId("drag-target-bar").getByTestId("park-drop-zone"))
-    await expect.poll(() => parks.calls.length).toBe(1)
+    await expect(getMoreButton(findBranchRow(page, ISSUE))).toHaveAttribute("aria-busy", "true")
+    expect(parks).toHaveLength(1)
 
-    // the Undo waits for the park: no refusal, the toast stays with its Undo until the undo ran
+    // the Undo reaches the session and waits behind the park: no refusal, the toast stays with its Undo, nothing undone
     await moved.getByRole("button", { name: "Undo" }).click()
+    await expect.poll(() => undos.length).toBe(1)
     await expect(page.locator("[data-slot=toast]", { hasText: "Cannot undo the move" })).toHaveCount(0)
     await expect(moved).toBeVisible()
-    expect(undos).toHaveLength(0)
+    await verifyCommitCount(findBranchRow(page, "docs"), 2)
 
-    await runAndWaitForSync(page, async () => parks.release())
-    await expect.poll(() => undos.length).toBe(1)
+    // the holder is done: the park runs, then the undo, which closes the toast
+    await repo.holdRepositoryLock(false)
+    await expect(page.locator("[data-slot=toast]", { hasText: "Parked ABC-123" })).toBeVisible()
     await expect(moved).toHaveCount(0)
     await verifyCommitCount(findBranchRow(page, "docs"), 1)
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+    expect(undos).toHaveLength(1)
   })
 
   test("should drag the selection onto a branch, but not onto its own branch", async ({ page }) => {
@@ -172,34 +180,51 @@ test.describe("Move commits", () => {
 
   test("should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it", async ({ page }) => {
     // the first move gives the oldest commit a prefix: every commit after it gets another id
-    const moves = await holdParserMoveToDocs(page)
+    const moves = await lockedParserMoveToDocs(page, repo)
 
-    // a drop while it runs is taken: no refusal, its move waits for the first one, the row says so
-    await dropOnDocsDuringMove(page, getUnassignedCommitRow(page, "Refactor build script"))
-    const more = findBranchRow(page, "docs").getByRole("button", { name: "More actions for docs" })
+    // a drop while it runs is taken: no refusal, its move waits in the session behind the first one, the row says so
+    await dropDuringMove(page, getUnassignedCommitRow(page, "Refactor build script"))
+    const more = getMoreButton(findBranchRow(page, "docs"))
     await expect(more).toHaveAttribute("aria-busy", "true")
     await more.hover()
     await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for Moving 1 commit to docs…" })).toBeVisible()
-    expect(moves.calls).toHaveLength(1)
+    await expect.poll(() => moves.length).toBe(2)
 
-    // the second move ran after the first one and its sync, with the id the first move gave the commit: the old id
-    // would fail with "Cannot move the commits to docs"
-    await releaseMovesToDocs(page, moves)
+    // the holder is done: the second move runs beside the sync of the first, with the id the first move gave the commit
+    // (the old id would fail with "Cannot move the commits to docs"), and the two syncs fold into two runs at most
+    const syncs = await finishedSyncCount(page)
+    await repo.holdRepositoryLock(false)
+    await verifyCommitCount(findBranchRow(page, "docs"), 3)
     await verifyCommitCount(findBranchRow(page, ISSUE), 2)
     await expect(page.getByTestId("unassigned-commits-section")).toHaveCount(0)
-    await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot move/ })).toHaveCount(0)
     await expect(more).not.toHaveAttribute("aria-busy")
+    expect(await finishedSyncCount(page)).toBeLessThanOrEqual(syncs + 2)
+    await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot move/ })).toHaveCount(0)
   })
 
   test("should move a second commit of the same branch dragged onto the same target while the first move runs: a move of its own, never joined to the first", async ({ page }) => {
-    const moves = await holdParserMoveToDocs(page)
-    // the same action of the same subject (the source branch), but other commits: it waits for the first one
-    await dropOnDocsDuringMove(page, getBranchCommitRow(page, ISSUE, "Add lexer"))
-    expect(moves.calls).toHaveLength(1)
+    const moves = await lockedParserMoveToDocs(page, repo)
+    // the same action of the same subject (the source branch), but other commits: it waits behind the first one
+    await dropDuringMove(page, getBranchCommitRow(page, ISSUE, "Add lexer"))
+    await expect.poll(() => moves.length).toBe(2)
 
     // both commits reached docs, each in a move of its own
-    await releaseMovesToDocs(page, moves)
+    await repo.holdRepositoryLock(false)
+    await verifyCommitCount(findBranchRow(page, "docs"), 3)
     await verifyCommitCount(findBranchRow(page, ISSUE), 1)
+    await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot move/ })).toHaveCount(0)
+  })
+
+  test("should move two drags into different branches, the first waiting for the repository lock, both in place", async ({ page }) => {
+    const moves = await lockedParserMoveToDocs(page, repo)
+    await dropDuringMove(page, getUnassignedCommitRow(page, "Refactor build script"), ISSUE)
+    await expect.poll(() => moves.map(move => move.rewrite.targetBranch)).toEqual(["docs", ISSUE])
+
+    await repo.holdRepositoryLock(false)
+    await verifyCommitCount(findBranchRow(page, "docs"), 2)
+    await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+    await expect(getBranchCommitRow(page, ISSUE, "Refactor build script")).toBeVisible()
+    await expect(page.getByTestId("unassigned-commits-section")).toHaveCount(0)
     await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot move/ })).toHaveCount(0)
   })
 

@@ -38,6 +38,7 @@ import type {
   SyncAnswer,
   SyncReason,
   TableChanges,
+  TableWitness,
   Version,
   ViewPatch,
 } from "@/lib/bindings"
@@ -133,6 +134,19 @@ function notifyViewListeners(): void {
 /** The repository of the session the window holds; null without one */
 export function sessionRepositoryPath(): string | null {
   return session?.repositoryPath ?? null
+}
+
+/** The table of a view before its first grouping: no HEAD, no stores */
+const NO_WITNESS: TableWitness = { head: "", storeTips: { issueGroups: null, stackParents: null, parked: null } }
+
+/**
+ * The table the window shows of `repositoryPath`, as a rewrite names its commits and branches on it (`TableWitness`):
+ * HEAD and the tips of the stores of the last grouping of its view; that of no grouping while the window holds no view
+ * of it (the engine then names them on HEAD as it is)
+ */
+export function getSessionWitness(repositoryPath: string): TableWitness {
+  const view = session?.repositoryPath === repositoryPath ? session.view : null
+  return view === null ? NO_WITNESS : { head: view.header.head, storeTips: view.header.storeTips }
 }
 
 /** The version of the view the store holds, as `data-view-version` shows it: `epoch:seq`; null without a view */

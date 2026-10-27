@@ -11,9 +11,7 @@ pub mod conflict_fix;
 pub mod fetch_baseline;
 pub mod file_diffs;
 pub mod github;
-pub mod move_commits;
 pub mod operations;
-pub mod parked_branches;
 pub mod patronus;
 #[cfg(test)]
 mod patronus_test;

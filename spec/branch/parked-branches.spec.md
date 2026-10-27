@@ -22,7 +22,8 @@ targets:
   - ../../crates/repository-model/src/push_guard.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/agent_help.rs
-  - ../../src-tauri/src/commands/parked_branches.rs
+  - ../../crates/operations/src/rewrite.rs
+  - ../../src/lib/rewrite-run.ts
   - ../../src/lib/parked.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/model/structure.ts
@@ -104,14 +105,18 @@ branch built on it carries its commits, so it is parked with it.
   [@test] ../../crates/sync-core/src/parked_test.rs (`several_branches_park_and_unpark_in_one_store_commit_or_not_at_all`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_park_and_an_unpark`)
 - A park must wait for the repository lock as a rewrite does: `bd park` up to 10 s, then `locked`; the app's park and
-  unpark as long as the holder lives, the row's "⋯" saying whom for with Stop Waiting, which ends the wait with
-  nothing changed.
+  unpark (the rewrites `park` and `unpark` of the engine, `operations::rewrite`) as long as the holder lives, the
+  row's "⋯" saying whom for with Stop Waiting (`cancel_operation`), which ends the wait with nothing changed.
   [@test] ../../crates/sync-core/src/parked_test.rs (`park_waits_for_the_repository_lock`)
+  [@test] ../../crates/test-server/src/channel_commands_test.rs (`a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_lock`, `stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed`)
 - An unpark must drop the line, also of a branch that groups no commit here; a branch that is not parked is
   `not_parked`.
   [@test] ../../crates/sync-core/src/parked_test.rs (`unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_they_are`)
-- The app's commands must report the note before and after.
-  [@test] ../../crates/sync-core/src/parked_test.rs (`the_app_wrapper_reports_the_notes`)
+- The rewrites `park` and `unpark` must report the note before and after, and the undo token of what they wrote: the
+  store back to the commit it was written on (`parked:P1..P2`, compare-and-swap), so a later write of the store makes
+  the Undo stale instead of losing that write.
+  [@test] ../../crates/sync-core/src/parked_test.rs (`the_result_of_a_park_reports_the_notes`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_undo_during_a_rewrite_waits_behind_it_and_runs_after_it`)
 
 ### Parked with a parent
 
@@ -194,10 +199,10 @@ branch built on it carries its commits, so it is parked with it.
 - The branch menu (right-click and "⋯") must offer "Park Branch…" (a form with the note, one line, optional; Enter
   parks) beside "Unapply…", the other way to set a branch aside, and of a parked branch "Edit Park Note…" and "Unpark Branch"; of a branch parked with its parent "Unpark
   ‹parent›". "Park Branch…" is disabled while a robot lands the branch, and says that an open pull request stays open.
-  A park or an unpark is a write of the repository (it waits for a rewrite), followed by a sync, then a toast "Parked
-  auth" or "Unparked auth" whose Undo puts the line back as it was. The park, the unpark and their Undo belong to the
-  repository of the click: an Undo clicked after a switch of the repository puts the line back there (synced when it
-  opens), never in the repository shown.
+  A park or an unpark is a write of the repository (the session queues it behind a rewrite that runs), followed by a
+  sync, then a toast "Parked auth" or "Unparked auth" whose Undo moves the store back as it was, by the token of the
+  park. The park, the unpark and their Undo belong to the repository of the click: an Undo clicked after a switch of the
+  repository moves the store back there (synced by its session), never in the repository shown.
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should take the park back in its repository with the Undo of its toast clicked after a switch of the repository`)
 - Branches dragged from the table onto the park zone of the drag bar, or onto the Parked card, also collapsed (its

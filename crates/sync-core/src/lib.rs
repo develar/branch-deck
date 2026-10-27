@@ -36,7 +36,6 @@
 //!   process, waits for the first one and takes its result
 //!
 //! Rewrites of the checked out branch, each under the repository lock its core takes:
-//! - `stack_operations`: rename a branch, stack it on another one or make it a root, through the regroup
 //! - `add_issue_reference`: an issue key into the subjects of commits
 //! - `amend_to_branch`: uncommitted changes into a commit of a branch
 //! - `unapply_branch`: the commits of a virtual branch out of HEAD with their files, the branch kept as an unapplied one
@@ -116,7 +115,6 @@ pub mod review_fetch;
 pub mod robot_commits;
 pub mod robot_landing;
 pub mod stack_branch;
-pub mod stack_operations;
 pub mod sync;
 pub mod sync_inputs;
 pub mod target_conflict;
@@ -184,6 +182,8 @@ mod repository_config_test;
 mod repository_lock_test;
 #[cfg(test)]
 mod reword_test;
+#[cfg(test)]
+mod stack_operations_test;
 #[cfg(test)]
 mod stack_parents_test;
 #[cfg(test)]

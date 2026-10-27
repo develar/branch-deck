@@ -47,6 +47,13 @@ export interface OperationSpec extends OperationKey {
    * key or a toast, whose row (the trigger of the object's menu) shows it
    */
   readonly surface?: string | null
+  /**
+   * The session of the repository admits it (a rewrite of the engine, `runRewriteIntent`): the page never queues it
+   * behind another operation, the session does; its record shows it on its surfaces while it runs, with what its
+   * operation waits for as its channel tells it (`setSessionStep`). A rewrite the page runs itself (`runRewrite`) still
+   * waits for it
+   */
+  readonly admittedBySession?: boolean
 }
 
 export interface Operation extends OperationSpec {
@@ -77,8 +84,11 @@ export const operationsStore = createStore<OperationsState>(() => ({ running: NO
 
 /** The running promise of each operation: a second start of the same action resolves with it */
 const promises = new Map<number, Promise<unknown>>()
-/** The channel each operation's command hears its wait for the repository lock on: Stop Waiting ends that wait */
-const lockWaitChannels = new Map<number, { readonly id: number }>()
+/**
+ * How each operation's wait for the repository lock ends, which Stop Waiting runs: the cancel of the channel its
+ * command hears the wait on (`lockWaitChannel`), or of the operation of the session (`setSessionStep`)
+ */
+const lockWaitStops = new Map<number, () => void>()
 let nextKey = 1
 
 /** The subject of a branch: the row whose menu and keys start its actions */
@@ -140,13 +150,24 @@ export function operationLabel(operation: Operation): string {
  */
 export function lockWaitChannel(key: number): Channel<LockWaitEvent> {
   const channel = new Channel<LockWaitEvent>()
-  channel.onmessage = event => setLockWait(key, event.waitingFor)
-  lockWaitChannels.set(key, channel)
+  channel.onmessage = event => setWait(key, { lockWait: event.waitingFor })
+  lockWaitStops.set(key, () => stopLockWait(channel))
   return channel
 }
 
-function setLockWait(key: number, lockWait: string | null): void {
-  operationsStore.setState(state => ({ running: state.running.map(it => (it.key === key && it.lockWait !== lockWait ? { ...it, lockWait } : it)) }))
+/**
+ * What the operation of the session behind the record `key` (`admittedBySession`) waits for, as its channel tells it:
+ * whom while another holder has the repository lock (`lockWait`, ended by `stop`: `cancel_operation`), the operation
+ * before it in the queue of the session (`waitsFor`, its busy state); both null once it runs
+ */
+export function setSessionStep(key: number, step: { readonly lockWait: string | null; readonly waitsFor: string | null }, stop: () => void): void {
+  lockWaitStops.set(key, stop)
+  setWait(key, step)
+}
+
+function setWait(key: number, wait: { readonly lockWait: string | null; readonly waitsFor?: string | null }): void {
+  const changed = (it: Operation) => it.lockWait !== wait.lockWait || (wait.waitsFor !== undefined && it.waitsFor !== wait.waitsFor)
+  operationsStore.setState(state => ({ running: state.running.map(it => (it.key === key && changed(it) ? { ...it, ...wait } : it)) }))
 }
 
 /**
@@ -159,16 +180,12 @@ export function stopWaitingItem(operation: Operation | undefined): MenuItem | nu
   if (operation?.lockWait == null) {
     return null
   }
-  const channel = lockWaitChannels.get(operation.key)
+  const stop = lockWaitStops.get(operation.key)
   return {
     id: "stop-waiting",
     label: "Stop Waiting",
     description: `${operation.lockWait}; stop and change nothing`,
-    onSelect: () => {
-      if (channel !== undefined) {
-        stopLockWait(channel)
-      }
-    },
+    onSelect: () => stop?.(),
   }
 }
 
@@ -227,9 +244,10 @@ export function operationItem(running: Operations, item: MenuItem, key: Operatio
  * Runs `run` as the operation `spec`, from its start until its promise settles, which for a rewrite includes the sync
  * that shows its result. A second start of the same action with the same parameters (a double click, the same item in
  * another surface) joins the running one and resolves with it; a start with other parameters (`OperationKey.parameters`:
- * other commits of a move) is an operation of its own. A rewrite that must wait for another one (`getOperationBlocker`)
- * is never refused: it waits in the queue, in the order of the starts, its rows busy and its surface saying what it
- * waits for ("Waits for Unstacking oauth"), and runs once the rewrites before it ended, however they ended. A remote
+ * other commits of a move) is an operation of its own. A rewrite the session admits (`admittedBySession`) starts at
+ * once: the session queues it. A rewrite the page runs that must wait for another one (`getOperationBlocker`) is never
+ * refused: it waits in the queue, in the order of the starts, its rows busy and its surface saying what it waits for
+ * ("Waits for Unstacking oauth"), and runs once the rewrites before it ended, however they ended. A remote
  * action that must wait (a cancel of the robot a restart replaces) runs nothing, tells `onBlocked` why and resolves to
  * `undefined`: it would act on the robot or the pull request as it was before the one it waits for.
  */
@@ -239,7 +257,8 @@ export function runOperation<T>(spec: OperationSpec, run: (key: number) => Promi
   if (same !== undefined) {
     return promises.get(same.key) as Promise<T>
   }
-  const blocker = getOperationBlocker(running, spec)
+  // the session queues what it admits
+  const blocker = spec.admittedBySession === true ? null : getOperationBlocker(running, spec)
   if (blocker !== null && spec.kind === "remote") {
     onBlocked(formatOperationBlocker(blocker))
     return Promise.resolve(undefined)
@@ -267,7 +286,7 @@ export function runOperation<T>(spec: OperationSpec, run: (key: number) => Promi
     settle = { resolve, reject }
   }).finally(() => {
     promises.delete(operation.key)
-    lockWaitChannels.delete(operation.key)
+    lockWaitStops.delete(operation.key)
     operationsStore.setState(state => ({ running: state.running.filter(it => it.key !== operation.key) }))
   })
   promises.set(operation.key, promise)

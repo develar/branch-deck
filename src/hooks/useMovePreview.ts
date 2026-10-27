@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react"
-import { Channel } from "@tauri-apps/api/core"
-import type { Commit, LockWaitEvent, MoveCommitsResult } from "@/lib/bindings"
+import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { useBranchSync } from "@/stores/branch-sync"
@@ -37,18 +36,8 @@ export function useMovePreview(commits: readonly Commit[], targetBranch: string,
     }
     let isCurrent = true
     const timer = setTimeout(() => {
-      void invokeCommand(() =>
-        commands.moveCommitsToBranch(
-          {
-            repositoryPath,
-            commitIds: commitKey.split(","),
-            targetBranch,
-            dryRun: true,
-          },
-          // a dry run takes no lock: nothing waits, nobody listens
-          new Channel<LockWaitEvent>(),
-        ),
-      ).then(result => {
+      // a dry run of the move: nothing written, no lock
+      void invokeCommand(() => commands.previewMove({ repositoryPath, commitIds: commitKey.split(","), targetBranch })).then(result => {
         if (isCurrent) {
           setPreview({ key: requestKey, preview: result.status === "ok" ? { result: result.data, error: null } : { result: null, error: result.error.message } })
         }

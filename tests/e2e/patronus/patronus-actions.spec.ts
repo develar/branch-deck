@@ -48,7 +48,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { nextAnswer, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdWithProgress, recordCommand } from "../helpers/wait-helpers"
+import { holdWithProgress, recordCommand, recordRewrites } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 /** Whom a push waits for while another process holds the repository lock: here the test server */
@@ -337,7 +337,7 @@ test.describe("Patronus actions", () => {
 
   test("should run two Safe Pushes and a move started while another process holds the repository lock once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
-    const moves = await recordCommand(page, "move_commits_to_branch")
+    const moves = await recordRewrites(page, "move")
     await repo.holdRepositoryLock(true)
     await slotSafePush(page, "JIRA-456").click()
     await slotSafePush(page, "ABC-123").click()
@@ -354,8 +354,8 @@ test.describe("Patronus actions", () => {
     expect((await repo.getPatronusLog()).starts).toEqual([])
     await expect(page.getByText(/^Cannot /)).toHaveCount(0)
 
-    // the holder is done: both pushes go, both robots start, and the move runs
-    const started = nextAnswer(page, "execute", 2)
+    // the holder is done: both pushes go, both robots start, and the move runs (three operations of the engine)
+    const started = nextAnswer(page, "execute", 3)
     await repo.holdRepositoryLock(false)
     await started
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)

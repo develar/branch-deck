@@ -1,8 +1,7 @@
 use crate::regroup_test::{commits, groups, path, regroup, subjects, sync};
-use crate::stack_operations::{UndoRegroupParams, undo_regroup};
 use domain_types::rewrite::{CommitReword, RewordResult, RewordText};
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
-use history_rewrite::regroup::{FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, restack_branch_core};
+use history_rewrite::regroup::{FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, UndoToken, restack_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::reword::{RewordRequest, reword_core, reword_request_core};
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
@@ -358,16 +357,8 @@ fn undo_of_a_reword_brings_back_the_old_virtual_commits() {
   sync(&repo);
   assert_ne!(virtual_tips(&repo), before);
 
-  let token = result.undo_token.unwrap();
-  undo_regroup(
-    repo.git_executor(),
-    &UndoRegroupParams {
-      repository_path: path(&repo).to_string(),
-      token,
-    },
-    LockWait::default(),
-  )
-  .unwrap();
+  let token = UndoToken::parse(&result.undo_token.unwrap()).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
   assert_eq!(repo.head(), ids[1]);
   sync(&repo);
   assert_eq!(virtual_tips(&repo), before);

@@ -933,11 +933,6 @@ export function useParkedState(name: string): ParkedState | null {
   return useBranchSyncEntry("branches", name, branch => (branch?.structure ?? ROOT_STRUCTURE).parked)
 }
 
-/** The parked branches of the last grouping: branch -> note, the lines of branches without commits here too */
-export function getParkedNotes(): Readonly<Record<string, string>> {
-  return branchSyncStore.getState().parked
-}
-
 /** The roots of the stacks shown as islands of their own (`stackIslandRoots`), one per line, so a store change notifies only when they change */
 function stackIslandKeyIn(state: BranchSyncState): string {
   return [...stackIslandRoots(branchTableRowsIn(state, null), name => state.branches[name]?.commitCount ?? 0)].join("\n")

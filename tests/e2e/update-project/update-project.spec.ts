@@ -6,7 +6,7 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
 import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
-import { animationsEnded, holdCommand, holdCommandCalls, holdWithProgress, recordCommand, routeCommandError } from "../helpers/wait-helpers"
+import { animationsEnded, holdCommand, holdCommandCalls, holdWithProgress, recordCommand, recordRewrites, routeCommandError } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
 // at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-02) and
@@ -144,7 +144,7 @@ test.describe("Update Project", () => {
     await syncAndWaitForBranches()
     const fetch = await holdCommandCalls(page, "fetch_baseline")
     const updates = await recordCommand(page, "update_project")
-    const parks = await recordCommand(page, "park_branches")
+    const parks = await recordRewrites(page, "park")
     await updateButton(page).click()
     await expect.poll(() => fetch.calls.length).toBe(1)
     await expect(page.getByTestId("update-progress")).toHaveAttribute("data-step", "fetch")

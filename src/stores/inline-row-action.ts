@@ -239,9 +239,10 @@ export async function withRowProcessing<T>(
 }
 
 /**
- * Runs `fn`, an operation that tells its outcome itself (`runRewrite`: a toast with Undo, an error toast) and is started
- * from the form (`inlineSurface(key)`), so that the form shows its progress state. Resolves to the result of `fn`: true
- * closes the form; false closes it too, or shows it again with its input (`keepFormOnFailure`).
+ * Runs `fn`, an operation that tells its outcome itself (a rewrite of the engine, `runRewriteIntent`: a toast with
+ * Undo, an error toast) and is started from the form (`inlineSurface(key)`), so that the form shows its progress state
+ * while the session runs or queues it. Resolves to the result of `fn`: true closes the form; false closes it too, or
+ * shows it again with its input (`keepFormOnFailure`).
  */
 export async function withRowProgress(key: string, fn: () => Promise<boolean>, options: RowProgressOptions = {}): Promise<boolean> {
   let done = false

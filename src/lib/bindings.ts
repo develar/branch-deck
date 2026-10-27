@@ -261,10 +261,11 @@ export const commands = {
 	 */
 	getSettingsChanges: (since: number) => typedError<SettingsChange[], ApiError>(__TAURI_INVOKE("get_settings_changes", { since })),
 	/**
-	 *  Moves commits to another branch by setting (or removing) the `(branch)` prefix of their subjects in one history
-	 *  rewrite; the working tree is not touched.
+	 *  What a move of commits would do, as the "Move to…" form previews it while the user types: the issues that go by
+	 *  their key and the commits that get a prefix, nothing written, no lock (`preview_move_core`). The move itself is the
+	 *  rewrite `Move` of `execute`
 	 */
-	moveCommitsToBranch: (params: MoveCommitsParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("move_commits_to_branch", { params, wait })),
+	previewMove: (params: MovePreviewParams) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("preview_move", { params })),
 	/**
 	 *  The regroup after which the branches that conflict now apply cleanly, found by trial builds (objects and the object
 	 *  cache only, no repository lock), of the branches named with the prefix Rust resolves for the repository
@@ -276,29 +277,10 @@ export const commands = {
 	/**  Applies a component of a fix as one regroup under the repository lock, or says it is stale. */
 	applyConflictFix: (params: ApplyConflictFixParams, wait: Channel<LockWaitEvent>) => typedError<AppliedConflictFix, ApiError>(__TAURI_INVOKE("apply_conflict_fix", { params, wait })),
 	/**
-	 *  Renames a branch, and its name in the prefixes of the branches stacked on it and in the issue groups, in one history
-	 *  rewrite.
-	 */
-	renameBranch: (params: RenameBranchParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("rename_branch", { params, wait })),
-	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
-	restackBranch: (params: RestackBranchParams, wait: Channel<LockWaitEvent>) => typedError<MoveCommitsResult, ApiError>(__TAURI_INVOKE("restack_branch", { params, wait })),
-	/**
-	 *  Parks branches with their notes, or changes the notes of parked ones: kept local, never pushed, until unparked. No
-	 *  rewrite: one commit of the store `refs/branch-deck/parked`, under the repository lock.
-	 */
-	parkBranches: (params: ParkBranchesParams, wait: Channel<LockWaitEvent>) => typedError<ParkResult, ApiError>(__TAURI_INVOKE("park_branches", { params, wait })),
-	/**  Unparks branches: they can be pushed and landed again. */
-	unparkBranches: (params: UnparkBranchesParams, wait: Channel<LockWaitEvent>) => typedError<ParkResult, ApiError>(__TAURI_INVOKE("unpark_branches", { params, wait })),
-	/**
 	 *  Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
 	 *  through the object cache of the repository.
 	 */
 	getStackIndependence: (params: StackIndependenceParams) => typedError<StackIndependence, ApiError>(__TAURI_INVOKE("get_stack_independence", { params })),
-	/**
-	 *  Moves back what a move, a rename or a restack wrote (its `undo_token`): HEAD and the issue groups in one ref
-	 *  transaction with compare-and-swap.
-	 */
-	undoRegroup: (params: UndoRegroupParams, wait: Channel<LockWaitEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("undo_regroup", { params, wait })),
 	/**
 	 *  Adds an issue reference to commits in a branch that don't already have one.
 	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
@@ -3334,21 +3316,6 @@ export type MoveChange =
 /**  It is where it goes already */
 "Unchanged";
 
-export type MoveCommitsParams = {
-	repositoryPath: string,
-	/**  Commits on the current branch (the original commits of virtual branch commits) */
-	commitIds: string[],
-	/**
-	 *  The branch to move the commits to, existing or new; `None` moves them back: out of their prefix branch, or out
-	 *  of the issue group of their key
-	 */
-	targetBranch: string | null,
-	/**  Compute what the move would do, write nothing (the preview of the "Move to…" form) */
-	dryRun?: boolean,
-	/**  The HEAD the request was made for; another HEAD refuses the move */
-	expectHead?: string | null,
-};
-
 export type MoveCommitsResult = {
 	/**
 	 *  The requested commits in request order, then the other commits that moved: the fixups that followed them, the
@@ -3370,6 +3337,17 @@ export type MoveCommitsResult = {
 	orphanedChildren: string[],
 	/**  What `undo_regroup` moves back; `None` for a dry run and when nothing changed */
 	undoToken?: string | null,
+};
+
+/**
+ *  What the "Move to…" form previews as the user types (`preview_move`): the move of `commit_ids` into `target_branch`
+ *  (`None`: back), computed and not written
+ */
+export type MovePreviewParams = {
+	repositoryPath: string,
+	/**  Commits on the current branch (the original commits of virtual branch commits) */
+	commitIds: string[],
+	targetBranch: string | null,
 };
 
 export type MovedCommit = {
@@ -3795,12 +3773,6 @@ export type ParkBranchLine = {
 	branchName: string,
 	/**  Why it is parked, one line; empty for none. Parking a parked branch changes its note */
 	note: string,
-};
-
-export type ParkBranchesParams = {
-	repositoryPath: string,
-	/**  Written in one store commit: an unknown branch parks none */
-	branches: ParkBranchLine[],
 };
 
 /**  What a park or an unpark did */
@@ -4731,13 +4703,6 @@ export type RemoteStatusUpdate = {
 	action: PushAction,
 };
 
-export type RenameBranchParams = {
-	repositoryPath: string,
-	/**  The branch (a leaf with stacked branches on) */
-	branchName: string,
-	newName: string,
-};
-
 /**  The settings of Settings → Repository */
 export type RepositoryConfig = {
 	/**  `branchdeck.stacks`, off by default */
@@ -4901,13 +4866,6 @@ export type Resource =
  *  repository lock orders them (`domain_policy::admission::holds_across`)
  */
 { kind: "head" };
-
-export type RestackBranchParams = {
-	repositoryPath: string,
-	branchName: string,
-	/**  The branch to stack on; `None` makes the branch a root (unstack) */
-	parent: string | null,
-};
 
 /**
  *  What a restart of a robot does (`holds::restart_action`): Patronus restarts it on the newest commit of its remote
@@ -6616,12 +6574,6 @@ export type UndoReapplyParams = {
 	undoToken: string,
 };
 
-export type UndoRegroupParams = {
-	repositoryPath: string,
-	/**  What the operation reported in `MoveCommitsResult.undo_token` */
-	token: string,
-};
-
 /**
  *  How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `bd undo` takes,
  *  by the core that undoes it
@@ -6662,12 +6614,6 @@ export type UnknownReadinessReason =
 export type UnlinkPullRequestParams = {
 	repositoryPath: string,
 	number: number,
-};
-
-export type UnparkBranchesParams = {
-	repositoryPath: string,
-	/**  Dropped in one store commit: a branch that is not parked unparks none */
-	branchNames: string[],
 };
 
 export type UnsubscribeViewParams = {

@@ -5,7 +5,7 @@ style: plain-1
 targets:
   - ../../crates/history-rewrite/src/move_commits.rs
   - ../../crates/history-rewrite/src/move_plan.rs
-  - ../../crates/sync-core/src/stack_operations.rs
+  - ../../crates/operations/src/rewrite.rs
   - ../../crates/history-rewrite/src/regroup.rs
   - ../../crates/history-rewrite/src/snapshot.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
@@ -15,6 +15,7 @@ targets:
   - ../../src/hooks/useMoveCommits.ts
   - ../../src/hooks/useMovePreview.ts
   - ../../src/hooks/useStackActions.ts
+  - ../../src/lib/rewrite-run.ts
   - ../../src/lib/stack.ts
   - ../../src/lib/move-summary.ts
   - ../../src/lib/branch-selection.ts
@@ -109,7 +110,8 @@ Renaming and ungrouping a branch are moves of all its commits.
 - A move without a target (back) must remove the explicit prefix: the commit goes back to its issue group, its issue
   branch, or to the unassigned commits. A whole issue in an issue group must leave it; a part of one must get the
   prefix of its key.
-- A dry run must say what the move would do and write nothing, without the lock; a move may name the HEAD it expects.
+- A dry run must say what the move would do and write nothing, without the lock (`preview_move`, the preview of the
+  Move to… form as the user types); a move may name the HEAD it expects.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_dry_run_writes_nothing_and_expect_head_refuses_a_moved_head`)
 - An autosquash marker must stay in front: `fixup! (a) X` becomes `fixup! (b) X`.
 - The fixups of a moved commit must move with it, and be listed after the requested commits for the undo.
@@ -121,14 +123,18 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
 - Rewrites must hold the repository lock, so the app and the agent CLI don't rewrite the branch at the same time.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`)
-- A move, a rename, a restack and their undo of the app must wait for the lock as long as its holder lives (an
-  agent's `bd pick --follow`, `bd`, the app's own push), never refused after 10 s: a move started from a menu shows
-  its spinner on the "⋯" of its row, whose hover says whom it waits for ("Waiting for `bd pick` (pid 4242, for 12
-  s)") and whose click offers Stop Waiting, which ends the wait with nothing moved ("Canceled moving 1 commit to docs
-  before it started"); the surface that started it says the same. Once the holder released the lock the move runs.
-  Only a holder no record names refuses it after 10 s.
+- A move, a rename, a restack, an unstack and their undo of the app are rewrites of the engine (`execute` of the
+  intent `rewrite`, `operations::rewrite`), named on the table the window shows (`TableWitness`). Each must wait for
+  the lock as long as its holder lives (an agent's `bd pick --follow`, `bd`, the app's own push), never refused after
+  10 s: its operation's step is `waitingForLock` with the holder, and a move started from a menu shows its spinner on
+  the "⋯" of its row, whose hover says whom it waits for ("Waiting for `bd pick` (pid 4242, for 12 s)") and whose
+  click offers Stop Waiting (`cancel_operation`), which ends the wait with nothing moved ("Canceled moving 1 commit to
+  docs before it started"); the surface that started it says the same. Once the holder released the lock the move
+  runs. Only a holder no record names refuses it after 10 s.
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should show the wait of a move started from a menu on the row's ⋯, whose menu stops it, nothing moved`)
   [@test] ../../crates/test-server/src/channel_commands_test.rs (`a_rewrite_says_whom_it_waits_for_and_runs_once_the_holder_released_the_lock`, `stop_waiting_ends_the_wait_of_a_rewrite_with_nothing_changed`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
+  [@test] ../../src/lib/rewrite-run.test.ts (`shows whom a rewrite of the engine waits for and stops the wait by its operation`)
   [@test] ../../crates/history-rewrite/src/lock_wait_test.rs (`a_wait_is_stopped_by_its_channel_and_leaves_the_registry_with_its_ticket`)
   [@test] ../../src/stores/operations.test.ts (`says whom the command of a running rewrite waits for, offers Stop Waiting on its channel, and says its own state again once the wait ended`)
   [@test] ../../src/lib/lock-wait.test.ts (`says that an action stopped while it waited for the repository lock changed nothing`, `tells a stopped wait from a failure by the code of the command's error`)
@@ -193,7 +199,7 @@ Renaming and ungrouping a branch are moves of all its commits.
   selection it selects the row and opens "Move to…" for it, as the item does; with selected rows it opens it for them.
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should open Move to… for the focused row with M, without a selection`, `should move the selected branches to a new branch with Move to…`)
 - The branch menu must offer "Rename…" for a prefix branch and "Name This Branch…" for an issue branch, through
-  `rename_branch`; an existing name merges the branches. "Name This Branch…" and "Rename…" of an issue group change the
+  the rewrite `rename` of the engine; an existing name merges the branches. "Name This Branch…" and "Rename…" of an issue group change the
   issue groups only, without a rewrite, also when the issue branch is named after a stacked one.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_flat_and_issue_branches`, `an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups`)
 - The branch menu of a prefix branch and of an issue group must offer "Ungroup": it moves all its commits back, the
@@ -202,7 +208,7 @@ Renaming and ungrouping a branch are moves of all its commits.
 - While a rename or an ungroup runs, its form must show the progress row ("Renaming docs to documentation…"); it closes
   when the commits moved. A failure must keep the form with the typed name (the error is a toast).
 - With [stacked branches](stacked-branches.spec.md) on, Rename must rename the branch in the prefixes of the branches
-  stacked on it too, and in the stack parents (`rename_branch`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
+  stacked on it too, and in the stack parents (`rename_branch_core`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
   branch that others stack on must confirm and name them: they stay stacked on it and are built on the baseline until
   it has commits again. The
   confirmation focuses its button, so Enter confirms.
@@ -229,11 +235,15 @@ Renaming and ungrouping a branch are moves of all its commits.
 - A target must wait as the menu of the same action does, and say why while the pointer is over it: a drag of whole
   branches while a sync runs or one of them failed to sync, as Move to… of a branch; a drag of commit rows moves during
   a sync, as Move to… of a commit. A target takes a drop while a rewrite of the repository runs: its move waits for
-  that rewrite in the queue ([Running Operations](../../docs/design/operations.md)) and then moves the commits as the
-  rewrite left them, by the ids it gave them. Its answer follows the sync and the rewrites while the drag goes on, and
+  that rewrite in the queue of the session ([Running Operations](../../docs/design/operations.md)), its row saying
+  behind which ("Waits for Moving 1 commit to docs…"), and then moves the commits as the rewrite left them, by the ids
+  it gave them; it runs beside the sync of the one before, whose syncs fold into two runs at most, and two drags into
+  different branches both land where they were dropped. Its answer follows the sync and the rewrites while the drag goes on, and
   a drop asks it once more and takes the commits as the last sync left them (a commit a rewrite gave another id is
   found by its author, author time and subject): gone ones refuse the drop with an info toast.
-  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it`)
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it`, `should move two drags into different branches, the first waiting for the repository lock, both in place`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_move_queued_behind_a_move_names_its_commit_through_the_new_id_the_first_answered`, `a_move_queued_behind_a_move_of_another_commit_finds_its_commit_by_its_key_after_the_sync`)
+  [@test] ../../crates/operations/src/registry_test.rs (`the_caller_of_a_waiting_operation_hears_behind_which_it_waits_and_where_it_starts`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag a branch while a sync runs, say why the targets wait for it, and take the drop once it ended`)
   [@test] ../../src/lib/branch-drop.test.ts (`moves dragged commits onto a branch, leaves a drag of branches that land to the Parked card from its rows, and waits as Move to… does`)
 - While commits or branches are dragged, the drag bar must show over the bottom of the window, in view wherever the
@@ -275,14 +285,20 @@ Renaming and ungrouping a branch are moves of all its commits.
 ### After a move
 
 - A move must show a toast "Moved N commits to X" (N counts the commits that moved, not those already there) with what
-  it did as the description ("IJPL-2 goes to docs by the issue key from now on, without a rewrite") and an Undo button.
+  it did as the description ("IJPL-2 goes to docs by the issue key from now on, without a rewrite") and an Undo button,
+  once the sync the rewrite asked showed it: the operation ends with the request of that sync (a rewrite behind it runs
+  meanwhile), and its answer comes once the sync ended, with the version of its last patch (`Outcome.versionAfter`).
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_undo`)
 - Undo of a move, a rename and a restack must move HEAD and the issue groups back in one ref transaction with
-  compare-and-swap, under the repository lock (`undo_regroup` with the `undo_token` of the result), in the repository
-  the move was made in: a move, a rename, a restack, a reword and a conflict fix name the repository of the click, and
-  their Undo clicked after a switch of the repository undoes there, without a sync of the repository shown.
+  compare-and-swap, under the repository lock (the rewrite `undo` with the token of the outcome, `Outcome.undo`), in
+  the repository the move was made in: a move, a rename, a restack, a reword and a conflict fix name the repository of
+  the click, and their Undo clicked after a switch of the repository undoes there, without a sync of the repository
+  shown. An Undo pressed while another rewrite runs waits behind it in the queue of the session and runs after it.
   [@test] ../../src/hooks/useRewordCommit.test.ts (`undoes the reword in its repository when the toast's Undo comes after a switch of the repository`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`renaming_a_parent_renames_it_in_its_children`, `undo_refuses_a_bad_token_and_a_moved_head`)
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid`)
+  [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_token_that_the_rewrite_undo_takes`)
 - After the toast shows, the trial build of the stacked branches of the move runs, the target first, then the source
   branches ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)). The first one that builds
   alone now gives the toast a second action: "Unstack from IJPL-257337" for the target, which the toast names, and

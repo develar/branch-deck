@@ -1,6 +1,6 @@
 use crate::remote_fixtures::{HistoryRobotFixture, fixture_history_robot, fixture_progress, fixture_robot};
 use crate::session_routes_test::{subscribe, subscription};
-use crate::test_support::{Named, create_repository, create_repository_from, execute_request, post, post_as, push_intent, start_test_server, sync, view_when};
+use crate::test_support::{Named, create_repository, create_repository_from, execute_request, post, post_as, push_intent, rewrite, start_test_server, sync, view_when};
 use domain_types::patronus::{
   PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
@@ -260,7 +260,7 @@ async fn synced_on_space(parked: &[(&str, &str)]) -> (std::net::SocketAddr, reqw
   .await;
   if !parked.is_empty() {
     let branches: Vec<serde_json::Value> = parked.iter().map(|(branch, note)| json!({"branchName": branch, "note": note})).collect();
-    post(&client, addr, "/invoke/park_branches", json!({"repositoryPath": repository_path, "branches": branches})).await;
+    rewrite(&client, addr, &repository_path, json!({"rewrite": "park", "branches": branches})).await;
   }
   sync(&client, addr, &repository_path).await;
   (addr, client, id, repository_path)
@@ -341,13 +341,7 @@ async fn a_start_its_plan_refuses_is_refused_before_patronus_or_github_is_asked(
   assert_eq!(code, "parked");
   assert!(message.ends_with("Nothing was pushed or started: test-branch is parked: IJPL-1"), "{message}");
 
-  post(
-    &client,
-    addr,
-    "/invoke/unpark_branches",
-    json!({"repositoryPath": repository_path, "branchNames": ["test-branch"]}),
-  )
-  .await;
+  rewrite(&client, addr, &repository_path, json!({"rewrite": "unpark", "branchNames": ["test-branch"]})).await;
   sync(&client, addr, &repository_path).await;
   let free = plan_when(&client, addr, &repository_path, &intent, |plan| plan["blockers"] == json!([]) && plan["waits"] == json!([])).await;
   post(&client, addr, &format!("/repositories/{id}/patronus"), running_on("test-branch")).await;
