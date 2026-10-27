@@ -11,10 +11,57 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use sync_core::github_repository::GitHubRepository;
-use sync_utils::clock::TestClock;
+use sync_utils::clock::{Clock, TestClock, Wait};
+use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 
 const COMMENTS: &str = "/repos/acme/monorepo/issues/7/comments";
 const COMMENT: &str = "/repos/acme/monorepo/issues/comments/4402";
+
+/// The clock of a start that a test moves only while the start waits on it. The start also waits for the fake GitHub,
+/// on real sockets: a clock moved meanwhile ends the minute of the reply, or the while after it, before GitHub answered
+/// (one list where the ten seconds after the reply make four, when the reply came twenty ticks late)
+#[derive(Clone, Default)]
+struct StartClock {
+  clock: TestClock,
+  /// A permit for each wait of a timer on the clock
+  waits: Arc<Notify>,
+}
+
+impl Clock for StartClock {
+  fn now(&self) -> Duration {
+    self.clock.now()
+  }
+
+  fn until(&self, at: Duration) -> Wait {
+    let wait = self.clock.until(at);
+    if matches!(wait, Wait::Signal(_)) {
+      self.waits.notify_one();
+    }
+    wait
+  }
+}
+
+impl StartClock {
+  /// Until the start waits on the clock
+  async fn waiting(&self) {
+    self.waits.notified().await;
+  }
+
+  fn advance(&self, by: Duration) {
+    self.clock.advance(by);
+  }
+
+  /// Moves the clock `by` each time the start waits on it, until `run` ends; what it answered
+  async fn finish<T>(&self, mut run: JoinHandle<T>, by: Duration) -> T {
+    loop {
+      tokio::select! {
+        ended = &mut run => return ended.unwrap(),
+        () = self.waiting() => self.advance(by),
+      }
+    }
+  }
+}
 
 fn repository() -> GitHubRepository {
   GitHubRepository {
@@ -61,7 +108,7 @@ fn of_seven(id: &str, mode: PatronusPushMode, start_time: u32) -> PatronusRobot 
 }
 
 /// The comment of a Safe Push on #7, `known` the robots known before it, `robots` what Patronus lists after it
-async fn comment(github: &GitHubService, clock: &TestClock, known: &[&str], robots: Vec<PatronusRobot>) -> Result<Commented, ApiError> {
+async fn comment(github: &GitHubService, clock: &dyn Clock, known: &[&str], robots: Vec<PatronusRobot>) -> Result<Commented, ApiError> {
   let repository = repository();
   let start = CommentStart {
     github,
@@ -114,16 +161,12 @@ async fn a_comment_the_bot_rejects_fails_with_its_reason_and_one_it_never_answer
   );
 
   let (fake, github) = github_with_comment(json!({"+1": 0, "-1": 0})).await;
-  let clock = TestClock::new();
+  let clock = StartClock::default();
   let pending = tokio::spawn({
     let clock = clock.clone();
     async move { comment(&github, &clock, &[], Vec::new()).await }
   });
-  while !pending.is_finished() {
-    clock.advance(Duration::from_secs(3));
-    tokio::task::yield_now().await;
-  }
-  let commented = pending.await.unwrap().unwrap();
+  let commented = clock.finish(pending, Duration::from_secs(3)).await.unwrap();
   assert_eq!((commented.accepted, commented.robot), (false, None));
   // read right after the comment, then on the ticks of the clock until the minute ended
   assert!(!fake.requests_to("GET", COMMENT).is_empty());
@@ -136,7 +179,7 @@ async fn a_comment_the_bot_rejects_fails_with_its_reason_and_one_it_never_answer
 async fn an_accepted_comment_looks_for_its_robot_after_the_minute_until_patronus_lists_it() {
   let listed: Arc<std::sync::Mutex<Vec<PatronusRobot>>> = Arc::default();
   let lists = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-  let run = |github: GitHubService, clock: TestClock| {
+  let run = |github: GitHubService, clock: StartClock| {
     let (listed, lists) = (Arc::clone(&listed), Arc::clone(&lists));
     tokio::spawn(async move {
       let repository = repository();
@@ -150,38 +193,31 @@ async fn an_accepted_comment_looks_for_its_robot_after_the_minute_until_patronus
       start_by_comment(start, &clock, since).await
     })
   };
-  let advance = async |clock: &TestClock, by: Duration| {
-    clock.advance(by);
-    for _ in 0..50 {
-      tokio::task::yield_now().await;
-    }
-  };
 
   let (_, github) = github_with_comment(json!({"+1": 1, "-1": 0})).await;
-  let clock = TestClock::new();
-  let found = run(github, clock.clone());
-  advance(&clock, Duration::from_mins(1)).await;
-  assert!(!found.is_finished(), "the start holds its subject past the minute while the robot is looked for");
-  listed.lock().unwrap().push(of_seven("late", PatronusPushMode::RebaseAutosquash, 200));
-  while !found.is_finished() {
-    advance(&clock, Duration::from_secs(15)).await;
+  let clock = StartClock::default();
+  let mut found = run(github, clock.clone());
+  clock.waiting().await;
+  clock.advance(Duration::from_mins(1));
+  // the start holds its subject past the minute while the robot is looked for
+  tokio::select! {
+    () = clock.waiting() => {}
+    ended = &mut found => panic!("the start ended at the minute: {ended:?}"),
   }
-  let commented = found.await.unwrap().unwrap();
+  listed.lock().unwrap().push(of_seven("late", PatronusPushMode::RebaseAutosquash, 200));
+  clock.advance(Duration::from_secs(15));
+  let commented = clock.finish(found, Duration::from_secs(15)).await.unwrap();
   assert_eq!((commented.accepted, commented.robot.map(|robot| robot.id)), (true, Some("late".to_owned())));
 
   listed.lock().unwrap().clear();
   let (_, github) = github_with_comment(json!({"+1": 1, "-1": 0})).await;
-  let clock = TestClock::new();
+  let clock = StartClock::default();
   let missing = run(github, clock.clone());
   let before = lists.load(std::sync::atomic::Ordering::SeqCst);
-  while !missing.is_finished() {
-    advance(&clock, Duration::from_secs(15)).await;
-  }
-  let commented = missing.await.unwrap().unwrap();
+  let commented = clock.finish(missing, Duration::from_secs(15)).await.unwrap();
   assert_eq!((commented.accepted, commented.robot), (true, None));
-  // the ticks of the minute, then one each 15 s for five minutes
-  let asked = lists.load(std::sync::atomic::Ordering::SeqCst) - before;
-  assert!((20..=45).contains(&asked), "{asked} lists");
+  // at the reply and on each tick of the minute (0 to 60 s), then one each 15 s until five minutes after it (75 to 360 s)
+  assert_eq!(lists.load(std::sync::atomic::Ordering::SeqCst) - before, 5 + 20);
 }
 
 /// The Safe Push of a reviewed pull request of someone else comments a plain `/patronus merge` (its branch goes once
@@ -191,7 +227,7 @@ async fn an_accepted_comment_looks_for_its_robot_after_the_minute_until_patronus
 async fn a_reviewed_pull_request_is_merged_plainly_and_its_robot_looked_for_only_a_while_after_the_reply() {
   let (fake, github) = github_with_comment(json!({"+1": 1, "-1": 0})).await;
   let lists = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-  let clock = TestClock::new();
+  let clock = StartClock::default();
   let run = tokio::spawn({
     let (clock, lists) = (clock.clone(), Arc::clone(&lists));
     async move {
@@ -205,13 +241,7 @@ async fn a_reviewed_pull_request_is_merged_plainly_and_its_robot_looked_for_only
       start_by_comment(start, &clock, since).await
     }
   });
-  while !run.is_finished() {
-    clock.advance(Duration::from_secs(3));
-    for _ in 0..50 {
-      tokio::task::yield_now().await;
-    }
-  }
-  let commented = run.await.unwrap().unwrap();
+  let commented = clock.finish(run, Duration::from_secs(3)).await.unwrap();
   assert_eq!((commented.accepted, commented.robot), (true, None));
   assert_eq!(fake.requests_to("POST", COMMENTS)[0].json(), json!({"body": "/patronus merge"}));
   // right after the reply, then each tick of the ten seconds after it
