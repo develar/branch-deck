@@ -1,8 +1,8 @@
-import { useMemo } from "react"
+import { useMemo, useSyncExternalStore } from "react"
 import { useStore } from "zustand"
 import type { StepInputs } from "@/hooks/useBranchNextStep"
 import { getStepInputs, stepActionsOf, useStepInputs } from "@/hooks/useBranchNextStep"
-import type { LandingNodeKind, NextStep, NextStepView, WholeStackView } from "@/lib/bindings"
+import type { LandingNodeKind, NextStep, NextStepView, RunningOperation, WholeStackView } from "@/lib/bindings"
 import { formatWholeStack, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { useShowReviewReadiness } from "@/model/demand"
 import { getRowPart, useRowPart } from "@/model/store"
@@ -17,7 +17,8 @@ import {
   getStackBranch,
   getWholeStack,
   isBranchPushing,
-  useBranchSync,
+  useBranchSyncEntry,
+  useBranchSyncField,
   useIsBranchPushing,
   useWholeStack,
 } from "@/stores/branch-sync"
@@ -158,12 +159,28 @@ export function nodeSources(): readonly unknown[] {
   return [branchSyncStore.getState()]
 }
 
-/** The running move of the row of `key` (`runningMoveNow`), re-rendering only when it changes: a selector of its text */
+/** No subscription: what a hook reads is the same until another hook of its component renders it again */
+function subscribeToNothing(): () => void {
+  return () => {}
+}
+
+/** Whether an operation of the session has a move (`RunningOperation.moves`) */
+function hasMoves(operations: Readonly<Record<string, RunningOperation>>): boolean {
+  return Object.values(operations).some(operation => operation.moves.length > 0)
+}
+
+/**
+ * The running move of the row of `key` (`runningMoveNow`), re-rendering only when it changes: a selector of its text.
+ * While no operation of the session moves, the row has none whatever else the store holds: the hook waits for the
+ * operations alone, and reads the rest of the store only while a move runs
+ */
 function useRunningMove(key: string): FoundMove | null {
-  const encoded = useNodeStores(() => {
+  const moving = useBranchSyncField("operations", hasMoves)
+  const read = () => {
     const move = key === "" ? null : runningMoveNow(key)
     return move === null ? "" : JSON.stringify(move)
-  })
+  }
+  const encoded = useSyncExternalStore(moving ? branchSyncStore.subscribe : subscribeToNothing, read, read)
   return useMemo(() => (encoded === "" ? null : (JSON.parse(encoded) as FoundMove)), [encoded])
 }
 
@@ -171,7 +188,7 @@ function useRunningMove(key: string): FoundMove | null {
 function useNodeOf(key: string): LandingNode | null {
   const view = useRowPart(key, "landing")
   const step = useStepInputs(key, wordedStep(view))
-  const statusText = useBranchSync(state => state.branches[key]?.statusText ?? "")
+  const statusText = useBranchSyncEntry("branches", key, branch => branch?.statusText ?? "")
   const move = useRunningMove(key)
   const pushing = useIsBranchPushing(key) && stackRootOfReadinessKey(key) === null
   return view === undefined ? null : presentNode(key, view, { step, statusText, move, pushing })

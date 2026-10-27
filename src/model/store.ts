@@ -21,7 +21,6 @@
  * `refreshSessionFacts`.
  */
 import { Channel } from "@tauri-apps/api/core"
-import { useStore } from "zustand"
 import type {
   ActionState,
   ApiError,
@@ -59,7 +58,7 @@ import type { BranchStructure } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE, rowsOf } from "@/model/structure"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import type { Branch, BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
-import { branchSyncStore, NO_SUBJECT_PARTS, toRemoteStatus } from "@/stores/branch-sync"
+import { branchSyncStore, NO_SUBJECT_PARTS, toRemoteStatus, useBranchSyncEntry } from "@/stores/branch-sync"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getEffectiveBranchPrefix, getSelectedRepositoryPath, refreshBranchPrefix } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
@@ -1059,20 +1058,18 @@ interface RowParts {
 }
 
 /** The record of the store that keeps each part of the rows */
-const ROW_PARTS: { readonly [P in keyof RowParts]: (state: BranchSyncState) => Readonly<Record<string, RowParts[P]>> } = {
-  landing: state => state.nextSteps,
-  actions: state => state.actions,
-}
+const ROW_PARTS = { landing: "nextSteps", actions: "actions" } as const satisfies { readonly [P in keyof RowParts]: keyof BranchSyncState }
 
 /** The part `part` of the row of `subject` as the view holds it now; undefined while the view has none of it */
 export function getRowPart<P extends keyof RowParts>(subject: string, part: P): RowParts[P] | undefined {
-  return ROW_PARTS[part](branchSyncStore.getState())[subject]
+  return branchSyncStore.getState()[ROW_PARTS[part]][subject] as RowParts[P] | undefined
 }
 
 /**
  * `getRowPart`, re-rendering when it changes: one kept reference, the same object while the patches leave the part of
- * the subject untouched (`applyViewPatch`), so a row renders again only when its own part changes
+ * the subject untouched (`applyViewPatch`), so a row renders again only when its own part changes, and its hook runs
+ * only then (`useBranchSyncEntry`)
  */
 export function useRowPart<P extends keyof RowParts>(subject: string, part: P): RowParts[P] | undefined {
-  return useStore(branchSyncStore, state => ROW_PARTS[part](state)[subject])
+  return useBranchSyncEntry(ROW_PARTS[part], subject, entry => entry as RowParts[P] | undefined)
 }

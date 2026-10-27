@@ -3,7 +3,7 @@ import { createStore } from "zustand/vanilla"
 import type { OperationId, OperationStep, PatronusPushMode, RunningOperation, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { stackReadinessKey } from "@/lib/whole-stack"
-import { branchSyncStore } from "@/stores/branch-sync"
+import { branchSyncStore, useBranchSyncField } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath, useSelectedProjectPath } from "@/stores/repository"
 
 /** The two starts of a robot the app offers: a Safe Push and a Dry Run */
@@ -114,7 +114,7 @@ function landRunOf(operation: RunningOperation | undefined, asking: SafePushMode
 
 /** The start of the subject `key` that runs in the selected repository */
 export function useLandRun(key: string): LandRun | null {
-  const operation = useStore(branchSyncStore, state => landOperationIn(state.operations, key))
+  const operation = useBranchSyncField("operations", operations => landOperationIn(operations, key))
   const path = useSelectedProjectPath() ?? ""
   const asking = useStore(safePushStore, state => state.asking[askingKey(path, key)])
   return landRunOf(operation, asking)

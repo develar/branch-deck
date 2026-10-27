@@ -11,7 +11,7 @@ import { useRowPart } from "@/model/store"
 import type { PushButtonRuns, PushButtonState, PushRetarget, UnpushedChildren, UnpushedParent } from "@/presenters/push-button"
 import { childrenPushEnabled, getPushButtonState, getPushRetargets, landingPushes, parentOf, pushBlockerOf, retargetCandidates } from "@/presenters/push-button"
 import type { Branch, ChildrenPushOrder } from "@/stores/branch-sync"
-import { pushOrdersIn, useBranchSync, useIsStackBranchPushing } from "@/stores/branch-sync"
+import { pushOrdersIn, useBranchSync, useBranchSyncField, useIsStackBranchPushing } from "@/stores/branch-sync"
 import { usePatronusAvailable } from "@/stores/patronus"
 import { pullRequestsStore, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
 import { useLandRun } from "@/stores/safe-push"
@@ -56,7 +56,7 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
 /** The pull requests into a virtual branch a push of `names` retargets first (`getPushRetargets`), from the stores */
 function usePushRetargets(names: readonly string[]): readonly PushRetarget[] {
   // the base they go into is the baseline: a new one renders again, and the selector below reads it
-  useBranchSync(state => state.baselineBranch)
+  useBranchSyncField("baselineBranch", baseline => baseline)
   // a string, so the store notifies only when a retarget changes
   const retargets = useStore(pullRequestsStore, () => JSON.stringify(getPushRetargets(names)))
   return useMemo(() => JSON.parse(retargets) as PushRetarget[], [retargets])

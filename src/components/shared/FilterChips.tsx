@@ -1,3 +1,4 @@
+import { createContext, use } from "react"
 import type { ComponentProps, ReactNode } from "react"
 import { cn } from "cn"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -14,6 +15,9 @@ export interface FilterChipsProps {
   "data-testid"?: string
   children: ReactNode
 }
+
+/** The chosen chip of the `FilterChips` around a chip */
+const ChosenChip = createContext<string | null>(null)
 
 /**
  * The chips of a filter of a list, one chosen at a time (the state chips of the branch table, the kinds of Activity, the
@@ -37,15 +41,20 @@ export function FilterChips({ label, value, onValueChange, fallback, className, 
       className={cn("flex-wrap", className)}
       data-testid={testId}
     >
-      {children}
+      <ChosenChip value={value}>{children}</ChosenChip>
     </ToggleGroup>
   )
 }
 
-/** A chip of `FilterChips`: its name, then its count in tabular figures */
+/**
+ * A chip of `FilterChips`: its name, then its count in tabular figures. The chosen one is the active item of the group
+ * (`data-composite-item-active`, as a checked radio is): the tab stop of the group starts on it, and the group finds it
+ * without asking each chip whether it is visible, a style recalc of the whole page while the rows of a first sync come
+ */
 export function FilterChip({ count, children, ...props }: ComponentProps<typeof ToggleGroupItem> & { count?: number | null }) {
+  const chosen = use(ChosenChip)
   return (
-    <ToggleGroupItem {...props}>
+    <ToggleGroupItem {...props} data-composite-item-active={chosen !== null && props.value === chosen ? "" : undefined}>
       {children}
       {count != null && <span className="tabular-nums opacity-70">{count}</span>}
     </ToggleGroupItem>

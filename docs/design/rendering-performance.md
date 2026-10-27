@@ -124,7 +124,11 @@ flowchart LR
 
 3. **Decision**: the compiler does not replace narrow store selectors.
    **Rationale**: memoization saves the render, not the selector, which runs on every store update. Selectors return a
-   primitive, a joined string, or an interned record. The selected project is read by field
+   primitive, a joined string, or an interned record. The hooks a row calls for its own parts do not even run on a
+   change of the others: `useBranchSyncEntry(field, key, select)` (its branch, the next step and the actions of its
+   subject: `useBranch`, `useRowPart`) wakes only when its entry is another object, `useBranchSyncField(field, select)`
+   (the operations of the session, the baseline) only when its field is, and `select` gets that part alone, so it
+   reads nothing it is not woken for (`src/stores/branch-sync.ts`: one listener of the store compares the parts). The selected project is read by field
    (`useSelectedProjectPath`, `useSelectedProjectField`); `useSelectedProject` re-renders on every change of the
    metadata. A menu a component renders comes from a selector cached by the states of the stores its builder reads
    (`getBranchMenuNow` and `useBranchMenu`, `getStackIslandMenuNow` of the "⋯" of an island header, `menuSources`),
@@ -236,6 +240,23 @@ the first sync and 47 / 112 ms for a sync that changes nothing, against 522 / 10
 and 7 % less task time for the first sync, the same script and 12 % less task time for a sync that changes nothing.
 The goal of the stage for the script of the first sync, 30 % less (B4 of [Rust as the Domain
 Authority](rust-domain-authority.md#бюджеты-производительности)), is not reached.
+
+`PERF_PROFILE=1 pnpm perf:table` adds a run of the first sync under the CPU profiler
+(`tests/results/perf/first-sync-chromium.cpuprofile`). Its profile at the end of s9 said where the time goes: the
+mount of the 141 rows was about half of the busy main thread, its JavaScript mostly the roots of Base UI each row
+mounts (tooltips, popovers, its context menu and its "⋯" menu) and React; the patches of the progress of the rows
+woke every selector of the store, 7,324 of them for each of the 54 changes of the store; the last three patches
+changed the next step and the actions of every subject as the Patronus view and the landing needs came; and a
+composite of Base UI asked the style of a filter chip while the rows were mounting, a recalc of the whole page. Since,
+the hooks of a row wake only for their own part (Decision 3: 1,300 listeners a patch) and the chosen chip is the
+active item of its group (`FilterChip`). In three turns against master `21e7e183` on the Mac Studio, each the median
+of three runs: 487 / 911 ms for the first sync and 44 / 84 ms for a sync that changes nothing, against 499 / 1029 ms
+and 45 / 121 ms: 2 % less script and 11 % less task time for the first sync, 30 % less task time for a sync that
+changes nothing. The script of the first sync is the mount of the rows and the patches of every subject, which the
+listeners did not cost; what is left of B4 goes to s13 (the roots of Base UI mounted on the first hover, one menu of
+the table, the cached frame).
+
+[@test] ../../src/stores/branch-sync.test.ts (`wakes the hooks of a branch only when its own entry changed, those of a field only when the field did`)
 
 What the page no longer derives the session derives on every patch, so its time is a budget too (B10 there, at most
 2 ms in a release build for the 141 rows): `derive_budget_test.rs` takes the least of nine runs of a flush (the

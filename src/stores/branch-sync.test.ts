@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { Commit, RunningOperation } from "@/lib/bindings"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranchTableRows, isBranchPushing, isStackPushing, resolveCommits, wholeStackRootIn } from "@/stores/branch-sync"
+import { branchSyncStore, getBranchTableRows, isBranchPushing, isStackPushing, resolveCommits, subscribeToEntry, subscribeToField, wholeStackRootIn } from "@/stores/branch-sync"
 import { placed, testBranch } from "@/stores/test-branch"
 
 const { repository } = vi.hoisted(() => ({
@@ -146,5 +146,31 @@ describe("the commits a rewrite that waited in the queue acts on", () => {
   it("finds no commit by a key two commits share", () => {
     showCommits([commitOf("a2", "GH-1 Add login", 100, 200), commitOf("c2", "GH-1 Add logout", 100, 200)])
     expect(resolveCommits([commitOf("a1", "Add login", 100, 200)])).toBeNull()
+  })
+})
+
+describe("the narrow subscriptions", () => {
+  it("wakes the hooks of a branch only when its own entry changed, those of a field only when the field did", () => {
+    showBranches(testBranch("auth", null), testBranch("ui", null))
+    const auth = vi.fn()
+    const operations = vi.fn()
+    const offAuth = subscribeToEntry("branches", "auth", auth)
+    const offOperations = subscribeToField("operations")(operations)
+    // a patch of another branch: a new record, the entry of auth the same object
+    const { branches } = branchSyncStore.getState()
+    branchSyncStore.setState({ branches: { ...branches, ui: testBranch("ui", null, { commitCount: 2 }) }, viewVersion: { epoch: 1, seq: 2 } })
+    expect(auth).not.toHaveBeenCalled()
+    expect(operations).not.toHaveBeenCalled()
+
+    branchSyncStore.setState({ branches: { ...branchSyncStore.getState().branches, auth: testBranch("auth", null, { commitCount: 3 }) } })
+    expect(auth).toHaveBeenCalledTimes(1)
+    branchSyncStore.setState({ operations: {} })
+    expect(operations).toHaveBeenCalledTimes(1)
+
+    offAuth()
+    offOperations()
+    branchSyncStore.setState({ branches: {}, operations: {} })
+    expect(auth).toHaveBeenCalledTimes(1)
+    expect(operations).toHaveBeenCalledTimes(1)
   })
 })

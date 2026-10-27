@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
@@ -325,6 +325,109 @@ export function useBranchSync<T>(selector: (state: BranchSyncState) => T): T {
   return useStore(branchSyncStore, selector)
 }
 
+// ---- narrow subscriptions: a change wakes only the hooks of what it changed ----
+
+/** The fields of the state that are records by a key (a branch, a subject), whose entries keep their objects while a patch leaves them */
+type EntryField = "branches" | "nextSteps" | "actions" | "openPullRequests" | "stackBranches" | "pushes"
+type EntryOf<F extends EntryField> = BranchSyncState[F][string]
+type Listener = () => void
+
+const fieldListeners = new Map<keyof BranchSyncState, Set<Listener>>()
+const entryListeners = new Map<EntryField, Map<string, Set<Listener>>>()
+
+/**
+ * The one listener of the store for the narrow hooks (`useBranchSyncField`, `useBranchSyncEntry`): the hooks of a field
+ * wake only when the field is another object, those of an entry only when the entry is. A patch that changes the sync
+ * of three rows wakes the hooks of those rows, not a selector of every row: each hook of `useBranchSync` runs on every
+ * change of the store, 7,324 of them on each patch of the first sync of `perf:table` before (B4 of
+ * docs/design/rust-domain-authority.md)
+ */
+branchSyncStore.subscribe((state, previous) => {
+  for (const [field, listeners] of fieldListeners) {
+    if (state[field] !== previous[field]) {
+      notifyAll(listeners)
+    }
+  }
+  for (const [field, entries] of entryListeners) {
+    const now: Readonly<Record<string, unknown>> = state[field]
+    const before: Readonly<Record<string, unknown>> = previous[field]
+    if (now === before) {
+      continue
+    }
+    for (const [key, listeners] of entries) {
+      if (now[key] !== before[key]) {
+        notifyAll(listeners)
+      }
+    }
+  }
+})
+
+function notifyAll(listeners: ReadonlySet<Listener>): void {
+  for (const listener of listeners) {
+    listener()
+  }
+}
+
+/** Adds `listener` to the set of `key`; the returned function takes it out, and the set once it is empty */
+function addListener<K>(sets: Map<K, Set<Listener>>, key: K, listener: Listener): () => void {
+  let listeners = sets.get(key)
+  if (listeners === undefined) {
+    listeners = new Set()
+    sets.set(key, listeners)
+  }
+  const added = listeners
+  added.add(listener)
+  return () => {
+    added.delete(listener)
+    if (added.size === 0 && sets.get(key) === added) {
+      sets.delete(key)
+    }
+  }
+}
+
+/** One subscribe function per field, so a hook keeps its subscription across renders */
+const fieldSubscribes = new Map<keyof BranchSyncState, (listener: Listener) => () => void>()
+
+/** The subscribe function of `field` (`useBranchSyncField`): its listener runs when the field is another object */
+export function subscribeToField(field: keyof BranchSyncState): (listener: Listener) => () => void {
+  let subscribe = fieldSubscribes.get(field)
+  if (subscribe === undefined) {
+    subscribe = listener => addListener(fieldListeners, field, listener)
+    fieldSubscribes.set(field, subscribe)
+  }
+  return subscribe
+}
+
+/**
+ * `useBranchSync` of one field: `select` gets the field alone, so it reads nothing else, and runs again only when the
+ * field is another object (the operations of the session, the baseline). Like any selector, it answers the same value
+ * while the field is the same
+ */
+export function useBranchSyncField<F extends keyof BranchSyncState, T>(field: F, select: (value: BranchSyncState[F]) => T): T {
+  const read = () => select(branchSyncStore.getState()[field])
+  return useSyncExternalStore(subscribeToField(field), read, read)
+}
+
+/** Runs `listener` when the entry `key` of `field` is another object (`useBranchSyncEntry`); the result unsubscribes */
+export function subscribeToEntry(field: EntryField, key: string, listener: Listener): () => void {
+  let entries = entryListeners.get(field)
+  if (entries === undefined) {
+    entries = new Map()
+    entryListeners.set(field, entries)
+  }
+  return addListener(entries, key, listener)
+}
+
+/**
+ * What `select` reads of the entry `key` of a keyed field (a branch, the next step of a subject), undefined without one:
+ * runs again only when that entry is another object, which a patch makes only of what it changes (`projectView`)
+ */
+export function useBranchSyncEntry<F extends EntryField, T>(field: F, key: string, select: (entry: EntryOf<F> | undefined) => T): T {
+  const subscribe = useCallback((listener: Listener) => subscribeToEntry(field, key, listener), [field, key])
+  const read = () => select(branchSyncStore.getState()[field][key] as EntryOf<F> | undefined)
+  return useSyncExternalStore(subscribe, read, read)
+}
+
 /** Branch names in display order; re-renders only when the set or order of branches changes. */
 export function useBranchOrder(): string[] {
   return useStore(
@@ -610,7 +713,7 @@ export function getWholeStack(root: string): WholeStackView | null {
 
 /** `getWholeStack`, re-rendering when it changes */
 export function useWholeStack(root: string): WholeStackView | null {
-  return useStore(branchSyncStore, state => structureIn(state, root).wholeStack)
+  return useBranchSyncEntry("branches", root, branch => (branch?.structure ?? ROOT_STRUCTURE).wholeStack)
 }
 
 /**
@@ -692,8 +795,8 @@ export function getPushOrders(name: string): PushOrders {
 
 /** Why the sync didn't build the stack branch of the stack of `root` that forks, re-rendering when it changes; null for one it built or another stack */
 export function useForkingStackNotBuilt(root: string): Reason | null {
-  return useStore(branchSyncStore, state => {
-    const whole = structureIn(state, root).wholeStack
+  return useBranchSyncEntry("branches", root, branch => {
+    const whole = (branch?.structure ?? ROOT_STRUCTURE).wholeStack
     return whole?.kind === "forking" ? (whole.notBuilt ?? null) : null
   })
 }
@@ -705,7 +808,7 @@ export function getOpenPullRequest(subject: string): PullRequestView | undefined
 
 /** `getOpenPullRequest`, re-rendering when it changes */
 export function useOpenPullRequest(subject: string): PullRequestView | undefined {
-  return useStore(branchSyncStore, state => state.openPullRequests[subject])
+  return useBranchSyncEntry("openPullRequests", subject, pullRequest => pullRequest)
 }
 
 /** The decisions of the default starts of `subject` (a branch, `stackReadinessKey(root)`) as Rust decides them; undefined before the Patronus view */
@@ -736,7 +839,7 @@ export function getUnparkedStackDescendants(name: string): string[] {
 
 /** Whether the last grouping read prefixes as stacked branches */
 export function useStacksEnabled(): boolean {
-  return useStore(branchSyncStore, state => state.stacksEnabled)
+  return useBranchSyncField("stacksEnabled", enabled => enabled)
 }
 
 export function isStacksEnabled(): boolean {
@@ -745,7 +848,7 @@ export function isStacksEnabled(): boolean {
 
 /** The issue groups of the last grouping: issue key -> branch name */
 export function useIssueGroups(): Readonly<Record<string, string>> {
-  return useStore(branchSyncStore, state => state.issueGroups)
+  return useBranchSyncField("issueGroups", groups => groups)
 }
 
 export function getIssueGroups(): Readonly<Record<string, string>> {
@@ -754,7 +857,7 @@ export function getIssueGroups(): Readonly<Record<string, string>> {
 
 /** The stack parents of the last grouping: child -> parent */
 export function useStackParents(): Readonly<Record<string, string>> {
-  return useStore(branchSyncStore, state => state.stackParents)
+  return useBranchSyncField("stackParents", parents => parents)
 }
 
 /** Whether issue groups put commits into the branch `name` */
@@ -809,7 +912,7 @@ export function getParkedState(name: string): ParkedState | null {
 
 /** `getParkedState` of the row, re-rendered only when it changes */
 export function useParkedState(name: string): ParkedState | null {
-  return useStore(branchSyncStore, state => structureIn(state, name).parked)
+  return useBranchSyncEntry("branches", name, branch => (branch?.structure ?? ROOT_STRUCTURE).parked)
 }
 
 /** The parked branches of the last grouping: branch -> note, the lines of branches without commits here too */
@@ -942,22 +1045,22 @@ function findCommitsIn({ branches, unassignedCommits }: BranchSyncState, ids: re
 
 /** A single branch; the component re-renders only when this branch changes. */
 export function useBranch(name: string): Branch | undefined {
-  return useStore(branchSyncStore, state => state.branches[name])
+  return useBranchSyncEntry("branches", name, branch => branch)
 }
 
 /** The commit the local virtual branch points to; undefined before the sync created it. Not re-rendered by other changes of the branch. */
 export function useBranchTip(name: string): string | undefined {
-  return useStore(branchSyncStore, state => state.branches[name]?.commits[0]?.hash)
+  return useBranchSyncEntry("branches", name, branch => branch?.commits[0]?.hash)
 }
 
 /** The commit the remote branch points to; null when it is not on the remote or its status is not loaded yet */
 export function useBranchRemoteTip(name: string): string | null {
-  return useStore(branchSyncStore, state => state.branches[name]?.remoteStatus?.remoteTip ?? null)
+  return useBranchSyncEntry("branches", name, branch => branch?.remoteStatus?.remoteTip ?? null)
 }
 
 /** The remote status of the branch, null until loaded; re-rendered only when a new status replaces it */
 export function useBranchRemoteStatus(name: string): RemoteStatus | null {
-  return useStore(branchSyncStore, state => state.branches[name]?.remoteStatus ?? null)
+  return useBranchSyncEntry("branches", name, branch => branch?.remoteStatus ?? null)
 }
 
 /**
@@ -965,7 +1068,7 @@ export function useBranchRemoteStatus(name: string): RemoteStatus | null {
  * unapplied branch) runs in the selected repository: an operation of its session that pushes it (`pushOperationIn`)
  */
 export function useIsBranchPushing(name: string): boolean {
-  return useStore(branchSyncStore, state => pushOperationIn(state.operations, name) !== undefined)
+  return useBranchSyncField("operations", operations => pushOperationIn(operations, name) !== undefined)
 }
 
 /** Whether the ref `ref` of an operation (`Resource.ref`, its full name) is the one a push of `name` writes */
@@ -1023,8 +1126,8 @@ const NO_BRANCHES: readonly string[] = []
  * change
  */
 export function useStackPush(startedFrom: string): readonly string[] | null {
-  const key = useStore(branchSyncStore, state => {
-    const operation = stackPushOperationIn(state.operations, startedFrom)
+  const key = useBranchSyncField("operations", operations => {
+    const operation = stackPushOperationIn(operations, startedFrom)
     return operation === undefined ? null : pushedBranchesOf(operation).join("\n")
   })
   return key === null ? null : key === "" ? NO_BRANCHES : key.split("\n")
@@ -1048,7 +1151,7 @@ export function useStackBranchPushProgress(root: string): PushProgress | null {
  * push runs
  */
 export function useBranchPushProgress(name: string): PushProgress | null {
-  const op = useStore(branchSyncStore, state => pushOperationIn(state.operations, name)?.id ?? null)
+  const op = useBranchSyncField("operations", operations => pushOperationIn(operations, name)?.id ?? null)
   return useStore(pushProgressStore, state => (op === null ? undefined : state[op]) ?? null)
 }
 
@@ -1069,11 +1172,11 @@ export function setOperationPushProgress(op: OperationId, progress: PushProgress
 }
 
 export function useUnassignedCommits(): Commit[] {
-  return useStore(branchSyncStore, state => state.unassignedCommits)
+  return useBranchSyncField("unassignedCommits", commits => commits)
 }
 
 export function useAutosquashPlan(): AutosquashPlan | null {
-  return useStore(branchSyncStore, state => state.autosquashPlan)
+  return useBranchSyncField("autosquashPlan", plan => plan)
 }
 
 export function getAutosquashPlan(): AutosquashPlan | null {
@@ -1083,7 +1186,7 @@ export function getAutosquashPlan(): AutosquashPlan | null {
 /** The update state of the selected repository; null before its first sync */
 export function useBaselineStatus(): BaselineStatus | null {
   const repositoryPath = useSelectedProjectPath()
-  return useStore(branchSyncStore, state => (state.baselineStatus?.repositoryPath === repositoryPath ? state.baselineStatus : null))
+  return useBranchSyncField("baselineStatus", status => (status?.repositoryPath === repositoryPath ? status : null))
 }
 
 /** Replaces the update check of the selected repository, e.g. with the result of an update */
@@ -1111,7 +1214,7 @@ export function getBranchesOfCommits(originalIds: readonly string[]): string[] {
 
 /** The stack branch of the stack rooted at `root`; undefined for a stack that doesn't fork or before a sync reported it */
 export function useStackBranch(root: string): StackBranch | undefined {
-  return useStore(branchSyncStore, state => state.stackBranches[root])
+  return useBranchSyncEntry("stackBranches", root, stackBranch => stackBranch)
 }
 
 export function getStackBranch(root: string): StackBranch | undefined {

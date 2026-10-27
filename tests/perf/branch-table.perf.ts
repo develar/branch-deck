@@ -22,6 +22,11 @@
 // - resyncScriptMs / resyncTaskMs: the same of a sync that changes nothing (the Patronus view comes in the patches of
 //   the session: the page asks no view of the robots), once no step waits for a fact (`waitForStepFacts`).
 //
+// PERF_PROFILE=1 adds one more first sync under the CPU profiler of CDP (Chromium; sampled every 100 µs), after the
+// measured runs, which it would slow: tests/results/perf/first-sync-<project>.cpuprofile, for the Performance panel of
+// DevTools or a summary by function (the build has no source maps: map its positions with a `vp build --sourcemap` of
+// the same commit).
+//
 // The IPC of the page (every engine; `window.__ipcStats` of the Tauri mock, docs/design/e2e-testing.md), each count
 // read once the page shows the state and no command is pending, the commands of the app's own timers left out
 // (`withoutAppTimers`: the check for updates after the start, the writes of the settings):
@@ -229,6 +234,24 @@ test.describe("Branch table performance", () => {
       await waitForStepFacts(page)
       const resync = await timeMainThread(cdp, () => runAndWaitForSync(page, () => page.getByTestId("sync-button").click()))
       syncRuns.push({ firstSyncScriptMs: first.script, firstSyncTaskMs: first.task, resyncScriptMs: resync.script, resyncTaskMs: resync.task })
+    })
+  }
+
+  if (process.env.PERF_PROFILE) {
+    test("the CPU profile of the first sync of 141 rows with robots running on ten of them", async ({ page, setupRepo, browserName }) => {
+      test.skip(browserName !== "chromium", "the CPU profile is Chromium's")
+      await setupTable(page, setupRepo)
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send("Profiler.enable")
+      await cdp.send("Profiler.setSamplingInterval", { interval: 100 })
+      await cdp.send("Profiler.start")
+      await syncBranches(page)
+      await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
+      await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
+      const { profile } = await cdp.send("Profiler.stop")
+      const directory = path.join("tests", "results", "perf")
+      mkdirSync(directory, { recursive: true })
+      writeFileSync(path.join(directory, `first-sync-${test.info().project.name}.cpuprofile`), JSON.stringify(profile))
     })
   }
 

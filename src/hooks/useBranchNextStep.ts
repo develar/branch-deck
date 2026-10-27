@@ -25,7 +25,7 @@ import { CREATE_PULL_REQUEST_LABEL } from "@/presenters/pull-request-url"
 import { getRequestReviewItem } from "@/presenters/review"
 import { recordApproval } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, useBranchSyncEntry, useBranchSyncField } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import type { Operation } from "@/stores/operations"
 import { getObjectBusy, operationLabel, runOperation, useObjectOperation } from "@/stores/operations"
@@ -120,13 +120,13 @@ export function useStepInputs(key: string, step: NextStep | undefined): StepInpu
   const robotId = restartedRobotOf(step)
   const review = asksReview(step)
   return {
-    target: useBranchSync(state => baselineOnRemote(state.baselineBranch ?? "")),
+    target: useBranchSyncField("baselineBranch", baseline => baselineOnRemote(baseline ?? "")),
     operation: useObjectOperation(key),
     starting: useLandRun(key),
     robot: useStore(patronusStore, () => (robotId === null ? undefined : getRobot(robotId))),
     robotActions: useRowPart(robotId === null ? "" : `robot:${robotId}`, "actions"),
-    running: useBranchSync(state => (robotId === null ? null : state.operations)),
-    pullRequest: useBranchSync(state => (review ? state.openPullRequests[key] : undefined)),
+    running: useBranchSyncField("operations", operations => (robotId === null ? null : operations)),
+    pullRequest: useBranchSyncEntry("openPullRequests", key, pullRequest => (review ? pullRequest : undefined)),
     repositoryPath: useSelectedProjectPath() ?? null,
   }
 }
@@ -224,7 +224,7 @@ export function getBranchNextStep(name: string, options?: { readonly forStart: t
  */
 export function useBranchNextStep(name: string): BranchNextStep | null {
   useShowReviewReadiness(name)
-  const headsWholeStack = useBranchSync(state => (state.stackBranches[name]?.members.length ?? 0) > 0)
+  const headsWholeStack = useBranchSyncEntry("stackBranches", name, stackBranch => (stackBranch?.members.length ?? 0) > 0)
   useShowReviewReadiness(headsWholeStack ? stackReadinessKey(name) : "")
   const view = useRowPart(name, "landing")
   const inputs = useStepInputs(name, view?.step)
@@ -327,5 +327,5 @@ export function getRobotItems(robot: PatronusRobot, running: SessionOperations =
 
 /** The operations of the session of the repository the main window shows, re-rendering when they change */
 export function useSessionOperations(): SessionOperations {
-  return useBranchSync(state => state.operations)
+  return useBranchSyncField("operations", operations => operations)
 }
