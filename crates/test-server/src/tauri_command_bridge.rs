@@ -1,6 +1,6 @@
-use crate::channel_commands::{answer_with_progress, canceled_code, progress_channel, register_wait, run_waiting};
+use crate::channel_commands::{answer_with_progress, canceled_code, progress_channel, register_wait};
 use crate::remote_host::PAGE_CLOCK_START;
-use app_api::api_error::{IntoApiError, patronus_error, undo_error};
+use app_api::api_error::{IntoApiError, patronus_error};
 use axum::{
   extract::State,
   http::{HeaderMap, StatusCode, header},
@@ -17,7 +17,6 @@ use domain_types::pull_request::{GitHubAuthStatus, GitHubDeviceCode, GitHubUser,
 use domain_types::review_request::ReviewRequestsResult;
 use domain_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
 use domain_types::robot_stats::{GetRobotStatsParams, RobotStatsResult};
-use domain_types::session::Version;
 use domain_types::settings::{GitBranchPrefix, ResolvedBranchPrefix};
 use domain_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackUser};
 use file_diffs::model::{
@@ -25,19 +24,17 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
-use history_rewrite::repository_lock::{LockWait, RewriteOptions};
+use history_rewrite::repository_lock::LockWait;
 use object_cache::cache::ObjectCache;
 use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
 use remote_facts::robot_stats::{RobotStatsSource, robot_stats_core};
 use repository_model::session::SessionKey;
-use repository_model::table::TableState;
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use sync_core::branch_name_suggestion::clean_names;
-use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
 use sync_core::patronus::{SpaceRepository, required_target_branch};
 use sync_core::repository_config::{
@@ -317,114 +314,6 @@ pub async fn preview_move(
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("preview a move", move || history_rewrite::move_commits::preview_move_core(&git_executor, &params)).await
-}
-
-pub async fn unapply_branch(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::unapply_branch::UnapplyBranchParams>,
-) -> Result<Response, Rejection> {
-  let repository_path = params.repository_path.clone();
-  run_waiting_with_prefix(&state, &headers, &repository_path, "unapply the branch", move |git, branch_prefix, lock_wait| {
-    sync_core::unapply_branch::unapply_branch_core(git, params, branch_prefix, &RewriteOptions::waiting(lock_wait))
-  })
-  .await
-}
-
-/// Pick Remote Commits, as the app's command runs it (`pick_remote_commits_core`), without the object cache
-pub async fn pick_remote_commits(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<update_core::pick::PickRemoteCommitsParams>,
-) -> Result<Response, Rejection> {
-  let repository_path = params.repository_path.clone();
-  run_waiting_with_prefix(&state, &headers, &repository_path, "pick the remote commits", move |git, branch_prefix, lock_wait| {
-    update_core::pick::pick_remote_commits_core(
-      git,
-      &params,
-      branch_prefix,
-      &RewriteOptions::waiting(lock_wait),
-      &ObjectCache::disabled(),
-      &FileDiffs::default(),
-    )
-  })
-  .await
-}
-
-/// The undo of Pick Remote Commits, as the app's command runs it
-pub async fn undo_pick_remote_commits(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<update_core::pick::UndoPickRemoteCommitsParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "undo the pick of the remote commits", move |_lock_wait| {
-      update_core::pick::undo_pick_remote_commits_core(&git_executor, &params, history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT).map_err(undo_error)
-    })
-    .await,
-  )
-}
-
-/// `step` of a rewrite of the test repository at `repository_path` under `run_waiting`, with git and the prefix the
-/// app's commands name its branches with (`branch_prefix_of`); an error for an unknown repository
-async fn run_waiting_with_prefix<T, F>(state: &AppState, headers: &HeaderMap, repository_path: &str, operation: &'static str, step: F) -> Result<Response, Rejection>
-where
-  F: FnOnce(&git_executor::git_command_executor::GitCommandExecutor, &str, LockWait<'_>) -> anyhow::Result<T> + Send + 'static,
-  T: serde::Serialize + Send + 'static,
-{
-  let branch_prefix = branch_prefix_of(state, repository_path).await?;
-  let git_executor = state.git_executor.clone();
-  Ok(run_waiting(state, headers, operation, move |lock_wait| step(&git_executor, &branch_prefix, lock_wait)).await)
-}
-
-pub async fn undo_unapply_branch(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::unapply_branch::UndoUnapplyParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "undo the unapply", move |lock_wait| {
-      let token = sync_core::unapply_branch::UnapplyUndoToken::parse(&params.undo_token)
-        .ok_or_else(|| anyhow::anyhow!("Not an undo token of an unapply: {}", params.undo_token))
-        .map_err(undo_error)?;
-      sync_core::unapply_branch::undo_unapply_core(&git_executor, &params.repository_path, &token, lock_wait).map_err(undo_error)
-    })
-    .await,
-  )
-}
-
-pub async fn reapply_branch(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::reapply_branch::ReapplyBranchParams>,
-) -> Result<Response, Rejection> {
-  let repository_path = params.repository_path.clone();
-  run_waiting_with_prefix(&state, &headers, &repository_path, "reapply the branch", move |git, branch_prefix, lock_wait| {
-    sync_core::reapply_branch::reapply_branch_core(git, &params, branch_prefix, &RewriteOptions::waiting(lock_wait))
-  })
-  .await
-}
-
-pub async fn undo_reapply_branch(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::reapply_branch::UndoReapplyParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "undo the reapply", move |lock_wait| {
-      let token = sync_core::reapply_branch::ReapplyUndoToken::parse(&params.undo_token)
-        .ok_or_else(|| anyhow::anyhow!("Not an undo token of a reapply: {}", params.undo_token))
-        .map_err(undo_error)?;
-      sync_core::reapply_branch::undo_reapply_core(&git_executor, &params.repository_path, &token, lock_wait).map_err(undo_error)
-    })
-    .await,
-  )
 }
 
 /// Without the object cache, as every command of the mock server
@@ -1050,30 +939,6 @@ pub async fn suggest_branch_names(State(state): State<Arc<AppState>>, Json(param
   Ok(Json(BranchNameSuggestionOutcome::Suggested { names }))
 }
 
-/// The app's deletion of an archived branch: the core, then the patch of the session of the repository's key
-pub async fn delete_archived_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<Option<Version>> {
-  delete_kept(&state, params, "delete the archived branch", delete_archived_branch_core, TableState::remove_archived).await
-}
-
-/// The deletion of a kept branch by `delete`, then its removal from the table of the session by `remove`, as the app's
-/// command does it (`src-tauri/src/commands/archived_branches.rs`)
-async fn delete_kept(
-  state: &AppState,
-  params: DeleteArchivedBranchParams,
-  operation: &'static str,
-  delete: fn(&git_executor::git_command_executor::GitCommandExecutor, DeleteArchivedBranchParams, &str) -> anyhow::Result<()>,
-  remove: fn(&mut TableState, &str),
-) -> CommandResult<Option<Version>> {
-  let prefix = branch_prefix_of(state, &params.repository_path).await?;
-  let key = SessionKey {
-    worktree: params.repository_path.clone(),
-    prefix: prefix.clone(),
-  };
-  let (git, name) = (state.git_executor.clone(), params.branch_name.clone());
-  let Json(()) = run_command(operation, move || delete(&git, params, &prefix)).await?;
-  Ok(Json(state.sessions.apply(&key, move |table| remove(table, &name)).version().await))
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetArchivedBranchCommitsRequest {
@@ -1093,12 +958,6 @@ pub async fn get_archived_branch_commits(
     branch_integration::archive::get_archived_branch_commits,
   )
   .await
-}
-
-/// The app's deletion of an unapplied branch, as `delete_archived_branch`
-pub async fn delete_unapplied_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<Option<Version>> {
-  let delete = sync_core::delete_archived_branch::delete_unapplied_branch_core;
-  delete_kept(&state, params, "delete the unapplied branch", delete, TableState::remove_unapplied).await
 }
 
 /// The commits of an unapplied branch, as the app reads them

@@ -21,7 +21,7 @@ export interface MoreActionsMenuProps {
   busy?: string | null
   /**
    * Stop Waiting of the busy action while its command waits for another holder of the repository lock
-   * (`stopWaitingItem`): the spinner opens a menu of it
+   * (`presentStopWaiting`): the spinner opens a menu of it
    */
   stopWaiting?: MenuItem | null
 }

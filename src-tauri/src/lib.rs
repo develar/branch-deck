@@ -36,7 +36,7 @@ mod zoom_test;
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
 use commands::activity::{clear_activity, read_activity, record_activity};
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
-use commands::archived_branches::{delete_archived_branch, delete_unapplied_branch, get_archived_branch_commits, get_unapplied_branch_commits};
+use commands::archived_branches::{get_archived_branch_commits, get_unapplied_branch_commits};
 use commands::branch_prefix::{check_git_setup, resolve_branch_prefix};
 use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branch_review};
 use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
@@ -47,7 +47,6 @@ use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declara
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::operations::{cancel_operation, execute, prepare};
 use commands::patronus::{PatronusState, get_robot_commit_map, get_robot_failure, get_robot_stats};
-use commands::pick_remote_commits::{pick_remote_commits, undo_pick_remote_commits};
 use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, search_github_users};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
@@ -57,7 +56,6 @@ use commands::settings::{get_settings_changes, set_setting};
 use commands::squash_fixups::get_autosquash_plan;
 use commands::stack_operations::{get_stack_independence, preview_move};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
-use commands::unapply_branch::{reapply_branch, unapply_branch, undo_reapply_branch, undo_unapply_branch};
 use commands::uncommitted_changes::get_uncommitted_changes;
 use commands::update_project::{dismiss_landed, update_project};
 use commands::window_management::{
@@ -161,14 +159,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
       suggest_branch_names,
       get_archived_branch_commits,
       get_unapplied_branch_commits,
-      delete_unapplied_branch,
-      delete_archived_branch,
-      unapply_branch,
-      pick_remote_commits,
-      undo_pick_remote_commits,
-      undo_unapply_branch,
-      reapply_branch,
-      undo_reapply_branch,
       get_uncommitted_changes,
       get_commit_files,
       get_commits_files,

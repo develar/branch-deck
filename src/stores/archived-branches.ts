@@ -3,9 +3,7 @@ import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
 import type { BranchIntegrationInfo, Commit, IntegrationConfidence, UpstreamCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { commandFailure } from "@/lib/errors"
-import { whenSessionViewAt } from "@/model/store"
-import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
  * Archived branch, filled in progressively: a placeholder first, then integration info, then (lazily) its commits.
@@ -297,17 +295,4 @@ export async function loadCommitsForBranch(branchName: string): Promise<void> {
   } finally {
     updateArchivedBranch(branchName, it => ({ ...it, isLoadingCommits: false }))
   }
-}
-
-/**
- * Deletes an archived branch and resolves once the table has the patch of the session that removed it (no sync follows);
- * throws on a failure
- */
-export async function deleteArchivedBranch(branchName: string): Promise<void> {
-  const repositoryPath = getSelectedProject()?.path ?? ""
-  const result = await commands.deleteArchivedBranch({ repositoryPath, branchName })
-  if (result.status !== "ok") {
-    throw commandFailure(result.error)
-  }
-  await whenSessionViewAt(repositoryPath, result.data)
 }

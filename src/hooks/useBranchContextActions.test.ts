@@ -126,6 +126,7 @@ describe("Safe Push of the branch menu", () => {
           surface: null,
           waitsFor: null,
           lockWait: null,
+          op: null,
         },
       ],
     })

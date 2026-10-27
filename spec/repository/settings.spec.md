@@ -498,8 +498,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
 - The commands of the sync family take no prefix from the page: the session commands (`subscribe_view`,
   `get_snapshot`, `sync`, `set_window_focus`, whose session is keyed by the resolved prefix),
-  `get_archived_branch_commits`, `get_unapplied_branch_commits`,
-  `delete_archived_branch` and `delete_unapplied_branch` resolve it per command, with the app's prefix of the settings
+  `get_archived_branch_commits`, `get_unapplied_branch_commits` and `execute`, whose operation runs in the session of
+  that key (a rewrite of the engine: the unapply, the reapply, the deletes of an archived and an unapplied branch),
+  resolve it per command, with the app's prefix of the settings
   when the command starts and the git prefix of a memo by repository path (`BranchPrefixes` in
   `crates/app-settings/src/branch_prefixes.rs`, a state of the app and of the E2E server), so a command pays no git
   process for it. Each read of the git config keeps its git prefix there: the page's `resolve_branch_prefix`, the config
@@ -508,9 +509,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   by the resolved prefix; a sync of a repository without a prefix is refused ("Cannot sync without a branch prefix: set
   one in Settings → General"). The commands of Patronus, of a push, of a pull request, of the branch review and of the
   independence of a stack name the repository only too and resolve the prefix the same way (`PrefixInputs` of
-  `src-tauri/src/commands/branch_prefix.rs`, [Patronus](../branch/patronus.spec.md)). The unapply, the reapply and the
-  conflict fix (`unapply_branch`, `reapply_branch`, `find_conflict_fix`), whose parameters `bd` shares, get the prefix
-  the page shows, the last answer of `resolve_branch_prefix`.
+  `src-tauri/src/commands/branch_prefix.rs`, [Patronus](../branch/patronus.spec.md)). The conflict fix
+  (`find_conflict_fix`), whose parameters `bd` shares, gets the prefix the page shows, the last answer of
+  `resolve_branch_prefix`.
   [@test] ../../crates/app-settings/src/branch_prefixes_test.rs (`git_is_read_once_per_repository_and_the_app_prefix_of_each_command_applies`, `a_failed_read_keeps_nothing`, `a_refresh_replaces_the_git_prefix_and_a_clear_forgets_every_repository`)
   [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_sync_names_the_branches_by_the_app_prefix_where_the_repository_sets_none`, `the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_the_prefix_alone`)

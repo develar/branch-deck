@@ -402,9 +402,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   Unstack, a reword or an Undo during the fetch runs at once. Only the check, the apply and the sync of the update are
   a rewrite of the repository ([Running Operations](../../docs/design/operations.md)): while a regroup, a squash or
   another rewrite runs, Update stays enabled with the busy state it would wait for on hover ("Unstacking oauth…"); a
-  start fetches, then its check waits for that rewrite in the queue (the step "waiting"), never refused; while the
-  check and the apply run, a rewrite of a menu waits for them in the queue ("Waits for Updating the project").
-  [@test] ../../src/stores/update-project.test.ts (`fetches outside the slot of the rewrites, which run meanwhile, then waits for a running rewrite in the queue for its check and apply, and the rewrites wait for those`)
+  start fetches, then its check waits for that rewrite and its sync (the step "waiting"), never refused. A rewrite
+  started while the check and the apply run goes to the session of the repository at once (the rewrites are the
+  engine's), and the repository lock orders it with the apply: its step says whom it waits for.
+  [@test] ../../src/stores/update-project.test.ts (`fetches outside the slot of the rewrites, which run meanwhile, then waits for a running rewrite for its check and apply, which the rewrites see running`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should let a rewrite run during the fetch of an update, which checks and applies after it`)
 - Once git reports a stage of the fetch, its percent of the whole fetch moves the progress of the update, and the
   tooltip shows the last progress line of git, as IDEA shows a fetch. The percent weighs the stages as IDEA's

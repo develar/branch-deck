@@ -206,17 +206,12 @@ fn collection_in(type_name: &str, structs: &BTreeMap<String, Vec<(String, String
   })
 }
 
-/// Whether `body` is one `run_blocking(…).await` (or `run_waiting(…).await`, the blocking step of a rewrite that waits
-/// for the repository lock, `lock_wait.rs`, or `run_waiting_with_prefix(…).await`, that step with the branch prefix
-/// resolved in it, `commands/branch_prefix.rs`), with only infallible preparation (clones of the state) before it: nothing
-/// that can fail or wait runs outside the step, so the step alone is the operation. As rustfmt lays it out, the call
-/// ends on its own line or at the `.await` line at the body's indentation after it
+/// Whether `body` is one `run_blocking(…).await`, with only infallible preparation (clones of the state) before it:
+/// nothing that can fail or wait runs outside the step, so the step alone is the operation. As rustfmt lays it out, the
+/// call ends on its own line or at the `.await` line at the body's indentation after it
 fn is_one_blocking_step(body: &str) -> bool {
   let lines: Vec<&str> = body.lines().collect();
-  let Some(step) = lines
-    .iter()
-    .position(|line| line.contains("run_blocking(") || line.contains("run_waiting(") || line.contains("run_waiting_with_prefix("))
-  else {
+  let Some(step) = lines.iter().position(|line| line.contains("run_blocking(")) else {
     return false;
   };
   let outside = |line: &&str| line.contains(".await") || line.contains('?') || line.contains("return");
@@ -288,12 +283,6 @@ fn a_body_is_one_blocking_step_only_without_work_outside_it() {
   assert!(!is_one_blocking_step("  let space = patronus.space().await?;\n  run_blocking(move || core(&space)).await"));
   assert!(!is_one_blocking_step("  run_blocking(move || {\n    prepare()\n  })\n  .await?;\n  finish().await"));
   assert!(!is_one_blocking_step("  service.restart().await.map_err(ApiError::internal)"));
-  assert!(is_one_blocking_step(
-    "  let git = (*git_executor).clone();\n  run_waiting(&lock_waits, wait, move |lock_wait| core(&git, lock_wait)).await"
-  ));
-  assert!(is_one_blocking_step(
-    "  let inputs = PrefixInputs::new(&git_executor, &settings, &prefixes);\n  run_waiting_with_prefix(inputs, &lock_waits, wait, &path, move |git, prefix, lock_wait| {\n    core(git, prefix, lock_wait)\n  })\n  .await"
-  ));
 }
 
 #[test]
@@ -344,12 +333,10 @@ fn the_span_of_a_command_records_no_argument_that_holds_a_collection() {
   );
 }
 
-/// The byte ranges of the arguments of each `run_blocking(…)` call of `body`, and of each `run_waiting(…)` and
-/// `run_waiting_with_prefix(…)`, which run their step in one (`lock_wait::run_waiting`)
+/// The byte ranges of the arguments of each `run_blocking(…)` call of `body`
 fn blocking_spans(body: &str) -> Vec<std::ops::Range<usize>> {
-  ["run_blocking(", "run_waiting(", "run_waiting_with_prefix("]
-    .iter()
-    .flat_map(|call| body.match_indices(call))
+  body
+    .match_indices("run_blocking(")
     .filter_map(|(start, call)| {
       let open = start + call.len() - 1;
       let mut depth = 0;
@@ -365,8 +352,8 @@ fn blocking_spans(body: &str) -> Vec<std::ops::Range<usize>> {
     .collect()
 }
 
-/// The lines of an async `body` that open the object cache on the worker: neither inside a `run_blocking(…)` (or a
-/// `run_waiting…(…)` of a rewrite) nor in a `move ||` closure a core runs off the workers
+/// The lines of an async `body` that open the object cache on the worker: neither inside a `run_blocking(…)` nor in a
+/// `move ||` closure a core runs off the workers
 fn object_cache_on_the_worker(body: &str) -> Vec<String> {
   let spans = blocking_spans(body);
   let mut offset = 0;

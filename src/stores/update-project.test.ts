@@ -149,7 +149,7 @@ beforeEach(() => {
 })
 
 describe("the running update", () => {
-  it("fetches outside the slot of the rewrites, which run meanwhile, then waits for a running rewrite in the queue for its check and apply, and the rewrites wait for those", async () => {
+  it("fetches outside the slot of the rewrites, which run meanwhile, then waits for a running rewrite for its check and apply, which the rewrites see running", async () => {
     const update = runUpdateProject()
     const fetch = await commandIn("/a", "fetch")
     fetch.progress.onmessage(PROGRESS)
@@ -161,8 +161,9 @@ describe("the running update", () => {
     let finishRewrite!: () => void
     const rewrite = runOperation(UNSTACK, () => new Promise<void>(resolve => (finishRewrite = resolve)))
     fetch.finish({ status: "ok", data: FETCHED })
-    await vi.waitFor(() => expect(getOperations().map(operation => operation.waitsFor)).toEqual([null, "Unstacking auth"]))
-    expect(stepIn("/a")?.step).toBe("waiting")
+    await vi.waitFor(() => expect(stepIn("/a")?.step).toBe("waiting"))
+    // only the rewrite runs: the update starts its check once it ended
+    expect(getOperations().map(operation => operation.label)).toEqual(["Unstacking auth"])
     expect(kinds()).toEqual(["fetch /a"])
     finishRewrite()
     await rewrite

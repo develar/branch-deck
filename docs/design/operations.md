@@ -33,12 +33,14 @@ One registry of the operations that run (`src/stores/operations.ts`), and one wa
   running operation's busy state as the reason ("Restarting the Safe Push…");
 - **one indicator**: the surface that started it shows the spinner; a start from a menu, a key or a toast shows it on
   the "⋯" of the object's row;
-- **the whole action**: a rewrite runs until the sync that shows its result ends (`runRewriteIntent`, `runRewrite`),
-  so a row never offers the action again while it still shows the state before it.
+- **the whole action**: a rewrite runs until the sync that shows its result ends (`runRewriteIntent`), so a row never
+  offers the action again while it still shows the state before it.
 
-The rewrites of the engine (Move, Rename, Stack On, Unstack, Park, Unpark, Reword, Squash, Squash Fixups, Amend, Add
-Issue Reference, Apply Fix and their Undo) are admitted by the session in Rust: their record here only shows them
-(`admittedBySession`), the session joins and queues them ([Rewrites](#rewrites)).
+Every rewrite of the page is a rewrite of the engine (Move, Rename, Stack On, Unstack, Park, Unpark, Reword, Squash,
+Squash Fixups, Amend, Add Issue Reference, Apply Fix, Unapply, Reapply, Pick Remote Commits, the deletes of an archived
+and an unapplied branch, and their Undo), admitted by the session in Rust: its record here only shows it, the session
+joins and queues it ([Rewrites](#rewrites)); the page queues no rewrite. Update Project, the one rewrite the page still
+runs itself, waits for the rewrite records before its check (`whenRewritesDone`).
 
 ## Design
 
@@ -46,10 +48,8 @@ Issue Reference, Apply Fix and their Undo) are admitted by the session in Rust: 
 flowchart LR
     Menu[menu item, key, toast] -->|"onSelect({ surface: null })"| Action
     Button[MenuItemButton, form, dialog] -->|"onSelect({ surface })"| Action
-    Action[restackBranch, moveCommits, squashCommits, rewordCommit, …] --> Rewrite[runRewriteIntent]
-    Unapply[unapplyBranch, reapplyBranch, pickRemoteCommits] --> PageRewrite[runRewrite]
+    Action[restackBranch, moveCommits, squashCommits, unapplyBranch, deleteKeptBranch, …] --> Rewrite[runRewriteIntent]
     Rewrite --> Run[runOperation]
-    PageRewrite --> Run
     Rewrite --> Execute["execute(rewrite): the session admits and queues it"]
     Run --> Registry[(operationsStore: running, claims)]
     Registry --> Item[operationItem: running / disabled]
@@ -74,21 +74,19 @@ move: the moves of a row are those of the operations of the session ([Moves](#mo
    key of an added issue reference): a drag of another commit of the branch onto the same target is a move of its own,
    which waits in the queue, never one that resolves with the first and moves nothing. A menu item names none, so it
    shows running only an action without parameters; its start of another move queues.
-2. **A rewrite waits for any rewrite of the repository, in the queue.** Every rewrite moves HEAD or a ref of Branch
-   Deck under one repository lock; the backend would run them one after the other, the second on what the first left,
-   as the triple Unstack did. `runOperation` records the second one at once (`waitsFor`: the busy state of the one it
-   waits for; its rows are busy, `operationLabel` says "Waits for Unstacking tool-events") and runs it once every
-   rewrite started before it ended, however it ended, the sync after it included; it is never refused. What it acts on
-   it reads when it runs, in the repository of its click (`repositoryPath`), whichever the main window shows by then: a
-   move, a squash, a reword, an amend and an added issue reference take the commits as the rewrite before it left them
-   (`resolveCommitsOf`: by id, else by the author, the author time and the subject without the prefix, which a content
-   rewrite such as an amend keeps, else by the author and the author and committer times, which a message rewrite (a
-   move, a reword, an added issue reference) keeps byte for byte with the subject it changed; a key two commits share
-   finds none), while the table shows that repository; after a switch they pass the ids of the click, which the
-   backend refuses with the exact error when a rewrite before them changed them (stages s7 and s11 of
-   [Rust Domain Authority](rust-domain-authority.md) re-resolve the intent in Rust). A branch goes by its name. A
-   rewrite that ends while the window shows another repository syncs nothing: that one syncs when it opens. A push waits for the rewrites of its repository too, the queued ones and
-   their syncs included (`whenRewritesDone`): it sends what they leave.
+2. **A rewrite waits for any rewrite of the repository, in the queue of the session.** Every rewrite moves HEAD or a
+   ref of Branch Deck (the deletes only the ref they drop); the session runs them one after the other, each on what the
+   one before it left (`Resource::Head`, [Rewrites](#rewrites)), as the triple Unstack showed it must. `runOperation`
+   records a rewrite at once and starts it at once: the page queues none. Its record says what it waits for as the steps
+   of its operation tell it (`setSessionStep`: `waitsFor`, the busy state of the rewrite it waits behind, and
+   `operationLabel` says "Waits for Unstacking tool-events"; `lockWait`, whom it waits for while another holder has the
+   repository lock), its rows are busy, and it is never refused. What it acts on the session reads when it runs, in the
+   repository of its click (`repositoryPath`), whichever the main window shows by then: a move, a squash, a reword, an
+   amend and an added issue reference name the commits on the table the window showed (`TableWitness`), and the
+   session resolves them on HEAD as the rewrite before it left it (by the new ids that rewrite reported, else by the
+   commit key after its sync); a commit that is gone changes the plan (`plan_changed`). A branch goes by its name. A
+   push waits for the rewrites of its repository, their syncs included (`whenRewritesDone`): it sends what they leave;
+   Update Project waits for them before its check the same way.
 3. **A remote action waits for a remote action of its subject or of a branch it works on**, and on the page is
    refused meanwhile. The restart and the cancel of one robot wait for each other in Rust instead (the registry of the
    session queues the cancel behind the restart and decides it again once the restart ended), as a retarget waits
@@ -136,71 +134,59 @@ Every row the operation works on is busy (`useObjectBusy`): no right-click menu,
 
 ### Waiting for the repository lock
 
-The queue orders the rewrites of the page; another process (an agent's `bd pick --follow`, a `bd` rewrite) or a push
-of the app may still hold the repository lock when a command reaches the backend. An operation of the app waits for
-the app's own ones in the line of its process (a fair queue before the file lock, in the order they came, never
-refused), then for another process as long as the holder lives ([Git Operations](git-operations.md), "Repository
-lock"), and says whom for on its channel: `runRewrite` gives the command of an operation `lockWaitChannel(key)`, whose
-messages set the operation's `lockWait` ("Waiting for `bd pick` (pid 4242, for 12 s)", told again about once a second,
-null once the wait ended).
-A rewrite of the engine hears its steps on the channel of its `execute` instead (`runRewriteIntent`, `setSessionStep`):
-`waitingForLock` with the holder sets `lockWait` (`presentLockWait`), `queued` behind another operation sets
-`waitsFor` (the busy state of that one), and its Stop Waiting is `cancel_operation` of its operation.
-`operationLabel` says it in place of the busy state, so every surface of the operation shows it: the spinner's hover
-on the "⋯" of its row (`useUnclaimedOperation`), the label of a `MenuItemButton`, the progress row of an inline form,
-and `LockWaitNotice` on the surfaces that show their own busy state (the squash dialog, the commit message editor,
-the move form, the squash of the fixups, Apply Fix).
+The session orders the rewrites of the app; another process (an agent's `bd pick --follow`, a `bd` rewrite) or a push
+of the app may still hold the repository lock when a rewrite reaches its core. An operation of the app waits for the
+app's own ones in the line of its process (a fair queue before the file lock, in the order they came, never refused),
+then for another process as long as the holder lives ([Git Operations](git-operations.md), "Repository lock"), and its
+step says whom for: a rewrite hears its steps on the channel of its `execute` (`runRewriteIntent`, `setSessionStep`):
+`waitingForLock` with the holder sets the record's `lockWait` ("Waiting for `bd pick` (pid 4242, for 12 s)", told
+again about once a second, `presentLockWait`), `queued` behind another operation sets `waitsFor` (the busy state of that
+one), and the record keeps the id of its operation (`op`). `operationLabel` says it in place of the busy state, so every
+surface of the operation shows it: the spinner's hover on the "⋯" of its row (`useUnclaimedOperation`), the label of a
+`MenuItemButton`, the progress row of an inline form, and `LockWaitNotice` on the surfaces that show their own busy
+state (the squash dialog, the commit message editor, the move form, the squash of the fixups, Apply Fix).
 
-Stop Waiting is one builder, `stopWaitingItem(operation)` (null while it waits for nobody), and every surface that
-shows the waiting operation renders it: the "⋯" opens a menu of it, a `MenuItemButton` and an inline form show it
-beside themselves, `LockWaitNotice` beside the text. It calls `cancel_lock_wait` of the channel's id (of a rewrite of
-the engine `cancel_operation`): the command
-answers the code `canceled`, nothing changed, and the rewrite says so in an info toast ("Canceled squashing 2 commits
-before it started"), never an error; the surface that started it stays (the squash dialog keeps its message). A push
-and a Safe Push start, operations of the session, say it in their step in the view (`OperationStep.waitingForLock`
-with the holder its record names, worded by `presentLockWait` of `src/presenters/lock-wait.ts`, so every window says
-it): the hover of the push button (`useBranchPushProgress`, `lockWaitProgress`) and the step of the Safe Push
-(`LandRun.waitingFor`), each with its Stop Waiting (`stopWaitingPushItem`, `stopStartItem`: `cancel_operation` of the
-operation); Update Project keeps it in its run (`UpdateRun.lockWait`, Stop Waiting beside the Update button).
+Stop Waiting is one builder, `presentStopWaiting(operation)` of `src/presenters/lock-wait.ts` (null while it waits for
+nobody), and every surface that shows the waiting operation renders it: the "⋯" opens a menu of it, a `MenuItemButton`
+and an inline form show it beside themselves, `LockWaitNotice` beside the text. It calls `cancel_operation` of the
+operation: the rewrite answers the code `canceled`, nothing changed, and says so in an info toast ("Canceled squashing
+2 commits before it started", `canceledBeforeStart`), never an error; the surface that started it stays (the squash
+dialog keeps its message). A push and a Safe Push start, operations of the session too, say it in their step in the
+view (`OperationStep.waitingForLock` with the holder its record names, so every window says it): the hover of the push
+button (`useBranchPushProgress`, `lockWaitProgress`) and the step of the Safe Push (`LandRun.waitingFor`), each with
+its Stop Waiting (`stopWaitingPushItem`, `stopStartItem`: `cancel_operation` of the operation). Update Project, not an
+operation of the engine yet, keeps it in its run (`UpdateRun.lockWait`, Stop Waiting beside the Update button: the
+command `cancel_lock_wait` of its progress channel).
 
 ### Rewrites
 
-`runRewriteIntent(spec, rewrite)` (`src/lib/rewrite-run.ts`) runs a rewrite of the engine (`execute` of the intent
-`rewrite`, no `prepare`: the rewrite names the table the window shows, `TableWitness` of the view's header, and asks
-nothing to accept): Move (a drag, Move to…, Ungroup, Remove Prefix), Rename, Stack On, Unstack, Park, Unpark,
-Reword, Squash, Squash Fixups and Squash Into, Amend, Add Issue Reference, Apply Fix, and the Undo of each
-(`undoRewrite`, the rewrite `undo` of the token of its outcome, in the repository of the click: a regroup's token, a
-squash's `<previous>..<new>`). The
-session admits it: a second click of the same rewrite joins it, another rewrite waits behind it in the queue of the
-session (an Undo clicked during an Unstack, a second drag during a move: no info toast, its rows say "Waits for
-Unstacking tool-events"), each decided again on what the one before left; it ends once it asked its sync, and its
-`execute` answers once that sync ended, with the version of its last patch, which the page waits for
-(`whenSessionViewAt`) before its toast with Undo. Its record in `operationsStore` (`admittedBySession`) shows it on its
-surfaces from the click until then, never queued by the page. A failure is an error toast in the words of the rewrite
-(`presentRewrite`), a stopped wait an info toast. The toast closes and the Activity entry (naming the operation) says
-"undone" only once the undo undid it (`recordRewrite`); after a failed or stopped one both keep their Undo.
+`runRewriteIntent(spec, rewrite)` (`src/lib/rewrite-run.ts`) runs every rewrite of the page, a rewrite of the engine
+(`execute` of the intent `rewrite`, no `prepare`: the rewrite names the table the window shows, `TableWitness` of the
+view's header, and asks nothing to accept): Move (a drag, Move to…, Ungroup, Remove Prefix), Rename, Stack On,
+Unstack, Park, Unpark, Reword, Squash, Squash Fixups and Squash Into, Amend, Add Issue Reference, Apply Fix, Unapply,
+Reapply, Pick Remote Commits, the deletes of an archived and an unapplied branch (`deleteKeptBranch`), and the Undo of
+each (`undoRewrite`, the rewrite `undo` of the token of its outcome, in the repository of the click: a regroup's token,
+a squash's `<previous>..<new>`, `unapply:`, `reapply:`, `pick:`). The session admits it: a second click of the same
+rewrite joins it, another rewrite waits behind it in the queue of the session (an Undo clicked during an Unstack, a
+second drag during a move: no info toast, its rows say "Waits for Unstacking tool-events"), each decided again on what
+the one before left; it ends once it asked its sync, and its `execute` answers once that sync ended, with the version
+of its last patch, which the page waits for (`whenSessionViewAt`) before its toast with Undo. A delete asks no sync: its
+answer names the patch that removed its row. Its record in `operationsStore` shows it on its surfaces from the click
+until then, never queued by the page. A failure is an error toast in the words of the rewrite (`presentRewrite`) or
+the title its caller gives, a stopped wait an info toast. The toast closes and the Activity entry (naming the operation)
+says "undone" only once the undo undid it (`recordRewrite`); after a failed or stopped one both keep their Undo.
 
-`runRewrite(spec, failureTitle, command, applied)` (`src/lib/rewrite.ts`) runs the rewrites the page still runs by their
-own commands: the command,
-`notifyError` on a failure, `applied` (reveal the moved commits, say whether anything changed), then the sync, then
-the toast `applied` returns, with Undo. The toast comes after the sync: the user sees the result beside its Undo, and
-an Undo clicked at once never meets its own running operation. An Undo is a rewrite of its own (`undoUnapply`,
-`undoReapply`, `undoPick`, through `runUndo`, which resolves to whether it undid the rewrite). A start while another rewrite runs
-(an Undo clicked during an Unstack, a second drag during a move) waits for it in the queue: no info toast, its rows say
-"Waits for Unstacking tool-events". The toast of the rewrite closes and its Activity entry says "undone" only once the
-undo undid it (`recordRewrite`); after a failed one both keep their Undo.
-
-Through it: unapply, reapply, Pick Remote Commits and their undos. A rewrite of the page waits in its queue for a
-rewrite of the engine of the repository too. The inline forms run `withRowProgress` around an action that is an
-operation itself (rename, ungroup, park, amend, add issue reference, unapply, squash fixups, close the stack's pull
-request), or `withRowProcessing` (the deletes of an archived and an unapplied branch, remote actions), whose function
-includes what shows its result.
+The inline forms run `withRowProgress` around their action, an operation that tells its outcome itself (rename,
+ungroup, park, amend, add issue reference, unapply, squash fixups, the deletes, the close of the stack's pull request):
+the form shows its progress row while it runs and closes once it is done, or comes back with its input after a
+failure where it has one.
 
 The family in the engine is `Intent::Rewrite` ([Rewrite in the engine](git-operations.md#rewrite-in-the-engine)):
-each holds `Resource::Head`, so a second click joins it, another rewrite of the process (an undo too) waits in the
-queue of the session and is decided again on what it left, and a push runs beside it; a wait for the lock is its step
-`WaitingForLock`, stopped by `cancel_operation`; every step the queue gives it (`Queued` behind another, then the step
-it starts at) goes to its caller as the view shows it.
+each holds `Resource::Head` (a delete only `Resource::Ref` of the branch it drops, a reapply that ref too), so a second
+click joins it, another rewrite of the process (an undo too) waits in the queue of the session and is decided again on
+what it left, and a push runs beside it; a wait for the lock is its step `WaitingForLock`, stopped by
+`cancel_operation`; every step the queue gives it (`Queued` behind another, then the step it starts at) goes to its
+caller as the view shows it.
 
 ### Remote actions
 
@@ -321,15 +307,13 @@ operation.
 2. **Decision**: a second start of the same action joins the first instead of being refused.
    **Rationale**: a double click is no mistake to report; the caller of the second start gets the first one's result.
 3. **Decision**: a rewrite of the engine (`Rewrite`, `operations::rewrite`) ends once it asked the sync that shows
-   it, and its `execute` answers once that sync ended, so the toast of its window comes then; the page's `runRewrite`,
-   which runs the rewrites of the page until they move onto the engine, lasts until that sync ends.
+   it, and its `execute` answers once that sync ended, so the toast of its window comes then; its record on the page
+   lasts until that answer.
    **Rationale**: the row shows the state before the rewrite until the sync; offering the action again then is what
    ran it three times. In Rust a second click joins the running rewrite, and a rewrite after it names its commits on
    what the first left (its `TableWitness`, the new ids the first reported, the commit keys), so it needs no wait for
-   the sync, which would hold every rewrite queued behind it for as long; the page, which decides on its table, keeps
-   the wait until its rewrites run in the engine.
-   A rewrite names the repository of its click (`RewriteRunSpec.repositoryPath`, `RewriteSpec.repositoryPath`), and so
-   does its Undo: one of a repository the main window no longer shows (an Undo clicked after a switch) runs in the
+   the sync, which would hold every rewrite queued behind it for as long.
+   A rewrite names the repository of its click (`RewriteRunSpec.repositoryPath`), and so does its Undo: one of a repository the main window no longer shows (an Undo clicked after a switch) runs in the
    session of that repository, which syncs it.
 4. **Decision**: no `expect_head` for the regroups.
    **Rationale**: an unstack writes only `refs/branch-deck/stack-parents`, HEAD may stay; the registry closes the

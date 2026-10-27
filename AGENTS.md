@@ -408,9 +408,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
   (`bd`: `LockWait::Bounded`, then `locked`; the app's rewrites, pushes and Update Project: `LockWait::WhileHeld`, as
-  long as the holder record names a live process, saying whom for on the command's channel and
-  stopped by `cancel_lock_wait` of it, `lock_wait.rs`; an operation of the engine, a rewrite of `operations::rewrite`
-  too, in its step `WaitingForLock { holder }`, stopped by `cancel_operation`), because
+  long as the holder record names a live process: an operation of the engine, every rewrite of `operations::rewrite`
+  and a push, says whom for in its step `WaitingForLock { holder }`, stopped by `cancel_operation`; Update Project on
+  its progress channel, stopped by `cancel_lock_wait` of it, `lock_wait.rs`), because
   the app and `bd` processes rewrite the same branch. Before the file lock, the operations of one process wait for
   each other in its line (a fair queue per lock file, `repository_lock.rs`, without a bound), so `locked` names only
   another process; `try_lock_repository` waits for nobody, `lock_as_another_process` is for tests and the E2E server. A sync never waits for it:

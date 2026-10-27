@@ -11,7 +11,9 @@ targets:
   - ../../crates/git-ops/src/rewrite_plan.rs
   - ../../crates/git-ops/src/replay.rs
   - ../../crates/branch-integration/src/archive.rs
-  - ../../src-tauri/src/commands/unapply_branch.rs
+  - ../../crates/operations/src/rewrite.rs
+  - ../../src/lib/rewrite-run.ts
+  - ../../src/lib/git/delete-kept-branch.ts
   - ../../src/hooks/useUnapplyBranch.ts
   - ../../src/components/branch/InlineUnapplyConfirm.tsx
   - ../../crates/bd-update/src/unapply_command.rs
@@ -30,7 +32,6 @@ targets:
   - ../../src/hooks/useUnappliedBranchMenu.ts
   - ../../src/lib/push-run.ts
   - ../../crates/repository-model/src/table.rs
-  - ../../src-tauri/src/commands/archived_branches.rs
   - ../../crates/sync-core/src/reapply_branch.rs
   - ../../crates/git-ops/src/reapply.rs
   - ../../crates/git-ops/src/pick.rs
@@ -114,11 +115,17 @@ puts its commits back on top of the current branch, their files and their groupi
   - the branch moved meanwhile.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`unapply_refuses_an_unknown_or_changed_branch_one_not_built_and_one_checked_out`)
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`rewrite_refused_during_merge`)
-- The unapply, the reapply and their undo must run under the repository lock: while another process holds it (an
-  agent's `bd pick --follow`, `bd`) or the app's own push, the app's wait as long as the holder lives, their surface
-  saying whom for with Stop Waiting, which ends the wait with nothing changed; only a holder no record names refuses
-  them after 10 s, with nothing changed and the error toast saying that another operation holds the lock; `bd
-  unapply` and `bd reapply` wait 10 s, then `locked`. A HEAD the request was not made for refuses it too.
+- The unapply, the reapply, the delete of an unapplied branch and their undo must be rewrites of the engine (the intent
+  `rewrite`, `execute`): the session runs them one after the other with the other rewrites of the app, in the order
+  they came, each on what the one before it left, and a second start of the same one joins it; the delete holds only
+  the ref it drops, so it runs beside a rewrite and a sync. The unapply, the reapply and their undo run under the
+  repository lock: while another process holds it (an agent's `bd pick --follow`, `bd`) or the app's own push, the
+  app's wait as long as the holder lives, their surface (the confirmation, the "⋯" of the row) saying whom for with
+  Stop Waiting (`cancel_operation` of the operation), which ends the wait with nothing changed; only a holder no record
+  names refuses them after 10 s, with nothing changed and the error toast saying that another operation holds the
+  lock; `bd unapply` and `bd reapply` wait 10 s, then `locked`. A HEAD the request was not made for refuses it too.
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through_the_engine`, `a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
+  [@test] ../../src/lib/rewrite-run.test.ts (`shows whom a rewrite of the engine waits for and stops the wait by its operation`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
@@ -180,17 +187,19 @@ puts its commits back on top of the current branch, their files and their groupi
   [@test] ../../crates/repository-model/src/table_test.rs (`the_outcome_of_a_push_stays_over_the_remote_statuses_of_a_sync_that_started_before_it`)
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why`)
 - Delete Unapplied Branch… must ask for its name typed, then delete it with compare-and-swap on its tip, refused while
-  a worktree has it; only its own command deletes it. Its row leaves the card as a patch of the session, with no sync
-  after it; a sync that listed it before the delete, or one that fails, does not bring it back.
+  a worktree has it; only its own rewrite deletes it (`deleteUnapplied`, by its full name). Its row leaves the card as
+  a patch of the session, with no sync after it; a sync that listed it before the delete, or one that fails, does not
+  bring it back. The form shows the delete while it runs and stays with the typed name after a failure.
   [@test] ../../crates/sync-core/src/delete_archived_branch_test.rs (`deletes_an_unapplied_branch_only_by_its_own_command`)
   [@test] ../../crates/repository-model/src/table_test.rs (`a_deleted_archived_or_unapplied_branch_stays_deleted_by_the_sync_that_listed_it_before_and_by_one_that_fails`)
   [@test] ../../crates/repository-model/src/session_test.rs (`deleting_an_archived_or_unapplied_branch_answers_a_patch_and_runs_no_sync`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through_the_engine`)
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should delete an unapplied branch after its name is typed, with no sync after it`)
 
 ### Undo
 
-- The toast "Unapplied ‹branch›" must offer Undo (and Activity the same), which brings the commits, their files and
-  the virtual branch back as they were: HEAD at its previous commit, the virtual branch at its tip, the unapplied branch
+- The toast "Unapplied ‹branch›" must offer Undo (and Activity the same: the rewrite `undo` of its token, in the
+  repository of the unapply), which brings the commits, their files and the virtual branch back as they were: HEAD at its previous commit, the virtual branch at its tip, the unapplied branch
   gone, in one transaction, the files following; the next sync reuses the copies.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`the_undo_of_an_unapply_brings_the_commits_their_files_and_the_virtual_branch_back`)
   [@test] ../../crates/git-ops/src/unapply_test.rs (`the_undo_brings_the_commits_their_files_and_the_virtual_branch_back`)

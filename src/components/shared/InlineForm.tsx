@@ -73,7 +73,7 @@ export function InlineForm({
   autoFocusRef,
   focusSubmit = false,
 }: InlineFormProps) {
-  // the form shows the operation it started in place of itself (`withRowProcessing`, `withRowProgress`)
+  // the form shows the operation it started in place of itself (`withRowProgress`)
   const rowKey = useInlineRowAction(state => state.activeInline?.branchName ?? "")
   useIndicatorClaim(rowKey === "" ? undefined : inlineSurface(rowKey))
   const busy = useInlineProcessing(rowKey)

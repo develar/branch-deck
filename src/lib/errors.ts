@@ -60,7 +60,7 @@ export function getErrorOperationId(error: unknown): string | undefined {
 
 /**
  * The `ApiError` of a failed command as an `Error` to throw, with what the page tells apart: its `code` (a wait the user
- * stopped is `canceled`, `isLockWaitCanceled`), its data and its `operation_id`, which `notifyError` and `recordError`
+ * stopped is `canceled`, `getErrorCode`), its data and its `operation_id`, which `notifyError` and `recordError`
  * keep for Activity and the log line. A step that throws what a command returned throws this, never
  * `new Error(error.message)`, which drops them
  */

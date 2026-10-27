@@ -274,11 +274,10 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - the content is at most `max-w-3xl`, an input `max-w-md`; Cancel and the submit are `xs` buttons, the submit of a
     delete `destructive`;
   - a confirmation without an input passes `focusSubmit`, so Enter confirms;
-  - the action runs through `withRowProcessing` (it toasts the outcome, an error through `notifyError` with its
-    `errorTitle`) or `withRowProgress` (the action toasts, e.g. with Undo) in `src/stores/inline-row-action.ts`, as an
-    operation the form started (`inlineSurface`, [Running Operations](operations.md)): the progress row with its busy
-    state while it runs, the form again with its input after a failure of a form with an input
-    (`keepFormOnError`, `keepFormOnFailure`);
+  - the action runs through `withRowProgress` in `src/stores/inline-row-action.ts` (the action toasts its outcome, with
+    Undo or of what it did, an error through `notifyError`), as an operation the form started (`inlineSurface`,
+    [Running Operations](operations.md)): the progress row with its busy state while it runs, the form again with its
+    input after a failure of a form with an input (`keepFormOnFailure`);
   - closing gives the focus back to the opener, or to the row (`BranchContextMenuRow` is focusable).
 - **Type sizes** come from the scale in `src/index.css`, one role per step. No arbitrary sizes (`text-[13px]`,
   `text-[10px]`, `text-[0.875em]`):

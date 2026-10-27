@@ -91,9 +91,12 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await more.hover()
     await expect(page.getByRole("tooltip")).toHaveText(WAITING)
     expect(moves).toHaveLength(1)
+    const cancels = await recordCommand(page, "cancel_operation")
     await more.click()
     await page.getByRole("menuitem", { name: "Stop Waiting" }).click()
     await expect(page.getByText("Canceled moving 1 commit to docs before it started")).toBeVisible()
+    // the stop is the cancel of the operation of the session
+    expect(cancels).toHaveLength(1)
     await expect(more).not.toHaveAttribute("aria-busy", "true")
     await verifyCommitCount(findBranchRow(page, "docs"), 1)
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)

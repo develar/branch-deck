@@ -1,12 +1,13 @@
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
-import { stopWaitingItem, useSurfaceOperation } from "@/stores/operations"
+import { presentStopWaiting } from "@/presenters/lock-wait"
+import { useSurfaceOperation } from "@/stores/operations"
 
 /**
  * Stop Waiting of the operation `surface` started, while its command waits for another holder of the repository lock;
  * nothing otherwise. For a surface whose own label already says whom it waits for (an inline form, a button)
  */
 export function StopWaitingButton({ surface }: { surface: string }) {
-  const item = stopWaitingItem(useSurfaceOperation(surface))
+  const item = presentStopWaiting(useSurfaceOperation(surface))
   return item === null ? null : <MenuItemButton item={item} variant="outline" data-testid="stop-waiting" />
 }
 
@@ -19,7 +20,7 @@ export function StopWaitingButton({ surface }: { surface: string }) {
  */
 export function LockWaitNotice({ surface }: { surface: string }) {
   const operation = useSurfaceOperation(surface)
-  const item = stopWaitingItem(operation)
+  const item = presentStopWaiting(operation)
   if (item === null) {
     return null
   }

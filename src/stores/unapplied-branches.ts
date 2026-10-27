@@ -3,8 +3,6 @@ import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
 import type { Commit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { commandFailure } from "@/lib/errors"
-import { whenSessionViewAt } from "@/model/store"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { getSelectedProject } from "@/stores/repository"
 
@@ -95,17 +93,4 @@ export async function loadUnappliedCommits(name: string): Promise<void> {
   update(name, () => ({ isLoadingCommits: true, loadError: undefined }))
   const result = await commands.getUnappliedBranchCommits(getSelectedProject()?.path ?? "", name)
   update(name, () => (result.status === "ok" ? { commits: result.data, isLoadingCommits: false } : { loadError: result.error.message, isLoadingCommits: false }))
-}
-
-/**
- * Deletes an unapplied branch and resolves once the table has the patch of the session that removed it (no sync
- * follows); throws on a failure
- */
-export async function deleteUnappliedBranch(name: string): Promise<void> {
-  const repositoryPath = getSelectedProject()?.path ?? ""
-  const result = await commands.deleteUnappliedBranch({ repositoryPath, branchName: name })
-  if (result.status !== "ok") {
-    throw commandFailure(result.error)
-  }
-  await whenSessionViewAt(repositoryPath, result.data)
 }

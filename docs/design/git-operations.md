@@ -434,8 +434,8 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    of the remote never changes it). An undo names no table: its token (`Outcome::undo`, `UndoToken { kind, token }`) is
    the one its core printed, the same `bd undo` takes, and moves each ref back with compare-and-swap; a park's undo is
    the `parked:` token of the store commit it was written on (`ParkOutcome::previous_commit`).
-2. **Admission**: every rewrite holds `Resource::Head` (a delete holds only the ref it deletes): a second click of the
-   same rewrite joins the first, any other rewrite of the process waits behind it in the queue (an undo too, never
+2. **Admission**: every rewrite holds `Resource::Head` (a delete holds only the ref it deletes, and a reapply that ref
+   too, so a push or a delete of the unapplied branch waits for it): a second click of the same rewrite joins the first, any other rewrite of the process waits behind it in the queue (an undo too, never
    refused), a push and a start run beside it. Between processes the repository lock orders them.
 3. **What it names, now**: once admitted, one `for-each-ref` of the checked out branch and the three stores reads the
    witness of now. HEAD as the intent saw it: its ids hold. Else a rewrite of this process moved HEAD since
@@ -646,21 +646,20 @@ Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWa
 - **The app**: `LockWait::WhileHeld(&WaitTicket)`, `lock_repository_while_held`: after its own operations before it in
   the line, it waits, without a bound, while the holder record names a live process, an agent's `bd pick --follow`;
   only a lock no record names a live holder of (a holder that writes none) refuses after `DEFAULT_LOCK_TIMEOUT`
-  ("Another Branch Deck operation holds …; retry when it is done"). Each rewrite command of the app takes a `wait:
-  Channel<LockWaitEvent>` and Update Project its progress channel; the command registers its wait by the id of that
-  channel in the host's `LockWaits` (`crates/history-rewrite/src/lock_wait.rs`, `src-tauri/src/lock_wait.rs`), tells
-  the page whom it waits for when the holder changes and about once a second ("Waiting for `bd pick` (pid 4242, for
-  12 s)": `LockWaitEvent.waitingFor`, `UpdateProgress.waitingFor`) and that the wait ended (`waitingFor: null`). An
-  operation of the engine (a push, a start, a restart that pushes) says it in its step in the view instead,
-  `OperationStep::WaitingForLock { holder }` with the `LockHolderInfo` of the record (`LockHolder::info`: `bd` or the
-  app, the command, the pid and how long it has held the lock), told again as the time grows, so every window words it
-  (`presentLockWait` of `src/presenters/lock-wait.ts`), and its Stop Waiting is `cancel_operation`. `cancel_lock_wait` of the
-  channel's id (Stop Waiting) ends a wait before the rewrite read or wrote anything: the wait sees the flag on its
-  next poll and returns `LockWaitCanceled`, and the command answers the code `canceled` (`canceled_code`) only when
-  its own wait ended so (`WaitTicket::ended_by_cancel`), never for a Stop Waiting that came after the lock was taken.
-  The page says "Canceled squashing 2 commits before it started" (an info toast, no error) and changes nothing. The
-  E2E server keeps the same registry and streams the messages of the channel as SSE events before the answer
-  (`crates/test-server/src/channel_commands.rs`).
+  ("Another Branch Deck operation holds …; retry when it is done"). An operation of the engine (a rewrite, a push, a
+  start, a restart that pushes) says whom it waits for in its step in the view, `OperationStep::WaitingForLock {
+  holder }` with the `LockHolderInfo` of the record (`LockHolder::info`: `bd` or the app, the command, the pid and how
+  long it has held the lock), told again when the holder changes and as the time grows, so every window words it
+  (`presentLockWait` of `src/presenters/lock-wait.ts`), and its Stop Waiting is `cancel_operation`
+  (`Registry::cancel`): the wait sees the flag on its next poll and returns `LockWaitCanceled` before the rewrite read
+  or wrote anything, and the operation answers the code `canceled`. Update Project, not an operation of the engine yet,
+  takes its progress channel: the command registers its wait by the id of that channel in the host's `LockWaits`
+  (`crates/history-rewrite/src/lock_wait.rs`, `src-tauri/src/lock_wait.rs`), tells the page whom it waits for
+  (`UpdateProgress.waitingFor`, null once the wait ended), and `cancel_lock_wait` of the channel's id ends the wait;
+  the command answers `canceled` (`canceled_code`) only when its own wait ended so (`WaitTicket::ended_by_cancel`),
+  never for a Stop Waiting that came after the lock was taken. The page says "Canceled squashing 2 commits before it
+  started" (an info toast, no error) and changes nothing. The E2E server keeps the same registry and streams the
+  messages of the channel as SSE events before the answer (`crates/test-server/src/channel_commands.rs`).
 
 `bd push` and `bd safe-push` (their sync, then the witness and the freeze of
 their push; the network push after it; with `--check` only the sync),
@@ -1546,11 +1545,12 @@ match of the copies, inside the check: one `cat-file --batch` of the copies and 
 trees, authors and committers as the replay wrote them, its temporary ref deleted at once, so the copies stay
 unreferenced until the move, the dry run names the commit the pick writes, and `CommitKey` (the subject without the
 prefix) pairs each copy with its remote original: the push that follows replaces nothing it lacks. The rest is a pick:
-the lock, the witness, the one guarded move, the undo token (`undo_pick_remote_commits` in the app).
+the lock, the witness, the one guarded move, the undo token (the `pick:` token of the rewrite `pickRemote` in the
+app, its undo the rewrite `undo`).
 
 Code: `crates/git-ops/src/pick.rs`, `crates/git-ops/src/update_branch.rs` (the moves, `HeadRef`, the undo check by
 operation), `crates/update-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token, the remote
-commits), `crates/bd-update/src/pick_command.rs`, `src-tauri/src/commands/pick_remote_commits.rs`.
+commits), `crates/bd-update/src/pick_command.rs`, `crates/operations/src/rewrite.rs` (the app's Pick Remote Commits).
 
 #### Lease
 

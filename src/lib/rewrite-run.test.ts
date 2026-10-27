@@ -2,7 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ApiError, OperationEvent, Outcome, RewriteIntent, Version } from "@/lib/bindings"
 import { runRewriteIntent, undoRewrite } from "@/lib/rewrite-run"
-import { getOperations, stopWaitingItem } from "@/stores/operations"
+import { presentStopWaiting } from "@/presenters/lock-wait"
+import { getOperations } from "@/stores/operations"
 
 const { engine } = vi.hoisted(() => ({
   engine: {
@@ -99,7 +100,8 @@ describe("runRewriteIntent", () => {
     // the page queues nothing it does not run: the session admitted it
     expect(operation?.waitsFor).toBeNull()
 
-    stopWaitingItem(operation)!.onSelect!({ surface: null })
+    expect(operation?.op).toBe("op-1")
+    presentStopWaiting(operation)!.onSelect!({ surface: null })
     await vi.waitFor(() => expect(engine.calls).toContain("cancel op-1"))
     engine.error = { code: "canceled", message: "The wait for the repository lock was stopped; nothing changed", details: null, retry: "no", operation_id: "op-1" }
     proceed()

@@ -14,11 +14,12 @@ import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useUnappliedBranchMenu } from "@/hooks/useUnappliedBranchMenu"
 import { copyFocusedBranchRow } from "@/lib/clipboard"
 import { formatCommitCount } from "@/lib/commit"
+import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
-import { inlineSurface, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
+import { inlineSurface, useActiveInlineForRow, withRowProgress } from "@/stores/inline-row-action"
 import { useObjectBusy, useSurfaceBusy } from "@/stores/operations"
 import type { UnappliedBranch } from "@/stores/unapplied-branches"
-import { deleteUnappliedBranch, getUnappliedBranch, loadUnappliedCommits, useUnappliedBranch, useUnappliedBranchOrder } from "@/stores/unapplied-branches"
+import { getUnappliedBranch, loadUnappliedCommits, useUnappliedBranch, useUnappliedBranchOrder } from "@/stores/unapplied-branches"
 
 const columnCount = 3
 
@@ -150,13 +151,9 @@ function UnappliedBranchMenuItems({ name, Items }: { name: string; Items: Compon
   return <Items groups={useUnappliedBranchMenu(name)} />
 }
 
-/** Deletes the unapplied branch; the session's patch removes its row, no sync follows */
+/** Deletes the unapplied branch (`deleteKeptBranch`); the session's patch removes its row, no sync follows */
 async function confirmDelete(name: string): Promise<void> {
   const branch = getUnappliedBranch(name)?.branch ?? name
-  await withRowProcessing(name, { id: "delete-unapplied", kind: "remote", label: `Deleting ${branch}` }, () => deleteUnappliedBranch(name), {
-    success: () => ({ title: `Deleted the unapplied branch ${branch}` }),
-    errorTitle: () => `Cannot delete the unapplied branch ${branch}`,
-    // the typed name stays
-    keepFormOnError: true,
-  })
+  // the typed name stays after a failure
+  await withRowProgress(name, () => deleteKeptBranch("deleteUnapplied", name, branch), { keepFormOnFailure: true })
 }

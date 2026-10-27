@@ -91,6 +91,7 @@ targets:
   - ../../crates/repository-model/src/session.rs
   - ../../crates/operations/src/push.rs
   - ../../src-tauri/src/commands/archived_branches.rs
+  - ../../src/lib/git/delete-kept-branch.ts
   - ../../src/model/store.ts
 ---
 
@@ -626,7 +627,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   second start joins it (a double click runs one unstack); a start of it with other commits, another target or
   another message (a drag of another commit of the branch onto the same branch, a reword of another commit) is a start
   of its own, which waits in the queue. Every other rewrite of the repository, in every branch and commit menu, by a
-  drag, a key or a toast's Undo, stays offered and is never refused: its start waits for the running one in the queue,
+  drag, a key or a toast's Undo, stays offered and is never refused: its start goes to the session of the repository at
+  once (the rewrites are the engine's, the page queues none) and waits for the running one in the queue of the session,
   in the order of the starts, its rows busy and its "⋯" saying what it waits for ("Waits for Unstacking oauth…"), then
   runs on what the one before left (a move, a squash, a reword, an amend and an added issue reference take the commits
   by the ids that one gave them, also a commit whose subject it changed), in the repository of its start, whichever the
@@ -634,7 +636,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   disabled with its busy state ("Restarting the Safe Push…") and a start says so in an info toast titled as its
   failure; a retarget and a review request of one pull request write other fields of it and run side by side, unless
   the review request pushes first, which may retarget it too. A success toast with Undo comes after the sync.
-  [@test] ../../src/stores/operations.test.ts (`runs a second start of the same action once: it joins the running one and resolves with it`, `joins only a start with the same parameters: a move of other commits of the same branch is a move of its own, queued behind the running and the waiting one`, `queues a rewrite behind any rewrite of the repository, never behind a remote action, and runs it once that one ended`, `runs the queue in the order of the starts, also after a failure, and joins a start of a waiting action`, `lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request`, `ends the operation when its action fails`, `marks the item of the running action running, and leaves the items that would wait for it enabled: their start queues`, `disables the item of a remote action that must wait with the busy state of the one it waits for`)
+  [@test] ../../src/stores/operations.test.ts (`runs a second start of the same action once: it joins the running one and resolves with it`, `joins only a start with the same parameters and starts every other rewrite at once: the session of its repository queues it`, `lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request`, `ends the operation when its action fails`, `marks the item of the running action running, and leaves the items that would wait for it enabled: their start queues`, `disables the item of a remote action that must wait with the busy state of the one it waits for`)
+  [@test] ../../src/lib/rewrite-run.test.ts (`says behind which rewrite of this window it waits in the queue of the session`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should take a second drag while the first move runs, wait for it in the queue and move the commit as the first move left it`, `should move a second commit of the same branch dragged onto the same target while the first move runs: a move of its own, never joined to the first`)
   [@test] ../../tests/e2e/amend-changes/amend-changes.spec.ts (`should amend in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile`, `should add the issue reference in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile`, `should reword a commit as the issue reference before it in the queue left it: another id, another subject`)
   [@test] ../../src/stores/branch-sync.test.ts (`finds a commit whose subject a message rewrite changed by the committer it kept, and one an amend replayed by its subject`, `finds no commit by a key two commits share`)
@@ -748,11 +751,14 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The delete must remove the archived branch only from the tip it read (one ref transaction with compare-and-swap),
   and must refuse a branch checked out in any worktree, naming that worktree, with the branch left as it is.
   [@test] ../../crates/sync-core/src/delete_archived_branch_test.rs (`deletes_the_archived_branch_only`, `refuses_a_branch_checked_out_in_a_worktree`)
-- A deleted archived branch must leave the table as a patch of the session, with no sync after it; a sync that listed
-  it before the delete, or one that fails, does not bring it back.
+- The delete must be the rewrite `deleteArchived` of the engine, by the full name of the branch: it holds only the ref
+  it drops, so it runs beside a rewrite and a sync, and no Undo follows it. A deleted archived branch must leave the
+  table as a patch of the session, with no sync after it; a sync that listed it before the delete, or one that fails,
+  does not bring it back.
   [@test] ../../crates/repository-model/src/table_test.rs (`a_deleted_archived_or_unapplied_branch_stays_deleted_by_the_sync_that_listed_it_before_and_by_one_that_fails`)
   [@test] ../../crates/repository-model/src/session_test.rs (`deleting_an_archived_or_unapplied_branch_answers_a_patch_and_runs_no_sync`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_deletion_of_an_archived_branch_answers_the_version_of_its_patch_and_runs_no_sync`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through_the_engine`)
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete an archived branch from its menu, the row gone with no sync after it`)
 
 ## User Experience

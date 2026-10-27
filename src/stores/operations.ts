@@ -1,16 +1,15 @@
 import { useEffect } from "react"
-import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { LockWaitEvent } from "@/lib/bindings"
-import { stopLockWait } from "@/lib/lock-wait"
+import type { OperationId } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import { getSelectedProject } from "@/stores/repository"
 
 /**
- * What an action does to the repository: a rewrite moves HEAD or a ref of Branch Deck under the repository lock (a
- * regroup, a squash, an amend), so two of them never run at once; a remote action talks to a server (a pull request, a
- * robot) or deletes a ref of its own
+ * What an action does to the repository: a rewrite moves HEAD or a ref of Branch Deck (a regroup, a squash, a delete),
+ * which the session of the repository admits and queues behind the rewrites before it (`runRewriteIntent`), the record
+ * here only showing it, and Update Project waits for (`whenRewritesDone`); a remote action talks to a server (a pull
+ * request, a robot)
  */
 export type OperationKind = "rewrite" | "remote"
 
@@ -47,13 +46,6 @@ export interface OperationSpec extends OperationKey {
    * key or a toast, whose row (the trigger of the object's menu) shows it
    */
   readonly surface?: string | null
-  /**
-   * The session of the repository admits it (a rewrite of the engine, `runRewriteIntent`): the page never queues it
-   * behind another operation, the session does; its record shows it on its surfaces while it runs, with what its
-   * operation waits for as its channel tells it (`setSessionStep`). A rewrite the page runs itself (`runRewrite`) still
-   * waits for it
-   */
-  readonly admittedBySession?: boolean
 }
 
 export interface Operation extends OperationSpec {
@@ -63,10 +55,15 @@ export interface Operation extends OperationSpec {
   /** The busy state of the operation it waits for in the queue ("Unstacking oauth"); null once it runs */
   readonly waitsFor: string | null
   /**
-   * Whom its command waits for while another holder has the repository lock, as the backend says it: "Waiting for `bd
-   * pick` (pid 4242, for 12 s)" (`lockWaitChannel`); null while it waits for nobody
+   * Whom its operation waits for while another holder has the repository lock, as the step of its operation says it:
+   * "Waiting for `bd pick` (pid 4242, for 12 s)" (`setSessionStep`); null while it waits for nobody
    */
   readonly lockWait: string | null
+  /**
+   * The operation of the session it shows (a rewrite of the engine), once its channel named it, which its Stop Waiting
+   * stops (`presentStopWaiting`); null before and for an operation the page runs itself
+   */
+  readonly op: OperationId | null
 }
 
 export type Operations = readonly Operation[]
@@ -84,11 +81,6 @@ export const operationsStore = createStore<OperationsState>(() => ({ running: NO
 
 /** The running promise of each operation: a second start of the same action resolves with it */
 const promises = new Map<number, Promise<unknown>>()
-/**
- * How each operation's wait for the repository lock ends, which Stop Waiting runs: the cancel of the channel its
- * command hears the wait on (`lockWaitChannel`), or of the operation of the session (`setSessionStep`)
- */
-const lockWaitStops = new Map<number, () => void>()
 let nextKey = 1
 
 /** The subject of a branch: the row whose menu and keys start its actions */
@@ -107,9 +99,9 @@ export function findSame(running: Operations, key: OperationKey): Operation | un
 }
 
 /**
- * The running operation that `key` must wait for, null when it can run: a rewrite waits for any rewrite of the
- * repository (all of them move HEAD or a ref of Branch Deck under one lock), a remote action for a remote action of
- * the same object or of a branch it works on, or of a resource it writes when both name theirs (`resources`). A rewrite
+ * The running operation that `key` would wait for, null when it can run: a rewrite for any rewrite of the repository
+ * (the session queues them; Update Project waits for them, and says so), a remote action for a remote action of the
+ * same object or of a branch it works on, or of a resource it writes when both name theirs (`resources`). A rewrite
  * and a remote action run side by side: a push waits for the sync after the rewrite itself.
  */
 export function getOperationBlocker(running: Operations, key: OperationKey): Operation | null {
@@ -145,48 +137,13 @@ export function operationLabel(operation: Operation): string {
 }
 
 /**
- * The channel the command of the operation `key` hears its wait for the repository lock on (the `wait` of a rewrite):
- * while the backend says whom it waits for, the operation's surfaces say it and offer Stop Waiting (`stopWaitingItem`)
+ * What the operation of the session behind the record `key` (`runRewriteIntent`) waits for, as its channel tells it:
+ * whom while another holder has the repository lock (`lockWait`, stopped by `presentStopWaiting` of the operation
+ * `op`), the operation before it in the queue of the session (`waitsFor`, its busy state); both null once it runs
  */
-export function lockWaitChannel(key: number): Channel<LockWaitEvent> {
-  const channel = new Channel<LockWaitEvent>()
-  channel.onmessage = event => setWait(key, { lockWait: event.waitingFor })
-  lockWaitStops.set(key, () => stopLockWait(channel))
-  return channel
-}
-
-/**
- * What the operation of the session behind the record `key` (`admittedBySession`) waits for, as its channel tells it:
- * whom while another holder has the repository lock (`lockWait`, ended by `stop`: `cancel_operation`), the operation
- * before it in the queue of the session (`waitsFor`, its busy state); both null once it runs
- */
-export function setSessionStep(key: number, step: { readonly lockWait: string | null; readonly waitsFor: string | null }, stop: () => void): void {
-  lockWaitStops.set(key, stop)
-  setWait(key, step)
-}
-
-function setWait(key: number, wait: { readonly lockWait: string | null; readonly waitsFor?: string | null }): void {
-  const changed = (it: Operation) => it.lockWait !== wait.lockWait || (wait.waitsFor !== undefined && it.waitsFor !== wait.waitsFor)
-  operationsStore.setState(state => ({ running: state.running.map(it => (it.key === key && changed(it) ? { ...it, ...wait } : it)) }))
-}
-
-/**
- * Stop Waiting of an operation whose command waits for another holder of the repository lock: the one builder of the
- * action, every surface that shows the waiting operation renders it (the "⋯" of its row, the surface that started it);
- * null while it waits for nobody. The command then changes nothing and the operation says so ("Canceled squashing 2
- * commits before it started")
- */
-export function stopWaitingItem(operation: Operation | undefined): MenuItem | null {
-  if (operation?.lockWait == null) {
-    return null
-  }
-  const stop = lockWaitStops.get(operation.key)
-  return {
-    id: "stop-waiting",
-    label: "Stop Waiting",
-    description: `${operation.lockWait}; stop and change nothing`,
-    onSelect: () => stop?.(),
-  }
+export function setSessionStep(key: number, step: { readonly op: OperationId; readonly lockWait: string | null; readonly waitsFor: string | null }): void {
+  const changed = (it: Operation) => it.op !== step.op || it.lockWait !== step.lockWait || it.waitsFor !== step.waitsFor
+  operationsStore.setState(state => ({ running: state.running.map(it => (it.key === key && changed(it) ? { ...it, ...step } : it)) }))
 }
 
 /** The busy state of `operation` with the ellipsis, as an item that runs it says it: "Unstacking tool-events…" */
@@ -194,14 +151,10 @@ export function formatOperationBlocker(operation: Operation): string {
   return `${operationLabel(operation)}…`
 }
 
-/** Whether a rewrite of the repository runs or waits in the queue */
-export function isRewriteRunning(repositoryPath: string): boolean {
-  return operationsStore.getState().running.some(operation => operation.kind === "rewrite" && operation.repositoryPath === repositoryPath)
-}
-
 /**
- * Resolves once no rewrite of the repository runs or waits, the sync that shows its result included (`runRewrite`): a
- * push started meanwhile pushes the branches as the rewrite leaves them. Never rejects.
+ * Resolves once no rewrite of the repository runs or waits, the sync that shows its result included
+ * (`runRewriteIntent`): a push started meanwhile pushes the branches as the rewrite leaves them, an update updates
+ * them. Never rejects.
  */
 export async function whenRewritesDone(repositoryPath: string): Promise<void> {
   while (true) {
@@ -225,8 +178,8 @@ export function getOperations(): Operations {
 /**
  * The item of an action of an object as the running operations leave it: running while it runs itself (a second start
  * joins it); a remote action that must wait is disabled with the busy state of the operation it waits for, a rewrite
- * that must wait stays enabled, its start waits in the queue (`runOperation`); else as it is. An item already disabled
- * keeps its reason; a submenu (Stack On ›) is disabled as a whole.
+ * stays enabled, its start waits in the queue of the session; else as it is. An item already disabled keeps its reason;
+ * a submenu (Stack On ›) is disabled as a whole.
  */
 export function operationItem(running: Operations, item: MenuItem, key: OperationKey): MenuItem {
   const same = findSame(running, key)
@@ -244,12 +197,11 @@ export function operationItem(running: Operations, item: MenuItem, key: Operatio
  * Runs `run` as the operation `spec`, from its start until its promise settles, which for a rewrite includes the sync
  * that shows its result. A second start of the same action with the same parameters (a double click, the same item in
  * another surface) joins the running one and resolves with it; a start with other parameters (`OperationKey.parameters`:
- * other commits of a move) is an operation of its own. A rewrite the session admits (`admittedBySession`) starts at
- * once: the session queues it. A rewrite the page runs that must wait for another one (`getOperationBlocker`) is never
- * refused: it waits in the queue, in the order of the starts, its rows busy and its surface saying what it waits for
- * ("Waits for Unstacking oauth"), and runs once the rewrites before it ended, however they ended. A remote
- * action that must wait (a cancel of the robot a restart replaces) runs nothing, tells `onBlocked` why and resolves to
- * `undefined`: it would act on the robot or the pull request as it was before the one it waits for.
+ * other commits of a move) is an operation of its own. A rewrite starts at once: the session of its repository queues
+ * it behind the rewrites before it, and its record says what it waits for as the steps of its operation tell it
+ * (`setSessionStep`). A remote action that must wait (a cancel of the robot a restart replaces) runs nothing, tells
+ * `onBlocked` why and resolves to `undefined`: it would act on the robot or the pull request as it was before the one
+ * it waits for.
  */
 export function runOperation<T>(spec: OperationSpec, run: (key: number) => Promise<T>, onBlocked: (reason: string) => void = () => {}): Promise<T | undefined> {
   const { running } = operationsStore.getState()
@@ -257,9 +209,8 @@ export function runOperation<T>(spec: OperationSpec, run: (key: number) => Promi
   if (same !== undefined) {
     return promises.get(same.key) as Promise<T>
   }
-  // the session queues what it admits
-  const blocker = spec.admittedBySession === true ? null : getOperationBlocker(running, spec)
-  if (blocker !== null && spec.kind === "remote") {
+  const blocker = spec.kind === "remote" ? getOperationBlocker(running, spec) : null
+  if (blocker !== null) {
     onBlocked(formatOperationBlocker(blocker))
     return Promise.resolve(undefined)
   }
@@ -273,64 +224,29 @@ export function runOperation<T>(spec: OperationSpec, run: (key: number) => Promi
     label: spec.label,
     repositoryPath: repositoryOf(spec),
     surface: spec.surface ?? null,
-    waitsFor: blocker?.label ?? null,
+    waitsFor: null,
     lockWait: null,
+    op: null,
     ...(spec.resources === undefined ? null : { resources: spec.resources }),
     ...(spec.parameters === undefined ? null : { parameters: spec.parameters }),
   }
   operationsStore.setState(state => ({ running: [...state.running, operation] }))
-  // the promise is known before `run` starts, so a start of the same action from inside it joins it; without a blocker
-  // `run` starts at once, as a direct call would, and a throw before its first await rejects the promise
+  // the promise is known before `run` starts, so a start of the same action from inside it joins it; `run` starts at
+  // once, as a direct call would, and a throw before its first await rejects the promise
   let settle!: { resolve: (value: T) => void; reject: (error: unknown) => void }
   const promise = new Promise<T>((resolve, reject) => {
     settle = { resolve, reject }
   }).finally(() => {
     promises.delete(operation.key)
-    lockWaitStops.delete(operation.key)
     operationsStore.setState(state => ({ running: state.running.filter(it => it.key !== operation.key) }))
   })
   promises.set(operation.key, promise)
-  const start = () => {
-    try {
-      run(operation.key).then(settle.resolve, settle.reject)
-    } catch (error) {
-      settle.reject(error)
-    }
-  }
-  if (blocker === null) {
-    start()
-  } else {
-    void waitTurn(operation.key).then(start)
+  try {
+    run(operation.key).then(settle.resolve, settle.reject)
+  } catch (error) {
+    settle.reject(error)
   }
   return promise
-}
-
-/**
- * Waits until no operation started before the one of `key` conflicts with it: each that does is awaited in turn (the
- * queue keeps the order of the starts), and the record says which one it waits for
- */
-async function waitTurn(key: number): Promise<void> {
-  while (true) {
-    const { running } = operationsStore.getState()
-    const index = running.findIndex(it => it.key === key)
-    const operation = running[index]
-    if (operation === undefined) {
-      return
-    }
-    const blocker = getOperationBlocker(running.slice(0, index), operation)
-    const waitsFor = blocker?.label ?? null
-    if (operation.waitsFor !== waitsFor) {
-      operationsStore.setState(state => ({ running: state.running.map(it => (it.key === key ? { ...it, waitsFor } : it)) }))
-    }
-    const promise = blocker === null ? undefined : promises.get(blocker.key)
-    if (promise === undefined) {
-      return
-    }
-    await promise.then(
-      () => {},
-      () => {},
-    )
-  }
 }
 
 // ---- hooks ----
@@ -395,7 +311,7 @@ export function useObjectBusy(name: string): string | null {
 /**
  * The operation of the subject `subject` whose start no mounted surface shows (a menu, a key, a toast, a popover closed
  * by the click): the trigger of the object's menu shows its spinner and busy state (`operationLabel`), and its Stop
- * Waiting (`stopWaitingItem`); undefined otherwise
+ * Waiting (`presentStopWaiting`); undefined otherwise
  */
 export function useUnclaimedOperation(subject: string): Operation | undefined {
   return useStore(operationsStore, state => state.running.find(it => it.subject === subject && !isClaimed(state, it.surface)))
@@ -417,7 +333,7 @@ function surfaceOf(state: OperationsState, surface: string | undefined): Operati
   return surface === undefined ? undefined : state.running.find(it => it.surface === surface)
 }
 
-/** The operation `surface` started, while it runs, for its Stop Waiting (`stopWaitingItem`); undefined otherwise */
+/** The operation `surface` started, while it runs, for its Stop Waiting (`presentStopWaiting`); undefined otherwise */
 export function useSurfaceOperation(surface: string | undefined): Operation | undefined {
   return useStore(operationsStore, state => surfaceOf(state, surface))
 }

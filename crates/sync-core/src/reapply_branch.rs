@@ -200,15 +200,6 @@ impl std::fmt::Display for ReapplyUndoToken {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct UndoReapplyParams {
-  pub repository_path: String,
-  /// The `undoToken` of the reapply
-  pub undo_token: String,
-}
-
 /// Undo a reapply, under the repository lock: HEAD moves back with the files and the unapplied branch is created again
 /// at its tip, in one transaction (`check_reapply_undo`). `HeadMoved` when HEAD moved on, `NotAnUpdate` when the last move
 /// of the branch is not this reapply, `UndoBlocked` when local changes sit on a path the undo writes; an unapplied branch

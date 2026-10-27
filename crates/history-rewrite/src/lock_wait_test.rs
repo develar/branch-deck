@@ -1,4 +1,4 @@
-use crate::lock_wait::{LockWaitEvent, LockWaits, waiting_for};
+use crate::lock_wait::{LockWaits, waiting_for};
 use crate::repository_lock::{LockHolder, LockWaiter};
 use pretty_assertions::assert_eq;
 use std::sync::{Arc, Mutex};
@@ -20,18 +20,10 @@ fn a_wait_is_stopped_by_its_channel_and_leaves_the_registry_with_its_ticket() {
   let waits = LockWaits::default();
   let told = Arc::new(Mutex::new(Vec::new()));
   let heard = Arc::clone(&told);
-  let ticket = waits.register(7, move |holder| heard.lock().unwrap().push(LockWaitEvent::of(holder)));
+  let ticket = waits.register(7, move |holder| heard.lock().unwrap().push(holder.map(waiting_for)));
   ticket.holder(Some(&holder()));
   ticket.holder(None);
-  assert_eq!(
-    *told.lock().unwrap(),
-    [
-      LockWaitEvent {
-        waiting_for: Some(waiting_for(&holder())),
-      },
-      LockWaitEvent { waiting_for: None }
-    ]
-  );
+  assert_eq!(*told.lock().unwrap(), [Some(waiting_for(&holder())), None]);
   assert!(waiting_for(&holder()).starts_with("Waiting for `bd pick --follow` (pid 4242, for "));
 
   assert!(!ticket.canceled());

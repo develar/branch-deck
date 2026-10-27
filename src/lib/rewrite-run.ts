@@ -1,27 +1,28 @@
-// The rewrites of the page that the engine runs (the intent `rewrite`, `operations::rewrite`; docs/design/operations.md,
-// "Rewrites"): Move (a drag, Move to…, Ungroup, Remove Prefix), Rename, Stack On, Unstack, Park, Unpark, and the Undo
-// of a rewrite by the token its outcome gave. The session admits each: a second click of the same rewrite joins it,
-// another waits for it in the queue of the session and runs on what it left, a rewrite runs during a sync; the operation
-// ends once it asked the sync that shows it, and its answer comes once that sync ended, so the toast with Undo shows
-// beside what it changed. The window that starts it shows it while it runs (a record of `runOperation` the session
-// admits, never queued in the page): its surface or its row busy, and from the steps of its operation whom it waits for
-// while another holder has the repository lock (Stop Waiting: `cancel_operation`) or which rewrite it waits behind. The
-// page decides nothing of it: it words the failure and the outcome.
+// The rewrites of the page, which the engine runs (the intent `rewrite`, `operations::rewrite`; docs/design/operations.md,
+// "Rewrites"): Move (a drag, Move to…, Ungroup, Remove Prefix), Rename, Stack On, Unstack, Park, Unpark, Reword, Squash,
+// Squash Fixups, Amend, Add Issue Reference, Apply Fix, Unapply, Reapply, Pick Remote Commits, the deletes of an archived
+// and an unapplied branch, and the Undo of a rewrite by the token its outcome gave. The session admits each: a second
+// click of the same rewrite joins it, another waits for it in the queue of the session and runs on what it left, a
+// rewrite runs during a sync; the operation ends once it asked the sync that shows it, and its answer comes once that
+// sync ended, so the toast with Undo shows beside what it changed; a delete asks no sync, its answer comes with the
+// patch that removed its row. The window that
+// starts it shows it while it runs (a record of `runOperation`, never queued in the page): its surface or its row busy,
+// and from the steps of its operation whom it waits for while another holder has the repository lock (Stop Waiting:
+// `cancel_operation`, `presentStopWaiting`) or which rewrite it waits behind. The page decides nothing of it: it words
+// the failure and the outcome.
 import type { ApiError, OperationEvent, OperationId, Outcome, RewriteIntent, RewriteResult, TableWitness, UndoToken } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { actionOfLabel, canceledBeforeStart } from "@/lib/lock-wait"
 import { executeRewrite } from "@/lib/run-intent"
 import { showToast } from "@/lib/toast-message"
 import { getSessionWitness } from "@/model/store"
-import { presentLockWait } from "@/presenters/lock-wait"
+import { actionOfLabel, canceledBeforeStart, presentLockWait } from "@/presenters/lock-wait"
 import { presentRewrite } from "@/presenters/rewrite"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { OperationSpec } from "@/stores/operations"
 import { runOperation, setSessionStep } from "@/stores/operations"
 
 /** A rewrite as the page shows it while it runs: its operation without the kind; the label of the rewrite by default */
-export interface RewriteRunSpec extends Omit<OperationSpec, "kind" | "label" | "repositoryPath" | "admittedBySession"> {
+export interface RewriteRunSpec extends Omit<OperationSpec, "kind" | "label" | "repositoryPath"> {
   /** The repository of the click: the rewrite and its Undo go there, whichever the main window shows when they run */
   readonly repositoryPath: string
   readonly label?: string
@@ -72,7 +73,7 @@ export async function runRewriteIntent(spec: RewriteRunSpec, rewrite: RewriteInt
   const words = presentRewrite(rewrite)
   const label = spec.label ?? words.label
   const { onWritten: _written, ...operation } = spec
-  const done = await runOperation({ ...operation, kind: "rewrite", label, admittedBySession: true }, async key => {
+  const done = await runOperation({ ...operation, kind: "rewrite", label }, async key => {
     let op: OperationId | null = null
     const onEvent = (event: OperationEvent) => {
       if (event.kind === "done") {
@@ -85,15 +86,11 @@ export async function runRewriteIntent(spec: RewriteRunSpec, rewrite: RewriteInt
       op = event.op
       labels.set(event.op, label)
       const { step } = event
-      const stop = () => void commands.cancelOperation({ op: event.op }).catch(() => {})
-      setSessionStep(
-        key,
-        {
-          lockWait: step.kind === "waitingForLock" ? presentLockWait(step.holder) : null,
-          waitsFor: step.kind === "queued" ? labelOf(step.behind) : null,
-        },
-        stop,
-      )
+      setSessionStep(key, {
+        op: event.op,
+        lockWait: step.kind === "waitingForLock" ? presentLockWait(step.holder) : null,
+        waitsFor: step.kind === "queued" ? labelOf(step.behind) : null,
+      })
     }
     const run = await executeRewrite(spec.repositoryPath, rewrite, onEvent).finally(() => {
       if (op !== null) {

@@ -10,10 +10,11 @@ import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
 import { useChildrenPush, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/useBranchPushes"
 import type { MenuItemGroups } from "@/lib/menu"
+import { presentStopWaiting } from "@/presenters/lock-wait"
 import { firstPushPending, isFirstPushInLanding } from "@/presenters/push-button"
 import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
-import { branchSubject, operationLabel, stopWaitingItem, useObjectBusy, useUnclaimedOperation } from "@/stores/operations"
+import { branchSubject, operationLabel, useObjectBusy, useUnclaimedOperation } from "@/stores/operations"
 import { usePatronusPending, usePushHold } from "@/stores/patronus"
 import { usePullRequestsLoading } from "@/stores/pull-requests"
 
@@ -81,7 +82,7 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
           name={branch.name}
           disabled={processing}
           busy={unclaimedBusy}
-          stopWaiting={stopWaitingItem(unclaimed)}
+          stopWaiting={presentStopWaiting(unclaimed)}
           menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />}
         />
       </ColumnTrack>

@@ -1,7 +1,13 @@
 // @spec spec/branch/patronus.spec.md
-import { describe, expect, it } from "vite-plus/test"
+import { describe, expect, it, vi } from "vite-plus/test"
 import type { LockHolderInfo, OperationStep, RunningOperation } from "@/lib/bindings"
-import { presentLockHolder, presentLockWait, presentOperationLockWait } from "@/presenters/lock-wait"
+import { commands } from "@/lib/bindings"
+import { actionOfLabel, canceledBeforeStart, presentLockHolder, presentLockWait, presentOperationLockWait, presentStopWaiting } from "@/presenters/lock-wait"
+
+vi.mock("@/lib/bindings", async importOriginal => {
+  const original = await importOriginal<typeof import("@/lib/bindings")>()
+  return { ...original, commands: { ...original.commands, cancelOperation: vi.fn(async () => ({ status: "ok", data: true })) } }
+})
 
 const BD_PICK: LockHolderInfo = { tool: "bd", command: "bd pick --follow", pid: 4242, held_for: 12 }
 
@@ -34,5 +40,35 @@ describe("presentLockWait", () => {
     expect(presentOperationLockWait(pushIn({ kind: "waitingForLock", holder: null }))).toBe("Waiting for another holder of the repository lock")
     expect(presentOperationLockWait(pushIn({ kind: "pushing" }))).toBeNull()
     expect(presentOperationLockWait(undefined)).toBeNull()
+  })
+})
+
+describe("presentStopWaiting", () => {
+  it("offers Stop Waiting of an operation of the session only while it waits for a holder, and stops it by its id", () => {
+    const waiting = "Waiting for `bd pick --follow` (pid 4242, for 12 s)"
+    expect(presentStopWaiting(undefined)).toBeNull()
+    expect(presentStopWaiting({ op: "op-1", lockWait: null })).toBeNull()
+    // the channel has not named the operation yet: nothing to stop
+    expect(presentStopWaiting({ op: null, lockWait: waiting })).toBeNull()
+
+    const stop = presentStopWaiting({ op: "op-1", lockWait: waiting })!
+    expect(stop).toMatchObject({ id: "stop-waiting", label: "Stop Waiting", description: `${waiting}; stop and change nothing` })
+    stop.onSelect({ surface: null })
+    expect(vi.mocked(commands.cancelOperation)).toHaveBeenCalledExactlyOnceWith({ op: "op-1" })
+  })
+})
+
+describe("canceledBeforeStart", () => {
+  it("says that an action stopped while it waited for the repository lock changed nothing", () => {
+    expect(canceledBeforeStart("the push of auth", "Nothing was pushed")).toEqual({
+      type: "info",
+      title: "Canceled the push of auth before it started",
+      description: "Nothing was pushed",
+    })
+    expect(canceledBeforeStart(actionOfLabel("Squashing 2 commits"))).toEqual({
+      type: "info",
+      title: "Canceled squashing 2 commits before it started",
+      description: "Nothing changed",
+    })
   })
 })

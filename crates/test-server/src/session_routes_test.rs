@@ -2,7 +2,7 @@
 //! first and then carries the patches, each on the version before it, up to the version a sync answers; it ends with
 //! `unsubscribe_view`; a repository without a prefix is refused with the `ApiError` of the app, on the stream too
 
-use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, push_alone, start_test_server, view_when};
+use crate::test_support::{Messages, Named, command, create_repository, create_repository_from, post, post_as, post_error, push_alone, rewrite, start_test_server, view_when};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
@@ -243,8 +243,8 @@ async fn a_push_answers_the_version_of_its_patch_and_runs_no_sync() {
   assert_eq!(view["sync"], json!({ "kind": "idle" }), "no sync ran: {view}");
 }
 
-/// The deletion of an archived branch reaches the session as a patch of the archived section, whose version its answer
-/// names; no sync runs for it
+/// The deletion of an archived branch (the rewrite `deleteArchived` of the engine) reaches the session as a patch of the
+/// archived section, whose version its outcome names (`versionAfter`); no sync runs for it
 #[tokio::test]
 async fn a_deletion_of_an_archived_branch_answers_the_version_of_its_patch_and_runs_no_sync() {
   let (client, addr, path, mut messages, synced) = synced_window("archived_branches", 12).await;
@@ -252,13 +252,20 @@ async fn a_deletion_of_an_archived_branch_answers_the_version_of_its_patch_and_r
   let archived = view["sections"]["archived"]["names"][0].clone();
   assert!(archived.is_string(), "{view}");
 
-  let deleted = post(&client, addr, "/invoke/delete_archived_branch", json!({ "repositoryPath": path, "branchName": archived })).await;
+  let outcome = rewrite(&client, addr, &path, json!({ "rewrite": "deleteArchived", "branchName": archived })).await;
+  assert_eq!(outcome["result"], json!({ "kind": "rewrite", "rewrite": "deleted" }), "{outcome}");
+  let deleted = outcome["versionAfter"].clone();
   let patches = patches_up_to(&mut messages, &synced, &deleted).await;
-  assert_eq!(patches.len(), 1, "{patches:?}");
-  let names = patches[0]["changes"]["archived"]["names"].as_array().unwrap();
+  // the operation shows in the part `operations` while it runs; one patch removes the row
+  let removals: Vec<&Value> = patches.iter().filter(|patch| patch["changes"].get("archived").is_some()).collect();
+  assert_eq!(removals.len(), 1, "{patches:?}");
+  let names = removals[0]["changes"]["archived"]["names"].as_array().unwrap();
   assert!(!names.contains(&archived), "{patches:?}");
+  assert!(patches.iter().all(|patch| patch["changes"].get("sync").is_none()), "no sync ran: {patches:?}");
+  // the end of the operation follows as a patch of the part `operations`
   let view = post(&client, addr, "/invoke/get_snapshot", json!({ "repositoryPath": path })).await;
-  assert_eq!((view["sync"].clone(), view["version"].clone()), (json!({ "kind": "idle" }), deleted), "no sync ran: {view}");
+  assert_eq!(view["sync"], json!({ "kind": "idle" }), "no sync ran: {view}");
+  assert!(!view["sections"]["archived"]["names"].as_array().unwrap().contains(&archived), "{view}");
 }
 
 /// The clock of the sessions of a repository moves only by its test (`POST /repositories/{id}/clock/advance`): a session

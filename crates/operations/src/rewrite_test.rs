@@ -330,3 +330,55 @@ async fn a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told(
   assert_eq!(fixture.operations().await, Vec::new());
   drop(held);
 }
+
+/// The kind of the undo of `outcome`, and whether it asked a sync
+fn undo_and_sync(outcome: &Outcome) -> (Option<UndoKind>, bool) {
+  let synced = outcome.effects.iter().any(|record| record.effect == PlannedEffect::Sync);
+  (outcome.undo.as_ref().map(|undo| undo.kind), synced)
+}
+
+/// Unapply, Reapply and the delete of the unapplied branch are rewrites of the engine: the unapply and the reapply ask
+/// the sync that shows them, each with its undo (an `unapply:` and a `reapply:` token); the delete holds only the ref it
+/// drops, asks no sync and has no undo
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through_the_engine() {
+  let fixture = fixture(true).await;
+  let both = ["(alpha/beta) Beta", "(alpha) Alpha"];
+  let unapply = async || {
+    let witness = fixture.witness().await;
+    let beta = fixture.commit("(alpha/beta) Beta");
+    let rewrite = RewriteIntent::Unapply {
+      branch_name: "beta".to_owned(),
+      original_commit_ids: Some(vec![beta]),
+      witness,
+    };
+    fixture.rewrite(&rewrite).await.unwrap()
+  };
+  let unapplied = unapply().await;
+  assert_eq!(undo_and_sync(&unapplied), (Some(UndoKind::Unapply), true));
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha"]);
+  let undone = fixture.rewrite(&RewriteIntent::Undo { token: unapplied.undo.unwrap() }).await.unwrap();
+  assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
+  assert_eq!(fixture.subjects(), both);
+
+  unapply().await;
+  let reapply = RewriteIntent::Reapply {
+    branch_name: "beta".to_owned(),
+    witness: fixture.witness().await,
+  };
+  let reapplied = fixture.rewrite(&reapply).await.unwrap();
+  assert_eq!(undo_and_sync(&reapplied), (Some(UndoKind::Reapply), true));
+  assert_eq!(fixture.subjects().len(), 2, "the commit is back on top");
+  fixture.rewrite(&RewriteIntent::Undo { token: reapplied.undo.unwrap() }).await.unwrap();
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha"], "the undo took it out again");
+
+  let delete = RewriteIntent::DeleteUnapplied {
+    branch_name: "test/unapplied/beta".to_owned(),
+    witness: fixture.witness().await,
+  };
+  let deleted = fixture.rewrite(&delete).await.unwrap();
+  assert_eq!(deleted.result, OperationResult::Rewrite(Box::new(RewriteResult::Deleted)));
+  assert_eq!(undo_and_sync(&deleted), (None, false));
+  assert!(deleted.version_after.is_some(), "the version of the patch that removed its row: {deleted:?}");
+  assert!(fixture.repo.rev_parse("refs/heads/test/unapplied/beta").is_err(), "the unapplied branch is gone");
+}

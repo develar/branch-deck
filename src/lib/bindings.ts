@@ -302,30 +302,6 @@ export const commands = {
 	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, ApiError>(__TAURI_INVOKE("suggest_branch_names", { params })),
 	getArchivedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchName })),
 	getUnappliedBranchCommits: (repositoryPath: string, branchName: string) => typedError<Commit[], ApiError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchName })),
-	/**  Deletes an unapplied branch, answering as `delete_archived_branch` */
-	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
-	/**
-	 *  Deletes an archived branch and answers the version of the session's view whose patch removed it (`None` without an
-	 *  open session)
-	 */
-	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<Version | null, ApiError>(__TAURI_INVOKE("delete_archived_branch", { params })),
-	/**
-	 *  Unapplies a virtual branch of the repository, named with the prefix Rust resolves for it (`PrefixInputs`), the one a
-	 *  sync's view of the repository has
-	 */
-	unapplyBranch: (params: UnapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<UnapplyBranchResult, ApiError>(__TAURI_INVOKE("unapply_branch", { params, wait })),
-	/**
-	 *  Pick Remote Commits: fetches the remote branch of a virtual branch someone else pushed to and picks the commits a
-	 *  push would drop onto the checked out branch, with the prefix of the branch (`bd pick --remote`); the branch is named
-	 *  with the prefix Rust resolves for the repository (`PrefixInputs`)
-	 */
-	pickRemoteCommits: (params: PickRemoteCommitsParams, wait: Channel<LockWaitEvent>) => typedError<PickRemoteCommitsResult, ApiError>(__TAURI_INVOKE("pick_remote_commits", { params, wait })),
-	/**  The undo of Pick Remote Commits: the branch and its files back from the copies to the head before the pick */
-	undoPickRemoteCommits: (params: UndoPickRemoteCommitsParams, wait: Channel<LockWaitEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("undo_pick_remote_commits", { params, wait })),
-	undoUnapplyBranch: (params: UndoUnapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneUnapply, ApiError>(__TAURI_INVOKE("undo_unapply_branch", { params, wait })),
-	/**  Reapplies an unapplied branch of the repository, named with the prefix Rust resolves for it (`PrefixInputs`) */
-	reapplyBranch: (params: ReapplyBranchParams, wait: Channel<LockWaitEvent>) => typedError<ReapplyBranchResult, ApiError>(__TAURI_INVOKE("reapply_branch", { params, wait })),
-	undoReapplyBranch: (params: UndoReapplyParams, wait: Channel<LockWaitEvent>) => typedError<UndoneReapply, ApiError>(__TAURI_INVOKE("undo_reapply_branch", { params, wait })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
 	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, ApiError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
 	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
@@ -1444,11 +1420,6 @@ export type DeclarationTarget = {
 export type DeclaredParent = {
 	parent: string,
 	commits: string[],
-};
-
-export type DeleteArchivedBranchParams = {
-	repositoryPath: string,
-	branchName: string,
 };
 
 /**  The robots of one owner or of the user */
@@ -3127,15 +3098,6 @@ export type LockHolderInfo = {
 	held_for: number,
 };
 
-/**  What a rewrite of the app tells the page while it waits for another holder of the repository lock */
-export type LockWaitEvent = {
-	/**
-	 *  Whom it waits for, "Waiting for `bd pick` (pid 4242, for 12 s)", told again about once a second; null once the
-	 *  wait ended
-	 */
-	waitingFor: string | null,
-};
-
 /**  A block of a merge */
 export type MergeBlock = {
 	/**  0-based line indices of each side, the end exclusive */
@@ -4047,21 +4009,6 @@ export type Person = {
 	fullName: string | null,
 };
 
-/**
- *  The app's Pick Remote Commits of a virtual branch (`pick_remote_commits`, spec/repository/outgoing.spec.md, "Remote
- *  commits of others"): the branch as the row shows it, and the remote head the row's status was computed against
- */
-export type PickRemoteCommitsParams = {
-	repositoryPath: string,
-	branchName: string,
-	/**  The branch it is built on (`BranchStack::effective_base`) */
-	parentBranch?: string | null,
-	/**  The author whose commits are the branch's */
-	myEmail?: string | null,
-	/**  The remote tip of the row's status: a fetch that finds another one picks nothing */
-	expectedRemote: string | null,
-};
-
 export type PickRemoteCommitsResult = {
 	previousHead: string,
 	newHead: string,
@@ -4414,14 +4361,6 @@ export type PushUpTo = {
 	 *  since its push, or a branch it is built on is held, not built or asks first
 	 */
 	blocker?: Reason | null,
-};
-
-export type ReapplyBranchParams = {
-	repositoryPath: string,
-	/**  The name of the unapplied branch, `<name>` of `{prefix}/unapplied/<name>` */
-	branchName: string,
-	/**  Check only: nothing is written but git objects, and no lock is taken */
-	dryRun?: boolean,
 };
 
 export type ReapplyBranchResult = {
@@ -6434,17 +6373,6 @@ export type UnappliedBranchInfo = {
 	remote: RemoteStatusUpdate | null,
 };
 
-export type UnapplyBranchParams = {
-	repositoryPath: string,
-	/**  The branch as the grouping names it (`auth`), not its full virtual branch name */
-	branchName: string,
-	/**
-	 *  The original commits the request was made for: when the branch groups others now, the unapply is refused. `None`
-	 *  takes the commits as they group now
-	 */
-	originalCommitIds?: string[] | null,
-};
-
 export type UnapplyBranchResult = {
 	/**  The full name of the unapplied branch: `{prefix}/unapplied/<name>`, with a `-N` suffix when the name is taken */
 	unappliedBranchName: string,
@@ -6493,18 +6421,6 @@ export type UndoKind =
 /**  Pick Remote Commits (`pick:…`) */
 "pick";
 
-/**  The undo of Pick Remote Commits (`undo_pick_remote_commits`): the undo token its result named */
-export type UndoPickRemoteCommitsParams = {
-	repositoryPath: string,
-	undoToken: string,
-};
-
-export type UndoReapplyParams = {
-	repositoryPath: string,
-	/**  The `undoToken` of the reapply */
-	undoToken: string,
-};
-
 /**
  *  How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `bd undo` takes,
  *  by the core that undoes it
@@ -6512,24 +6428,6 @@ export type UndoReapplyParams = {
 export type UndoToken = {
 	kind: UndoKind,
 	token: string,
-};
-
-export type UndoUnapplyParams = {
-	repositoryPath: string,
-	/**  The `undo_token` of the unapply */
-	undoToken: string,
-};
-
-/**  What the undo of a reapply did */
-export type UndoneReapply = {
-	/**  It was undone before: nothing changed now */
-	alreadyUndone: boolean,
-};
-
-/**  What the undo of an unapply did */
-export type UndoneUnapply = {
-	/**  It was undone before: nothing changed now */
-	alreadyUndone: boolean,
 };
 
 /**  Why Patronus can't tell */

@@ -20,9 +20,10 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { getSimpleBranchName } from "@/lib/branch"
 import { copyFocusedBranchRow } from "@/lib/clipboard"
+import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
-import { deleteArchivedBranch, useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
-import { inlineSurface, openInline, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
+import { useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
+import { inlineSurface, openInline, useActiveInlineForRow, withRowProgress } from "@/stores/inline-row-action"
 import { useSurfaceBusy } from "@/stores/operations"
 
 const columnCount = 4
@@ -160,12 +161,8 @@ function getArchivedContextMenuItems(name: string): MenuItemGroups {
   return [getBranchCopyMenuItems(name, true), [{ label: "Delete Archived Branch…", icon: Trash2Icon, color: "destructive", onSelect: () => openInline("delete-archived", name) }]]
 }
 
-/** Deletes the archived branch; the session's patch removes its row, no sync follows */
+/** Deletes the archived branch (`deleteKeptBranch`); the session's patch removes its row, no sync follows */
 async function confirmDelete(branchName: string): Promise<void> {
-  await withRowProcessing(branchName, { id: "delete-archived", kind: "remote", label: `Deleting ${getSimpleBranchName(branchName)}` }, () => deleteArchivedBranch(branchName), {
-    success: () => ({ title: `Deleted the archived branch ${getSimpleBranchName(branchName)}` }),
-    errorTitle: () => `Cannot delete the archived branch ${getSimpleBranchName(branchName)}`,
-    // the typed name stays
-    keepFormOnError: true,
-  })
+  // the typed name stays after a failure
+  await withRowProgress(branchName, () => deleteKeptBranch("deleteArchived", branchName, getSimpleBranchName(branchName)), { keepFormOnFailure: true })
 }

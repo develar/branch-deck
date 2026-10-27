@@ -5,7 +5,8 @@ import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { MenuItem } from "@/lib/menu"
-import { operationLabel, stopWaitingItem, useIndicatorClaim, useSurfaceOperation } from "@/stores/operations"
+import { presentStopWaiting } from "@/presenters/lock-wait"
+import { operationLabel, useIndicatorClaim, useSurfaceOperation } from "@/stores/operations"
 
 /** A `Kbd` inside a primary button: the muted key would vanish on the primary colour */
 export const PRIMARY_KBD_CLASS_NAME = "bg-primary-foreground/20 text-primary-foreground"
@@ -45,7 +46,7 @@ export function MenuItemButton({ item, variant = "ghost", size = "xs", pending =
   useIndicatorClaim(surface)
   const operation = useSurfaceOperation(surface)
   const busy = operation === undefined ? null : operationLabel(operation)
-  const stopWaiting = stopWaitingItem(operation)
+  const stopWaiting = presentStopWaiting(operation)
   const running = pending || busy !== null
   const key = item.kbds?.at(-1)
   const kbd = key !== undefined && <Kbd className={cn(variant === "default" && PRIMARY_KBD_CLASS_NAME, narrow !== undefined && "hidden @4xl:inline-flex")}>{key.toUpperCase()}</Kbd>

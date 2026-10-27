@@ -260,15 +260,6 @@ impl std::fmt::Display for UnapplyUndoToken {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct UndoUnapplyParams {
-  pub repository_path: String,
-  /// The `undo_token` of the unapply
-  pub undo_token: String,
-}
-
 /// Undo an unapply, under the repository lock: HEAD moves back from the token's new head to its previous head with the
 /// files, and the unapplied branch back to the virtual one, in one transaction (`check_unapply_undo`, the trees swapped).
 /// `HeadMoved` when HEAD moved on, `NotAnUpdate` when the last move of the branch is not this unapply, `UndoBlocked`

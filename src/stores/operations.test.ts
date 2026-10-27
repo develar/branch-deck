@@ -1,15 +1,8 @@
 // @spec spec/branch/branch-row.spec.md
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
-import { commands } from "@/lib/bindings"
 import type { MenuItem } from "@/lib/menu"
 import type { OperationSpec } from "@/stores/operations"
-import { getOperations, lockWaitChannel, operationItem, operationLabel, operationsStore, runOperation, stopWaitingItem, whenRewritesDone } from "@/stores/operations"
-
-vi.mock("@tauri-apps/api/core", async () => await import("@/test-support/channel-mock"))
-vi.mock("@/lib/bindings", async importOriginal => {
-  const original = await importOriginal<typeof import("@/lib/bindings")>()
-  return { ...original, commands: { ...original.commands, cancelLockWait: vi.fn(async () => true) } }
-})
+import { getOperations, operationItem, operationLabel, operationsStore, runOperation, setSessionStep, whenRewritesDone } from "@/stores/operations"
 
 const REPOSITORY = "/repo"
 
@@ -52,7 +45,7 @@ describe("runOperation", () => {
     expect(getOperations()).toEqual([])
   })
 
-  it("joins only a start with the same parameters: a move of other commits of the same branch is a move of its own, queued behind the running and the waiting one", async () => {
+  it("joins only a start with the same parameters and starts every other rewrite at once: the session of its repository queues it", async () => {
     const running = deferred<null>()
     void runOperation(rewriteOf("auth"), () => running.promise)
     const moveOf = (parameters: string) => ({ ...rewriteOf("docs", "move-to"), parameters })
@@ -62,71 +55,23 @@ describe("runOperation", () => {
       return Promise.resolve(commit)
     }
     const first = runOperation(moveOf("A"), move("A"))
-    // the drop of A again joins the move of A that waits; the drop of B waits behind it
+    // the drop of A again joins the move of A; the drop of B is a move of its own
     const repeat = runOperation(moveOf("A"), move("A"))
     const second = runOperation(moveOf("B"), move("B"))
+    expect(moved).toEqual(["A", "B"])
     expect(getOperations().map(operation => [operation.parameters, operation.waitsFor])).toEqual([
       [undefined, null],
-      ["A", "Unstacking auth"],
-      ["B", "Unstacking auth"],
+      ["A", null],
+      ["B", null],
     ])
-
-    running.resolve(null)
     await expect(first).resolves.toBe("A")
     await expect(repeat).resolves.toBe("A")
     await expect(second).resolves.toBe("B")
-    expect(moved).toEqual(["A", "B"])
-    expect(getOperations()).toEqual([])
-  })
-
-  it("queues a rewrite behind any rewrite of the repository, never behind a remote action, and runs it once that one ended", async () => {
-    const running = deferred<null>()
-    const first = runOperation(rewriteOf("auth"), () => running.promise)
-
-    const otherRewrite = vi.fn(() => Promise.resolve("moved"))
-    const second = runOperation(rewriteOf("login", "move-to"), otherRewrite)
-    // it waits in the queue, its row busy, saying what it waits for
-    expect(otherRewrite).not.toHaveBeenCalled()
-    expect(getOperations().map(operation => [operation.label, operation.waitsFor])).toEqual([
-      ["Unstacking auth", null],
-      ["Unstacking login", "Unstacking auth"],
-    ])
-
-    // a rewrite of another repository runs
-    await expect(runOperation({ ...rewriteOf("login"), repositoryPath: "/other" }, () => Promise.resolve(1))).resolves.toBe(1)
     // a remote action of the branch the rewrite works on runs beside it
     await expect(runOperation(remoteOf("robot:7", ["auth"]), () => Promise.resolve(2))).resolves.toBe(2)
-    expect(otherRewrite).not.toHaveBeenCalled()
 
     running.resolve(null)
-    await expect(first).resolves.toBeNull()
-    await expect(second).resolves.toBe("moved")
-    expect(otherRewrite).toHaveBeenCalledOnce()
-    expect(getOperations()).toEqual([])
-  })
-
-  it("runs the queue in the order of the starts, also after a failure, and joins a start of a waiting action", async () => {
-    const order: string[] = []
-    const first = deferred<null>()
-    const failing = runOperation(rewriteOf("auth"), () => first.promise)
-    const second = runOperation(rewriteOf("login", "move-to"), () => {
-      order.push("login")
-      return Promise.resolve("login")
-    })
-    const third = runOperation(rewriteOf("docs", "park"), () => {
-      order.push("docs")
-      return Promise.resolve("docs")
-    })
-    // the same action of the same subject joins the one that waits
-    const again = runOperation(rewriteOf("docs", "park"), () => Promise.resolve("twice"))
-    expect(getOperations().map(operation => operation.waitsFor)).toEqual([null, "Unstacking auth", "Unstacking auth"])
-
-    first.reject(new Error("git failed"))
-    await expect(failing).rejects.toThrow("git failed")
-    await expect(second).resolves.toBe("login")
-    await expect(third).resolves.toBe("docs")
-    await expect(again).resolves.toBe("docs")
-    expect(order).toEqual(["login", "docs"])
+    await vi.waitFor(() => expect(getOperations()).toEqual([]))
   })
 
   it("lets a remote action wait for one of the same object or of a branch it works on, never for one of another field of a pull request", async () => {
@@ -177,33 +122,29 @@ describe("runOperation", () => {
   })
 })
 
-describe("the wait for the repository lock", () => {
+describe("the steps of an operation of the session", () => {
   afterEach(() => {
     operationsStore.setState({ running: [], claims: {} })
   })
 
-  it("says whom the command of a running rewrite waits for, offers Stop Waiting on its channel, and says its own state again once the wait ended", async () => {
+  it("says whom the operation behind a record waits for, or which rewrite it waits behind, and its own state again once it runs", async () => {
     const result = deferred<null>()
-    let channel: ReturnType<typeof lockWaitChannel> | undefined
-    const done = runOperation(rewriteOf("auth"), key => {
-      channel = lockWaitChannel(key)
+    let key = 0
+    const done = runOperation(rewriteOf("auth"), started => {
+      key = started
       return result.promise
     })
     const running = () => getOperations()[0]!
-    expect(operationLabel(running())).toBe("Unstacking auth")
-    expect(stopWaitingItem(running())).toBeNull()
+    expect([operationLabel(running()), running().op]).toEqual(["Unstacking auth", null])
 
-    channel!.onmessage({ waitingFor: "Waiting for `bd pick` (pid 4242, for 12 s)" })
-    expect(operationLabel(running())).toBe("Waiting for `bd pick` (pid 4242, for 12 s)")
-    const stop = stopWaitingItem(running())!
-    expect(stop).toMatchObject({ id: "stop-waiting", label: "Stop Waiting", description: "Waiting for `bd pick` (pid 4242, for 12 s); stop and change nothing" })
-    stop.onSelect({ surface: null })
-    expect(vi.mocked(commands.cancelLockWait)).toHaveBeenCalledExactlyOnceWith(channel!.id)
+    setSessionStep(key, { op: "op-1", lockWait: null, waitsFor: "Moving 1 commit to docs" })
+    expect(operationLabel(running())).toBe("Waits for Moving 1 commit to docs")
+    setSessionStep(key, { op: "op-1", lockWait: "Waiting for `bd pick` (pid 4242, for 12 s)", waitsFor: null })
+    expect([operationLabel(running()), running().op]).toEqual(["Waiting for `bd pick` (pid 4242, for 12 s)", "op-1"])
 
     // the holder released the lock: the rewrite runs
-    channel!.onmessage({ waitingFor: null })
+    setSessionStep(key, { op: "op-1", lockWait: null, waitsFor: null })
     expect(operationLabel(running())).toBe("Unstacking auth")
-    expect(stopWaitingItem(running())).toBeNull()
     result.resolve(null)
     await done
   })

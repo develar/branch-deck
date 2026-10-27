@@ -7,6 +7,7 @@ import { availablePullRequests, pullRequest } from "../helpers/pull-request-help
 import { runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
+import { recordRewrites } from "../helpers/wait-helpers"
 
 /** Three hours before the fixed clock of the page */
 const THEIR_TIME = Date.parse("2024-01-02T07:00:00Z") / 1000
@@ -70,6 +71,7 @@ test.describe("Remote commits of others", () => {
     const question = page.getByTestId("push-description")
     await expect(question).toContainText("Lev Leontev")
     await expect(question.getByTestId("push-confirm")).toBeVisible()
+    const picks = await recordRewrites(page, "pickRemote")
     await runAndWaitForSync(page, () => question.getByRole("button", { name: "Pick Remote Commits" }).click())
 
     const picked = page.locator("[data-slot=toast]", { hasText: "Picked the remote commits of test-branch" })
@@ -78,9 +80,13 @@ test.describe("Remote commits of others", () => {
     await expect(row).not.toContainText("1↓")
     await expect(row).toContainText("2")
 
+    // one rewrite of the engine, whose undo is the rewrite `undo` of its `pick:` token
+    expect(picks.map(call => call.rewrite.branchName)).toEqual(["test-branch"])
+    const undos = await recordRewrites(page, "undo")
     // the undo takes the commit out again: the remote has it, the branch lacks it
     await runAndWaitForSync(page, () => picked.getByRole("button", { name: "Undo" }).click())
     await expect(row).toContainText("1↓")
+    expect(undos.map(call => (call.rewrite.token as { kind: string }).kind)).toEqual(["pick"])
   })
 
   test("should pick the commit someone pushed from the branch menu, through the question of the push button", async ({ page, setupRepo, syncAndWaitForBranches }) => {

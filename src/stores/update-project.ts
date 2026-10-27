@@ -4,19 +4,19 @@ import { createStore } from "zustand/vanilla"
 import type { TransferProgress, UpdateCheck, UpdatePhase, UpdateProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
-import { notifyError } from "@/lib/errors"
+import { getErrorCode, notifyError } from "@/lib/errors"
 import type { EventToastState } from "@/lib/event-toast"
 import { showEventToast, toastKeys } from "@/lib/event-toast"
 import { appliedUpdateToast } from "@/lib/landed"
-import { canceledBeforeStart, isLockWaitCanceled, stopLockWait } from "@/lib/lock-wait"
 import { showToast } from "@/lib/toast-message"
 import type { FinishedStep, TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
 import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-progress"
+import { canceledBeforeStart } from "@/presenters/lock-wait"
 import { recordUpdate } from "@/stores/activity"
 import { requestSync, setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
 import type { OperationKey } from "@/stores/operations"
-import { getOperationBlocker, getOperations, runOperation } from "@/stores/operations"
+import { getOperationBlocker, getOperations, runOperation, whenRewritesDone } from "@/stores/operations"
 import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
 import { getRepositoryState, updateRepositoryState } from "@/stores/settings/repositoryState"
 
@@ -149,7 +149,8 @@ function applyProgress(run: UpdateRun, { phase, fetch, waitingFor }: UpdateProgr
   const step = PHASE_STEPS[phase]
   const next = step === run.step ? (step === "fetch" ? { ...run, fetch } : run) : advanceRun(run, step, Date.now(), finishedDetail(run))
   if (step === "waiting" && waitingFor != null) {
-    return { ...next, lockWait: { waitingFor, stop: () => stopLockWait(channel) } }
+    // Stop Waiting: the command answers `canceled` and changed nothing; one whose wait ended already goes on
+    return { ...next, lockWait: { waitingFor, stop: () => void commands.cancelLockWait(channel.id).catch(() => {}) } }
   }
   return next
 }
@@ -170,8 +171,8 @@ const fetches = new Map<string, Promise<boolean>>()
  * in a repository: a second start joins the running one, and a start during the Fetch of a toast goes on from that
  * fetch. The fetch runs first, outside the operations (`fetch_baseline`): the rewrites of the page run meanwhile. Only
  * the check and the apply are a rewrite of the repository (`runOperation`, `update_project` without a fetch): they
- * wait for a running regroup or squash in the queue, and the rewrites wait for them; its progress is the run of this
- * store.
+ * wait for the rewrites that run, their syncs included (`whenRewritesDone`), and a rewrite started meanwhile waits for
+ * the repository lock they hold; its progress is the run of this store.
  */
 export function runUpdateProject(): Promise<void> {
   const repositoryPath = getSelectedProject()?.path
@@ -215,9 +216,10 @@ async function updateProjectOf(repositoryPath: string, fetch: boolean): Promise<
       return
     }
     const spec = { ...UPDATE_OPERATION, label: "Updating the project", repositoryPath }
-    // a rewrite runs: the update waits for it, and says so
+    // a rewrite runs: the update waits for it and its sync, and says so
     if (getOperationBlocker(getOperations(), spec) !== null) {
       patchRunning(repositoryPath, running => ({ ...running, run: advanceRun(running.run, "waiting", Date.now(), finishedDetail(running.run)) }))
+      await whenRewritesDone(repositoryPath)
     }
     await runOperation(spec, async () => {
       done = await applyUpdate(repositoryPath)
@@ -273,7 +275,7 @@ async function applyUpdate(repositoryPath: string): Promise<readonly FinishedSte
   const done = run?.done ?? []
   if (result.status !== "ok") {
     syncFetched(repositoryPath)
-    if (isLockWaitCanceled(result.error)) {
+    if (getErrorCode(result.error) === "canceled") {
       showToast(canceledBeforeStart("the update", "Nothing changed; the fetch stays"))
     } else {
       // the fetch is done: a request that may pass as it is (a held lock) goes on from it, a moved branch is read again

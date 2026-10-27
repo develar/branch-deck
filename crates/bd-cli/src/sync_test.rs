@@ -4,6 +4,8 @@ use crate::fixture_test::{commit_all, git, hold_the_lock, repo_with_baseline, ru
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::json;
+#[cfg(unix)]
+use test_utils::git_test_utils::TestRepo;
 
 #[test_log::test]
 fn syncs_and_reports_each_branch() {
@@ -74,34 +76,94 @@ fn syncs_while_another_process_holds_the_lock() {
   assert_eq!((exit_code, &output["branches"][0]["state"]), (0, &json!("created")), "{output}");
 }
 
-/// An agent's `bd sync`, held in its merges, beside the user's regroup (the app's Move takes the same lock): the regroup
-/// is done within the bounded wait of the lock (200 ms in the fixture), and the sync then ends
+/// A repository with a commit of `auth` after one of no branch (so the branch's commit is merged onto the baseline), and
+/// the id of the branch's commit
 #[cfg(unix)]
-#[test_log::test]
-fn a_rewrite_beside_a_running_sync_does_not_wait_for_it() {
+fn repo_with_auth() -> (TestRepo, String) {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  // a commit before it, so the branch's commit is merged onto the baseline
   write(&repo, "misc.txt", "misc\n");
   commit_all(&repo, "Tidy up", 1_700_000_050);
   write(&repo, "auth.rs", "auth\n");
-  commit_all(&repo, "(auth) Add login", 1_700_000_100);
-  // the first merge of the sync waits until the test lets it go
-  let wrapped = LockSpanGit::new(&repo, "*\" merge-tree \"*) touch '{dir}/held'; while [ ! -f '{dir}/go' ]; do sleep 0.01; done;;");
-  let (held, go) = (wrapped.dir().join("held"), wrapped.dir().join("go"));
+  let login = commit_all(&repo, "(auth) Add login", 1_700_000_100);
+  (repo, login)
+}
 
+/// Runs `during` while an agent's `bd sync` of `repo` is held in its first merge, asserts the sync is still held after
+/// it, then lets the sync go on and asserts it ended
+#[cfg(unix)]
+fn beside_a_held_sync(repo: &TestRepo, during: impl FnOnce()) {
+  // the first merge of the sync waits until the test lets it go
+  let wrapped = LockSpanGit::new(repo, "*\" merge-tree \"*) touch '{dir}/held'; while [ ! -f '{dir}/go' ]; do sleep 0.01; done;;");
+  let (held, go) = (wrapped.dir().join("held"), wrapped.dir().join("go"));
   std::thread::scope(|scope| {
     let sync = scope.spawn(|| wrapped.run(&["sync"]));
     while !held.exists() && !sync.is_finished() {
       std::thread::yield_now();
     }
     assert!(held.exists(), "the sync reached its merge");
-    let (exit_code, renamed) = run_in(&repo, &["rename", "auth", "login"]);
-    assert_eq!(exit_code, 0, "the rewrite does not wait for the sync: {renamed}");
+    during();
+    assert!(!sync.is_finished(), "the sync is still held at its merge");
     std::fs::write(&go, "").unwrap();
     let (exit_code, output) = sync.join().unwrap();
     assert_eq!(exit_code, 0, "{output}");
   });
+}
+
+/// An agent's `bd sync`, held in its merges, beside the user's regroup (the app's Move takes the same lock): the regroup
+/// is done within the bounded wait of the lock (200 ms in the fixture), and the sync then ends
+#[cfg(unix)]
+#[test_log::test]
+fn a_rewrite_beside_a_running_sync_does_not_wait_for_it() {
+  let (repo, _) = repo_with_auth();
+  beside_a_held_sync(&repo, || {
+    let (exit_code, renamed) = run_in(&repo, &["rename", "auth", "login"]);
+    assert_eq!(exit_code, 0, "the rewrite does not wait for the sync: {renamed}");
+  });
   assert_eq!(git(&repo, &["log", "-1", "--format=%s"]), "(login) Add login");
+}
+
+/// The app's waiter of a rewrite (`LockWait::WhileHeld`) that stops at the first holder it is told of: a rewrite that
+/// would wait for anyone fails with `LockWaitCanceled` instead of hanging
+#[cfg(unix)]
+#[derive(Default)]
+struct NeverWaits(std::sync::atomic::AtomicBool);
+
+#[cfg(unix)]
+impl history_rewrite::repository_lock::LockWaiter for NeverWaits {
+  fn holder(&self, holder: Option<&history_rewrite::repository_lock::LockHolder>) {
+    if holder.is_some() {
+      self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+  }
+
+  fn canceled(&self) -> bool {
+    self.0.load(std::sync::atomic::Ordering::SeqCst)
+  }
+}
+
+/// An agent's `bd sync`, held in its merges, beside the app's squash (`squash_commits_core` with the app's wait for the
+/// repository lock, as long as its holder lives): the sync holds no lock, so the squash never waits and is done while
+/// the sync is still held; the sync then ends
+#[cfg(unix)]
+#[test_log::test]
+fn the_apps_squash_beside_a_held_sync_never_waits_for_it() {
+  use history_rewrite::repository_lock::{LockWait, RewriteOptions};
+  use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
+
+  let (repo, login) = repo_with_auth();
+  write(&repo, "auth.rs", "auth 2\n");
+  let fix = commit_all(&repo, "(auth) Fix login", 1_700_000_200);
+  beside_a_held_sync(&repo, || {
+    let waiter = NeverWaits::default();
+    let params = SquashCommitsParams {
+      repository_path: repo.path().to_str().unwrap().to_owned(),
+      commit_ids: vec![login.clone(), fix.clone()],
+      message: "(auth) Add login".to_owned(),
+    };
+    let squashed = squash_commits_core(repo.git_executor(), &params, &RewriteOptions::waiting(LockWait::WhileHeld(&waiter)));
+    assert!(squashed.is_ok(), "the squash waits for no holder while the sync is held: {squashed:?}");
+  });
+  assert_eq!(git(&repo, &["log", "-2", "--format=%s"]), "(auth) Add login\nTidy up");
 }
 
 #[test_log::test]

@@ -1,33 +1,14 @@
 //! The waits of the app's commands for another holder of the repository lock (`LockWait::WhileHeld`), by the id of the
-//! channel the page hears each on: a command registers its wait (`LockWaits::register`), tells the page whom it waits
-//! for (`LockWaitEvent`, "Waiting for `bd pick` (pid 4242, for 12 s)"), and Stop Waiting on the surface of the
-//! operation ends it (`LockWaits::cancel`, the command `cancel_lock_wait`) before anything was read or written. The E2E
-//! server keeps the same registry for the page of a test.
+//! channel the page hears each on: Update Project registers its wait (`LockWaits::register`), tells the page whom it
+//! waits for on its progress (`waiting_for`, "Waiting for `bd pick` (pid 4242, for 12 s)"), and Stop Waiting ends it
+//! (`LockWaits::cancel`, the command `cancel_lock_wait`) before anything was read or written. The E2E server keeps the
+//! same registry for the page of a test. The rewrites and the pushes are operations of the engine, whose wait
+//! `cancel_operation` stops.
 
 use crate::repository_lock::{LockHolder, LockWaiter};
-use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-
-/// What a rewrite of the app tells the page while it waits for another holder of the repository lock
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct LockWaitEvent {
-  /// Whom it waits for, "Waiting for `bd pick` (pid 4242, for 12 s)", told again about once a second; null once the
-  /// wait ended
-  pub waiting_for: Option<String>,
-}
-
-impl LockWaitEvent {
-  /// The event of `holder`, or of the end of the wait
-  pub fn of(holder: Option<&LockHolder>) -> Self {
-    Self {
-      waiting_for: holder.map(waiting_for),
-    }
-  }
-}
 
 /// The words of a wait for `holder`: "Waiting for `bd pick` (pid 4242, for 12 s)"
 pub fn waiting_for(holder: &LockHolder) -> String {

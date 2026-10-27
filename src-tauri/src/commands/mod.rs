@@ -13,7 +13,6 @@ pub mod operations;
 pub mod patronus;
 #[cfg(test)]
 mod patronus_test;
-pub mod pick_remote_commits;
 pub mod pull_requests;
 pub mod repository_browser;
 pub mod repository_config;
@@ -25,7 +24,6 @@ pub mod settings;
 pub mod squash_fixups;
 pub mod stack_operations;
 pub mod suggest_branch_names;
-pub mod unapply_branch;
 pub mod uncommitted_changes;
 pub mod update_project;
 pub mod window_management;

@@ -36,6 +36,7 @@ targets:
   - ../../crates/repository-model/src/moved_remote.rs
   - ../../crates/domain-policy/src/refresh.rs
   - ../../src/lib/remote-commits-news.ts
+  - ../../src/lib/git/pick-remote.ts
   - ../../src/lib/review-commit.ts
 ---
 
@@ -388,12 +389,13 @@ branch on GitHub, so the session fetches a branch whose open pull request shows 
   [@test] ../../src/lib/remote-commits-news.test.ts (`names who pushed how many commits to which branch, and that a push drops them`, `takes the commits of others the session fetched, and no other news`)
   [@test] ../../tests/e2e/outgoing/remote-commits.spec.ts (`should fetch the branch of a pull request someone pushed to and name their commit before any push`)
 - Pick Remote Commits must take the commits a push would drop into the branch (`bd pick --remote`, [bd
-  pick](../cli/pick.spec.md#remote-commits)): fetched again and leased on the remote tip the row shows (a remote that
-  moved again picks nothing, `lease_rejected`), picked onto HEAD with the `(branch)` prefix, then a sync; the row's push
-  then drops nothing and asks nothing. A `success` toast says "Picked the remote commits of auth" / "1 commit into auth
-  · its push drops nothing now", with Undo, which takes HEAD and the files back; a conflict or local changes in the way
-  change nothing ("Cannot pick the remote commits of auth", `pick_conflict` with the commit and its files, or
-  `uncommitted_overlap`).
+  pick](../cli/pick.spec.md#remote-commits)), the rewrite `pickRemote` of the engine, which the session runs after the
+  rewrites before it: fetched again and leased on the remote tip the row shows (a remote that moved again picks nothing,
+  `lease_rejected`), picked onto HEAD with the `(branch)` prefix, then a sync; the row's push then drops nothing and
+  asks nothing. A `success` toast says "Picked the remote commits of auth" / "1 commit into auth · its push drops
+  nothing now", with Undo (the rewrite `undo` of its `pick:` token, in the repository of the pick), which takes HEAD and
+  the files back; a conflict or local changes in the way change nothing ("Cannot pick the remote commits of auth",
+  `pick_conflict` with the commit and its files, or `uncommitted_overlap`).
   [@test] ../../tests/e2e/outgoing/remote-commits.spec.ts (`should pick the commit someone pushed from the toast, after which the push drops nothing, and undo it`)
 - Rust offers it in the branch menu ("Pick Remote Commits…") only while the remote has commits the branch lacks,
   disabled while the branch is parked, blocked, held by a Safe Push or rebuilt by a sync. The item, the action of the

@@ -1,20 +1,18 @@
 //! The commands with a channel of the page, as the app runs them: the page mock names the channel of a command
 //! (`X-Progress-Channel`, its key in `window.__progressChannels`) and reads the answer as SSE events, each message of
 //! the channel `{"progress": …}` while the command runs, then its answer `{"result": …}` (`{ status, data }` or
-//! `{ status, error }`, as `run_command` answers). A rewrite waits for a live holder of the repository lock as the app
-//! does (`LockWait::WhileHeld`), telling the page whom for (`LockWaitEvent`), until `cancel_lock_wait` of its channel;
-//! a push and an update tell it on their progress. Without the header (a direct call of a test), the answer alone.
+//! `{ status, error }`, as `run_command` answers). Update Project waits for a live holder of the repository lock as the
+//! app does (`LockWait::WhileHeld`), telling the page whom for on its progress, until `cancel_lock_wait` of its
+//! channel. Without the header (a direct call of a test), the answer alone.
 
-use crate::state::AppState;
 use crate::tauri_command_bridge::{CommandResult, Rejection};
-use app_api::api_error::IntoApiError;
 use axum::Json;
 use axum::http::HeaderMap;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use domain_types::error::{ApiError, ErrorCode};
-use history_rewrite::lock_wait::{LockWaitEvent, LockWaits, WaitTicket};
-use history_rewrite::repository_lock::{LockHolder, LockWait, LockWaiter};
+use history_rewrite::lock_wait::{LockWaits, WaitTicket};
+use history_rewrite::repository_lock::LockHolder;
 use serde::Serialize;
 use std::convert::Infallible;
 use std::future::Future;
@@ -93,12 +91,6 @@ pub fn register_wait(lock_waits: &LockWaits, channel: Option<u32>, tell: impl Fn
   Arc::new(lock_waits.register(id, tell))
 }
 
-/// Whether the page stopped the wait of `ticket`, for a core that takes the end of its wait as a function (the push)
-pub fn canceled_by(ticket: &Arc<WaitTicket>) -> impl Fn() -> bool + Send + 'static {
-  let ticket = Arc::clone(ticket);
-  move || ticket.canceled()
-}
-
 /// `result` of a command whose wait `ticket` is: an error after the page stopped the wait is `canceled`, as the app's
 /// `canceled_code` answers it
 pub fn canceled_code<T>(result: CommandResult<T>, ticket: &WaitTicket) -> CommandResult<T> {
@@ -109,23 +101,4 @@ pub fn canceled_code<T>(result: CommandResult<T>, ticket: &WaitTicket) -> Comman
     }),
     rejection => rejection,
   })
-}
-
-/// A rewrite of the app, run off the async runtime with its lock waited for as long as the holder lives, as the app's
-/// `run_waiting`: the page hears whom it waits for on its channel and stops the wait with `cancel_lock_wait`
-pub async fn run_waiting<T, E, F>(state: &AppState, headers: &HeaderMap, operation: &'static str, step: F) -> Response
-where
-  F: FnOnce(LockWait<'_>) -> Result<T, E> + Send + 'static,
-  T: Serialize + Send + 'static,
-  E: IntoApiError + Send + 'static,
-{
-  let channel = progress_channel(headers);
-  let lock_waits = state.lock_waits.clone();
-  answer_with_progress(channel, move |progress| async move {
-    let ticket = register_wait(&lock_waits, channel, move |holder| progress.send(&LockWaitEvent::of(holder)));
-    let step_ticket = Arc::clone(&ticket);
-    let result = crate::tauri_command_bridge::run_command(operation, move || step(LockWait::WhileHeld(&*step_ticket))).await;
-    canceled_code(result, &ticket)
-  })
-  .await
 }

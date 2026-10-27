@@ -7,7 +7,7 @@ import { pressCopyKey, readClipboard, testCopyButtonOnHover } from "../helpers/c
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { finishedSyncCount, runAndWaitForUpdate, syncBranches } from "../helpers/sync-helpers"
-import { holdCommand, recordCommand, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand, recordRewrites, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
 
 // Basic foundation test for ArchivedBranchTableCard
 // Sets up a repo with archived branches and snapshots the card
@@ -116,6 +116,7 @@ test.describe("Archived Branches Table", () => {
     const branchRow = page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')
     await expect(branchRow).toBeVisible()
 
+    const deletes = await recordRewrites(page, "deleteArchived")
     const syncs = await recordCommand(page, "sync")
     const synced = await finishedSyncCount(page)
     // Right-click to open context menu
@@ -145,6 +146,8 @@ test.describe("Archived Branches Table", () => {
     await expect(page.locator("[data-slot=toast-title]", { hasText: "Deleted the archived branch feature-partial" })).toBeVisible()
     await expect(page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')).not.toBeVisible()
     await expect(page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-full"]')).toBeVisible()
+    // one rewrite of the engine, named by the full name of the branch
+    expect(deletes.map(call => call.rewrite.branchName)).toEqual(["user-name/archived/2025-01-11/feature-partial"])
     expect(syncs).toEqual([])
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
 

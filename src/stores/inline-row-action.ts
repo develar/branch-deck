@@ -1,12 +1,7 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import { toast } from "@/components/ui/toast"
 import type { MergeConflictInfo } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
-import type { ToastMessage } from "@/lib/toast-message"
-import { showToast } from "@/lib/toast-message"
-import type { OperationKind } from "@/stores/operations"
-import { branchSubject, runOperation, useSurfaceBusy } from "@/stores/operations"
+import { useSurfaceBusy } from "@/stores/operations"
 
 export type InlineActionType =
   | "issue-reference"
@@ -26,23 +21,6 @@ export interface ActiveInline {
   branchName: string
   /** For the amend-conflict type */
   conflictInfo?: MergeConflictInfo
-}
-
-/** The operation an inline form runs (`runOperation`); its row is its object, its form the surface that shows it */
-export interface RowOperation {
-  /** The id of the item that opened the form ("unapply") */
-  id: string
-  kind: OperationKind
-  /** The busy state the form shows in place of itself, without the ellipsis: "Deleting feature-auth" */
-  label: string
-}
-
-export interface RowProcessingOptions<T> {
-  success: (value: T) => ToastMessage
-  /** The title of the error toast ("Cannot delete the archived branch auth"); `notifyError` makes the error its description */
-  errorTitle: (error: unknown) => string
-  /** An error shows the form again with its input, instead of closing it */
-  keepFormOnError?: boolean
 }
 
 export interface RowProgressOptions {
@@ -175,46 +153,12 @@ function closeInlineOf(key: string): void {
   }
 }
 
-type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown }
-
 /**
- * Runs `fn` as the operation of the row (`runOperation`), while the row's inline form shows its progress state, reports
- * the outcome with a toast (an error through `notifyError`: sticky, logged, in Activity) and closes the form (after an
- * error too, unless `keepFormOnError`). `fn` includes what shows its result: the form shows the progress until then.
- * Resolves to the value of `fn`, or `undefined` if it failed or had to wait for another operation (said in a toast, the
- * form kept).
- */
-export async function withRowProcessing<T>(key: string, operation: RowOperation, fn: () => Promise<T>, options: RowProcessingOptions<T>): Promise<T | undefined> {
-  const outcome = await runOperation<Outcome<T>>(
-    { ...operation, subject: branchSubject(key), objects: [key], surface: inlineSurface(key) },
-    () =>
-      fn().then(
-        value => ({ ok: true, value }),
-        (error: unknown) => ({ ok: false, error }),
-      ),
-    reason => toast.add({ type: "info", title: options.errorTitle(reason), description: reason }),
-  )
-  if (outcome === undefined) {
-    return undefined
-  }
-  if (!outcome.ok) {
-    if (options.keepFormOnError !== true) {
-      closeInlineOf(key)
-    }
-    notifyError(options.errorTitle(outcome.error), outcome.error)
-    return undefined
-  }
-
-  closeInlineOf(key)
-  showToast(options.success(outcome.value))
-  return outcome.value
-}
-
-/**
- * Runs `fn`, an operation that tells its outcome itself (a rewrite of the engine, `runRewriteIntent`: a toast with
- * Undo, an error toast) and is started from the form (`inlineSurface(key)`), so that the form shows its progress state
- * while the session runs or queues it. Resolves to the result of `fn`: true closes the form; false closes it too, or
- * shows it again with its input (`keepFormOnFailure`).
+ * Runs `fn`, the operation of the inline form of the row `key`, which tells its outcome itself (a rewrite of the engine,
+ * `runRewriteIntent`: a toast with Undo or of what it did, an error toast; the close of a stack's pull request) and is
+ * started from the form (`inlineSurface(key)`), so that the form shows its progress state while the session runs or
+ * queues it. Resolves to the result of `fn`: true closes the form; false closes it too, or shows it again with its
+ * input (`keepFormOnFailure`).
  */
 export async function withRowProgress(key: string, fn: () => Promise<boolean>, options: RowProgressOptions = {}): Promise<boolean> {
   let done = false

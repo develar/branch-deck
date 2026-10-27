@@ -17,7 +17,7 @@ targets:
   - ../../crates/git-ops/src/ref_transaction.rs
   - ../../crates/git-ops/src/replay.rs
   - ../../crates/sync-core/src/remote_status.rs
-  - ../../src-tauri/src/commands/pick_remote_commits.rs
+  - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/git/pick-remote.ts
 ---
 
