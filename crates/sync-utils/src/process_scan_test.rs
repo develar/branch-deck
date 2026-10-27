@@ -99,10 +99,10 @@ fn git_maintenance_is_the_maintenance_and_the_gits_it_starts() {
   assert_eq!(pids, [10, 11, 12, 20, 21]);
 }
 
-/// Git's maintenance and `caffeinate` in a directory are not inside it, and the maintenance is named on its own; any
-/// other process there is, also a command that `caffeinate` wraps
+/// Git's maintenance, git's fsmonitor daemon and `caffeinate` in a directory are not inside it, and the maintenance is
+/// named on its own; any other process there is, also a command that `caffeinate` wraps and another git
 #[test]
-fn git_maintenance_and_caffeinate_do_not_work_in_a_directory() {
+fn git_maintenance_the_fsmonitor_daemon_and_caffeinate_do_not_work_in_a_directory() {
   let dir = tempfile::tempdir().unwrap();
   let in_dir = |mut process: crate::process_scan::ProcessInfo| {
     process.cwd = Some(std::fs::canonicalize(dir.path()).unwrap());
@@ -115,11 +115,17 @@ fn git_maintenance_and_caffeinate_do_not_work_in_a_directory() {
       in_dir(process(20, 1, &["caffeinate", "-i", "-t", "300"])),
       in_dir(process(21, 20, &["bazel", "build"])),
       in_dir(process(30, 1, &["java", "-jar", "server.jar"])),
+      in_dir(process(
+        40,
+        1,
+        &["/opt/homebrew/opt/git/libexec/git-core/git", "fsmonitor--daemon", "run", "--detach", "--ipc-threads=8"],
+      )),
+      in_dir(process(41, 1, &["git", "-c", "core.fsmonitor=true", "status"])),
     ],
     own: std::collections::HashSet::new(),
   };
   let inside: Vec<u32> = scan.inside(dir.path()).iter().map(|process| process.pid).collect();
-  assert_eq!(inside, [21, 30]);
+  assert_eq!(inside, [21, 30, 41]);
   assert_eq!(scan.maintenance_inside(dir.path()), [10, 11]);
 }
 

@@ -214,12 +214,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `--workspace_directory` of a Bazel server, and leave out the session that runs `bd`: `bd`, its ancestors and every
   process of a process group one of them is in (the `jq` of `bd lease return | jq`, the `caffeinate` of the agent;
   not the group of the init process). A background task of the agent leads a group of its own and still counts.
-  Two more never work in a slot: git's background maintenance (a `git maintenance` or a `git gc --auto` and every git
-  below it in the parent chain, told by argv), which writes only the shared object store, and `caffeinate`, which
-  holds a power assertion and opens no file (a command it wraps is a process of its own and counts). A recorded start
+  Three more never work in a slot: git's background maintenance (a `git maintenance` or a `git gc --auto` and every
+  git below it in the parent chain, told by argv), which writes only the shared object store; git's fsmonitor daemon
+  (`git fsmonitor--daemon`, told by argv), which only watches the worktree; and `caffeinate`, which holds a power
+  assertion and opens no file (a command it wraps is a process of its own and counts). A recorded start
   time must tell a process from a later one with the same pid.
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_process_in_a_directory_is_inside_it_and_this_process_and_its_group_are_left_out`, `a_process_runs_only_with_the_start_time_it_was_recorded_with`)
-  [@test] ../../crates/sync-utils/src/process_scan_test.rs (`the_session_is_the_ancestors_and_their_groups`, `git_maintenance_and_caffeinate_do_not_work_in_a_directory`)
+  [@test] ../../crates/sync-utils/src/process_scan_test.rs (`the_session_is_the_ancestors_and_their_groups`, `git_maintenance_the_fsmonitor_daemon_and_caffeinate_do_not_work_in_a_directory`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_process_of_the_group_of_bd_does_not_keep_the_slot_busy`)
 
 ### Return
@@ -461,6 +462,11 @@ one run for the duration of that run only.
   and answers `processes_checked: false`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_give_back_stops_the_processes_of_the_run_and_quarantines_the_slot_for_an_older_one`)
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`an_abandoned_lend_is_given_back_by_reclaim_before_another_run_gets_the_slot`)
+- The `status` of a give-back must use the repository's own `core.fsmonitor` and `core.untrackedCache`. git's fsmonitor
+  daemon of the slot must outlive the give-back and never quarantine the slot, also when it started after the lend
+  with its working directory in the slot. With it, the `status` of the next give-back must still find every change of
+  its run.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_fsmonitor_daemon_of_a_host_slot_outlives_the_give_back_and_the_changes_of_a_run_are_still_found`)
 - After a give-back, the clean rules of the slot's own `.branchdeck.toml` must run when they are due: with
   `branchdeck.hostSlotMaxSize`, when what they would free passes it, or when the volume has less free space than
   `branchdeck.leaseMinFree` plus it; without it, after 50 runs or 7 days since the last clean, or when the volume has

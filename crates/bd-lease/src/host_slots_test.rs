@@ -335,6 +335,88 @@ fn the_give_back_stops_the_processes_of_the_run_and_quarantines_the_slot_for_an_
   assert_eq!(lent(lend_to(&params, "run-3", None)).n, 1);
 }
 
+/// The fsmonitor daemon of a worktree, stopped when the test ends
+#[cfg(target_os = "macos")]
+struct FsmonitorDaemon(String);
+
+#[cfg(target_os = "macos")]
+impl FsmonitorDaemon {
+  /// Start it in `dir` without `HOME`, so it keeps `dir` as its working directory, in a process group of its own, so
+  /// it is no process of the session that runs bd
+  fn start(dir: &str) -> Self {
+    use std::os::unix::process::CommandExt;
+    let status = test_utils::git_test_utils::git_command()
+      .args(["fsmonitor--daemon", "start"])
+      .current_dir(dir)
+      .env_remove("HOME")
+      .process_group(0)
+      .status()
+      .unwrap();
+    assert!(status.success(), "git fsmonitor--daemon start in {dir}: {status}");
+    Self(dir.to_string())
+  }
+
+  fn git(&self, subcommand: &str) -> bool {
+    test_utils::git_test_utils::git_command()
+      .args(["fsmonitor--daemon", subcommand])
+      .current_dir(&self.0)
+      .stdout(std::process::Stdio::null())
+      .status()
+      .is_ok_and(|status| status.success())
+  }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for FsmonitorDaemon {
+  fn drop(&mut self) {
+    self.git("stop");
+  }
+}
+
+/// With the repository's `core.fsmonitor`, git's fsmonitor daemon of a host slot outlives the give-back, also when it
+/// started after the lend with its working directory in the slot: it is no process of the run, so the slot is idle
+/// again, not in quarantine. The `status` of the next give-back asks the daemon and still finds the changes of its run
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn the_fsmonitor_daemon_of_a_host_slot_outlives_the_give_back_and_the_changes_of_a_run_are_still_found() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  git(&fixture.repo, &["config", "core.fsmonitor", "true"]);
+  git(&fixture.repo, &["config", "core.untrackedCache", "true"]);
+
+  let slot = lent(lend_to(&params, "run-1", None));
+  let daemon = FsmonitorDaemon::start(&slot.path);
+  let ProcessScan::Done { processes, .. } = ProcessScan::scan() else {
+    panic!("macOS has a process scan")
+  };
+  let canonical_slot = std::fs::canonicalize(&slot.path).unwrap();
+  assert!(
+    processes
+      .iter()
+      .any(|process| { process.argv.iter().any(|arg| arg == "fsmonitor--daemon") && process.cwd.as_ref().is_some_and(|cwd| cwd.starts_with(&canonical_slot)) }),
+    "the daemon works in the slot"
+  );
+  let path = Path::new(&slot.path);
+  std::fs::write(path.join("a.txt"), "changed\n").unwrap();
+  std::fs::write(path.join("untracked.txt"), "x\n").unwrap();
+  let gave_back = give_back(&context.git, &params, 1, "run-1").unwrap();
+  let mut discarded = gave_back.discarded.clone();
+  discarded.sort();
+  assert_eq!(
+    (gave_back.stopped.len(), gave_back.quarantined.len(), discarded),
+    (0, 0, vec!["a.txt".to_string(), "untracked.txt".to_string()])
+  );
+  assert_eq!(state_of(fixture, 1), HostState::Idle);
+  assert!(daemon.git("status"), "the give-back leaves the daemon");
+
+  lent(lend_to(&params, "run-2", None));
+  std::fs::write(path.join("a.txt"), "changed again\n").unwrap();
+  let gave_back = give_back(&context.git, &params, 1, "run-2").unwrap();
+  assert_eq!(gave_back.discarded, ["a.txt"]);
+  assert_eq!(slot_git(&slot.path, &["-c", "core.fsmonitor=false", "status", "--porcelain"]), "");
+  assert!(daemon.git("status"));
+}
+
 /// With `branchdeck.hostSlotMaxSize`, a give-back cleans the slot when the rules would free more than it; without it,
 /// after 50 runs, or when the volume has less than `branchdeck.leaseMinFree`. `bd lease clean --host` cleans the idle
 /// host slots now, `--dry-run` only measures, and a lent one is skipped

@@ -471,10 +471,12 @@ enum Take<'a> {
 
 /// Give back the slot `n` that the run `run` had: off the path of the client, once the run's command group was killed.
 /// The processes in the slot that started after the lend are the run's: SIGTERM, up to 10 s, then SIGKILL (each only
-/// while its pid still has the start time of the scan). The Bazel servers of the slot stay, as its warm build state; a
-/// process older than the lend is never signalled. Any process left after that quarantines the slot, which keeps its
-/// changes. Else the changes are discarded (`reset --hard`, `clean -fd`; the ignored files stay as the warm cache,
-/// and a clean slot runs neither) and the slot is idle again; then the clean rules run, when they are due
+/// while its pid still has the start time of the scan). The Bazel servers of the slot stay, as its warm build state, and
+/// so does git's fsmonitor daemon (`ProcessScan::inside` leaves it out): with the repository's `core.fsmonitor`, its
+/// event log makes the `status` below cost what the run changed, not a walk of every file. A process older than the
+/// lend is never signalled. Any process left after that quarantines the slot, which keeps its changes. Else the
+/// changes are discarded (`reset --hard`, `clean -fd`; the ignored files stay as the warm cache, and a clean slot runs
+/// neither) and the slot is idle again; then the clean rules run, when they are due
 pub fn give_back(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, run: &str) -> Result<GaveBack> {
   give_back_core(git_executor, params, n, Take::Run(run))
 }

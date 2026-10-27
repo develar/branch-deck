@@ -86,6 +86,13 @@ impl ProcessInfo {
       }
   }
 
+  /// `git fsmonitor--daemon run`: it watches one worktree for file events and writes only its cookie files in the git
+  /// dir. git moves it out of the worktree to `$HOME`, but without `HOME` it stays there. It must outlive the processes
+  /// of a run, since its event log lets the next `status` of the worktree skip the walk of every file
+  fn is_fsmonitor_daemon(&self) -> bool {
+    self.is_git() && self.git_subcommand() == Some("fsmonitor--daemon")
+  }
+
   /// Whether the process works in `dir` (canonical): its working directory, or the workspace of a Bazel server, is
   /// `dir` or below it, by path components
   fn works_in(&self, dir: &Path) -> bool {
@@ -189,13 +196,14 @@ impl ProcessScan {
   /// The processes that work in `dir`: their working directory, or the workspace of a Bazel server, is `dir` or below
   /// it, by path components; `dir` is compared canonical, as the kernel names a working directory. Left out: the
   /// session that runs this process (`own`), git's background maintenance (`git_maintenance`: it writes only the shared
-  /// object store) and `caffeinate`, which holds only its directory
+  /// object store), git's fsmonitor daemon (`is_fsmonitor_daemon`: it only watches) and `caffeinate`, which holds only
+  /// its directory
   pub fn inside(&self, dir: &Path) -> Vec<&ProcessInfo> {
     let maintenance = self.git_maintenance();
     self
       .in_directory(dir)
       .into_iter()
-      .filter(|process| !maintenance.contains(&process.pid) && !process.holds_only_its_directory())
+      .filter(|process| !maintenance.contains(&process.pid) && !process.is_fsmonitor_daemon() && !process.holds_only_its_directory())
       .collect()
   }
 

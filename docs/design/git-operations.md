@@ -1780,9 +1780,34 @@ start. The give-back runs off the client's path:
    the lend, on Linux a second after it: a process that started earlier in that millisecond is older.
 3. What is left quarantines the slot. Else the changes go, only when `status` shows any (`discard_slot_changes`: on
    the monorepo an unconditional `reset --hard` stats 1.4M files), and the ignored files stay as the warm cache.
+   git's fsmonitor daemon is no process of the run (`ProcessScan::inside` leaves it out), so it outlives the
+   give-back. git moves it to `$HOME`, but one started without `HOME` stays in the slot and would else be killed.
 4. Then the clean rules of the slot run when they are due. They are due when what they would free (`Measure`, not the
    size of the directories, whose kept units would stay above any limit) passes `branchdeck.hostSlotMaxSize`, or when
    the volume runs low. Without that size, they run after 50 runs or 7 days.
+
+The cost of the give-back is its `status`, and that cost is the repository's `core.fsmonitor`. A `status` that
+proves no change without a change log must stat every tracked file: a write in place changes only the stat data of
+the file itself. Measured on the Studio on 2026-10-27, in a lease of idea-1 (1.4M files, load 10–19 on 20 cores):
+
+| `status --porcelain -z` | Wall | System CPU |
+|---|---|---|
+| `core.fsmonitor=false` (each give-back until now) | 18–19 s | 235–247 s |
+| `core.fsmonitor=true`, nothing changed | 2.5 s | 0.16 s |
+| `core.fsmonitor=true`, two changes | 2.2 s | 0.33 s |
+| `core.fsmonitor=true`, after a `reset --keep` without fsmonitor | 15.9 s | 97 s |
+
+`kern.maxvnodes` there is 263,168, less than the files of one slot, so each walk without fsmonitor starts cold. Two
+cheaper walks were measured on the user's Mac (the same limit, load 50–108) and dropped. Without `core.preloadIndex`
+the walk took 76–87 s instead of 29–84 s, with 26–28 s of system CPU instead of 68–80 s. A walk of every tracked
+directory with `getattrlistbulk` took 81–120 s: idea-1 has 300,617 tracked directories, also more than the vnodes.
+The last row is why the setting belongs to the repository and not to the `status` of bd. A git that writes the
+index without fsmonitor drops the token of the index (yonderd's `reset --keep`, a `status` of the command), so the
+next `status` walks the tree again. With the repository's `core.fsmonitor=true` every git in the slot keeps the
+token.
+
+The guarantee stays git's: the daemon answers only after the event of its cookie file arrived (else, after 1 s, it
+answers "everything changed"), and a dropped event or a new daemon makes the next `status` walk every file.
 
 A shrink checks the slot out at the commit it was leased at. That commit is the base of `unlanded_commits`, so the
 snapshot commits of the runs never refuse the return, and the return needs no `--confirm-preserved`. A shrink also
