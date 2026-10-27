@@ -16,6 +16,10 @@ use lease_pool::lease::{LeaseState, Pool, canonical_path};
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::time::UNIX_EPOCH;
+#[cfg(unix)]
+use sync_utils::process_scan::ProcessScan;
 use sync_utils::process_scan::process_started;
 
 /// The rules of the fixture: `out/` is ignored, and a clean deletes `out/cache`
@@ -272,7 +276,8 @@ fn an_abandoned_lend_is_given_back_by_reclaim_before_another_run_gets_the_slot()
 }
 
 /// A process that the run started in its slot is stopped by the give-back; a process older than the lend is never
-/// signalled: it quarantines the slot, no run gets it, and `reclaim` ends the quarantine once the process is gone
+/// signalled, also one that started in the millisecond of the lend: it quarantines the slot, no run gets it, and
+/// `reclaim` ends the quarantine once the process is gone
 #[cfg(unix)]
 #[test_log::test]
 fn the_give_back_stops_the_processes_of_the_run_and_quarantines_the_slot_for_an_older_one() {
@@ -298,6 +303,16 @@ fn the_give_back_stops_the_processes_of_the_run_and_quarantines_the_slot_for_an_
 
   let mut older = busy_in(&slot.path);
   lent(lend_to(&params, "run-2", None));
+  // the lend in the millisecond the process started, after it: the lend is known to the millisecond (`since_ms`), so
+  // the process seems to have started after it
+  let started = ProcessScan::scan()
+    .inside(Path::new(&slot.path))
+    .iter()
+    .find(|process| process.pid == older.id())
+    .and_then(|process| process.started_at())
+    .expect("the process works in the slot");
+  let started_ms = u64::try_from(started.duration_since(UNIX_EPOCH).unwrap().as_millis()).unwrap();
+  edit_table(fixture, |table| table["slots"][0]["state"]["since_ms"] = Value::from(started_ms));
   let gave_back = give_back(&context.git, &params, 1, "run-2").unwrap();
   assert_eq!(gave_back.quarantined.iter().map(|process| process.pid).collect::<Vec<_>>(), [older.id()]);
   assert_eq!(older.try_wait().unwrap(), None, "an older process is never signalled");

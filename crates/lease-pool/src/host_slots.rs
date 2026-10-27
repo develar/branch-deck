@@ -46,8 +46,9 @@ const STOP_WAIT: Duration = Duration::from_secs(10);
 /// How long it waits for them after SIGKILL
 const KILL_WAIT: Duration = Duration::from_secs(2);
 /// How exactly the system tells the start of a process (`ProcessInfo::started_at`): to the microsecond on macOS, to the
-/// second on Linux. A process counts as the run's only when it started that much after the lend, so a process older
-/// than the lend is never killed; a process of the run that started within it quarantines the slot until it is gone
+/// second on Linux. A process counts as the run's only when it started that much after the millisecond of the lend
+/// (`since_ms`, which a process that started later in it may still be older than), so a process older than the lend is
+/// never killed; a process of the run that started within it quarantines the slot until it is gone
 #[cfg(target_os = "linux")]
 const START_PRECISION: Duration = Duration::from_secs(1);
 #[cfg(not(target_os = "linux"))]
@@ -624,7 +625,8 @@ fn stop_processes(path: &str, since_ms: u64) -> ProcessStop {
       checked: false,
     };
   }
-  let after = UNIX_EPOCH + Duration::from_millis(since_ms.saturating_add(u64::try_from(START_PRECISION.as_millis()).unwrap_or(0)));
+  let after_ms = u64::try_from(START_PRECISION.as_millis()).unwrap_or(0).saturating_add(1);
+  let after = UNIX_EPOCH + Duration::from_millis(since_ms.saturating_add(after_ms));
   let runs: Vec<&ProcessInfo> = workers_inside(&scan, path)
     .into_iter()
     .filter(|process| process.started.is_some() && process.started_at().is_some_and(|started| started > after))

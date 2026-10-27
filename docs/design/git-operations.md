@@ -1775,8 +1775,9 @@ else a first-come queue. It does not rank slots by the distance between trees, b
 start. The give-back runs off the client's path:
 1. It stops the processes that started in the slot after the lend: SIGTERM, then after 10 s SIGKILL
    (`process_scan::kill`, which signals a pid only while it has the start time of the scan).
-2. It keeps the Bazel servers of the slot, and never signals an older process. On Linux the start of a process is
-   known to the second, so a process counts as the run's only a second after the lend.
+2. It keeps the Bazel servers of the slot, and never signals an older process. The lend is known to the millisecond,
+   and on Linux the start of a process to the second, so a process counts as the run's only after the millisecond of
+   the lend, on Linux a second after it: a process that started earlier in that millisecond is older.
 3. What is left quarantines the slot. Else the changes go, only when `status` shows any (`discard_slot_changes`: on
    the monorepo an unconditional `reset --hard` stats 1.4M files), and the ignored files stay as the warm cache.
 4. Then the clean rules of the slot run when they are due. They are due when what they would free (`Measure`, not the
