@@ -14,13 +14,14 @@
 
 use crate::free_space::available_bytes;
 use crate::lease::{
-  BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, canonical_path, get_host_slot, return_host_slot,
+  BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, canonical_path, get_host_slot, move_reused_slot,
+  return_host_slot,
 };
 use crate::lease_clean::{CleanMode, CleanOverrides, Trash, apply_clean_rules, read_clean_rules};
 use crate::state_file::StateFile;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::{LeaseConfig, checkout_slot, discard_slot_changes, lease_config, linked_worktree, slot_changes};
+use git_ops::lease_slot::{LeaseConfig, SlotMove, checkout_slot, discard_slot_changes, lease_config, linked_worktree, move_clean_slot, slot_changes};
 use git_ops::revs::RepositoryDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -203,6 +204,8 @@ pub enum HostSlotRefusal {
   UnknownSlot(u32),
   #[error("Host slot {n} is not lent to the run {run}")]
   NotLent { n: u32, run: String },
+  #[error("The run {0} has no host slot")]
+  NoSlot(String),
   #[error("Host slot {n} is {state}")]
   Busy { n: u32, state: String },
   #[error("{key} {value:?}: {reason}")]
@@ -495,6 +498,59 @@ pub fn give_back_run(git_executor: &GitCommandExecutor, params: &HostSlotsParams
     Some(n) => give_back(git_executor, params, n, run).map(Some),
     None => leave_queue(params, run).map(|()| None),
   }
+}
+
+/// How `checkout` brought the slot of a run to its commit
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlotCheckout {
+  /// The slot was at the commit already: nothing written
+  Kept,
+  /// Only the paths of the diff between the two commits were written
+  Switched,
+  /// git refused the move by the diff, for the reason in its words (the first line), and every file was checked out
+  Forced(String),
+}
+
+/// The slot of a run at the commit of the run (`checkout`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckedOut {
+  pub n: u32,
+  pub path: String,
+  pub moved: SlotCheckout,
+}
+
+/// The slot that the run `run` has, moved to the commit `commit` (a full id) of the run, detached: by the diff of the
+/// two commits (`move_clean_slot`), since the give-back of its last run, the fill, or the clean left it clean (index ==
+/// HEAD == worktree), so without a `status`. Every file is checked out (`checkout_slot`, which discards local changes)
+/// only after git refused the diff, and only while the table still lends the slot to the same run with the same lend:
+/// the bd of a supervisor that died is still running, and the slot may be another run's by then. `NotLent` when the
+/// run has no slot, or it has gone meanwhile. The git runs outside the lock of the table, which is a leaf
+pub fn checkout(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str, commit: &str) -> Result<CheckedOut> {
+  let lend_of = |table: &HostSlots| {
+    table.slots.iter().find_map(|slot| match &slot.state {
+      HostState::Lent(lent) if lent.run == run && is_running(lent.pid, lent.process_started) => Some((slot.n, slot.path.clone(), lent.since_ms)),
+      _ => None,
+    })
+  };
+  let Some((n, path, since_ms)) = lend_of(&params.table().read()?) else {
+    bail!(HostSlotRefusal::NoSlot(run.to_string()));
+  };
+  let config = lease_config(git_executor, &path)?;
+  let moved = match move_clean_slot(git_executor, &path, commit, config.workers)? {
+    SlotMove::Kept => SlotCheckout::Kept,
+    SlotMove::Switched => SlotCheckout::Switched,
+    SlotMove::Refused(reason) => {
+      let reason = reason.lines().next().unwrap_or_default().to_string();
+      params.update(|table| match lend_of(table) {
+        Some(lend) if lend == (n, path.clone(), since_ms) => Ok(()),
+        _ => bail!(HostSlotRefusal::NotLent { n, run: run.to_string() }),
+      })?;
+      debug!(slot = %path, %reason, "git refused the move by the diff: checking out every file");
+      checkout_slot(git_executor, &path, commit, None, config.workers)?;
+      SlotCheckout::Forced(reason)
+    }
+  };
+  Ok(CheckedOut { n, path, moved })
 }
 
 fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, take: Take<'_>) -> Result<GaveBack> {
@@ -1000,7 +1056,14 @@ fn return_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, 
   if !slot_changes(git_executor, path, config.untracked)?.is_empty() {
     discard_slot_changes(git_executor, path)?;
   }
-  checkout_slot(git_executor, path, &lease.source_head, None, config.workers)?;
+  move_reused_slot(
+    git_executor,
+    path,
+    &lease.source_head,
+    None,
+    config.workers,
+    &|step| debug!(slot = %path, %step, "a shrink"),
+  )?;
   let workspace = RepositoryDirs {
     top_level: path.to_string(),
     git_dir: linked_worktree(Path::new(path)).map_or_default(|worktree| display_path(&worktree.git_dir)),

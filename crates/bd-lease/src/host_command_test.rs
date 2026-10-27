@@ -108,3 +108,33 @@ fn the_refusals_of_the_table_have_their_codes() {
   let (exit_code, refused) = fixture.run(&["lease", "host", "limit"]);
   assert_error(&refused, exit_code, (2, "invalid_arguments"));
 }
+
+/// checkout: the slot of a run moves to the commit of the run by the diff, stays at it on a repeat, and checks out every
+/// file with git's reason when an untracked file is in a path of the diff; a run without a slot is `no_lease`, a commit
+/// that is not a full id `invalid_arguments`
+#[test_log::test]
+fn a_run_checks_out_its_commit_in_its_slot_by_the_diff() {
+  let fixture = host_fixture(1);
+  host(&fixture, "lease_host_fill", &["fill"]);
+  let lent = lend(&fixture, "run-1", "checkout-a");
+  let path = std::path::PathBuf::from(lent["slot"]["path"].as_str().unwrap());
+  let checkout = |commit: &str| host(&fixture, "lease_host_checkout", &["checkout", "--run", "run-1", "--commit", commit]);
+
+  let first = fixture.repo.create_commit("Add c", "c.txt", "c\n");
+  let moved = checkout(&first);
+  assert_eq!((&moved["n"], &moved["moved"], &moved["commit"]), (&json!(1), &json!("switched"), &json!(first)), "{moved}");
+  assert_eq!(std::fs::read_to_string(path.join("c.txt")).unwrap(), "c\n");
+  assert_eq!(checkout(&first)["moved"], json!("kept"));
+
+  let second = fixture.repo.create_commit("Add d", "d.txt", "d\n");
+  std::fs::write(path.join("d.txt"), "in the way\n").unwrap();
+  let forced = checkout(&second);
+  assert_eq!(forced["moved"], json!("forced"), "{forced}");
+  assert!(forced["reason"].as_str().unwrap().contains("d.txt"), "{forced}");
+  assert_eq!(std::fs::read_to_string(path.join("d.txt")).unwrap(), "d\n");
+
+  let (exit_code, refused) = fixture.run(&["lease", "host", "checkout", "--run", "run-2", "--commit", &second]);
+  assert_error(&refused, exit_code, (2, "no_lease"));
+  let (exit_code, refused) = fixture.run(&["lease", "host", "checkout", "--run", "run-1", "--commit", &second[..8]]);
+  assert_error(&refused, exit_code, (2, "invalid_arguments"));
+}

@@ -48,8 +48,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ## Goals
 
-- A get in a repository of 1.4M files takes seconds when a slot is free: one `status` and one `checkout` of the
-  slot, never a full checkout and never a scan of the other slots.
+- A get in a repository of 1.4M files takes seconds when a slot is free: one `status` and a move of the slot by the
+  diff, never a full checkout and never a scan of the other slots.
 - A slot whose last commit a rewrite of master made unreachable is reused as any other free slot.
 - `bd lease status` answers from the state in milliseconds: no `git status` of any slot.
 - Concurrent gets never get the same slot and never wait for a `bd update`; a get that reuses a slot never waits for
@@ -124,9 +124,20 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - Among the clean free slots a get must take the one returned last first, then the ones never returned in the order
   they joined the pool: the slot returned last has the warmest index and caches and the commit closest to the source.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_free_slot_returned_last_is_leased_first`)
-- Every checkout of the pool (a reused slot, a clone, a new slot after its registration) must run with
+- Every checkout and move of the pool (a reused slot, a clone, a new slot after its registration) must run with
   `-c checkout.workers=0` (one worker per core), unless the repository config sets `checkout.workers`.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it`)
+- A get of a reused slot, after its clean `status`, must move the slot to the source HEAD by the diff of the two
+  commits: `reset --merge` of its detached HEAD (a HEAD on a branch is detached first, the branch stays), which reads
+  and writes only the paths of the diff; a slot at the source HEAD writes nothing. The new branch of `-b` is created
+  and HEAD attached to it in one ref transaction, which reads no file. Every file is checked out (`checkout --force`)
+  only when git refuses the diff (an untracked file or a local change in a path of it), with git's reason among the
+  steps on stderr. The move keeps the repository's `core.fsmonitor` (a git that writes the index without it drops the
+  token, and the next `status` walks every file). An `index.lock` that no process owns (a git killed in the slot) is
+  removed, and one of a live process is waited for.
+  [@test] ../../crates/git-ops/src/lease_slot_test.rs (`a_clean_slot_moves_by_the_diff_and_one_at_the_commit_stays`, `a_slot_on_a_branch_is_detached_before_the_move_and_its_branch_stays`)
+  [@test] ../../crates/git-ops/src/lease_slot_test.rs (`an_untracked_file_in_a_path_of_the_diff_refuses_the_move`, `a_new_branch_is_attached_in_one_transaction_and_an_existing_one_fails_it`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_removes_the_index_lock_a_killed_git_left_in_the_slot`)
 - On macOS a new slot must be an APFS clone (`created_by: "clone"`, `cloned_from`) of a template: a free slot of this
   repository that the get passed over, marked `templating` while it is cloned, else the source checkout. The clone
   must get the `.git` file of a `worktree add --no-checkout --lock` (unlocked once the clone is at its path, so a
@@ -208,7 +219,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   start of a process.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_failed_get_rolls_the_lease_back`, `a_preparing_lease_of_a_gone_process_is_taken_by_the_next_get`)
 - A get of a free slot must run a fixed number of git processes: the repository, the source HEAD, the pool config,
-  one `status` and one `checkout` of the slot.
+  one `status` and the HEAD of the slot, plus one `reset` when the slot is at another commit.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_and_return`)
 - The process scan must find a process by its working directory, compared by path components, or by the
   `--workspace_directory` of a Bazel server, and leave out the session that runs `bd`: `bd`, its ancestors and every
@@ -424,7 +435,8 @@ one run for the duration of that run only.
 
 - `bd lease host` must answer each function of the table as one JSON object: `lend --run <id> --pid <pid>
   [--affinity <key>]` (`state` `lent` with the `slot`, its `lease_id`, `cleaned_at` and `generation`, or `queued` with
-  `ahead`, the lent runs and the slots in quarantine; a repeat answers the same slot), `give-back --run <id>` (the slot of the run,
+  `ahead`, the lent runs and the slots in quarantine; a repeat answers the same slot), `checkout --run <id> --commit
+  <id>` (below), `give-back --run <id>` (the slot of the run,
   else the run leaves the queue: `left_queue`), `fill` (its steps on stderr), `reclaim`, `shrink <keep>`, `limit <n>`
   or `limit --unset`, and `status` (each slot, its state in words, `abandoned`, the queue, the limit). bd reads the
   start of `--pid` itself; a pid that is gone is refused as `invalid_arguments`, and one whose start a sandbox hides
@@ -487,8 +499,17 @@ one run for the duration of that run only.
 - A hand `bd lease return` of a host slot (its holder is `bd-host/<n>`, or the table names its lease id) must be refused
   as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `bd lease host shrink`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_hand_return_of_a_host_slot_is_refused`)
-- A lend runs no git, a give-back one `status` (plus `reset` and `clean` for a dirty slot), a shrink one `status`, one
-  `checkout` and the processes of a return.
+- `bd lease host checkout --run <id> --commit <full id>` must move the slot lent to that run to the commit, detached,
+  by the diff, as the get of a reused slot does but without a `status`: a give-back, a fill and a clean leave the slot
+  clean (its index, HEAD and files agree, the ignored files aside). It answers `moved`: `kept`, `switched`, or `forced`
+  with git's `reason`, also on stderr. Every file is checked out only after git refused the diff (exit 128, never after
+  a signal), and only while the table still lends the slot to the same run with the same lend: the bd of a supervisor
+  that died may still run, and the slot may be another run's by then. A run without a slot or another run's id is
+  `no_lease`, a commit that is no full id `invalid_arguments`.
+  [@test] ../../crates/bd-lease/src/host_command_test.rs (`a_run_checks_out_its_commit_in_its_slot_by_the_diff`)
+- A lend runs no git, a checkout the config, HEAD and one `reset`, a give-back one `status` (plus `reset` and `clean`
+  for a dirty slot), a shrink one `status`, HEAD, a `reset` when the slot is not at the commit it was leased at, and
+  the processes of a return.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_kill_signals_only_the_process_that_has_the_start_time`)
 

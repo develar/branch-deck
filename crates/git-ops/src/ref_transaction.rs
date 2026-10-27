@@ -65,6 +65,14 @@ impl RefTransaction {
     self
   }
 
+  /// Point the symbolic ref `full_ref` at the ref `target`, only if `full_ref` is now a detached ref at `expected_id`
+  /// (`symref-update <ref> <target> oid <id>`): attaches a detached `HEAD` to a branch, also one that `create` makes in
+  /// the same transaction
+  pub fn symref_update_from_id(&mut self, full_ref: &str, target: &str, expected_id: &str) -> &mut Self {
+    let _ = writeln!(self.commands, "symref-update {full_ref} {target} oid {expected_id}");
+    self
+  }
+
   /// Delete `full_ref`; with `expected_id`, only if it still points there
   pub fn delete(&mut self, full_ref: &str, expected_id: Option<&str>) -> &mut Self {
     let _ = write!(self.commands, "delete {full_ref}");

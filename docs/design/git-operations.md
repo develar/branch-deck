@@ -136,9 +136,10 @@ written, except by Update Project and the finish of its resolve session (their o
    unnoticed, and it names the files that call those moves, each with its count (`MOVE_CALLERS`).
 
    **A slot of the lease pool is not the user's working tree** (see "Lease"). The pool owns it while it is free, and a
-   get replaces its content: `checkout --force` of a slot that one `status` found clean, and on a return that the
-   agent confirmed, `reset --hard HEAD` and `clean -fd`. These argument lists live in `crates/git-ops/src/lease_slot.rs`
-   only, and the safety scan asserts each count (`checkout` 2, `reset` 1, `clean` 1).
+   get replaces its content: `reset --merge` of a slot that one `status` found clean, which writes the diff of the two
+   commits, `checkout --force` of a new slot or of one whose diff git refused, `clean -fd` of a clone, and on a return
+   that the agent confirmed or a give-back, `reset --hard HEAD` and `clean -fd`. These argument lists live in
+   `crates/git-ops/src/lease_slot.rs` only, and the safety scan asserts each count (`checkout` 2, `reset` 2, `clean` 2).
 2. **The user's index changes only where HEAD's tree changes** (see the index policy below). Staged changes on other
    paths survive. A conflict with staged work is detected before any ref moves. If the update fails afterwards, the
    error is returned, never ignored.
@@ -1541,9 +1542,20 @@ waits for a clone.
    but a get that adds a slot names those leases (`idle_leases`), and `bd lease status` says `holder_alive`.
 2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below, which may write the
    slot's index (below). A dirty slot is freed again,
-   marked dirty and skipped, and the next one is reserved. A clean one gets `checkout --force --detach <source HEAD>`
-   (or `-b <branch>`), which writes only the paths that differ. `--force` is safe after the clean status: on a
-   case-insensitive file system `status` does not see a case-only rename, and a plain checkout then refuses.
+   marked dirty and skipped, and the next one is reserved. A clean one moves by the diff (`move_clean_slot`): a HEAD on
+   a branch is detached first (the branch stays), a slot at the source HEAD writes nothing, else `reset --quiet --merge
+   <source HEAD>`, a two-way merge from the index that reads and writes only the paths of the diff and stats no other
+   file. `-b <branch>` then creates the branch and attaches HEAD in one ref transaction (`create`, `symref-update HEAD
+   … oid <commit>`), which reads no file. A `checkout --force` stats every file that `core.fsmonitor` does not vouch
+   for: on the Studio, in a host slot of idea-1 without the daemon, 14.4 s for the same commit (11.3 s of it the
+   preload of the index), where `reset --merge` took 1.45 s for one file and 5.7 s for 737. Not `reset --keep`: it
+   resets the index once more and reads every tree of the commit (`prime_cache_tree`, 7.5 s of 9.1 s there). When git
+   refuses the diff (exit 128: an untracked file or a local change in a path of it, which the clean `status` makes
+   rare; a case-insensitive file system hides a case-only rename from `status`), the slot gets `checkout --force
+   --detach <source HEAD>` (or `-b <branch>`) and the get names git's reason among its steps. Neither move overrides
+   the repository's `core.fsmonitor`: a git that writes the index without it drops the token (Host slots, below). Both
+   go through `IndexLock::retry`, so the `index.lock` a git killed in the slot left is removed, and a live one is
+   waited for.
 3. No free slot: the clones lock (above), the free space again and the reserve again, then a new slot at
    `<pool>/<n>/<repository name>`. The leaf keeps the name of the repository, which tools
    derive identity from. On macOS it is an APFS clone of a template (below); elsewhere, or when the clone fails,
@@ -1556,7 +1568,7 @@ waits for a clone.
    '.git/worktrees/<name>/locked' for writing"), and that get failed
    (`a_slot_deleted_by_hand_gives_its_path_to_the_next_new_slot`).
 
-Both checkouts run with `-c checkout.workers=0`, one worker per core, unless the repository config sets
+Every checkout and move runs with `-c checkout.workers=0`, one worker per core, unless the repository config sets
 `checkout.workers` (one `config --get-regexp` reads it with `branchdeck.leasePool`): git's default of one worker
 checked out 43,891 files of idea-1 in 12.2 s, 18 workers in 4.2 s. Every `status` of the pool (the get, the check of
 a clone, the return, an adopt) lists untracked files with `--untracked-files=all` when `status.showUntrackedFiles` is
@@ -1786,6 +1798,15 @@ start. The give-back runs off the client's path:
    size of the directories, whose kept units would stay above any limit) passes `branchdeck.hostSlotMaxSize`, or when
    the volume runs low. Without that size, they run after 50 runs or 7 days.
 
+The checkout of a run (`bd lease host checkout --run <id> --commit <id>`, `host_slots::checkout`) moves the slot the
+run has to the commit of the run by the diff, as the get of a reused slot does, but without a `status`: the give-back
+of the last run, the fill and a clean leave the slot clean, and `reset --merge` keeps a local change outside the diff
+silently, so the clean slot is the contract of the give-back. yonderd calls it once the pack of the commit has
+arrived, which is why the lend cannot do it. Every file is checked out only after git refused the diff (exit 128,
+never after a signal), and only after the table, read again under its lock, still lends the slot to the same run
+with the same lend: a supervisor that dies leaves its bd running, and by the time that bd falls back, `reclaim` may
+have given the slot back and lent it to another run.
+
 The cost of the give-back is its `status`, and that cost is the repository's `core.fsmonitor`. A `status` that
 proves no change without a change log must stat every tracked file: a write in place changes only the stat data of
 the file itself. Measured on the Studio on 2026-10-27, in a lease of idea-1 (1.4M files, load 10–19 on 20 cores):
@@ -1812,8 +1833,8 @@ answers "everything changed"), and a dropped event or a new daemon makes the nex
 A shrink checks the slot out at the commit it was leased at. That commit is the base of `unlanded_commits`, so the
 snapshot commits of the runs never refuse the return, and the return needs no `--confirm-preserved`. A shrink also
 works without the agent: an abandoned state is free to it. A hand `bd lease return` of a host slot is refused as
-`host_slot` before any git. The slot git stays `checkout_slot` and `discard_slot_changes` of `lease_slot.rs`, and no
-new call joins the working-tree scan.
+`host_slot` before any git. The slot git stays `move_clean_slot`, `checkout_slot` and `discard_slot_changes` of
+`lease_slot.rs`, and no other file joins the working-tree scan.
 
 #### Virtual branch sync
 

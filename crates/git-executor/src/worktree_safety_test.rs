@@ -53,11 +53,12 @@ const MOVE_CALLERS: [(&str, usize); 5] = [
 ];
 
 /// The file of the lease pool that writes a slot, pool property (docs/design/git-operations.md, "Lease"), with the number of
-/// argument lists of each subcommand: the checkout of a get (detached, or on a new branch), the clean of a cloned slot,
-/// and the discard of a return that the agent confirmed
+/// argument lists of each subcommand: the checkout of every file of a new slot (detached, or on a new branch), the move
+/// of a clean slot by the diff (`reset --merge`), the clean of a cloned slot, and the discard of a return that the agent
+/// confirmed or of a give-back (`reset --hard`, `clean`)
 const SLOT_WRITE_EXEMPTIONS: [(&str, &str, usize); 3] = [
   ("crates/git-ops/src/lease_slot.rs", "checkout", 2),
-  ("crates/git-ops/src/lease_slot.rs", "reset", 1),
+  ("crates/git-ops/src/lease_slot.rs", "reset", 2),
   ("crates/git-ops/src/lease_slot.rs", "clean", 2),
 ];
 

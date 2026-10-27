@@ -56,6 +56,7 @@ fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::Clone { .. } => "clone",
       GetStep::Refresh { .. } => "refresh",
       GetStep::Checkout { .. } => "checkout",
+      GetStep::CheckoutEveryFile { .. } => "checkout every file",
       GetStep::Seed { .. } => "seed",
     })
     .collect();

@@ -1,10 +1,14 @@
 //! The git of a lease slot (`bd lease`, spec/cli/lease.spec.md): a linked worktree of the repository that a pool owns.
 //! A slot is pool property, not the user's checkout, so its working tree is written here, and only here, by name:
-//! `checkout --force` moves a clean slot to the commit of a get, `clean -fd` clears the untracked files a cloned slot
-//! got from its template, `reset --hard` and `clean -fd` discard the changes of a return the agent confirmed. The
-//! worktree safety scan exempts exactly these argument lists in this file (`worktree_safety_test.rs`, "Lease" in
-//! docs/design/git-operations.md).
+//! `reset --merge` moves a clean slot to the commit of a get or a run by the diff of the two commits, `checkout
+//! --force` writes every file of a new slot (or of a slot whose diff git refused), `clean -fd` clears the untracked
+//! files a cloned slot got from its template, `reset --hard` and `clean -fd` discard the changes of a return the agent
+//! confirmed or of a give-back. The worktree safety scan exempts exactly these argument lists in this file
+//! (`worktree_safety_test.rs`, "Lease" in docs/design/git-operations.md). Every write of a slot's index waits for a
+//! lock of another process and removes one that no process owns (`IndexLock`): a git killed in a slot leaves its
+//! `index.lock`, and the next write there would fail on it.
 
+use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{is_object_id, read_head};
 use anyhow::{Result, anyhow, bail};
@@ -93,8 +97,9 @@ pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: Un
   Ok(paths)
 }
 
-/// What a checkout of the pool runs with: `checkout.workers=0`, one worker per core, unless the repository sets
-/// `checkout.workers` itself. git checks out with one worker by default
+/// What a checkout or a move of the pool runs with (`checkout_slot`, `move_clean_slot`): `checkout.workers=0`, one
+/// worker per core, unless the repository sets `checkout.workers` itself. git writes the files with one worker by
+/// default
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CheckoutWorkers {
   /// The repository's config sets `checkout.workers`: its value applies
@@ -108,17 +113,90 @@ impl CheckoutWorkers {
   }
 }
 
-/// Move the clean `slot` to `commit`, detached, or on the new `branch` created there. Only the paths that differ between
-/// the two commits are written; every path in a slot that `register_slot` left without an index, the only full checkout
-/// of the pool. `--force` is safe after `slot_changes` found nothing: a case-insensitive file system hides a case-only
-/// rename from `status`, and a checkout without it then refuses. A `branch` that exists fails
+/// Write every file of `slot` at `commit`, detached, or on the new `branch` created there: the checkout of a new slot,
+/// which `register_slot` left without an index or a clone brought with the files and the changes of its template, and
+/// the fallback of a move that git refused (`move_clean_slot`). It writes only the paths that differ, but it stats every
+/// file that `core.fsmonitor` does not vouch for: all of them in a slot without the daemon, 11-25 s in the IntelliJ
+/// monorepo (1.4M files). `--force` discards the local changes, which is what a clone needs, and is safe after
+/// `slot_changes` found nothing: a case-insensitive file system hides a case-only rename from `status`, and a checkout
+/// without it then refuses. A `branch` that exists fails
 pub fn checkout_slot(git_executor: &GitCommandExecutor, slot: &str, commit: &str, branch: Option<&str>, workers: CheckoutWorkers) -> Result<()> {
   let args = match branch {
     Some(branch) => [workers.config(), &["checkout", "--quiet", "--force", "-b", branch, commit]].concat(),
     None => [workers.config(), &["checkout", "--quiet", "--force", "--detach", commit]].concat(),
   };
-  git_executor.execute_command(&args, slot)?;
-  Ok(())
+  IndexLock::of(git_executor, slot).retry(INDEX_LOCK_WAIT, || git_executor.execute_command(&args, slot).map(drop))
+}
+
+/// How `move_clean_slot` brought a slot to its commit
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlotMove {
+  /// HEAD was at the commit already (a HEAD on a branch is detached there): no file and no index entry written
+  Kept,
+  /// `reset --merge` moved the detached HEAD: only the paths that differ between the two commits were read and written
+  Switched,
+  /// git refused the move by the diff, in its words: an untracked file or a local change in a path of the diff. Nothing
+  /// moved; the caller checks out every file instead (`checkout_slot`) where it may
+  Refused(String),
+}
+
+/// A `reset --merge` that git refused (exit 128), as against one that a signal ended or a lock blocked
+#[derive(Debug)]
+struct MoveRefused(String);
+
+impl std::fmt::Display for MoveRefused {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(&self.0)
+  }
+}
+
+impl std::error::Error for MoveRefused {}
+
+/// Move the clean `slot` (its index, HEAD and files agree: a get after its `status`, a host slot after its give-back)
+/// to `commit`, detached, by the diff of the two commits. A HEAD on a branch is detached first (the branch survives).
+/// A slot at `commit` already costs the `rev-parse` of its HEAD and writes nothing; else `reset --merge`, a two-way
+/// merge from the index that reads and writes only the paths of the diff, and stats no other file, with or without
+/// fsmonitor: 1.5 s for one file and 6 s for 737 in the IntelliJ monorepo, where a `checkout --force` takes 14-25 s
+/// without the daemon. Not `reset --keep`, which then resets the index once more and reads every tree of the commit
+/// (`prime_cache_tree`, 7.5 s there). `--merge` keeps a local change outside the diff: the slot must be clean. The
+/// index keeps the token of the repository's `core.fsmonitor`, never overridden here: a git that writes the index
+/// without it drops the token, and the next `status` walks every file
+pub fn move_clean_slot(git_executor: &GitCommandExecutor, slot: &str, commit: &str, workers: CheckoutWorkers) -> Result<SlotMove> {
+  let Some((head, branch)) = read_head(git_executor, slot)? else {
+    bail!("The slot {slot} has no commit");
+  };
+  if branch.is_some() {
+    detach_head_at(git_executor, slot, &head, "lease move")?;
+  }
+  if head == commit {
+    return Ok(SlotMove::Kept);
+  }
+  let args = [workers.config(), &["reset", "--quiet", "--merge", commit]].concat();
+  let moved = IndexLock::of(git_executor, slot).retry(INDEX_LOCK_WAIT, || {
+    let output = git_executor.cmd(&args, slot).status()?;
+    match output.code {
+      0 => Ok(()),
+      128 => Err(MoveRefused(output.stderr).into()),
+      code => bail!("git reset --merge {commit} in {slot} exited with {code}: {}", output.stderr),
+    }
+  });
+  match moved {
+    Ok(()) => Ok(SlotMove::Switched),
+    Err(error) => match error.downcast::<MoveRefused>() {
+      Ok(MoveRefused(reason)) => Ok(SlotMove::Refused(reason)),
+      Err(error) => Err(error),
+    },
+  }
+}
+
+/// Create the branch `branch` at `commit` and attach the detached HEAD of `slot` there, in one `RefTransaction`: a
+/// branch that exists fails it, and HEAD stays detached. Unlike `checkout -b`, it reads no index and no file
+pub fn attach_new_branch(git_executor: &GitCommandExecutor, slot: &str, branch: &str, commit: &str) -> Result<()> {
+  let full_ref = format!("refs/heads/{branch}");
+  RefTransaction::new()
+    .create(&full_ref, commit)
+    .symref_update_from_id("HEAD", &full_ref, commit)
+    .commit(git_executor, slot, "lease get")
 }
 
 /// A new slot registered at `path`, detached at `commit`, without its files: `worktree add --force --no-checkout
@@ -247,7 +325,7 @@ pub fn unlanded_commits(git_executor: &GitCommandExecutor, slot: &str, base: Opt
 /// Discard the local changes of `slot` that its holder confirmed: `reset --hard HEAD`, then `clean -fd`, which removes
 /// the untracked files and keeps the ignored ones (build outputs keep the next lease warm)
 pub fn discard_slot_changes(git_executor: &GitCommandExecutor, slot: &str) -> Result<()> {
-  git_executor.execute_command(&["reset", "--quiet", "--hard", "HEAD"], slot)?;
+  IndexLock::of(git_executor, slot).retry(INDEX_LOCK_WAIT, || git_executor.execute_command(&["reset", "--quiet", "--hard", "HEAD"], slot).map(drop))?;
   git_executor.execute_command(&["clean", "-fd", "--quiet"], slot)?;
   Ok(())
 }
@@ -267,11 +345,14 @@ pub fn detach_slot_head(git_executor: &GitCommandExecutor, slot: &str) -> Result
     bail!("The slot {slot} has no commit");
   };
   if branch.is_some() {
-    RefTransaction::new()
-      .update_no_deref("HEAD", &head, Some(&head))
-      .commit(git_executor, slot, "lease return")?;
+    detach_head_at(git_executor, slot, &head, "lease return")?;
   }
   Ok(())
+}
+
+/// Detach the HEAD of `slot` at `head`, the commit of the branch it is on: `option no-deref`, so the branch stays
+fn detach_head_at(git_executor: &GitCommandExecutor, slot: &str, head: &str, operation: &str) -> Result<()> {
+  RefTransaction::new().update_no_deref("HEAD", head, Some(head)).commit(git_executor, slot, operation)
 }
 
 /// The paths of `paths` (relative to `repository`, `/`-separated) that git ignores there and does not track: one

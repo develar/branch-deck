@@ -8,9 +8,10 @@ use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
+use git_ops::revs::is_object_id;
 use lease_pool::host_slots::{
-  HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, ReclaimAction, ShrinkOutcome, describe_state, fill, give_back_run, is_abandoned, lend, read_host_slots,
-  reclaim, set_limit, shrink,
+  HostProcess, HostSlotsParams, HostState, LendAnswer, LendRequest, ReclaimAction, ShrinkOutcome, SlotCheckout, checkout, describe_state, fill, give_back_run, is_abandoned, lend,
+  read_host_slots, reclaim, set_limit, shrink,
 };
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -28,6 +29,9 @@ pub struct LeaseHostArgs {
 pub enum LeaseHostCommand {
   /// Lend a host slot to a run, or put the run in the queue; a repeat answers the same slot
   Lend(LeaseHostLendArgs),
+  /// Move the slot of a run to the commit of the run, detached: by the diff of the two commits, every file only when git
+  /// refuses the diff
+  Checkout(LeaseHostCheckoutArgs),
   /// Give back the slot of a run, or take the run out of the queue when it has none: the one call at the end of a run
   GiveBack(LeaseHostRunArgs),
   /// Lease the missing host slots, up to `branchdeck.hostSlots` (4) and the limit of the last shrink
@@ -60,6 +64,16 @@ pub struct LeaseHostRunArgs {
   /// The id of the run
   #[arg(long, value_name = "ID")]
   pub run: String,
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeaseHostCheckoutArgs {
+  /// The id of the run
+  #[arg(long, value_name = "ID")]
+  pub run: String,
+  /// The commit of the run, as a full id
+  #[arg(long, value_name = "ID")]
+  pub commit: String,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -155,6 +169,29 @@ pub struct LeaseHostLendOutput {
   /// With `queued`: the slots in quarantine
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub quarantined: Vec<QuarantinedOutput>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SlotMoveOutput {
+  /// The slot was at the commit already: nothing written
+  Kept,
+  /// Only the paths of the diff between the two commits were written
+  Switched,
+  /// git refused the diff (`reason`), and every file was checked out
+  Forced,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseHostCheckoutOutput {
+  pub schema: SchemaVersion,
+  pub n: u32,
+  pub path: String,
+  pub commit: String,
+  pub moved: SlotMoveOutput,
+  /// With `forced`: why git refused the diff, in its words
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -355,6 +392,37 @@ pub fn lease_host_lend(context: &LeaseContext, environment: &Environment, args: 
         })
         .collect(),
     },
+  })
+}
+
+/// `bd lease host checkout`: a forced checkout tells its reason on stderr too
+pub fn lease_host_checkout(context: &LeaseContext, environment: &Environment, args: &LeaseHostCheckoutArgs) -> Result<LeaseHostCheckoutOutput, CliError> {
+  if !is_object_id(&args.commit) {
+    return Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      format!("--commit must be a full commit id, not {:?}", args.commit),
+    ));
+  }
+  let checked_out = checkout(&context.git, &params(context, environment), &args.run, &args.commit).map_err(lease_error)?;
+  let (moved, reason) = match checked_out.moved {
+    SlotCheckout::Kept => (SlotMoveOutput::Kept, None),
+    SlotCheckout::Switched => (SlotMoveOutput::Switched, None),
+    SlotCheckout::Forced(reason) => {
+      let _ = writeln!(
+        std::io::stderr(),
+        "bd lease host checkout: checked out every file of {}, because git refused the diff: {reason}",
+        checked_out.path
+      );
+      (SlotMoveOutput::Forced, Some(reason))
+    }
+  };
+  Ok(LeaseHostCheckoutOutput {
+    schema: SchemaVersion,
+    n: checked_out.n,
+    path: checked_out.path,
+    commit: args.commit.clone(),
+    moved,
+    reason,
   })
 }
 

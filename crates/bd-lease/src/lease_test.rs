@@ -257,8 +257,9 @@ impl Drop for UnreadableFile {
   }
 }
 
-/// The checkouts of the pool (a reused slot, a cloned one, a new one after its `worktree add --no-checkout`) run with
-/// `checkout.workers=0`, one worker per core, unless the repository sets `checkout.workers` itself
+/// The checkouts and the moves of the pool (the `reset --merge` of a reused slot, the checkout of a cloned one and of a
+/// new one after its `worktree add --no-checkout`) run with `checkout.workers=0`, one worker per core, unless the
+/// repository sets `checkout.workers` itself
 #[cfg(unix)]
 #[test_log::test]
 fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it() {
@@ -266,6 +267,7 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
   let trace = fixture.home.path().join("trace2.json");
   let _env = test_utils::env_vars::EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
   let parallel = |argv: &&Vec<String>| argv.windows(2).any(|pair| pair[0] == "-c" && pair[1] == "checkout.workers=0");
+  let moves = |gits: &[Vec<String>]| gits_of(gits, "reset").into_iter().filter(|argv| argv.contains(&"--merge".to_string())).count();
 
   // a new slot by a registration and a full checkout: the clone of the source fails on a file it can't read
   let unreadable = UnreadableFile::new(&fixture.repo);
@@ -289,12 +291,14 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
   let cloned = fixture.get(&[]);
   let gits = started_gits(&trace);
   let checkouts = gits_of(&gits, "checkout");
+  let resets = gits_of(&gits, "reset");
+  assert!(moves(&gits) == 1 && resets.iter().all(parallel), "the reused slot moves by the diff: {gits:?}");
   if cfg!(target_os = "macos") {
     assert_eq!(cloned["created_by"], json!("clone"), "{cloned}");
-    assert!(checkouts.len() >= 2 && checkouts.iter().all(parallel), "{gits:?}");
   } else {
-    assert!(!checkouts.is_empty() && checkouts.iter().all(parallel) && registered(&gits), "{gits:?}");
+    assert!(registered(&gits), "{gits:?}");
   }
+  assert!(!checkouts.is_empty() && checkouts.iter().all(parallel), "{gits:?}");
 
   fixture.give_back(&path);
   fixture.repo.set_config("checkout.workers", "2").unwrap();
@@ -302,8 +306,8 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
   started_gits(&trace);
   fixture.get(&[]);
   let gits = started_gits(&trace);
-  let checkouts = gits_of(&gits, "checkout");
-  assert!(!checkouts.is_empty() && !checkouts.iter().any(parallel), "{gits:?}");
+  let resets = gits_of(&gits, "reset");
+  assert!(moves(&gits) == 1 && !resets.iter().any(parallel), "{gits:?}");
 }
 
 /// Every `status` of the pool lists untracked files in the mode `status.showUntrackedFiles` configures, `all` or
@@ -1306,15 +1310,31 @@ fn a_failed_get_rolls_the_lease_back() {
   let got = fixture.get(&[]);
   let path = path_of(&got);
   fixture.give_back(&path);
-  fixture.repo.create_commit("Add c", "c.txt", "c\n");
-  // a held index lock fails the checkout; `status` reads without it
-  let lock = fixture.repo.path().join(".git/worktrees").join(got["slot"].as_str().unwrap()).join("index.lock");
-  std::fs::write(&lock, "").unwrap();
+  // an index git can't read fails the `status` of the get
+  let index = fixture.repo.path().join(".git/worktrees").join(got["slot"].as_str().unwrap()).join("index");
+  std::fs::write(&index, "not an index").unwrap();
   let (exit_code, output) = fixture.run(&["lease", "get"]);
-  std::fs::remove_file(&lock).unwrap();
   assert_error(&output, exit_code, (5, "git_error"));
   assert!(output["error"]["message"].as_str().unwrap().contains("The lease was rolled back"), "{output}");
   assert_eq!(states(&fixture.status()), [(path, "free".to_string())]);
+}
+
+/// A git killed in a slot leaves its `index.lock`, which no process owns: the move of the next get waits for it, removes
+/// it, and moves the slot by the diff
+#[test_log::test]
+fn a_get_removes_the_index_lock_a_killed_git_left_in_the_slot() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  fixture.give_back(&path);
+  let head = fixture.repo.create_commit("Add c", "c.txt", "c\n");
+  let lock = fixture.repo.path().join(".git/worktrees").join(got["slot"].as_str().unwrap()).join("index.lock");
+  std::fs::write(&lock, "").unwrap();
+  let again = fixture.get(&[]);
+  assert_eq!((path_of(&again), &again["reused"]), (path.clone(), &json!(true)), "{again}");
+  assert!(!lock.exists());
+  assert_eq!(std::fs::read_to_string(Path::new(&path).join("c.txt")).unwrap(), "c\n");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), head);
 }
 
 /// The outputs match `bd schema`, with their optional parts

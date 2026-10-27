@@ -1,6 +1,7 @@
-use crate::lease_slot::{linked_worktree, register_slot, unlock_slot};
+use crate::lease_slot::{CheckoutWorkers, SlotMove, attach_new_branch, linked_worktree, move_clean_slot, register_slot, unlock_slot};
 use std::path::PathBuf;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::process_budget::{assert_processes, counting};
 
 /// A repository with a commit, and the path of a slot that is not there yet in a directory of its own
 struct Fixture {
@@ -73,4 +74,108 @@ fn a_new_slot_takes_over_the_registration_of_a_slot_deleted_by_hand() {
   fixture.unlock();
   assert!(linked_worktree(&fixture.slot).is_some());
   assert_eq!(registrations(), 2, "the main worktree and the slot, once");
+}
+
+/// A repository with two commits: `a.txt` in the first, `b.txt` added by the second; HEAD detached at the first, with an
+/// untracked file outside the diff, so a move must leave it
+struct MoveFixture {
+  repo: TestRepo,
+  first: String,
+  second: String,
+}
+
+impl MoveFixture {
+  fn new() -> Self {
+    let repo = TestRepo::new();
+    let first = repo.create_commit("Add a", "a.txt", "a\n");
+    let second = repo.create_commit("Add b", "b.txt", "b\n");
+    repo.git(&["checkout", "--quiet", "--detach", &first]);
+    std::fs::write(repo.path().join("outside.txt"), "outside\n").unwrap();
+    Self { repo, first, second }
+  }
+
+  fn head(&self) -> (String, String) {
+    let head = self.repo.git(&["rev-parse", "HEAD"]);
+    let branch = self.repo.git(&["rev-parse", "--symbolic-full-name", "HEAD"]);
+    (head, branch)
+  }
+}
+
+/// A slot at the commit already costs the `rev-parse` of its HEAD and writes nothing; another detached HEAD moves by
+/// the diff (`reset --merge`), which writes the paths of the diff and leaves every other file, and the index matches
+#[test]
+fn a_clean_slot_moves_by_the_diff_and_one_at_the_commit_stays() {
+  let fixture = MoveFixture::new();
+  let slot = fixture.repo.path_str();
+  let a_mtime = std::fs::metadata(fixture.repo.path().join("a.txt")).unwrap().modified().unwrap();
+
+  let git = counting();
+  assert_eq!(move_clean_slot(&git, slot, &fixture.first, CheckoutWorkers::default()).unwrap(), SlotMove::Kept);
+  assert_processes(&git, &[("rev-parse", 1)]);
+
+  let git = counting();
+  assert_eq!(move_clean_slot(&git, slot, &fixture.second, CheckoutWorkers::default()).unwrap(), SlotMove::Switched);
+  assert_processes(&git, &[("reset", 1), ("rev-parse", 1)]);
+  assert_eq!(fixture.head(), (fixture.second.clone(), "HEAD".to_string()));
+  assert_eq!(std::fs::read_to_string(fixture.repo.path().join("b.txt")).unwrap(), "b\n");
+  assert_eq!(
+    std::fs::metadata(fixture.repo.path().join("a.txt")).unwrap().modified().unwrap(),
+    a_mtime,
+    "a file outside the diff stays"
+  );
+  assert!(fixture.repo.path().join("outside.txt").exists());
+  assert_eq!(fixture.repo.git(&["status", "--porcelain", "--untracked-files=no"]), "");
+}
+
+/// A HEAD on a branch is detached first, so the move leaves the branch where it was
+#[test]
+fn a_slot_on_a_branch_is_detached_before_the_move_and_its_branch_stays() {
+  let fixture = MoveFixture::new();
+  let slot = fixture.repo.path_str();
+  fixture.repo.git(&["checkout", "--quiet", "-b", "kept", &fixture.first]);
+
+  assert_eq!(
+    move_clean_slot(fixture.repo.git_executor(), slot, &fixture.second, CheckoutWorkers::default()).unwrap(),
+    SlotMove::Switched
+  );
+  assert_eq!(fixture.head(), (fixture.second.clone(), "HEAD".to_string()));
+  assert_eq!(fixture.repo.git(&["rev-parse", "refs/heads/kept"]), fixture.first);
+
+  fixture.repo.git(&["checkout", "--quiet", "kept"]);
+  assert_eq!(
+    move_clean_slot(fixture.repo.git_executor(), slot, &fixture.first, CheckoutWorkers::default()).unwrap(),
+    SlotMove::Kept
+  );
+  assert_eq!(fixture.head(), (fixture.first.clone(), "HEAD".to_string()));
+}
+
+/// An untracked file in a path of the diff refuses the move with git's words, and nothing moved: the caller checks out
+/// every file instead
+#[test]
+fn an_untracked_file_in_a_path_of_the_diff_refuses_the_move() {
+  let fixture = MoveFixture::new();
+  std::fs::write(fixture.repo.path().join("b.txt"), "in the way\n").unwrap();
+
+  let moved = move_clean_slot(fixture.repo.git_executor(), fixture.repo.path_str(), &fixture.second, CheckoutWorkers::default()).unwrap();
+  let SlotMove::Refused(reason) = moved else { panic!("{moved:?}") };
+  assert!(reason.contains("b.txt"), "{reason}");
+  assert_eq!(fixture.head(), (fixture.first.clone(), "HEAD".to_string()));
+  assert_eq!(std::fs::read_to_string(fixture.repo.path().join("b.txt")).unwrap(), "in the way\n");
+}
+
+/// A new branch is created at the commit and HEAD attached to it in one transaction, reading no file; a branch that
+/// exists fails it and HEAD stays detached
+#[test]
+fn a_new_branch_is_attached_in_one_transaction_and_an_existing_one_fails_it() {
+  let fixture = MoveFixture::new();
+  let slot = fixture.repo.path_str();
+
+  let git = counting();
+  attach_new_branch(&git, slot, "feature", &fixture.first).unwrap();
+  assert_processes(&git, &[("update-ref", 1)]);
+  assert_eq!(fixture.head(), (fixture.first.clone(), "refs/heads/feature".to_string()));
+
+  fixture.repo.git(&["checkout", "--quiet", "--detach", &fixture.first]);
+  assert!(attach_new_branch(fixture.repo.git_executor(), slot, "feature", &fixture.first).is_err());
+  assert_eq!(fixture.head(), (fixture.first.clone(), "HEAD".to_string()));
 }

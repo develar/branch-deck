@@ -19,8 +19,9 @@ use crate::state_file::StateFile;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
-  CheckoutWorkers, LeaseConfig, UnlandedCommit, UntrackedFiles, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name,
-  lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, start_deferred_maintenance, unlanded_commits, unlock_slot,
+  CheckoutWorkers, LeaseConfig, SlotMove, UnlandedCommit, UntrackedFiles, attach_new_branch, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes,
+  ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot, slot_changes, start_deferred_maintenance,
+  unlanded_commits, unlock_slot,
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, short_id};
@@ -444,8 +445,12 @@ pub enum GetStep {
   Clone { template: String, slot: String },
   /// The refresh of the index copied from the template
   Refresh { slot: String },
-  /// `checkout` of the source HEAD: the diff of a reused slot or of a clone, every file of a registered new slot
+  /// The move to the source HEAD: by the diff for a reused slot (`move_clean_slot`), every file of a clone or of a
+  /// registered new slot (`checkout_slot`)
   Checkout { slot: String, commit: String },
+  /// git refused the move of a reused slot by the diff, for `reason` (the first line of its words): every file is
+  /// checked out instead
+  CheckoutEveryFile { slot: String, reason: String },
   /// The copy of the paths that `.worktreeinclude` names
   Seed { slot: String, paths: usize },
 }
@@ -461,6 +466,7 @@ impl fmt::Display for GetStep {
       Self::Clone { template, slot } => write!(f, "cloning {template} into {slot}"),
       Self::Refresh { slot } => write!(f, "refreshing the index of {slot}"),
       Self::Checkout { slot, commit } => write!(f, "checking out {} in {slot}", short_id(commit)),
+      Self::CheckoutEveryFile { slot, reason } => write!(f, "checking out every file of {slot}, because git refused the diff: {reason}"),
       Self::Seed { slot, paths } => write!(f, "copying {paths} path(s) that {WORKTREE_INCLUDE} names into {slot}"),
     }
   }
@@ -707,7 +713,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> 
           slot: path.clone(),
           commit: source_head.clone(),
         });
-        checkout_slot(git_executor, &path, &source_head, params.branch.as_deref(), config.workers)
+        move_reused_slot(git_executor, &path, &source_head, params.branch.as_deref(), config.workers, &report)
           .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         (path, true)
       }
@@ -1019,6 +1025,28 @@ enum Added {
   NotRegistered(anyhow::Error),
   /// git knows the worktree: the slot stays as a free one, and the next get checks it
   Registered(anyhow::Error),
+}
+
+/// Bring the clean reused `slot` to `commit` by the diff of the two commits (`move_clean_slot`), then onto the new
+/// `branch`; every file (`checkout_slot`) only when git refused the diff, which `report` tells with git's reason
+pub(crate) fn move_reused_slot(
+  git_executor: &GitCommandExecutor,
+  slot: &str,
+  commit: &str,
+  branch: Option<&str>,
+  workers: CheckoutWorkers,
+  report: &dyn Fn(GetStep),
+) -> Result<()> {
+  match move_clean_slot(git_executor, slot, commit, workers)? {
+    SlotMove::Kept | SlotMove::Switched => branch.map_or(Ok(()), |branch| attach_new_branch(git_executor, slot, branch, commit)),
+    SlotMove::Refused(reason) => {
+      report(GetStep::CheckoutEveryFile {
+        slot: slot.to_string(),
+        reason: reason.lines().next().unwrap_or_default().to_string(),
+      });
+      checkout_slot(git_executor, slot, commit, branch, workers)
+    }
+  }
 }
 
 /// Add the new slot of `request`: a clone of its template when the volume clones (`add_cloned_slot`), else a

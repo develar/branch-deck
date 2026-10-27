@@ -22,6 +22,7 @@ fn schema_lists_every_output() {
       "lease_adopt",
       "lease_clean",
       "lease_get",
+      "lease_host_checkout",
       "lease_host_fill",
       "lease_host_give_back",
       "lease_host_lend",
