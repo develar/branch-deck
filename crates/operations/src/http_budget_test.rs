@@ -347,7 +347,7 @@ async fn a_read_the_facts_already_answer_is_never_made() {
   fill(&mut session, &sources, &GitCommandExecutor::new(), &first).await;
   assert_eq!(counted.calls(), BTreeMap::from([("profiles", 1), ("pull_requests", 1), ("robots", 1)]));
 
-  assert_eq!(needs(&push_intent("auth")), [FactNeed::Robots]);
+  assert_eq!(needs(&push_intent("auth")), [FactNeed::Robots, FactNeed::PullRequests]);
   let domain_types::operation::Intent::Push(push) = push_intent("auth") else {
     unreachable!()
   };

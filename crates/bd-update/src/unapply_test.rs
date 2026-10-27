@@ -99,15 +99,18 @@ fn status_lists_an_unapplied_branch_push_refuses_it_by_its_name_and_pushes_it_wi
   let (exit_code, output) = run_in(&repo, &["safe-push", "docs", "--check"]);
   assert_error(&output, exit_code, (4, "unapplied"));
 
+  // `origin` is the repository itself: git answers the push of the branch it has as up to date, and the remote-tracking
+  // ref the push writes is what the status reads
   let (exit_code, pushed) = run_in(&repo, &["push", "--unapplied", "docs"]);
   assert_eq!(exit_code, 0, "{pushed}");
   assert_eq!(
     (
       &pushed["branches"][0]["remote_branch"],
       &pushed["branches"][0]["state"],
+      &pushed["branches"][0]["lease_source"],
       &pushed["branches"][0]["pull_request"]
     ),
-    (&json!("test-user/unapplied/docs"), &json!("new"), &serde_json::Value::Null)
+    (&json!("test-user/unapplied/docs"), &json!("up_to_date"), &json!("absent"), &serde_json::Value::Null)
   );
   let (_, status) = run_in(&repo, &["status"]);
   assert_eq!(status["unapplied"][0]["remote"], json!({"head": tip, "up_to_date": true}), "{status}");

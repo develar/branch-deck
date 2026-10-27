@@ -54,7 +54,6 @@ targets:
   - ../../crates/sync-utils/src/issue_pattern.rs
   - ../../crates/sync-utils/src/list_cut.rs
   - ../../crates/bd-remote/src/push_command.rs
-  - ../../crates/bd-remote/src/pull_request_retarget.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push.rs
@@ -65,7 +64,7 @@ targets:
   - ../../crates/operations/src/land_execute.rs
   - ../../crates/operations/src/robot_start.rs
   - ../../crates/bd-core/src/review_summary.rs
-  - ../../crates/bd-remote/src/push_hold.rs
+  - ../../crates/bd-remote/src/push_refusals.rs
   - ../../crates/remote-facts/src/stack_pull_request.rs
   - ../../crates/remote-facts/src/patronus_review.rs
   - ../../crates/remote-facts/src/review_readiness.rs
@@ -907,18 +906,22 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd push <branch>…` must sync first under the repository lock, then push the branches in one atomic
   `git push --porcelain` through the remote command policy, parents first, with an explicit lease per ref; `--all`
-  must need `--yes`. The lock covers only the sync and the plan of the push: its refs, their commits and leases, fixed
-  on the tips the sync left. The retargets, the cancel and the restart of `--restart-running` and the network push run
-  after it, through the one push core the app's push runs too (`operations::push`), and the network push sends exactly
-  the fixed commits (`<commit>:refs/heads/<name>`); the user's robots of the holds and the pull requests of the
-  branches are asked before it, side by side: no other writer waits for GitHub, Patronus or the network.
+  must need `--yes`. It is an adapter of the engine the app's push runs (`operations::push`): an intent `Push` per
+  named branch, planned over the one-shot session of its sync (`push_planned`), the plans of all of them one push
+  (`push_together`), run as the app's run (`land_execute::run_planned`). The lock covers only the sync, then again
+  the witness of the plan (the tips it pushes, read before the lock and under it) and the freeze of its commits and
+  leases: a branch another writer moved since the sync is `plan_changed` (exit 3), nothing pushed. The retargets, the
+  cancel and the restart of `--restart-running` and the network push run after it, and the network push sends
+  exactly the frozen commits (`<commit>:refs/heads/<name>`); the user's robots of the holds and the pull requests of
+  the branches are asked after the sync, side by side: no other writer waits for GitHub, Patronus or the network.
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
-  [@test] ../../crates/bd-remote/src/push_test.rs (`the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_before_the_repository_lock`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_outside_the_repository_lock`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
 - It must not read again what its sync read: the stack, the tips, the remote tips, the remotes, the descriptions and
   the push size limit come from the sync of the same run; besides the push only the push URL of `origin`, once, the
-  Space settings for a GitHub mirror, and the size check (one `log`, one `cat-file`).
-  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_push`)
+  Space settings for a GitHub mirror, the size check (one `log`, one `cat-file`) and the witness of its plan (one
+  `for-each-ref` before the lock and one under it; none for `--dry-run`, which moves nothing).
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_push`, `a_push_over_a_moved_remote`)
 - A stacked branch must take the branches it is built on along, parents first, in the same atomic push, when they
   have commits for the remote, as the app's push button does ([Stacked Branches](../branch/stacked-branches.spec.md));
   one on the remote as it is stays out, and one taken along brings no children with `--with-children`. `--alone`
@@ -931,8 +934,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   along. A member of a stack that landed whole, with a new commit since, pushes without `--force`: its remote branch
   has its commits as they were before the landing, which the baseline has by identity; `replaced_landed` of the
   pushed branch (with `--dry-run` too) names them with their baseline commits. One remote commit the baseline lacks
-  keeps the refusal, and `dropped_commits` names only such commits.
+  keeps the refusal, and `dropped_commits` names only such commits. Where the app's push leaves a branch its scope
+  covers out to its row (a child the sync didn't build or a Safe Push holds, an ancestor or a child whose push drops
+  remote commits), `bd push` refuses the push, nothing pushed, in the same words (`push_refusals`).
   [@test] ../../crates/bd-remote/src/push_test.rs (`all_needs_yes_and_unsynced_branches_are_refused`, `amended_and_restacked_commits_push_without_force`, `a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `a_push_replaces_the_remote_commits_the_baseline_landed_without_force`, `a_remote_commit_the_baseline_lacks_still_refuses_the_push`)
+- A named branch, or a child `--with-children` covers, that the remote has as it is (by content: `remote.up_to_date`,
+  a branch only rebuilt on a newer baseline too) must be listed `up_to_date` with its lease and its pull request draft,
+  and nothing of it pushed, as the app's push sends nothing of it; its pull request is not retargeted.
+  [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `a_branch_only_rebuilt_on_a_newer_baseline_is_not_pushed_again`)
 - `--with-children` must add the branches stacked on the named ones by declared parent, directly or further down,
   parents first, to the same atomic push, the branches the app's Push with Children covers (`domain_policy::stack::
   descendants`, the steps of `push::push_plan`; [Stacked Branches](../branch/stacked-branches.spec.md)); a blocked
@@ -942,8 +951,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--with-children` of a named root of a stack that forks must also push its stack branch
   ([Whole Stack](../branch/whole-stack.spec.md)) in the same atomic push, after the branches, leased on the remote
   head its remote status compared with, as the app's Push with Children does: once it is on the remote or the pull
-  request of the whole stack is open (one GitHub search under the lock, only for a stack branch the remote lacks, its
-  listing reused by the retargets), only when this sync built it (`built`) and the remote lacks it by content:
+  request of the whole stack is open (the one GitHub search of the push, after the sync, its listing read by the
+  retargets too), only when this sync built it (`built`) and the remote lacks it by content:
   `stacks` lists it as `branches` lists a branch, `name` the root, with the pull request of the whole stack. One on
   no remote and in no pull request stays local without a warning. Of the others, a stack branch in another state, or
   pushed to another remote than `origin`, which its remote status compares with, must never be pushed:
@@ -967,7 +976,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   and the branch has work for it (deleted, moved back to an older commit of the branch, rebuilt older versions:
   `domain_policy::push::over_moved_remote`, the rule of the app's push), bd must push again at once, once, leased on
   the fetched heads, and mark each such branch `pushed_over` (its `lease` the head it went over, `null` for a deleted
-  one); `--expect-remote` keeps its lease. Otherwise, or when the remote moved again, it must be `lease_rejected`
+  one), with `--expect-remote` too: one rule with the app's Force Push, which leases on the head its row showed and
+  loses nothing of a remote that moved only to commits the branch has. Otherwise, or when the remote moved again, it must be `lease_rejected`
   (exit 4, not retryable) with nothing pushed, listing the branches whose remote moved in `error.branches` with their
   remote status as fetched (`head`, `behind`, `dropped_commits`). A branch refused as behind is listed the same way,
   and `bd sync` prints the same remote status per branch. The app's stack push is the same push
@@ -1015,8 +1025,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   now when the repository lacks its commit): a parent a restack placed below the robot's branch after its start is
   pushed. An ancestor taken along that a Safe Push lands stays as the robot took it, and its child is pushed alone,
   carrying its commits. A canceling robot and a dry run hold nothing. `--restart-running` cancels the Safe Push of
-  a named branch after the lock, pushes it with the ancestors that robot lands, and restarts it on the pushed commit
-  (`restarted`).
+  a named branch after the lock, pushes the branch alone, the commits of the ancestors that robot lands with it, and
+  restarts it on the pushed commit (`restarted`), as the app's restart that pushes first; its children still go with
+  `--with-children`.
   One robots request after the sync; off Space, without a token or an answer of Patronus nothing is held. `bd
   safe-push` pushes without the check: it cancels the robot it replaces itself. A running Safe Push of the whole stack
   must hold every branch of the stack its commit has ("A Safe Push of the whole auth stack is running: it lands 1

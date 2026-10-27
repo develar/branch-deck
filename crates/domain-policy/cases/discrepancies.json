@@ -52,7 +52,7 @@
     "today": {
       "app": ["crates/operations/src/push.rs#its pull request goes into the target first, where every pull request of a virtual branch goes (D3a)"],
       "bd": [
-        "crates/bd-remote/src/push_command.rs#the pull requests of the branches it pushes go into the baseline first (D3a)",
+        "crates/bd-remote/src/push_command.rs#retarget of each open pull request into a virtual branch to the baseline first (D3a)",
         "crates/bd-remote/src/safe_push_test.rs#fn push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget",
         "crates/operations/src/land_execute.rs#3. `Retarget`: a pull request into a virtual branch goes into the target; GitHub refusing the one the robot starts"
       ]
@@ -86,11 +86,11 @@
     "closed": "s8-policy",
     "today": {
       "app": [
-        "crates/operations/src/land_execute.rs#let sent = blocking(move || send(&git, prepared, OverMoved::Once, &mut |tick: TransferProgress| progress(&tick)).map_err(git_failure)).await;",
+        "crates/operations/src/land_execute.rs#let sent = blocking(move || send(&git, prepared, &mut |tick: TransferProgress| progress(&tick)).map_err(git_failure)).await;",
         "crates/operations/src/push_test.rs#fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks"
       ],
       "bd": [
-        "crates/bd-remote/src/push_command.rs#let sent = send(&context.git, prepared, over, &mut |_| {}).map_err(",
+        "crates/bd-remote/src/push_command.rs#.block_on(run_planned(&start, &services, &Steps::none(), op, planned.clone(), &accepted, std::time::Instant::now()))",
         "crates/bd-remote/src/push_test.rs#fn pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch"
       ]
     }
@@ -216,7 +216,7 @@
         "crates/operations/src/push.rs#if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {"
       ],
       "bd": [
-        "crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;",
+        "crates/bd-remote/src/push_command.rs#let decided = decide(&run, &facts.session, &intents)?;",
         "crates/bd-remote/src/safe_push_command.rs#Refusal::new(ErrorCode::RobotRunning, start_refusal_text(reason, what, self.session.robots())).with_next_step(robot, false)"
       ]
     }

@@ -20,7 +20,7 @@ targets:
   - ../../crates/bd-core/src/sync_command.rs
   - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/bd-remote/src/push_command.rs
-  - ../../crates/bd-remote/src/push_hold.rs
+  - ../../crates/bd-remote/src/push_refusals.rs
   - ../../crates/domain-policy/src/holds.rs
   - ../../crates/domain-policy/src/land.rs
   - ../../crates/domain-policy/src/actions.rs

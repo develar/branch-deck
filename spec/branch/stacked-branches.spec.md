@@ -77,7 +77,6 @@ targets:
   - ../../src/lib/pull-request-dialog.ts
   - ../../src/lib/pull-request-run.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
-  - ../../crates/bd-remote/src/pull_request_retarget.rs
   - ../../crates/remote-facts/src/pull_request_writes.rs
 ---
 

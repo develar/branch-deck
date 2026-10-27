@@ -35,7 +35,8 @@ impl FactNeed {
 
 /// The facts the plan of `intent` reads before its first decision: a start reads the robots (and what they land and
 /// hold), the pull requests, the profiles and the profile of the last robot of its subject; a push the robots that hold
-/// it, none of an unapplied branch (no Safe Push runs on one); a request of a review the pull requests, the review of
+/// it and the pull requests it retargets into the target first (D3a), none of an unapplied branch (no Safe Push runs on
+/// one, its pull request stays as it was); a request of a review the pull requests, the review of
 /// its subject (only without `reviewers`: the code owners it asks) and the robots, which hold the push it makes first
 /// (`push_first`) and which Patronus lists before it is asked the review; an action on a robot the robots; an action on
 /// a pull request the pull requests
@@ -44,14 +45,14 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
   match intent {
     Intent::Land(land) => vec![FactNeed::Robots, FactNeed::PullRequests, FactNeed::Profiles, FactNeed::LastProfile(land.subject.clone())],
     Intent::Push(push) if push.scope == PushScope::Unapplied => Vec::new(),
-    Intent::Push(_) | Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => vec![FactNeed::Robots],
+    Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => vec![FactNeed::Robots],
     Intent::RequestReview { subject, reviewers, push_first } => {
       // the review is asked of a session whose robots Patronus listed
       let robots = (*push_first || reviewers.is_empty()).then_some(FactNeed::Robots);
       let readiness = reviewers.is_empty().then(|| FactNeed::Readiness(subject.clone()));
       robots.into_iter().chain([FactNeed::PullRequests]).chain(readiness).collect()
     }
-    Intent::CloseLandedPullRequests { .. } => vec![FactNeed::Robots, FactNeed::PullRequests],
+    Intent::Push(_) | Intent::CloseLandedPullRequests { .. } => vec![FactNeed::Robots, FactNeed::PullRequests],
     Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::ClosePullRequest { .. } => vec![FactNeed::PullRequests],
     Intent::SubmitReview { .. } | Intent::SetIssueState { .. } => Vec::new(),
   }

@@ -28,7 +28,7 @@
 //! first effect that fails stops the start; the effects before it stay done, and the outcome lists each with its
 //! status.
 
-use crate::push::{OverMoved, Sent, send};
+use crate::push::{Sent, send};
 use crate::robot_start::{ApiStart, CommentStart, Commented, RobotWait, patronus_failure, start_by_comment, start_through_api};
 use crate::witness::{Witness, check, plan_changed, read_refs};
 use domain_policy::holds::is_active;
@@ -350,8 +350,12 @@ pub struct Started {
   pub canceled: Option<PatronusRobot>,
   /// Its push, as it went
   pub pushed: Option<Sent>,
-  /// The robot it started through the API, or the one a comment started once listed
+  /// The robot it started through the API, or the one a comment started once listed; of a restart the robot it
+  /// restarted last
   pub robot: Option<PatronusRobot>,
+  /// The robots its restarts started, in the order of its effects (a push of several branches restarts the Safe Push of
+  /// each)
+  pub restarted: Vec<PatronusRobot>,
   pub commented: Option<Commented>,
   /// The pull request it opened (or found open)
   pub created: Option<CreatedPullRequest>,
@@ -415,7 +419,7 @@ pub async fn run_planned(
     witnessed(&planned.plan.intent, &planned.witness, &cheap)?;
     let frozen = frozen_under_lock(services, steps, &planned.witness).await?;
     witnessed(&planned.plan.intent, &planned.witness, &frozen)?;
-    freeze(services, &planned.pushes, &frozen)?
+    freeze(services, &planned.pushes, &frozen, false)?
   };
   debug!(effects = planned.plan.effects.len(), "the witness holds: the effects run");
   // the robots the facts held when the plan ran: one listed later that lands a part of it started meanwhile
@@ -468,8 +472,9 @@ fn witnessed(intent: &Intent, witness: &Witness, read: &BTreeMap<String, Option<
   Err(plan_changed(intent, Some(&format!("{} moved", moved.join(", ")))))
 }
 
-/// The push of the plan on the frozen tips and leases: one atomic push of every branch it sends; `None` without one
-fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<String, Option<String>>) -> Result<Option<PreparedPush>, ApiError> {
+/// The push of the plan on the frozen tips and leases: one atomic push of every branch it sends (`git push --dry-run`
+/// with `dry_run`); `None` without one
+fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<String, Option<String>>, dry_run: bool) -> Result<Option<PreparedPush>, ApiError> {
   if pushes.is_empty() {
     return Ok(None);
   }
@@ -509,9 +514,26 @@ fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<Stri
   // one ref needs no `--atomic`, which a remote may not support
   let options = PushOptions {
     atomic: pushes.len() > 1,
-    dry_run: false,
+    dry_run,
   };
   Ok(Some(PreparedPush::leased(&target, branches, options)))
+}
+
+/// What the remote would answer the push of `planned` (`bd push --dry-run`): its blockers refuse it as its run would,
+/// then `git push --dry-run` of its commits on the tips and the leases it was decided on, which a dry run need not read
+/// again: it moves nothing, so no lock, no witness, no other effect; `None` for a plan that pushes nothing
+///
+/// # Errors
+/// What refuses the plan, git failing
+pub async fn dry_run(services: &StartServices, planned: &Planned, robots: &[PatronusRobot]) -> Result<Option<Sent>, ApiError> {
+  if let Some(refusal) = refusal_of(planned, robots) {
+    return Err(refusal);
+  }
+  let Some(prepared) = freeze(services, &planned.pushes, &planned.witness.refs, true)? else {
+    return Ok(None);
+  };
+  let git = services.git.clone();
+  blocking(move || send(&git, prepared, &mut |_| {}).map_err(git_failure)).await.map(Some)
 }
 
 /// A blocking step of a start on the blocking pool
@@ -626,6 +648,7 @@ struct Run<'a> {
   canceled: Option<PatronusRobot>,
   pushed: Option<Sent>,
   robot: Option<PatronusRobot>,
+  restarted: Vec<PatronusRobot>,
   commented: Option<Commented>,
   created: Option<CreatedPullRequest>,
   requested: Option<RequestedReviewers>,
@@ -651,6 +674,7 @@ impl<'a> Run<'a> {
       canceled: None,
       pushed: None,
       robot: None,
+      restarted: Vec::new(),
       commented: None,
       created: None,
       requested: None,
@@ -762,7 +786,9 @@ impl<'a> Run<'a> {
       Ok(patronus) => patronus.restart_robot(&self.services.prefix, robot_id).await.map_err(patronus_failure),
       Err(error) => Err(error),
     };
-    self.robot_started(answer).await
+    let status = self.robot_started(answer).await;
+    self.restarted.extend(self.robot.clone().filter(|_| status == EffectStatus::Done));
+    status
   }
 
   /// The robot a start or a restart started goes into the facts; what Patronus refused it with fails the effect
@@ -801,7 +827,7 @@ impl Run<'_> {
     let _claim = claim_refs(&self.services.git_common_dir, &names, || debug!("the push of the start waits for the fetch of its refs")).await;
     self.host.begin_push(subjects.clone());
     let (git, progress) = (self.services.git.clone(), Arc::clone(&self.steps.progress));
-    let sent = blocking(move || send(&git, prepared, OverMoved::Once, &mut |tick: TransferProgress| progress(&tick)).map_err(git_failure)).await;
+    let sent = blocking(move || send(&git, prepared, &mut |tick: TransferProgress| progress(&tick)).map_err(git_failure)).await;
     let sent = match sent {
       Ok(sent) => sent,
       Err(error) => {
@@ -1141,6 +1167,7 @@ impl Run<'_> {
       canceled: self.canceled,
       pushed: self.pushed,
       robot: self.robot,
+      restarted: self.restarted,
       commented: self.commented,
       created: self.created,
       requested: self.requested,

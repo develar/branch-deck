@@ -1,67 +1,65 @@
-//! `bd push`: sync, then push the virtual branches in one atomic `git push --porcelain` with an explicit lease per ref,
-//! parents first, and print a ready `gh pr create` per branch, into the baseline: every pull request of a virtual
-//! branch goes there, a stacked branch's with the commits of the branches it is built on. A stacked branch takes those
-//! branches along when they have commits for the remote, as the app's push button does, so their remote branches stay
-//! what it is built on; `--alone` pushes it without them. Before the push, an open pull request of a branch it pushes
-//! whose base is a virtual branch is retargeted to the baseline (`pull_request_retarget`, D3a).
+//! `bd push`: sync, then push the virtual branches as the app's push does, through the same engine
+//! (docs/design/git-operations.md, "Push and land", "Agent push"): an intent `Push` per named branch over the one-shot
+//! session of the command's sync (`operations::push::push_planned`: Push Stack of it by default, the branch alone with
+//! `--alone` and `--expect-remote`, Push with Children beside Push Stack with `--with-children`, the unapplied branch
+//! with `--unapplied`), the plans of all of them one atomic push (`push_together`), run as the app's run
+//! (`land_execute::run_planned`): the witness, the repository lock only for the full witness and the freeze, the
+//! retarget of each open pull request into a virtual branch to the baseline first (D3a), the cancel of the Safe Push
+//! `--restart-running` restarts, the leased push of the frozen commits, once more over a remote that moved without
+//! commits a branch lacks (D4), the restart. It prints a ready `gh pr create` per branch, into the baseline: every pull
+//! request of a virtual branch goes there, a stacked branch's with the commits of the branches it is built on.
 //!
-//! The repository lock is held for the sync and the plan of the push (`plan_push`: which refs, their commits and leases
-//! fixed on the tips the sync left), never across HTTP: the robots the holds are decided on and the pull requests of the
-//! branches are asked before it, side by side (`read_remote`); the retargets, the cancel and the restart of
-//! `--restart-running` and the network push run after it (`PlannedPush::send`, `operations::push`, the core the app's
-//! push runs too).
+//! The repository lock is held for the sync only; the facts the plans read (the user's robots, the pull requests of the
+//! branches: `operations::needs`, one request each, side by side) and the texts of the pull requests are asked after
+//! it, so no other writer waits for Patronus, GitHub or the network. A rewrite of another session between the sync and
+//! the witness changes the plan: `plan_changed` (exit 3), nothing done.
 //!
-//! The lease is the one the app's push button uses too (`sync_core::push_lease`): the remote head the sync in the same
-//! process compared with (`remote.head`), or the one `--expect-remote` names. The push replaces exactly that remote
-//! state; the refusal of a branch behind its remote without `--force` decides whether it may drop commits (an older
-//! version of a commit amended or restacked here is replaced, not dropped: `remote.amended`, `remote.restacked`). A rejected
-//! push fetches the branches and reports what the remote has now. With `--remote` other than `origin`, which the sync
-//! compares with, the remote status of the pushed branches is computed the same way against that remote.
+//! The lease is the remote head the sync compared with (`remote.head`, the session's), or the one `--expect-remote`
+//! names. Where the app's push leaves a branch its scope covers out to its row, `bd push` refuses the push (`push_plan`
+//! of `domain_policy::push` decides what each branch does, `push_refusals` words it): a branch the sync didn't build, a
+//! branch a running Safe Push holds, a branch whose push drops remote commits it lacks without `--force`; the branches
+//! merged Safe Pushes landed and the parked ones it leaves out (`skipped`), refused only when nothing else is left. With
+//! `--remote` other than `origin`, the remote status of the branches is computed against that remote, so the plans,
+//! the refusals and the leases are about it.
 
-use crate::landed::{LandedBranch, LandedBySummary};
-use crate::pull_request_retarget::{RetargetedPullRequest, Retargets, retarget_listed};
-use crate::push_hold::{PushHolds, push_holds, robot_command};
-use crate::safe_push_command::youtrack_service;
-use crate::session_facts::{SessionFacts, listed_robots};
-use bd_core::bd_command::shell_word;
+use crate::landed::LandedBySummary;
+use crate::push_refusals::{Covered, decide};
+use crate::request_review_command::availability_error;
+use crate::safe_push_command::{STACK_REMOTE, youtrack_service};
+use crate::safe_push_run::{BdStart, cli_error, start_services};
+use crate::session_facts::SessionFacts;
+use bd_core::bd_command;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, NextStep};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
-use domain_policy::facts::Repository;
-use domain_policy::parked::parked_state;
-use domain_policy::push::{drops_remote_commits, stack_branch_along};
-use domain_policy::stack::descendants;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
-use domain_types::error::ErrorCode;
-use domain_types::patronus::{PatronusRobot, PatronusRobotsResult};
-use domain_types::pull_request::{PullRequestState, PullRequestsResult};
-use domain_types::reason::Reason;
-use domain_types::session::StackBranchAlong;
-use domain_types::stack::{StackBranchState, StackBranchUpdate};
-use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
+use domain_types::error::{ApiError, ErrorCode};
+use domain_types::landing::{PlannedEffect, Subject};
+use domain_types::operation::{EffectStatus, Intent, OperationId, Push, PushScope};
+use domain_types::patronus::PatronusRobotStatus;
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, ReviewerState};
+use domain_types::repository_view::HoldKind;
+use domain_types::stack::StackBranchUpdate;
+use domain_types::{GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
-use github::service::GitHubService;
-use history_rewrite::baseline::detect_baseline_branch;
-use operations::push::{OverMoved, cancel_robots, restart_robots, send};
-use patronus::service::PatronusService;
-use remote_facts::fact_sources::FactSources;
+use operations::land_execute::{Accepted, Planned, PushedRef, StartServices, Started, Steps, dry_run, run_planned};
+use operations::needs::needs;
+use operations::push::Sent;
 use remote_facts::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
-use remote_facts::pull_requests::list_pull_requests;
+use remote_facts::pull_requests::{GitHubWriteError, failure_message};
 use remote_facts::stack_pull_request::{StackMemberText, stack_pull_request_text};
 use repository_model::one_shot::OneShot;
-use repository_model::push_guard::parked_words;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use sync_core::issue_navigation::load_issue_navigation_config;
-use sync_core::push::{LeasedBranch, LeasedPush, PreparedPush, PushTarget, not_built_reason};
-use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
+use sync_core::push::{LeasedPush, not_built_reason};
+use sync_core::push_lease::{PushRef, PushedRefStatus};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
 use sync_core::sync::SyncReport;
 use youtrack::service::YouTrackService;
@@ -88,8 +86,9 @@ pub struct PushArgs {
   /// counted, nothing pushed since. Older versions of commits amended or restacked here need no --force
   #[arg(long)]
   pub force: bool,
-  /// Lease on this remote commit: the push replaces the remote branch only if it is still there. Pass the
-  /// `remote.head` of the status the user saw, e.g. of a `lease_rejected` error. Needs exactly one branch
+  /// Lease on this remote commit: the push replaces the remote branch while it is there, or once more over what it moved
+  /// to when that has no commits the branch lacks. Pass the `remote.head` of the status the user saw, e.g. of a
+  /// `lease_rejected` error. Needs exactly one branch
   #[arg(long, value_name = "COMMIT", conflicts_with = "all")]
   pub expect_remote: Option<String>,
   /// The remote; default: the remote of the baseline (`origin` for `origin/master`)
@@ -98,14 +97,14 @@ pub struct PushArgs {
   /// Sync, then ask the remote what the push would do (`git push --dry-run`); push nothing
   #[arg(long)]
   pub dry_run: bool,
-  /// Push a branch whose Safe Push runs: cancel the Safe Push, push, and restart it on the pushed commit. Without it
-  /// such a branch is refused (`robot_running`): a push won't land, and it fails the Safe Push at the end
+  /// Push a branch whose Safe Push runs: cancel the Safe Push, push the branch, and restart it on the pushed commit.
+  /// Without it such a branch is refused (`robot_running`): a push won't land, and it fails the Safe Push at the end
   #[arg(long)]
   pub restart_running: bool,
   /// Push the unapplied branch `{prefix}/unapplied/<name>` (one name, as `unapplied` of `bd status` names it) to
   /// `origin` under its own name, leased on the remote head the last fetch saw or --expect-remote: the remote keeps a
   /// copy. It lands nothing, and no pull request is drafted
-  #[arg(long, requires = "branches", conflicts_with_all = ["all", "with_children", "alone", "force", "remote", "dry_run", "restart_running"])]
+  #[arg(long, requires = "branches", conflicts_with_all = ["all", "with_children", "alone", "remote", "dry_run", "restart_running"])]
   pub unapplied: bool,
 }
 
@@ -217,16 +216,160 @@ pub struct PullRequestDraft {
   pub command: String,
 }
 
-/// A branch to push, with what decides its lease
-pub(crate) struct Candidate<'a> {
-  synced: &'a SyncedBranch,
-  full_name: String,
-  parent: Option<String>,
-  /// The status against the remote pushed to; `None` without one
-  remote: Option<RemoteSummary>,
+/// An open pull request whose base was a virtual branch, retargeted to the baseline (D3a: every pull request of a
+/// virtual branch goes into the baseline, with the commits of the branches it is built on; `bd push` and `bd safe-push`)
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct RetargetedPullRequest {
+  pub branch: String,
+  pub number: u32,
+  pub url: String,
+  /// The virtual branch it went into, e.g. `jane/virtual/auth`
+  pub old_base: String,
+  /// The baseline as the remote names it, e.g. `master`
+  pub new_base: String,
+  /// Who had approved it: GitHub may dismiss the approvals of a pull request whose base changes; tell the user
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub approved_by: Vec<String>,
+}
+
+impl RetargetedPullRequest {
+  /// The retarget of `pull_request` of the virtual branch `branch` from its base to `new_base`, with who approved it
+  pub(crate) fn of(branch: &str, pull_request: &PullRequest, new_base: &str) -> Self {
+    Self {
+      branch: branch.to_string(),
+      number: pull_request.number,
+      url: pull_request.url.clone(),
+      old_base: pull_request.base_ref_name.clone(),
+      new_base: new_base.to_string(),
+      approved_by: pull_request
+        .reviewers
+        .iter()
+        .filter(|reviewer| reviewer.state == ReviewerState::Approved)
+        .map(|reviewer| reviewer.login.clone())
+        .collect(),
+    }
+  }
+}
+
+/// "cannot retarget pull request #8 of login to master: <what GitHub said>; `gh pr edit 8 --repo acme/monorepo --base
+/// master` retargets it": a retarget GitHub refused, which stops no push
+pub(crate) fn refusal_warning(retarget: &RetargetedPullRequest, repository: &GitHubRepository, error: GitHubWriteError) -> String {
+  let reason = match error {
+    GitHubWriteError::GitHub(failure) => failure_message(&failure),
+    GitHubWriteError::Refused(message) => message,
+  };
+  format!(
+    "cannot retarget pull request #{} of {} to {}: {reason}; `gh pr edit {} --repo {} --base {}` retargets it",
+    retarget.number,
+    retarget.branch,
+    retarget.new_base,
+    retarget.number,
+    repository.full_name(),
+    retarget.new_base
+  )
 }
 
 pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -> Result<PushOutput, CliError> {
+  check_arguments(args)?;
+  // the sync is the part under the lock (its merge-tree writes the virtual branches); the reads of the remote and the
+  // plans keep no other writer waiting, and the run takes the lock again only to witness the refs and freeze the push
+  let synced = {
+    let _lock = lock(context)?;
+    sync_locked(context)?
+  };
+  let remote = push_remote(args, &synced)?;
+  let expect_remote = args.expect_remote.as_deref().map(|rev| resolve_expected(context, rev)).transpose()?;
+  if !args.unapplied {
+    for name in &args.branches {
+      if !synced.branches.iter().any(|branch| &branch.name == name) {
+        return Err(unknown_or_unapplied(context, name, "push it with `bd push --unapplied`"));
+      }
+    }
+  }
+  let github = Arc::new(github_service(context, environment));
+  let repository = github_repository(context, &synced.report)?;
+  // no Safe Push runs on an unapplied branch, and its pull request stays as it was: nothing is asked of the remote
+  let space = if args.unapplied { None } else { context.space_repository().ok().flatten() };
+  let patronus = space.as_ref().and_then(|_| patronus_service(environment).ok()).map(Arc::new);
+  let sources = BdServices {
+    patronus: patronus.clone(),
+    space: space.clone(),
+    github_repository: repository.clone(),
+    ..BdServices::new(context, Arc::clone(&github))
+  }
+  .sources();
+  let (statuses, remotes) = remote_statuses(context, &synced, &remote)?;
+  let mut state = synced.table.clone();
+  for status in statuses {
+    state.apply(SyncEvent::RemoteStatusUpdate(status));
+  }
+  let mut facts = SessionFacts::new(context, state, synced.branch_table(&context.prefix), Arc::clone(&sources));
+  let run = PushRun {
+    context,
+    environment,
+    args,
+    synced: &synced,
+    remote,
+    remotes,
+  };
+  let mut intents = run.intents(expect_remote.as_deref());
+  // the facts the plans read (the robots that hold the push, the pull requests it retargets), each once, side by side
+  let mut wanted = Vec::new();
+  for intent in &intents {
+    for need in needs(&Intent::Push(intent.clone())) {
+      if !wanted.contains(&need) {
+        wanted.push(need);
+      }
+    }
+  }
+  if !wanted.is_empty() {
+    facts.read(context, &wanted)?;
+    facts.derive();
+  }
+  if args.restart_running {
+    intents = PushRun::restarts(&facts.session, intents);
+  }
+  let decided = decide(&run, &facts.session, &intents)?;
+  let Some(planned) = operations::push::push_together(decided.plans, &synced.order()) else {
+    return run.output(&facts, None, Told::default(), decided.covered);
+  };
+  let target = base_on_remote(&synced.baseline, STACK_REMOTE).to_string();
+  let services = {
+    let github = repository.map(|repository| (Arc::clone(&github), repository));
+    let mut services = start_services(context, patronus, space.map_or_default(|space| space.name), github, target, &synced.baseline)?;
+    services.push.remote.clone_from(&run.remote);
+    services
+  };
+  let runtime = context.runtime()?;
+  if args.dry_run {
+    let sent = runtime.block_on(dry_run(&services, &planned, facts.session.robots())).map_err(cli_error)?;
+    let told = Told {
+      retargeted: planned.plan.effects.iter().filter_map(|effect| retarget_of(&facts, effect)).collect(),
+      ..Told::default()
+    };
+    return run.output(&facts, Some((&planned, sent.as_ref())), told, decided.covered);
+  }
+  let start = BdStart {
+    session: &facts.session,
+    land: None,
+    sources,
+    key: session_key(context),
+    text: None,
+  };
+  let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+  let accepted = Accepted {
+    fingerprint: planned.plan.fingerprint.clone(),
+    confirmations: planned.plan.confirmations.clone(),
+  };
+  let started = runtime
+    .block_on(run_planned(&start, &services, &Steps::none(), op, planned.clone(), &accepted, std::time::Instant::now()))
+    .map_err(cli_error)?;
+  let told = run.tell(&facts, &services, &planned, &started)?;
+  run.output(&facts, Some((&planned, started.pushed.as_ref())), told, decided.covered)
+}
+
+/// The arguments `bd push` refuses before it syncs
+fn check_arguments(args: &PushArgs) -> Result<(), CliError> {
   if args.branches.is_empty() && !args.all {
     return Err(CliError::new(ErrorCode::InvalidArguments, "Name the branches to push, or pass --all --yes"));
   }
@@ -239,132 +382,28 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
       "--expect-remote is the remote head of one branch: name exactly one",
     ));
   }
-
-  if args.unapplied {
-    return push_unapplied(context, args);
+  if args.unapplied && args.branches.len() != 1 {
+    return Err(CliError::new(ErrorCode::InvalidArguments, "--unapplied pushes one unapplied branch: name exactly one"));
   }
+  Ok(())
+}
 
-  // what the push decides on of Patronus and GitHub is asked first: the lock holds the sync, the plan and the freeze,
-  // never a request
-  let github = Arc::new(github_service(context, environment));
-  let remote = read_remote(context, environment, &github)?;
-  let repository_lock = lock(context)?;
-  let synced = sync_locked(context)?;
-  let holds = holds_of(context, &synced, remote.robots);
-  // the stack branch of a whole stack goes along once it is on the remote or its pull request is open
-  let open_stack_pull_requests = match &remote.pull_requests {
-    Some(listed) if args.with_children && stack_branches_off_the_remote(&synced.report, &args.branches) => open_stack_pull_requests(listed),
-    _ => HashSet::new(),
+/// The remote the push goes to: `--remote`, else the remote of the baseline (an unapplied branch: `origin`, which the
+/// sync compares with); a remote the sync didn't list is `no_remote`: a URL has no remote-tracking refs to compare with
+fn push_remote(args: &PushArgs, synced: &SyncOutput) -> Result<String, CliError> {
+  let remote = match &args.remote {
+    Some(remote) => remote.clone(),
+    None if args.unapplied => STACK_REMOTE.to_string(),
+    None => synced
+      .baseline
+      .split_once('/')
+      .map(|(remote, _)| remote.to_string())
+      .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?,
   };
-  let planned = plan_push(context, args, &synced, &holds, &open_stack_pull_requests)?;
-  // the commits and the leases are fixed: GitHub, Patronus and the network push hold no lock
-  drop(repository_lock);
-
-  // the pull requests of the branches it pushes go into the baseline first (D3a), so GitHub never compares the pushed
-  // commits with a parent's branch; one GitHub refuses is a warning, and a refused push leaves the retargets done
-  let retargets = match (github_repository(context, &synced.report)?, &remote.pull_requests) {
-    (Some(repository), Some(listed)) if !planned.candidates.is_empty() => {
-      let names: Vec<&str> = planned.candidates.iter().map(|candidate| candidate.synced.name.as_str()).collect();
-      let base = base_on_remote(&synced.baseline, &planned.remote);
-      retarget_listed(context, &github, context.runtime()?, &repository, listed, (&names, base), args.dry_run)
-    }
-    _ => Retargets::default(),
-  };
-  let youtrack = youtrack_service(environment);
-  let mut output = planned.send(context, args, &synced, holds.service(), Some(&youtrack))?;
-  output.retargeted = retargets.retargeted;
-  output.retarget_warnings = retargets.warnings;
-  Ok(output)
-}
-
-/// What `bd push` asks the remote services before its lock, side by side: the user's robots, read as the app's session
-/// reads them (one list, the needs of a push: `operations::needs`), and the pull requests of the branches (one search),
-/// which the retargets read, and `--with-children` for the stack branch of a whole stack
-struct RemoteReads {
-  /// `None` off Space or without a Space token
-  robots: Option<ListedRobots>,
-  /// `None` without a GitHub repository of the branches
-  pull_requests: Option<PullRequestsResult>,
-}
-
-/// The robots of the list, and the service and the reads they came through
-struct ListedRobots {
-  service: Arc<PatronusService>,
-  sources: Arc<dyn FactSources>,
-  result: PatronusRobotsResult,
-}
-
-/// The reads of `RemoteReads`, before the lock and the sync: the GitHub repository and the Space repository from the
-/// config and the push URL of `origin`, which the sync reads too
-fn read_remote(context: &RepoContext, environment: &Environment, github: &Arc<GitHubService>) -> Result<RemoteReads, CliError> {
-  let repository = github_repository_of(context, &context.config()?)?;
-  let space = context.space_repository().ok().flatten();
-  let service = space.as_ref().and_then(|_| patronus_service(environment).ok()).map(Arc::new);
-  let sources = BdServices {
-    patronus: service.clone(),
-    space,
-    github_repository: repository.clone(),
-    ..BdServices::new(context, Arc::clone(github))
+  if !synced.report.remotes.contains(&remote) {
+    return Err(CliError::new(ErrorCode::NoRemote, format!("No remote named {remote:?}: `git remote` lists them")));
   }
-  .sources();
-  let key = session_key(context);
-  let robots = async {
-    match &service {
-      Some(_) => Some(sources.robots(&key, None, false).await),
-      None => None,
-    }
-  };
-  let pull_requests = async {
-    match &repository {
-      Some(repository) => Some(list_pull_requests(github, &context.repository, repository, &context.prefix).await),
-      None => None,
-    }
-  };
-  let (robots, pull_requests) = context.runtime()?.block_on(async { tokio::join!(robots, pull_requests) });
-  let robots = service.zip(robots).map(|(service, result)| ListedRobots {
-    service,
-    sources: Arc::clone(&sources),
-    result,
-  });
-  Ok(RemoteReads { robots, pull_requests })
-}
-
-/// What holds the push of the synced branches: the user's robots of `robots` that run on them, and what they land by
-/// content (git, under the lock). Best effort: nothing holds a repository not on Space, without a Space token or without
-/// an answer of Patronus, and nothing cancels or restarts its robots then
-fn holds_of(context: &RepoContext, synced: &SyncOutput, robots: Option<ListedRobots>) -> PushHolds {
-  let table = synced.branch_table(&context.prefix);
-  let Some(robots) = robots else {
-    return push_holds(context, table, OneShot::default(), None);
-  };
-  let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), robots.sources);
-  facts.know_listed(robots.result);
-  match listed_robots(&facts.session) {
-    Ok(_) => push_holds(context, table, facts.session, Some(robots.service)),
-    Err(error) => {
-      tracing::debug!(error = %error.message, "no push holds of robots: Patronus is not available");
-      push_holds(context, table, OneShot::default(), None)
-    }
-  }
-}
-
-/// A named root of a stack that forks whose stack branch the remote lacks (`--with-children` takes it along only once it
-/// is on the remote or its pull request is open, `stack_branches_to_push`)
-fn stack_branches_off_the_remote(report: &SyncReport, named: &[String]) -> bool {
-  report
-    .stack_branches
-    .iter()
-    .any(|stack| !stack.members.is_empty() && named.contains(&stack.root) && !stack.remote.as_ref().is_some_and(|remote| remote.remote_exists))
-}
-
-/// The roots whose pull request of the whole stack is open
-fn open_stack_pull_requests(listed: &PullRequestsResult) -> HashSet<String> {
-  listed
-    .stack_pull_requests
-    .iter()
-    .filter(|(_, pull_request)| pull_request.state == PullRequestState::Open)
-    .map(|(root, _)| root.clone())
-    .collect()
+  Ok(remote)
 }
 
 /// The baseline as `remote` names it: `master` of `origin/master`
@@ -372,689 +411,367 @@ fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
   baseline.strip_prefix(remote).and_then(|rest| rest.strip_prefix('/')).unwrap_or(baseline)
 }
 
-/// The refs of `bd push` decided under the repository lock on the sync the caller ran under it (`bd push`, and `bd
-/// safe-push`, which cancels the robot it replaces itself and passes no `holds`); `PlannedPush::send` pushes them after
-/// the lock. A branch a merged Safe Push landed whole is left out, named or built on a named one with `--with-children`
-/// (`skipped`), as the app's Push with Children leaves it, and the others push; the push is refused as `landed` only when
-/// nothing else is left of it (the stack branch of a whole stack every branch of which landed included). An ancestor
-/// taken along that landed stays as it is. A branch a running Safe Push holds (`holds`) is refused, or, with
-/// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after
-/// it; an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
-/// `open_stack_pull_requests`: the roots whose pull request of the whole stack is open, for `--with-children`. The
-/// commits and the leases are fixed here, on the tips the sync left (`PreparedPush::leased`), so another writer moving a
-/// branch after the lock changes nothing of what goes.
-pub(crate) fn plan_push<'a>(
-  context: &RepoContext,
-  args: &PushArgs,
-  synced: &'a SyncOutput,
-  holds: &'a PushHolds,
-  open_stack_pull_requests: &HashSet<String>,
-) -> Result<PlannedPush<'a>, CliError> {
+/// The remote status of each branch the sync built against `remote`, by name, as `bd sync` summarizes it: the sync's for
+/// `origin`, which it compares with; for another remote computed now the same way on the commits the sync left (one
+/// `for-each-ref` of its remote-tracking refs, then `RemoteStatusMemo`), with the statuses the session applies, so the
+/// plans, the refusals and the leases are about that remote
+fn remote_statuses(context: &RepoContext, synced: &SyncOutput, remote: &str) -> Result<(Vec<RemoteStatusUpdate>, HashMap<String, RemoteSummary>), CliError> {
   let report = &synced.report;
-  let repo = Repository::of_grouping(&report.branches, &report.grouping.parked.entries);
-  let remote = match &args.remote {
-    Some(remote) => remote.clone(),
-    None => synced
-      .baseline
-      .split_once('/')
-      .map(|(remote, _)| remote.to_string())
-      .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?,
-  };
-  // a URL has no remote-tracking refs to compare with
-  if !report.remotes.contains(&remote) {
-    return Err(CliError::new(ErrorCode::NoRemote, format!("No remote named {remote:?}: `git remote` lists them")));
+  if remote == STACK_REMOTE {
+    let summaries = synced.branches.iter().filter_map(|branch| Some((branch.name.clone(), branch.remote.clone()?))).collect();
+    return Ok((Vec::new(), summaries));
   }
-  // the base of every pull request
-  let base_branch = base_on_remote(&synced.baseline, &remote).to_string();
-
-  // the stack as the sync placed it, parents first
-  let placement = |name: &str| synced.placement(name);
-  let parent_of = |name: &str| placement(name).and_then(|stack| stack.effective_base.clone());
-  let order = synced.order();
-
-  // the ancestors of the named branches that go along; one with nothing for the remote is left out
-  let mut implicit: HashSet<String> = HashSet::new();
-  let selected: Vec<&str> = if args.all {
-    order.clone()
-  } else {
-    for name in &args.branches {
-      if !synced.branches.iter().any(|branch| &branch.name == name) {
-        return Err(unknown_or_unapplied(context, name, "push it with `bd push --unapplied`"));
-      }
-    }
-    // the branches the named ones are built on go along, unless --alone; --expect-remote is the lease of one branch
-    if !args.alone && args.expect_remote.is_none() {
-      for name in &args.branches {
-        let mut parent = parent_of(name);
-        while let Some(ancestor) = parent {
-          if !implicit.insert(ancestor.clone()) {
-            break;
-          }
-          parent = parent_of(&ancestor);
-        }
-      }
-      implicit.retain(|name| !args.branches.contains(name));
-    }
-    // the branches Push with Children of a named one covers, as the app's: those stacked on it by declared parent
-    // (`push::push_plan`, `PushScope::WithChildren`); a blocked one is refused below as not synced. A branch taken along
-    // brings no children: only the named ones do
-    let children: HashSet<&str> = if args.with_children {
-      args.branches.iter().flat_map(|name| descendants(&repo, name)).collect()
-    } else {
-      HashSet::new()
-    };
-    // parents first
-    order
-      .iter()
-      .copied()
-      .filter(|name| args.branches.iter().any(|named| named == name) || implicit.contains(*name) || children.contains(name))
-      .collect()
-  };
-
-  // the robots the push restarts: of the named branches with --restart-running; the ancestors they land go along
-  let restarted: Vec<PatronusRobot> = if args.restart_running {
-    selected
-      .iter()
-      .filter(|name| !implicit.contains(**name))
-      .filter_map(|name| holds.get(name).filter(|hold| hold.is_own(name)).map(|hold| hold.robot.clone()))
-      .collect()
-  } else {
-    Vec::new()
-  };
-  let on_remote = remote_tips(context, report, &remote)?;
-  // the statuses against another remote, computed here on the commits the sync left: `origin`'s are the sync's
-  let statuses = (remote != "origin").then(|| {
-    RemoteStatusMemo::new(
-      context.git.clone(),
-      &context.repository,
-      context.cache(),
-      &remote,
-      report.baseline_commit.clone(),
-      on_remote.as_ref().clone(),
-    )
-  });
-  let mut candidates = Vec::with_capacity(selected.len());
-  let mut refusals = Vec::new();
-  let mut held = Vec::new();
-  // the commands that act on the refusals, in `next_steps`
-  let mut held_steps = Vec::new();
-  let mut refused_steps = Vec::new();
-  // ` --remote <remote>` for another remote than the one the sync compares with
-  let remote_option = if remote == "origin" {
-    String::new()
-  } else {
-    format!(" --remote {}", shell_word(&remote))
-  };
-  // the branches asked for that a merged Safe Push landed whole: left out while the rest has work
-  let mut landed: Vec<(&str, &LandedBranch, String)> = Vec::new();
-  let mut behind = Vec::new();
-  // the parked branches the push leaves out (`--all`, a child of `--with-children`), and the named ones it refuses
-  let mut parked_skipped: Vec<(&str, String)> = Vec::new();
-  let mut parked_named = Vec::new();
-  for name in &selected {
-    let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
+  let namespace = format!("refs/remotes/{remote}/");
+  let pattern = format!("{namespace}{}/", context.prefix.trim_end_matches('/'));
+  let on_remote = tips_under(&ref_tips(&context.git, &context.repository, &[&pattern])?, &namespace);
+  let memo = RemoteStatusMemo::new(context.git.clone(), &context.repository, context.cache(), remote, report.baseline_commit.clone(), on_remote);
+  let mut statuses = Vec::new();
+  let mut summaries = HashMap::new();
+  for branch in &synced.branches {
+    let full_name = final_name(context, &branch.name)?;
+    let Some(tip) = report.tips.get(&full_name).filter(|_| !report.not_built.contains_key(&branch.name)) else {
       continue;
     };
-    // a parked branch stays local, and so does a branch built on one, which carries its commits
-    if let Some(parked) = parked_state(&repo, name) {
-      if args.branches.iter().any(|named| named == name) {
-        parked_named.push(parked_words(name, &parked));
-      } else if !implicit.contains(*name) {
-        parked_skipped.push((name, parked_words(name, &parked)));
-      }
-      continue;
-    }
-    if let Some(hold) = holds.get(name)
-      && !restarted.iter().any(|robot| robot.id == hold.robot.id)
-    {
-      // a branch taken along that a Safe Push lands is on the remote as the robot took it: the push of the stack starts
-      // above it, as the app's does, and a child carries its commits
-      if !implicit.contains(*name) {
-        if let Some(landed_branch) = &hold.landed {
-          // nothing of it is left to push: it stays as it is, the others push
-          landed.push((name, landed_branch, hold.reason(name)));
-        } else {
-          held.push(hold.reason(name));
-          held_steps.push(NextStep::new(robot_command(context, &hold.by), false));
-          if hold.is_own(name) {
-            held_steps.push(NextStep::new(format!("{} push {} --restart-running", context.bd, shell_word(name)), true));
-          }
-        }
-      }
-      continue;
-    }
-    if let Some(reason) = not_synced_reason(report, branch) {
-      refusals.push(format!("{name} is not synced ({reason}): fix it first, `bd sync` says what holds it"));
-      refused_steps.push(NextStep::new(format!("{} sync", context.bd), false));
-      continue;
-    }
-    let full_name = final_name(context, name)?;
-    let Some(tip) = report.tips.get(&full_name) else {
-      refusals.push(format!("{name} has no virtual branch"));
-      continue;
-    };
-    let parent = parent_of(name);
-    let parent_ref = parent.as_deref().map(|parent| final_name(context, parent)).transpose()?;
-    let remote_state = remote_status(context, statuses.as_ref(), report, branch, (&full_name, tip), parent_ref.as_deref())?;
-    let along = implicit.contains(*name);
-    if along && remote_state.as_ref().is_some_and(|remote| !remote.needs_push()) {
-      // on the remote as it is: nothing to take along
-      continue;
-    }
-    if let Some(remote_state) = &remote_state
-      && remote_state.drops_remote_commits()
-      && !args.force
-    {
-      let alone = if along { ", or --alone to push the named branches without it" } else { "" };
-      refusals.push(format!(
-        "{name}: the remote branch has {} commits the branch doesn't (`dropped_commits`); show them to the user, and once the user approved, --force replaces them{alone}",
-        remote_state.behind
-      ));
-      // the push the sync names for it, leased on the remote head it saw, when it compared with this remote
-      let replace = branch
-        .push
-        .clone()
-        .filter(|_| remote_option.is_empty())
-        .unwrap_or_else(|| format!("{} push {} --force{remote_option}", context.bd, shell_word(name)));
-      refused_steps.push(NextStep::new(replace, true));
-      behind.push(ErrorBranch {
-        name: (*name).to_string(),
-        remote: remote_state.clone(),
-      });
-    }
-    candidates.push(Candidate {
-      synced: branch,
-      full_name,
-      parent,
-      remote: remote_state,
-    });
-  }
-  // the whole stack of a named root goes along with its children: its stack branch, when this sync built it, never a
-  // stale one
-  let (stacks, stack_warnings) = if args.with_children {
-    stack_branches_to_push(report, &args.branches, &remote, open_stack_pull_requests, holds)
-  } else {
-    (Vec::new(), Vec::new())
-  };
-  for stack in &stacks {
-    if let Some(remote_state) = &stack.remote
-      && drops_remote_commits(remote_state)
-      && !args.force
-    {
-      refusals.push(format!(
-        "{}: the remote branch has {} commits the stack branch doesn't (`dropped_commits`); show them to the user, and once the user approved, --force replaces them",
-        stack.branch_name, remote_state.commits_behind
-      ));
-      refused_steps.push(NextStep::new(
-        format!("{} push {} --with-children --force{remote_option}", context.bd, shell_word(&stack.root)),
-        true,
-      ));
-      let short = context.short_ids(RemoteSummary::ids(remote_state));
-      behind.push(ErrorBranch {
-        name: stack.branch_name.clone(),
-        remote: RemoteSummary::new(remote_state, usize::try_from(stack.commit_count).unwrap_or(usize::MAX), &short),
-      });
-    }
-  }
-  if !parked_named.is_empty() {
-    return Err(CliError::new(
-      ErrorCode::Parked,
-      format!("Nothing was pushed: {}; it stays local until the user unparks it", parked_named.join("; ")),
-    ));
-  }
-  // nothing asked for is left but parked branches
-  if candidates.is_empty() && stacks.is_empty() && held.is_empty() && refusals.is_empty() && landed.is_empty() && !parked_skipped.is_empty() {
-    let reasons: Vec<&str> = parked_skipped.iter().map(|(_, reason)| reason.as_str()).collect();
-    return Err(CliError::new(
-      ErrorCode::Parked,
-      format!("Nothing was pushed: {}; tell the user, never unpark them yourself", reasons.join("; ")),
-    ));
-  }
-  // nothing asked for is left but what merged Safe Pushes landed: the push sends nothing that lands. The named ones
-  // say it (with --with-children their children landed too)
-  if candidates.is_empty() && stacks.is_empty() && held.is_empty() && refusals.is_empty() && !landed.is_empty() {
-    let named: Vec<&str> = landed
-      .iter()
-      .filter(|(name, ..)| args.branches.iter().any(|named| named == name))
-      .map(|(.., reason)| reason.as_str())
-      .collect();
-    let reasons = if named.is_empty() {
-      landed.iter().map(|(.., reason)| reason.as_str()).collect()
-    } else {
-      named
-    };
-    return Err(CliError::new(ErrorCode::Landed, format!("Nothing was pushed: {}; {LANDED_NEXT}", reasons.join("; "))).with_next_step(format!("{} update", context.bd), true));
-  }
-  if !held.is_empty() {
-    let mut error = CliError::new(ErrorCode::RobotRunning, format!("Nothing was pushed: {}", held.join("; ")));
-    for step in held_steps {
-      error.push_next_step(step);
-    }
-    return Err(error);
-  }
-  if !refusals.is_empty() {
-    let mut error = CliError::new(ErrorCode::PushRefused, format!("Nothing was pushed: {}", refusals.join("; ")));
-    error.branches = behind;
-    for step in refused_steps {
-      error.push_next_step(step);
-    }
-    return Err(error);
-  }
-  let expected: Vec<(String, Option<String>)> = match &args.expect_remote {
-    Some(expected) => vec![(candidates[0].full_name.clone(), Some(resolve_expected(context, expected)?))],
-    // the remote head the status compared with: a remote commit the branch has by content goes, and --force drops what
-    // the status counted, but nothing pushed since
-    None => candidates
-      .iter()
-      .map(|candidate| (candidate.full_name.clone(), candidate.remote.as_ref().and_then(|remote| remote.head_id.clone())))
-      .collect(),
-  };
-  // the tips the sync left, under the lock: nothing moved them since
-  let refs = leased_push_refs(&report.tips, &expected)?;
-  let mut leased: Vec<LeasedBranch> = candidates
-    .iter()
-    .zip(refs)
-    .map(|(candidate, push)| {
-      Ok(LeasedBranch {
-        name: candidate.synced.name.clone(),
-        push,
-        parent_ref: candidate.parent.as_deref().map(|parent| final_name(context, parent)).transpose()?,
-        // `bd` counts no commits as the user's: its statuses say how many go, not whose
-        my_email: None,
-      })
-    })
-    .collect::<Result<_, CliError>>()?;
-  // after the branches: the stack branch of each whole stack, leased on the remote head its status compared with
-  leased.extend(stacks.iter().filter_map(|stack| {
-    let lease = stack.remote.as_ref().and_then(|remote| remote.remote_tip.clone());
-    Some(LeasedBranch {
-      name: stack.root.clone(),
-      push: PushRef {
-        full_name: stack.branch_name.clone(),
-        tip: stack.tip.clone()?,
-        source: if lease.is_some() { LeaseSource::Expected } else { LeaseSource::Absent },
-        lease,
-      },
-      parent_ref: None,
-      my_email: None,
-    })
-  }));
-  // what a refused push names: the branches, then the stack branches with their roots
-  let pushed_names: Vec<PushedName> = candidates
-    .iter()
-    .map(|candidate| PushedName {
-      name: candidate.synced.name.clone(),
-      commit_count: candidate.synced.commit_count,
-      stack_root: None,
-    })
-    .chain(stacks.iter().map(|stack| PushedName {
-      name: stack.branch_name.clone(),
-      commit_count: usize::try_from(stack.commit_count).unwrap_or(usize::MAX),
-      stack_root: Some(stack.root.clone()),
-    }))
-    .collect();
-  // the one leased push of the app's push too: atomic, a stack goes whole or not at all
-  let target = PushTarget {
-    repository_path: &context.repository,
-    remote: &remote,
-    baseline: &synced.baseline,
-    size_limit: push_size_limit(context)?,
-  };
-  let options = PushOptions {
-    atomic: true,
-    dry_run: args.dry_run,
-  };
-  // the stack branches come after the branches
-  let prepared = PreparedPush::leased(&target, leased, options);
-  Ok(PlannedPush {
-    remote,
-    remote_option,
-    base_branch,
-    candidates,
-    stacks,
-    stack_warnings,
-    restarted,
-    landed,
-    parked_skipped,
-    pushed_names,
-    prepared,
-  })
-}
-
-/// What `plan_push` decided under the lock, which `send` pushes after it
-pub(crate) struct PlannedPush<'a> {
-  pub(crate) remote: String,
-  /// ` --remote <remote>` for another remote than `origin`, which the sync compares with; empty for `origin`
-  remote_option: String,
-  /// The base of every pull request: the baseline without the remote
-  base_branch: String,
-  pub(crate) candidates: Vec<Candidate<'a>>,
-  /// The stack branches that go after the branches
-  stacks: Vec<&'a StackBranchUpdate>,
-  stack_warnings: Vec<String>,
-  /// The robots `--restart-running` cancels before the push and restarts on the pushed commits
-  restarted: Vec<PatronusRobot>,
-  /// The branches asked for that a merged Safe Push landed whole, left out
-  landed: Vec<(&'a str, &'a LandedBranch, String)>,
-  /// The parked branches the push leaves out
-  parked_skipped: Vec<(&'a str, String)>,
-  /// What a refused push names: the branches, then the stack branches with their roots
-  pushed_names: Vec<PushedName>,
-  /// The commits and the leases of every ref, fixed under the lock
-  prepared: PreparedPush,
-}
-
-impl PlannedPush<'_> {
-  /// The push of the planned refs after the lock (`operations::push`): the robots `--restart-running` restarts canceled
-  /// (`service`, the Patronus of the holds), the frozen commits pushed in one atomic push (once more over a remote that
-  /// moved since the sync without commits the branch lacks, D4, unless `--expect-remote` named the lease), the restarts on
-  /// the pushed commits, and the ready `gh pr create` of each pushed branch, its issues' summaries from `youtrack`
-  pub(crate) fn send(
-    self,
-    context: &RepoContext,
-    args: &PushArgs,
-    synced: &SyncOutput,
-    service: Option<&PatronusService>,
-    youtrack: Option<&YouTrackService>,
-  ) -> Result<PushOutput, CliError> {
-    let report = &synced.report;
-    let Self {
-      remote,
-      remote_option,
-      base_branch,
-      candidates,
-      stacks,
-      stack_warnings,
-      restarted,
-      landed,
-      parked_skipped,
-      pushed_names,
-      prepared,
-    } = self;
-    let restarts = (!args.dry_run && !restarted.is_empty())
-      .then(|| service.ok_or_else(|| CliError::new(ErrorCode::PatronusError, "Patronus is not available")))
+    // the parent as the sync left it
+    let parent = synced
+      .placement(&branch.name)
+      .and_then(|stack| stack.effective_base.as_deref())
+      .map(|parent| final_name(context, parent))
       .transpose()?;
-    if let Some(service) = restarts {
-      context
-        .runtime()?
-        .block_on(cancel_robots(service, &context.prefix, &restarted))
-        .map_err(|message| CliError::new(ErrorCode::PatronusError, message))?;
-    }
-    // a remote branch moved since the sync without commits its branch lacks: nobody's work is lost, so the push goes again
-    // over what the remote has now, once, as the app's does (D4); a lease the user named (`--expect-remote`) stays the
-    // lease, and a remote with someone's commits, or that moves again, is told (`lease_rejected`)
-    let over = if args.expect_remote.is_some() { OverMoved::Never } else { OverMoved::Once };
-    let sent = send(&context.git, prepared, over, &mut |_| {}).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
-    let statuses = match &sent.answer {
-      LeasedPush::Pushed(statuses) => statuses,
-      LeasedPush::RemoteMoved { moved, remote_statuses } => return Err(lease_rejected(context, &pushed_names, moved, remote_statuses, &remote_option)),
-      LeasedPush::Refused { summary } => {
-        return Err(CliError::new(
-          ErrorCode::PushRefused,
-          format!("Nothing was pushed: the remote refused the push ({summary}). {REMOTE_REFUSED_NEXT}"),
-        ));
-      }
-      LeasedPush::TooLarge(too_large) => return Err(CliError::from(too_large)),
-      LeasedPush::WouldReject => {
-        return Err(CliError::new(
-          ErrorCode::LeaseRejected,
-          format!(
-            "The remote would reject {}: {WOULD_REJECT_NEXT}",
-            pushed_names.iter().map(|pushed| pushed.name.as_str()).collect::<Vec<_>>().join(", ")
-          ),
-        ));
-      }
-    };
-    let refs: Vec<&PushRef> = sent.prepared.branches().iter().map(|branch| &branch.push).collect();
+    let parent_base = parent.as_deref().map(|parent| report.tips.get(parent).map_or(parent, String::as_str));
+    let status = memo.status(&full_name, &branch.name, tip, None, parent_base.map(stack_parent))?;
+    let short = context.short_ids(RemoteSummary::ids(&status));
+    summaries.insert(branch.name.clone(), RemoteSummary::new(&status, branch.commit_count, &short));
+    statuses.push(status);
+  }
+  Ok((statuses, summaries))
+}
 
-    let repository_option = github_repository_option(context, report)?;
-    let short = context.short_ids(refs.iter().flat_map(|pushed| std::iter::once(pushed.tip.as_str()).chain(pushed.lease.as_deref())));
-    let names: Vec<&str> = candidates.iter().map(|candidate| candidate.synced.name.as_str()).collect();
-    let issues = pull_request_issues(context, report, youtrack, &names)?;
-    let branches = candidates
+/// What a run of `bd push` decides and tells on: its arguments, its sync, the remote it pushes to and the remote status
+/// of each branch of the sync against it
+pub(crate) struct PushRun<'a> {
+  pub(crate) context: &'a RepoContext,
+  environment: &'a Environment,
+  pub(crate) args: &'a PushArgs,
+  pub(crate) synced: &'a SyncOutput,
+  pub(crate) remote: String,
+  /// The remote status of each branch the sync built against `remote` (the sync's for `origin`), by name
+  pub(crate) remotes: HashMap<String, RemoteSummary>,
+}
+
+/// What the effects of a run told besides its push: the retargets GitHub made and a warning of each it refused, the
+/// robots it restarted
+#[derive(Default)]
+struct Told {
+  retargeted: Vec<RetargetedPullRequest>,
+  retarget_warnings: Vec<String>,
+  restarted: Vec<RestartedRobot>,
+}
+
+impl PushRun<'_> {
+  /// What the commands the run names add to `bd push <branch>`: ` --unapplied` of an unapplied branch, ` --remote
+  /// <remote>` for another remote than `origin`, which the sync compares with; empty otherwise
+  pub(crate) fn option(&self) -> String {
+    if self.args.unapplied {
+      " --unapplied".to_string()
+    } else if self.remote == STACK_REMOTE {
+      String::new()
+    } else {
+      format!(" --remote {}", bd_command::shell_word(&self.remote))
+    }
+  }
+
+  /// The intents of the push, the named branches (every branch with `--all`) in the order of the sync, parents first:
+  /// Push Stack of each by default, the branch alone with `--alone`, `--all` and `--expect-remote` (leased on that
+  /// commit), Push with Children beside Push Stack with `--with-children` (alone with `--alone`), the unapplied branch
+  /// with `--unapplied`
+  fn intents(&self, expect_remote: Option<&str>) -> Vec<Push> {
+    let order = self.synced.order();
+    let names: Vec<&str> = if self.args.unapplied {
+      self.args.branches.iter().map(String::as_str).collect()
+    } else if self.args.all {
+      order
+    } else {
+      order.into_iter().filter(|name| self.args.branches.iter().any(|named| named == name)).collect()
+    };
+    let scopes: &[PushScope] = if self.args.unapplied {
+      &[PushScope::Unapplied]
+    } else if self.args.all || self.args.expect_remote.is_some() || (self.args.alone && !self.args.with_children) {
+      &[PushScope::Alone]
+    } else if self.args.with_children && self.args.alone {
+      &[PushScope::WithChildren]
+    } else if self.args.with_children {
+      &[PushScope::WithAncestors, PushScope::WithChildren]
+    } else {
+      &[PushScope::WithAncestors]
+    };
+    names
       .iter()
-      .zip(&refs)
-      .enumerate()
-      .map(|(index, (candidate, &pushed))| {
-        let draft = pull_request_draft(
-          context,
-          report,
-          (&repository_option, base_branch.clone()),
-          (&candidate.synced.name, &candidate.full_name),
-          &issues,
-        );
-        let replaced_landed = match sent.moved_to(index) {
-          Some(moved) => landed_commits(moved, &context.short_ids(RemoteSummary::ids(moved))),
-          None => candidate.remote.as_ref().map_or_default(|remote| remote.landed_commits.clone()),
-        };
-        PushedBranch {
-          pushed_over: sent.moved_to(index).is_some(),
-          ..pushed_branch(&candidate.synced.name, pushed, statuses, draft, &short, replaced_landed)
-        }
-      })
-      .collect();
-    let stacks = stacks
-      .iter()
-      .zip(&refs[candidates.len()..])
-      .enumerate()
-      .map(|(at, (stack, &pushed))| {
-        let draft = stack_pull_request_draft(context, report, base_branch.clone(), stack)?;
-        let moved = sent.moved_to(candidates.len() + at);
-        let replaced_landed = moved
-          .or(stack.remote.as_ref())
-          .map_or_default(|remote| landed_commits(remote, &context.short_ids(RemoteSummary::ids(remote))));
-        Ok(PushedBranch {
-          pushed_over: moved.is_some(),
-          ..pushed_branch(&stack.root, pushed, statuses, draft, &short, replaced_landed)
+      .flat_map(|name| {
+        scopes.iter().map(|scope| Push {
+          subject: Subject::branch(name),
+          scope: scope.clone(),
+          expect_remote: expect_remote.map(str::to_string),
+          force: self.args.force,
+          restart_running: false,
         })
       })
-      .collect::<Result<_, CliError>>()?;
+      .collect()
+  }
 
-    // the restart takes the commit just pushed; a rejected push above left the robots canceled
-    let restarted = match restarts {
-      Some(service) => context
-        .runtime()?
-        .block_on(restart_robots(service, &context.prefix, &restarted))
-        .map_err(|message| CliError::new(ErrorCode::PatronusError, message))?,
-      None => Vec::new(),
-    };
-    let restarted = restarted
-      .into_iter()
+  /// `intents` with `--restart-running`: a named branch whose own Safe Push runs is pushed alone, its robot canceled
+  /// first and restarted on the pushed commit, as the app's restart that pushes first; its children still go with
+  /// `--with-children`
+  fn restarts(session: &OneShot, intents: Vec<Push>) -> Vec<Push> {
+    let mut restarted: Vec<Push> = Vec::with_capacity(intents.len());
+    for intent in intents {
+      let name = intent.subject.name();
+      let own = session
+        .branch(name)
+        .and_then(|branch| branch.landing.hold.as_ref())
+        .is_some_and(|hold| hold.kind == HoldKind::Own);
+      let runs = own && session.branch_robot(name).is_some_and(|robot| robot.status == PatronusRobotStatus::Running);
+      if !runs || intent.scope == PushScope::WithChildren {
+        restarted.push(intent);
+      } else if !restarted.iter().any(|known| known.subject == intent.subject && known.restart_running) {
+        restarted.push(Push {
+          scope: PushScope::Alone,
+          restart_running: true,
+          ..intent
+        });
+      }
+    }
+    restarted
+  }
+
+  /// What the effects of the run did, in their order: each retarget (one GitHub refused is a warning, the push went
+  /// on), the robots restarted; an effect that failed fails the command in the words of `bd`, after what the effects
+  /// before it did
+  fn tell(&self, facts: &SessionFacts, services: &StartServices, planned: &Planned, started: &Started) -> Result<Told, CliError> {
+    let mut told = Told::default();
+    let mut answers = started.retargets.iter();
+    for record in &started.outcome.effects {
+      match (&record.effect, &record.status) {
+        (PlannedEffect::Retarget { .. }, EffectStatus::Done | EffectStatus::Failed { .. }) => {
+          let (Some(retarget), Some(answer)) = (retarget_of(facts, &record.effect), answers.next()) else {
+            continue;
+          };
+          match (answer, &services.github) {
+            (Ok(()), _) => told.retargeted.push(retarget),
+            (Err(error), Some((_, repository))) => told.retarget_warnings.push(refusal_warning(&retarget, repository, error.clone())),
+            (Err(_), None) => {}
+          }
+        }
+        (_, EffectStatus::Done | EffectStatus::Unknown | EffectStatus::Skipped { reason: None }) => {}
+        (PlannedEffect::Push { .. }, EffectStatus::Failed { error }) => return Err(self.push_error(planned, started.pushed.as_ref(), error)),
+        (_, EffectStatus::Failed { error }) => return Err(cli_error(error.clone())),
+        (_, EffectStatus::Skipped { reason: Some(reason) }) => {
+          let mut error = cli_error(reason.clone());
+          let pushed: Vec<&str> = started.pushed.iter().flat_map(|sent| sent.prepared.branches()).map(|branch| branch.name.as_str()).collect();
+          if !pushed.is_empty() {
+            error.message = format!("{}; pushed before it: {}", error.message, pushed.join(", "));
+          }
+          return Err(error);
+        }
+      }
+    }
+    told.restarted = started
+      .restarted
+      .iter()
       .map(|robot| RestartedRobot {
         branch: robot.branch_name.clone().unwrap_or_default(),
-        url: robot.url,
+        url: robot.url.clone(),
       })
       .collect();
-    let landed_ids = context.short_ids(landed.iter().flat_map(|(_, landed, _)| landed.landed.iter().chain(&landed.after).map(String::as_str)));
-    let skipped = landed
-      .into_iter()
-      .map(|(name, landed, message)| SkippedBranch {
-        name: name.to_string(),
-        code: ErrorCode::Landed,
-        message,
-        landed_by: Some(LandedBySummary::new(context, landed, &landed_ids)),
+    Ok(told)
+  }
+
+  /// The push of `planned` failed (`error`), as `sent` says why: a remote that moved is `lease_rejected` with what each
+  /// moved one has now, a remote that refused it `push_refused`, a push too large `push_too_large`; a push that failed
+  /// before the remote answered (`sent` is `None`) is a network error
+  fn push_error(&self, planned: &Planned, sent: Option<&Sent>, error: &ApiError) -> CliError {
+    let Some(sent) = sent else {
+      return CliError::new(ErrorCode::NetworkError, error.message.clone());
+    };
+    let names: Vec<PushedName> = planned
+      .pushes
+      .iter()
+      .map(|pushed| PushedName {
+        name: if pushed.whole_stack { pushed.full_name.clone() } else { pushed.name.clone() },
+        commit_count: self.commit_count(pushed),
+        stack_root: pushed.whole_stack.then(|| pushed.name.clone()),
       })
-      .chain(parked_skipped.into_iter().map(|(name, message)| SkippedBranch {
-        name: name.to_string(),
-        code: ErrorCode::Parked,
-        message,
-        landed_by: None,
-      }))
       .collect();
+    match &sent.answer {
+      LeasedPush::RemoteMoved { moved, remote_statuses } => lease_rejected(self.context, &names, moved, remote_statuses, &self.option()),
+      LeasedPush::Refused { summary } => CliError::new(
+        ErrorCode::PushRefused,
+        format!("Nothing was pushed: the remote refused the push ({summary}). {REMOTE_REFUSED_NEXT}"),
+      ),
+      LeasedPush::TooLarge(too_large) => CliError::from(too_large),
+      LeasedPush::WouldReject => CliError::new(
+        ErrorCode::LeaseRejected,
+        format!(
+          "The remote would reject {}: {WOULD_REJECT_NEXT}",
+          names.iter().map(|pushed| pushed.name.as_str()).collect::<Vec<_>>().join(", ")
+        ),
+      ),
+      LeasedPush::Pushed(_) => cli_error(error.clone()),
+    }
+  }
+
+  /// How many commits the ref `pushed` sends of its branch, or of the stack branch of a whole stack
+  fn commit_count(&self, pushed: &PushedRef) -> usize {
+    if pushed.whole_stack {
+      let stack = self.synced.report.stack_branches.iter().find(|stack| stack.root == pushed.name);
+      return stack.map_or(0, |stack| usize::try_from(stack.commit_count).unwrap_or(usize::MAX));
+    }
+    self
+      .synced
+      .branches
+      .iter()
+      .find(|branch| branch.name == pushed.name)
+      .map_or(0, |branch| branch.commit_count)
+  }
+}
+
+/// The retarget of `effect` (a `Retarget` of the plan) with the pull request of the session it is of
+fn retarget_of(facts: &SessionFacts, effect: &PlannedEffect) -> Option<RetargetedPullRequest> {
+  let PlannedEffect::Retarget { branch, to, .. } = effect else {
+    return None;
+  };
+  let pull_request = facts.session.facts().pull_requests.view().pull_requests.get(branch)?;
+  Some(RetargetedPullRequest::of(branch, pull_request, to))
+}
+
+impl PushRun<'_> {
+  /// The output of the run: each branch it pushed (with `--dry-run`: would push) and each named or covered branch the
+  /// remote has as it is, parents first, with its pull request into the baseline; the stack branches; the retargets; the
+  /// robots it restarted; what it left out and why
+  fn output(&self, facts: &SessionFacts, pushed: Option<(&Planned, Option<&Sent>)>, told: Told, covered: Covered) -> Result<PushOutput, CliError> {
+    let (context, report) = (self.context, &self.synced.report);
+    let none = HashMap::new();
+    let (sent, statuses) = match pushed {
+      Some((planned, Some(sent))) => match &sent.answer {
+        LeasedPush::Pushed(statuses) => (Some((planned, sent)), statuses),
+        _ => return Err(self.push_error(planned, Some(sent), &ApiError::internal("The remote refused the push"))),
+      },
+      _ => (None, &none),
+    };
+    let refs: Vec<(&PushedRef, &PushRef, Option<&RemoteStatusUpdate>)> = sent.map_or_default(|(planned, sent)| {
+      planned
+        .pushes
+        .iter()
+        .zip(sent.prepared.branches())
+        .enumerate()
+        .map(|(index, (pushed, leased))| (pushed, &leased.push, sent.moved_to(index)))
+        .collect()
+    });
+    let up_to_date: Vec<(&str, String, String, Option<String>)> = covered
+      .up_to_date
+      .iter()
+      .filter_map(|name| self.on_the_remote(facts, name).map(|(full, tip, head)| (name.as_str(), full, tip, head)))
+      .collect();
+    let ids = refs
+      .iter()
+      .flat_map(|(_, pushed, _)| std::iter::once(pushed.tip.as_str()).chain(pushed.lease.as_deref()))
+      .chain(up_to_date.iter().flat_map(|(_, _, tip, head)| std::iter::once(tip.as_str()).chain(head.as_deref())));
+    let short = context.short_ids(ids);
+    // every pull request goes into the baseline; the issues of all of them are asked once
+    let base = base_on_remote(&self.synced.baseline, &self.remote).to_string();
+    let drafted: Vec<&str> = if self.args.unapplied {
+      Vec::new()
+    } else {
+      let pushed = refs.iter().filter(|(pushed, ..)| !pushed.whole_stack).map(|(pushed, ..)| pushed.name.as_str());
+      pushed.chain(up_to_date.iter().map(|(name, ..)| *name)).collect()
+    };
+    let youtrack = youtrack_service(self.environment);
+    let issues = pull_request_issues(context, report, Some(&youtrack), &drafted)?;
+    let repository_option = github_repository_option(context, report)?;
+    let draft = |name: &str, head: &str| (!self.args.unapplied).then(|| pull_request_draft(context, report, (&repository_option, base.clone()), (name, head), &issues));
+    let (mut branches, mut stacks) = (Vec::new(), Vec::new());
+    for (pushed, leased, moved) in refs {
+      let replaced = |remote: &RemoteStatusUpdate| landed_commits(remote, &context.short_ids(RemoteSummary::ids(remote)));
+      if pushed.whole_stack {
+        let Some(stack) = report.stack_branches.iter().find(|stack| stack.root == pushed.name) else {
+          continue;
+        };
+        let draft = stack_pull_request_draft(context, report, base.clone(), stack)?;
+        let replaced_landed = moved.or(stack.remote.as_ref()).map_or_default(replaced);
+        stacks.push(PushedBranch {
+          pushed_over: moved.is_some(),
+          ..pushed_branch(&pushed.name, leased, statuses, Some(draft), &short, replaced_landed)
+        });
+        continue;
+      }
+      let replaced_landed = match moved {
+        Some(moved) => replaced(moved),
+        None => self.remotes.get(&pushed.name).map_or_default(|remote| remote.landed_commits.clone()),
+      };
+      branches.push(PushedBranch {
+        pushed_over: moved.is_some(),
+        ..pushed_branch(&pushed.name, leased, statuses, draft(&pushed.name, &pushed.full_name), &short, replaced_landed)
+      });
+    }
+    for (name, full_name, tip, head) in up_to_date {
+      branches.push(PushedBranch {
+        name: name.to_string(),
+        commit: short.get(&tip).to_string(),
+        state: PushState::UpToDate,
+        lease: head.as_deref().map(|head| short.get(head).to_string()),
+        lease_source: if head.is_some() { "expected" } else { "absent" }.to_string(),
+        replaced_landed: Vec::new(),
+        pushed_over: false,
+        pull_request: draft(name, &full_name),
+        remote_branch: full_name,
+      });
+    }
+    let order = self.synced.order();
+    branches.sort_by_key(|branch| order.iter().position(|name| *name == branch.name).unwrap_or(usize::MAX));
+    let mut retarget_warnings = told.retarget_warnings;
+    retarget_warnings.extend(self.listing_warning(facts, !branches.is_empty() || !stacks.is_empty())?);
     Ok(PushOutput {
       schema: SchemaVersion,
       repository: context.repository.clone(),
       prefix: context.prefix.clone(),
-      remote,
-      dry_run: args.dry_run,
+      remote: self.remote.clone(),
+      dry_run: self.args.dry_run,
       branches,
-      restarted,
-      retargeted: Vec::new(),
-      retarget_warnings: Vec::new(),
+      restarted: told.restarted,
+      retargeted: told.retargeted,
+      retarget_warnings,
       stacks,
-      stack_warnings,
-      skipped,
+      stack_warnings: covered.stack_warnings,
+      skipped: covered.skipped,
+    })
+  }
+
+  /// The branch `name` the remote has as it is: its name on the remote, its tip and the remote head (`None`: no remote
+  /// branch); of an unapplied branch as the sync listed it
+  fn on_the_remote(&self, facts: &SessionFacts, name: &str) -> Option<(String, String, Option<String>)> {
+    if self.args.unapplied {
+      let branch = facts.session.state().sections().unapplied.iter().find(|branch| branch.branch == name)?;
+      let head = branch.remote.as_ref().and_then(|remote| remote.remote_tip.clone());
+      return Some((branch.name.clone(), branch.tip.clone(), head));
+    }
+    let full_name = to_final_branch_name(&self.context.prefix, name).ok()?;
+    let tip = self.synced.report.tips.get(&full_name)?.clone();
+    let head = self.remotes.get(name).and_then(|remote| remote.head_id.clone());
+    Some((full_name, tip, head))
+  }
+
+  /// Why the pull requests weren't checked for a base to retarget, when GitHub couldn't list them for another reason
+  /// than a missing token or GitHub repository; nothing when the push pushed and listed nothing
+  fn listing_warning(&self, facts: &SessionFacts, listed: bool) -> Result<Option<String>, CliError> {
+    if !listed || self.args.unapplied || github_repository(self.context, &self.synced.report)?.is_none() {
+      return Ok(None);
+    }
+    Ok(match &facts.session.facts().pull_requests.view().head.value {
+      None | Some(PullRequestAvailability::Available { .. } | PullRequestAvailability::SignedOut | PullRequestAvailability::NotGitHub) => None,
+      Some(other) => Some(format!("the pull requests weren't checked for a base to retarget: {}", availability_error(other).message)),
     })
   }
 }
-
-/// The stack branches of the stacks that fork whose root `--with-children` names, in the order of the sync, by the rule
-/// of the app's Push with Children (`push::stack_branch_along`): once it is on the remote (`origin`) or its pull request
-/// is open (`open_stack_pull_requests`, by root), the `built` ones the remote lacks (by content, as the sync's remote
-/// status compares), and a warning per one of them left out. One neither on the remote nor with an open pull request is no
-/// branch to publish by itself: `bd safe-push --whole-stack` and its pull request put it there. A stack branch in
-/// another state is not the stack's commits, and its remote status is of `origin` only. One whose every branch merged
-/// Safe Pushes landed whole (`holds`) carries only commits that are in the target: a push of it lands nothing. One the
-/// Safe Push of the whole stack runs on stays as it is: a push into it fails the robot at the end
-fn stack_branches_to_push<'a>(
-  report: &'a SyncReport,
-  named: &[String],
-  remote: &str,
-  open_stack_pull_requests: &HashSet<String>,
-  holds: &PushHolds,
-) -> (Vec<&'a StackBranchUpdate>, Vec<String>) {
-  let mut stacks = Vec::new();
-  let mut warnings = Vec::new();
-  for stack in report.stack_branches.iter().filter(|stack| named.contains(&stack.root)) {
-    // a parked member, every member landed, its own robot, a build the sync did not make (`stack_hold`)
-    let hold = holds.stack_hold(stack);
-    match stack_branch_along(stack, open_stack_pull_requests.contains(&stack.root), hold.as_ref()) {
-      // no stack that forks, or one neither on the remote nor in a pull request: no branch to publish by itself
-      None | Some(StackBranchAlong::Unpublished) => {}
-      Some(
-        StackBranchAlong::Held {
-          reason: Reason::StackNotBuilt { state, .. },
-        }
-        | StackBranchAlong::NotBuilt {
-          reason: Reason::StackNotBuilt { state, .. },
-        },
-      ) => warnings.push(format!(
-        "{} was not pushed: this sync didn't build it ({}; `stacks` of `bd sync` says why)",
-        stack.branch_name,
-        state_word(state)
-      )),
-      Some(StackBranchAlong::Held { reason } | StackBranchAlong::NotBuilt { reason }) => {
-        warnings.push(format!("{} was not pushed: {}", stack.branch_name, holds.stack_hold_words(&stack.root, &reason)));
-      }
-      Some(_) if remote != "origin" => warnings.push(format!("{} was not pushed: its remote status is of origin, not of {remote}", stack.branch_name)),
-      Some(StackBranchAlong::UpToDate) => {}
-      // one that drops remote commits goes with --force, as a branch does
-      Some(StackBranchAlong::Along | StackBranchAlong::DropsRemote) => stacks.push(stack),
-    }
-  }
-  (stacks, warnings)
-}
-
-/// `blocked`, `conflict`, `stale`, as `stacks` names a state
-const fn state_word(state: StackBranchState) -> &'static str {
-  match state {
-    StackBranchState::Built => "built",
-    StackBranchState::Blocked => "blocked",
-    StackBranchState::Conflict => "conflict",
-    StackBranchState::Stale => "stale",
-  }
-}
-
-/// `bd push --unapplied <name>`: the unapplied branch to `origin` under its own name, leased on the remote head of the
-/// last fetch (or `--expect-remote`), its commit and lease fixed under the repository lock and pushed after it
-/// (`operations::push::send`); no sync, since it is no group of HEAD, and no robot is read: no Safe Push runs on it
-fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliError> {
-  let [name] = args.branches.as_slice() else {
-    return Err(CliError::new(ErrorCode::InvalidArguments, "--unapplied pushes one unapplied branch: name exactly one"));
-  };
-  let full_name = qualified_branch_name(&context.prefix, BranchKind::Unapplied, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  let repository_lock = lock(context)?;
-  let tip = resolve_commit(&context.git, &context.repository, &format!("refs/heads/{full_name}"))?
-    .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No unapplied branch {full_name}: `unapplied` of `bd status` lists them")))?;
-  let expected = match &args.expect_remote {
-    Some(expected) => {
-      Some(resolve_commit(&context.git, &context.repository, expected)?.ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, format!("{expected:?} names no commit")))?)
-    }
-    None => resolve_commit(&context.git, &context.repository, &format!("refs/remotes/{REMOTE}/{full_name}"))?,
-  };
-  let baseline = detect_baseline_branch(&context.git, &context.repository)?;
-  let target = PushTarget {
-    repository_path: &context.repository,
-    remote: REMOTE,
-    baseline: &baseline,
-    size_limit: push_size_limit(context)?,
-  };
-  // an unapplied branch is no group of HEAD: no sync built it; its commit and lease fixed here, under the lock
-  let branch = LeasedBranch {
-    name: name.clone(),
-    push: PushRef {
-      full_name: full_name.clone(),
-      tip: tip.clone(),
-      source: if expected.is_some() { LeaseSource::Expected } else { LeaseSource::Absent },
-      lease: expected,
-    },
-    parent_ref: None,
-    my_email: None,
-  };
-  let options = PushOptions { atomic: false, dry_run: false };
-  let prepared = PreparedPush::leased(&target, vec![branch], options);
-  drop(repository_lock);
-  // the remote moved since the last fetch without commits the branch lacks: the push goes again over it, once, as the
-  // app's does (D4); a lease the user named stays the lease
-  let over = if args.expect_remote.is_some() { OverMoved::Never } else { OverMoved::Once };
-  let sent = send(&context.git, prepared, over, &mut |_| {})?;
-  let expected = sent.prepared.branches()[0].push.lease.clone();
-  let pushed_over = sent.over.is_some();
-  let short = context.short_ids(std::iter::once(tip.as_str()).chain(expected.as_deref()));
-  match sent.answer {
-    LeasedPush::Pushed(_) => Ok(PushOutput {
-      schema: SchemaVersion,
-      repository: context.repository.clone(),
-      prefix: context.prefix.clone(),
-      remote: REMOTE.to_string(),
-      dry_run: false,
-      branches: vec![PushedBranch {
-        name: name.clone(),
-        remote_branch: full_name,
-        commit: short.get(&tip).to_string(),
-        state: match &expected {
-          None => PushState::New,
-          Some(expected) if *expected == tip => PushState::UpToDate,
-          Some(_) => PushState::Updated,
-        },
-        lease: expected.as_deref().map(|lease| short.get(lease).to_string()),
-        lease_source: if expected.is_some() { "expected" } else { "absent" }.to_string(),
-        replaced_landed: Vec::new(),
-        pushed_over,
-        pull_request: None,
-      }],
-      restarted: Vec::new(),
-      retargeted: Vec::new(),
-      retarget_warnings: Vec::new(),
-      stacks: Vec::new(),
-      stack_warnings: Vec::new(),
-      skipped: Vec::new(),
-    }),
-    LeasedPush::RemoteMoved { remote_statuses, .. } => {
-      let head = remote_statuses.first().and_then(|status| status.remote_tip.clone());
-      let error = CliError::new(
-        ErrorCode::LeaseRejected,
-        format!(
-          "The remote branch {full_name} is at {}, not where the lease expected it; nothing was pushed. Show it to the user; once the user approved, `--expect-remote` it to replace it",
-          head.as_deref().map_or("nothing", |head| head)
-        ),
-      );
-      Err(match head {
-        Some(head) => error.with_next_step(format!("{} push {} --unapplied --expect-remote {head}", context.bd, shell_word(name)), true),
-        None => error,
-      })
-    }
-    LeasedPush::Refused { summary } => Err(CliError::new(
-      ErrorCode::PushRefused,
-      format!("Nothing was pushed: the remote refused the push ({summary}). {REMOTE_REFUSED_NEXT}"),
-    )),
-    LeasedPush::TooLarge(too_large) => Err(CliError::from(&too_large)),
-    LeasedPush::WouldReject => Err(CliError::new(ErrorCode::LeaseRejected, format!("The remote would reject {full_name}: {WOULD_REJECT_NEXT}"))),
-  }
-}
-
-/// The remote an unapplied branch goes to, the one the sync compares with
-const REMOTE: &str = "origin";
 
 /// The output of a pushed ref named `name`: its commit, what the remote did with it (`statuses` of the push, by remote
 /// ref), its lease, the landed remote commits it replaced and its pull request
@@ -1062,7 +779,7 @@ pub(crate) fn pushed_branch(
   name: &str,
   pushed: &PushRef,
   statuses: &HashMap<String, PushedRefStatus>,
-  pull_request: PullRequestDraft,
+  pull_request: Option<PullRequestDraft>,
   short: &ShortIds,
   replaced_landed: Vec<LandedRemoteCommitSummary>,
 ) -> PushedBranch {
@@ -1081,7 +798,7 @@ pub(crate) fn pushed_branch(
     lease_source: pushed.source.as_str().to_string(),
     replaced_landed,
     pushed_over: false,
-    pull_request: Some(pull_request),
+    pull_request,
   }
 }
 
@@ -1231,7 +948,6 @@ pub fn not_synced_reason(report: &SyncReport, branch: &SyncedBranch) -> Option<S
   Some(detail.unwrap_or_else(|| not_built_reason(*reason).to_string()))
 }
 
-/// `<prefix>/virtual/<name>`
 /// `branchdeck.pushSizeLimit` of the command's config (`ConfigSnapshot::push_size_limit`); a value that is neither a
 /// size nor off refuses the push
 pub(crate) fn push_size_limit(context: &RepoContext) -> Result<Option<u64>, CliError> {
@@ -1241,39 +957,9 @@ pub(crate) fn push_size_limit(context: &RepoContext) -> Result<Option<u64>, CliE
     .map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))
 }
 
+/// `<prefix>/virtual/<name>`
 fn final_name(context: &RepoContext, name: &str) -> Result<String, CliError> {
   to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))
-}
-
-/// Full name -> tip of the remote-tracking refs of `remote` under the prefix: the ones the sync compared with for
-/// `origin`, else one `for-each-ref`
-fn remote_tips<'a>(context: &RepoContext, report: &'a SyncReport, remote: &str) -> Result<Cow<'a, HashMap<String, String>>, CliError> {
-  if remote == "origin" {
-    return Ok(Cow::Borrowed(&report.remote_tips));
-  }
-  let namespace = format!("refs/remotes/{remote}/");
-  let pattern = format!("{namespace}{}/", context.prefix.trim_end_matches('/'));
-  Ok(Cow::Owned(tips_under(&ref_tips(&context.git, &context.repository, &[&pattern])?, &namespace)))
-}
-
-/// The status of `branch` (`(full name, tip)`): the one of the sync for `origin` (`statuses` is `None`), which the sync
-/// compares with; for another remote computed now by `statuses` the same way, on the commits the sync left
-fn remote_status(
-  context: &RepoContext,
-  statuses: Option<&RemoteStatusMemo>,
-  report: &SyncReport,
-  branch: &SyncedBranch,
-  (full_name, tip): (&str, &str),
-  parent_ref: Option<&str>,
-) -> Result<Option<RemoteSummary>, CliError> {
-  let Some(statuses) = statuses else {
-    return Ok(branch.remote.clone());
-  };
-  // the parent as the sync left it
-  let parent_base = parent_ref.map(|parent_ref| report.tips.get(parent_ref).map_or(parent_ref, String::as_str));
-  let status = statuses.status(full_name, &branch.name, tip, None, parent_base.map(stack_parent))?;
-  let short = context.short_ids(RemoteSummary::ids(&status));
-  Ok(Some(RemoteSummary::new(&status, branch.commit_count, &short)))
 }
 
 /// The parent of a stacked branch for a remote status computed outside the sync: its ancestors' commits are read only
@@ -1342,9 +1028,9 @@ pub(crate) fn lease_rejected(context: &RepoContext, pushed: &[PushedName], moved
     .zip(&error.branches)
     .map(|(index, rejected)| {
       let command = match (&pushed[*index].stack_root, &rejected.remote.head) {
-        (Some(root), _) => format!("{bd} push {} --with-children --force{remote_option}", shell_word(root)),
-        (None, Some(head)) => format!("{bd} push {} --force --expect-remote {head}{remote_option}", shell_word(&rejected.name)),
-        (None, None) => format!("{bd} push {} --force{remote_option}", shell_word(&rejected.name)),
+        (Some(root), _) => format!("{bd} push {} --with-children --force{remote_option}", bd_command::shell_word(root)),
+        (None, Some(head)) => format!("{bd} push {} --force --expect-remote {head}{remote_option}", bd_command::shell_word(&rejected.name)),
+        (None, None) => format!("{bd} push {} --force{remote_option}", bd_command::shell_word(&rejected.name)),
       };
       NextStep::new(command, true)
     })

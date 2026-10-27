@@ -11,7 +11,7 @@
 //! request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, into the target as
 //! every pull request of a virtual branch (or takes the open one of the branch, whatever its base), and the Safe Push
 //! then starts from it with a `/patronus` comment. An open pull request of the branch, or of a branch the push takes
-//! along, whose base is a virtual branch is retargeted to the target first (`pull_request_retarget`).
+//! along, whose base is a virtual branch is retargeted to the target first (D3a, as `bd push` does).
 //!
 //! Before the lock, the target's remote branch is fetched, and the check before the push replays what the robot lands
 //! onto its tip, as Patronus rebases it (`sync_core::target_conflict`): a conflict refuses the start
@@ -23,12 +23,11 @@
 //! the answer to a pull request comment, after it.
 
 use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
-use crate::pull_request_retarget::{RetargetedPullRequest, refusal_warning};
 use crate::push_command::{
-  LANDED_NEXT, PullRequestDraft, PushedBranch, PushedName, REMOTE_REFUSED_NEXT, WOULD_REJECT_NEXT, github_repository, lease_rejected, not_synced_reason, pull_request_drafts,
-  pushed_branch, refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
+  LANDED_NEXT, PullRequestDraft, PushedBranch, PushedName, REMOTE_REFUSED_NEXT, RetargetedPullRequest, WOULD_REJECT_NEXT, github_repository, lease_rejected, not_synced_reason,
+  pull_request_drafts, pushed_branch, refusal_warning, refuse_an_unapplied_name, stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
 };
-use crate::push_hold::{refusing_subject, robot_command};
+use crate::push_refusals::robot_command;
 use crate::robot_list::keep_listed;
 use crate::safe_push_run::{BdStart, cli_error, start_services};
 use crate::session_facts::{SessionFacts, listed_robots};
@@ -633,7 +632,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let started = {
     let start = BdStart {
       session: &plan.session,
-      host: plan.land_host(&synced),
+      land: Some(plan.land_host(&synced)),
       sources: Arc::clone(&plan.sources),
       key: session_key(context),
       text,
@@ -757,6 +756,16 @@ fn tell(
   }
   output.robot = robot.as_ref().map(|robot| robot_summary(context, robot));
   Ok(())
+}
+
+/// What the robot that refuses the start of `own` runs on: `own` itself, the branch built on it or the whole stack that
+/// lands it with more, or what lands a part of it
+fn refusing_subject(refusal: &Reason, own: &Subject) -> Subject {
+  match refusal {
+    Reason::Descendant { by, .. } => by.subject(),
+    Reason::Ancestor { landing, .. } => landing.subject(),
+    _ => own.clone(),
+  }
 }
 
 /// The whole stack `--whole-stack` lands, from the sync (`whole_stack`: the rule of the app, by declared parent); a
@@ -1926,7 +1935,14 @@ fn pushed_branches(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, 
   if let (Some(stack), Some(branch)) = (&plan.stack, branches.first()) {
     return Ok(vec![PushedBranch {
       pushed_over: sent.moved_to(0).is_some(),
-      ..pushed_branch(&plan.name, &branch.push, statuses, stack.draft.clone(), &short, replaced(0, stack.replaced_landed.clone()))
+      ..pushed_branch(
+        &plan.name,
+        &branch.push,
+        statuses,
+        Some(stack.draft.clone()),
+        &short,
+        replaced(0, stack.replaced_landed.clone()),
+      )
     }]);
   }
   let names: Vec<&str> = branches.iter().map(|branch| branch.name.as_str()).collect();
@@ -1944,7 +1960,7 @@ fn pushed_branches(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, 
           .map_or_default(|remote| remote.remote.landed_commits.clone());
         PushedBranch {
           pushed_over: sent.moved_to(index).is_some(),
-          ..pushed_branch(&branch.name, &branch.push, statuses, draft, &short, replaced(index, kept))
+          ..pushed_branch(&branch.name, &branch.push, statuses, Some(draft), &short, replaced(index, kept))
         }
       })
       .collect(),

@@ -387,8 +387,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   regroup (`regroup.rs`, also `bd reword` and the app's reword through `reword.rs`) and the move of a hunk through their
   options, and the app's squash and its undo, squash fixups (also `bd fold`), amend, unapply and add issue reference
   through `RewriteOptions` (`held_lock`,
-  `lock_wait`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push`,
-  `bd safe-push` (only its sync, then again the witness of its refs and the freeze of its push in the engine,
+  `lock_wait`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd push` and
+  `bd safe-push` (only their sync, then again the witness of their refs and the freeze of their push in the engine,
   `operations::land_execute`; the reads of the remote, the trial, the retargets, the cancel, the network push and the
   robot start without it; a ref that moved meanwhile is `plan_changed`), the app's pushes (`execute` of the intent
   `Push`, `operations::push::execute_push`: of a branch alone, of a stack by `domain_policy::push::push_plan`, up to a

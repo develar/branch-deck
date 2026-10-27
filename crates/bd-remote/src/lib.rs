@@ -5,18 +5,18 @@
 //! - `landed`: the branches whose commits merged Safe Pushes landed
 //! - `session_facts`: the facts of the remote a command decides on, read into a one-shot session as the app's session
 //!   reads them (`operations::facts::fill`)
-//! - `push_command`, `push_hold`: `bd push`, and what holds a push back (a running robot)
+//! - `push_command`, `push_refusals`: `bd push` through the engine of the operations, and what its push refuses and
+//!   leaves out of what its intents cover
 //! - `safe_push_command`: `bd safe-push`, a Safe Push or a Dry Run through Patronus
-//! - `request_review_command`, `pull_request_retarget`: `bd request-review`, and the retarget of pull requests
+//! - `request_review_command`: `bd request-review`
 //! - `robot_command`, `robot_list`: `bd robot`, and the robots Patronus lists
 //! - `robot_stats_command`: `bd robot-stats`, the Safe Push statistics of the repository
 
 pub mod branch_stats;
 pub mod landed;
 pub mod numstat;
-pub mod pull_request_retarget;
 pub mod push_command;
-pub mod push_hold;
+pub mod push_refusals;
 pub mod request_review_command;
 pub mod robot_command;
 pub mod robot_list;

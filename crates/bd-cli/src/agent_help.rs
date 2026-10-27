@@ -455,7 +455,7 @@ pub const PUSH_HELP: &str = "\
 `bd push` pushes branches. Show the result to the user; once approved, `bd push <branch>...` (or --all --yes; --with-children adds the
 branches stacked on them) syncs, takes the parents along that have commits for the remote (--alone does not: the
 branch carries their commits), and pushes parents first in one atomic push with a lease per ref; name every branch
-of `branches` to the user. Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe
+of `branches` to the user (one the remote has as it is is `up_to_date`, nothing of it pushed). Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe
 its `body` into it. An open pull request into a virtual branch (a parent's) is retargeted to the baseline: name
 `retargeted` with `approved_by` (GitHub may dismiss those approvals); `retarget_warnings` says what GitHub refused.
 --dry-run syncs, then asks the remote. Refusals, nothing pushed:
@@ -475,8 +475,9 @@ its `body` into it. An open pull request into a virtual branch (a parent's) is r
   `bd pick --remote <branch>` first, which takes them into the branch, then `bd push` again.
 - `robot_running` (exit 4): a Safe Push runs on the branch (the push would fail it at the end), or on a branch
   built on it whose commit has commits of it (the message names them; a parent restacked below it after its start
-  is pushed). Wait until it merges, or, once approved, --restart-running cancels the branch's own robot, pushes and
-  restarts it on the pushed commit (`restarted`).
+  is pushed). Wait until it merges, or, once approved, --restart-running cancels the branch's own robot, pushes the
+  branch alone and restarts it on the pushed commit (`restarted`).
+- `plan_changed` (exit 3): another session moved a branch after the sync; nothing was pushed: push again.
 - `parked` (exit 4): a named branch is parked, or built on a parked one; with --all or --with-children a parked
   branch is only left out, named in `skipped` with `code: parked`. Tell the user, never unpark it.
 - `landed` (exit 4): merged Safe Pushes landed all of every branch asked for (`landed_by` in `bd status`):

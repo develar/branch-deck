@@ -23,15 +23,17 @@
 //!   profiles it offers and its fingerprint, and with what its run needs (`planned_of`)
 //! - `land_execute`: the run of a start, one for the app and `bd` (`execute`): the plan prepared again, the cheap
 //!   witness, the lock only for the full witness and the freeze of the push, then the retargets, the cancel, the push,
-//!   the late witness and the start, each effect with its status in the outcome; `StartHost` is where its facts live
+//!   the late witness and the start, each effect with its status in the outcome; `StartHost` is where its facts live;
+//!   `dry_run`, what the remote would answer the push of a plan (`bd push --dry-run`)
 //! - `land_session`: the `StartHost` of the app and the E2E server, the session of the repository (`SessionStart`), and
 //!   what a start of theirs runs on (`session_start`)
 //! - `robot_start`: the start of the robot through the API, or as a `/patronus` comment whose reply is read on the
 //!   clock of the session, and the robot it started (`comment_robot`)
-//! - `push`: the push of the virtual branches, one core for the app and `bd`: the lock only while the push is decided and
-//!   its commits and leases are fixed, the network push after it (`send`, once more over a remote that moved without
-//!   commits a branch lacks), the robots it restarts; the intent `Push` of a branch alone, of a stack
-//!   (`domain_policy::push::push_plan`), up to a commit, of an unapplied branch and of the stack branch of a whole stack
+//! - `push`: the push of the virtual branches, one core for the app and `bd`: the lock only while the witness is read in
+//!   full and its commits and leases are fixed, the network push after it (`send`, once more over a remote that moved
+//!   without commits a branch lacks); the intent `Push` of a branch alone, of a stack (`domain_policy::push::push_plan`),
+//!   up to a commit, of an unapplied branch and of the stack branch of a whole stack; the plans of several as one push
+//!   (`push_together`, `bd push`)
 //! - `robot`: the restart of a robot of the user, with its push first while the branch has work the remote lacks, run as
 //!   a start runs, and its cancel (`cancel`: one that finished is as it ended, the cancel of a start too)
 //! - `pull_request`: the writes of pull requests an operation makes: the retarget into the target, a step of a start and

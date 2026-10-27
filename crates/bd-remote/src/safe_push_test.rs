@@ -1247,12 +1247,14 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
   assert_eq!(output["retargeted"], retargeted);
   assert_eq!(retargets_sent(&github), [("/repos/acme/monorepo/pulls/8".to_string(), json!({"base": "master"}))]);
 
-  // GitHub refuses it: the push is done, the warning says how to retarget it
+  // GitHub refuses it: the push of a new commit of login is done, the warning says how to retarget it
   github.answer(
     "PATCH",
     "/repos/acme/monorepo/pulls/8",
     FakeAnswer::status(403, json!({"message": "Resource not accessible by integration"})),
   );
+  write(&space.repo, "form.txt", "form\n");
+  commit_all(&space.repo, "(auth/login) Add the form", 1_700_000_900);
   let (exit_code, output) = push(&["login"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output.get("retargeted"), None);

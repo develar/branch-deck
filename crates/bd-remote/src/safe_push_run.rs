@@ -26,11 +26,12 @@ use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
 use sync_utils::clock::SystemClock;
 
-/// The facts of a start of `bd`: its one-shot session as the plan read it, prepared again on it (the same facts, so the
-/// same plan while the refs are as the sync left them), the robots of a comment asked through `sources`
+/// The facts of a run of `bd`: its one-shot session as the plan read it, a start prepared again on it (the same facts,
+/// so the same plan while the refs are as the sync left them; `land`, none for a push, which runs the plan it made), the
+/// robots of a comment asked through `sources`
 pub(crate) struct BdStart<'a> {
   pub(crate) session: &'a OneShot,
-  pub(crate) host: LandHost<'a>,
+  pub(crate) land: Option<LandHost<'a>>,
   pub(crate) sources: Arc<dyn FactSources>,
   pub(crate) key: SessionKey,
   /// The pull request a `--create-pull-request` opens, worded before the run (its issues read from YouTrack)
@@ -39,7 +40,7 @@ pub(crate) struct BdStart<'a> {
 
 impl StartHost for BdStart<'_> {
   fn plan<'a>(&'a self, land: &'a Land) -> Read<'a, Result<Option<Planned>, ApiError>> {
-    Box::pin(std::future::ready(Ok(one_shot_planned(self.session, land, &self.host))))
+    Box::pin(std::future::ready(Ok(self.land.as_ref().and_then(|host| one_shot_planned(self.session, land, host)))))
   }
 
   fn current(&self) -> Read<'_, Current> {

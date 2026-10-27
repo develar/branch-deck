@@ -266,7 +266,8 @@ fn a_status_of_a_forking_stack() {
 /// stack, the tips, the remote tips, the remotes and the descriptions from the sync's report; besides the push only the
 /// push URL of `origin` (`remote`, for the Space and the GitHub repository), the Space settings (`cat-file`, for the
 /// GitHub mirror `--repo` names: the remote is no GitHub URL) and the size check of the files the push adds (`log` and
-/// `cat-file`; the limit is the sync's `config`)
+/// `cat-file`; the limit is the sync's `config`). A dry run moves nothing, so it reads no witness of its plan: the tips
+/// and the leases are the ones the plan was decided on
 #[test]
 fn a_push() {
   let (repo, _remote) = repo_with_remote(&["(auth) Add login", "(ui) Add form"]);
@@ -308,8 +309,10 @@ fn a_push() {
   );
 }
 
-/// `bd push auth` over a remote branch someone moved back to an older commit of the branch since the sync: the refused
-/// push fetches it and computes what it has now, then the push again over it, once, and nothing else (D4)
+/// `bd push auth` over a remote branch someone moved back to an older commit of the branch since the sync: the witness of
+/// its plan, the tip of the branch read before the repository lock and again under it (one `for-each-ref` each, the
+/// lock held for that read and the freeze only), then the refused push fetches it and computes what it has now, then
+/// the push again over it, once, and nothing else (D4)
 #[test]
 fn a_push_over_a_moved_remote() {
   let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
@@ -322,8 +325,8 @@ fn a_push_over_a_moved_remote() {
   };
   let output = push(&context, &args, &environment(repo.path())).unwrap();
   assert!(output.branches[0].pushed_over);
-  // the sync, the refused push, its fetch and the status of what the remote has now, then the push again; each push
-  // checks the size of what it adds first (`log`, `cat-file`)
+  // the sync, the witness twice, the refused push, its fetch and the status of what the remote has now, then the push
+  // again; each push checks the size of what it adds first (`log`, `cat-file`)
   assert_processes(
     &context,
     &[
@@ -331,7 +334,7 @@ fn a_push_over_a_moved_remote() {
       ("config", 1),
       ("fast-import", 2),
       ("fetch", 1),
-      ("for-each-ref", 2),
+      ("for-each-ref", 4),
       ("log", 6),
       ("merge-base", 1),
       ("notes", 1),

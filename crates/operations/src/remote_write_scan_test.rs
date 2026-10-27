@@ -31,7 +31,6 @@ const WRITES: &[Write] = &[
     call: ".restart_robot(",
     callers: &[
       ("crates/operations/src/land_execute.rs", 1, "the restart of a plan (`PlannedEffect::RestartRobot`)"),
-      ("crates/operations/src/push.rs", 1, "the restart after a push, `restart_robots`"),
       ("crates/patronus/src/actions.rs", 1, "`PatronusService::restart_robot`, the request of its client"),
     ],
   },
@@ -43,7 +42,6 @@ const WRITES: &[Write] = &[
         1,
         "the cancel of a robot, one that finished as it ended (`robot::cancel`)",
       ),
-      ("crates/operations/src/push.rs", 1, "the cancel before a push, `cancel_robots`"),
       ("crates/patronus/src/actions.rs", 1, "`PatronusService::cancel_robot`, the request of its client"),
     ],
   },

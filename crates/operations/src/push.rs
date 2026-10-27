@@ -1,10 +1,9 @@
 //! The push of the virtual branches, one core for the app and `bd` (docs/design/git-operations.md, "Push and land";
-//! docs/design/rust-domain-authority.md, "Конкурентность"): the repository lock is held only while the push is decided
-//! and its commits and leases are fixed (`PreparedPush`: `<commit>:refs/heads/<name>`, each leased on the remote head
-//! the user saw), never across the network. After it, `send` pushes exactly those commits in one push, and a remote
-//! branch that moved meanwhile without commits a branch lacks takes the push once more over its new head, the same
-//! commits (D4, `PreparedPush::over_moved`); a robot the push restarts is canceled before it and restarted on the pushed
-//! commit after it (`cancel_robots`, `restart_robots`).
+//! docs/design/rust-domain-authority.md, "Конкурентность"): the repository lock is held only while the witness of the
+//! plan is read in full and its commits and leases are fixed (`PreparedPush`: `<commit>:refs/heads/<name>`, each leased
+//! on the remote head the user saw), never across the network. After it, `send` pushes exactly those commits in one
+//! push, and a remote branch that moved meanwhile without commits a branch lacks takes the push once more over its new
+//! head, the same commits (D4, `PreparedPush::over_moved`).
 //!
 //! The push of a branch alone and of an unapplied branch is the intent `Push` (`prepare_push`, `execute_push`): its plan
 //! (`push_planned`) retargets the pull request of the branch out of a virtual branch first (D3a), cancels the Safe Push
@@ -16,9 +15,8 @@
 //!
 //! The pushes of a stack are the same intent (`stack_planned`): Push Stack and the push button (`WithAncestors`), Push
 //! with Children, Push Up to Here (`UpTo`), in one atomic push of what `domain_policy::push` covers, and the stack
-//! branch of a whole stack alone (`whole_stack_planned`). `bd push` decides its refs on the sync it runs under the lock
-//! (the named exception of the lock span, until s11) and freezes them on the tips that sync left
-//! (`PreparedPush::leased`), then sends them the same way (`send`).
+//! branch of a whole stack alone (`whole_stack_planned`). `bd push` plans one intent per branch it names over its
+//! one-shot session, the same plans, and sends them as one atomic push (`push_together`) through the same run.
 
 use crate::engine::{run, run_planned_in};
 use crate::events::EventSink;
@@ -41,7 +39,6 @@ use domain_types::repository_view::PatronusView;
 use domain_types::session::{StackBranchAlong, SyncReason, SyncState, stack_readiness_key};
 use domain_types::{PushAction, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
-use patronus::service::PatronusService;
 use remote_facts::service_sources::ServiceHost;
 use repository_model::derive::{Holds, LandSources, PushRules, alone_push_of, up_to_push_of, with_pull_request_sources, with_push_states};
 use repository_model::facts::FactStore;
@@ -54,15 +51,6 @@ use sync_core::push::{LeasedPush, PUSH_REMOTE, PreparedPush};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
-
-/// Whether a push the remote refused because a remote branch moved goes once more over its new head
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OverMoved {
-  /// Once, when the remote of each one that moved has no commits its branch lacks (D4)
-  Once,
-  /// Never: the lease is the one the user named (`bd push --expect-remote`)
-  Never,
-}
 
 /// A push sent (`send`): the refs as they went, what the remote answered, and what a push again went over
 #[derive(Debug)]
@@ -93,15 +81,16 @@ impl Sent {
 
 /// The network part of every push, after the repository lock: the frozen commits of `prepared` in one push, its
 /// progress to `on_progress`; refused because remote branches moved without commits their branches lack, once more over
-/// what the remote has now (`over`), the same commits. Blocking
+/// what the remote has now (`over`), the same commits: nothing of the remote is lost, whatever lease the user named
+/// (D4). A dry run never goes again: the remote answers it `WouldReject`, and it fetches nothing. Blocking
 ///
 /// # Errors
 /// What git failed with
 #[instrument(skip_all, fields(branches = prepared.branches().len()))]
-pub fn send(git: &GitCommandExecutor, prepared: PreparedPush, over: OverMoved, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<Sent> {
+pub fn send(git: &GitCommandExecutor, prepared: PreparedPush, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<Sent> {
   let answer = prepared.push_leased(git, on_progress)?;
-  let again = match (over, &answer) {
-    (OverMoved::Once, LeasedPush::RemoteMoved { moved, remote_statuses }) => prepared.over_moved(&answer).map(|again| {
+  let again = match &answer {
+    LeasedPush::RemoteMoved { moved, remote_statuses } => prepared.over_moved(&answer).map(|again| {
       let found = Over {
         moved: moved.clone(),
         statuses: remote_statuses.clone(),
@@ -120,30 +109,6 @@ pub fn send(git: &GitCommandExecutor, prepared: PreparedPush, over: OverMoved, o
     answer,
     over: Some(found),
   })
-}
-
-/// Cancels `robots` before the push that restarts them (`--restart-running`), after the lock: a push won't land while
-/// one runs on its branch
-///
-/// # Errors
-/// What Patronus answered for the first that failed; the ones before it stay canceled
-pub async fn cancel_robots(service: &PatronusService, branch_prefix: &str, robots: &[PatronusRobot]) -> Result<(), String> {
-  for robot in robots {
-    service.cancel_robot(branch_prefix, &robot.id).await?;
-  }
-  Ok(())
-}
-
-/// Starts the canceled `robots` again on the commits just pushed: the new robots, in their order
-///
-/// # Errors
-/// What Patronus answered for the first that failed
-pub async fn restart_robots(service: &PatronusService, branch_prefix: &str, robots: &[PatronusRobot]) -> Result<Vec<PatronusRobot>, String> {
-  let mut restarted = Vec::with_capacity(robots.len());
-  for robot in robots {
-    restarted.push(service.restart_robot(branch_prefix, &robot.id).await?);
-  }
-  Ok(restarted)
 }
 
 /// The plan of the push `push` in the open session of `key` over the facts it holds now (`push_planned`), the holds of
@@ -489,6 +454,76 @@ fn push_plan_of(
     subject: push.subject.clone(),
     mode: PatronusPushMode::RebaseAutosquash,
   }
+}
+
+/// The plans of several pushes as the plan of one atomic push (`bd push auth docs`, `--all`, Push with Children beside
+/// Push Stack): the retargets of all of them first, then their cancels, the one push of every ref they send, then their
+/// restarts, each effect once. The branches go in the order of `order` (the branches of the table, parents first), the
+/// stack branches after them in the order of their roots, a ref two plans send once; the witness, the blockers and the
+/// confirmations are those of all of them, the intent, the subject and the mode those of the first, fingerprinted anew.
+/// `None` without a plan
+#[must_use]
+pub fn push_together(plans: Vec<Planned>, order: &[&str]) -> Option<Planned> {
+  let mut plans = plans.into_iter();
+  let mut together = plans.next()?;
+  let rest: Vec<Planned> = plans.collect();
+  let (mut retargets, mut cancels, mut restarts) = (Vec::new(), Vec::new(), Vec::new());
+  let mut force = false;
+  for planned in std::iter::once(&together).chain(&rest) {
+    for effect in &planned.plan.effects {
+      let kept = match effect {
+        PlannedEffect::Retarget { number, .. } => {
+          let retargeted = retargets.iter().any(|it| matches!(it, PlannedEffect::Retarget { number: kept, .. } if kept == number));
+          (!retargeted).then_some(&mut retargets)
+        }
+        PlannedEffect::CancelRobot { .. } => (!cancels.contains(effect)).then_some(&mut cancels),
+        PlannedEffect::RestartRobot { .. } => (!restarts.contains(effect)).then_some(&mut restarts),
+        PlannedEffect::Push { force: forced, .. } => {
+          force |= forced;
+          None
+        }
+        _ => None,
+      };
+      if let Some(kept) = kept {
+        kept.push(effect.clone());
+      }
+    }
+  }
+  let mut pushes: Vec<PushedRef> = Vec::new();
+  for pushed in std::iter::once(&together).chain(&rest).flat_map(|planned| &planned.pushes) {
+    if !pushes.iter().any(|it| it.full_name == pushed.full_name) {
+      pushes.push(pushed.clone());
+    }
+  }
+  let place = |name: &str| order.iter().position(|it| *it == name).unwrap_or(usize::MAX);
+  pushes.sort_by_key(|pushed| (pushed.whole_stack, place(&pushed.name)));
+  let mut effects = retargets;
+  effects.extend(cancels);
+  if !pushes.is_empty() {
+    let branches = pushes
+      .iter()
+      .map(|pushed| if pushed.whole_stack { stack_readiness_key(&pushed.name) } else { pushed.name.clone() })
+      .collect();
+    effects.push(PlannedEffect::Push { branches, force });
+  }
+  effects.extend(restarts);
+  for planned in rest {
+    let Planned { plan, witness, .. } = planned;
+    together.witness.refs.extend(witness.refs);
+    together.witness.leases.extend(witness.leases);
+    together.witness.pull_requests.extend(witness.pull_requests);
+    together.witness.robots.extend(witness.robots);
+    together.plan.blockers.extend(plan.blockers);
+    for confirmation in plan.confirmations {
+      if !together.plan.confirmations.contains(&confirmation) {
+        together.plan.confirmations.push(confirmation);
+      }
+    }
+  }
+  together.plan.effects = effects;
+  together.pushes = pushes;
+  together.plan.fingerprint = together.witness.fingerprint(&together.plan);
+  Some(together)
 }
 
 /// The push of the branch `name` alone over `sources` (`derive::alone_push_of`): the retarget of its open pull request

@@ -214,8 +214,11 @@ puts its commits back on top of the current branch, their files and their groupi
   [@test] ../../crates/bd-update/src/unapply_test.rs (`unapply_refuses_an_unknown_branch_one_not_built_and_local_changes_in_the_way`)
 - `bd status` must list the unapplied branches (`unapplied`: name, branch, tip, subject, the remote head and whether it
   is up to date), from the listing it read; `bd push` and `bd safe-push` must refuse the name of one as `unapplied`
-  (exit 4), and `bd push --unapplied <name>` must push it under its own name.
+  (exit 4), and `bd push --unapplied <name>` must push it under its own name, as the app's push of it (the intent
+  `Push` with the scope `unapplied`, after a sync): leased on the remote head the sync saw (or `--expect-remote`), a
+  push that drops commits of its remote branch it lacks refused as `push_refused` until `--force`.
   [@test] ../../crates/bd-update/src/unapply_test.rs (`status_lists_an_unapplied_branch_push_refuses_it_by_its_name_and_pushes_it_with_unapplied`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`an_unapplied_branch_whose_remote_has_commits_it_lacks_is_pushed_only_with_force`)
 - `bd help agent` and the skill must tell an agent to unapply only when the user asks.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 

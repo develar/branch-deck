@@ -244,8 +244,8 @@ written, except by Update Project and the finish of its resolve session (their o
 7. **Git 2.54 or newer**, checked when the executor discovers git, on every platform, so that every command fails
    early with an install or upgrade hint.
 8. **Every push of virtual branches decides under the repository lock, in Rust, what may go, and pushes after it**:
-   `bd push` and `bd safe-push` after their sync, the app's pushes (of a branch alone, of a stack, up to a commit) through
-   the plan of the intent `Push` and its witness and freeze (`operations::push::execute_push`). Under the lock the commits and the leases are fixed; the network push sends exactly
+   `bd push` and `bd safe-push` after their sync and the app's pushes (of a branch alone, of a stack, up to a commit)
+   through the plans of their intents (`Push`, `Land`) and their witness and freeze (`operations::land_execute`). Under the lock the commits and the leases are fixed; the network push sends exactly
    them (`<commit>:refs/heads/<name>`, `--force-with-lease=refs/heads/<name>:<lease>`) after it, so no writer waits
    for the network and a branch moved meanwhile changes nothing of what goes. A
    parked branch, one built on parked, one a merged Safe Push landed whole and one a running Safe Push holds are
@@ -594,8 +594,8 @@ Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWa
   E2E server keeps the same registry and streams the messages of the channel as SSE events before the answer
   (`crates/test-server/src/channel_commands.rs`).
 
-`bd push` and `bd safe-push` (until the commits of their
-push are fixed, the network push after it; with `--check` only its sync),
+`bd push` and `bd safe-push` (their sync, then the witness and the freeze of
+their push; the network push after it; with `--check` only the sync),
 `bd move-hunk`, `bd pick` (after its check, the witness and the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
 (`execute` of the intent `Push`: `operations::push`, on the `$GIT_COMMON_DIR` the app keeps, so the witness sees the
 branches no other writer moves meanwhile and fix the commits that go; it holds the lock only for that, and pushes
@@ -2777,12 +2777,11 @@ and holds the repository lock only in the second (C1, [Rust as the Domain Author
    before left; a second click of the same push joins it; the pushes of other refs run side by side. It waits for a
    sync of its session that runs (`WaitingForSync`, joining that run, not the syncs asked after it), then reads the
    user's robots, one full list (none for an unapplied branch, on which no Safe Push runs: C3). `bd push` reads its
-   robots once, as the session reads them ("Agent push").
-2. Under the lock: the full witness and the freeze of the commits and leases of every ref (`PreparedPush::leased`: the
-   app's with one `for-each-ref` of the refs of its plan, `land_execute`; `bd`'s on the tips its sync left, no
-   process), after `bd push`'s checks on the sync it runs under the lock (the named exception of the lock span until
-   s11). The app's refusals are its plan's, decided before (below). No network request and no `git push` runs under
-   it.
+   robots and the pull requests once after its sync, as the session reads them ("Agent push").
+2. Under the lock: the full witness and the freeze of the commits and leases of every ref (`PreparedPush::leased`, one
+   `for-each-ref` of the refs of the plan, `land_execute`), the app's and `bd push`'s alike; `bd`'s sync before it
+   holds the lock too (the named exception of the lock span until s11). The refusals are the plan's, decided before
+   (below). No network request and no `git push` runs under it.
 3. After the lock: the retargets (D3a), the cancel of the robots a push restarts, then the push of exactly the frozen
    commits (`operations::push::send`: `<commit>:refs/heads/<name>`, each leased, one `git push --porcelain`, `--atomic`
    for more than one ref), once more over a remote that moved without commits a branch lacks (D4,
@@ -2911,79 +2910,75 @@ Code: `crates/operations/src/push.rs`, `crates/operations/src/pull_request.rs`, 
 
 #### Agent push (`bd push`)
 
-`bd push` syncs and fixes the commits and leases of its push under the repository lock (`plan_push`), so the refs it
-pushes are the ones it just built, and releases the lock before the retargets and the network push
-(`PlannedPush::send`, "Push and land"), which sends those commits; the cancel and the restart of a robot and the texts
-of the pull requests come after the lock too. Its requests come before the lock, side by side (`read_remote`): the
-user's robots of the holds and the pull requests of the branches (one search, whenever the branches have a GitHub
-repository), so another writer never waits for Patronus or GitHub (`push_test.rs`,
-`the_robot_list_of_a_push_is_read_before_the_repository_lock`). It reads
-nothing the sync read again: the stack (`GroupedBranchInfo::stack`, `StackForest::order`), the tips the sync left,
-the remote tips of `origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push it reads
-only the push URL of `origin`, once per command (`RepoContext::origin_url`: the Space repository of the holds, the
-GitHub repository and the `--repo` of `gh pr create`), and the committed Space settings when neither
+`bd push` is an adapter of the engine the app's push runs ("Push and land"), as `bd safe-push` is of the start
+(`push_command.rs`): it holds the repository lock for its sync only, then reads what its plans need into a one-shot
+session of that sync (`operations::needs` of the intent `Push`: the user's robots, one list, and the pull requests of
+the branches, one search whenever they have a GitHub repository; side by side, no lock: `push_test.rs`,
+`the_robot_list_of_a_push_is_read_outside_the_repository_lock`), plans an intent `Push` per branch it names over that
+session (`operations::push::push_planned`, the plans of the app), merges their plans into one atomic push
+(`push_together`: the retargets, the cancels, one push of every ref parents first, the restarts) and runs it as the
+app runs a push (`land_execute::run_planned`: the cheap witness, the lock again for the full witness and the freeze,
+then the effects); `--dry-run` asks the remote about the frozen commits of the plan (`land_execute::dry_run`: no lock,
+no witness, no other effect). A branch another writer moved between the sync and the witness is `plan_changed` (exit
+3), nothing pushed. It reads nothing the sync read again: the stack, the tips the sync left, the remote tips of
+`origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push and the witness it reads only
+the push URL of `origin`, once per command (`RepoContext::origin_url`: the Space repository of the holds, the GitHub
+repository and the `--repo` of `gh pr create`), and the committed Space settings when neither
 `branchdeck.githubRepository` nor that URL names the GitHub repository (one `cat-file`, once per command,
 `RepoContext::github_repository`):
 
-1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked; the
-   `not_built` of its report, the rule of the app's push too), and a
-   branch whose remote branch has commits it lacks unless `--force`. Branches go parents first. A stacked branch takes
-   the branches it is built on (the effective base chain) along when the sync counted commits of theirs the remote
-   lacks; `--alone` and `--expect-remote` don't, and the branch carries their commits, as its pull request into the
-   baseline does. `--with-children` adds the branches stacked on the named ones, directly or further down
-   (by the effective base, or the declared parent of a blocked one), so a blocked child refuses the push as any
-   branch that didn't sync; a named root of a stack that forks adds its stack branch after the branches, from the
-   `StackBranchUpdate` of the report (its tip, its remote status and so its lease: no process), as the app's Push
-   with Children does: once it is on the remote or the pull request of the whole stack is open, only when the sync
-   built it and the remote lacks it, and only to `origin`, which its remote status compares with ("Stack branch"). The
-   open pull request of a whole stack is of the search before the lock (`list_pull_requests`), whose listing the
-   retargets after the push read too.
-   On Space it decides the holds over the user's robots it read before the lock once, as the app's session reads them
-   (one list through `ServiceFactSources`, put into a one-shot session of the sync's table, the Patronus view derived
-   over it; best effort: off Space, without a token or an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it, or one of a
-   branch built on it or of the stack branch of its stack whose commit has commits of it ("Robot span": no process for
-   a robot at the tip the sync left), naming the branch the push moves or the commits the robot lands; an ancestor such
-   a robot lands stays out of the push, and so does the stack branch of `--with-children` while the Safe Push of the
-   whole stack runs on it. A branch a merged Safe Push landed whole is refused as `landed`; with `--with-children` it is only left out,
-   and so is the stack branch of a stack every branch of which landed, the push refused only when nothing else is
-   left. A parked branch, or one built on a parked branch (`domain_policy::parked::parked_state` over the report's grouping),
-   is refused as `parked` when named; with `--all` or `--with-children` it is only left out (`skipped`, `code:
-   parked`), and so is the stack branch of a stack with a parked member. `--restart-running` cancels the
-   robot of a named branch over HTTP after the lock, before the push, and restarts it after it
-   (`operations::push::{cancel_robots, restart_robots}`), as the app's restart that pushes first does.
-2. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <tip>:refs/heads/<b>…`
-   through `sync_core::push::PreparedPush::push_leased`, the one leased push of the app's push too (below; `push_lease::push_refs`
-   underneath: exit 1, a rejected ref, still prints the porcelain report), the tips those the sync left
-   (`leased_push_refs`, no `for-each-ref`). Atomic: a stack is pushed whole or not at all.
-3. The lease comes from `push_lease`, which the app's push button uses as well (below): the remote head the sync of
-   the same run compared with (`remote.head`), a view as fresh as the app's row, or with `--expect-remote <commit>`
-   that commit. Step 1 decides whether the push may drop commits; the lease only makes sure it drops nothing the sync
-   didn't see. With `--remote` other than `origin`, which the sync compares with, `bd push` computes the remote status
-   of the branches it pushes against that remote's remote-tracking refs: one `for-each-ref` of all of them, then
-   `RemoteStatusMemo` on the tips the sync left and its baseline commit (0 to 5 processes per branch, none for commits
-   the object cache has a status of, and one `reflog` for the push times of all of them),
-   so steps 1, 3 and 4 work the same for every remote. A `--remote` that is not one of the remotes the sync listed
-   (`git remote`) is `no_remote`: a URL has no remote-tracking refs.
+1. The intents: Push Stack of each named branch (`WithAncestors`: the branches it is built on that have work go
+   first), the branch alone with `--alone`, `--all` and `--expect-remote`, Push with Children beside Push Stack with
+   `--with-children` (alone with `--alone`), the unapplied branch with `--unapplied` (after the sync, which lists it;
+   asked first, `--force`, when its push drops remote commits); a named branch whose own Safe Push runs, with
+   `--restart-running`, alone with the restart (`CancelRobot`, `Push`, `RestartRobot`), as the app's restart that
+   pushes first. Each plan retargets the open pull request of each branch it sends out of a virtual branch to the
+   baseline first (D3a; a refusal of GitHub is a warning, and a push the remote then refuses leaves the retarget done),
+   leases each ref on the remote head the sync saw (`ExpectRemote::OfSession`; `--expect-remote` names the lease of its
+   one branch) and holds what the rules of the app hold: a branch that stays local, a Safe Push that runs on it or on a
+   branch or whole stack that lands its commits ("Robot span"; best effort: off Space, without a token or an answer,
+   nothing is held), a merged Safe Push that landed it whole, a build the sync did not make.
+2. What each intent covers does what the rule says (`push_refusals.rs`: `domain_policy::push::push_plan` over
+   `derive::with_push_states`, `derive::alone_push_of`, `stack_branch_along` for the stack branch of a root), and where
+   the app's push leaves a covered branch out to its row, `bd push` refuses the whole push before anything is sent: a
+   branch the sync didn't build (`push_refused`), one a running Safe Push holds (`robot_running`, naming the branch
+   the push moves or the commits the robot lands, with `bd robot` and, of its own robot, `--restart-running`), one
+   whose push drops remote commits it lacks without `--force` (`push_refused` with its remote status, an ancestor taken
+   along too, `--alone` the way out), a named parked branch (`parked`). A branch merged Safe Pushes landed whole and,
+   with `--all` or `--with-children`, a parked one are left out (`skipped`), the push refused as `landed` or `parked`
+   only when nothing else is left; an ancestor taken along that is held, landed or on the remote as it is stays as it
+   is. A branch the remote has as it is (a branch only rebuilt on a newer baseline too) is listed `up_to_date`, nothing
+   of it pushed. The stack branch of a named root goes with `--with-children` once it is on the remote or the pull
+   request of the whole stack is open, only when the sync built it and the remote lacks it, and only to `origin`, which
+   its remote status compares with ("Stack branch"); one that drops remote commits only with `--force`, as its push
+   alone; one left out is a `stack_warnings` line.
+3. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <commit>:refs/heads/<b>…`
+   of the frozen commits through `sync_core::push::PreparedPush::push_leased`, the one leased push of the app's push
+   too (below; `push_lease::push_refs` underneath: exit 1, a rejected ref, still prints the porcelain report). Atomic:
+   a stack is pushed whole or not at all. With `--remote` other than `origin`, which the sync compares with, `bd push`
+   computes the remote status of the branches the sync built against that remote's remote-tracking refs (one
+   `for-each-ref` of all of them, then `RemoteStatusMemo` on the tips the sync left and its baseline commit: 0 to 5
+   processes per branch, none for commits the object cache has a status of, and one `reflog` for the push times of all
+   of them) and puts them into its session before the plans, so the plans, the refusals and the leases are about that
+   remote. A `--remote` that is not one of the remotes the sync listed (`git remote`) is `no_remote`: a URL has no
+   remote-tracking refs.
 4. A rejection fetches every branch of the push (`fetch_remote_branches`, in `push_leased`) and computes their remote
    statuses (`compute_remote_statuses`). When each remote that moved has no commits its branch lacks and the branch
    has work for it (`domain_policy::push::over_moved_remote`, the rule of the app's push), the push goes again at
    once, once, leased on the fetched heads, the same commits (`operations::push::send`, `PreparedPush::over_moved`;
-   not with `--expect-remote`), and each such
-   branch is `pushed_over`: one more `git push`. Otherwise, or when the remote moved again, it lists the ones whose
-   fetched head is not their lease in `lease_rejected` (`head`, `behind`, `dropped_commits`); a branch refused as
-   behind is listed the same way. The agent shows what a
-   push drops and, once the user approves, pushes with `--force --expect-remote <head>`. When every lease held, the
-   remote refused for another reason (a hook, a protected branch, a pack too large): `push_refused` with what git
-   said of each ref and what the remote said why (`PushRefsReport::messages`). A dry run that
-   the remote would reject fetches nothing, so it can't tell which lease failed.
-5. Before the push, with the lock released, the open pull requests of the branches it pushes whose base is a virtual
-   branch (`{prefix}/virtual/…`) are retargeted to the baseline over HTTP (D3a: `pull_request_retarget.rs` decides,
-   one search of the pull requests, `operations::pull_request` writes, one `PATCH pulls/<n>` each), as the app's push
-   does, so GitHub never compares the pushed commits with a parent's branch; a push the remote then refuses leaves the
-   retarget done. No git process.
+   with `--expect-remote` too, as the app's Force Push), and each such branch is `pushed_over`: one more `git push`.
+   Otherwise, or when the remote moved again, it lists the ones whose fetched head is not their lease in
+   `lease_rejected` (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The agent
+   shows what a push drops and, once the user approves, pushes with `--force --expect-remote <head>`. When every lease
+   held, the remote refused for another reason (a hook, a protected branch, a pack too large): `push_refused` with what
+   git said of each ref and what the remote said why (`PushRefsReport::messages`). A dry run that the remote would
+   reject fetches nothing, so it can't tell which lease failed.
+5. After the push, the restarts on the pushed commits, then the ready `gh pr create` of each branch it pushed or listed
+   up to date, into the baseline, with the texts of its issues (one YouTrack read).
 
-Code: `crates/bd-remote/src/push_command.rs`, `crates/operations/src/push.rs`, `crates/sync-core/src/push.rs`,
-`crates/sync-core/src/push_lease.rs`, `crates/sync-core/src/remote_command.rs`.
+Code: `crates/bd-remote/src/push_command.rs`, `crates/bd-remote/src/push_refusals.rs`, `crates/operations/src/push.rs`,
+`crates/operations/src/land_execute.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
+`crates/sync-core/src/remote_command.rs`.
 
 #### Agent Safe Push (`bd safe-push`)
 
