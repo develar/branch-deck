@@ -143,7 +143,8 @@ fn commands() -> Vec<Command> {
     .flat_map(|path| commands_of(path, &fs::read_to_string(path).expect("readable source")))
     .collect();
   commands.sort_by(|a, b| a.name.cmp(&b.name));
-  assert!(commands.len() > 100, "the scan found {} commands, is src-tauri laid out differently?", commands.len());
+  // the commands of the app go down as the actions move onto `execute`: the bound only proves the parse found them
+  assert!(commands.len() > 30, "the scan found {} commands, is src-tauri laid out differently?", commands.len());
   commands
 }
 

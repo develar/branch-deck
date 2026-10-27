@@ -65,7 +65,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
 
   const fixups: ListFixups = getListFixups(plan, branch)
   // closes the popover after a failure too: the plan it shows is stale
-  const squash = () => void withRowProgress(key, () => squashFixups(getAutosquashScope(branch), plan.head, { list: key, surface }))
+  const squash = () => void withRowProgress(key, () => squashFixups(getAutosquashScope(branch), { list: key, surface }))
   return (
     <>
       <div className="flex flex-col gap-1">

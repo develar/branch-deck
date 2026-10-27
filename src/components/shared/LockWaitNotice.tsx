@@ -12,8 +12,10 @@ export function StopWaitingButton({ surface }: { surface: string }) {
 
 /**
  * Whom the operation `surface` started waits for while another holder has the repository lock ("Waiting for `bd pick`
- * (pid 4242, for 12 s)"), with its Stop Waiting; nothing otherwise. For a surface that shows its own busy state (the
- * squash dialog, the commit message editor, the move form)
+ * (pid 4242, for 12 s)"): the step `waitingForLock` of its operation in the session, worded by `presentLockWait`
+ * (`runRewriteIntent`), with its Stop Waiting (`cancel_operation` of the operation); nothing otherwise. For a surface
+ * that shows its own busy state (the squash dialog, the commit message editor, the move form, the squash of the fixups,
+ * Apply Fix)
  */
 export function LockWaitNotice({ surface }: { surface: string }) {
   const operation = useSurfaceOperation(surface)

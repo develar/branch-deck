@@ -95,7 +95,7 @@ states are that toast, not new ones.
 
 - **Every error goes through `notifyError(title, error)`** (`src/lib/errors.ts`): the toast is sticky, the error is
   logged to the backend log and recorded in Activity. Never a hand-made `toast.add({ type: "error" })`;
-  `withRowProcessing` and `runRewrite` take an `errorTitle` and call `notifyError` themselves. The same error while its
+  `withRowProcessing`, `runRewriteIntent` and `runRewrite` take an error title and call `notifyError` themselves. The same error while its
   toast is open updates that toast, never a second copy.
 - **The title is "Cannot <verb> <object>"**: "Cannot push feature-ui", "Cannot start the Safe Push", "Cannot copy to the
   clipboard". One failure verb: not "Failed to …", "… Failed", "Can't …", "Couldn't …".
@@ -240,8 +240,9 @@ indicator could cancel a robot but not restart it.
   `src/lib/toast-message.ts` (`type: "info"` for a precondition), or `toast.add` from `@/components/ui/toast` for a
   custom one (a loading toast, a custom body).
 - A history rewrite with an Undo: `showUndoToast(title, undo)` from `src/lib/command.ts`.
-- A rewrite (a regroup, a squash, a reword, an undo): `runRewrite(spec, failureTitle, command, applied)` from
-  `src/lib/rewrite.ts`, its toast with Undo after the sync.
+- A rewrite (a regroup, a squash, a reword, an amend, an undo): `runRewriteIntent(spec, rewrite, failureTitle)` from
+  `src/lib/rewrite-run.ts` (the rewrite of the engine), its toast with Undo after the sync; an unapply, a reapply and a
+  pick still `runRewrite(spec, failureTitle, command, applied)` from `src/lib/rewrite.ts`.
 - An inline form's action: `withRowProcessing(key, operation, fn, { success, errorTitle })` or `withRowProgress` when
   the action is an operation that toasts itself (`src/stores/inline-row-action.ts`).
 - A toast that Activity records takes its words from the function the entry uses: `describePush`

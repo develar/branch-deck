@@ -1,4 +1,4 @@
-use crate::test_support::{assert_stale_undo, create_repository, head, post, post_error, rewrite, start_test_server};
+use crate::test_support::{assert_stale_undo, create_repository, head, rewrite, rewrite_error, start_test_server};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::net::SocketAddr;
@@ -21,39 +21,35 @@ pub(crate) fn commit_on_top(path: &str, message: &str) -> String {
   head(path)
 }
 
-/// The rewrite `Undo` of the regroup token `token`
-fn undo_of(token: &str) -> serde_json::Value {
-  json!({"rewrite": "undo", "token": {"kind": "regroup", "token": token}})
+/// The rewrite `reword` of `commit` to `message`, as the page sends it
+fn reword_of(commit: &str, message: &str) -> serde_json::Value {
+  json!({ "rewrite": "reword", "rewords": [{ "commit": commit, "text": { "message": message } }] })
 }
 
-/// The body of a reword of `commit` to `message`
-fn reword_of(path: &str, commit: &str, message: &str) -> serde_json::Value {
-  json!({ "repositoryPath": path, "rewords": [{ "commit": commit, "text": { "message": message } }] })
-}
-
-/// The page's `reword` reaches the app's core: the answer carries the undo token, and the rewrite `Undo` of the engine
-/// with it brings the old HEAD back; a message equal after the cleanup answers no token
+/// The page's reword is the rewrite `reword` of the engine, run by the app's core: its outcome carries what the core
+/// answered and the undo by the regroup's token, and the rewrite `undo` with it brings the old HEAD back; a message equal
+/// after the cleanup rewrites nothing and has no undo
 #[tokio::test]
-async fn a_reword_answers_the_undo_token_that_the_rewrite_undo_takes() {
+async fn a_reword_answers_the_undo_that_brings_the_old_head_back() {
   let (addr, client, path, previous) = repository().await;
 
-  let reword = |message: &str| reword_of(&path, &previous, message);
-  let unchanged = post(&client, addr, "/invoke/reword", reword("(test-branch) foo 2\n")).await;
-  assert_eq!(unchanged["newCommitIds"][&previous], previous, "{unchanged}");
-  assert!(unchanged["undoToken"].is_null(), "{unchanged}");
+  let unchanged = rewrite(&client, addr, &path, reword_of(&previous, "(test-branch) foo 2\n")).await;
+  assert_eq!(unchanged["result"]["answer"]["newCommitIds"][&previous], previous, "{unchanged}");
+  assert!(unchanged["undo"].is_null(), "{unchanged}");
+  assert_eq!(head(&path), previous);
 
-  let answer = post(&client, addr, "/invoke/reword", reword("(test-branch) foo 2, reworded")).await;
+  let answer = rewrite(&client, addr, &path, reword_of(&previous, "(test-branch) foo 2, reworded")).await;
   let new_head = head(&path);
   assert_ne!(new_head, previous);
-  assert_eq!(answer["newCommitIds"][&previous], new_head, "{answer}");
+  let reworded = &answer["result"]["answer"];
+  assert_eq!(reworded["newCommitIds"][&previous], new_head, "{answer}");
   assert_eq!(
-    (answer["previousHead"].as_str(), answer["newHead"].as_str()),
+    (reworded["previousHead"].as_str(), reworded["newHead"].as_str()),
     (Some(previous.as_str()), Some(new_head.as_str()))
   );
-  let token = answer["undoToken"].as_str().unwrap();
-  assert_eq!(token, format!("{previous}..{new_head}"));
+  assert_eq!(answer["undo"], json!({"kind": "regroup", "token": format!("{previous}..{new_head}")}));
 
-  let undone = rewrite(&client, addr, &path, undo_of(token)).await;
+  let undone = rewrite(&client, addr, &path, json!({"rewrite": "undo", "token": answer["undo"]})).await;
   assert_eq!(
     undone["result"],
     json!({"kind": "rewrite", "rewrite": "undone", "answer": {"alreadyUndone": false}}),
@@ -68,12 +64,9 @@ async fn a_reword_answers_the_undo_token_that_the_rewrite_undo_takes() {
 #[tokio::test]
 async fn the_undo_of_a_regroup_after_a_new_commit_answers_undo_stale_never_retried() {
   let (addr, client, path, previous) = repository().await;
-  let answer = post(&client, addr, "/invoke/reword", reword_of(&path, &previous, "(test-branch) foo 2, reworded")).await;
-  let token = answer["undoToken"].as_str().unwrap().to_string();
+  let answer = rewrite(&client, addr, &path, reword_of(&previous, "(test-branch) foo 2, reworded")).await;
   let moved = commit_on_top(&path, "(test-branch) after the reword");
 
-  let mut intent = undo_of(&token);
-  intent["kind"] = json!("rewrite");
-  let error = post_error(&client, addr, "/invoke/execute", json!({ "repositoryPath": path, "intent": intent, "fingerprint": "" })).await;
+  let error = rewrite_error(&client, addr, &path, json!({"rewrite": "undo", "token": answer["undo"]})).await;
   assert_stale_undo(&error, &path, &moved);
 }

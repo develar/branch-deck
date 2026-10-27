@@ -298,7 +298,7 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`renaming_a_parent_renames_it_in_its_children`, `undo_refuses_a_bad_token_and_a_moved_head`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should run the Undo of a move pressed while another rewrite runs after it, the toast and its Undo kept until it undid`)
-  [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_token_that_the_rewrite_undo_takes`)
+  [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_that_brings_the_old_head_back`)
 - After the toast shows, the trial build of the stacked branches of the move runs, the target first, then the source
   branches ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)). The first one that builds
   alone now gives the toast a second action: "Unstack from IJPL-257337" for the target, which the toast names, and

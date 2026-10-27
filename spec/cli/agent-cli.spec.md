@@ -318,7 +318,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
   [@test] ../../crates/domain-types/src/error_test.rs (`an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried`)
   [@test] ../../crates/test-server/src/reword_test.rs (`the_undo_of_a_regroup_after_a_new_commit_answers_undo_stale_never_retried`)
-  [@test] ../../crates/test-server/src/squash_test.rs (`restore_branch_head_after_a_new_commit_answers_undo_stale_never_retried`)
+  [@test] ../../crates/test-server/src/squash_test.rs (`the_undo_of_a_squash_after_a_new_commit_answers_undo_stale_never_retried`)
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.
   [@test] ../../crates/bd-remote/src/status_test.rs (`empty_prefix_is_an_error`, `not_a_repository`, `invalid_arguments`, `status_filters_and_pages`)

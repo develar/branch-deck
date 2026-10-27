@@ -41,7 +41,7 @@ async function moveParserToDocsFromMenu(page: Page): Promise<void> {
 test.describe("Rewrites while another process holds the repository lock", () => {
   test("should wait for the holder in the squash dialog, say whom for, and squash once it released the lock", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
-    const squashes = await recordCommand(page, "squash_commits")
+    const squashes = await recordRewrites(page, "squash")
     // another process holds the lock (`bd pick --follow` of an agent): here the test server, whose record names it
     await repo.holdRepositoryLock(true)
     const dialog = await squashTwo(page)

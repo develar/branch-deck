@@ -187,12 +187,22 @@ pub(crate) async fn push_alone(client: &reqwest::Client, addr: SocketAddr, path:
 
 /// The rewrite `rewrite` (`{"rewrite": "park", "branches": […]}`) of the repository at `path` through the engine, as
 /// the page runs it: named on the table at HEAD as it is now (an undo names none), its outcome
-pub(crate) async fn rewrite(client: &reqwest::Client, addr: SocketAddr, path: &str, mut rewrite: Value) -> Value {
+pub(crate) async fn rewrite(client: &reqwest::Client, addr: SocketAddr, path: &str, rewrite: Value) -> Value {
+  post(client, addr, "/invoke/execute", rewrite_request(path, rewrite)).await
+}
+
+/// `rewrite` for a rewrite that fails: its error
+pub(crate) async fn rewrite_error(client: &reqwest::Client, addr: SocketAddr, path: &str, rewrite: Value) -> Value {
+  post_error(client, addr, "/invoke/execute", rewrite_request(path, rewrite)).await
+}
+
+/// The `execute` of `rewrite` in the repository at `path`, named on the table at HEAD as it is now (an undo names none)
+fn rewrite_request(path: &str, mut rewrite: Value) -> Value {
   if rewrite["rewrite"] != "undo" {
     rewrite["witness"] = json!({"head": head(path), "storeTips": {"issueGroups": null, "stackParents": null, "parked": null}});
   }
   rewrite["kind"] = json!("rewrite");
-  post(client, addr, "/invoke/execute", json!({"repositoryPath": path, "intent": rewrite, "fingerprint": ""})).await
+  json!({"repositoryPath": path, "intent": rewrite, "fingerprint": ""})
 }
 
 /// What the server logs from now on at warning level and above, for a test that asserts it logs none: the global

@@ -1,10 +1,11 @@
 use crate::events::NoEvents;
 use crate::push::push_test::{Fixture, OFFLINE, fixture, waits_for_the_agent};
 use crate::rewrite::execute_rewrite;
+use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectStatus, Intent, OperationResult, OperationStep, Outcome, RunningOperation};
-use domain_types::rewrite::{ParkBranchLine, RewriteIntent, RewriteResult, TableWitness, UndoKind};
+use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind};
 use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::RewriteOptions;
@@ -207,6 +208,55 @@ async fn a_move_queued_behind_a_move_of_another_commit_finds_its_commit_by_its_k
   let OperationResult::Rewrite(result) = &second.result else { panic!("{second:?}") };
   assert!(matches!(result.as_ref(), RewriteResult::Moved(_)), "{result:?}");
   assert_eq!(fixture.subjects(), ["(delta) Beta", "(gamma) Alpha"]);
+}
+
+/// The reword of `commit` to `message` on `witness`
+fn reword(commit: &str, message: &str, witness: &TableWitness) -> RewriteIntent {
+  RewriteIntent::Reword {
+    rewords: vec![CommitReword {
+      commit: commit.to_owned(),
+      text: RewordText::Message(message.to_owned()),
+    }],
+    witness: witness.clone(),
+  }
+}
+
+/// A reword saved in the message editor of one window and an Unstack of its branch clicked in another at once, both on
+/// the table they showed: the second waits behind the first in the queue of the session and runs on what it left, so
+/// both are applied, in order, without a refusal
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reword_and_an_unstack_from_two_windows_at_once_are_both_applied_in_order() {
+  let fixture = fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let (reworded, unstacked) = fixture.one_after_another(&reword(&beta, "(alpha/beta) Beta, reworded", &witness), &unstack(&witness)).await;
+  let (reworded, unstacked) = (reworded.unwrap(), unstacked.unwrap());
+  assert_ne!(reworded.op, unstacked.op);
+  assert_eq!(fixture.subjects(), ["(beta) Beta, reworded", "(alpha) Alpha"]);
+}
+
+/// A reword queued behind the issue reference of its own commit names that commit through the new id the issue
+/// reference answered: its key cannot find it, since the issue key changed its subject
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reword_queued_behind_the_issue_reference_of_its_commit_names_it_through_the_new_id() {
+  let fixture = fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let reference = RewriteIntent::AddIssueReference {
+    branch_name: "alpha/beta".to_owned(),
+    commits: vec![CommitInfo {
+      hash: beta.clone(),
+      message: "(alpha/beta) Beta".to_owned(),
+    }],
+    issue_reference: "GH-1".to_owned(),
+    witness: witness.clone(),
+  };
+  let (referenced, reworded) = fixture.one_after_another(&reference, &reword(&beta, "(alpha/beta) GH-1 Beta, reworded", &witness)).await;
+  let referenced = referenced.unwrap();
+  let OperationResult::Rewrite(result) = &referenced.result else {
+    panic!("{referenced:?}")
+  };
+  assert!(result.rewritten().contains_key(&beta), "{result:?}");
+  reworded.unwrap();
+  assert_eq!(fixture.subjects(), ["(alpha/beta) GH-1 Beta, reworded", "(alpha) Alpha"]);
 }
 
 /// An undo clicked in the toast of a park while an unstack waits for the lock waits behind it in the queue, never

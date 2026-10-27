@@ -25,7 +25,7 @@ vi.mock("@/lib/bindings", async () => ({
 }))
 vi.mock("@/lib/toast-message", () => ({ showToast: () => {} }))
 vi.mock("@/hooks/useStackActions", () => ({ undoRegroup: async () => true }))
-vi.mock("@/lib/rewrite", () => ({ runRewrite: async () => {} }))
+vi.mock("@/lib/rewrite-run", () => ({ runRewriteIntent: async () => null, witnessed: () => ({}) }))
 vi.mock("@/stores/commit-move", () => ({ requestReveal: () => {} }))
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: "/repo" }),

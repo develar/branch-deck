@@ -274,37 +274,13 @@ export const commands = {
 	findConflictFix: (params: FindConflictFixParams) => typedError<ConflictFix, ApiError>(__TAURI_INVOKE("find_conflict_fix", { params })),
 	/**  Stops the running search between two trials; it then reports `canceled`. A sync calls it before it starts. */
 	cancelConflictFix: () => __TAURI_INVOKE<void>("cancel_conflict_fix"),
-	/**  Applies a component of a fix as one regroup under the repository lock, or says it is stale. */
-	applyConflictFix: (params: ApplyConflictFixParams, wait: Channel<LockWaitEvent>) => typedError<AppliedConflictFix, ApiError>(__TAURI_INVOKE("apply_conflict_fix", { params, wait })),
 	/**
 	 *  Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
 	 *  through the object cache of the repository.
 	 */
 	getStackIndependence: (params: StackIndependenceParams) => typedError<StackIndependence, ApiError>(__TAURI_INVOKE("get_stack_independence", { params })),
-	/**
-	 *  Adds an issue reference to commits in a branch that don't already have one.
-	 *  Updates commit messages from "(branch-name) message" to "(branch-name) ISSUE-123 message"
-	 */
-	addIssueReferenceToCommits: (params: AddIssueReferenceParams, wait: Channel<LockWaitEvent>) => typedError<AddIssueReferenceResult, ApiError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params, wait })),
-	/**
-	 *  Replaces the messages of commits ahead of the baseline in one regroup (`bd reword`); the commits after the oldest one
-	 *  are recreated with the same trees, and the undo token restores HEAD.
-	 */
-	reword: (params: RewordRequest, wait: Channel<LockWaitEvent>) => typedError<RewordResult, ApiError>(__TAURI_INVOKE("reword", { params, wait })),
-	/**
-	 *  Squashes commits of the current branch into the oldest of them in one history rewrite that keeps HEAD's tree; the
-	 *  index and the working tree are not touched.
-	 */
-	squashCommits: (params: SquashCommitsParams, wait: Channel<LockWaitEvent>) => typedError<SquashCommitsResult, ApiError>(__TAURI_INVOKE("squash_commits", { params, wait })),
-	/**  Undoes a squash: moves the current branch back to its previous commit, if it was not moved since */
-	restoreBranchHead: (params: RestoreBranchHeadParams, wait: Channel<LockWaitEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("restore_branch_head", { params, wait })),
 	/**  The `fixup!`, `squash!` and `amend!` commits ahead of the baseline, grouped by the commit each one is squashed into */
 	getAutosquashPlan: (params: GetAutosquashPlanParams) => typedError<AutosquashPlan, ApiError>(__TAURI_INVOKE("get_autosquash_plan", { params })),
-	/**
-	 *  Squashes fixup commits into their targets in one history rewrite that keeps HEAD's tree; the index and the working
-	 *  tree are not touched.
-	 */
-	squashFixupCommits: (params: SquashFixupsParams, wait: Channel<LockWaitEvent>) => typedError<SquashFixupsResult, ApiError>(__TAURI_INVOKE("squash_fixup_commits", { params, wait })),
 	/**
 	 *  Fetches the baseline and brings the current branch onto it, keeping unrelated local changes; a conflict or a block
 	 *  is a result with nothing changed. `progress` receives the step the update is at, how far the fetch is, and whom
@@ -319,11 +295,6 @@ export const commands = {
 	fetchBaseline: (params: FetchBaselineParams, progress: Channel<TransferProgress>) => typedError<FetchBaselineResult, ApiError>(__TAURI_INVOKE("fetch_baseline", { params, progress })),
 	/**  Clears the report of the commits that landed with an update; the next update starts a new one */
 	dismissLanded: (repositoryPath: string) => typedError<null, ApiError>(__TAURI_INVOKE("dismiss_landed", { repositoryPath })),
-	/**
-	 *  Amend uncommitted changes to the original commit corresponding to a virtual branch tip.
-	 *  This operation modifies the main branch history and requires a sync afterward to recreate virtual branches.
-	 */
-	amendUncommittedToBranch: (params: AmendUncommittedToBranchParams, wait: Channel<LockWaitEvent>) => typedError<AmendCommandResult, ApiError>(__TAURI_INVOKE("amend_uncommitted_to_branch", { params, wait })),
 	/**
 	 *  Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
 	 *  logged-out `claude` and its failures are outcomes
@@ -538,17 +509,20 @@ export type ActivityLog = {
 	page: PageEntry[],
 };
 
-export type AddIssueReferenceParams = {
-	repositoryPath: string,
-	branchName: string,
-	commits: CommitInfo[],
-	issueReference: string,
-};
-
 export type AddIssueReferenceResult = {
 	success: boolean,
 	updatedCount: number,
 	skippedCount: number,
+	/**
+	 *  Old -> new full id of every commit the reword recreated, the ones after the oldest reworded one included; empty
+	 *  when nothing changed
+	 */
+	newCommitIds: { [key in string]: string },
+	/**
+	 *  HEAD after the reword, when the caller named the HEAD it expected (`RewriteOptions::expect_head`) and something
+	 *  changed
+	 */
+	newHead: string | null,
 };
 
 /**  How the prompts the app copies run this app's bd in a repository */
@@ -596,13 +570,6 @@ export type AmendCommandResult = { status: "ok"; data: AmendResult } | { status:
 export type AmendResult = {
 	amendedCommitId: string,
 	rebasedToCommit: string,
-};
-
-export type AmendUncommittedToBranchParams = {
-	repositoryPath: string,
-	branchName: string,
-	originalCommitId: string,
-	files: string[],
 };
 
 /**
@@ -660,14 +627,6 @@ export type AppliedUpdate = {
 	replayed: number,
 	/**  Local commits whose changes are already upstream: `git replay` drops a commit that becomes empty */
 	droppedAlreadyUpstream: number,
-};
-
-export type ApplyConflictFixParams = {
-	repositoryPath: string,
-	/**  `ConflictFix::fingerprint` */
-	fingerprint: string,
-	/**  The plan of a component of the fix */
-	plan: RegroupPlan,
 };
 
 /**  Why the approvals don't hold a Safe Push back (`domain_policy::review::skips_approvals`) */
@@ -4873,13 +4832,6 @@ export type Resource =
  */
 export type RestartAction = "restart" | "pushAndRestart";
 
-export type RestoreBranchHeadParams = {
-	repositoryPath: string,
-	/**  HEAD the squash left; the undo is refused if the branch moved since */
-	expectedHead: string,
-	previousHead: string,
-};
-
 /**  What may succeed after an error (`ErrorCode::retry`) */
 export type Retry = 
 /**  The same request fails again: the user decides */
@@ -5190,12 +5142,6 @@ export type ReviewsView = {
 	sections: ReviewSection[],
 	/**  Unix seconds of the last answer with them, 0 = never */
 	checkedAt: number,
-};
-
-/**  The app's reword: the commits of `rewords` (the app sends full ids and whole messages) in the repository */
-export type RewordRequest = {
-	repositoryPath: string,
-	rewords: CommitReword[],
 };
 
 export type RewordResult = {
@@ -5682,14 +5628,6 @@ export type Spread = {
 	p90: number,
 };
 
-export type SquashCommitsParams = {
-	repositoryPath: string,
-	/**  Commits on the current branch (the original commits of virtual branch commits), in any order */
-	commitIds: string[],
-	/**  The whole message of the squashed commit, the grouping prefix `(branch)` included */
-	message: string,
-};
-
 export type SquashCommitsResult = {
 	/**  The squashed commit, in place of the oldest selected one */
 	newCommitId: string,
@@ -5697,13 +5635,6 @@ export type SquashCommitsResult = {
 	newHead: string,
 	previousHead: string,
 	squashedCount: number,
-};
-
-export type SquashFixupsParams = {
-	repositoryPath: string,
-	/**  HEAD of the plan the user confirmed; the squash is refused if the branch moved since */
-	expectedHead: string,
-	scope: AutosquashScope,
 };
 
 export type SquashFixupsResult = {

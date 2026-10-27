@@ -1,48 +1,60 @@
-import type { Commit } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
+import type { Commit, UndoToken } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
-import { runRewrite, runUndo } from "@/lib/rewrite"
-import { getBranchesOfCommits, resolveCommitsOf } from "@/stores/branch-sync"
+import type { RewriteDone } from "@/lib/rewrite-run"
+import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
+import { showToast } from "@/lib/toast-message"
+import { getBranchesOfCommits } from "@/stores/branch-sync"
 import { branchSubject } from "@/stores/operations"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
- * Squashes the commits into the oldest of them with `message`, as one rewrite (`runRewrite`): the squash, the sync, then
- * the toast with an undo. A squash that waited for another rewrite in the queue squashes the commits as that rewrite
- * left them. Resolves after the sync, to false, after an error toast, if the commits could not be squashed; nothing
- * changed then.
+ * Squashes the commits into the oldest of them with `message`, as the rewrite `squash` of the engine
+ * (`runRewriteIntent`) in the repository of the press: the squash, the sync, then the toast with an undo. A squash that
+ * waited for another rewrite in the queue of the session squashes the commits as that rewrite left them (the session
+ * follows their ids). Resolves after the sync, to false, after an error toast or the info toast of a stopped wait, if
+ * the commits were not squashed; nothing changed then.
  */
 export async function squashCommits(commits: readonly Commit[], message: string, surface: string | null = null): Promise<boolean> {
   const repositoryPath = getSelectedRepositoryPath()
-  const branchName = getBranchesOfCommits(commits.map(commit => commit.originalHash))[0] ?? null
-  const result = await runRewrite(
+  const commitIds = commits.map(commit => commit.originalHash)
+  const branchName = getBranchesOfCommits(commitIds)[0] ?? null
+  const done = await runRewriteIntent(
     {
       id: "squash",
       subject: branchSubject(branchName ?? ""),
       // a squash of other commits of the branch, or with another message, is a squash of its own
-      parameters: JSON.stringify([commits.map(commit => commit.originalHash), message]),
+      parameters: JSON.stringify([commitIds, message]),
       objects: branchName === null ? [] : [branchName],
       label: `Squashing ${formatCommitCount(commits.length)}`,
       surface,
+      repositoryPath,
     },
+    witnessed(repositoryPath, { rewrite: "squash", commitIds, message }),
     "Cannot squash the commits",
-    // the ids as the rewrite before it in the queue left them (`resolveCommitsOf`)
-    wait => commands.squashCommits({ repositoryPath, commitIds: resolveCommitsOf(repositoryPath, commits).map(commit => commit.originalHash), message }, wait),
-    ({ newHead, previousHead, squashedCount }) => ({
-      sync: true,
-      after: () => showUndoToast(repositoryPath, `Squashed ${formatCommitCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),
-    }),
   )
-  return result !== null
+  if (done === null || done.result.rewrite !== "squashed") {
+    return false
+  }
+  showSquashedToast(repositoryPath, `Squashed ${formatCommitCount(done.result.answer.squashedCount)}`, done)
+  return true
 }
 
 /**
- * Moves the branch back to the commit before the squash: the squash kept the files, so nothing else changes. A rewrite
- * of its own, then the sync.
+ * The toast `title` of a squash or a squash of fixups of `repositoryPath`, with its Undo, also in Activity: the rewrite
+ * `undo` of its `squash` token moves the branch back to the commit before the squash, which kept the files, so nothing
+ * else changes
  */
-export async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string, failureTitle: string): Promise<boolean> {
-  return await runUndo({ id: "undo", subject: `undo:${expectedHead}`, objects: [], label: "Undoing the squash", repositoryPath }, failureTitle, wait =>
-    commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }, wait),
-  )
+export function showSquashedToast(repositoryPath: string, title: string, done: RewriteDone): void {
+  const token = done.undo
+  if (token === null) {
+    showToast({ title })
+    return
+  }
+  showUndoToast(repositoryPath, title, () => undoSquash(repositoryPath, token), undefined, done.outcome.op)
+}
+
+/** The Undo of a squash in `repositoryPath`, the repository it was made in: a rewrite of its own, queued as any */
+function undoSquash(repositoryPath: string, token: UndoToken): Promise<boolean> {
+  return undoRewrite(repositoryPath, token, "Undoing the squash", "Cannot undo the squash")
 }

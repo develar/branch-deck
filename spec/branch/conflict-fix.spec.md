@@ -13,6 +13,8 @@ targets:
   - ../../src-tauri/src/commands/conflict_fix.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../src/stores/conflict-fix.ts
+  - ../../crates/operations/src/rewrite.rs
+  - ../../src/lib/rewrite-run.ts
   - ../../src/lib/conflict-fix.ts
   - ../../src/lib/conflict-fix-prompt.ts
   - ../../src/components/conflict/ConflictFixPanel.tsx
@@ -134,9 +136,12 @@ rewrite.
   the children of an emptied branch, the pull requests the next push updates, and "its pull request stays open" for
   an emptied branch with one.
   [@test] ../../src/lib/conflict-fix.test.ts (`says a step as the Move action says it`, `names what applies cleanly, syncs again and is emptied, and where the commits went`, `names the pull requests the next push changes and keeps the one of an emptied branch open`, `says that the next commits of a whole issue follow it`, `finds the component with a step for the branch, else one that fixes or unblocks it`)
-- "Apply Fix" (primary `sm`) applies the component of the branch as one regroup: the toast "Fixed the conflict of ui"
-  ("Fixed the conflicts of N branches") with the steps and Undo, the same entry in Activity, then a sync that shows
-  the first branch the fix fills with the moved commits selected. It is disabled with the reason "A Safe Push of
+- "Apply Fix" (primary `sm`) applies the component of the branch as one regroup, the rewrite `applyConflictFix` of the
+  engine named on the table the window shows: a sync that shows the first branch the fix fills with the moved commits
+  selected, then the toast "Fixed the conflict of ui" ("Fixed the conflicts of N branches") with the steps and Undo
+  (the rewrite `undo` of its token), the same entry in Activity. While another holder has the repository lock, the
+  panel says whom it waits for, the step of its operation, with Stop Waiting (`cancel_operation`), which changes
+  nothing; the search of a fix (`find_conflict_fix`, `cancel_conflict_fix`) stays a read. It is disabled with the reason "A Safe Push of
   <branch> is running" while a Safe Push holds a branch the fix changes, and before what the robots hold is known: "Waits
   for the answer of Patronus" until Patronus answered with the view of its robots, "Patronus didn't tell what its
   robots hold and land (…)" while it gave none ([Next Step](next-step.spec.md#facts-without-an-answer)); never a fix on

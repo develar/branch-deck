@@ -1,22 +1,23 @@
 // @spec spec/commit/commit-row.spec.md
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { rewordCommit } from "@/hooks/useRewordCommit"
-import type { RewordResult } from "@/lib/bindings"
+import type { Outcome, RewordResult, UndoToken } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommitUnion } from "@/lib/commit"
 import { activityStore, canUndoActivity, clearActivity, selectActivity, undoActivity, UNDO_WINDOW_MS } from "@/stores/activity"
 import { fakeActivity } from "@/test-support/fake-activity"
 
-const { toasts, selection, syncs, renamed } = vi.hoisted(() => ({
+const { toasts, selection, WITNESS } = vi.hoisted(() => ({
   // what each `toast.add` showed, its action included
   toasts: [] as { title?: string; description?: string; timeout?: number; actionProps?: { onClick?: () => void } }[],
   /** The repository the main window shows */
   selection: { path: "/repo" },
-  /** The syncs the rewrites asked for */
-  syncs: { count: 0 },
-  /** The ids the rewrites before a reword gave its commits, as the last sync shows them */
-  renamed: new Map<string, string>(),
+  /** The table the window shows, which a reword is named on */
+  WITNESS: { head: "h", storeTips: { issueGroups: null, stackParents: null, parked: null } },
 }))
+
+/** What the session answers the next reword with */
+const reworded: { answer: RewordResult } = { answer: { newCommitIds: {}, previousHead: "", newHead: "", undoToken: null } }
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 vi.mock("@tauri-apps/api/core", async () => await import("@/test-support/channel-mock"))
@@ -37,22 +38,17 @@ vi.mock("@/stores/repository", () => ({
   getEffectiveBranchPrefix: () => "user",
 }))
 vi.mock("@/stores/branch-sync", () => ({
-  branchSyncStore: { getState: () => ({ isSyncing: false }) },
+  branchSyncStore: { getState: () => ({ isSyncing: false, operations: {} }) },
   getBranchesOfCommits: () => ["auth"],
-  resolveCommitsOf: (_repositoryPath: string, commits: readonly { originalHash: string }[]) =>
-    commits.map(commit => ({ ...commit, originalHash: renamed.get(commit.originalHash) ?? commit.originalHash })),
-  syncBranches: async () => {
-    syncs.count++
-  },
 }))
 vi.mock("@/stores/commit-move", () => ({ requestReveal: () => {} }))
-// the Undo runs in the engine: the window holds no session view in this test
-vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {}, getSessionWitness: () => ({ head: "", storeTips: { issueGroups: null, stackParents: null, parked: null } }) }))
+// the rewrites run in the engine: the window holds no session view in this test, the table it shows is at HEAD
+vi.mock("@/model/store", () => ({ whenSessionViewAt: async () => {}, getSessionWitness: () => WITNESS }))
 vi.mock("@/stores/stack-collapse", () => ({ forgetCollapsedStack: () => {}, renameCollapsedStack: () => {} }))
 vi.mock("@/lib/bindings", async importOriginal => {
   const original = await importOriginal<typeof import("@/lib/bindings")>()
   const { fakeActivity } = await import("@/test-support/fake-activity")
-  return { ...original, commands: { ...original.commands, ...fakeActivity.commands, reword: vi.fn(), execute: vi.fn() } }
+  return { ...original, commands: { ...original.commands, ...fakeActivity.commands, execute: vi.fn(), cancelOperation: vi.fn() } }
 })
 
 const OLD_ID = "1111111111111111111111111111111111111111"
@@ -65,8 +61,24 @@ function undoOf(repositoryPath: string) {
   return { repositoryPath, intent: { kind: "rewrite", rewrite: "undo", token: { kind: "regroup", token: TOKEN } }, fingerprint: "" }
 }
 
+/** The `execute` of the reword of `commitId` to `message` in /repo, as the page sends it: named on the table it shows */
+function rewordOf(commitId: string, message: string) {
+  return { repositoryPath: "/repo", intent: { kind: "rewrite", rewrite: "reword", rewords: [{ commit: commitId, text: { message } }], witness: WITNESS }, fingerprint: "" }
+}
+
+/** The outcome of the operation `op` whose core answered `result`, undone by `undo` */
+function outcomeOf(op: string, result: Outcome["result"], undo: UndoToken | null): Outcome {
+  return { op, effects: [], newsKey: null, versionAfter: null, result, undo, stats: { gitProcesses: {}, httpRequests: 0, millis: 1 } }
+}
+
+/** The session answers the reword with `answer`, its undo by the regroup token when it changed a message */
 function answer(result: RewordResult) {
-  vi.mocked(commands.reword).mockResolvedValue({ status: "ok", data: result })
+  reworded.answer = result
+}
+
+/** The executes of the page: the reword, then the Undo */
+function executes() {
+  return vi.mocked(commands.execute).mock.calls.map(([params]) => params)
 }
 
 function entries() {
@@ -84,21 +96,19 @@ describe("rewordCommit", () => {
     vi.useFakeTimers({ now: 1_000_000 })
     toasts.length = 0
     selection.path = "/repo"
-    syncs.count = 0
-    renamed.clear()
     fakeActivity.reset()
     await clearActivity("/repo")
-    // the undo ends (`done` on its channel) before it answers
-    vi.mocked(commands.execute).mockImplementation(async (_params, events) => {
-      const outcome = {
-        op: "op-undo",
-        effects: [],
-        newsKey: null,
-        versionAfter: null,
-        result: { kind: "rewrite" as const, rewrite: "undone" as const, answer: { alreadyUndone: false } },
-        undo: null,
-        stats: { gitProcesses: {}, httpRequests: 0, millis: 1 },
-      }
+    // each rewrite ends (`done` on its channel) before it answers, once its sync ended
+    vi.mocked(commands.execute).mockImplementation(async (params, events) => {
+      const intent = params.intent
+      const outcome =
+        intent.kind === "rewrite" && intent.rewrite === "reword"
+          ? outcomeOf(
+              "op-reword",
+              { kind: "rewrite", rewrite: "reworded", answer: reworded.answer },
+              reworded.answer.undoToken == null ? null : { kind: "regroup", token: reworded.answer.undoToken },
+            )
+          : outcomeOf("op-undo", { kind: "rewrite", rewrite: "undone", answer: { alreadyUndone: false } }, null)
       events.onmessage({ kind: "done", outcome })
       return { status: "ok", data: outcome }
     })
@@ -115,13 +125,7 @@ describe("rewordCommit", () => {
 
     expect(await rewordCommit(commit, "(auth) Add the login form\n\nWith a body", follow)).toBe(true)
 
-    expect(vi.mocked(commands.reword)).toHaveBeenCalledWith(
-      {
-        repositoryPath: "/repo",
-        rewords: [{ commit: OLD_ID, text: { message: "(auth) Add the login form\n\nWith a body" } }],
-      },
-      expect.anything(),
-    )
+    expect(executes()).toEqual([rewordOf(OLD_ID, "(auth) Add the login form\n\nWith a body")])
     expect(follow.mock.calls).toEqual([[OLD_ID, NEW_ID]])
     expect(toasts.map(toast => [toast.title, toast.description, toast.timeout])).toEqual([["Reworded 11111111", "(auth) Add the login form", UNDO_WINDOW_MS]])
     const entry = await recorded()
@@ -135,7 +139,7 @@ describe("rewordCommit", () => {
 
     undoActivity(entry)
     await vi.waitFor(() => expect(follow.mock.calls).toHaveLength(2))
-    expect(vi.mocked(commands.execute)).toHaveBeenCalledExactlyOnceWith(undoOf("/repo"), expect.anything())
+    expect(executes().slice(1)).toEqual([undoOf("/repo")])
     // the preview on the new commit follows the Undo back, once it is written, before its sync
     expect(follow.mock.calls[1]).toEqual([NEW_ID, OLD_ID])
     await vi.waitFor(() => expect(entries()[0]!.undo?.undone).toBe(true))
@@ -143,35 +147,29 @@ describe("rewordCommit", () => {
     // the toast's Undo after the one in Activity undoes nothing more
     toasts[0]!.actionProps!.onClick!()
     await vi.advanceTimersByTimeAsync(0)
-    expect(vi.mocked(commands.execute)).toHaveBeenCalledOnce()
+    expect(executes()).toHaveLength(2)
   })
 
   it("undoes the reword in its repository when the toast's Undo comes after a switch of the repository", async () => {
     answer({ newCommitIds: { [OLD_ID]: NEW_ID }, previousHead: OLD_ID, newHead: NEW_ID, undoToken: TOKEN })
     await rewordCommit(commit, "(auth) Add the login form", () => {})
-    expect(syncs.count).toBe(1)
     selection.path = "/other"
 
     toasts[0]!.actionProps!.onClick!()
-    await vi.waitFor(() => expect(vi.mocked(commands.execute)).toHaveBeenCalledExactlyOnceWith(undoOf("/repo"), expect.anything()))
-    // the table shows /other: nothing of it is synced for the undo of /repo
-    await vi.advanceTimersByTimeAsync(0)
-    expect(syncs.count).toBe(1)
+    await vi.waitFor(() => expect(executes().slice(1)).toEqual([undoOf("/repo")]))
   })
 
   it("rewords the commit as the rewrite before it in the queue left it, its preview and its Undo on that commit", async () => {
-    // a move before the reword gave the commit another id; the reword runs once its turn comes
+    // a move before the reword gave the commit another id; the session rewords it once its turn comes, through the id
+    // the move answered
     const MOVED_ID = "3333333333333333333333333333333333333333"
-    renamed.set(OLD_ID, MOVED_ID)
     answer({ newCommitIds: { [MOVED_ID]: NEW_ID }, previousHead: MOVED_ID, newHead: NEW_ID, undoToken: TOKEN })
     const follow = vi.fn()
 
     expect(await rewordCommit(commit, "(auth) Add the login form", follow)).toBe(true)
 
-    expect(vi.mocked(commands.reword)).toHaveBeenCalledExactlyOnceWith(
-      { repositoryPath: "/repo", rewords: [{ commit: MOVED_ID, text: { message: "(auth) Add the login form" } }] },
-      expect.anything(),
-    )
+    // the page names the commit on the table it shows
+    expect(executes()).toEqual([rewordOf(OLD_ID, "(auth) Add the login form")])
     expect(follow.mock.calls).toEqual([[MOVED_ID, NEW_ID]])
     expect(toasts.map(toast => toast.title)).toEqual(["Reworded 33333333"])
   })
@@ -185,7 +183,7 @@ describe("rewordCommit", () => {
     const entry = entries()[0]!
     expect(canUndoActivity(entry)).toBe(false)
     undoActivity(entry)
-    expect(vi.mocked(commands.execute)).not.toHaveBeenCalled()
+    expect(executes()).toHaveLength(1)
   })
 
   it("records nothing for an unchanged message", async () => {
@@ -194,7 +192,7 @@ describe("rewordCommit", () => {
 
     expect(await rewordCommit(commit, "(auth) Add login\n", follow)).toBe(true)
 
-    expect(vi.mocked(commands.reword)).toHaveBeenCalledOnce()
+    expect(executes()).toHaveLength(1)
     expect([toasts, entries(), follow.mock.calls]).toEqual([[], [], []])
   })
 })

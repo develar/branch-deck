@@ -9,6 +9,7 @@ targets:
   - ../../crates/sync-utils/src/commit_subject.rs
   - ../../crates/git-ops/src/autosquash_targets.rs
   - ../../src-tauri/src/commands/squash_fixups.rs
+  - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/autosquash.ts
   - ../../src/lib/commit.ts
   - ../../src/hooks/useSquashFixups.ts
@@ -82,15 +83,18 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 - The scope is a branch (the groups whose target is grouped into it), the unassigned commits (targets without a
   branch), or one fixup. A scope with nothing to squash is refused.
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`squashes_only_the_fixups_of_one_branch_or_one_fixup`)
-- The plan is computed again and the squash is refused if HEAD is not the one the user confirmed. HEAD, the newest
-  commit of the planned range and the history the squash rewrites must all be that head, so a commit made between
-  these reads never gives a plan for one head and a rewrite of another.
+- The squash of the app is the rewrite `squashFixups` of the engine, named on the table the window shows; the session
+  runs it on the HEAD of that table, or on the one the rewrites before it in its queue left. The plan is computed again
+  and the squash is refused if HEAD is not that one. HEAD, the newest commit of the planned range and the history the
+  squash rewrites must all be that head, so a commit made between these reads never gives a plan for one head and a
+  rewrite of another.
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
 - The squash must run under the repository lock, taken before the plan is read again: while another process holds it
   (an agent's `bd pick --follow`, `bd`) or the app's own push, the squash waits as long as the holder lives, its
-  surface saying whom for ("Waiting for `bd pick` (pid 4242, for 12 s)") with Stop Waiting, which ends the wait with
-  nothing changed ("Canceled squashing the fixups before it started"); only a holder no record names refuses it after
-  10 s, with nothing changed and the toast "Cannot squash the fixups" saying that another operation holds the lock.
+  surface saying whom for, the step of its operation ("Waiting for `bd pick` (pid 4242, for 12 s)"), with Stop Waiting
+  (`cancel_operation`), which ends the wait with nothing changed ("Canceled squashing the fixups before it started");
+  only a holder no record names refuses it after 10 s, with nothing changed and the toast "Cannot squash the fixups"
+  saying that another operation holds the lock.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
 - `bd fold` runs the same squash ([Agent CLI](../cli/agent-cli.spec.md)): it passes its lock timeout and
@@ -118,7 +122,8 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   closes it while the squash runs (as the squash dialog): it closes when the squash is done or failed.
 - The menu of a fixup commit with a target offers "Squash into “X”", which squashes that fixup only.
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
-- Success shows "Squashed N fixups" with Undo, as for a squash of selected commits.
+- Success shows "Squashed N fixups" with Undo, as for a squash of selected commits (the rewrite `undo` of its
+  `squash` token).
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
 
 ## Testing / Local Run

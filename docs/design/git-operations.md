@@ -440,7 +440,9 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
 3. **What it names, now**: once admitted, one `for-each-ref` of the checked out branch and the three stores reads the
    witness of now. HEAD as the intent saw it: its ids hold. Else a rewrite of this process moved HEAD since
    (`TableState::rewrites`, the last 16, each with the new ids its core reported, `RewriteResult::rewritten`; one that
-   only added commits keeps the others): each id goes through them. Else the session's table is brought to HEAD (the
+   only added commits keeps the others; an added issue reference reports every commit it recreated and the new HEAD,
+   `AddIssueReferenceResult::new_commit_ids` and `new_head`, since its key changes the subject a key would find them
+   by): each id goes through them. Else the session's table is brought to HEAD (the
    sync in flight, `SyncReason::Open`, at most three times) and each id is the commit of the same author, author time
    and subject without the prefix (`CommitKey`, read off the table when the request came; a key two commits share finds
    neither); an ungroup takes the commits
@@ -2908,12 +2910,14 @@ included: the app's 24 trials and 60 s (Cancel stops it), `bd check --fix`'s 12 
 away, its merges stay in the memo. Each trial is a line of progress, which `bd check --fix` prints on stderr.
 
 Merges are memoized (`merge_result`), so the trials repeat no `merge-tree` of a tree pair; on the IntelliJ checkout a
-trial took 0.5–2.5 s and the search 9 trials. Apply (`apply_conflict_fix`) is a regroup (`regroup_planned`): under the
+trial took 0.5–2.5 s and the search 9 trials. Apply (the rewrite `applyConflictFix` of the engine,
+`apply_conflict_fix_core`) is a regroup (`regroup_planned`): under the
 repository lock the snapshot's fingerprint (HEAD, the issue groups and stack parents commits, the oldest commit ahead
 of the baseline) must be the one the fix was found for, else the fix is stale and is looked for again; then one
 message-only rewrite and the ref transaction of a move, with its undo token.
 
-Code: `crates/trial-check/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_fix.rs`.
+Code: `crates/trial-check/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_fix.rs` (the search and its cancel),
+`crates/operations/src/rewrite.rs` (Apply).
 
 #### Operations registry
 

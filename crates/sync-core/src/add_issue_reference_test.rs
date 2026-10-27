@@ -162,3 +162,32 @@ async fn test_add_issue_reference_empty_commits() {
   assert_eq!(result.updated_count, 0);
   assert_eq!(result.skipped_count, 0);
 }
+
+/// The issue reference of a request made for a HEAD reports the new id of every commit it recreated and the new HEAD:
+/// a rewrite queued behind it in the session names its commits through them (`RewriteResult::rewritten`), since the
+/// subject it changed no longer finds them by their key
+#[tokio::test]
+async fn the_issue_reference_reports_the_new_ids_and_the_new_head() {
+  let test_repo = TestRepo::new();
+  let commits = create_commits(
+    &test_repo,
+    &[("(feature-auth) Add authentication", "auth.rs", "// auth code"), ("(other) Add docs", "docs.md", "docs")],
+  );
+  let (auth, docs) = (commits[0].hash.clone(), commits[1].hash.clone());
+  let params = AddIssueReferenceParams {
+    repository_path: test_repo.path().to_str().unwrap().to_string(),
+    branch_name: "feature-auth".to_string(),
+    commits: vec![commits[0].clone()],
+    issue_reference: "AUTH-123".to_string(),
+  };
+  let options = RewriteOptions {
+    expect_head: Some(docs.clone()),
+    ..RewriteOptions::default()
+  };
+  let result = add_issue_reference_to_commits_core(test_repo.git_executor(), params, &options).unwrap();
+
+  let head = test_repo.head();
+  let new_auth = test_repo.rev_parse("HEAD~1").unwrap();
+  assert_eq!(result.new_head.as_deref(), Some(head.as_str()));
+  assert_eq!(result.new_commit_ids, [(auth, new_auth), (docs, head)].into_iter().collect());
+}

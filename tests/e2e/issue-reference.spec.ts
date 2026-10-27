@@ -38,7 +38,7 @@ test.describe("Issue Reference Feature", () => {
     await testInputAutoFocus(input)
 
     // Type an issue reference and submit
-    const response = waitForApiResponse(page, "add_issue_reference_to_commits")
+    const response = waitForApiResponse(page, "execute")
     await submitInlineForm(input, "GH-123")
 
     // The progress row ("Adding GH-123 to test-branch…") replaces the input until the commits are rewritten
@@ -77,7 +77,8 @@ test.describe("Issue Reference Feature", () => {
   })
 
   test("should keep the typed reference when adding it fails", async ({ page }) => {
-    await routeCommandError(page, "add_issue_reference_to_commits", { code: "head_moved", message: "The branch moved", retry: "after_reread" })
+    // the rewrite of the engine fails, as the session answers a branch that moved since the table the form was opened on
+    await routeCommandError(page, "execute", { code: "head_moved", message: "The branch moved", retry: "after_reread" }, { times: 1 })
     await openContextMenu(page, findBranchRow(page, "test-branch"))
     await clickContextMenuItem(page, "Add Issue Reference…")
 

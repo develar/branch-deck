@@ -7,7 +7,7 @@ import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } f
 import { MIN_WINDOW } from "../helpers/header-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { emitTauriEvent, enableAutoSyncOnFocus, finishedSyncCount, runAndWaitForSync, syncFromMenu, syncOnWindowFocus, waitForTauriListener } from "../helpers/sync-helpers"
-import { holdCommand, holdCommandCalls } from "../helpers/wait-helpers"
+import { holdCommand, holdRewrites } from "../helpers/wait-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
 const BRANCH = "JIRA-456"
@@ -272,21 +272,26 @@ test.describe("Commit message", () => {
       await expect(preview).toHaveCount(0)
     })
 
-    test("should keep the edit open with an error when the commit changed meanwhile", async ({ page, issueLinksRepo: repo }) => {
+    test("should save nothing when the commit changed meanwhile, say so, and close the preview of the commit that is gone", async ({ page, issueLinksRepo: repo }) => {
       const { preview, editor } = await editPerfCommit(page)
       const hash = await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: PERF_SUBJECT }).getAttribute("data-row-id")
-      const draft = `(${BRANCH}) perf db: increase pool size to 64`
-      await editor.fill(draft)
+      await editor.fill(`(${BRANCH}) perf db: increase pool size to 64`)
 
       // the commit is reworded in a terminal meanwhile, so it left the branch
       await repo.reword(hash!, `(${BRANCH}) ${PERF_SUBJECT} connections`)
       await page.keyboard.press("ControlOrMeta+Enter")
 
+      // the session brings its table to HEAD to find the commit, and finds it neither by its id nor by its key: the plan
+      // of the reword changed, nothing was done
       await expect(page.getByText("Cannot edit the commit message")).toBeVisible()
-      await expect(page.getByText(/is no longer on the current branch, sync and try again/)).toBeVisible()
-      await expect(editor).toHaveValue(draft)
-      await expect(editor).toBeEnabled()
-      await expect(preview).toBeVisible()
+      await expect(page.getByText(/is no commit ahead of the baseline any more\); nothing was done/)).toBeVisible()
+      // the table shows the commit as the terminal left it; the preview of the one that is gone closed
+      await expect(preview).toHaveCount(0)
+      await expect(
+        getBranchDetailsRow(page, BRANCH)
+          .locator("tr")
+          .filter({ hasText: `${PERF_SUBJECT} connections` }),
+      ).toBeVisible()
     })
 
     const REWORDED = "perf db: increase pool size to 64"
@@ -374,14 +379,14 @@ test.describe("Commit message", () => {
     test("should save an unchanged message without a toast", async ({ page }) => {
       const { preview, editor } = await editPerfCommit(page)
       const syncs = await finishedSyncCount(page)
-      const { calls, release } = await holdCommandCalls(page, "reword")
+      const { calls, release } = await holdRewrites(page, "reword")
       await page.keyboard.press("ControlOrMeta+Enter")
       await expect.poll(() => calls.length).toBe(1)
       release()
 
       // the save is over (its toast would come before the edit ends); the message reached the backend unchanged
       await expect(editor).toHaveCount(0)
-      expect(calls[0]).toMatchObject({ rewords: [{ text: { message: `(${BRANCH}) ${PERF_SUBJECT}` } }] })
+      expect(calls[0]!.rewrite).toMatchObject({ rewords: [{ text: { message: `(${BRANCH}) ${PERF_SUBJECT}` } }] })
       await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${PERF_SUBJECT}`)
       await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
       expect(await finishedSyncCount(page)).toBe(syncs)

@@ -458,9 +458,11 @@ function projectView(repositoryPath: string, previous: RepositoryView | null, ne
     update.commitsRevision = state.commitsRevision + 1
   }
   branchSyncStore.setState(update)
-  // a placeholder still waiting got no result, also after a failed run
   if (!running && (wasRunning || changes === null)) {
+    // a placeholder still waiting got no result, also after a failed run
     settleArchivedPlaceholders()
+    // the fixups of the table the run left, whoever asked it: this window, another, a rewrite of the engine
+    void loadAutosquashPlan(repositoryPath)
   }
 }
 
@@ -1031,7 +1033,6 @@ function recordSync(repositoryPath: string, answer: SyncAnswer, reason: SyncReas
   }))
   branchSyncStore.setState({ syncedRepositoryPath: repositoryPath, inputsCheckedAt: null })
   hideAfterSync(repositoryPath)
-  void loadAutosquashPlan(repositoryPath)
 }
 
 /** The run a request made now is served by: the next one to start (a run in flight serves it with its follow-up) */

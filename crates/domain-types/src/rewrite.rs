@@ -263,6 +263,7 @@ impl RewriteResult {
       Self::Reworded(reworded) => Some(&reworded.new_head),
       Self::Picked(picked) => Some(&picked.new_head),
       Self::Amended(AmendCommandResult::Ok(amended)) => Some(&amended.rebased_to_commit),
+      Self::IssueReferenceAdded(added) => added.new_head.as_deref(),
       _ => None,
     }
   }
@@ -298,6 +299,7 @@ impl RewriteResult {
       }
       Self::Reworded(reworded) => reworded.new_commit_ids.iter().filter_map(changed).collect(),
       Self::FixupsSquashed(squashed) => squashed.squashed.iter().filter_map(|target| changed((&target.target, &target.new_id))).collect(),
+      Self::IssueReferenceAdded(added) => added.new_commit_ids.iter().filter_map(changed).collect(),
       _ => BTreeMap::new(),
     }
   }
@@ -607,6 +609,12 @@ pub struct AddIssueReferenceResult {
   pub success: bool,
   pub updated_count: u32,
   pub skipped_count: u32,
+  /// Old -> new full id of every commit the reword recreated, the ones after the oldest reworded one included; empty
+  /// when nothing changed
+  pub new_commit_ids: BTreeMap<String, String>,
+  /// HEAD after the reword, when the caller named the HEAD it expected (`RewriteOptions::expect_head`) and something
+  /// changed
+  pub new_head: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -8,7 +8,8 @@ targets:
   - ../../crates/git-ops/src/replay.rs
   - ../../crates/history-rewrite/src/squash.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
-  - ../../src-tauri/src/commands/squash_commits.rs
+  - ../../crates/operations/src/rewrite.rs
+  - ../../src/lib/rewrite-run.ts
   - ../../src/hooks/useSquashCommits.ts
   - ../../src/hooks/useCommitMoveList.ts
   - ../../src/components/commit/MovableCommitList.tsx
@@ -66,16 +67,19 @@ tree and the index are not touched, and an undo is a move of the branch back.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`validates_the_groups`, `refuses_a_range_with_merges`)
   [@test] ../../crates/history-rewrite/src/squash_test.rs (`refuses_fewer_than_two_commits_a_duplicate_or_a_blank_subject`)
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`squash_conflicting_with_commit_in_between_changes_nothing`, `refusal_after_writing_a_commit_leaves_no_temp_refs`, `squash_refuses_empty_result`, `squash_refuses_kept_commit_that_becomes_empty`)
-- The squash and its undo must run under the repository lock: while another process holds it (an agent's `bd pick
-  --follow`, `bd`) or the app's own push, they wait as long as the holder lives; the squash dialog says whom for
-  ("Waiting for `bd pick` (pid 4242, for 12 s)") with Stop Waiting, which ends the wait with nothing changed
-  ("Canceled squashing 2 commits before it started"), the dialog kept with its message for the next press. Only a
+- The squash and its undo must be the rewrites `squash` and `undo` of the engine (the squash named on the table the
+  window shows) and run under the repository lock: while another process holds it (an agent's `bd pick --follow`,
+  `bd`) or the app's own push, they wait as long as the holder lives; the squash dialog says whom for, the step of its
+  operation ("Waiting for `bd pick` (pid 4242, for 12 s)"), with Stop Waiting (`cancel_operation`), which ends the wait
+  with nothing changed ("Canceled squashing 2 commits before it started"), the dialog kept with its message for the
+  next press. Only a
   holder no record names refuses them after 10 s, with nothing changed and the error toast saying that another
   operation holds the lock. A HEAD the request was not made for (`expect_head`) refuses the squash as `HeadMoved`.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should wait for the holder in the squash dialog, say whom for, and squash once it released the lock`)
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should stop the wait of a squash with Stop Waiting in its dialog, squash nothing, and squash on the next press`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
 - An operation of the app itself never refuses the squash: behind the app's own push or rewrite it waits in the line
   of the app's process, as long as that one takes and past any bound, and the operations of the line get the lock in
@@ -113,7 +117,8 @@ tree and the index are not touched, and an undo is a move of the branch back.
 ### After a squash
 
 - A squash must clear the selection, sync, and show the toast "Squashed N commits" with an Undo button.
-- Undo must move the branch back to the commit before the squash in one transaction (`branch-deck: undo squash`),
+- Undo (the rewrite `undo` of the `squash` token of its outcome, `<previous>..<new>`) must move the branch back to the
+  commit before the squash in one transaction (`branch-deck: undo squash`),
   only if the branch still points at the squashed history and both have the same files; otherwise it is refused. A
   branch that moved on since (a commit on top, also one made between the check and the move) must be refused with
   `undo_stale` (`retry: no`), as every undo of the app and `bd undo` answer it, never `internal`, in words that say
@@ -121,7 +126,7 @@ tree and the index are not touched, and an undo is a move of the branch back.
   branch stays (a ref that moves with it is elsewhere) is no `undo_stale`.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`undo_restores_the_previous_head`, `undo_is_refused_when_the_branch_moved`, `undo_is_refused_when_the_branch_moved_during_the_transaction`, `undo_whose_other_ref_moved_is_not_head_moved`)
   [@test] ../../crates/history-rewrite/src/squash_test.rs (`undo_restores_the_previous_head_and_refuses_after_a_new_commit`)
-  [@test] ../../crates/test-server/src/squash_test.rs (`restore_branch_head_after_a_new_commit_answers_undo_stale_never_retried`)
+  [@test] ../../crates/test-server/src/squash_test.rs (`the_undo_of_a_squash_after_a_new_commit_answers_undo_stale_never_retried`)
   [@test] ../../crates/app-api/src/api_error_test.rs (`a_stale_undo_says_it_cannot_be_undone_instead_of_advising_a_retry`)
   [@test] ../../tests/e2e/squash-commits/squash-commits.spec.ts (`should squash selected branch commits into the oldest one and undo it`, `should refuse to undo a squash after a commit on top`)
 

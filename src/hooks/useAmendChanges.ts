@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
-import type { MergeConflictInfo, UncommittedChangesResult } from "@/lib/bindings"
+import type { UncommittedChangesResult } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
-import { commandFailure } from "@/lib/errors"
+import { notifyError } from "@/lib/errors"
+import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
+import { showToast } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
-import { resolveCommitsOf, syncBranches } from "@/stores/branch-sync"
-import { openInline, withRowProcessing } from "@/stores/inline-row-action"
-import { getSelectedProject, getSelectedRepositoryPath, isSelectedRepository } from "@/stores/repository"
+import { inlineSurface, openInline, withRowProgress } from "@/stores/inline-row-action"
+import { branchSubject } from "@/stores/operations"
+import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
 
 interface UncommittedChangesState {
   diffData: UncommittedChangesResult | null
@@ -24,16 +26,12 @@ async function loadUncommittedChanges(): Promise<UncommittedChangesState> {
   }
 }
 
-class AmendConflictError extends Error {
-  constructor(readonly conflict: MergeConflictInfo) {
-    super("Merge conflict")
-  }
-}
-
 /**
- * Amends the uncommitted changes to the tip commit of the branch, then re-syncs: one operation. A conflict opens the
- * inline conflict viewer. An amend that waits for another rewrite in the queue runs in the repository of its start, on
- * the commit as that rewrite left it.
+ * Amends the uncommitted changes to the tip commit of the branch, as the rewrite `amend` of the engine
+ * (`runRewriteIntent`) in the repository of the press, then the sync that shows it, while the inline form shows its
+ * progress. A conflict opens the inline conflict viewer in place of the form; an error keeps the form, and a wait the
+ * user stopped too. An amend that waits for another rewrite in the queue of the session runs in the repository of its
+ * press, on the commit as that rewrite left it (the session follows its id).
  */
 export async function amendChanges(branch: Branch, diffData: UncommittedChangesResult | null): Promise<void> {
   // the tip commit is the first one (newest, after .rev() in the backend)
@@ -50,52 +48,42 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
   }
 
   const files = diffData.files.map(file => file.filePath)
-  // the repository of the start: an amend that waits in the queue runs there, whichever the main window shows by then
+  // the repository of the press: an amend that waits in the queue runs there, whichever the main window shows by then
   const repositoryPath = getSelectedRepositoryPath()
-  await withRowProcessing(
+  await withRowProgress(
     branch.name,
-    // an amend of other files is an amend of its own: it waits for this one, never joins it
-    { id: "amend-changes", kind: "rewrite", parameters: JSON.stringify(files), label: `Amending changes to ${branch.name}`, repositoryPath },
-    async wait => {
-      const result = await commands.amendUncommittedToBranch(
+    async () => {
+      const done = await runRewriteIntent(
         {
+          id: "amend-changes",
+          subject: branchSubject(branch.name),
+          objects: [branch.name],
+          // an amend of other files is an amend of its own: it waits for this one, never joins it
+          parameters: JSON.stringify(files),
+          label: `Amending changes to ${branch.name}`,
+          surface: inlineSurface(branch.name),
           repositoryPath,
-          branchName: branch.name,
-          // the id as the rewrite before it in the queue left it (`resolveCommitsOf`)
-          originalCommitId: resolveCommitsOf(repositoryPath, [tipCommit])[0]?.originalHash ?? tipCommit.originalHash,
-          files,
         },
-        wait,
+        witnessed(repositoryPath, { rewrite: "amend", branchName: branch.name, originalCommitId: tipCommit.originalHash, files }),
       )
-      if (result.status !== "ok") {
-        // the error as the command answered it: a wait the user stopped is no failure (`isLockWaitCanceled`)
-        throw commandFailure(result.error)
+      if (done === null || done.result.rewrite !== "amended") {
+        return false
       }
-      if (result.data.status === "branchError") {
-        const branchError = result.data.data
-        if (branchError.MergeConflict) {
-          throw new AmendConflictError(branchError.MergeConflict)
+      const answer = done.result.answer
+      if (answer.status === "branchError") {
+        if (answer.data.MergeConflict === undefined) {
+          notifyError(`Cannot amend ${branch.name}`, answer.data.Generic)
+        } else {
+          // the conflict viewer below the row says it, in place of the form (a failure keeps the form: no close follows)
+          openInline("amend-conflict", branch.name, { conflictInfo: answer.data.MergeConflict })
         }
-        throw new Error(branchError.Generic)
+        return false
       }
-      // the table shows another repository after a switch: this one is synced when it opens
-      if (isSelectedRepository(repositoryPath)) {
-        await syncBranches("afterRewrite")
-      }
-      return result.data.data
-    },
-    {
       // the description is the amended commit
-      success: () => ({ title: `Amended ${formatFileCount(files.length)} into ${branch.name}`, description: tipCommit.strippedSubject }),
-      errorTitle: error => {
-        if (error instanceof AmendConflictError) {
-          // the conflict viewer below the row says it
-          openInline("amend-conflict", branch.name, { conflictInfo: error.conflict })
-          return null
-        }
-        return `Cannot amend ${branch.name}`
-      },
+      showToast({ title: `Amended ${formatFileCount(files.length)} into ${branch.name}`, description: tipCommit.strippedSubject })
+      return true
     },
+    { keepFormOnFailure: true },
   )
 }
 

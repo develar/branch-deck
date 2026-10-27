@@ -1,14 +1,12 @@
-import type { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import { toast } from "@/components/ui/toast"
-import type { LockWaitEvent, MergeConflictInfo } from "@/lib/bindings"
+import type { MergeConflictInfo } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { actionOfLabel, canceledBeforeStart, isLockWaitCanceled } from "@/lib/lock-wait"
 import type { ToastMessage } from "@/lib/toast-message"
 import { showToast } from "@/lib/toast-message"
 import type { OperationKind } from "@/stores/operations"
-import { branchSubject, lockWaitChannel, runOperation, useSurfaceBusy } from "@/stores/operations"
+import { branchSubject, runOperation, useSurfaceBusy } from "@/stores/operations"
 
 export type InlineActionType =
   | "issue-reference"
@@ -35,24 +33,14 @@ export interface RowOperation {
   /** The id of the item that opened the form ("unapply") */
   id: string
   kind: OperationKind
-  /** The busy state the form shows in place of itself, without the ellipsis: "Unapplying feature-auth" */
+  /** The busy state the form shows in place of itself, without the ellipsis: "Deleting feature-auth" */
   label: string
-  /**
-   * The repository of the start: a rewrite that waits in the queue runs there, whichever the main window shows by then;
-   * the selected one by default
-   */
-  repositoryPath?: string
-  /** What the start acts with, where two starts of the form differ (`OperationKey.parameters`): the files of an amend */
-  parameters?: string
 }
 
 export interface RowProcessingOptions<T> {
   success: (value: T) => ToastMessage
-  /**
-   * The title of the error toast ("Cannot unapply feature-auth"); `notifyError` makes the error its description. Null
-   * for an error shown otherwise (the amend conflict opens its viewer below the row)
-   */
-  errorTitle: (error: unknown) => string | null
+  /** The title of the error toast ("Cannot delete the archived branch auth"); `notifyError` makes the error its description */
+  errorTitle: (error: unknown) => string
   /** An error shows the form again with its input, instead of closing it */
   keepFormOnError?: boolean
 }
@@ -192,44 +180,28 @@ type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: fals
 /**
  * Runs `fn` as the operation of the row (`runOperation`), while the row's inline form shows its progress state, reports
  * the outcome with a toast (an error through `notifyError`: sticky, logged, in Activity) and closes the form (after an
- * error too, unless `keepFormOnError`). `fn` includes the sync that shows its result: the form shows the progress until
- * then. `fn` gets the channel of its command's wait for another holder of the repository lock (`lockWaitChannel`); a
- * wait the user stopped (Stop Waiting, a `canceled` error thrown) changed nothing: an info toast says so, the
- * form stays. Resolves to the value of `fn`, or `undefined` if it failed, was stopped or had to wait for another
- * operation (said in a toast, the form kept).
+ * error too, unless `keepFormOnError`). `fn` includes what shows its result: the form shows the progress until then.
+ * Resolves to the value of `fn`, or `undefined` if it failed or had to wait for another operation (said in a toast, the
+ * form kept).
  */
-export async function withRowProcessing<T>(
-  key: string,
-  operation: RowOperation,
-  fn: (wait: Channel<LockWaitEvent>) => Promise<T>,
-  options: RowProcessingOptions<T>,
-): Promise<T | undefined> {
+export async function withRowProcessing<T>(key: string, operation: RowOperation, fn: () => Promise<T>, options: RowProcessingOptions<T>): Promise<T | undefined> {
   const outcome = await runOperation<Outcome<T>>(
     { ...operation, subject: branchSubject(key), objects: [key], surface: inlineSurface(key) },
-    operationKey =>
-      fn(lockWaitChannel(operationKey)).then(
+    () =>
+      fn().then(
         value => ({ ok: true, value }),
         (error: unknown) => ({ ok: false, error }),
       ),
-    reason => toast.add({ type: "info", title: options.errorTitle(reason) ?? operation.label, description: reason }),
+    reason => toast.add({ type: "info", title: options.errorTitle(reason), description: reason }),
   )
   if (outcome === undefined) {
     return undefined
   }
-  if (!outcome.ok && isLockWaitCanceled(outcome.error)) {
-    // stopped before it started: nothing changed, the form stays with its input
-    showToast(canceledBeforeStart(actionOfLabel(operation.label)))
-    return undefined
-  }
   if (!outcome.ok) {
     if (options.keepFormOnError !== true) {
-      // the error handler may open another inline (e.g. the amend conflict viewer), so close first
       closeInlineOf(key)
     }
-    const errorTitle = options.errorTitle(outcome.error)
-    if (errorTitle !== null) {
-      notifyError(errorTitle, outcome.error)
-    }
+    notifyError(options.errorTitle(outcome.error), outcome.error)
     return undefined
   }
 

@@ -1,14 +1,12 @@
 import { useMemo } from "react"
-import { undoSquash } from "@/hooks/useSquashCommits"
+import { showSquashedToast } from "@/hooks/useSquashCommits"
 import type { ListFixups } from "@/lib/autosquash"
 import { formatFixupCount, getListFixups } from "@/lib/autosquash"
 import type { AutosquashScope } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
-import { showUndoToast } from "@/lib/command"
-import { runRewrite } from "@/lib/rewrite"
+import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { getAutosquashPlan, useAutosquashPlan } from "@/stores/branch-sync"
 import { branchSubject } from "@/stores/operations"
-import { getSelectedProject } from "@/stores/repository"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /** The surface of the squash of the fixups of a list (a branch, the unassigned commits): its popover */
 export function squashFixupsSurface(list: string): string {
@@ -23,39 +21,40 @@ export interface SquashFixupsOptions {
 }
 
 /**
- * Squashes the fixups of `scope` into their targets, if HEAD is still `expectedHead`, as one rewrite (`runRewrite`): the
- * squash, the sync, then the toast with an undo. Resolves after the sync, to false, after an error toast, if nothing
- * was squashed.
+ * Squashes the fixups of `scope` into their targets, as the rewrite `squashFixups` of the engine (`runRewriteIntent`)
+ * named on the table the window shows, in the repository of the press: the squash, the sync, then the toast with an
+ * undo. Resolves after the sync, to false, after an error toast or the info toast of a stopped wait, if nothing was
+ * squashed.
  */
-export async function squashFixups(scope: AutosquashScope, expectedHead: string, options: SquashFixupsOptions = {}): Promise<boolean> {
-  const repositoryPath = getSelectedProject()?.path ?? ""
+export async function squashFixups(scope: AutosquashScope, options: SquashFixupsOptions = {}): Promise<boolean> {
+  const repositoryPath = getSelectedRepositoryPath()
   const branchName = scope.type === "branch" ? scope.value : null
   const list = options.list ?? branchName
-  const result = await runRewrite(
+  const done = await runRewriteIntent(
     {
       id: scope.type === "fixup" ? "squash-into" : "squash-fixups",
       subject: branchName === null ? `fixups:${scope.type === "fixup" ? scope.value : scope.type}` : branchSubject(branchName),
       objects: list === null ? [] : [list],
       label: scope.type === "fixup" ? "Squashing the fixup" : "Squashing the fixups",
       surface: options.surface,
+      repositoryPath,
     },
+    witnessed(repositoryPath, { rewrite: "squashFixups", scope }),
     "Cannot squash the fixups",
-    wait => commands.squashFixupCommits({ repositoryPath, expectedHead, scope }, wait),
-    ({ newHead, previousHead, squashedCount }) => ({
-      sync: true,
-      after: () => showUndoToast(repositoryPath, `Squashed ${formatFixupCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),
-    }),
   )
-  return result !== null
+  if (done === null || done.result.rewrite !== "fixupsSquashed") {
+    return false
+  }
+  showSquashedToast(repositoryPath, `Squashed ${formatFixupCount(done.result.answer.squashedCount)}`, done)
+  return true
 }
 
 /** Squashes one fixup commit into its target, as planned after the last sync. */
 export function squashFixupInto(commitId: string): Promise<boolean> {
-  const plan = getAutosquashPlan()
-  if (plan === null) {
+  if (getAutosquashPlan() === null) {
     return Promise.resolve(false)
   }
-  return squashFixups({ type: "fixup", value: commitId }, plan.head)
+  return squashFixups({ type: "fixup", value: commitId })
 }
 
 /** The fixups of a branch (null: the unassigned commits), from the plan loaded after the last sync */

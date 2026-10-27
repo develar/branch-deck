@@ -25,9 +25,7 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
-use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
-use history_rewrite::reword::{RewordRequest, reword_request_core};
 use object_cache::cache::ObjectCache;
 use remote_facts::pull_request_create::{GetNewPullRequestParams, SearchGitHubUsersParams, new_pull_request, read_viewer_login, search_github_users as core_search_github_users};
 use remote_facts::pull_requests::{NOT_ON_GITHUB_MESSAGE, failure_message};
@@ -38,7 +36,6 @@ use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use sync_core::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use sync_core::branch_name_suggestion::clean_names;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::github_repository::{GitHubRepository, parse_known_github_repository, resolve_github_repository};
@@ -134,32 +131,6 @@ where
     Ok(Event::default().event(event_name).data(serde_json::to_string(&event).unwrap()))
   });
   Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(1)).text("keep-alive"))
-}
-
-pub async fn add_issue_reference_to_commits(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<sync_core::add_issue_reference::AddIssueReferenceParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "add the issue reference", move |lock_wait| {
-      sync_core::add_issue_reference::add_issue_reference_to_commits_core(&git_executor, params, &RewriteOptions::waiting(lock_wait))
-    })
-    .await,
-  )
-}
-
-pub async fn reword(State(state): State<Arc<AppState>>, headers: HeaderMap, Json(params): Json<RewordRequest>) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "reword", move |lock_wait| {
-      reword_request_core(&git_executor, &params, &RegroupOptions::waiting(lock_wait))
-    })
-    .await,
-  )
 }
 
 #[derive(Deserialize)]
@@ -513,51 +484,6 @@ pub async fn cancel_conflict_fix() -> Json<()> {
   Json(())
 }
 
-pub async fn apply_conflict_fix(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<trial_check::conflict_fix::ApplyConflictFixParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "apply the conflict fix", move |lock_wait| {
-      trial_check::conflict_fix::apply_conflict_fix_core(&git_executor, &params, lock_wait)
-    })
-    .await,
-  )
-}
-
-pub async fn squash_commits(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<history_rewrite::squash::SquashCommitsParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "squash commits", move |lock_wait| {
-      history_rewrite::squash::squash_commits_core(&git_executor, &params, &RewriteOptions::waiting(lock_wait))
-    })
-    .await,
-  )
-}
-
-pub async fn restore_branch_head(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<history_rewrite::squash::RestoreBranchHeadParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "restore the branch head", move |lock_wait| {
-      history_rewrite::squash::restore_branch_head_core(&git_executor, &params, lock_wait).map_err(undo_error)
-    })
-    .await,
-  )
-}
-
 pub async fn get_autosquash_plan(
   State(state): State<Arc<AppState>>,
   Json(params): Json<history_rewrite::autosquash::GetAutosquashPlanParams>,
@@ -568,21 +494,6 @@ pub async fn get_autosquash_plan(
     history_rewrite::autosquash::get_autosquash_plan_core(&git_executor, &params.repository_path)
   })
   .await
-}
-
-pub async fn squash_fixup_commits(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<history_rewrite::autosquash::SquashFixupsParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "squash fixup commits", move |lock_wait| {
-      history_rewrite::autosquash::squash_fixup_commits_core(&git_executor, &params, &RewriteOptions::waiting(lock_wait))
-    })
-    .await,
-  )
 }
 
 /// The progress goes to the channel of the page as the app sends it (`channel_commands`), the wait for a live holder of
@@ -1218,21 +1129,6 @@ async fn own_commits(
     read(&inputs.git, &request.repository_path, &branch_prefix, &request.branch_name, &baseline_branch)
   })
   .await
-}
-
-pub async fn amend_uncommitted_to_branch(
-  State(state): State<Arc<AppState>>,
-  headers: HeaderMap,
-  Json(params): Json<AmendUncommittedToBranchParams>,
-) -> Result<Response, Rejection> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  Ok(
-    run_waiting(&state, &headers, "amend the uncommitted changes", move |lock_wait| {
-      amend_uncommitted_to_branch_core(&git_executor, params, &RewriteOptions::waiting(lock_wait))
-    })
-    .await,
-  )
 }
 
 pub async fn get_uncommitted_changes(State(state): State<Arc<AppState>>, Json(params): Json<GetUncommittedChangesParams>) -> CommandResult<UncommittedChangesResult> {

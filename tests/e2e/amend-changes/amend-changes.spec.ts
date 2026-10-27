@@ -8,7 +8,8 @@ import { editCommitMessage } from "../helpers/preview-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
-import { holdCommandCalls, recordCommand, waitForTooltip } from "../helpers/wait-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { recordRewrites, waitForTooltip } from "../helpers/wait-helpers"
 
 /** Opens the amend changes dialog of `branchName` from its context menu and returns the branch row */
 async function openAmendDialog(page: Page, branchName: string): Promise<Locator> {
@@ -44,9 +45,12 @@ function toastOf(page: Page, title: string | RegExp): Locator {
 }
 
 test.describe("Amend Changes Feature", () => {
+  /** The repository of the test, whose lock the tests of the queue hold */
+  let repo: TestRepositoryBuilder
+
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
     // Setup test repository with amend_changes template
-    await setupRepo("amend_changes")
+    repo = await setupRepo("amend_changes")
 
     // Sync branches and wait for them to load
     await syncAndWaitForBranches()
@@ -167,23 +171,25 @@ test.describe("Amend Changes Feature", () => {
     })
 
     test("should amend in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile", async ({ page }) => {
-      // the issue reference rewrites only the commit of feature-api, after the one the amend goes into
-      const references = await holdCommandCalls(page, "add_issue_reference_to_commits")
-      const amends = await recordCommand(page, "amend_uncommitted_to_branch")
+      // the issue reference rewrites only the commit of feature-api, after the one the amend goes into; it waits for
+      // the repository lock another process holds, in the session
+      const references = await recordRewrites(page, "addIssueReference")
+      const amends = await recordRewrites(page, "amend")
+      await repo.holdRepositoryLock(true)
       await addIssueReference(page, "feature-api", "GH-1")
-      await expect.poll(() => references.calls.length).toBe(1)
-      const repositoryPath = references.calls[0]!.repositoryPath as string
+      await expect.poll(() => references.length).toBe(1)
+      const repositoryPath = references[0]!.repositoryPath
 
-      // the amend is taken and waits for it: its form says so, nothing reached the backend
+      // the amend reaches the session and waits behind it in its queue: its form says so
       await openAmendDialog(page, "feature-auth")
       await submitAmend(page)
       await expect(page.getByRole("dialog", { name: "Amend changes to feature-auth" })).toContainText("Waits for Adding GH-1 to feature-api…")
-      expect(amends).toEqual([])
+      expect(amends.map(call => [call.repositoryPath, call.rewrite.branchName])).toEqual([[repositoryPath, "feature-auth"]])
 
       await switchRepository(page, OTHER_REPOSITORY)
-      references.release()
-      // the amend went to the repository of its click, not to the one the window shows
-      await expect.poll(() => amends.map(call => [call.repositoryPath, call.branchName])).toEqual([[repositoryPath, "feature-auth"]])
+      await repo.holdRepositoryLock(false)
+      // both ran in the repository of their clicks, not in the one the window shows
+      await expect(toastOf(page, "Added GH-1 to feature-api")).toBeVisible()
       await expect(toastOf(page, /^Amended .* into feature-auth/)).toBeVisible()
       await expect(toastOf(page, "Cannot amend feature-auth")).toHaveCount(0)
     })
@@ -191,51 +197,54 @@ test.describe("Amend Changes Feature", () => {
     test("should add the issue reference in the repository of its start once the rewrite before it ended, though the window switched to another one meanwhile", async ({
       page,
     }) => {
-      // the amend of feature-api rewrites only its commit, after the one of feature-auth
-      const amends = await holdCommandCalls(page, "amend_uncommitted_to_branch")
-      const references = await recordCommand(page, "add_issue_reference_to_commits")
+      // the amend of feature-api rewrites only its commit, after the one of feature-auth; it waits for the repository
+      // lock another process holds, in the session
+      const amends = await recordRewrites(page, "amend")
+      const references = await recordRewrites(page, "addIssueReference")
+      await repo.holdRepositoryLock(true)
       await openAmendDialog(page, "feature-api")
       await submitAmend(page)
-      await expect.poll(() => amends.calls.length).toBe(1)
-      const repositoryPath = amends.calls[0]!.repositoryPath as string
+      await expect.poll(() => amends.length).toBe(1)
+      const repositoryPath = amends[0]!.repositoryPath
 
-      // the issue reference is taken and waits for it: nothing reached the backend
+      // the issue reference reaches the session and waits behind it in its queue: its form says so
       await addIssueReference(page, "feature-auth", "GH-2")
-      await inlineIssueReference.waitForHidden(page)
-      expect(references).toEqual([])
+      await expect(page.getByText("Waits for Amending changes to feature-api…")).toBeVisible()
+      expect(references.map(call => [call.repositoryPath, call.rewrite.branchName, call.rewrite.issueReference])).toEqual([[repositoryPath, "feature-auth", "GH-2"]])
 
       await switchRepository(page, OTHER_REPOSITORY)
-      amends.release()
-      await expect.poll(() => references.map(call => [call.repositoryPath, call.branchName, call.issueReference])).toEqual([[repositoryPath, "feature-auth", "GH-2"]])
+      await repo.holdRepositoryLock(false)
       await expect(toastOf(page, "Added GH-2 to feature-auth")).toBeVisible()
+      await expect(toastOf(page, /^Amended .* into feature-api/)).toBeVisible()
       await expect(toastOf(page, "Cannot add GH-2 to feature-auth")).toHaveCount(0)
       await expect(toastOf(page, "Cannot amend feature-api")).toHaveCount(0)
     })
 
     test("should reword a commit as the issue reference before it in the queue left it: another id, another subject", async ({ page }) => {
-      const references = await holdCommandCalls(page, "add_issue_reference_to_commits")
-      const rewords = await recordCommand(page, "reword")
+      const references = await recordRewrites(page, "addIssueReference")
+      const rewords = await recordRewrites(page, "reword")
+      await repo.holdRepositoryLock(true)
       await addIssueReference(page, "feature-api", "GH-1")
-      await expect.poll(() => references.calls.length).toBe(1)
+      await expect.poll(() => references.length).toBe(1)
       // the commit as the click saw it: the issue reference rewords it, a new id and the key in its subject
-      const oldId = (references.calls[0]!.commits as { hash: string }[])[0]!.hash
+      const oldId = (references[0]!.rewrite.commits as { hash: string }[])[0]!.hash
 
-      // the reword of the same commit, from its preview while its branch is busy: it waits in the queue
+      // the reword of the same commit, from its preview while its branch is busy: it waits in the queue of the session
       await expandBranch(page, findBranchRow(page, "feature-api"))
       // the form of the issue reference shows its progress between the branch row and its commits
       const editor = await editCommitMessage(page, page.locator("[data-row-id]:not([data-testid=branch-row])").filter({ hasText: "Add API endpoints" }))
       await editor.fill("(feature-api) Add the API endpoints")
       await page.keyboard.press("ControlOrMeta+Enter")
-      expect(rewords).toEqual([])
+      // named on the table the window showed
+      await expect.poll(() => rewords.map(call => (call.rewrite.rewords as { commit: string }[])[0]!.commit)).toEqual([oldId])
 
-      references.release()
+      await repo.holdRepositoryLock(false)
       await expect(toastOf(page, "Added GH-1 to feature-api")).toBeVisible()
-      // the reword went to the commit the issue reference wrote: the old id would fail with "Cannot edit the commit
-      // message"
-      await expect.poll(() => rewords.length).toBe(1)
-      const target = (rewords[0]!.rewords as { commit: string }[])[0]!.commit
-      expect(target).not.toBe(oldId)
-      await expect(toastOf(page, `Reworded ${target.slice(0, 8)}`)).toBeVisible()
+      // the session rewords the commit the issue reference wrote, through the new id it answered: the old id would fail
+      // with "Cannot edit the commit message"
+      const reworded = toastOf(page, /Reworded [0-9a-f]{8}/)
+      await expect(reworded).toBeVisible()
+      await expect(reworded).not.toContainText(`Reworded ${oldId.slice(0, 8)}`)
       await expect(toastOf(page, "Cannot edit the commit message")).toHaveCount(0)
     })
   })

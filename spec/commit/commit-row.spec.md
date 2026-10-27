@@ -20,7 +20,8 @@ targets:
   - ../../src/hooks/useStackActions.ts
   - ../../src/components/commit/PrefixChangeHint.tsx
   - ../../src/lib/stack.ts
-  - ../../src-tauri/src/commands/reword.rs
+  - ../../src/lib/rewrite-run.ts
+  - ../../crates/operations/src/rewrite.rs
   - ../../crates/history-rewrite/src/reword.rs
   - ../../crates/history-rewrite/src/fixup_targets.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
@@ -195,7 +196,12 @@ The commit hash popover shows the same header and body.
 - The edit and the save must be disabled while a sync runs.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should disable the edit while a sync runs`)
 - A failed save must keep the edit open with the draft and show the error in a toast.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep the edit open with an error when the commit changed meanwhile`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should refuse a reword that strands a fixup, and keep the draft`)
+- A save of a commit that changed meanwhile (reworded in a terminal) must change nothing: the session brings its table
+  to HEAD to find the commit, finds it neither by its id nor by its key, and refuses the reword as a changed plan
+  ("Cannot edit the commit message" with the reason); the preview of the commit that is gone closes, as after any sync
+  that removes it.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should save nothing when the commit changed meanwhile, say so, and close the preview of the commit that is gone`)
 - E must work in any keyboard layout (the physical key).
 - The save hint must name the platform shortcut: `⌘↵` on macOS, `Ctrl+Enter` elsewhere.
 - The save must be the reword of `bd reword` ([Agent CLI](../cli/agent-cli.spec.md), `bd reword`): one regroup of the
@@ -232,17 +238,22 @@ The commit hash popover shows the same header and body.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should undo a reword from its toast and follow the preview back`, `should undo a reword from Activity`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`, `offers no Undo past the window of the toast`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`undo_of_a_reword_brings_back_the_old_virtual_commits`)
-  [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_token_that_the_rewrite_undo_takes`)
+  [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_that_brings_the_old_head_back`)
 - The Undo must be refused, with nothing changed, once the branch moved after the save (another rewrite, a commit in a
   terminal): "Cannot undo the reword" with the reason.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should refuse to undo a reword after the branch moved`)
 - A save that changed nothing (the same message after the cleanup) must show no toast, record nothing and run no sync.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should save an unchanged message without a toast`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records nothing for an unchanged message`)
-- The save must run under the repository lock: while another process holds it (an agent's `bd pick --follow`, `bd`)
-  or the app's own push, the save waits as long as the holder lives, the editor saying whom for with Stop Waiting,
-  which ends the wait with nothing changed; only a holder no record names refuses it after 10 s, with nothing changed
-  and the toast "Cannot edit the commit message" saying that another operation holds the lock.
+- The save must be the rewrite `reword` of the engine, named on the table the window shows, and run under the
+  repository lock: while another process holds it (an agent's `bd pick --follow`, `bd`) or the app's own push, the save
+  waits as long as the holder lives, the editor saying whom for (the step of its operation) with Stop Waiting
+  (`cancel_operation`), which ends the wait with nothing changed; only a holder no record names refuses it after 10 s,
+  with nothing changed and the toast "Cannot edit the commit message" saying that another operation holds the lock. A
+  save while another rewrite runs (an Unstack from the main window, an issue reference of the same commit) waits
+  behind it in the queue of the session and rewords the commit as that one left it, its new id included.
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_reword_and_an_unstack_from_two_windows_at_once_are_both_applied_in_order`, `a_reword_queued_behind_the_issue_reference_of_its_commit_names_it_through_the_new_id`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
 

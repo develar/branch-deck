@@ -2,18 +2,17 @@ import { useEffect, useMemo } from "react"
 import { createStore, useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { undoRegroup } from "@/hooks/useStackActions"
-import type { Commit, ConflictFix, FixComponent } from "@/lib/bindings"
+import type { Commit, ConflictFix, FixComponent, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import { getCommitSubject, getSubjectLine, parseSubject } from "@/lib/commit"
 import { branchesOfFix, componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
 import type { SubjectOf } from "@/lib/conflict-fix"
 import { getErrorDetails } from "@/lib/errors"
-import { runRewrite } from "@/lib/rewrite"
+import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import type { OperationKey } from "@/stores/operations"
 
 /** The search of the fix of the conflicts of the last sync (spec/branch/conflict-fix.spec.md) */
 export interface ConflictFixState {
@@ -28,11 +27,6 @@ export const conflictFixStore = createStore<ConflictFixState>(() => ({ key: null
 
 /** The surface of Apply Fix: it shows the spinner of the fix it applies */
 export const APPLY_FIX_SURFACE = "apply-conflict-fix"
-
-/** The operation of applying `component`: a rewrite of the branches it moves commits of or to */
-function conflictFixOperation(component: FixComponent): OperationKey {
-  return { id: "apply-conflict-fix", subject: "conflict-fix", objects: branchesOfFix(component), kind: "rewrite" }
-}
 
 /**
  * The repository and the commits of the table the session left (`commitsRevision`): a fix found for other commits is
@@ -124,9 +118,10 @@ export function fixStepsFor(branch: string | undefined): string[] | undefined {
 }
 
 /**
- * Applies a component of the fix: one regroup as one rewrite (`runRewrite`), then the sync that shows the first branch
- * the fix fills, then the toast with Undo, also in Activity. A fix the repository moved away from is looked for again,
- * without an error.
+ * Applies a component of the fix: one regroup as the rewrite `applyConflictFix` of the engine (`runRewriteIntent`) in
+ * the repository of the press, a rewrite of the branches it moves commits of or to; once it is written, before the sync
+ * shows it, the first branch the fix fills is revealed and the fix is forgotten; then the toast with Undo, also in
+ * Activity. A fix the repository moved away from is looked for again, without an error.
  */
 export async function applyConflictFix(component: FixComponent): Promise<void> {
   const { fix } = conflictFixStore.getState()
@@ -134,33 +129,47 @@ export async function applyConflictFix(component: FixComponent): Promise<void> {
   if (fix === null || repositoryPath === null) {
     return
   }
-  await runRewrite(
-    { ...conflictFixOperation(component), label: "Applying the fix", surface: APPLY_FIX_SURFACE, repositoryPath: repositoryPath },
-    "Cannot apply the fix",
-    wait => commands.applyConflictFix({ repositoryPath: repositoryPath, fingerprint: fix.fingerprint, plan: component.plan }, wait),
-    data => {
-      if (data.kind === "stale") {
-        return { sync: false, after: () => void requestConflictFix(true) }
-      }
-      const applied = data.result
-      const subjectOf = subjectOfCommit()
-      const description = component.steps.map(step => describeFixStep(step, subjectOf)).join("; ")
-      const first = component.steps[0]
-      const moved = new Set(component.steps.flatMap(step => step.commits))
-      requestReveal(
-        first === undefined
-          ? null
-          : {
-              branchName: first.kind === "restack" ? first.fixes : first.to,
-              commitIds: applied.commits.filter(commit => moved.has(commit.oldId)).map(commit => commit.newId),
-            },
-      )
-      conflictFixStore.setState({ key: null, status: "idle", fix: null })
-      return {
-        sync: true,
-        after: () =>
-          showUndoToast(repositoryPath, fixTitle(component), () => undoRegroup(repositoryPath, applied.undoToken, "Cannot undo the fix", "Undoing the fix"), description),
-      }
+  const subjectOf = subjectOfCommit()
+  const description = component.steps.map(step => describeFixStep(step, subjectOf)).join("; ")
+  const done = await runRewriteIntent(
+    {
+      id: "apply-conflict-fix",
+      subject: "conflict-fix",
+      objects: branchesOfFix(component),
+      label: "Applying the fix",
+      surface: APPLY_FIX_SURFACE,
+      repositoryPath,
+      onWritten: outcome => {
+        if (outcome.result.kind === "rewrite" && outcome.result.rewrite === "conflictFixApplied" && outcome.result.answer.kind === "applied") {
+          revealFixed(component, outcome.result.answer.result)
+          conflictFixStore.setState({ key: null, status: "idle", fix: null })
+        }
+      },
     },
+    witnessed(repositoryPath, { rewrite: "applyConflictFix", fingerprint: fix.fingerprint, plan: component.plan }),
+    "Cannot apply the fix",
+  )
+  if (done === null || done.result.rewrite !== "conflictFixApplied") {
+    return
+  }
+  const token = done.undo?.token
+  if (done.result.answer.kind === "stale" || token === undefined) {
+    void requestConflictFix(true)
+    return
+  }
+  showUndoToast(repositoryPath, fixTitle(component), () => undoRegroup(repositoryPath, token, "Cannot undo the fix", "Undoing the fix"), description, done.outcome.op)
+}
+
+/** Reveals the first branch `component` fills with the commits it moved there, as the regroup `moved` reports them */
+function revealFixed(component: FixComponent, moved: MoveCommitsResult): void {
+  const first = component.steps[0]
+  const commits = new Set(component.steps.flatMap(step => step.commits))
+  requestReveal(
+    first === undefined
+      ? null
+      : {
+          branchName: first.kind === "restack" ? first.fixes : first.to,
+          commitIds: moved.commits.filter(commit => commits.has(commit.oldId)).map(commit => commit.newId),
+        },
   )
 }

@@ -35,15 +35,13 @@ mod zoom_test;
 
 use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_status, install_update};
 use commands::activity::{clear_activity, read_activity, record_activity};
-use commands::add_issue_reference::add_issue_reference_to_commits;
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
-use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, delete_unapplied_branch, get_archived_branch_commits, get_unapplied_branch_commits};
 use commands::branch_prefix::{check_git_setup, resolve_branch_prefix};
 use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branch_review};
 use commands::cli_tools::{CliToolsState, cancel_cli_tool_action, cli_tools_status, get_setup_items, run_cli_tool_action};
 use commands::commit_files::{get_commit_files, get_commits_files};
-use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
+use commands::conflict_fix::{cancel_conflict_fix, find_conflict_fix};
 use commands::fetch_baseline::fetch_baseline;
 use commands::file_diffs::{SymbolSearchState, cancel_symbol_search, find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
@@ -54,11 +52,9 @@ use commands::pull_requests::{get_new_pull_request, get_new_stack_pull_request, 
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, link_pull_request, prune_review_refs, unlink_pull_request};
-use commands::reword::reword;
 use commands::session::{SessionsState, get_snapshot, refresh_facts, set_demand, set_window_focus, subscribe_view, sync, unsubscribe_view};
 use commands::settings::{get_settings_changes, set_setting};
-use commands::squash_commits::{restore_branch_head, squash_commits};
-use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
+use commands::squash_fixups::get_autosquash_plan;
 use commands::stack_operations::{get_stack_independence, preview_move};
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
 use commands::unapply_branch::{reapply_branch, unapply_branch, undo_reapply_branch, undo_unapply_branch};
@@ -157,18 +153,11 @@ fn specta_builder() -> Builder<tauri::Wry> {
       preview_move,
       find_conflict_fix,
       cancel_conflict_fix,
-      apply_conflict_fix,
       get_stack_independence,
-      add_issue_reference_to_commits,
-      reword,
-      squash_commits,
-      restore_branch_head,
       get_autosquash_plan,
-      squash_fixup_commits,
       update_project,
       fetch_baseline,
       dismiss_landed,
-      amend_uncommitted_to_branch,
       suggest_branch_names,
       get_archived_branch_commits,
       get_unapplied_branch_commits,

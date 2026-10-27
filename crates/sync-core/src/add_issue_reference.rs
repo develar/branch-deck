@@ -10,6 +10,7 @@ use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::keeps_virtual_commit;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use sync_utils::issue_pattern::has_issue_reference;
 use tracing::info;
 
@@ -94,6 +95,8 @@ pub fn add_issue_reference_to_commits_core(
       success: true,
       updated_count: 0,
       skipped_count,
+      new_commit_ids: BTreeMap::new(),
+      new_head: None,
     });
   }
 
@@ -113,10 +116,14 @@ pub fn add_issue_reference_to_commits_core(
         skipped_count
       );
 
+      // the mapping recreates HEAD too: its new id is the new HEAD
+      let new_head = expected_head.as_ref().and_then(|head| mapping.get(head).cloned());
       Ok(AddIssueReferenceResult {
         success: true,
         updated_count,
         skipped_count,
+        new_commit_ids: mapping.into_iter().collect(),
+        new_head,
       })
     }
     Err(e) => Err(format!("Failed to add issue reference: {e}")),

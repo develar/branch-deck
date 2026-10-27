@@ -1,16 +1,18 @@
 import { toast } from "@/components/ui/toast"
-import { commands } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
-import { commandFailure } from "@/lib/errors"
+import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
+import { showToast } from "@/lib/toast-message"
 import type { Branch } from "@/stores/branch-sync"
-import { resolveCommitsOf, syncBranches } from "@/stores/branch-sync"
-import { withRowProcessing } from "@/stores/inline-row-action"
-import { getSelectedRepositoryPath, isSelectedRepository } from "@/stores/repository"
+import { inlineSurface, withRowProgress } from "@/stores/inline-row-action"
+import { branchSubject } from "@/stores/operations"
+import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
- * Prefixes the branch commits with the issue reference, then re-syncs, while the inline form shows its progress: one
- * operation. A failure keeps the form with the typed reference. A start that waits for another rewrite in the queue
- * runs in the repository of its start, on the commits as that rewrite left them.
+ * Prefixes the branch commits with the issue reference, as the rewrite `addIssueReference` of the engine
+ * (`runRewriteIntent`) in the repository of the press, then the sync that shows it, while the inline form shows its
+ * progress. A failure keeps the form with the typed reference. A start that waits for another rewrite in the queue of
+ * the session runs in the repository of its press, on the commits as that rewrite left them (the session follows their
+ * ids).
  */
 export async function addIssueReference(issueReference: string, branch: Branch): Promise<void> {
   if (branch.commits.length === 0) {
@@ -19,44 +21,36 @@ export async function addIssueReference(issueReference: string, branch: Branch):
     return
   }
 
-  // the repository of the start: a start that waits in the queue runs there, whichever the main window shows by then
+  // the repository of the press: a start that waits in the queue runs there, whichever the main window shows by then
   const repositoryPath = getSelectedRepositoryPath()
-  await withRowProcessing(
+  const commits = branch.commits.map(commit => ({ hash: commit.originalHash, message: commit.message }))
+  await withRowProgress(
     branch.name,
-    // another reference is a start of its own: it waits for this one, never joins it
-    { id: "add-issue-reference", kind: "rewrite", parameters: issueReference, label: `Adding ${issueReference} to ${branch.name}`, repositoryPath },
-    async wait => {
-      const result = await commands.addIssueReferenceToCommits(
+    async () => {
+      const done = await runRewriteIntent(
         {
+          id: "add-issue-reference",
+          subject: branchSubject(branch.name),
+          objects: [branch.name],
+          // another reference is a start of its own: it waits for this one, never joins it
+          parameters: issueReference,
+          surface: inlineSurface(branch.name),
           repositoryPath,
-          branchName: branch.name,
-          // the ids as the rewrite before it in the queue left them (`resolveCommitsOf`)
-          commits: resolveCommitsOf(repositoryPath, branch.commits).map(commit => ({ hash: commit.originalHash, message: commit.message })),
-          issueReference,
         },
-        wait,
+        witnessed(repositoryPath, { rewrite: "addIssueReference", branchName: branch.name, commits, issueReference }),
       )
-      if (result.status !== "ok") {
-        // the error as the command answered it: a wait the user stopped is no failure (`isLockWaitCanceled`)
-        throw commandFailure(result.error)
+      if (done === null || done.result.rewrite !== "issueReferenceAdded") {
+        return false
       }
-      // refresh without auto-expand or auto-scroll; the table shows another repository after a switch: this one is
-      // synced when it opens
-      if (isSelectedRepository(repositoryPath)) {
-        await syncBranches("afterRewrite")
-      }
-      return result.data
-    },
-    {
-      success: ({ updatedCount, skippedCount }) => {
-        if (updatedCount === 0) {
-          return { type: "info", title: `Nothing to add to ${branch.name}`, description: "Every commit has an issue reference already." }
-        }
+      const { updatedCount, skippedCount } = done.result.answer
+      if (updatedCount === 0) {
+        showToast({ type: "info", title: `Nothing to add to ${branch.name}`, description: "Every commit has an issue reference already." })
+      } else {
         const skipped = skippedCount === 0 ? "" : ` · ${skippedCount} had an issue reference already`
-        return { title: `Added ${issueReference} to ${branch.name}`, description: `${formatCommitCount(updatedCount)}${skipped}` }
-      },
-      errorTitle: () => `Cannot add ${issueReference} to ${branch.name}`,
-      keepFormOnError: true,
+        showToast({ title: `Added ${issueReference} to ${branch.name}`, description: `${formatCommitCount(updatedCount)}${skipped}` })
+      }
+      return true
     },
+    { keepFormOnFailure: true },
   )
 }
