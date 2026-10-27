@@ -2,7 +2,7 @@ use crate::parked::{ParkBranchLine, ParkBranchesParams, UnparkBranchesParams, pa
 use crate::regroup_test::{commits, entries, path, plant_store, sync};
 use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, RewriteOptions, lock_repository};
+use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository_as_another_process};
 use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::store_lines::StoreLines;
 use pretty_assertions::assert_eq;
@@ -89,7 +89,7 @@ fn unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_th
 fn park_waits_for_the_repository_lock() {
   let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth"]);
-  let _held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap();
   let options = RewriteOptions {
     lock_wait: LockWait::Bounded(Duration::from_millis(100)),
     ..RewriteOptions::default()

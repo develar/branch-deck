@@ -77,6 +77,11 @@ tree and the index are not touched, and an undo is a move of the branch back.
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should wait for the holder in the squash dialog, say whom for, and squash once it released the lock`)
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should stop the wait of a squash with Stop Waiting in its dialog, squash nothing, and squash on the next press`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
+- An operation of the app itself never refuses the squash: behind the app's own push or rewrite it waits in the line
+  of the app's process, as long as that one takes and past any bound, and the operations of the line get the lock in
+  the order they came; a wait stopped in the line leaves it, nothing changed.
+  [@test] ../../crates/history-rewrite/src/repository_lock_test.rs (`a_rewrite_behind_a_short_push_of_its_own_process_waits_in_its_line_and_is_never_locked`)
+  [@test] ../../crates/history-rewrite/src/repository_lock_test.rs (`the_line_gives_the_turn_in_the_order_they_came_and_a_stopped_wait_leaves_it`)
 - A group that keeps the target's message (for fixups) must keep its bytes and its encoding.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`target_message_keeps_the_bytes_and_the_encoding`)
 

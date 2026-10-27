@@ -85,7 +85,7 @@ export function SafePushButton({
   // the start of the whole stack runs under its key, and pushes its stack branch alone
   const key = wholeStack === undefined ? branch.name : stackReadinessKey(wholeStack)
   const starting = useLandRun(key)
-  // how far its push is, or whom it waits for, as the channel of this window's start tells it
+  // how far its push is, as the channel of this window's start tells it
   const progress = useLandProgress(starting?.op ?? null)
   // until when a click is ignored: the button took the place of another step under a pointer that stayed (null: not mounted yet)
   const guardUntil = useRef<number | null>(null)
@@ -93,8 +93,8 @@ export function SafePushButton({
   const blocker = step?.safePushBlocker ?? null
   const disabled = blocker !== null || starting !== null
   const pushing = starting?.step === "pushing" ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, starting.pushes) : "Pushing", progress) : null
-  // whom its wait for the repository lock is for: the caller's channel names the holder
-  const waiting = starting?.step === "waiting" ? (progress?.line ?? "Waiting for another holder of the repository lock") : null
+  // whom its wait for the repository lock is for, as the view names the holder: every window says it
+  const waiting = starting?.waitingFor ?? null
   const label =
     starting === null
       ? (item?.label ?? "Safe Push")

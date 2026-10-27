@@ -13,13 +13,12 @@ use domain_types::pull_request::PullRequestState;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{PatronusView, RestartAction, RobotRestart};
 use domain_types::session::{Fact, FactState, LandedSection, PullRequestsView, SubjectReadiness, Version};
-use history_rewrite::repository_lock::lock_repository_in;
+use history_rewrite::repository_lock::lock_repository_as_another_process;
 use pretty_assertions::assert_eq;
 use repository_model::branch_table::{BranchTable, RemoteFact};
 use repository_model::derive::LandSources;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
-use std::time::Duration;
 
 /// A robot of `auth` on `source`
 fn robot_on(id: &str, status: PatronusRobotStatus, source: &str) -> PatronusRobot {
@@ -248,7 +247,7 @@ async fn a_restart_that_pushes_first_cancels_the_running_robot_pushes_and_restar
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_on_the_remote_branch_takes_no_lock() {
   let fixture = fixture().await;
-  let _held = lock_repository_in(&fixture.repo.path().join(".git"), Duration::ZERO, &|| {}).unwrap();
+  let _held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "bd push auth").unwrap();
   let (_, started) = fixture.run_restart(fixture.restart(vec![PlannedEffect::RestartRobot { robot_id: "r1".to_owned() }])).await;
   assert_eq!(statuses(&started), [&EffectStatus::Done]);
   assert_eq!(fixture.fake.restarts.lock().unwrap().clone(), ["r1"]);

@@ -3,6 +3,7 @@ import { createStore } from "zustand/vanilla"
 import type { OperationId, OperationStep, PatronusPushMode, RunningOperation, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { stackReadinessKey } from "@/lib/whole-stack"
+import { presentOperationLockWait } from "@/presenters/lock-wait"
 import { branchSyncStore, useBranchSyncField } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath, useSelectedProjectPath } from "@/stores/repository"
 
@@ -38,6 +39,8 @@ export interface LandRun {
    * cancel of the robot it replaces); `waiting`: another holder of the repository lock; then its push and its robot
    */
   readonly step: "checking" | "waiting" | "pushing" | "starting"
+  /** While it waits for another holder of the repository lock: whom for, as the view names it ("Waiting for `bd pick` (pid 4242, for 12 s)") */
+  readonly waitingFor: string | null
   /** The operation; null while the click waits for its plan */
   readonly op: OperationId | null
   /** The virtual branches its push sends, root first (the refs it reserves); empty without a push */
@@ -51,7 +54,7 @@ export interface SafePushState {
    * the repository keeps to its own
    */
   readonly asking: Readonly<Record<string, SafePushMode>>
-  /** By operation: how far the push of a start this window runs is, or whom it waits for, as its channel tells it */
+  /** By operation: how far the push of a start this window runs is, as its channel tells it */
   readonly progress: Readonly<Record<OperationId, TransferProgress>>
 }
 
@@ -107,9 +110,9 @@ function pushedBranches(operation: RunningOperation): string[] {
 function landRunOf(operation: RunningOperation | undefined, asking: SafePushMode | undefined): LandRun | null {
   if (operation !== undefined && operation.intent.kind === "land") {
     const mode = operation.intent.mode === "dryRun" ? "dryRun" : "rebaseAutosquash"
-    return { mode, step: slotStep(operation.step), op: operation.id, pushes: pushedBranches(operation) }
+    return { mode, step: slotStep(operation.step), waitingFor: presentOperationLockWait(operation), op: operation.id, pushes: pushedBranches(operation) }
   }
-  return asking === undefined ? null : { mode: asking, step: "checking", op: null, pushes: [] }
+  return asking === undefined ? null : { mode: asking, step: "checking", waitingFor: null, op: null, pushes: [] }
 }
 
 /** The start of the subject `key` that runs in the selected repository */
@@ -125,7 +128,7 @@ export function getLandRun(key: string, repositoryPath: string = getSelectedRepo
   return landRunOf(landOperationIn(branchSyncStore.getState().operations, key), safePushStore.getState().asking[askingKey(repositoryPath, key)])
 }
 
-/** How far the push of the start `op` this window runs is, or whom it waits for; null before its channel told it */
+/** How far the push of the start `op` this window runs is; null before its channel told it */
 export function useLandProgress(op: OperationId | null): TransferProgress | null {
   return useStore(safePushStore, state => (op === null ? null : (state.progress[op] ?? null)))
 }

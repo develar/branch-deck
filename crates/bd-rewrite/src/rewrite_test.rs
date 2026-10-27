@@ -1,9 +1,8 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, subcommand};
+use bd_cli::fixture_test::{LockSpanGit, hold_the_lock, subcommand};
 use bd_cli::fixture_test::{assert_refused_during, commit_all, git, repo_with_baseline, run_in, start_cherry_pick, sync_statuses, with_header, write};
 use git_ops::revs::short_id;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
@@ -136,7 +135,7 @@ fn group_errors_and_exit_codes() {
   assert_eq!(output["error"]["retryable"], json!(true));
 
   // another process holds the lock: retry later
-  let held = lock_repository(repo.git_executor(), repo.path().to_str().unwrap(), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let held = hold_the_lock(&repo);
   let (exit_code, output) = group(&repo, &json!({ "branches": { "a": [ids[0]] } }), &[]);
   assert_error(&output, exit_code, 3, "locked");
   drop(held);

@@ -1,6 +1,8 @@
 //! Every rewrite of the checked out branch the app runs takes the repository lock in its core (`RewriteOptions`, the
-//! `RegroupOptions` of the reword): it waits for another holder, fails with `RepositoryLocked` after the timeout and
-//! changes nothing, and refuses another HEAD than the expected one
+//! `RegroupOptions` of the reword): it waits for another process that holds it (here the test itself, as another
+//! process: `lock_repository_as_another_process`; the operations of one process wait in its line, `history_rewrite`'s
+//! `repository_lock_test`), fails with `RepositoryLocked` after the timeout and changes nothing, and refuses another
+//! HEAD than the expected one
 
 use crate::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
@@ -10,7 +12,7 @@ use git_ops::rewrite_guard::HeadMoved;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{
-  LockHolder, LockWait, LockWaitCanceled, LockWaiter, RepositoryLocked, RewriteOptions, lock_repository, lock_repository_in, lock_repository_while_held,
+  LockHolder, LockWait, LockWaitCanceled, LockWaiter, RepositoryLocked, RewriteOptions, lock_repository_as_another_process, lock_repository_in, lock_repository_while_held,
 };
 use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
@@ -35,6 +37,15 @@ fn repo() -> (TestRepo, [String; 4]) {
 
 fn path(repo: &TestRepo) -> String {
   repo.path().to_str().unwrap().to_string()
+}
+
+/// The command line of the other process that holds the lock in these tests: an agent's `bd pick --follow`
+const AGENT_PICK: &str = "bd pick --follow";
+
+/// The repository lock of `repo`, held as another process holds it (the operations of this process wait for each other
+/// in its line instead)
+fn hold(repo: &TestRepo) -> history_rewrite::repository_lock::RepositoryLock {
+  lock_repository_as_another_process(&repo.path().join(".git"), AGENT_PICK).unwrap()
 }
 
 /// The error of each rewrite of the app, run with `options`; `None` for one that succeeded
@@ -154,7 +165,7 @@ fn state(repo: &TestRepo) -> (String, String) {
 #[test]
 fn every_rewrite_fails_with_locked_while_another_holds_the_lock() {
   let (repo, commits) = repo();
-  let held = lock_repository(repo.git_executor(), &path(&repo), Duration::from_millis(100)).unwrap();
+  let held = hold(&repo);
   let before = state(&repo);
   let options = RewriteOptions {
     lock_wait: LockWait::Bounded(Duration::from_millis(100)),
@@ -163,8 +174,8 @@ fn every_rewrite_fails_with_locked_while_another_holds_the_lock() {
 
   for (rewrite, error) in run_every_rewrite(&repo, &commits, &options) {
     let error = error.unwrap_or_else(|| panic!("{rewrite} ran while the lock was held"));
-    // the holder is this test process, which names itself
-    assert!(error.contains(&format!("(pid {}, for ", std::process::id())), "{rewrite}: {error}");
+    // the holder its record names: the command of the other process, and the pid of this test process
+    assert!(error.starts_with(&format!("`{AGENT_PICK}` (pid {}, for ", std::process::id())), "{rewrite}: {error}");
     assert!(error.ends_with("; retry when it is done"), "{rewrite}: {error}");
   }
   assert_eq!(state(&repo), before);
@@ -176,10 +187,11 @@ fn every_rewrite_fails_with_locked_while_another_holds_the_lock() {
 fn a_rewrite_waits_for_the_holder() {
   let (repo, [a1, _, a2, _]) = repo();
   let repository_path = path(&repo);
-  // the holder lets go after a time: the bounded wait polls the lock on the system clock and tells no one through
-  // `RewriteOptions` that it waits (only `LockWait::lock_with` takes an `on_wait`), so no event could time the release
-  let hold = |repository_path: String| {
-    let held = lock_repository(repo.git_executor(), &repository_path, Duration::from_secs(1)).unwrap();
+  // the other process lets go after a time: the bounded wait polls the lock on the system clock and tells no one
+  // through `RewriteOptions` that it waits (only `LockWait::lock_with` takes an `on_wait`), so no event could time the
+  // release
+  let hold_for_a_while = || {
+    let held = hold(&repo);
     let started = Instant::now();
     std::thread::spawn(move || {
       std::thread::sleep(Duration::from_millis(300));
@@ -188,7 +200,7 @@ fn a_rewrite_waits_for_the_holder() {
     started
   };
 
-  let started = hold(repository_path.clone());
+  let started = hold_for_a_while();
   let params = SquashCommitsParams {
     repository_path: repository_path.clone(),
     commit_ids: vec![a1, a2],
@@ -197,7 +209,7 @@ fn a_rewrite_waits_for_the_holder() {
   let squashed = squash_commits_core(repo.git_executor(), &params, &RewriteOptions::default()).unwrap();
   assert!(started.elapsed() >= Duration::from_millis(300), "the squash did not wait");
 
-  let started = hold(repository_path.clone());
+  let started = hold_for_a_while();
   let undo = RestoreBranchHeadParams {
     repository_path,
     expected_head: squashed.new_head,
@@ -212,7 +224,7 @@ fn a_rewrite_waits_for_the_holder() {
 #[test]
 fn a_held_lock_is_not_taken_again() {
   let (repo, [a1, _, a2, _]) = repo();
-  let held = lock_repository(repo.git_executor(), &path(&repo), Duration::from_millis(100)).unwrap();
+  let held = hold(&repo);
   let options = RewriteOptions {
     lock_wait: LockWait::Bounded(Duration::from_millis(100)),
     held_lock: Some(&held),
@@ -272,7 +284,7 @@ fn every_rewrite_refuses_another_head_than_the_expected_one() {
 #[test]
 fn the_lock_error_keeps_its_type() {
   let (repo, [_, _, _, fixup]) = repo();
-  let _held = lock_repository(repo.git_executor(), &path(&repo), Duration::from_millis(100)).unwrap();
+  let _held = hold(&repo);
   let options = RewriteOptions {
     lock_wait: LockWait::Bounded(Duration::from_millis(100)),
     ..RewriteOptions::default()
@@ -288,25 +300,30 @@ fn the_lock_error_keeps_its_type() {
   assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
 }
 
+/// A holder writes its record once it has the lock (the command line of this process through its line) and deletes it
+/// when it releases it; a bounded wait for another process refuses with the holder that record names
 #[test]
 fn a_lock_timeout_names_the_holder_and_its_release_deletes_the_record() {
   let dir = tempfile::tempdir().unwrap();
-  let held = lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap();
   let record = dir.path().join("branch-deck.lock.holder");
-  assert!(record.exists());
+  let held = lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap();
+  let written: LockHolder = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+  assert_eq!(written.pid, std::process::id());
+  let program = std::env::current_exe().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+  assert!(written.command.starts_with(&program), "{written:?}");
+  drop(held);
+  assert!(!record.exists(), "the release deletes the record");
 
+  let other = lock_repository_as_another_process(dir.path(), "bd check --fix").unwrap();
   let error = lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap_err();
   let locked = error.downcast_ref::<RepositoryLocked>().unwrap();
   let holder = locked.holder.as_ref().expect("the holder is named");
-  assert_eq!(holder.pid, std::process::id());
-  let program = std::env::current_exe().unwrap().file_name().unwrap().to_string_lossy().into_owned();
-  assert!(holder.command.starts_with(&program), "{holder:?}");
+  assert_eq!((holder.command.as_str(), holder.pid), ("bd check --fix", std::process::id()));
   let message = error.to_string();
-  assert!(message.starts_with(&format!("`{program}")), "{message}");
-  assert!(message.contains(&format!("(pid {}, for ", std::process::id())), "{message}");
+  assert!(message.starts_with(&format!("`bd check --fix` (pid {}, for ", std::process::id())), "{message}");
   assert!(message.contains(" s) holds "), "{message}");
 
-  drop(held);
+  drop(other);
   assert!(!record.exists(), "the release deletes the record");
   drop(lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap());
 }
@@ -342,7 +359,7 @@ fn the_record_of_a_gone_holder_names_nobody() {
 #[test]
 fn the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed_one() {
   let dir = tempfile::tempdir().unwrap();
-  let held = lock_repository_in(dir.path(), Duration::ZERO, &|| {}).unwrap();
+  let held = lock_repository_as_another_process(dir.path(), AGENT_PICK).unwrap();
   // a bound of zero for a holder no record names: the wait for the named one doesn't count it
   let error = lock_repository_while_held(dir.path(), Duration::ZERO, &mut |_| {}, &|| true).unwrap_err();
   assert!(error.downcast_ref::<LockWaitCanceled>().is_some(), "{error:#}");
@@ -361,7 +378,7 @@ fn the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed
     drop(wait.join().unwrap().expect("the lock once its holder released it"));
   });
 
-  let held = lock_repository_in(dir.path(), Duration::ZERO, &|| {}).unwrap();
+  let held = lock_repository_as_another_process(dir.path(), AGENT_PICK).unwrap();
   std::fs::remove_file(dir.path().join("branch-deck.lock.holder")).unwrap();
   let error = lock_repository_while_held(dir.path(), Duration::from_millis(100), &mut |_| panic!("no holder to name"), &|| false).unwrap_err();
   assert_eq!(error.downcast_ref::<RepositoryLocked>().unwrap().holder, None);
@@ -402,8 +419,8 @@ impl TestWaiter {
 }
 
 /// The app's rewrites (`LockWait::WhileHeld`) wait, without a bound, while the record of the holder names a live process
-/// (an agent's `bd pick`, the app's own push or rewrite: here the test itself, past the bound for an unnamed holder),
-/// tell whom they wait for, and run once the holder released the lock; the undo of a squash too
+/// (an agent's `bd pick`: here the test itself as another process, past the bound for an unnamed holder), tell whom
+/// they wait for, and run once the holder released the lock; the undo of a squash too
 #[test]
 fn a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after() {
   let (repo, [a1, _, a2, _]) = repo();
@@ -418,7 +435,7 @@ fn a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after(
     commit_ids: vec![a1, a2],
     message: "(alpha) A1 and A2".to_string(),
   };
-  let held = lock_repository(git, &path(&repo), Duration::ZERO).unwrap();
+  let held = hold(&repo);
   let before = repo.head();
   let squashed = std::thread::scope(|scope| {
     let squash = scope.spawn(|| squash_commits_core(git, &params, &options));
@@ -459,7 +476,7 @@ fn refusals_while_waiting(repo: &TestRepo, commits: &[String; 4], waiter: &TestW
 #[test]
 fn a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder() {
   let (repo, commits) = repo();
-  let held = lock_repository(repo.git_executor(), &path(&repo), Duration::ZERO).unwrap();
+  let held = hold(&repo);
   let before = state(&repo);
   let stopped = TestWaiter::default();
   stopped.stop.store(true, std::sync::atomic::Ordering::Relaxed);

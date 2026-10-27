@@ -1,18 +1,22 @@
 import type { TransferProgress } from "@/lib/bindings"
-import { stopLockWait } from "@/lib/lock-wait"
 import type { MenuItem } from "@/lib/menu"
 
-/** How far a push is, as the page keeps it: while it waits for another holder of the repository lock, its Stop Waiting */
+/**
+ * How far a push is, as the page shows it: what its channel told, or, while it waits for another holder of the
+ * repository lock (the step of its operation in the view, `lockWaitProgress`), whom for, with Stop Waiting
+ */
 export interface PushProgress extends TransferProgress {
+  /** It has not started: it waits for another holder of the repository lock, whom `line` names */
+  readonly waiting?: boolean
   readonly stopWaiting?: () => void
 }
 
 /**
- * The progress the push on `channel` reported: one that waits for another holder of the repository lock can be stopped
- * there (`stopLockWait` of the channel), with nothing pushed
+ * A push that waits for another holder of the repository lock: `words` say whom for (`presentLockWait`), `stop` ends
+ * the wait with nothing pushed
  */
-export function pushProgressOf(progress: TransferProgress, channel: { readonly id: number }): PushProgress {
-  return progress.waiting === true ? { ...progress, stopWaiting: () => stopLockWait(channel) } : progress
+export function lockWaitProgress(words: string, stop: () => void): PushProgress {
+  return { percent: 0, transferred: null, speed: null, line: words, waiting: true, stopWaiting: stop }
 }
 
 /**
@@ -31,7 +35,7 @@ export function stopWaitingPushItem(progress: PushProgress | null): MenuItem | n
  * The label of a running fetch or push, e.g. "Pushing 45%"; "Pushing…" until git reports a stage; while the push waits
  * for another holder of the repository lock, who it is: "Waiting for `bd pick` (pid 4242, for 12 s)"
  */
-export function transferLabel(verb: string, progress: TransferProgress | null): string {
+export function transferLabel(verb: string, progress: PushProgress | null): string {
   if (progress?.waiting === true) {
     return progress.line
   }
@@ -39,7 +43,7 @@ export function transferLabel(verb: string, progress: TransferProgress | null): 
 }
 
 /** The percent a compact label shows; null before git reports a stage and while the push waits for the lock */
-export function transferPercent(progress: TransferProgress | null): number | null {
+export function transferPercent(progress: PushProgress | null): number | null {
   return progress === null || progress.waiting === true ? null : progress.percent
 }
 

@@ -7,7 +7,7 @@
 
 use app_settings::service::SettingsError;
 use cli_tools::install::ActionError;
-use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo};
+use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_command_executor::StoppedCommand;
 use git_ops::index_lock::IndexLocked;
@@ -20,7 +20,7 @@ use github::device_flow::DeviceFlowError;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::parked::ParkError;
 use history_rewrite::regroup::RegroupError;
-use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryLocked};
+use history_rewrite::repository_lock::{LockWaitCanceled, RepositoryLocked};
 use std::time::{SystemTime, UNIX_EPOCH};
 use sync_core::push_size::PushTooLarge;
 use sync_core::reapply_branch::ReapplyRefusal;
@@ -154,22 +154,8 @@ fn locked_error(locked: &RepositoryLocked, now: u64) -> ApiError {
     |holder| format!("`{}` (pid {}) is changing this repository; try again when it is done", holder.command, holder.pid),
   );
   ApiError::new(ErrorCode::Locked, message).with_details(ErrorDetails::Locked {
-    holder: locked.holder.as_ref().map(|holder| lock_holder_info(holder, now)),
+    holder: locked.holder.as_ref().map(|holder| holder.info_at(now)),
   })
-}
-
-/// The holder as the page names it: `bd` when its program is `bd` or the app binary runs the CLI (`branch-deck cli`),
-/// else the app; `held_for` in whole seconds, 0 for a record ahead of this clock
-fn lock_holder_info(holder: &LockHolder, now: u64) -> LockHolderInfo {
-  let mut words = holder.command.split(' ');
-  let program = words.next().unwrap_or_default();
-  let is_bd = program.strip_suffix(".exe").unwrap_or(program) == "bd" || words.next() == Some("cli");
-  LockHolderInfo {
-    tool: if is_bd { HolderTool::Bd } else { HolderTool::App },
-    command: holder.command.clone(),
-    pid: holder.pid,
-    held_for: u32::try_from(now.saturating_sub(holder.since)).unwrap_or(u32::MAX),
-  }
 }
 
 type Classified = (ErrorCode, Option<ErrorDetails>);
@@ -308,6 +294,7 @@ const CONTRACT_HOLDER_SINCE: u64 = 4_102_444_800;
 #[cfg(any(test, feature = "fixtures"))]
 pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
   use anyhow::anyhow;
+  use history_rewrite::repository_lock::LockHolder;
   use std::path::PathBuf;
   use std::time::Duration;
 

@@ -12,7 +12,7 @@ use git_ops::update_branch::{
   check_update_undo,
 };
 use git_ops::word_resolve::ResolveMode;
-use history_rewrite::repository_lock::{LockWait, RepositoryLocked, lock_repository};
+use history_rewrite::repository_lock::{LockWait, RepositoryLocked, lock_repository_as_another_process};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -896,7 +896,7 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   let head = clone.head();
   // another Branch Deck process (bd) holds the lock for the whole wait
-  let held = lock_repository(clone.git_executor(), path(&clone), Duration::from_millis(200)).unwrap();
+  let held = lock_repository_as_another_process(&clone.path().join(".git"), "bd pick --follow").unwrap();
 
   let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
   let error = result.unwrap_err();
@@ -922,7 +922,7 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
 #[test]
 fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
   let Setup { upstream, clone } = fetched_rebase();
-  let held = lock_repository(clone.git_executor(), path(&clone), Duration::from_millis(200)).unwrap();
+  let held = lock_repository_as_another_process(&clone.path().join(".git"), "bd pick --follow").unwrap();
   let (sender, phases) = std::sync::mpsc::channel();
   let options = UpdateOptions {
     fetch: false,
@@ -950,7 +950,7 @@ fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
 fn an_update_that_moves_nothing_answers_without_waiting_for_the_lock() {
   let Setup { upstream, clone } = setup();
   // an agent's `bd push` holds the lock for the whole wait
-  let held = lock_repository(clone.git_executor(), path(&clone), Duration::from_millis(200)).unwrap();
+  let held = lock_repository_as_another_process(&clone.path().join(".git"), "bd pick --follow").unwrap();
 
   let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
   let result = result.unwrap();

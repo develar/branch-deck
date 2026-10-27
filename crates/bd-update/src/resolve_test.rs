@@ -1,9 +1,7 @@
-use bd_cli::fixture_test::{assert_error, canonical, git, run_in, write};
-use history_rewrite::repository_lock::lock_repository;
+use bd_cli::fixture_test::{assert_error, canonical, git, hold_the_lock, run_in, write};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
-use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
 #[cfg(unix)]
 use test_utils::history::HistoryCommit;
@@ -567,7 +565,7 @@ fn a_dry_run_of_continue_answers_while_another_process_holds_the_lock() {
   let (_upstream, clone) = conflicting_clone();
   let (_, round) = run_in(&clone, &["update"]);
   std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
-  let held = lock_repository(clone.git_executor(), clone.path().to_str().unwrap(), Duration::from_millis(100)).unwrap();
+  let held = hold_the_lock(&clone);
 
   let (exit_code, checked) = run_in(&clone, &["update", "--continue", "--dry-run"]);
   assert_eq!((exit_code, &checked["dry_run"]), (0, &json!(true)), "{checked}");

@@ -130,8 +130,10 @@ Every row the operation works on is busy (`useObjectBusy`): no right-click menu,
 ### Waiting for the repository lock
 
 The queue orders the rewrites of the page; another process (an agent's `bd pick --follow`, a `bd` rewrite) or a push
-of the app may still hold the repository lock when a command reaches the backend. The command waits as long as the
-holder lives ([Git Operations](git-operations.md), "Repository lock") and says whom for on its channel: `runRewrite`
+of the app may still hold the repository lock when a command reaches the backend. An operation of the app waits for
+the app's own ones in the line of its process (a fair queue before the file lock, in the order they came, never
+refused), then for another process as long as the holder lives ([Git Operations](git-operations.md), "Repository
+lock"), and says whom for on its channel: `runRewrite`
 and `withRowProcessing` give the command of an operation `lockWaitChannel(key)`, whose messages set the operation's
 `lockWait` ("Waiting for `bd pick` (pid 4242, for 12 s)", told again about once a second, null once the wait ended).
 `operationLabel` says it in place of the busy state, so every surface of the operation shows it: the spinner's hover
@@ -144,10 +146,11 @@ shows the waiting operation renders it: the "⋯" opens a menu of it, a `MenuIte
 beside themselves, `LockWaitNotice` beside the text. It calls `cancel_lock_wait` of the channel's id: the command
 answers the code `canceled`, nothing changed, and the rewrite says so in an info toast ("Canceled squashing 2 commits
 before it started"), never an error; the surface that started it stays (the squash dialog keeps its message). A push
-says it on its progress (`TransferProgress.waiting`), its Stop Waiting is `stopWaitingPushItem` in the hover of the
-push button and beside the Safe Push step; the push of an unapplied branch, an operation itself, takes
-`pushLockWaitChannel(key)`; Update Project keeps it in its run (`UpdateRun.lockWait`, Stop Waiting beside the Update
-button).
+and a Safe Push start, operations of the session, say it in their step in the view (`OperationStep.waitingForLock`
+with the holder its record names, worded by `presentLockWait` of `src/presenters/lock-wait.ts`, so every window says
+it): the hover of the push button (`useBranchPushProgress`, `lockWaitProgress`) and the step of the Safe Push
+(`LandRun.waitingFor`), each with its Stop Waiting (`stopWaitingPushItem`, `stopStartItem`: `cancel_operation` of the
+operation); Update Project keeps it in its run (`UpdateRun.lockWait`, Stop Waiting beside the Update button).
 
 ### Rewrites
 
@@ -232,7 +235,9 @@ and back. The other operations pass, as a sync does: the node keeps the state th
   `WaitingForSync`, `WaitingForLock`, `Pushing`): `pushOperationIn` says which branches a running push holds (its
   spinner on their push buttons, a stack branch under `stack:<root>`), `useStackPush` what a push of a stack started
   from a row sends ("Pushing 3 branches 45%", `isStackPushing` for the menus), and the window that runs it shows how
-  far it is (`operationPushProgress` of `run-intent.ts`, the percent by operation in `pushProgressStore`). A push never
+  far it is (`operationPushProgress` of `run-intent.ts`, the percent by operation in `pushProgressStore`); whom a wait
+  for the repository lock is for comes from its step in the view in every window (`useBranchPushProgress`,
+  `presentOperationLockWait`), with Stop Waiting (`cancel_operation`). A push never
   holds its row (its menu stays open, its button shows the percent). A push inside another operation (the creation of
   a pull request, a review request, a Safe Push start, a restart) is a step of it, its `Push` effect, shown on the push
   button of its branch (or of its whole stack) from the operation of the view in its push step.

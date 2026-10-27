@@ -800,7 +800,9 @@ pub struct RepositoryLockRequest {
 }
 
 /// Takes the repository lock of the repository (`$GIT_COMMON_DIR/branch-deck.lock`, with its holder record) or releases
-/// it, as another process holds it (`bd pick --follow` of an agent): the holder is the server, alive while it runs
+/// it, as another process holds it (`bd pick --follow` of an agent, `lock_repository_as_another_process`: outside the
+/// line of the server's process, in which the app's operations wait for each other): its record names `bd pick
+/// --follow` and the server's pid, alive while it runs
 pub async fn hold_repository_lock(
   axum::extract::Path(id): axum::extract::Path<String>,
   State(state): State<Arc<AppState>>,
@@ -811,7 +813,7 @@ pub async fn hold_repository_lock(
   *held = None;
   if request.held {
     let common_dir = std::path::Path::new(&repo.path).join(".git");
-    let lock = history_rewrite::repository_lock::lock_repository_in(&common_dir, std::time::Duration::ZERO, &|| {}).map_err(|e| {
+    let lock = history_rewrite::repository_lock::lock_repository_as_another_process(&common_dir, "bd pick --follow").map_err(|e| {
       tracing::error!("Cannot take the repository lock: {e:#}");
       StatusCode::CONFLICT
     })?;

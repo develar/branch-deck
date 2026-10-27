@@ -33,16 +33,19 @@ import type {
   WholeStackView,
   WordResolutionSummary,
 } from "@/lib/bindings"
+import { commands } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
 import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
 import type { SyncDeferral } from "@/lib/sync-deferred"
 import type { PushProgress } from "@/lib/transfer-progress"
+import { lockWaitProgress } from "@/lib/transfer-progress"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { nextRunNumber, requestSessionSync } from "@/model/store"
 import type { BranchStructure, TableRows } from "@/model/structure"
 import { NO_ROWS, ROOT_STRUCTURE } from "@/model/structure"
+import { presentOperationLockWait } from "@/presenters/lock-wait"
 import { getSelectedProject, isSelectedRepository, useSelectedProjectPath } from "@/stores/repository"
 
 /** Commit augmented with its sync outcome. */
@@ -1147,12 +1150,19 @@ export function useStackBranchPushProgress(root: string): PushProgress | null {
 }
 
 /**
- * How far the running push of the branch in the selected repository is; null before git reports a stage and when no
- * push runs
+ * How far the running push of the branch in the selected repository is, as the channel of the window that runs it
+ * tells it; while its operation waits for another holder of the repository lock, whom for (its step in the view, so
+ * every window says it), with Stop Waiting (`cancel_operation`: nothing pushed). Null before git reports a stage and
+ * when no push runs
  */
 export function useBranchPushProgress(name: string): PushProgress | null {
   const op = useBranchSyncField("operations", operations => pushOperationIn(operations, name)?.id ?? null)
-  return useStore(pushProgressStore, state => (op === null ? undefined : state[op]) ?? null)
+  const waitingFor = useBranchSyncField("operations", operations => presentOperationLockWait(pushOperationIn(operations, name)))
+  const progress = useStore(pushProgressStore, state => (op === null ? undefined : state[op]) ?? null)
+  if (op === null || waitingFor === null) {
+    return progress
+  }
+  return lockWaitProgress(waitingFor, () => void commands.cancelOperation({ op }))
 }
 
 /**

@@ -3,7 +3,7 @@
 use crate::run_with;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use git_ops::revs::short_id;
-use history_rewrite::repository_lock::{RepositoryLock, lock_repository};
+use history_rewrite::repository_lock::{RepositoryLock, lock_repository_as_another_process};
 use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::fmt::Write;
@@ -288,9 +288,10 @@ pub fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
   repo.commit_with(&["-m", message], &[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)])
 }
 
-/// The repository lock, held as another process would hold it, until the guard is dropped
+/// The repository lock, held as another process holds it (an agent's `bd pick --follow`, outside the line of this
+/// process, `lock_repository_as_another_process`), until the guard is dropped; refused at once while it is held
 pub fn hold_the_lock(repo: &TestRepo) -> RepositoryLock {
-  lock_repository(repo.git_executor(), repo.path().to_str().unwrap(), std::time::Duration::from_millis(100)).unwrap()
+  lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap()
 }
 
 /// A dry run's output: it says so, its `new_head` is `head` (abbreviated) and it has no undo token

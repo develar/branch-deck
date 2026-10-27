@@ -27,6 +27,7 @@ targets:
   - ../../crates/trial-check/src/landing_gate.rs
   - ../../crates/domain-types/src/landing.rs
   - ../../src/presenters/landing.ts
+  - ../../src/presenters/lock-wait.ts
   - ../../crates/remote-facts/src/patronus_review.rs
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus-failing.ts
@@ -1568,11 +1569,16 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - While another holder has the repository lock (`bd pick --follow` of an agent for 48 s, a rewrite of the app), the
   push must wait as long as the holder lives, never refused after 10 s, and say whom it waits for: the step of the
   Safe Push and the push button show "Waiting…", their name and hover "Waiting for `bd pick` (pid 4242, for 12 s)",
-  updated about once a second; once the holder releases the lock, the push goes. Only a lock that no record names a
-  live holder of (a holder that writes none) refuses the push after 10 s: "Nothing was pushed: another Branch Deck
-  operation holds the repository; try again when it is done".
+  updated about once a second, in every window (the step of the operation in the view names the holder,
+  `WaitingForLock`), also for a start that waits behind another start of the app in the app's line; once the holder
+  releases the lock, the push goes. Only a lock that no record names a live holder of (a holder that writes none)
+  refuses the push after 10 s: "Nothing was pushed: another Branch Deck operation holds the repository; try again when
+  it is done".
   [@test] ../../crates/operations/src/push_test.rs (`a_push_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed_one`)
+  [@test] ../../crates/history-rewrite/src/repository_lock_test.rs (`every_wait_of_this_process_names_the_other_process_that_holds_the_lock`)
+  [@test] ../../src/presenters/lock-wait.test.ts (`says whom an operation waits for as the rewrites of the app say it: bd by its command line, the app by its name`)
+  [@test] ../../src/presenters/lock-wait.test.ts (`reads whom an operation of the view waits for from its step, and nothing of another step`)
   [@test] ../../src/lib/transfer-progress.test.ts (`names the holder of the repository lock the push waits for, without a percent`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for another holder of the repository lock as long as it lives, and then start`)
 - Stop Waiting must end the wait of a push for another holder of the repository lock, before anything was pushed: in
@@ -1582,7 +1588,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   step pushes and starts once pressed again. Safe Pushes and a move pressed while the holder holds the lock all run
   once it released it.
   [@test] ../../crates/operations/src/push_test.rs (`a_push_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
-  [@test] ../../src/lib/transfer-progress.test.ts (`offers Stop Waiting of a push only while it waits for another holder of the repository lock, on the push's channel`)
+  [@test] ../../src/lib/transfer-progress.test.ts (`offers Stop Waiting of a push only while it waits for another holder of the repository lock`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should stop the wait of a Safe Push for another holder of the repository lock with Stop Waiting beside its step, nothing pushed or started`)
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should say whom a push waits for in the hover of its button, whose Stop Waiting pushes nothing`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should run two Safe Pushes and a move started while another process holds the repository lock once it released it`)

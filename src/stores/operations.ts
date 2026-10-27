@@ -2,7 +2,7 @@ import { useEffect } from "react"
 import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { LockWaitEvent, TransferProgress } from "@/lib/bindings"
+import type { LockWaitEvent } from "@/lib/bindings"
 import { stopLockWait } from "@/lib/lock-wait"
 import type { MenuItem } from "@/lib/menu"
 import { getSelectedProject } from "@/stores/repository"
@@ -141,17 +141,6 @@ export function operationLabel(operation: Operation): string {
 export function lockWaitChannel(key: number): Channel<LockWaitEvent> {
   const channel = new Channel<LockWaitEvent>()
   channel.onmessage = event => setLockWait(key, event.waitingFor)
-  lockWaitChannels.set(key, channel)
-  return channel
-}
-
-/**
- * The progress channel of a push that is an operation itself (the push of an unapplied branch): while it waits for
- * another holder of the repository lock, the operation says whom for and offers Stop Waiting, as a rewrite does
- */
-export function pushLockWaitChannel(key: number): Channel<TransferProgress> {
-  const channel = new Channel<TransferProgress>()
-  channel.onmessage = progress => setLockWait(key, progress.waiting === true ? progress.line : null)
   lockWaitChannels.set(key, channel)
   return channel
 }

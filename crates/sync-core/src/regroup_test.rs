@@ -3,7 +3,7 @@ use domain_types::stack::StackProblem;
 use history_rewrite::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core,
 };
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, lock_repository};
+use history_rewrite::repository_lock::{LockWait, lock_repository_as_another_process};
 use history_rewrite::store_lines::LineStore;
 use history_rewrite::test_commit::plan;
 use pretty_assertions::assert_eq;
@@ -408,7 +408,7 @@ fn restack_needs_stacked_branches() {
 fn waits_for_the_repository_lock() {
   let repo = baseline_repo(false);
   let ids = commits(&repo, &["One"]);
-  let held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let held = lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap();
   let options = RegroupOptions {
     lock_wait: LockWait::Bounded(Duration::from_millis(200)),
     ..RegroupOptions::default()
@@ -431,7 +431,7 @@ fn waits_for_the_repository_lock() {
 fn a_held_lock_is_not_taken_again() {
   let repo = baseline_repo(false);
   let ids = commits(&repo, &["One"]);
-  let held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let held = lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap();
   let one = plan(&[("a", &[&ids[0]])], &[]);
   let without = RegroupOptions {
     lock_wait: LockWait::Bounded(Duration::ZERO),

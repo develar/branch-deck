@@ -1,16 +1,25 @@
 //! A lock file that serializes history rewrites between processes: the app and parallel `bd` calls. The in-process
 //! mutexes (ref renames, notes) don't cover another process. Every rewrite of the checked out branch takes it in its
 //! core, through the `RewriteOptions` it is called with (AGENTS.md, "Repository lock").
+//!
+//! Before the file lock stands the line of this process (`Place`): a fair queue per lock file, in which an operation
+//! waits for the operations of this process that came before it, as long as they take, so two operations of one
+//! process never refuse each other. Only the one whose turn it is takes the file lock, which only another process can
+//! hold then: a bounded wait (`bd`) and a refusal (`RepositoryLocked`) are for another process alone.
 
 use crate::commit_ids::MIN_ID_LENGTH;
 use anyhow::{Context, Result};
+use domain_types::error::{HolderTool, LockHolderInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{checked_out_branch, git_common_dir};
 use git_ops::rewrite_guard::HeadMoved;
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
 use sync_utils::process_scan::{is_running, process_started};
@@ -21,7 +30,7 @@ pub const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const LOCK_FILE_NAME: &str = "branch-deck.lock";
 
-/// Another process (or another operation of this one) held the lock for the whole timeout
+/// Another process held the lock for the whole timeout (the operations of this process wait for each other in its line)
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error(
   "{} holds {} (waited {:.1} s); retry when it is done",
@@ -104,6 +113,28 @@ impl LockHolder {
     }
   }
 
+  /// The holder as the page names it (`LockHolderInfo`): `bd` when its program is `bd` or the app binary runs the CLI
+  /// (`branch-deck cli`), else the app; `held_for` in whole seconds at `now` (seconds since the epoch), 0 for a record
+  /// ahead of that clock
+  #[must_use]
+  pub fn info_at(&self, now: u64) -> LockHolderInfo {
+    let mut words = self.command.split(' ');
+    let program = words.next().unwrap_or_default();
+    let is_bd = program.strip_suffix(".exe").unwrap_or(program) == "bd" || words.next() == Some("cli");
+    LockHolderInfo {
+      tool: if is_bd { HolderTool::Bd } else { HolderTool::App },
+      command: self.command.clone(),
+      pid: self.pid,
+      held_for: u32::try_from(now.saturating_sub(self.since)).unwrap_or(u32::MAX),
+    }
+  }
+
+  /// `info_at` now: whom a wait for the lock is for (`OperationStep::WaitingForLock`)
+  #[must_use]
+  pub fn info(&self) -> LockHolderInfo {
+    self.info_at(now_seconds())
+  }
+
   /// The holder record of the lock `lock_path`; `None` when there is none, it doesn't parse, or its process is gone
   /// (killed before it deleted the record)
   fn read(lock_path: &Path) -> Option<Self> {
@@ -134,10 +165,14 @@ pub struct RepositoryLock {
   _file: File,
   /// The holder record this lock wrote (`LockHolder`), deleted before the lock is released
   holder: Option<PathBuf>,
+  /// The turn of the line of this process it was taken in, passed on once the file is unlocked; none for a lock taken
+  /// as another process (`lock_as_another_process`)
+  _turn: Option<Place>,
 }
 
 impl Drop for RepositoryLock {
-  /// The record goes first: once the lock is free, the next holder writes its own, which a later delete would take
+  /// The record goes first: once the lock is free, the next holder writes its own, which a later delete would take. The
+  /// fields go in their order: the file unlocked before the turn passes, so the next of this process takes it at once
   fn drop(&mut self) {
     if let Some(holder) = &self.holder
       && let Err(e) = sync_utils::fs_retry::remove_file(holder)
@@ -147,8 +182,9 @@ impl Drop for RepositoryLock {
   }
 }
 
-/// Lock the repository, waiting up to `timeout` for the holder. All worktrees of a repository share the lock, as they
-/// share their branches. A timeout is a `RepositoryLocked` error (`downcast_ref` it to tell it from others)
+/// Lock the repository, after the operations of this process before it in its line, waiting up to `timeout` for another
+/// process that holds it. All worktrees of a repository share the lock, as they share their branches. A timeout is a
+/// `RepositoryLocked` error (`downcast_ref` it to tell it from others)
 pub fn lock_repository(git_executor: &GitCommandExecutor, repository_path: &str, timeout: Duration) -> Result<RepositoryLock> {
   lock_repository_with(git_executor, repository_path, timeout, &|| {})
 }
@@ -166,12 +202,30 @@ pub fn lock_repository_in(git_common_dir: &Path, timeout: Duration, on_wait: &dy
   lock_file(git_common_dir.join(LOCK_FILE_NAME), timeout, on_wait)
 }
 
-/// The lock of `$GIT_COMMON_DIR` for the app: it waits, without a bound, while the record of the holder names a live
-/// process (`LockHolder`: `bd pick --follow` of an agent, a rewrite of the app itself), calling `on_holder` when the
-/// holder changes and about once a second (its time grows), and refuses only when the user canceled (`canceled`,
-/// `LockWaitCanceled`) or when no record names a live holder for `unknown_timeout` (`RepositoryLocked`): a holder that
-/// writes none, or one whose record is not written yet. A killed holder frees the lock with its process. `bd` keeps the
-/// bounded wait (`lock_repository_in`)
+/// The lock of the repository at `repository_path` when nobody holds it or waits for it, this process included; `None`
+/// at once otherwise: a best-effort write that the next sync tries again (`drop_store_lines`)
+pub fn try_lock_repository(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Option<RepositoryLock>> {
+  let common_dir = git_common_dir(git_executor, repository_path)?;
+  try_lock_repository_in(Path::new(&common_dir))
+}
+
+/// `try_lock_repository` for a caller that knows `$GIT_COMMON_DIR`: no git process
+pub fn try_lock_repository_in(git_common_dir: &Path) -> Result<Option<RepositoryLock>> {
+  try_lock_file(&git_common_dir.join(LOCK_FILE_NAME))
+}
+
+/// The lock of `$GIT_COMMON_DIR` as another process holds it (`lock_as_another_process`)
+pub fn lock_repository_as_another_process(git_common_dir: &Path, command: &str) -> Result<RepositoryLock> {
+  lock_as_another_process(git_common_dir.join(LOCK_FILE_NAME), command)
+}
+
+/// The lock of `$GIT_COMMON_DIR` for the app: after the operations of this process before it in its line, as long as
+/// they take, it waits, without a bound, while the record of the holder names a live process (`LockHolder`: `bd pick
+/// --follow` of an agent), calling `on_holder` when the holder changes and about once a second (its time grows), in the
+/// line too (the record of the one before it, which names this process or the other one it waits for), and refuses only
+/// when the user canceled (`canceled`, polled in the line too, `LockWaitCanceled`) or when no record names a live holder
+/// of the file lock for `unknown_timeout` (`RepositoryLocked`): a holder that writes none, or one whose record is not
+/// written yet. A killed holder frees the lock with its process. `bd` keeps the bounded wait (`lock_repository_in`)
 #[instrument(skip(on_holder, canceled))]
 pub fn lock_repository_while_held(git_common_dir: &Path, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
   lock_file_while_held(git_common_dir.join(LOCK_FILE_NAME), unknown_timeout, on_holder, canceled)
@@ -182,31 +236,33 @@ pub fn lock_repository_while_held(git_common_dir: &Path, unknown_timeout: Durati
 pub fn lock_file_while_held(path: PathBuf, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
   let file = open_lock_file(&path)?;
   let started = Instant::now();
+  let mut teller = Teller::default();
+  let Some(turn) = take_turn(
+    &path,
+    &mut || {
+      teller.tell(&path, on_holder);
+    },
+    canceled,
+  ) else {
+    return Err(anyhow::Error::new(LockWaitCanceled { path }));
+  };
+  // the file lock, which only another process holds now
   let mut known = Instant::now();
-  let mut told: Option<(u32, Instant)> = None;
   loop {
     match file.try_lock() {
-      Ok(()) => return Ok(locked(file, &path)),
+      Ok(()) => return Ok(locked(file, &path, &LockHolder::of_this_process(), Some(turn))),
       Err(TryLockError::WouldBlock) => {
         if canceled() {
           return Err(anyhow::Error::new(LockWaitCanceled { path }));
         }
-        match LockHolder::read(&path) {
-          Some(holder) => {
-            known = Instant::now();
-            if told.is_none_or(|(pid, at)| pid != holder.pid || at.elapsed() >= HOLDER_TICK) {
-              on_holder(&holder);
-              told = Some((holder.pid, Instant::now()));
-            }
-          }
-          None if known.elapsed() >= unknown_timeout => {
-            return Err(anyhow::Error::new(RepositoryLocked {
-              path,
-              waited: started.elapsed(),
-              holder: None,
-            }));
-          }
-          None => {}
+        if teller.tell(&path, on_holder) {
+          known = Instant::now();
+        } else if known.elapsed() >= unknown_timeout {
+          return Err(anyhow::Error::new(RepositoryLocked {
+            path,
+            waited: started.elapsed(),
+            holder: None,
+          }));
         }
         std::thread::sleep(POLL_INTERVAL);
       }
@@ -218,11 +274,33 @@ pub fn lock_file_while_held(path: PathBuf, unknown_timeout: Duration, on_holder:
 /// How often the wait for a live holder tells it again: the time of its hold grows
 const HOLDER_TICK: Duration = Duration::from_secs(1);
 
+/// Whom a wait is for, as the record of the lock names it: told when the holder changes and about once a second
+#[derive(Default)]
+struct Teller {
+  /// The pid told last, and when
+  told: Option<(u32, Instant)>,
+}
+
+impl Teller {
+  /// Reads the record of the lock `path` and tells its holder to `on_holder` when due; whether it names a live holder
+  fn tell(&mut self, path: &Path, on_holder: &mut dyn FnMut(&LockHolder)) -> bool {
+    let Some(holder) = LockHolder::read(path) else {
+      return false;
+    };
+    if self.told.is_none_or(|(pid, at)| pid != holder.pid || at.elapsed() >= HOLDER_TICK) {
+      on_holder(&holder);
+      self.told = Some((holder.pid, Instant::now()));
+    }
+    true
+  }
+}
+
 /// The app's side of a wait for a live holder of the lock (`LockWait::WhileHeld`): it hears whom the wait is for and
 /// ends it when the user stops waiting (`lock_wait::WaitTicket`, Stop Waiting on the surface of the operation)
 pub trait LockWaiter: Sync {
-  /// The holder the wait is for, when it changes and about once a second; `None` once the wait ended, with the lock or
-  /// without it. Not called when the lock is free at once
+  /// The holder the wait is for, when it changes and about once a second: another process, or this one while an
+  /// operation of it before this one in its line holds the lock; `None` once the wait ended, with the lock or without
+  /// it. Not called when the lock is free at once
   fn holder(&self, holder: Option<&LockHolder>);
   /// Whether the user stopped waiting: the wait ends with `LockWaitCanceled`, before the rewrite read or wrote anything
   fn canceled(&self) -> bool;
@@ -232,13 +310,14 @@ pub trait LockWaiter: Sync {
   }
 }
 
-/// How a rewrite waits for another holder of the repository lock
+/// How a rewrite waits for another process that holds the repository lock; for the operations of its own process it
+/// waits in their line, as long as they take, either way
 #[derive(Clone, Copy)]
 pub enum LockWait<'a> {
   /// At most this long, then `RepositoryLocked`: `bd` (`locked`, exit 3), and a rewrite nobody waits on
   Bounded(Duration),
-  /// The app (`lock_repository_while_held`): as long as the record of the holder names a live process, another one or
-  /// this app's own push or rewrite; only a holder no record names refuses, after `LockWaiter::unknown_timeout`
+  /// The app (`lock_repository_while_held`): as long as the record of the holder names a live process; only a holder no
+  /// record names refuses, after `LockWaiter::unknown_timeout`
   WhileHeld(&'a dyn LockWaiter),
 }
 
@@ -302,32 +381,44 @@ fn open_lock_file(path: &Path) -> Result<File> {
     .with_context(|| format!("Cannot open {}", path.display()))
 }
 
-/// The lock just taken on `file`, with the record of this process next to it
-fn locked(file: File, path: &Path) -> RepositoryLock {
+/// The lock just taken on `file` in `turn`, with the record of `holder` next to it
+fn locked(file: File, path: &Path, holder: &LockHolder, turn: Option<Place>) -> RepositoryLock {
   debug!(path = %path.display(), "locked");
   // a lock without its record still locks: the record only names the holder to the ones that wait
-  let holder = LockHolder::of_this_process()
+  let record = holder
     .write(path)
     .inspect_err(|e| warn!(error = %format!("{e:#}"), "cannot write the holder record of the lock"))
     .ok();
-  RepositoryLock { _file: file, holder }
+  RepositoryLock {
+    _file: file,
+    holder: record,
+    _turn: turn,
+  }
 }
 
 /// An exclusive lock on the file `path`, created when missing, as `lock_repository_in` takes it: the lease pool has a
-/// lock of its own (`lease`), so a lease never waits for a long update
+/// lock of its own (`lease`), so a lease never waits for a long update. It waits in the line of this process as long as
+/// the ones before it take, `timeout` counts only the wait for another process at the file lock; `on_wait` is called
+/// once, when the wait starts
 pub fn lock_file(path: PathBuf, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
   let file = open_lock_file(&path)?;
 
   let started = Instant::now();
-  let mut waiting = false;
+  let waiting = Cell::new(false);
+  let wait_starts = || {
+    if !waiting.replace(true) {
+      on_wait();
+    }
+  };
+  let Some(turn) = take_turn(&path, &mut || wait_starts(), &|| false) else {
+    return Err(anyhow::Error::new(LockWaitCanceled { path }));
+  };
+  let turned = Instant::now();
   loop {
     match file.try_lock() {
-      Ok(()) => return Ok(locked(file, &path)),
-      Err(TryLockError::WouldBlock) if started.elapsed() < timeout => {
-        if !waiting {
-          waiting = true;
-          on_wait();
-        }
+      Ok(()) => return Ok(locked(file, &path, &LockHolder::of_this_process(), Some(turn))),
+      Err(TryLockError::WouldBlock) if turned.elapsed() < timeout => {
+        wait_starts();
         std::thread::sleep(POLL_INTERVAL.min(timeout));
       }
       Err(TryLockError::WouldBlock) => {
@@ -340,6 +431,190 @@ pub fn lock_file(path: PathBuf, timeout: Duration, on_wait: &dyn Fn()) -> Result
       }
       Err(TryLockError::Error(e)) => return Err(anyhow::Error::new(e).context(format!("Cannot lock {}", path.display()))),
     }
+  }
+}
+
+/// The lock of the file `path` when nobody holds it or waits for it, this process included; `None` at once otherwise
+fn try_lock_file(path: &Path) -> Result<Option<RepositoryLock>> {
+  let file = open_lock_file(path)?;
+  let Some(turn) = Place::turn_if_free(path) else {
+    return Ok(None);
+  };
+  match file.try_lock() {
+    Ok(()) => Ok(Some(locked(file, path, &LockHolder::of_this_process(), Some(turn)))),
+    Err(TryLockError::WouldBlock) => Ok(None),
+    Err(TryLockError::Error(e)) => Err(anyhow::Error::new(e).context(format!("Cannot lock {}", path.display()))),
+  }
+}
+
+/// The lock of the file `path` as another process holds it (an agent's `bd pick --follow`), its record naming `command`
+/// and this process: taken on a descriptor of its own, outside the line of this process, so the operations of this
+/// process wait for it as they wait for another process, name it by its record, and refuse after their bound. For the
+/// tests and the E2E server, whose app runs in the process that holds it; a held lock refuses it at once
+pub fn lock_as_another_process(path: PathBuf, command: &str) -> Result<RepositoryLock> {
+  let file = open_lock_file(&path)?;
+  match file.try_lock() {
+    Ok(()) => {
+      let holder = LockHolder {
+        command: command.to_string(),
+        ..LockHolder::of_this_process()
+      };
+      Ok(locked(file, &path, &holder, None))
+    }
+    Err(TryLockError::WouldBlock) => {
+      let holder = LockHolder::read(&path);
+      Err(anyhow::Error::new(RepositoryLocked {
+        path,
+        waited: Duration::ZERO,
+        holder,
+      }))
+    }
+    Err(TryLockError::Error(e)) => Err(anyhow::Error::new(e).context(format!("Cannot lock {}", path.display()))),
+  }
+}
+
+/// The line of this process for one lock file: the operations of this process that wait for it, first come first, and
+/// whether one has its turn (it waits for the file lock, which only another process holds then, or holds it)
+#[derive(Default)]
+struct Line {
+  state: Mutex<LineState>,
+  /// Told when the turn is passed on or a place leaves
+  changed: Condvar,
+}
+
+#[derive(Default)]
+struct LineState {
+  /// The number of the next place
+  next: u64,
+  /// The places that wait for the turn, in the order they came
+  waiting: VecDeque<u64>,
+  /// One place has the turn
+  taken: bool,
+}
+
+impl LineState {
+  /// Whether the turn is free and `ticket` is the first in the line
+  fn turn_of(&self, ticket: u64) -> bool {
+    !self.taken && self.waiting.front() == Some(&ticket)
+  }
+}
+
+/// The lines of this process by the canonical path of their lock file; a line goes once no place has its turn or waits
+static LINES: LazyLock<Mutex<HashMap<PathBuf, Arc<Line>>>> = LazyLock::new(Mutex::default);
+
+fn lines() -> MutexGuard<'static, HashMap<PathBuf, Arc<Line>>> {
+  LINES.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl Line {
+  fn state(&self) -> MutexGuard<'_, LineState> {
+    self.state.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+}
+
+/// The key of the line of the lock file `path`: one file, however its path is spelled (`/var` and `/private/var` on
+/// macOS, a relative path); the file exists, the lock opened it
+fn line_key(path: &Path) -> PathBuf {
+  std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// A place in the line of a lock file: it waits for the turn (`wait_turn`), then has it until dropped; dropped before
+/// the turn came, it leaves the line
+struct Place {
+  key: PathBuf,
+  line: Arc<Line>,
+  ticket: u64,
+  has_turn: bool,
+}
+
+impl fmt::Debug for Place {
+  /// The line itself is left out: its state changes under another lock
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("Place")
+      .field("key", &self.key)
+      .field("ticket", &self.ticket)
+      .field("has_turn", &self.has_turn)
+      .finish_non_exhaustive()
+  }
+}
+
+impl Place {
+  /// A place at the end of the line of the lock file `path`
+  fn enter(path: &Path) -> Self {
+    let key = line_key(path);
+    let mut lines = lines();
+    let line = Arc::clone(lines.entry(key.clone()).or_default());
+    let mut state = line.state();
+    let ticket = state.next;
+    state.next += 1;
+    state.waiting.push_back(ticket);
+    drop(state);
+    drop(lines);
+    Self {
+      key,
+      line,
+      ticket,
+      has_turn: false,
+    }
+  }
+
+  /// The turn of the line of the lock file `path` when no place has it or waits for it; `None` otherwise, the place
+  /// left at once
+  fn turn_if_free(path: &Path) -> Option<Self> {
+    let mut place = Self::enter(path);
+    place.wait_turn(Duration::ZERO).then_some(place)
+  }
+
+  /// Takes the turn once it came, waiting for it at most `wait`; whether it has it
+  fn wait_turn(&mut self, wait: Duration) -> bool {
+    let mut state = self.line.state();
+    if !state.turn_of(self.ticket) {
+      state = self.line.changed.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
+      if !state.turn_of(self.ticket) {
+        return false;
+      }
+    }
+    state.waiting.pop_front();
+    state.taken = true;
+    self.has_turn = true;
+    true
+  }
+}
+
+impl Drop for Place {
+  /// Passes the turn on, or leaves the line; the line goes when nobody else is in it
+  fn drop(&mut self) {
+    let mut lines = lines();
+    let mut state = self.line.state();
+    if self.has_turn {
+      state.taken = false;
+    } else {
+      state.waiting.retain(|ticket| *ticket != self.ticket);
+    }
+    if !state.taken && state.waiting.is_empty() && lines.get(&self.key).is_some_and(|line| Arc::ptr_eq(line, &self.line)) {
+      lines.remove(&self.key);
+    }
+    drop(state);
+    drop(lines);
+    self.line.changed.notify_all();
+  }
+}
+
+/// The turn of the line of this process for the lock file `path`: it waits for the operations of this process before
+/// it, as long as they take (they never refuse each other), calling `meanwhile` about every `POLL_INTERVAL` while it
+/// waits; `None` once `canceled` (polled as often), its place left
+fn take_turn(path: &Path, meanwhile: &mut dyn FnMut(), canceled: &dyn Fn() -> bool) -> Option<Place> {
+  let mut place = Place::enter(path);
+  let mut wait = Duration::ZERO;
+  loop {
+    if place.wait_turn(wait) {
+      return Some(place);
+    }
+    if canceled() {
+      return None;
+    }
+    meanwhile();
+    wait = POLL_INTERVAL;
   }
 }
 
@@ -404,3 +679,7 @@ pub fn ensure_expected_head(expected: Option<&str>, head: &str, branch: impl FnO
     _ => Ok(()),
   }
 }
+
+#[cfg(test)]
+#[path = "repository_lock_test.rs"]
+mod repository_lock_test;

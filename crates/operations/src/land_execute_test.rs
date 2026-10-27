@@ -9,7 +9,7 @@ use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatu
 use domain_types::reason::Reason;
 use domain_types::session::Version;
 use git_executor::git_command_executor::GitCommandExecutor;
-use history_rewrite::repository_lock::lock_repository_in;
+use history_rewrite::repository_lock::{lock_repository_as_another_process, try_lock_repository_in};
 use patronus::fake_patronus::{FakePatronus, robot_json, start_fake};
 use patronus::service::PatronusService;
 use patronus::token::{Token, TokenLookup, TokenStamp};
@@ -244,7 +244,7 @@ async fn a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of
   let steps = Steps::new(
     Arc::new(|_| {}),
     Arc::new(move |_: &TransferProgress| {
-      free.store(lock_repository_in(&common_dir, Duration::ZERO, &|| {}).is_ok(), Ordering::SeqCst);
+      free.store(try_lock_repository_in(&common_dir).unwrap().is_some(), Ordering::SeqCst);
     }),
     Arc::new(AtomicBool::new(false)),
   );
@@ -374,7 +374,7 @@ async fn a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothi
   fixture.repo.git(&["update-ref", ALPHA, &fixture.repo.rev_parse("test/virtual/beta").unwrap()]);
   assert_eq!(fixture.run(&moved, &Steps::none()).await.unwrap_err().code, ErrorCode::PlanChanged);
 
-  let held = lock_repository_in(&fixture.repo.path().join(".git"), Duration::ZERO, &|| {}).unwrap();
+  let held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "bd push auth").unwrap();
   let locked = Fixture::host(fixture.planned(replace_and_start()));
   assert_eq!(fixture.run(&locked, &Steps::none()).await.unwrap_err().code, ErrorCode::Locked);
   drop(held);

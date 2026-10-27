@@ -1,8 +1,7 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
-use bd_cli::fixture_test::{LockSpanGit, subcommand};
+use bd_cli::fixture_test::{LockSpanGit, hold_the_lock, subcommand};
 use bd_cli::fixture_test::{assert_error, assert_refused_during, environment, git, run_in, run_json, start_cherry_pick, write};
-use history_rewrite::repository_lock::lock_repository;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
@@ -371,7 +370,7 @@ fn the_update_waits_for_the_repository_lock_after_its_fetch() {
   upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   let head = clone.head();
   // the app holds the lock
-  let held = lock_repository(clone.git_executor(), clone.path().to_str().unwrap(), std::time::Duration::from_millis(100)).unwrap();
+  let held = hold_the_lock(&clone);
 
   let (exit_code, output) = run_in(&clone, &["update"]);
   assert_error(&output, exit_code, (3, "locked"));

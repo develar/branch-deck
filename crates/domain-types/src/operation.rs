@@ -5,7 +5,7 @@
 //! resources it holds (`Resource`), which `domain_policy::admission` admits a new one by (`Admission`).
 
 use crate::RemoteStatusUpdate;
-use crate::error::{ApiError, HolderTool};
+use crate::error::{ApiError, HolderTool, LockHolderInfo};
 use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, PlannedEffect, StartRoute, Subject};
 use crate::patronus::{PatronusPushMode, PatronusRobot};
 use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedReviewers};
@@ -179,8 +179,12 @@ pub enum OperationStep {
   },
   /// Waits for the sync that brings the tip of its subject into the table
   WaitingForSync,
-  /// Waits for the repository lock another process holds
-  WaitingForLock,
+  /// Waits for the repository lock another process holds, or an operation of this process before it in the line of its
+  /// process; `holder` as the record beside the lock names it, told again as its time grows (about once a second), `None`
+  /// while no record names a live holder
+  WaitingForLock {
+    holder: Option<LockHolderInfo>,
+  },
   /// Reads the facts it needs and checks what it lands (the target, the landing gate)
   Checking,
   /// Moves the pull request of its subject into the base its rule names

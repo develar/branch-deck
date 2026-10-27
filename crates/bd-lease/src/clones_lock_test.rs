@@ -3,7 +3,7 @@
 //! arrive in order, and a killed holder frees the lock with its process
 
 use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseGetOutput, lease_get_reporting};
-use crate::lease_test::{Fixture, path_of};
+use crate::lease_test::{Fixture, Killed, path_of};
 #[cfg(unix)]
 use crate::lease_test::{held_environment, states, wait_until_held};
 use bd_cli::fixture_test::assert_covered;
@@ -256,16 +256,6 @@ fn hold_the_clones_lock_in_a_child() {
   let _lock = Pool::new(Path::new(common_dir)).lock_clones(Duration::from_secs(10), &mut |_| {}).unwrap();
   std::fs::write(held, "").unwrap();
   std::thread::sleep(Duration::from_mins(5));
-}
-
-/// A child process killed when dropped, also when an assertion fails
-struct Killed(std::process::Child);
-
-impl Drop for Killed {
-  fn drop(&mut self) {
-    let _ = self.0.kill();
-    let _ = self.0.wait();
-  }
 }
 
 /// A holder of the clones lock that is killed frees the lock with its process, on every platform (the system releases a

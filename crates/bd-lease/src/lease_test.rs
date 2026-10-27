@@ -17,6 +17,26 @@ pub(crate) struct Fixture {
   pub(crate) global_config: tempfile::NamedTempFile,
 }
 
+/// bd started in `cwd`, the pool in `home`, `global_config` its global git config: the environment of a `Fixture`, also
+/// in a child process that has only its paths
+pub(crate) fn pool_environment(cwd: &Path, home: &Path, global_config: &Path) -> Environment {
+  let mut environment = environment(cwd);
+  environment.home = Some(home.to_path_buf());
+  environment.git_config_global = Some(global_config.to_path_buf());
+  environment.lock_timeout = Duration::from_secs(10);
+  environment
+}
+
+/// A child process killed when dropped, also when an assertion fails
+pub(crate) struct Killed(pub(crate) std::process::Child);
+
+impl Drop for Killed {
+  fn drop(&mut self) {
+    let _ = self.0.kill();
+    let _ = self.0.wait();
+  }
+}
+
 impl Fixture {
   pub(crate) fn new() -> Self {
     let repo = repo_with_baseline(&[("a.txt", "a\n")]);
@@ -30,11 +50,7 @@ impl Fixture {
 
   /// bd started in `cwd`, the pool in the fixture's home
   pub(crate) fn environment(&self, cwd: &Path) -> Environment {
-    let mut environment = environment(cwd);
-    environment.home = Some(self.home.path().to_path_buf());
-    environment.git_config_global = Some(self.global_config.path().to_path_buf());
-    environment.lock_timeout = Duration::from_secs(10);
-    environment
+    pool_environment(cwd, self.home.path(), self.global_config.path())
   }
 
   /// `bd <args>` in the repository
@@ -1017,10 +1033,30 @@ fn two_leases_never_get_the_same_slot() {
   assert_eq!(states(&fixture.status()).iter().filter(|(_, state)| state == "ready").count(), 4);
 }
 
+/// The environment variable that makes `a_get_held_at_its_registration_in_a_child` run: `<repository>|<home of the
+/// pool>|<global git config>|<the held git>`
+#[cfg(unix)]
+const HELD_GET_ENV: &str = "BD_HELD_GET_CHILD";
+
+/// The child of `no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot`: a `bd lease get` of
+/// another process, held at the `worktree add` of its new slot by the git `held_environment` wrote; does nothing in a
+/// normal run
+#[cfg(unix)]
+#[test_log::test]
+fn a_get_held_at_its_registration_in_a_child() {
+  let Ok(spec) = std::env::var(HELD_GET_ENV) else { return };
+  let [repo, home, global_config, git] = spec.split('|').collect::<Vec<_>>().try_into().unwrap();
+  let mut environment = pool_environment(Path::new(repo), Path::new(home), Path::new(global_config));
+  environment.git = Some(git.to_string());
+  let (exit_code, output) = run_json(&environment, &["lease", "get"]);
+  assert_eq!(exit_code, 0, "{output}");
+}
+
 /// The `worktree add` that registers a new slot holds the lock of the pool's `worktree` commands (`worktrees.lock`), so
-/// no other `worktree` command of the pool reads its admin directory half written: the move of an adopt beside it
-/// waits, and one that can't wait is refused, naming the lock. The pool lock stays free: that get reserved its slot.
-/// Another get that adds a slot waits for the clones lock before any `worktree` command (`clones_lock_test.rs`)
+/// no other `worktree` command of the pool reads its admin directory half written: the move of an adopt beside it in
+/// another process waits, and one that can't wait is refused, naming the lock (in one process the adopt would wait in
+/// the line of the process instead). The pool lock stays free: that get reserved its slot. Another get that adds a
+/// slot waits for the clones lock before any `worktree` command (`clones_lock_test.rs`)
 #[cfg(unix)]
 #[test_log::test]
 fn no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot() {
@@ -1029,19 +1065,32 @@ fn no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot() 
   let old = slot_path(&lane.path);
   let dir = tempfile::tempdir().unwrap();
   let held = held_environment(&fixture, fixture.repo.path(), dir.path(), "*\" worktree add \"*");
+  let spec = [
+    fixture.repo.path(),
+    fixture.home.path(),
+    fixture.global_config.path(),
+    Path::new(held.git.as_deref().unwrap()),
+  ]
+  .map(|path| path.to_str().unwrap())
+  .join("|");
+  let child = std::process::Command::new(std::env::current_exe().unwrap())
+    .args(["--exact", "lease_test::a_get_held_at_its_registration_in_a_child", "--nocapture"])
+    .env(HELD_GET_ENV, spec)
+    .spawn()
+    .unwrap();
+  let mut child = Killed(child);
+  while !dir.path().join("held").exists() {
+    assert!(child.0.try_wait().unwrap().is_none(), "the get ended before its registration");
+    std::thread::sleep(Duration::from_millis(10));
+  }
   let mut impatient = fixture.environment(fixture.repo.path());
   impatient.lock_timeout = Duration::from_millis(200);
-  std::thread::scope(|scope| {
-    let get = scope.spawn(|| run_json(&held, &["lease", "get"]));
-    wait_until_held(dir.path(), &get);
-    let (exit_code, output) = run_json(&impatient, &["lease", "adopt", "--move", &lane.path]);
-    // released before any assertion, so a failure never leaves the held get waiting
-    std::fs::write(dir.path().join("go"), "").unwrap();
-    assert_eq!((exit_code, &output["refused"][0]["code"]), (4, &json!("git_error")), "{output}");
-    assert!(output["refused"][0]["message"].as_str().unwrap().contains("worktrees.lock"), "{output}");
-    let (exit_code, output) = get.join().unwrap();
-    assert_eq!(exit_code, 0, "{output}");
-  });
+  let (exit_code, output) = run_json(&impatient, &["lease", "adopt", "--move", &lane.path]);
+  // released before any assertion, so a failure never leaves the held get waiting
+  std::fs::write(dir.path().join("go"), "").unwrap();
+  assert_eq!((exit_code, &output["refused"][0]["code"]), (4, &json!("git_error")), "{output}");
+  assert!(output["refused"][0]["message"].as_str().unwrap().contains("worktrees.lock"), "{output}");
+  assert!(child.0.wait().unwrap().success(), "the held get failed");
   // the lock is free once the registration is done
   let (exit_code, output) = run_json(&impatient, &["lease", "adopt", "--move", &lane.path]);
   assert_eq!((exit_code, &output["adopted"][0]["moved_from"]), (0, &json!(old)), "{output}");

@@ -37,7 +37,6 @@ fn receiving_reports_the_amount_and_the_rate() {
       transferred: Some("2.61 MiB".to_string()),
       speed: Some("5.20 MiB/s".to_string()),
       line: "Receiving objects:  45% (136/302), 2.61 MiB | 5.20 MiB/s".to_string(),
-      waiting: false,
     }
   );
   // resolving deltas keeps the last amount

@@ -4,13 +4,13 @@ use crate::push::{execute_push, prepare_push};
 use crate::registry::Registry;
 use crate::registry::registry_test::{operations_until, view_operations};
 use domain_types::PushAction;
-use domain_types::error::{ApiError, ErrorCode};
+use domain_types::error::{ApiError, ErrorCode, HolderTool, LockHolderInfo};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
 use domain_types::operation::{EffectStatus, Intent, NewsKey, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Push, PushScope, RunningOperation};
 use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::service::GitHubService;
-use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions, lock_repository_in};
+use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions, lock_repository_as_another_process};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::ObjectCache;
 use patronus::fake_patronus::start_fake;
@@ -35,6 +35,8 @@ use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
 
 /// The prefix of the branches of `stack_ahead_of_bare_origin`, which the host resolved for the push
 const PREFIX: &str = "test";
+/// The command line of another process that holds the repository lock: an agent's push
+const AGENT_PUSH: &str = "bd push auth";
 
 /// The syncs of the sessions of the tests: the options of a sync of the app, under the prefix of the key
 struct TestEnvironment;
@@ -102,9 +104,9 @@ impl Fixture {
     self.repo.git(&["--git-dir", ".git/origin.git", "rev-parse", &format!("refs/heads/test/virtual/{branch}")])
   }
 
-  /// The repository lock, held by the test as another holder would
+  /// The repository lock, held by the test as another process holds it (an agent's push)
   fn lock(&self) -> RepositoryLock {
-    lock_repository_in(&self.repo.path().join(".git"), Duration::ZERO, &|| {}).unwrap()
+    lock_repository_as_another_process(&self.repo.path().join(".git"), AGENT_PUSH).unwrap()
   }
 
   /// The operations of the view of the session now
@@ -270,7 +272,7 @@ async fn a_push_queued_behind_a_push_of_its_ref_is_decided_again_on_what_that_on
   // the forced push is clicked once the push runs, behind the lock: the registry admits the requests in the order of
   // their clicks, which the order their plans happen to end in is not
   let forced_later = async {
-    let running = |operation: &RunningOperation| operation.intent == pushes && operation.step == OperationStep::WaitingForLock;
+    let running = |operation: &RunningOperation| operation.intent == pushes && matches!(operation.step, OperationStep::WaitingForLock { .. });
     fixture.until(|operations| operations.iter().any(running)).await;
     fixture.execute(&forced, Vec::new()).await
   };
@@ -792,14 +794,26 @@ impl ServiceHost for Counted {
   }
 }
 
-/// Another holder of the repository lock (`bd pick --follow` of an agent, a rewrite of the app) keeps the push waiting
-/// as long as it lives: the view shows it waiting for the lock and nothing is pushed; once the holder released the lock,
-/// the push goes. Stop Waiting (`Registry::cancel`) ends such a wait instead: nothing pushed, the lock still the holder's
+/// Whether the first operation waits for the lock that the agent's push of `Fixture::lock` holds, named in its step as
+/// its record names it, so every window says whom it waits for
+fn waits_for_the_agent(operations: &[RunningOperation]) -> bool {
+  operations.first().is_some_and(|operation| match &operation.step {
+    OperationStep::WaitingForLock {
+      holder: Some(LockHolderInfo { tool, command, pid, .. }),
+    } => (*tool, command.as_str(), *pid) == (HolderTool::Bd, AGENT_PUSH, std::process::id()),
+    _ => false,
+  })
+}
+
+/// Another process that holds the repository lock (an agent's `bd push`) keeps the push waiting as long as it lives:
+/// the view shows it waiting for the lock with the holder its record names, and nothing is pushed; once the holder
+/// released the lock, the push goes. Stop Waiting (`Registry::cancel`) ends such a wait instead: nothing pushed, the
+/// lock still the holder's
 #[tokio::test(flavor = "multi_thread")]
 async fn a_push_waits_while_the_holder_of_the_lock_lives_and_stops_when_told() {
   let fixture = fixture(true).await;
   let held = fixture.lock();
-  let waiting = |operations: &[RunningOperation]| operations.first().is_some_and(|operation| operation.step == OperationStep::WaitingForLock);
+  let waiting = waits_for_the_agent;
   let push = scoped("beta", PushScope::WithAncestors);
   let holder = async {
     fixture.until(waiting).await;

@@ -567,7 +567,18 @@ built on it, which carries its commits.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it). The in-process mutexes don't cover the app and parallel `bd` processes. A dry run reads only and takes no
-lock. Every rewrite of the checked out branch takes it in its core, before it reads anything: the regroup (also the
+lock. Before the `flock` stands the line of the process (`Place` of `repository_lock.rs`): a fair queue per lock file
+(by its canonical path, one for every lock `lock_file`, `lock_file_while_held` and `lock_repository_*` take: the
+repository lock, the lease pool's `leases.json` and `clones.lock`, the landed state), in which an operation waits for
+the operations of its own process that came before it, as long as they take and without a bound, polling its Stop
+Waiting there too; only the one whose turn it is takes the `flock`, which then only another process can hold. So two
+operations of one process never refuse each other (Note 9 of the rework: the app's two pushes did, after 10 s), the
+bound of `bd` and the bound of a holder no record names count only at the `flock`, and `locked`
+(`RepositoryLocked`) names another process alone. A wait in the line names whom it waits for as a wait at the `flock`
+does, by the record beside the lock (the operation of this process that holds it, or the other process the one whose
+turn it is waits for). `try_lock_repository` takes the lock only while nobody holds it or waits for it, this process
+included (the drop of store lines), and `lock_as_another_process` takes it outside the line, as another process holds
+it, for the tests and the E2E server, whose app runs in the process that holds it. Every rewrite of the checked out branch takes it in its core, before it reads anything: the regroup (also the
 app's reword) and the move of a hunk (their options), and the app's squash and its undo, squash fixups (also `bd
 fold`), amend, unapply and add issue reference, each a `*_core(…, &RewriteOptions)`
 (`crates/history-rewrite/src/repository_lock.rs`): `lock_wait`, `held_lock` for a caller that holds the lock already,
@@ -577,16 +588,18 @@ restack, an undo of a regroup, park and unpark, the squash undo, the unapply and
 Update Project) take a `LockWait` themselves. How a rewrite waits is the `LockWait` of its caller:
 
 - **`bd`**: `LockWait::Bounded(lock_timeout)`, 10 s by default (`BRANCH_DECK_LOCK_TIMEOUT`), then `locked`, exit 3.
-- **The app**: `LockWait::WhileHeld(&WaitTicket)`, `lock_repository_while_held`: it waits, without a bound, while the
-  holder record names a live process, an agent's `bd pick --follow` or this app's own push or rewrite (two operations
-  of one process conflict on the `flock` as two processes do, and the page's queue orders its rewrites anyway); only
-  a lock no record names a live holder of (a holder that writes none) refuses after `DEFAULT_LOCK_TIMEOUT` ("Another
-  Branch Deck operation holds …; retry when it is done"). Each rewrite command of the app takes a `wait:
-  Channel<LockWaitEvent>`, the push its progress channel and Update Project its progress channel; the command
-  registers its wait by the id of that channel in the host's `LockWaits` (`crates/history-rewrite/src/lock_wait.rs`,
-  `src-tauri/src/lock_wait.rs`), tells the page whom it waits for when the holder changes and about once a second
-  ("Waiting for `bd pick` (pid 4242, for 12 s)": `LockWaitEvent.waitingFor`, `TransferProgress.waiting` with its
-  `line`, `UpdateProgress.waitingFor`) and that the wait ended (`waitingFor: null`). `cancel_lock_wait` of the
+- **The app**: `LockWait::WhileHeld(&WaitTicket)`, `lock_repository_while_held`: after its own operations before it in
+  the line, it waits, without a bound, while the holder record names a live process, an agent's `bd pick --follow`;
+  only a lock no record names a live holder of (a holder that writes none) refuses after `DEFAULT_LOCK_TIMEOUT`
+  ("Another Branch Deck operation holds …; retry when it is done"). Each rewrite command of the app takes a `wait:
+  Channel<LockWaitEvent>` and Update Project its progress channel; the command registers its wait by the id of that
+  channel in the host's `LockWaits` (`crates/history-rewrite/src/lock_wait.rs`, `src-tauri/src/lock_wait.rs`), tells
+  the page whom it waits for when the holder changes and about once a second ("Waiting for `bd pick` (pid 4242, for
+  12 s)": `LockWaitEvent.waitingFor`, `UpdateProgress.waitingFor`) and that the wait ended (`waitingFor: null`). An
+  operation of the engine (a push, a start, a restart that pushes) says it in its step in the view instead,
+  `OperationStep::WaitingForLock { holder }` with the `LockHolderInfo` of the record (`LockHolder::info`: `bd` or the
+  app, the command, the pid and how long it has held the lock), told again as the time grows, so every window words it
+  (`presentLockWait` of `src/presenters/lock-wait.ts`), and its Stop Waiting is `cancel_operation`. `cancel_lock_wait` of the
   channel's id (Stop Waiting) ends a wait before the rewrite read or wrote anything: the wait sees the flag on its
   next poll and returns `LockWaitCanceled`, and the command answers the code `canceled` (`canceled_code`) only when
   its own wait ended so (`WaitTicket::ended_by_cancel`), never for a Stop Waiting that came after the lock was taken.
@@ -2788,8 +2801,8 @@ and holds the repository lock only in the second (C1, [Rust as the Domain Author
    `PreparedPush::over_moved`: the same commits, leased on the fetched heads, no lock and no check again), then the
    restarts on the pushed commits. A sync or a rewrite that moves a branch meanwhile changes nothing of what goes. The
    app's push tells its end to its session (`Sessions::tell_push`: the remote statuses it left) and ends its operation,
-   its refs held until its `git push` ended. Its steps (`Checking`, `WaitingForSync`, `WaitingForLock`, `Pushing`) are
-   in the view, its progress goes to its caller.
+   its refs held until its `git push` ended. Its steps (`Checking`, `WaitingForSync`, `WaitingForLock` with the holder
+   its record names, `Pushing`) are in the view, its progress goes to its caller.
 
 `operations/src/push_test.rs` pins it: the processes of a push of a stack, the wait for the lock and Stop Waiting, two
 branches side by side, one ref queued and joined, the push again over a moved remote, a push held in its network push
@@ -2887,8 +2900,9 @@ Its outcome answers what the effects did besides their statuses (`OperationResul
 robot it canceled, the comment it posted and whether the bot accepted it, the notes of the checks), which the page
 words as the toast of the event of the subject's robots and records in Activity with the operation
 (`src/presenters/outcome.ts`). Its steps are in the view (`Checking`, `WaitingForLock`, `CancelingRobot`, `Pushing`,
-`Starting`) from its admission, with the move of its row (`RunningMove::Starting`); the percent of its push and whom a
-wait for the lock is for go on the channel of the caller (`OperationEvent::Progress`).
+`Starting`) from its admission, with the move of its row (`RunningMove::Starting`), and whom a wait for the lock is for
+in the step itself (`WaitingForLock { holder }`); the percent of its push goes on the channel of the caller
+(`OperationEvent::Progress`).
 
 Its effects each have a status in the outcome (`Done`, `Failed`, `Skipped` with the reason, `Unknown` for a comment the
 bot didn't answer within the minute). A start of the app reserves what its plan lands (`Resource::Lands`), the refs it

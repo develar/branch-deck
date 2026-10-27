@@ -402,8 +402,11 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
   (`bd`: `LockWait::Bounded`, then `locked`; the app's rewrites, pushes and Update Project: `LockWait::WhileHeld`, as
-  long as the holder record names a live process, its own included, saying whom for on the command's channel and
-  stopped by `cancel_lock_wait` of it, `lock_wait.rs`), because the app and `bd` processes rewrite the same branch. A sync never waits for it:
+  long as the holder record names a live process, saying whom for on the command's channel (an operation of the
+  engine in its step, `WaitingForLock { holder }`) and stopped by `cancel_lock_wait` of it, `lock_wait.rs`), because
+  the app and `bd` processes rewrite the same branch. Before the file lock, the operations of one process wait for
+  each other in its line (a fair queue per lock file, `repository_lock.rs`, without a bound), so `locked` names only
+  another process; `try_lock_repository` waits for nobody, `lock_as_another_process` is for tests and the E2E server. A sync never waits for it:
   neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release; only its drop of
   store lines takes it, while it is free (`drop_store_lines`), and skips the drop when it is held. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no

@@ -1,8 +1,7 @@
 #[cfg(unix)]
 use crate::fixture_test::LockSpanGit;
-use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
+use crate::fixture_test::{commit_all, git, hold_the_lock, repo_with_baseline, run_in, write};
 use git_ops::revs::short_id;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -70,7 +69,7 @@ fn syncs_while_another_process_holds_the_lock() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   write(&repo, "auth.rs", "auth\n");
   commit_all(&repo, "(auth) Add login", 1_700_000_100);
-  let _held = lock_repository(repo.git_executor(), repo.path().to_str().unwrap(), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let _held = hold_the_lock(&repo);
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!((exit_code, &output["branches"][0]["state"]), (0, &json!("created")), "{output}");
 }

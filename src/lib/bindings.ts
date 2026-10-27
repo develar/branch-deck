@@ -3497,8 +3497,12 @@ export type OperationStep =
 { kind: "queued"; behind: OperationId } | 
 /**  Waits for the sync that brings the tip of its subject into the table */
 { kind: "waitingForSync" } | 
-/**  Waits for the repository lock another process holds */
-{ kind: "waitingForLock" } | 
+/**
+ *  Waits for the repository lock another process holds, or an operation of this process before it in the line of its
+ *  process; `holder` as the record beside the lock names it, told again as its time grows (about once a second), `None`
+ *  while no record names a live holder
+ */
+{ kind: "waitingForLock"; holder: LockHolderInfo | null } | 
 /**  Reads the facts it needs and checks what it lands (the target, the landing gate) */
 { kind: "checking" } | 
 /**  Moves the pull request of its subject into the base its rule names */
@@ -6172,13 +6176,8 @@ export type TransferProgress = {
 	transferred: string | null,
 	/**  The transfer rate, as git prints it, e.g. "32.57 MiB/s" */
 	speed: string | null,
-	/**
-	 *  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)"; while the
-	 *  push waits for another holder of the repository lock, who it is: "Waiting for `bd pick` (pid 4242, for 12 s)"
-	 */
+	/**  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)" */
 	line: string,
-	/**  The push has not started: it waits for another holder of the repository lock, whom `line` names */
-	waiting?: boolean,
 };
 
 /**  A branch an unapply kept: its commits are not in HEAD, it lands nothing until it is reapplied */

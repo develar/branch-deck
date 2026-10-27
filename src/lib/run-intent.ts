@@ -78,26 +78,15 @@ export async function executePlan(repositoryPath: string, plan: Plan, onEvent: (
 
 /**
  * How far the push of an operation this window runs is, as its channel tells it: the push buttons of the branches it
- * pushes show it (`setOperationPushProgress`; the view says which, `pushOperationIn`), and while it waits for another
- * holder of the repository lock whom for, with Stop Waiting (`cancel_operation`: nothing pushed); `done` forgets it
+ * pushes show it (`setOperationPushProgress`; the view says which, `pushOperationIn`, and whom a wait for the repository
+ * lock is for, `useBranchPushProgress`); `done` forgets it
  */
 export function operationPushProgress(): { readonly onEvent: (event: OperationEvent) => void; readonly done: () => void } {
   let op: OperationId | null = null
-  let waiting = false
   const onEvent = (event: OperationEvent) => {
-    if (event.kind === "step") {
-      waiting = event.step.kind === "waitingForLock"
-    } else if (event.kind === "progress") {
+    if (event.kind === "progress") {
       op = event.op
-      const stop = event.op
-      setOperationPushProgress(event.op, {
-        percent: event.percent,
-        line: event.line,
-        transferred: null,
-        speed: null,
-        waiting,
-        ...(waiting && { stopWaiting: () => void commands.cancelOperation({ op: stop }) }),
-      })
+      setOperationPushProgress(event.op, { percent: event.percent, line: event.line, transferred: null, speed: null })
     }
   }
   return {

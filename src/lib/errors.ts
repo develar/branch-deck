@@ -1,7 +1,8 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
-import type { ApiError, ErrorCode, LockHolderInfo } from "@/lib/bindings"
+import type { ApiError, ErrorCode } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
+import { presentLockHolder } from "@/presenters/lock-wait"
 
 /** Whether `error` is the `ApiError` a command answers (`code`, `message`, …), not an `Error` of the page */
 export function isApiError(error: unknown): error is ApiError {
@@ -28,17 +29,6 @@ export function getErrorDetails(error: unknown): string {
   return String(error)
 }
 
-/** How long a holder has held the lock, as `LockHolder` of `repository_lock.rs` says it: "40 s", "12 min 3 s" */
-function formatHeldFor(seconds: number): string {
-  return seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} s` : `${seconds} s`
-}
-
-/** Who holds the repository: `bd` by its command line, the app by its name; the pid tells two of them apart */
-function describeHolder(holder: LockHolderInfo): string {
-  const who = holder.tool === "bd" ? `\`${holder.command}\`` : "Branch Deck"
-  return `${who} (pid ${holder.pid}) has held the repository for ${formatHeldFor(holder.held_for)}`
-}
-
 /**
  * The error in the words of the page, by its code: a held repository lock names its holder from `details`
  * ("`bd push auth` (pid 4242) has held the repository for 40 s"), never the lock file; any other error is its message
@@ -46,7 +36,7 @@ function describeHolder(holder: LockHolderInfo): string {
  */
 export function describeError(error: unknown): string {
   if (isApiError(error) && error.code === "locked" && error.details?.type === "locked") {
-    return error.details.holder === null ? "Another Branch Deck operation holds the repository" : describeHolder(error.details.holder)
+    return error.details.holder === null ? "Another Branch Deck operation holds the repository" : presentLockHolder(error.details.holder)
   }
   return getErrorDetails(error)
 }

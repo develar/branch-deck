@@ -4,7 +4,7 @@ use crate::unapply_branch_test::{PREFIX, unapply};
 use anyhow::Result;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait, RewriteOptions, lock_repository};
+use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository_as_another_process};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, baseline_repo};
@@ -164,7 +164,7 @@ fn a_reapply_token_names_full_ids_and_the_unapplied_branch() {
 #[test]
 fn reapply_waits_for_the_repository_lock_and_fails_with_locked() {
   let repo = unapplied_repo();
-  let _held = lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
+  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap();
   let options = RewriteOptions {
     lock_wait: LockWait::Bounded(std::time::Duration::from_millis(100)),
     ..RewriteOptions::default()

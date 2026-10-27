@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { TransferProgress } from "@/lib/bindings"
-import { pushProgressOf, stopWaitingPushItem, transferAmount, transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
+import { lockWaitProgress, stopWaitingPushItem, transferAmount, transferAmountNotInLine, transferLabel, transferPercent } from "@/lib/transfer-progress"
 
 const writing: TransferProgress = { percent: 51, transferred: "2.61 MiB", speed: "5.20 MiB/s", line: "Writing objects:  45% (136/302), 2.61 MiB | 5.20 MiB/s" }
 
@@ -11,7 +11,7 @@ describe("transferLabel", () => {
   })
 
   it("names the holder of the repository lock the push waits for, without a percent", () => {
-    const waiting: TransferProgress = { percent: 0, transferred: null, speed: null, line: "Waiting for `bd pick` (pid 4242, for 12 s)", waiting: true }
+    const waiting = lockWaitProgress("Waiting for `bd pick` (pid 4242, for 12 s)", () => {})
     expect(transferLabel("Pushing", waiting)).toBe("Waiting for `bd pick` (pid 4242, for 12 s)")
     expect(transferPercent(waiting)).toBeNull()
     expect(transferPercent(writing)).toBe(51)
@@ -20,15 +20,13 @@ describe("transferLabel", () => {
 })
 
 describe("stopWaitingPushItem", () => {
-  it("offers Stop Waiting of a push only while it waits for another holder of the repository lock, on the push's channel", () => {
-    const waiting: TransferProgress = { percent: 0, transferred: null, speed: null, line: "Waiting for `bd pick` (pid 4242, for 12 s)", waiting: true }
-    const stops: number[] = []
-    const channel = { id: 7 }
-    const progress = { ...pushProgressOf(waiting, channel), stopWaiting: () => stops.push(channel.id) }
+  it("offers Stop Waiting of a push only while it waits for another holder of the repository lock", () => {
+    const stops: string[] = []
+    const progress = lockWaitProgress("Waiting for `bd pick` (pid 4242, for 12 s)", () => stops.push("op"))
     expect(stopWaitingPushItem(progress)).toMatchObject({ label: "Stop Waiting", description: "Waiting for `bd pick` (pid 4242, for 12 s); stop and push nothing" })
     stopWaitingPushItem(progress)!.onSelect({ surface: null })
-    expect(stops).toEqual([7])
-    expect(stopWaitingPushItem(pushProgressOf(writing, channel))).toBeNull()
+    expect(stops).toEqual(["op"])
+    expect(stopWaitingPushItem(writing)).toBeNull()
     expect(stopWaitingPushItem(null)).toBeNull()
   })
 })

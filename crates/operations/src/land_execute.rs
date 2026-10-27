@@ -222,9 +222,10 @@ pub struct PullRequestText {
   pub assign_self: bool,
 }
 
-/// The repository lock of a start, blocking: `bd` waits a bounded time (`locked`), the app as long as the holder lives
-/// and until the user stops the start (`canceled`, the second argument); `on_wait` (the first) is called while another
-/// holds it, with the holder each time it is read again (`None`: a wait that names nobody)
+/// The repository lock of a start, blocking: after the operations of this process before it in its line, `bd` waits a
+/// bounded time for another process (`locked`), the app as long as the holder lives and until the user stops the start
+/// (`canceled`, the second argument); `on_wait` (the first) is called while another holds it, with the holder each time
+/// it is read again (`None`: a wait that names nobody)
 pub type Locker = Arc<dyn Fn(&dyn Fn(Option<&LockHolder>), &dyn Fn() -> bool) -> Result<RepositoryLock, ApiError> + Send + Sync>;
 
 /// The lock of `git_common_dir` waited for at most `timeout` (`bd`): another holder refuses the start as `locked`
@@ -436,14 +437,12 @@ async fn frozen_under_lock(services: &StartServices, steps: &Steps, witness: &Wi
   let (git, path, lock, steps) = (services.git.clone(), services.repository_path.clone(), Arc::clone(&services.lock), steps.clone());
   blocking(move || {
     let waited = AtomicBool::new(false);
-    // the step once, and whom it waits for each time the holder is read (the slot of the caller names it)
+    // the step, with whom it waits for each time the holder is read: its time grows, and every window names it
     let on_wait = |holder: Option<&LockHolder>| {
-      if !waited.swap(true, Ordering::SeqCst) {
-        steps.step(OperationStep::WaitingForLock);
-      }
-      if let Some(holder) = holder {
-        (steps.progress)(&TransferProgress::waiting_for(holder));
-      }
+      waited.store(true, Ordering::SeqCst);
+      steps.step(OperationStep::WaitingForLock {
+        holder: holder.map(LockHolder::info),
+      });
     };
     let canceled = || steps.canceled();
     let held = lock(&on_wait, &canceled)?;
