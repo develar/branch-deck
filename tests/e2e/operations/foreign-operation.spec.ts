@@ -59,6 +59,36 @@ test.describe("Operations of another process of the repository", () => {
     await expectPushedToRemote(repo, ["JIRA-456"])
   })
 
+  test("should show a start whose answer was lost on its row, refuse a start of it, and start again once it is forgotten", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    await repo.setForeignOperation(safePushOf("JIRA-456"), undefined, true)
+    const row = findBranchRow(page, "JIRA-456")
+    const slot = slotSafePush(page, "JIRA-456")
+    // no process runs it any more, and Patronus can't tell yet whether its robot started: it holds the branch
+    await expect(slot).toHaveText("Start Unknown")
+    await slot.hover()
+    await expect(page.getByRole("tooltip")).toHaveText(
+      "Cannot tell whether the Safe Push of JIRA-456 started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it",
+    )
+    await expect(row.getByTestId("open-unknown-start")).toHaveText("Open in Patronus")
+
+    // S says why it can't start, and opens no popover
+    await row.focus()
+    await page.keyboard.press("s")
+    await expect(toastWith(page, "Safe Push of JIRA-456 can't start")).toContainText("Cannot tell whether the Safe Push of JIRA-456 started")
+    await expect(safePushPopover(page)).toHaveCount(0)
+
+    // Forget This Start lets it go: nothing is asked of Patronus, and the toast says it may still run it
+    await runAndWaitForAnswer(page, "execute", () => row.getByTestId("forget-start").click())
+    await expect(toastWith(page, "Forgot the start of JIRA-456")).toContainText("Patronus may still run it")
+    expect((await repo.getPatronusLog()).starts).toEqual([])
+    await expect(row.getByTestId("forget-start")).toHaveCount(0)
+    await expect(slot).toHaveText(/^Safe Push/)
+    await runAndWaitForAnswer(page, "execute", () => slot.click())
+    await expect(row.getByTestId("patronus-chip")).toHaveAccessibleName(/^Safe Push: Running, /)
+    expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456")])
+  })
+
   test("should sync when bd touched the stamp of the repository after a mutation, without a focus", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     await expect(findBranchRow(page, "JIRA-456")).toBeVisible()

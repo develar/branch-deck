@@ -42,7 +42,9 @@
     "safe-push-pull-request",
     "request-changes",
     "show-branch",
-    "remove-from-reviews"
+    "remove-from-reviews",
+    "open-unknown-start",
+    "forget-start"
   ],
   "blockers": [
     [

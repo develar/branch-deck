@@ -5,7 +5,8 @@
 //! waiting. A rewrite of another session between the sync and the witness changes the plan: `plan_changed` (exit 3),
 //! nothing done; one after the push and before the start skips the start, and the error says what was pushed. A run of
 //! `bd` is recorded in the operations registry of the repository first (`admit`), so it is `busy` while the app or
-//! another `bd` runs what it needs, and the other way round.
+//! another `bd` runs what it needs, and the other way round; a start whose answer was lost in its way is settled first
+//! by a read of Patronus, or names `bd operation forget <op>`.
 
 use crate::push_command::push_size_limit;
 use crate::safe_push_command::STACK_REMOTE;
@@ -21,6 +22,7 @@ use operations::engine::request_of;
 use operations::land::{LandHost, one_shot_planned};
 use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices, bounded_lock};
 use operations::push::Sent;
+use operations::reconcile::{ReconcileSources, SettleWith, admit_settled};
 use operations::registry_file::{Entry, ProcessRegistry};
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::{FactSources, Read};
@@ -31,6 +33,7 @@ use repository_model::table::RemoteSubject;
 use std::sync::Arc;
 use sync_core::github_repository::GitHubRepository;
 use sync_utils::clock::SystemClock;
+use sync_utils::timestamp::unix_now;
 
 /// The facts of a run of `bd`: its one-shot session as the plan read it, a start prepared again on it (the same facts,
 /// so the same plan while the refs are as the sync left them; `land`, none for a push, which runs the plan it made), the
@@ -137,9 +140,19 @@ pub(crate) fn locker(context: &RepoContext) -> Locker {
 
 /// The record of the run of `planned` as the operation `op` in the operations registry of the repository
 /// (`registry_file`), with what the app's admission of the same plan holds (`engine::request_of`): `busy`, naming the
-/// holder, while another process (the app, another `bd`) runs what it needs. The run holds it; dropped, it leaves the
-/// registry
-pub(crate) fn admit(context: &RepoContext, op: &OperationId, planned: &Planned) -> Result<Entry, CliError> {
+/// holder, while another process (the app, another `bd`) runs what it needs. A start whose answer was lost in its way is
+/// settled first over the services of the run (`reconcile::admit_settled`): one that started no robot leaves, one that
+/// did refuses the run as `plan_changed`, one not known yet is `busy` with how to forget it. The run holds the record;
+/// dropped, it leaves the registry
+///
+/// # Errors
+/// As `admit_settled`
+pub(crate) fn admit(context: &RepoContext, services: &StartServices, op: &OperationId, planned: &Planned) -> Result<Entry, ApiError> {
   let request = request_of(&context.prefix, planned);
-  Ok(ProcessRegistry::of(&context.git_common_dir).admit(op, HolderTool::Bd, &session_key(context), &request)?)
+  let key = session_key(context);
+  let sources = ReconcileSources::of_start(services, &key, context.patronus_new_api, unix_now());
+  let registry = ProcessRegistry::of(&context.git_common_dir);
+  let runtime = context.runtime().map_err(|error| ApiError::internal(error.message))?;
+  let admitted = runtime.block_on(admit_settled(&registry, op, HolderTool::Bd, &key, &request, Some(SettleWith::Sources(sources))));
+  admitted.entry
 }

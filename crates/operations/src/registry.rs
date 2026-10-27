@@ -18,14 +18,23 @@
 //! the file. The file is never read or written on the actor, and its lock is never held across an `await`. A window
 //! that subscribes through the registry (`subscribe`) watches the file while it shows the session
 //! (`registry_watch`): the operations of other processes are in its view, and a stamp of `bd` syncs it.
+//!
+//! A start whose answer was lost (`registry_file::RecordStatus::Unknown`) is settled by a read of Patronus
+//! (`reconcile`) over the services the files name (`RegistryFiles::settled_with`): at an admission it holds back, and
+//! after each list of the robots of a session the registry applies as the port of the facts (`FactsPort`).
 
 use crate::events::EventSink;
-use crate::registry_file::{Entry, ProcessRegistry};
+use crate::reconcile::{ReconcileSources, Reconciled, SettleWith, admit_settled, reconcile};
+use crate::registry_file::{Entry, ProcessRegistry, RecordHandle, RecordStatus};
 use crate::registry_watch::{SessionWatch, Watches};
 use domain_policy::admission::admit;
 use domain_types::error::{ApiError, HolderTool};
 use domain_types::operation::{Admission, Intent, OperationEvent, OperationId, OperationStep, Origin, Outcome, Resource, RunningMove, RunningOperation};
 use domain_types::session::{RepositoryView, ViewPatch};
+use remote_facts::fact_sources::Read;
+use remote_facts::scheduler::FactsPort;
+use remote_facts::service_sources::ServiceHost;
+use repository_model::facts::{AppliedFacts, FactResult, FactTicket, RobotsRead};
 use repository_model::session::{SessionHold, SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::{OperationPatch, TableState};
 use std::collections::HashMap;
@@ -33,7 +42,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use sync_utils::span::in_current_span;
+use sync_utils::timestamp::unix_now;
 use tokio::sync::{oneshot, watch};
+use tracing::{Instrument, debug};
 
 /// How an operation ended, which the requests that joined it get too
 pub type Answer = Result<Outcome, ApiError>;
@@ -75,6 +86,11 @@ pub struct RegistryFiles {
   tool: HolderTool,
   /// The `$GIT_COMMON_DIR` of the worktree of a session, called on the blocking pool; none: nothing is recorded
   common_dir: Option<Arc<CommonDir>>,
+  /// The services a start whose answer was lost is settled with (`reconcile`); none: never, it stays until forgotten
+  settle: Option<Arc<dyn ServiceHost>>,
+  /// Unix seconds now for the session of a key, which a reconcile compares the time of a start with: the system's but in
+  /// a test
+  now: Arc<dyn Fn(&SessionKey) -> u32 + Send + Sync>,
 }
 
 /// The `$GIT_COMMON_DIR` of the worktree of a session; `None` outside a repository
@@ -87,31 +103,52 @@ impl RegistryFiles {
     Self {
       tool,
       common_dir: Some(Arc::new(common_dir)),
+      settle: None,
+      now: Arc::new(|_key| unix_now()),
     }
+  }
+
+  /// The same files, whose starts whose answer was lost are settled by reads over `host` (the app's services)
+  #[must_use]
+  pub fn settled_with(mut self, host: Arc<dyn ServiceHost>) -> Self {
+    self.settle = Some(host);
+    self
+  }
+
+  /// The same files, a reconcile at `now` of the session of a key (Unix seconds): a test that must not wait for a start
+  /// to settle, the E2E server on the clock of the sessions of each test
+  #[must_use]
+  pub fn at(mut self, now: impl Fn(&SessionKey) -> u32 + Send + Sync + 'static) -> Self {
+    self.now = Arc::new(now);
+    self
   }
 
   /// Nothing recorded: no other process sees the operations (the tests of the registry, over sessions without a
   /// repository)
   #[must_use]
-  pub const fn none() -> Self {
+  pub fn none() -> Self {
     Self {
       tool: HolderTool::App,
       common_dir: None,
+      settle: None,
+      now: Arc::new(|_key| unix_now()),
     }
   }
 
-  /// The record of the operation `id` of the session of `key` that asks `request`, in the registry of its repository
-  /// (`ProcessRegistry::admit`), on the blocking pool; none when nothing is recorded
-  async fn enter(&self, key: &SessionKey, id: &OperationId, request: &OperationRequest) -> Result<Option<Entry>, ApiError> {
-    let Some(common_dir) = self.common_dir.clone() else {
+  /// The record of the operation `id` of the session of `key` that asks `request`, in the registry of its repository,
+  /// a start whose answer was lost in its way settled first (`reconcile::admit_settled`); none when nothing is
+  /// recorded. A start that did start goes into the session before the admission is refused
+  async fn enter(&self, sessions: &Sessions, key: &SessionKey, id: &OperationId, request: &OperationRequest) -> Result<Option<Entry>, ApiError> {
+    let Some(registry) = self.registry_of(key).await else {
       return Ok(None);
     };
-    let (tool, key, id, request) = (self.tool, key.clone(), id.clone(), request.clone());
-    tokio::task::spawn_blocking(in_current_span(move || {
-      common_dir(&key).map(|dir| ProcessRegistry::of(&dir).admit(&id, tool, &key, &request)).transpose()
-    }))
-    .await
-    .map_err(|error| ApiError::internal(format!("The admission into the operations registry failed: {error}")))?
+    let settle = self.settle.as_deref().map(|host| SettleWith::Host(host, (self.now)(key)));
+    let admitted = admit_settled(&registry, id, self.tool, key, request, settle).await;
+    if let Some(robot) = admitted.started {
+      // a session not open keeps no robots
+      let _ = sessions.write_robot(key, robot).await;
+    }
+    admitted.entry.map(Some)
   }
 
   /// The registry of the repository of the session of `key`, resolved on the blocking pool; none when nothing is
@@ -207,6 +244,49 @@ impl Registry {
     &self.sessions
   }
 
+  /// The operations registry of the repository of the session of `key`; none when nothing is recorded
+  pub(crate) async fn process_registry(&self, key: &SessionKey) -> Option<ProcessRegistry> {
+    self.files.registry_of(key).await
+  }
+
+  /// What the windows show of `registry` is read again: a record left it
+  pub(crate) fn reread_registry(&self, registry: &ProcessRegistry) {
+    self.watches.reread(registry);
+  }
+
+  /// Settles the starts whose answer was lost of the prefix of `key` in the registry of its repository by `robots`, the
+  /// user's robots a list of the session just brought (`complete`: of the whole window), and for a comment by the
+  /// reply of the bot (`reconcile`), over the services of the files; a settled one leaves the registry and the windows
+  /// read it again. Nothing without such a start, or without the services
+  pub async fn reconcile_after_robots(&self, key: &SessionKey, robots: &[domain_types::patronus::PatronusRobot], complete: bool) {
+    let (Some(host), Some(registry)) = (self.files.settle.as_deref(), self.files.registry_of(key).await) else {
+      return;
+    };
+    let reading = registry.clone();
+    let records = tokio::task::spawn_blocking(in_current_span(move || reading.of_other_processes())).await;
+    let unknown: Vec<_> = match records {
+      Ok(Ok(records)) => records
+        .into_iter()
+        .filter(|record| record.status == RecordStatus::Unknown && record.session.prefix == key.prefix)
+        .collect(),
+      _ => return,
+    };
+    let sources = ReconcileSources::of(host, key, (self.files.now)(key)).await;
+    let mut settled = false;
+    for record in unknown {
+      if reconcile(&record, &sources, Some((robots, complete))).await == Reconciled::Unknown {
+        continue;
+      }
+      let settling = registry.clone();
+      let removed = tokio::task::spawn_blocking(in_current_span(move || settling.settle(&record))).await;
+      settled |= matches!(removed, Ok(Ok(true)));
+    }
+    if settled {
+      debug!("a list of the robots settled a start whose answer was lost");
+      self.watches.reread(&registry);
+    }
+  }
+
   /// Stops the operation `op` of this process (`cancel_operation`): a wait for the repository lock ends with `canceled`,
   /// and no effect starts after it; an effect that runs (a push that sends) goes to its end. `false` for an operation
   /// that ended, or of another process
@@ -227,7 +307,7 @@ impl Registry {
   pub async fn admit(&self, key: &SessionKey, request: OperationRequest, events: Arc<dyn EventSink>) -> Result<Admitted, ApiError> {
     let id = OperationId(sync_utils::operation_id::OperationId::new().to_string());
     // between processes first, and on the blocking pool: the actor never waits for the file
-    let entry = self.files.enter(key, &id, &request).await?;
+    let entry = self.files.enter(&self.sessions, key, &id, &request).await?;
     // the admission read the file: what the windows show of the other processes is read again too, without a watch
     if let Some(entry) = &entry {
       self.watches.reread(entry.registry());
@@ -243,6 +323,7 @@ impl Registry {
       ended: false,
       queued: false,
       entry,
+      watches: self.watches.clone(),
       _hold: self.sessions.hold(key),
     };
     let (wake, woken) = oneshot::channel();
@@ -266,6 +347,37 @@ impl Registry {
         Err(closed())
       }
     }
+  }
+}
+
+/// The registry is the port the scheduler of the facts applies its answers through (`Sessions::apply_facts`): after a list
+/// of the robots of a session, the starts whose answer was lost of its prefix are settled by it
+/// (`reconcile_after_robots`), on a task of their own, so the scheduler never waits for them
+impl FactsPort for Registry {
+  fn begin<'a>(&'a self, key: &'a SessionKey) -> Read<'a, Option<FactTicket>> {
+    Box::pin(self.sessions.begin(key))
+  }
+
+  fn apply<'a>(&'a self, key: &'a SessionKey, ticket: FactTicket, result: FactResult) -> Read<'a, Option<AppliedFacts>> {
+    // only a registry that settles reads them: the robots of a list, of the whole window when `full`
+    let listed = match (&result, self.files.settle.is_some()) {
+      (
+        FactResult::Robots {
+          read: RobotsRead::List { full },
+          result,
+        },
+        true,
+      ) if result.availability == domain_types::patronus::PatronusAvailability::Available => Some((result.robots.clone(), *full)),
+      _ => None,
+    };
+    Box::pin(async move {
+      let applied = self.sessions.apply_facts(key, ticket, result).await;
+      if let Some((robots, complete)) = listed {
+        let (registry, key) = (self.clone(), key.clone());
+        tokio::spawn(async move { registry.reconcile_after_robots(&key, &robots, complete).await }.in_current_span());
+      }
+      applied
+    })
   }
 }
 
@@ -371,6 +483,8 @@ pub struct RunningGuard {
   queued: bool,
   /// Its record in the registry of its repository, which leaves it after its end went to the session
   entry: Option<Entry>,
+  /// Read again once the record left: a start whose answer was lost stays in the file, as the windows show it then
+  watches: Watches,
   /// Dropped after the end went to the session
   _hold: SessionHold,
 }
@@ -417,6 +531,13 @@ impl RunningGuard {
       .map_or_else(|| Arc::new(AtomicBool::new(false)), |channel| Arc::clone(&channel.canceled))
   }
 
+  /// Its record in the registry of its repository, which tells the other processes what its start sends; none when
+  /// nothing is recorded
+  #[must_use]
+  pub fn record(&self) -> Option<RecordHandle> {
+    self.entry.as_ref().map(Entry::handle)
+  }
+
   /// The moves of rows the operation makes from now on
   pub fn moves(&self, moves: Vec<RunningMove>) {
     let id = self.id.clone();
@@ -434,8 +555,11 @@ impl RunningGuard {
     }
     self.end(answer);
     if let Some(entry) = self.entry.take() {
+      let registry = entry.registry().clone();
       // the removal of its record reads and writes the file: on the blocking pool
       let _ = tokio::task::spawn_blocking(in_current_span(move || drop(entry))).await;
+      // a start whose answer was lost stays in the file, which its removal left as it was: the windows show it now
+      self.watches.reread(&registry);
     }
   }
 

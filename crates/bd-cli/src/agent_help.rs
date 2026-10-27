@@ -554,6 +554,10 @@ Refusals, nothing pushed or started:
   pieces.
 - `landed` (exit 4): a merged Safe Push landed all of the branch, or every branch of the whole stack: nothing is
   left to land. `lands` leaves out what merged Safe Pushes landed already.
+- `busy` (exit 3, `error.holder`): another process runs what the start needs; retry once it is done. A start whose
+  answer was lost (`holder.unknown`: its request went out, no answer came) holds until Patronus lists its robot; see
+  `bd robot <branch>`, and only when the user says so `bd operation forget <holder.op>` (Patronus may still run it).
+  A start of `bd` whose answer was lost says so in `start_unknown` and is never sent again by itself.
 After a merge, until `bd update` archives them, `bd status` names the branches a merged Safe Push landed
 (`landed_by`: the `branch` whose Safe Push it was, or the root with `whole_stack`, the `robot`, the `commits` it
 landed, and `after`: commits added since, decided by content, the only work left, which a push and a Safe Push

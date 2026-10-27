@@ -40,8 +40,10 @@ pub enum PatronusError {
     description: Option<String>,
   },
   Timeout,
-  /// No connection: offline, DNS, TLS
+  /// No connection: offline, DNS, TLS; the request never went out
   Network(String),
+  /// The request went out and the connection broke off before the whole answer came back
+  Dropped(String),
   /// The answer is not what this version expects
   InvalidResponse(String),
 }
@@ -51,8 +53,19 @@ impl PatronusError {
   pub const fn is_transient(&self) -> bool {
     match self {
       Self::Http { status, .. } => *status >= 500,
-      Self::Timeout | Self::Network(_) => true,
+      Self::Timeout | Self::Network(_) | Self::Dropped(_) => true,
       Self::Unauthorized | Self::InvalidResponse(_) => false,
+    }
+  }
+
+  /// Of a request that changes something (a start): it went out and its answer was lost, so whether Patronus did it is
+  /// not known. A timeout after the connect, a connection that broke off, a success whose body doesn't read, the 504 of a
+  /// gateway that gave up waiting for Patronus; never a refusal of Patronus or a request that never went out
+  pub const fn answer_lost(&self) -> bool {
+    match self {
+      Self::Timeout | Self::Dropped(_) | Self::InvalidResponse(_) => true,
+      Self::Http { status, .. } => *status == 504,
+      Self::Unauthorized | Self::Network(_) => false,
     }
   }
 
@@ -63,6 +76,7 @@ impl PatronusError {
       Self::Http { status, description, .. } => description.clone().filter(|d| !d.is_empty()).unwrap_or_else(|| format!("Patronus answered HTTP {status}")),
       Self::Timeout => "Patronus did not answer in time".to_string(),
       Self::Network(message) => format!("Patronus is not reachable: {message}"),
+      Self::Dropped(message) => format!("The connection to Patronus broke off before its answer: {message}"),
       Self::InvalidResponse(message) => format!("Unexpected Patronus answer: {message}"),
     }
   }
@@ -624,6 +638,11 @@ impl PatronusClient {
     format!("{}/robot/{robot_id}", self.web_url)
   }
 
+  /// The web UI, which lists the robots of the user first
+  pub fn web_url(&self) -> &str {
+    &self.web_url
+  }
+
   /// The robots of the token's owner in the repository started since `start` (Unix seconds), newest first
   #[instrument(skip(self, token))]
   pub async fn list_robots(&self, token: &str, repository: &str, start: u32) -> Result<Vec<RobotDto>, PatronusError> {
@@ -895,13 +914,17 @@ async fn read_body(response: reqwest::Result<reqwest::Response>) -> Result<Vec<u
   Ok(body.to_vec())
 }
 
+/// A failed request classified: one that never went out (no connection, a request that can't be built) apart from one
+/// whose answer was lost after it went out
 fn request_error(e: &reqwest::Error) -> PatronusError {
-  if e.is_timeout() {
+  if e.is_connect() || e.is_builder() {
+    PatronusError::Network(e.to_string())
+  } else if e.is_timeout() {
     PatronusError::Timeout
   } else if e.is_decode() {
     PatronusError::InvalidResponse(e.to_string())
   } else {
-    PatronusError::Network(e.to_string())
+    PatronusError::Dropped(e.to_string())
   }
 }
 

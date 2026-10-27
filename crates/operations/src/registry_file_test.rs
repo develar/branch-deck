@@ -39,7 +39,7 @@ pub(crate) fn safe_push(branch: &str) -> OperationRequest {
 }
 
 /// A process of this host: `pid` with the start time `started`
-fn process(pid: u32, started: Option<u64>) -> ProcessIdentity {
+pub(crate) fn process(pid: u32, started: Option<u64>) -> ProcessIdentity {
   ProcessIdentity {
     pid,
     started,
@@ -102,6 +102,7 @@ fn a_record_of_another_process_holds_what_it_needs_and_the_records_of_this_proce
       kind: OperationKind::SafePush,
       subject: Some("auth".to_string()),
       held_for: 12,
+      unknown: false,
     }
   );
   assert_eq!(ids(&registry), ["bd"]);
@@ -172,6 +173,7 @@ fn a_gone_record_with_a_start_in_flight_stays_unknown_and_holds() {
         pr: None,
         comment_id: None,
         sent_at: NOW,
+        url: None,
       }),
     }),
     ..record("sent", &process(200, Some(2)), &safe_push("auth"), NOW)
@@ -323,4 +325,95 @@ fn a_registry_of_another_schema_is_busy_and_never_written() {
     assert_eq!(std::fs::read_to_string(registry.path()).unwrap(), content);
     assert_eq!(registry.records().unwrap(), None);
   }
+}
+
+/// The start of `branch` through the API, sent at `sent_at`
+pub(crate) fn sent(branch: &str, sent_at: u32) -> PendingStart {
+  PendingStart {
+    source_ref: format!("refs/heads/user/virtual/{branch}"),
+    tip: "1a2b3c".to_string(),
+    route: StartRoute::Api { profile: None },
+    pr: None,
+    comment_id: None,
+    sent_at,
+    url: Some("https://patronus.example".to_string()),
+  }
+}
+
+/// A start of this process whose answer was lost runs no more: its record stays after its entry, with what it sent, and
+/// holds what it held for every admission, this process's own too (named so, with how to let it go); a session shows it
+/// as such (`StartUnknown`), and the heartbeat leaves it as it is
+#[test]
+fn a_start_of_this_process_whose_answer_was_lost_holds_its_own_admissions_after_its_entry() {
+  let directory = tempfile::tempdir().unwrap();
+  let registry = ProcessRegistry::of(directory.path());
+  let entry = registry.admit(&id("lost"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap();
+  let handle = entry.handle();
+  handle.send_start(sent("auth", NOW)).unwrap();
+  handle.unknown().unwrap();
+  drop(entry);
+  let records = registry.records().unwrap().unwrap();
+  assert_eq!(
+    (
+      records.len(),
+      records[0].status,
+      records[0].step.clone(),
+      records[0].pending_start().map(|start| start.sent_at)
+    ),
+    (1, RecordStatus::Unknown, OperationStep::Starting, Some(NOW))
+  );
+
+  let busy = registry.admit(&id("again"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap_err();
+  let Some(ErrorDetails::Busy { holder: Some(holder) }) = &busy.details else {
+    panic!("{busy:?}")
+  };
+  assert_eq!((holder.op.as_str(), holder.unknown), ("lost", true));
+  assert!(busy.message.starts_with("Cannot tell whether the Safe Push of auth that Branch Deck"), "{}", busy.message);
+  assert!(busy.message.contains("`bd operation forget lost`"), "{}", busy.message);
+
+  let shown = registry.of_other_processes().unwrap();
+  assert_eq!(
+    shown.iter().map(|record| record.running().step).collect::<Vec<_>>(),
+    [OperationStep::StartUnknown {
+      sent_at: NOW,
+      url: Some("https://patronus.example".to_string()),
+      pull_request: None,
+    }]
+  );
+  let beaten = records[0].heartbeat_at;
+  let mut kept = file(records);
+  beat(&mut kept, ProcessIdentity::this(), &HashSet::new(), NOW + 30);
+  assert_eq!((ids(&kept), kept.operations[0].heartbeat_at), (vec!["lost"], beaten));
+}
+
+/// Forget takes a start whose answer was lost out, of any process, and the admission it held back goes in; it refuses
+/// an operation whose process still runs it and an id the registry lacks. A settle takes out only the start it read: one
+/// sent again under the same id since stays
+#[test]
+fn a_forget_takes_out_a_start_whose_answer_was_lost_and_refuses_one_that_runs() {
+  let directory = tempfile::tempdir().unwrap();
+  let registry = ProcessRegistry::of(directory.path());
+  let gone = process(4_000_000, Some(1));
+  let mut lost = Record {
+    status: RecordStatus::Unknown,
+    external: Some(External {
+      pending_start: Some(sent("auth", NOW)),
+    }),
+    ..record("lost", &gone, &safe_push("auth"), NOW)
+  };
+  registry.insert_of_another_process(lost.clone()).unwrap();
+  let running = registry.admit(&id("docs"), HolderTool::App, &session("user"), &safe_push("docs")).unwrap();
+
+  let refused = registry.forget(&id("docs")).unwrap_err();
+  assert_eq!(refused.code, ErrorCode::InvalidArguments, "{refused:?}");
+  assert_eq!(registry.forget(&id("none")).unwrap_err().code, ErrorCode::InvalidArguments);
+
+  lost.external = Some(External {
+    pending_start: Some(sent("auth", NOW + 1)),
+  });
+  assert!(!registry.settle(&lost).unwrap());
+  assert_eq!(registry.forget(&id("lost")).unwrap().id, id("lost"));
+  let auth = registry.admit(&id("auth"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap();
+  drop((auth, running));
+  assert_eq!(registry.records().unwrap().unwrap(), Vec::<Record>::new());
 }

@@ -4,6 +4,7 @@ description: Requirements for bd, the command line a coding agent uses to read t
 style: plain-1
 targets:
   - ../../crates/bd-core/src/text_input.rs
+  - ../../crates/bd-remote/src/operation_command.rs
   - ../../src-tauri/src/main.rs
   - ../../crates/bd-cli/src/main.rs
   - ../../scripts/build-bd.mjs
@@ -271,6 +272,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app`, `the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)
   [@test] ../../crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`, `a_gone_process_of_this_host_leaves_at_once_and_one_of_another_host_after_five_minutes`, `a_registry_of_another_schema_is_busy_and_never_written`)
+- A start of `bd safe-push` (and of the app) must record what it sends before its request goes out, and an answer
+  lost after it went out must leave it unknown, never sent again: the output says so in `start_unknown` (`operation`,
+  `reason`), and its record holds what it held for every process. A start of a process that is gone (killed between
+  its push and its start) is such a start too. An admission that one holds must settle it first by a read of Patronus:
+  a robot of it started (`plan_changed`), none once 30 s passed since it was sent (it leaves, and the run goes as
+  planned, pushing nothing pushed already), else `busy` with `holder.unknown: true` and a message naming `bd
+  operation forget <op>`. `bd operation forget <op>` must take that record out, only when the user says so
+  (`forgotten`, `subject`, `source_ref`; `invalid_arguments` for an id the registry lacks or an operation that runs),
+  and the next start must go.
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_lost_start_holds_bd_until_bd_operation_forget_lets_it_go`)
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_bd_killed_between_its_push_and_its_start_leaves_a_lost_start_the_app_settles_and_starts_once`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_lists_its_robot`)
 - Every command of `bd` that succeeded and is no read (not in the read-only line of `bd --help`: a rewrite, a push, a
   start, a sync, an update, a pick, a park, a description, the lease commands but `lease status`) must touch the stamp
   of its repository once, after its run (`$GIT_COMMON_DIR/branch-deck/stamp`, its Unix time and pid): the app's windows

@@ -181,8 +181,11 @@ the same command again, `after_reread` (`head_moved` and the other `*_moved`, `p
 min 3 s) holds …/branch-deck.lock (waited 10.0 s); retry when it is done``), else "Another Branch Deck operation".
 `busy` (`bd push`, `bd safe-push`, `bd request-review`) names the operation of another process that holds what the
 command needs, from the operations registry of the repository (docs/design/git-operations.md, "Operations registry"):
-its `error.holder` is `{op, tool, pid, kind, subject, held_for}` (`kind` `safe_push`, `dry_run`, `push`, …; `op` the
-`operation_id` of its log lines), left out for a registry of another Branch Deck, whose operations can't be read.
+its `error.holder` is `{op, tool, pid, kind, subject, held_for, unknown}` (`kind` `safe_push`, `dry_run`, `push`, …;
+`op` the `operation_id` of its log lines), left out for a registry of another Branch Deck, whose operations can't be
+read. `unknown: true` is a start whose answer was lost (its request went out and no answer came, or its process was
+killed after it went out): it holds until Patronus lists its robot, which an admission reads first (a robot of it
+started: `plan_changed`; none once 30 s passed: the command goes on), or until `bd operation forget <op>`.
 
 A write whose step after the write failed (the descriptions or the sync of `bd group --sync`, the sync of
 `bd move-hunk --sync`) prints its output with `after_error`, never the error object: the write stands, its
@@ -1623,8 +1626,10 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   `/patronus merge --keep-source-branch` (`/patronus dry-run`) through the GitHub API, waits up to a minute for the answer of
   Patronus, and finds the robot, so the approvals of the pull request count (`review.counts_in: pull_request`). A
   comment can't choose a profile: `--profile` is `invalid_arguments` there. `pull_request.reply` is `pending` when
-  Patronus didn't answer within the minute (the robot is `null`); a rejected comment or a draft pull request is
-  `patronus_refused`.
+  Patronus didn't answer within the minute (the robot is `null`, and `start_unknown` says the start is not known yet);
+  a rejected comment or a draft pull request is `patronus_refused`. A start whose request went out and whose answer was
+  lost (a timeout, a connection that broke off) is `start_unknown` (`operation`, `reason`), never sent again: its record
+  holds the branch until Patronus lists its robot or `bd operation forget <operation>`.
 - `robot_running` (exit 4): a robot runs on the last commit of the branch ("A Safe Push of the last commit is
   running"), a Safe Push lands it with a branch of its stack ("A Safe Push of oauth is running: it lands login with
   it"), or a Safe Push of a branch it is built on runs, whose commits it would land a second time ("A Safe Push of
@@ -1768,6 +1773,16 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
   tips the refs hold, no sync; left out for a robot that didn't merge, off GitHub and while GitHub doesn't list the
   pull requests.
 - `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
+
+### `bd operation forget <op>`
+
+A start whose answer was lost (`busy` with `error.holder.unknown`, or `start_unknown` of a `bd safe-push`) holds its
+branch in the operations registry of the repository until Patronus lists its robot. `bd operation forget <op>`, only
+when the user says so, takes its record out (`operations::forget`, the core of Forget This Start of the app), so the
+branch can start again; Patronus is not asked and may still run the robot it sent (`bd robot <branch>` shows it once
+listed). Output `{schema, repository, forgotten, subject, source_ref}`; `invalid_arguments` (exit 2) for an id the
+registry lacks (it ended, or a read of Patronus settled it) or of an operation whose process still runs it; `locked`
+when another process keeps the lock of the registry.
 
 ### `bd describe <branch> [--title T] [--body B | --body-file F] [--clear]`
 

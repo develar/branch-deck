@@ -132,6 +132,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::CloseLandedPullRequests { .. } => ("the closes of the landed pull requests".to_string(), "close them again"),
     Intent::SubmitReview { number, .. } => (format!("the review of pull request #{number}"), "review it again"),
     Intent::SetIssueState { key, .. } => (format!("the state of {key}"), "set it again"),
+    Intent::ForgetStart { op } => (format!("the forget of start {op}"), "forget it again"),
   }
 }
 

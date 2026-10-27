@@ -52,6 +52,8 @@ export interface LandRun {
    * slot shows in place of its step; null for a start of this app
    */
   readonly by: OtherProcessRun | null
+  /** A start whose answer was lost (`startUnknown`), of any process: the operation its actions act on; null else */
+  readonly lost: RunningOperation | null
 }
 
 export interface SafePushState {
@@ -124,9 +126,10 @@ function landRunOf(operation: RunningOperation | undefined, asking: SafePushMode
       op: operation.id,
       pushes: pushedBranches(operation),
       by: presentOtherProcess(operation),
+      lost: operation.step.kind === "startUnknown" ? operation : null,
     }
   }
-  return asking === undefined ? null : { mode: asking, step: "checking", waitingFor: null, op: null, pushes: [], by: null }
+  return asking === undefined ? null : { mode: asking, step: "checking", waitingFor: null, op: null, pushes: [], by: null, lost: null }
 }
 
 /** The start of the subject `key` that runs in the selected repository */

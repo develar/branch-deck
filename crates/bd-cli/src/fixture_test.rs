@@ -112,6 +112,16 @@ impl TestChild {
     self.0.as_mut().unwrap().try_wait().unwrap().is_none()
   }
 
+  /// Kills it, as a user's ^C or a crash ends it, and waits for its end
+  ///
+  /// # Panics
+  /// After `answer`
+  pub fn kill(mut self) {
+    let mut child = self.0.take().unwrap();
+    let _ = child.kill();
+    let _ = child.wait();
+  }
+
   /// The exit code and the output of its `bd`, once it ended
   ///
   /// # Panics

@@ -26,6 +26,7 @@ use bd_lease::lease_command::{
   pick_requires_check, refuse_update_in_lease, unchecked_tree,
 };
 use bd_lease::workspace_command::workspace;
+use bd_remote::operation_command::{OperationArgs, OperationCommand, forget};
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
 use bd_remote::robot_command::{RobotArgs, robot};
@@ -187,6 +188,9 @@ enum Command {
   /// which commits of the checked-out branch it tested
   #[command(after_help = "Outputs and refusals: `bd robot --help`", after_long_help = ROBOT_HELP)]
   Robot(RobotArgs),
+  /// The operations of the repository in its operations registry: `bd operation forget <op>` lets go a start whose answer
+  /// was lost, which `busy` names
+  Operation(OperationArgs),
   /// The Safe Push statistics of the repository: the user's robots of a period against everyone else's. Read only
   ///
   /// Robots per merge, the time to merge, the time lost in failures, the failure causes and flaky checks of the last 14
@@ -547,6 +551,9 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut dyn Write, common_di
       .and_then(|context| request_review(&context, args, environment))
       .and_then(|output| printed(out, &output)),
     Command::Robot(args) => context().and_then(|context| robot(&context, args, environment)).and_then(|output| printed(out, &output)),
+    Command::Operation(OperationArgs {
+      command: OperationCommand::Forget(args),
+    }) => context().and_then(|context| forget(&context, args)).and_then(|output| printed(out, &output)),
     Command::RobotStats(args) => context()
       .and_then(|context| robot_stats(&context, args, environment))
       .and_then(|output| printed(out, &output)),

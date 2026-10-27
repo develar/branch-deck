@@ -358,13 +358,15 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   };
   let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
   // busy while another process runs what the push needs; the record leaves once the run ended
-  let _entry = admit(context, &op, &planned)?;
+  let entry = admit(context, &services, &op, &planned)?;
   let accepted = Accepted {
     fingerprint: planned.plan.fingerprint.clone(),
     confirmations: planned.plan.confirmations.clone(),
   };
+  // the record tells the other processes what a restart of its robot sends, before it goes out
+  let steps = Steps::none().with_record(Some(entry.handle()));
   let started = runtime
-    .block_on(run_planned(&start, &services, &Steps::none(), op, planned.clone(), &accepted, std::time::Instant::now()))
+    .block_on(run_planned(&start, &services, &steps, op, planned.clone(), &accepted, std::time::Instant::now()))
     .map_err(CliError::from)?;
   let told = run.tell(&facts, &services, &planned, &started)?;
   run.output(&facts, Some((&planned, started.pushed.as_ref())), told, decided.covered)

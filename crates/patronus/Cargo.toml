@@ -9,6 +9,7 @@ axum = { workspace = true, optional = true }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 test-utils = { path = "../test-utils", features = ["http"], optional = true }
+tokio-stream = { workspace = true, optional = true }
 moka.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -19,7 +20,7 @@ tracing.workspace = true
 
 [features]
 # the in-process Patronus of the tests (`fake_patronus`), for the tests of other crates
-fake = ["dep:axum", "dep:test-utils"]
+fake = ["dep:axum", "dep:test-utils", "dep:tokio-stream"]
 
 [dev-dependencies]
 axum.workspace = true
@@ -28,6 +29,7 @@ tempfile.workspace = true
 # `fake_patronus` serves through `test_utils::fake_server` under `cfg(test)` too, without the workspace's feature unification
 test-utils = { path = "../test-utils", features = ["http"] }
 tokio = { workspace = true, features = ["time"] }
+tokio-stream.workspace = true
 
 [lints]
 workspace = true

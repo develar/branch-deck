@@ -54,7 +54,7 @@ function outcome(statuses: EffectRecord["status"][], result: Partial<LandResult>
     effects: PLAN.effects.map((effect, index) => ({ effect, status: statuses[index] ?? { kind: "skipped", reason: null } })),
     newsKey: { kind: "robotSubject", subject: "auth", mode: "rebaseAutosquash" },
     versionAfter: null,
-    result: { kind: "land", robot: null, canceled: null, comment: null, notes: [], ...result },
+    result: { kind: "land", robot: null, canceled: null, comment: null, notes: [], lost: null, ...result },
     stats: { gitProcesses: {}, httpRequests: 0, millis: 1 },
   }
 }
@@ -72,7 +72,7 @@ describe("presentLandOutcome", () => {
     })
   })
 
-  it("says a comment Patronus accepted whose robot it lists not yet, and a comment it never answered as a failure that opens it", () => {
+  it("says a comment Patronus accepted whose robot it lists not yet, and a comment it never answered as a start not known yet that opens it", () => {
     const comment = { number: 7, url: "https://github.com/acme/monorepo/pull/7#issuecomment-1", accepted: true }
     expect(presentLandOutcome(outcome([DONE, DONE, DONE], { comment }), PLAN, "auth")).toEqual({
       kind: "commented",
@@ -82,7 +82,22 @@ describe("presentLandOutcome", () => {
       url: comment.url,
     })
     const silent = presentLandOutcome(outcome([DONE, DONE, { kind: "unknown" }], { comment: { ...comment, accepted: false } }), PLAN, "auth")
-    expect(silent).toMatchObject({ kind: "failed", description: "Patronus did not answer the comment within a minute: see pull request #7", url: comment.url })
+    expect(silent).toEqual({
+      kind: "unknown",
+      title: "Cannot tell whether the Safe Push of auth started",
+      description: "Patronus did not answer the comment on #7 within a minute. It holds auth until Patronus lists its robot, or until Forget This Start on the row",
+      url: comment.url,
+    })
+  })
+
+  it("says a start whose answer was lost as not known yet, with why", () => {
+    const lost = apiError("patronus_error", "The connection to Patronus broke off before its answer")
+    expect(presentLandOutcome(outcome([DONE, DONE, { kind: "unknown" }], { lost }), PLAN, "auth")).toEqual({
+      kind: "unknown",
+      title: "Cannot tell whether the Safe Push of auth started",
+      description: "The connection to Patronus broke off before its answer. It holds auth until Patronus lists its robot, or until Forget This Start on the row",
+      url: null,
+    })
   })
 
   it("offers the start again when the facts changed after the push, naming the robot it canceled; a failed effect says its error", () => {
@@ -93,7 +108,6 @@ describe("presentLandOutcome", () => {
       title: "Cannot start the Safe Push of auth",
       description: "auth changed after the push: no robot started; the Safe Push it replaced was canceled and the push stays",
       error: changed,
-      url: null,
       again: true,
       canceled: older,
     })

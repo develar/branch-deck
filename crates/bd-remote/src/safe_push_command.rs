@@ -54,7 +54,7 @@ use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ApiError;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject};
-use domain_types::operation::{EffectStatus, Intent, OperationId, Plan};
+use domain_types::operation::{EffectStatus, Intent, OperationId, OperationResult, Plan};
 use domain_types::patronus::{
   LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusRobot,
   PatronusRobotStatus, PatronusStartOptions, Person, ReviewReadiness, ReviewerApprovalState, UnavailableReadinessReason, UnknownReadinessReason,
@@ -232,6 +232,12 @@ pub struct SafePushOutput {
   /// The started robot; `null` with `--check` and `--create-pull-request`, and while Patronus hasn't listed the robot
   /// of a comment yet
   pub robot: Option<RobotSummary>,
+  /// The start went out and its answer was lost (a timeout, a connection that broke off, a comment the bot did not
+  /// answer within the wait): whether its robot started is not known, and it is never sent again by itself. Its record
+  /// holds the branch in the operations registry until Patronus lists the robot (`bd robot <branch>`), or the user
+  /// forgets it (`bd operation forget <operation>`); `null` when the start was answered
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub start_unknown: Option<StartUnknown>,
   /// The pull request the robot starts from; with `--check`, the one it would start from; with
   /// `--create-pull-request`, the one it opened (or found open)
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -641,12 +647,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     let services = start_services(context, Some(Arc::clone(&service)), plan.space.name.clone(), github, plan.target.clone(), &synced.baseline)?;
     let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
     // busy while another process runs what the start needs; the record leaves once the run ended
-    let _entry = admit(context, &op, &plan.planned)?;
+    let entry = admit(context, &services, &op, &plan.planned).map_err(|error| start_error(context, args, &plan, error))?;
     let accepted = Accepted {
       fingerprint: plan.planned.plan.fingerprint.clone(),
       confirmations: plan.planned.plan.confirmations.clone(),
     };
-    let steps = Steps::none();
+    // the record tells the other processes what the start sends, before it goes out
+    let steps = Steps::none().with_record(Some(entry.handle()));
     let execute = execute(&start, &services, &steps, op, &plan.land, &accepted, false);
     runtime.block_on(execute).map_err(|error| start_error(context, args, &plan, error))?
   };
@@ -757,7 +764,30 @@ fn tell(
     output.started_via = Some("api".to_string());
   }
   output.robot = robot.as_ref().map(|robot| robot_summary(context, robot));
+  let unknown = outcome
+    .effects
+    .iter()
+    .any(|record| matches!(record.effect, PlannedEffect::StartRobot { .. }) && record.status == EffectStatus::Unknown);
+  if unknown {
+    let lost = match &outcome.result {
+      OperationResult::Land(result) => result.lost.as_ref().map(|lost| lost.message.clone()),
+      _ => None,
+    };
+    output.start_unknown = Some(StartUnknown {
+      operation: outcome.op.0,
+      reason: lost.unwrap_or_else(|| "The answer of Patronus was lost".to_string()),
+    });
+  }
   Ok(())
+}
+
+/// A start whose answer was lost (`SafePushOutput::start_unknown`)
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StartUnknown {
+  /// The id of its operation, which `busy` names and `bd operation forget` takes
+  pub operation: String,
+  /// Why its answer is not known
+  pub reason: String,
 }
 
 /// What the robot that refuses the start of `own` runs on: `own` itself, the branch built on it or the whole stack that
@@ -827,6 +857,7 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
     canceled: None,
     started_via: None,
     robot: None,
+    start_unknown: None,
     pull_request: plan.pull_request.as_ref().map(|pull_request| PullRequestStart {
       number: pull_request.number,
       url: pull_request.url.clone(),

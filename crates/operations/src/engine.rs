@@ -17,7 +17,7 @@ use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Ste
 use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::witness::check;
-use crate::{close, issue, land, pull_request, push, review, robot};
+use crate::{close, forget, issue, land, pull_request, push, review, robot};
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::ApiError;
 use domain_types::landing::{Land, PlannedEffect, Subject};
@@ -67,6 +67,7 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::SubmitReview { .. } => review::review_plan(&intent).map(Some),
     Intent::SetIssueState { .. } => issue::issue_plan(&intent).map(Some),
     Intent::Push(push) => Ok(push::prepare_push(sessions, key, &push).await.map(|planned| planned.plan)),
+    Intent::ForgetStart { .. } => forget::forget_plan(&intent).map(Some),
   }
 }
 
@@ -92,6 +93,7 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     intent @ Intent::SubmitReview { .. } => Box::pin(review::execute_review(registry, key, intent, accepted, services, events)).await,
     intent @ Intent::SetIssueState { .. } => issue::execute_issue(registry, key, intent, accepted, services, events).await,
     Intent::Push(push) => Box::pin(push::execute_push(registry, key, push, accepted, services, events)).await,
+    intent @ Intent::ForgetStart { .. } => forget::execute_forget(registry, key, intent, accepted, events).await,
   }
 }
 
@@ -114,6 +116,7 @@ pub(crate) fn steps_of(guard: &RunningGuard) -> Steps {
     Arc::new(move |tick: &TransferProgress| progress.progress(u32::from(tick.percent), tick.line.clone())),
     guard.canceled(),
   )
+  .with_record(guard.record())
 }
 
 /// Runs `planned`, decided again once its operation `guard` was admitted, on `start` (the host and the services of the
@@ -194,6 +197,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::close_request(intent, Some(plan)),
     intent @ Intent::SubmitReview { number, .. } => review::review_request(intent, *number),
     intent @ Intent::SetIssueState { key, .. } => issue::issue_request(intent, key),
+    intent @ Intent::ForgetStart { .. } => forget::forget_request(intent),
   }
 }
 

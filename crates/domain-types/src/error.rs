@@ -500,6 +500,10 @@ pub struct OperationHolder {
   pub subject: Option<String>,
   /// Seconds since it was admitted
   pub held_for: u32,
+  /// A start whose answer was lost (`OperationStep::StartUnknown`): it holds what it held until a read of Patronus tells
+  /// whether its robot started, or the user forgets it (Forget This Start, `bd operation forget <op>`)
+  #[serde(default)]
+  pub unknown: bool,
 }
 
 /// What an operation does, by the family of its intent (`Intent`), for the words of its holder
@@ -520,6 +524,7 @@ pub enum OperationKind {
   CloseLandedPullRequests,
   SubmitReview,
   SetIssueState,
+  ForgetStart,
 }
 
 /// Which program holds the lock, or runs an operation

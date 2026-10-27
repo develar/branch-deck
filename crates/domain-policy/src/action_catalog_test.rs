@@ -200,7 +200,9 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::SafePushPullRequest
       | ActionId::RequestChanges
       | ActionId::ShowBranch
-      | ActionId::RemoveFromReviews => {}
+      | ActionId::RemoveFromReviews
+      | ActionId::OpenUnknownStart
+      | ActionId::ForgetStart => {}
     }
   }
 }

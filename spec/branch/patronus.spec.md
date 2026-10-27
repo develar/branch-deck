@@ -58,6 +58,10 @@ targets:
   - ../../src/hooks/useSafePush.ts
   - ../../src/presenters/land.ts
   - ../../src/presenters/outcome.ts
+  - ../../crates/operations/src/reconcile.rs
+  - ../../crates/operations/src/forget.rs
+  - ../../crates/operations/src/robot_start.rs
+  - ../../src/lib/robot-run.ts
   - ../../crates/operations/src/land_execute.rs
   - ../../crates/operations/src/land_session.rs
   - ../../crates/operations/src/robot_start.rs
@@ -944,8 +948,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   session and is polled: of that pull request, a Dry Run for a Dry Run and a Safe Push for a Safe Push, none the
   session listed finished before the comment nor the one the start replaced, the newest (`comment_robot`, as `bd
   safe-push` matches it), so a Dry Run of #7 canceled a minute before is never the new robot. A refusal is the error
-  toast "Cannot start the Safe Push of auth" with the bot's reason; no answer within a minute is "Patronus did not
-  answer the comment within a minute: see pull request #7" with Open Pull Request. A 👍 is the start: when Patronus
+  toast "Cannot start the Safe Push of auth" with the bot's reason; no answer within a minute is a start whose answer
+  was lost (below): the warning toast "Cannot tell whether the Safe Push of auth started", "Patronus did not answer the
+  comment on #7 within a minute. It holds auth until Patronus lists its robot, or until Forget This Start on the row",
+  with Open Pull Request; a read of the reply after it reached GitHub that fails ends the wait the same way, never as a
+  failure. A 👍 is the start: when Patronus
   lists no robot of it within the minute, the start of the app goes on looking for it every 15 s for 5 minutes more,
   and holds its subject meanwhile: the slot says "Starting…" in every window, a second click or key starts nothing, and
   a repeat of the same start joins it instead of posting a second comment, which Patronus would answer with a second
@@ -957,7 +964,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`a_thumbs_down_reads_the_reason_from_the_bot_comment`)
   [@test] ../../crates/remote-facts/src/patronus_command_test.rs (`the_reason_is_a_later_bot_comment_and_a_user_warning_is_not_one`)
   [@test] ../../crates/operations/src/robot_start_test.rs (`a_comment_the_bot_accepts_starts_the_newest_robot_of_its_pull_request_nobody_knew`, `a_comment_the_bot_rejects_fails_with_its_reason_and_one_it_never_answers_is_pending_after_the_minute`, `an_accepted_comment_looks_for_its_robot_after_the_minute_until_patronus_lists_it`)
-  [@test] ../../src/presenters/outcome.test.ts (`says a comment Patronus accepted whose robot it lists not yet, and a comment it never answered as a failure that opens it`)
+  [@test] ../../src/presenters/outcome.test.ts (`says a comment Patronus accepted whose robot it lists not yet, and a comment it never answered as a start not known yet that opens it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should hold a start Patronus accepted until it lists the robot: a repeat posts no second comment`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should keep holding a start Patronus accepted through a switch to another repository and back`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_robot_of_a_comment_is_never_an_earlier_robot_of_the_pull_request`)
@@ -1609,6 +1616,42 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../src/presenters/operations.test.ts (`words an operation of another process as its row says it and as the hover names its pid`)
   [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should show the Safe Push bd runs on its row, refuse a start and a push of it, and push another branch beside it`)
   [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should start the Safe Push of a branch once the operation of bd that held it ended`)
+- A start whose answer was lost must never be sent again by itself, and must hold its subject for every process until
+  it is known. Before its request goes out, the record of the start in the operations registry tells what it sends
+  (its source ref, the commit, the route, the pull request, the time; the comment once GitHub answered its post). A
+  request whose answer was lost after it went out (a timeout, a connection that broke off, an answer that doesn't
+  read, a 504 of a gateway; for a comment also a bot that did not answer within the minute) is unknown, never failed:
+  Patronus got the start once, and the outcome says why it is not known; its toast "Cannot tell whether the Safe Push of
+  auth started" (Open Pull Request for a comment). The record stays after its run, as one of a process that was killed
+  between its push and its start: the row of every window shows "Start Unknown" in its slot ("Cannot tell whether the
+  Safe Push of auth started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start;
+  Patronus may still run it"), with "Open in Patronus" ("Open Pull Request #7" for a comment) and "Forget This Start"
+  beside it; S says it can't start, and a start of `bd` or the app that needs what it holds is `busy` naming it
+  ("Cannot tell whether the Safe Push of auth that `bd` (pid 4242) sent started", `bd operation forget <op>`).
+  A read of Patronus settles it: at an admission it holds back, and after each list of the robots of the session. Its
+  robot is one of the user's robots of its source ref in its mode started since it was sent (on its commit when
+  Patronus names one), or of its pull request; found, it is started (the admission is refused as `plan_changed`, the
+  robot in the facts); a list of the whole window read 30 s after it was sent at least without it means none started
+  (the record leaves, and the start goes as planned, without the push that went before). A comment is settled by the
+  reply of the bot to it (found by its text among the comments of its pull request since it was sent when its post
+  lost its answer): accepted started, rejected or never posted failed. Forget This Start (and `bd operation forget`)
+  takes the record out without asking Patronus: the toast "Forgot the start of auth" says Patronus may still run it.
+  [@test] ../../crates/patronus/src/actions_test.rs (`a_start_whose_answer_was_lost_is_lost_and_sent_once`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_lists_its_robot`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`a_lost_start_patronus_does_not_list_once_it_settled_leaves_and_the_admission_goes_in`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`the_robot_of_a_lost_start_is_of_its_ref_and_mode_since_it_was_sent`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`a_list_of_the_whole_window_proves_a_lost_start_absent_once_it_settled`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`a_lost_comment_is_found_by_its_text_and_settled_by_the_reply_of_the_bot`)
+  [@test] ../../crates/operations/src/reconcile_test.rs (`a_list_of_the_robots_of_a_session_settles_its_lost_starts`)
+  [@test] ../../crates/operations/src/registry_file_test.rs (`a_start_of_this_process_whose_answer_was_lost_holds_its_own_admissions_after_its_entry`)
+  [@test] ../../crates/operations/src/registry_file_test.rs (`a_forget_takes_out_a_start_whose_answer_was_lost_and_refuses_one_that_runs`)
+  [@test] ../../crates/operations/src/forget_test.rs (`forget_this_start_takes_the_record_out_and_frees_what_it_held`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_start_whose_answer_was_lost_offers_open_in_patronus_and_forget_this_start`)
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_bd_killed_between_its_push_and_its_start_leaves_a_lost_start_the_app_settles_and_starts_once`)
+  [@test] ../../src/presenters/operations.test.ts (`words a start whose answer was lost: whether it started is not known, and how it lets go`)
+  [@test] ../../src/presenters/outcome.test.ts (`says a start whose answer was lost as not known yet, with why`)
+  [@test] ../../src/presenters/actions.test.ts (`offers Open in Patronus where its robot would be and Forget This Start, which says Patronus may still run it`)
+  [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should show a start whose answer was lost on its row, refuse a start of it, and start again once it is forgotten`)
 - After a mutation of `bd` (an agent's `bd group`, `bd push`), the session a window shows must sync once what a sync
   reads changed, without a focus: `bd` touched the stamp of the repository, which the window watches.
   [@test] ../../crates/operations/src/registry_watch_test.rs (`a_stamp_of_bd_syncs_the_session_a_window_shows`)

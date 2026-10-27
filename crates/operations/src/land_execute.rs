@@ -21,7 +21,12 @@
 //! 7. the robots and the pull requests of the facts as they are now (no request): a robot that lands a part of the
 //!    subject started meanwhile, or the pull request of a comment that closed, skips the start as `plan_changed`;
 //! 8. the start: through the API, or as a `/patronus` comment with the reply of the bot read on the clock of the session
-//!    (`robot_start`), or the restart; the robot it started goes into the facts.
+//!    (`robot_start`), or the restart; the robot it started goes into the facts. Before its request goes out the record
+//!    of the operation in the operations registry tells what it sends (`RecordHandle::send_start`), and the comment
+//!    once GitHub answered its post; an answer lost after the request went out (a timeout, a connection that broke off,
+//!    a comment the bot did not answer within the wait) is `EffectStatus::Unknown`, never sent again: the record stays as
+//!    a start whose answer was lost, which holds what it held until a read of Patronus settles it
+//!    (`operations::reconcile`) or the user forgets it (`Intent::ForgetStart`).
 //!
 //! A refusal the facts know (a blocker, an unaccepted confirmation, a changed fingerprint, a held lock) does nothing:
 //! every effect comes after the full witness (a plan that moves and leases no ref reads none and takes no lock). The
@@ -29,7 +34,8 @@
 //! status.
 
 use crate::push::{Sent, send};
-use crate::robot_start::{ApiStart, CommentStart, Commented, RobotWait, patronus_failure, start_by_comment, start_through_api};
+use crate::registry_file::{PendingStart, RecordHandle};
+use crate::robot_start::{ApiStart, CommentStart, Commented, NoRobot, RobotWait, follow_start_comment, patronus_failure, post_start_comment, start_through_api};
 use crate::witness::{Witness, check, plan_changed, read_refs};
 use domain_policy::holds::is_active;
 use domain_types::branch_names::to_final_branch_name;
@@ -69,7 +75,8 @@ use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
 use sync_core::transfer_progress::TransferProgress;
 use sync_utils::clock::Clock;
 use sync_utils::span::in_current_span;
-use tracing::{debug, instrument};
+use sync_utils::timestamp::unix_now;
+use tracing::{debug, instrument, warn};
 
 /// A plan of a start as the facts have it now, with what the run needs of it besides: the witness it was decided on,
 /// the branches its push sends, the ref the robot starts from and the merge request whose approvals count
@@ -293,12 +300,14 @@ pub struct PushSettings {
   pub size_limit: Option<u64>,
 }
 
-/// Where the caller hears a start: its steps, the progress of its push; and whether the user stopped it
+/// Where the caller hears a start: its steps, the progress of its push; whether the user stopped it; and the record of
+/// its operation in the operations registry, which tells the other processes what its start sent
 #[derive(Clone)]
 pub struct Steps {
   step: Arc<dyn Fn(OperationStep) + Send + Sync>,
   progress: Arc<dyn Fn(&TransferProgress) + Send + Sync>,
   canceled: Arc<AtomicBool>,
+  record: Option<RecordHandle>,
 }
 
 impl Steps {
@@ -310,7 +319,19 @@ impl Steps {
 
   #[must_use]
   pub fn new(step: Arc<dyn Fn(OperationStep) + Send + Sync>, progress: Arc<dyn Fn(&TransferProgress) + Send + Sync>, canceled: Arc<AtomicBool>) -> Self {
-    Self { step, progress, canceled }
+    Self {
+      step,
+      progress,
+      canceled,
+      record: None,
+    }
+  }
+
+  /// The same steps, the start told in `record` (none: nothing is recorded, as in the tests of a registry without files)
+  #[must_use]
+  pub fn with_record(mut self, record: Option<RecordHandle>) -> Self {
+    self.record = record;
+    self
   }
 
   fn step(&self, step: OperationStep) {
@@ -658,6 +679,8 @@ struct Run<'a> {
   robot: Option<PatronusRobot>,
   restarted: Vec<PatronusRobot>,
   commented: Option<Commented>,
+  /// Why the answer of the start is not known (`EffectStatus::Unknown`)
+  lost: Option<ApiError>,
   created: Option<CreatedPullRequest>,
   requested: Option<RequestedReviewers>,
   version: Option<Version>,
@@ -684,6 +707,7 @@ impl<'a> Run<'a> {
       robot: None,
       restarted: Vec::new(),
       commented: None,
+      lost: None,
       created: None,
       requested: None,
       version: None,
@@ -712,10 +736,10 @@ impl<'a> Run<'a> {
           PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
-          // a close, a review and the state of an issue are operations of their own, never a step of a start
-          PlannedEffect::ClosePullRequest { .. } | PlannedEffect::SubmitReview { .. } | PlannedEffect::SetIssueState { .. } => {
-            self.fail(ApiError::internal("A start closes and reviews no pull request and sets the state of no issue"))
-          }
+          // a close, a review, the state of an issue and a forget are operations of their own, never a step of a start
+          PlannedEffect::ClosePullRequest { .. } | PlannedEffect::SubmitReview { .. } | PlannedEffect::SetIssueState { .. } | PlannedEffect::ForgetStart { .. } => self.fail(
+            ApiError::internal("A start closes and reviews no pull request, sets the state of no issue and forgets no start"),
+          ),
         }
       };
       self.records.push(EffectRecord { effect, status });
@@ -963,6 +987,14 @@ impl Run<'_> {
     let mode = self.planned.mode;
     match route {
       StartRoute::Api { profile } => {
+        let patronus = match self.services.patronus() {
+          Ok(patronus) => patronus,
+          Err(error) => return self.fail(error),
+        };
+        let pending = self.pending_start(route.clone(), None, Some(patronus.web_url()));
+        if let Err(error) = self.send_start(pending).await {
+          return self.fail(error);
+        }
         let start = ApiStart {
           space: &self.services.space,
           prefix: &self.services.prefix,
@@ -972,49 +1004,144 @@ impl Run<'_> {
           profile: profile.as_ref().map(|profile| profile.id.clone()),
           merge_request: self.planned.merge_request.clone(),
         };
-        let answer = match self.services.patronus() {
-          Ok(patronus) => start_through_api(patronus, start).await,
-          Err(error) => Err(error),
-        };
-        self.robot_started(answer).await
+        match start_through_api(patronus, start).await {
+          Ok(robot) => {
+            self.answered().await;
+            self.robot_started(Ok(robot)).await
+          }
+          Err(NoRobot::Refused(error)) => {
+            self.answered().await;
+            self.fail(error)
+          }
+          Err(NoRobot::Lost(error)) => self.lost(error).await,
+        }
       }
-      StartRoute::Comment { number } => self.comment(*number, mode).await,
+      StartRoute::Comment { number } => self.comment(route, *number, mode).await,
     }
   }
 
-  /// The `/patronus` comment on the pull request `number` and the reply of the bot: accepted is done, no reply within
-  /// the wait is unknown (the bot may still answer it)
-  async fn comment(&mut self, number: u32, mode: PatronusPushMode) -> EffectStatus {
-    let Some((github, repository)) = &self.services.github else {
+  /// What the start sends now through `route`, on the commit its source ref has (pushed by the run, else as the plan
+  /// witnessed it), for the record of its operation
+  fn pending_start(&self, route: StartRoute, pr: Option<u32>, url: Option<String>) -> PendingStart {
+    let source = &self.planned.source_ref;
+    let pushed = self.pushed.as_ref().and_then(|sent| {
+      let branches = sent.prepared.branches();
+      branches
+        .iter()
+        .find(|branch| format!("refs/heads/{}", branch.push.full_name) == *source)
+        .map(|branch| branch.push.tip.clone())
+    });
+    let tip = pushed.or_else(|| self.planned.witness.refs.get(source).cloned().flatten()).unwrap_or_default();
+    PendingStart {
+      source_ref: source.clone(),
+      tip,
+      route,
+      pr,
+      comment_id: None,
+      sent_at: unix_now(),
+      url,
+    }
+  }
+
+  /// The record of the operation tells `pending` before its request goes out; nothing recorded (no registry) goes on
+  async fn send_start(&self, pending: PendingStart) -> Result<(), ApiError> {
+    let Some(record) = self.steps.record.clone() else {
+      return Ok(());
+    };
+    blocking(move || record.send_start(pending)).await
+  }
+
+  /// The start was answered: its record tells nothing pending any more (a failed write is taken out with the record)
+  async fn answered(&self) {
+    if let Some(record) = self.steps.record.clone()
+      && let Err(error) = blocking(move || record.answered()).await
+    {
+      warn!(error = %error.message, "the record of the start can't tell its answer");
+    }
+  }
+
+  /// The answer of the start was lost after its request went out: unknown, never sent again; its record stays as a start
+  /// whose answer was lost, and the effects after it are skipped
+  async fn lost(&mut self, error: ApiError) -> EffectStatus {
+    warn!(error = %error.message, "the answer of the start was lost: whether its robot started is not known");
+    if let Some(record) = self.steps.record.clone()
+      && let Err(failure) = blocking(move || record.unknown()).await
+    {
+      warn!(error = %failure.message, "the record of the start can't keep it as unknown");
+    }
+    self.lost = Some(error);
+    self.stopped = Some(Stopped::Failed);
+    EffectStatus::Unknown
+  }
+
+  /// The `/patronus` comment on the pull request `number` and the reply of the bot: accepted is done; a post whose answer
+  /// was lost, and no reply within the wait, are unknown (the bot may still answer it)
+  async fn comment(&mut self, route: &StartRoute, number: u32, mode: PatronusPushMode) -> EffectStatus {
+    let Some((github, repository)) = self.services.github.clone() else {
       return self.fail(ApiError::new(ErrorCode::InvalidArguments, "The GitHub repository of the branches is unknown"));
     };
     // a canceled Dry Run or the replaced Safe Push of the same pull request a minute before is never the new robot
     let current = self.host.current().await;
     let mut known: HashSet<String> = current.robots.iter().filter(|robot| !is_active(robot)).map(|robot| robot.id.clone()).collect();
     known.extend(self.canceled.iter().map(|robot| robot.id.clone()));
+    let url = current
+      .pull_requests
+      .iter()
+      .find(|pull_request| pull_request.number == number)
+      .map(|pull_request| pull_request.url.clone());
+    if let Err(error) = self.send_start(self.pending_start(route.clone(), Some(number), url)).await {
+      return self.fail(error);
+    }
     let start = CommentStart {
-      github,
+      github: &github,
       repository_path: &self.services.repository_path,
-      repository,
+      repository: &repository,
       number,
       mode,
       known,
       subject: PatronusCommandSubject::OwnBranch,
       robot_wait: if self.services.wait_for_robot { RobotWait::UntilListed } else { RobotWait::Once },
     };
+    let comment = match post_start_comment(&start).await {
+      Ok(comment) => comment,
+      Err(NoRobot::Refused(error)) => {
+        self.answered().await;
+        return self.fail(error);
+      }
+      Err(NoRobot::Lost(error)) => return self.lost(error).await,
+    };
+    let posted_at = unix_now();
+    if let (Some(record), Ok(id)) = (self.steps.record.clone(), comment.id.parse::<u64>()) {
+      let url = comment.url.clone();
+      if let Err(error) = blocking(move || record.comment_posted(id, url)).await {
+        warn!(error = %error.message, "the record of the start can't tell its comment");
+      }
+    }
     let host = self.host;
     let robots_since = move |since: u32| host.robots_since(since);
-    match start_by_comment(start, &*self.services.clock, &robots_since).await {
+    match follow_start_comment(start, comment, posted_at, &*self.services.clock, &robots_since).await {
       Ok(commented) => {
         if let Some(robot) = &commented.robot {
           self.version = self.host.write_robot(robot.clone()).await.or(self.version);
           self.robot = Some(robot.clone());
         }
-        let status = if commented.accepted { EffectStatus::Done } else { EffectStatus::Unknown };
+        let accepted = commented.accepted;
+        let number = commented.number;
         self.commented = Some(commented);
-        status
+        if accepted {
+          self.answered().await;
+          return EffectStatus::Done;
+        }
+        let silent = ApiError::new(
+          ErrorCode::PatronusError,
+          format!("Patronus did not answer the comment on pull request #{number} within a minute"),
+        );
+        self.lost(silent).await
       }
-      Err(error) => self.fail(error),
+      Err(error) => {
+        self.answered().await;
+        self.fail(error.into_error())
+      }
     }
   }
 
@@ -1147,6 +1274,7 @@ impl Run<'_> {
           accepted: commented.accepted,
         }),
         notes: self.planned.notes.clone(),
+        lost: self.lost.clone(),
       })),
     };
     // the event of the robot of the subject: a pull request or a review request has no toast of a robot to replace

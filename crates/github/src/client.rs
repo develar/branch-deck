@@ -54,8 +54,10 @@ pub enum GitHubError {
     message: String,
   },
   Timeout,
-  /// No connection: offline, DNS, TLS
+  /// No connection: offline, DNS, TLS; the request never went out
   Network(String),
+  /// The request went out and the connection broke off before the whole answer came back
+  Dropped(String),
   /// The answer is not what this version expects
   InvalidResponse(String),
 }
@@ -65,8 +67,19 @@ impl GitHubError {
   pub const fn is_transient(&self) -> bool {
     match self {
       Self::Http { status, .. } => *status >= 500,
-      Self::Timeout | Self::Network(_) => true,
+      Self::Timeout | Self::Network(_) | Self::Dropped(_) => true,
       Self::Unauthorized | Self::RateLimited { .. } | Self::SsoRequired { .. } | Self::NoAccess { .. } | Self::InvalidResponse(_) => false,
+    }
+  }
+
+  /// Of a write (the `/patronus` comment of a start): it went out and its answer was lost, so whether GitHub did it is
+  /// not known. A timeout after the connect, a connection that broke off, a success whose body doesn't read, the 504 of a
+  /// gateway; never a refusal of GitHub or a request that never went out
+  pub const fn answer_lost(&self) -> bool {
+    match self {
+      Self::Timeout | Self::Dropped(_) | Self::InvalidResponse(_) => true,
+      Self::Http { status, .. } => *status == 504,
+      Self::Unauthorized | Self::RateLimited { .. } | Self::SsoRequired { .. } | Self::NoAccess { .. } | Self::Network(_) => false,
     }
   }
 
@@ -79,6 +92,7 @@ impl GitHubError {
       Self::NoAccess { message, .. } | Self::Http { message, .. } => message.clone(),
       Self::Timeout => "GitHub did not answer in time".to_string(),
       Self::Network(message) => format!("GitHub is not reachable: {message}"),
+      Self::Dropped(message) => format!("The connection to GitHub broke off before its answer: {message}"),
       Self::InvalidResponse(message) => format!("Unexpected GitHub answer: {message}"),
     }
   }
@@ -406,12 +420,16 @@ fn is_sso_partial(headers: &HeaderMap) -> bool {
   header(headers, "x-github-sso").is_some_and(|value| value.starts_with("partial-results"))
 }
 
+/// A failed request classified: one that never went out (no connection, a request that can't be built) apart from one
+/// whose answer was lost after it went out
 fn request_error(e: &reqwest::Error) -> GitHubError {
-  if e.is_timeout() {
+  if e.is_connect() || e.is_builder() {
+    GitHubError::Network(e.to_string())
+  } else if e.is_timeout() {
     GitHubError::Timeout
   } else if e.is_decode() {
     GitHubError::InvalidResponse(e.to_string())
   } else {
-    GitHubError::Network(e.to_string())
+    GitHubError::Dropped(e.to_string())
   }
 }

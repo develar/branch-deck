@@ -1,4 +1,4 @@
-use crate::actions::{summarize_checks, summarize_progress};
+use crate::actions::{StartFailure, summarize_checks, summarize_progress};
 use crate::client::{BuildProgressDto, TeamCityCheckAttemptDto, TeamCityCheckDto};
 use crate::fake_patronus::start_fake;
 use crate::service_test::{service, token};
@@ -369,7 +369,7 @@ async fn a_failed_start_is_never_repeated() {
     .start_robot("ultimate", "me", "refs/heads/me/virtual/IJPL-1", "master", PatronusPushMode::DryRun, None, None)
     .await
     .unwrap_err();
-  assert_eq!(error, "no such repository");
+  assert_eq!(error, StartFailure::Refused("no such repository".to_string()));
   assert_eq!(fake.starts.lock().unwrap().len(), 1);
 
   // nor a 400 right after a push: Patronus fetches the pushed branch while it handles the start
@@ -379,6 +379,21 @@ async fn a_failed_start_is_never_repeated() {
     .await
     .unwrap_err();
   assert_eq!(fake.starts.lock().unwrap().len(), 2);
+}
+
+/// The connection of the start breaks off after Patronus took it: whether a robot runs is not known, and the start is
+/// never sent again by itself
+#[tokio::test]
+async fn a_start_whose_answer_was_lost_is_lost_and_sent_once() {
+  let (fake, client) = start_fake().await;
+  fake.lose_start_answers.store(true, Ordering::SeqCst);
+  let (service, _) = service(client, token("t"));
+  let error = service
+    .start_robot("ultimate", "me", "refs/heads/me/virtual/IJPL-1", "master", PatronusPushMode::RebaseAutosquash, None, None)
+    .await
+    .unwrap_err();
+  assert!(matches!(error, StartFailure::Lost(_)), "{error:?}");
+  assert_eq!(fake.starts.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -392,7 +407,7 @@ async fn a_refused_start_shows_the_description_of_patronus_and_lists_no_robot() 
     .start_robot("ultimate", "me", "refs/heads/me/stack/air", "master", PatronusPushMode::RebaseAutosquash, None, None)
     .await
     .unwrap_err();
-  assert_eq!(error, "Patronus is restarting");
+  assert_eq!(error, StartFailure::Refused("Patronus is restarting".to_string()));
   assert_eq!(fake.last_start()["sourceBranch"], "refs/heads/me/stack/air");
   // the refusal is no outage: the robots are still listed, none started
   assert_eq!(fake.robots.lock().unwrap().as_ref().map(Vec::len), Some(0));

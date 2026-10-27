@@ -288,6 +288,12 @@ struct TestServices {
   git: GitCommandExecutor,
 }
 
+/// The services a start whose answer was lost of the registry of the server is settled with: the fakes of its test
+/// repository, as the app's are its own (`RegistryFiles::settled_with`)
+pub fn settle_host(state: &Weak<AppState>, git: GitCommandExecutor) -> Arc<dyn ServiceHost> {
+  Arc::new(TestServices { state: Weak::clone(state), git })
+}
+
 impl TestServices {
   fn state(&self) -> Result<Arc<AppState>, ApiError> {
     self.state.upgrade().ok_or_else(stopped)

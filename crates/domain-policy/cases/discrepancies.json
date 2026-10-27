@@ -90,7 +90,7 @@
         "crates/operations/src/push_test.rs#fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_the_branch_lacks"
       ],
       "bd": [
-        "crates/bd-remote/src/push_command.rs#.block_on(run_planned(&start, &services, &Steps::none(), op, planned.clone(), &accepted, std::time::Instant::now()))",
+        "crates/bd-remote/src/push_command.rs#.block_on(run_planned(&start, &services, &steps, op, planned.clone(), &accepted, std::time::Instant::now()))",
         "crates/bd-remote/src/push_test.rs#fn pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch"
       ]
     }

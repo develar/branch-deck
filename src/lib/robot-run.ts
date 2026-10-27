@@ -4,7 +4,8 @@
 // work its remote lacks, the running robot canceled before the push; a cancel of a robot that finished meanwhile is
 // answered as it ended. The page only words how it went: the next state of the toast of the robot ("Safe Push
 // restarted", "Safe Push is canceling"), the remote that moved with the push that restarts it, or why not.
-import type { Outcome, PatronusRobot, RobotResult } from "@/lib/bindings"
+import { openUrl } from "@tauri-apps/plugin-opener"
+import type { Outcome, PatronusRobot, RobotResult, RunningOperation } from "@/lib/bindings"
 import { getErrorCode, notifyError } from "@/lib/errors"
 import { describeRobot, formatPushMode, formatRobotSubject } from "@/lib/patronus"
 import { showRemoteMovedToast } from "@/lib/push-run"
@@ -89,4 +90,47 @@ export async function cancelRobot(robot: PatronusRobot, repositoryPath: string =
   }
   announceRobot(result.alreadyFinished ? `${mode} already finished` : `${mode} is canceling`, result.robot, repositoryPath, run.kind === "ran" ? run.outcome.op : undefined)
   return result.robot
+}
+
+/** The subject of the start `operation` as its row names it: the branch, the root of a whole stack */
+function startSubject(operation: RunningOperation): string {
+  const intent = operation.intent
+  if (intent.kind !== "land") {
+    return "the start"
+  }
+  return intent.subject.kind === "branch" ? intent.subject.name : intent.subject.root
+}
+
+/** Opens where the robot of a start whose answer was lost would be: Patronus, or the pull request of its comment */
+export function openUnknownStart(operation: RunningOperation): void {
+  const url = operation.step.kind === "startUnknown" ? operation.step.url : null
+  if (url !== null) {
+    openUrl(url).catch((error: unknown) => notifyError("Cannot open the start", error))
+  }
+}
+
+/**
+ * Forget This Start of a start whose answer was lost (`ForgetStart`, `operations::forget`) in `repositoryPath`: its
+ * record leaves the operations registry, so the subject can start again; the toast says Patronus may still run it and
+ * opens where its robot would be. A refusal or a failure is said in a toast
+ */
+export async function forgetStart(operation: RunningOperation, repositoryPath: string = getSelectedRepositoryPath()): Promise<void> {
+  const subject = startSubject(operation)
+  const run = await runIntent(repositoryPath, { kind: "forgetStart", op: operation.id })
+  if (run.kind === "ran" && failedEffect(run.outcome) === null) {
+    const url = operation.step.kind === "startUnknown" ? operation.step.url : null
+    showToast({
+      type: "info",
+      title: `Forgot the start of ${subject}`,
+      description: "Patronus may still run it: its robot shows once Patronus lists it",
+      ...(url !== null && {
+        action: {
+          children: operation.step.kind === "startUnknown" && operation.step.pullRequest !== null ? "Open Pull Request" : "Open in Patronus",
+          onClick: () => openUnknownStart(operation),
+        },
+      }),
+    })
+    return
+  }
+  tellFailure(`Cannot forget the start of ${subject}`, run, "The start is no longer recorded")
 }

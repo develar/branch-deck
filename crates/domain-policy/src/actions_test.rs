@@ -1,4 +1,4 @@
-use crate::actions::{BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, robot_actions, stack_actions};
+use crate::actions::{BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, robot_actions, stack_actions, start_actions};
 use crate::next_step::{Listing, PatronusAnswer};
 use crate::next_step_test::landed_by_oauth;
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, NothingBeyond};
@@ -14,10 +14,10 @@ use domain_types::{PushAction, RemoteStatusUpdate};
 use pretty_assertions::assert_eq;
 
 use ActionId::{
-  AddIssueReference, AmendChanges, CancelRobot, CheckApprovals, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest, CreateStackPullRequest, DryRun, DryRunWholeStack, MoveTo,
-  OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest, Park, Push, PushAndRestartRobot, PushWithChildren, Rename, RequestReview, RestartRobot,
-  RetargetPullRequest, ReviewChanges, ReviewWholeStack, SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, Unapply,
-  Ungroup, Unpark, Unstack,
+  AddIssueReference, AmendChanges, CancelRobot, CheckApprovals, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest, CreateStackPullRequest, DryRun, DryRunWholeStack,
+  ForgetStart, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest, OpenUnknownStart, Park, Push, PushAndRestartRobot, PushWithChildren, Rename,
+  RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack, SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview,
+  SquashFixups, StackOn, Unapply, Ungroup, Unpark, Unstack,
 };
 
 /// The actions as the table reads them: the id and why it can't run, `None` when it can
@@ -904,4 +904,35 @@ fn an_approval_of_the_head_is_done_and_the_safe_push_waits_for_the_target_patron
       target: "release/253".to_owned(),
     })
   );
+}
+
+/// A start whose answer was lost offers Open in Patronus where its robot would be, and Forget This Start, both enabled;
+/// without a place to look, only the forget; an operation that runs offers neither
+#[test]
+fn a_start_whose_answer_was_lost_offers_open_in_patronus_and_forget_this_start() {
+  use domain_types::operation::{OperationId, OperationStep, Origin, RunningOperation};
+  let operation = |step: OperationStep| RunningOperation {
+    id: OperationId("lost".to_string()),
+    intent: domain_types::fixtures::land_intent("auth", PatronusPushMode::RebaseAutosquash),
+    resources: Vec::new(),
+    step,
+    origin: Origin::OtherProcess {
+      tool: domain_types::error::HolderTool::Bd,
+      pid: 4242,
+    },
+    moves: Vec::new(),
+  };
+  let unknown = |url: Option<&str>| {
+    operation(OperationStep::StartUnknown {
+      sent_at: 1_800_000_000,
+      url: url.map(ToString::to_string),
+      pull_request: None,
+    })
+  };
+  assert_eq!(
+    table(&start_actions(&unknown(Some("https://patronus.example")))),
+    [(OpenUnknownStart, None), (ForgetStart, None)]
+  );
+  assert_eq!(table(&start_actions(&unknown(None))), [(ForgetStart, None)]);
+  assert_eq!(table(&start_actions(&operation(OperationStep::Starting))), []);
 }

@@ -19,6 +19,7 @@ const KIND_WORDS: Record<OperationKind, string> = {
   close_landed_pull_requests: "close of the pull requests a robot landed",
   submit_review: "review of a pull request",
   set_issue_state: "change of the state of an issue",
+  forget_start: "forget of a start",
 }
 
 /** Who runs it: `bd`, or another Branch Deck */
@@ -26,9 +27,15 @@ function toolName(tool: HolderTool): string {
   return tool === "bd" ? "`bd`" : "Branch Deck"
 }
 
-/** Who runs the operation, with the pid that tells two of them apart: "`bd` (pid 4242) has run the Safe Push of auth for 40 s" */
+/**
+ * Who runs the operation, with the pid that tells two of them apart: "`bd` (pid 4242) has run the Safe Push of auth for
+ * 40 s"; of a start whose answer was lost, that it holds until Patronus tells or the start is forgotten
+ */
 export function presentOperationHolder(holder: OperationHolder): string {
   const what = holder.subject === null ? KIND_WORDS[holder.kind] : `${KIND_WORDS[holder.kind]} of ${holder.subject}`
+  if (holder.unknown === true) {
+    return `Cannot tell whether the ${what} that ${toolName(holder.tool)} (pid ${holder.pid}) sent started: it holds until Patronus lists its robot, or until Forget This Start`
+  }
   return `${toolName(holder.tool)} (pid ${holder.pid}) has run the ${what} for ${formatHeldFor(holder.held_for)}`
 }
 
@@ -64,15 +71,19 @@ function runningWords(intent: Intent): readonly [label: string, phrase: string] 
       return [`Reviewing #${intent.number}`, `a review of #${intent.number}`]
     case "setIssueState":
       return [`Setting ${intent.key} to ${intent.state}`, `a change of the state of ${intent.key}`]
+    case "forgetStart":
+      return [`Forgetting start ${intent.op}`, `the forget of start ${intent.op}`]
   }
 }
 
 /** An operation of another process as its row says it (`presentOtherProcess`) */
 export interface OtherProcessRun {
-  /** The label of its slot and the reason a menu item waits: "bd: Safe Push of auth" (a running surface adds "…") */
+  /** The label of its slot and the reason a menu item waits: "bd: Safe Push of auth" (a running surface adds "…"); "Start Unknown" of a start whose answer was lost */
   readonly label: string
   /** The hover and the refusal of a start it holds back: "`bd` (pid 4242) runs the Safe Push of auth, which holds what it needs until it ends" */
   readonly description: string
+  /** A start whose answer was lost (`startUnknown`): it runs no more, and holds until Patronus tells or it is forgotten */
+  readonly unknown: boolean
 }
 
 /**
@@ -84,9 +95,17 @@ export function presentOtherProcess(operation: RunningOperation): OtherProcessRu
     return null
   }
   const [label, phrase] = runningWords(operation.intent)
+  if (operation.step.kind === "startUnknown") {
+    return {
+      label: "Start Unknown",
+      description: `Cannot tell whether ${phrase} started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it`,
+      unknown: true,
+    }
+  }
   const tool = operation.origin.tool === "bd" ? "bd" : "Branch Deck"
   return {
     label: `${tool}: ${label}`,
     description: `${toolName(operation.origin.tool)} (pid ${operation.origin.pid}) runs ${phrase}, which holds what it needs until it ends`,
+    unknown: false,
   }
 }

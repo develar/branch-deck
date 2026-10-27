@@ -849,4 +849,4 @@ async fn wait_for_running_sync(sessions: &Sessions, key: &SessionKey, stepper: &
 
 #[cfg(test)]
 #[path = "push_test.rs"]
-mod push_test;
+pub(crate) mod push_test;

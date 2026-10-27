@@ -54,7 +54,7 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
     }
     Intent::Push(_) | Intent::CloseLandedPullRequests { .. } => vec![FactNeed::Robots, FactNeed::PullRequests],
     Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::ClosePullRequest { .. } => vec![FactNeed::PullRequests],
-    Intent::SubmitReview { .. } | Intent::SetIssueState { .. } => Vec::new(),
+    Intent::SubmitReview { .. } | Intent::SetIssueState { .. } | Intent::ForgetStart { .. } => Vec::new(),
   }
 }
 

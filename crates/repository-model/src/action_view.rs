@@ -1,5 +1,6 @@
 //! The actions of each subject of the view of a session (`actions_of`): every branch of the table, the whole stack of
-//! every root that heads one (`stack:<root>`) and every robot of the user (`robot:<id>`), as `domain_policy::actions`
+//! every root that heads one (`stack:<root>`), every robot of the user (`robot:<id>`) and every start whose answer was lost
+//! (`op:<id>`), as `domain_policy::actions`
 //! decides them over the table, the next steps the view derived with the same patch, its pushes and decisions of the
 //! starts, the open pull requests, what landed each subject, and the facts of the remote services
 //! (docs/design/rust-domain-authority.md, s8-policy). The view derives them with every patch, a sync included: a sync
@@ -8,7 +9,9 @@
 use crate::derive::{github_repository_known, live_hold, row_of_view};
 use crate::facts::FactStore;
 use crate::table::TableState;
-use domain_policy::actions::{BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, review_blocker, robot_actions, stack_actions};
+use domain_policy::actions::{
+  BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, review_blocker, robot_actions, stack_actions, start_actions,
+};
 use domain_policy::next_step::{Listing, PatronusStanding};
 use domain_types::actions::{ActionState, NothingBeyond};
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
@@ -173,6 +176,13 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       step: row.and_then(|name| sources.steps.get(name)).map(|view| &view.step),
     };
     actions.insert(format!("robot:{}", robot.id), robot_actions(&facts));
+  }
+  // a start whose answer was lost, of any process (`op:<id>`)
+  for operation in state.operations() {
+    let offered = start_actions(operation);
+    if !offered.is_empty() {
+      actions.insert(format!("op:{}", operation.id), offered);
+    }
   }
   actions
 }

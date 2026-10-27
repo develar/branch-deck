@@ -500,7 +500,11 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
 /**  The branch of the table an own pull request is of */
 "show-branch" | 
 /**  A pull request the user added by its link leaves Reviews */
-"remove-from-reviews";
+"remove-from-reviews" | 
+/**  Opens where its robot would be: Patronus, or the pull request of its comment */
+"open-unknown-start" | 
+/**  Its record leaves the operations registry (`Intent::ForgetStart`) */
+"forget-start";
 
 /**  An action a subject offers now, and whether it can run */
 export type ActionState = {
@@ -2673,11 +2677,11 @@ export type Intent =
 	kind: "push",
 } & Push | 
 /**  A restart of a robot of the user, with the push before it when the branch moved past its commit */
-({ kind: "restartRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "restartRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  A cancel of a running robot of the user */
-({ kind: "cancelRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "cancelRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The open pull request `number` goes into the base its rule names (`domain_policy::pull_request::base_of`) */
-({ kind: "retarget"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "retarget"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The pull request of a subject is opened, after the push it needs */
 {
 	kind: "createPullRequest",
@@ -2687,25 +2691,30 @@ export type Intent =
  *  Request Review… preselects (`domain_policy::review::candidates`); `push_first`: the work its branch has for the
  *  remote is pushed first, so the reviewers see it (D5), else such work refuses it (`Reason::NeedsPush`)
  */
-({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; robotId?: never; state?: never; thenLand?: never; verdict?: never } | 
+({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; robotId?: never; state?: never; thenLand?: never; verdict?: never } | 
 /**  The pull request `number` is closed with `comment` */
-({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; commit?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; commit?: never; expected?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The open pull requests of the branches a merged robot landed whole besides its own are closed
  *  (`domain_policy::landed::pull_requests_to_close`)
  */
-({ kind: "closeLandedPullRequests"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "closeLandedPullRequests"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  A review of the pull request `number` of someone else on the commit the user reviewed, and the Safe Push of it
  *  after an approval (`then_land`: a `/patronus merge` comment, only while GitHub still shows that commit); no
  *  verdict: the Safe Push alone, the user approved the commit before
  */
-({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; key?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never } | 
+({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; key?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never } | 
 /**
  *  The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
  *  is in `expected`); without `expected`, only an open issue changes
  */
-({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; comment?: never; commit?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; subject?: never; thenLand?: never; verdict?: never };
+({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; comment?: never; commit?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**
+ *  The start `op`, whose answer was lost (`OperationStep::StartUnknown`), leaves the operations registry: what it held
+ *  is free, and a start of its subject can be sent again; Patronus may still run the robot it sent
+ */
+({ kind: "forgetStart"; op: OperationId }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
 
 export type IssueNavigationConfig = {
 	links: IssueNavigationLink[],
@@ -2809,6 +2818,11 @@ export type LandResult = {
 	comment: StartComment | null,
 	/**  What the checks before the effects could not do in full */
 	notes: StartNote[],
+	/**
+	 *  Why whether its robot started is not known (its start is `EffectStatus::Unknown`): the answer of its request was
+	 *  lost, or the bot did not answer its comment within the wait
+	 */
+	lost: ApiError | null,
 };
 
 /**
@@ -3465,6 +3479,11 @@ export type OperationHolder = {
 	subject: string | null,
 	/**  Seconds since it was admitted */
 	held_for: number,
+	/**
+	 *  A start whose answer was lost (`OperationStep::StartUnknown`): it holds what it held until a read of Patronus tells
+	 *  whether its robot started, or the user forgets it (Forget This Start, `bd operation forget <op>`)
+	 */
+	unknown?: boolean,
 };
 
 /**
@@ -3474,7 +3493,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -3541,7 +3560,15 @@ export type OperationStep =
 /**  Starts or restarts a robot */
 { kind: "starting" } | 
 /**  Writes to GitHub or YouTrack: a pull request, its reviewers, a review, its close, the state of an issue */
-{ kind: "writing" };
+{ kind: "writing" } | 
+/**
+ *  A start whose request went out and whose answer was lost (`operations::registry_file`, `RecordStatus::Unknown`): no
+ *  process runs it any more, and whether its robot started is not known. It holds what it held until a read of
+ *  Patronus tells (`operations::reconcile`) or the user forgets it (`Intent::ForgetStart`). `sent_at`: Unix seconds of
+ *  the request; `url`: where the user looks for what it did (the robots of Patronus, the pull request of a comment);
+ *  `pull_request`: the pull request of a start by a `/patronus` comment
+ */
+{ kind: "startUnknown"; sentAt: number; url: string | null; pullRequest: number | null };
 
 /**  Where an operation runs */
 export type Origin = 
@@ -4026,7 +4053,9 @@ export type PlannedEffect =
  */
 { kind: "submitReview"; number: number; verdict: PullRequestReviewEvent; commit: string } | 
 /**  The state field of the YouTrack issue `key` goes to `state` (`Intent::SetIssueState`) */
-{ kind: "setIssueState"; key: string; state: string };
+{ kind: "setIssueState"; key: string; state: string } | 
+/**  The record of the start `op` whose answer was lost leaves the operations registry (`Intent::ForgetStart`) */
+{ kind: "forgetStart"; op: OperationId };
 
 /**  A commit folded into its target */
 export type PlannedFixup = {

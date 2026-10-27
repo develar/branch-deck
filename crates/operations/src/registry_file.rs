@@ -130,20 +130,38 @@ pub struct PendingStart {
   pub comment_id: Option<u64>,
   /// Unix seconds of the request
   pub sent_at: u32,
+  /// Where the user looks for what it did: the robots of Patronus, the pull request (the comment, once posted)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub url: Option<String>,
 }
 
 impl Record {
-  /// The operation as a session shows an operation of another process
+  /// The operation as a session shows an operation of another process, and a start whose answer was lost of any process
+  /// (`OperationStep::StartUnknown`)
   #[must_use]
   pub fn running(&self) -> RunningOperation {
+    let step = match (self.status, self.pending_start()) {
+      (RecordStatus::Unknown, Some(start)) => OperationStep::StartUnknown {
+        sent_at: start.sent_at,
+        url: start.url.clone(),
+        pull_request: start.pr,
+      },
+      _ => self.step.clone(),
+    };
     RunningOperation {
       id: self.id.clone(),
       intent: self.intent.clone(),
       resources: self.resources.clone(),
-      step: self.step.clone(),
+      step,
       origin: Origin::OtherProcess { tool: self.tool, pid: self.pid },
       moves: Vec::new(),
     }
+  }
+
+  /// The start it sent and has no answer of
+  #[must_use]
+  pub fn pending_start(&self) -> Option<&PendingStart> {
+    self.external.as_ref().and_then(|external| external.pending_start.as_ref())
   }
 
   /// The operation as `busy` names it, at `now` (Unix seconds)
@@ -156,6 +174,7 @@ impl Record {
       kind: self.intent.kind(),
       subject: self.intent.subject(),
       held_for: now.saturating_sub(self.started_at),
+      unknown: self.status == RecordStatus::Unknown,
     }
   }
 }
@@ -185,6 +204,12 @@ impl ProcessIdentity {
   /// `record` is of this process
   fn owns(&self, record: &Record) -> bool {
     record.pid == self.pid && record.process_started_at == self.started && record.host == self.host
+  }
+
+  /// `record` is of an operation this process runs: the session of the process admits those over each other. A start
+  /// of it whose answer was lost runs no more: it holds for every process, this one too
+  fn runs(&self, record: &Record) -> bool {
+    self.owns(record) && record.status == RecordStatus::Running
   }
 }
 
@@ -222,7 +247,7 @@ pub(crate) fn admit_into(file: &mut RegistryFile, record: Record, this: &Process
   let holder = file
     .operations
     .iter()
-    .find(|held| !this.owns(held) && holds_across(&held.running(), &held.session.prefix, &record.session.prefix, &record.intent, &record.resources));
+    .find(|held| !this.runs(held) && holds_across(&held.running(), &held.session.prefix, &record.session.prefix, &record.intent, &record.resources));
   if let Some(holder) = holder {
     return Err(Box::new(holder.clone()));
   }
@@ -230,21 +255,31 @@ pub(crate) fn admit_into(file: &mut RegistryFile, record: Record, this: &Process
   Ok(())
 }
 
-/// The records of other processes in `records` that hold what they hold, seen from `this` at `now`: the ones whose
-/// process runs, and the ones of a process that is gone with an external effect in flight, which hold it until what the
-/// effect did is known (`drop_gone`); a session shows them (`registry_watch`)
+/// The records in `records` that hold what they hold for the operations of `this` process, seen at `now`: of other
+/// processes the ones whose process runs, and the ones of a process that is gone with an external effect in flight,
+/// shown as `Unknown` (`drop_gone` makes them so at the next admission); and the starts of any process whose answer was
+/// lost. A session shows them (`registry_watch`)
 pub(crate) fn others(records: Vec<Record>, this: &ProcessIdentity, now: u32, runs: &dyn Fn(u32, Option<u64>) -> bool) -> Vec<Record> {
   records
     .into_iter()
-    .filter(|record| !this.owns(record) && (record.external.is_some() || !is_gone(record, this, now, runs)))
+    .filter(|record| !this.runs(record))
+    .filter_map(|mut record| {
+      if record.status == RecordStatus::Unknown || !is_gone(&record, this, now, runs) {
+        return Some(record);
+      }
+      record.external.is_some().then(|| {
+        record.status = RecordStatus::Unknown;
+        record
+      })
+    })
     .collect()
 }
 
-/// The heartbeat of the records of `this` process in `file` at `now`: the ones of `live` get it, the others leave (their
-/// removal failed, the file was of another Branch Deck then)
+/// The heartbeat of the records of `this` process in `file` at `now`: the ones of `live` get it, its starts whose answer
+/// was lost stay as they are, the others leave (their removal failed, the file was of another Branch Deck then)
 pub(crate) fn beat(file: &mut RegistryFile, this: &ProcessIdentity, live: &HashSet<OperationId>, now: u32) {
   file.operations.retain_mut(|record| {
-    if !this.owns(record) {
+    if !this.runs(record) {
       return true;
     }
     record.heartbeat_at = now;
@@ -367,6 +402,17 @@ impl ProcessRegistry {
   /// Branch Deck; `locked` when another process keeps the lock of the registry; `git_error` when the file can't be read
   /// or written
   pub fn admit(&self, id: &OperationId, tool: HolderTool, session: &SessionKey, request: &OperationRequest) -> Result<Entry, ApiError> {
+    self.try_admit(id, tool, session, request).map_err(|refused| match refused {
+      Refused::Busy(holder) => busy(&holder, unix_now()),
+      Refused::Failed(error) => error,
+    })
+  }
+
+  /// `admit`, with the record that makes it busy: `operations::reconcile` settles a start whose answer was lost first
+  ///
+  /// # Errors
+  /// As `admit`
+  pub fn try_admit(&self, id: &OperationId, tool: HolderTool, session: &SessionKey, request: &OperationRequest) -> Result<Entry, Refused> {
     let this = ProcessIdentity::this();
     let now = unix_now();
     let record = Record {
@@ -394,21 +440,83 @@ impl ProcessRegistry {
           id: id.clone(),
         });
       }
-      Ok(Some(Err(holder))) => busy(&holder, now),
-      Ok(None) => ApiError::new(
-        ErrorCode::Busy,
-        format!(
-          "The operations registry {} is of another version of Branch Deck, whose operations can't be read: retry when they are \
-           done (once no other Branch Deck or bd runs, the file can be deleted)",
-          self.path().display()
-        ),
-      )
-      .with_details(ErrorDetails::Busy { holder: None }),
-      Err(error) => error,
+      Ok(Some(Err(holder))) => Refused::Busy(holder),
+      Ok(None) => Refused::Failed(
+        ApiError::new(
+          ErrorCode::Busy,
+          format!(
+            "The operations registry {} is of another version of Branch Deck, whose operations can't be read: retry when they are \
+             done (once no other Branch Deck or bd runs, the file can be deleted)",
+            self.path().display()
+          ),
+        )
+        .with_details(ErrorDetails::Busy { holder: None }),
+      ),
+      Err(error) => Refused::Failed(error),
     };
     // a refused record was never written: the write is the last step of a change
     keeper().leave(self, id, false);
     Err(refusal)
+  }
+
+  /// Takes `settled` out, a start whose answer was lost that a read of Patronus told about (`operations::reconcile`),
+  /// while the file still has it as it was read (its id and the start it sent): `false` when it left meanwhile, or a
+  /// process sent another start under it
+  ///
+  /// # Errors
+  /// As `admit`, but never `busy`
+  pub fn settle(&self, settled: &Record) -> Result<bool, ApiError> {
+    let removed = self.change(|file| {
+      let before = file.operations.len();
+      file
+        .operations
+        .retain(|record| record.id != settled.id || record.pending_start() != settled.pending_start());
+      file.operations.len() != before
+    })?;
+    Ok(removed == Some(true))
+  }
+
+  /// Forgets the start `id` whose answer was lost (`Intent::ForgetStart`, `bd operation forget`): its record leaves, and
+  /// what it held is free. The record it took out
+  ///
+  /// # Errors
+  /// `invalid_arguments` for an id the registry lacks or of an operation that still runs (its process does), as
+  /// `admit` else
+  pub fn forget(&self, id: &OperationId) -> Result<Record, ApiError> {
+    let this = ProcessIdentity::this();
+    let forgotten = self.change(|file| {
+      drop_gone(file, this, unix_now(), &is_running);
+      let index = file.operations.iter().position(|record| record.id == *id);
+      match index.map(|index| (index, file.operations[index].status)) {
+        Some((index, RecordStatus::Unknown)) => Ok(file.operations.remove(index)),
+        Some(_) => Err(ApiError::new(
+          ErrorCode::InvalidArguments,
+          format!("The operation {id} runs: its process ends it, there is nothing to forget"),
+        )),
+        None => Err(ApiError::new(
+          ErrorCode::InvalidArguments,
+          format!("The operations registry has no operation {id}: it ended, or a read of Patronus settled it"),
+        )),
+      }
+    })?;
+    forgotten.unwrap_or_else(|| {
+      Err(ApiError::new(
+        ErrorCode::Busy,
+        "The operations registry is of another version of Branch Deck: nothing is forgotten",
+      ))
+    })
+  }
+
+  /// Changes the record `id` of this process as `change` does: `false` when the file lacks it
+  fn change_record(&self, id: &OperationId, change: impl FnOnce(&mut Record)) -> Result<(), ApiError> {
+    let changed = self.change(|file| file.operations.iter_mut().find(|record| record.id == *id).map(change).is_some())?;
+    if changed == Some(true) {
+      return Ok(());
+    }
+    Err(ApiError::new(
+      ErrorCode::Busy,
+      format!("The operations registry {} lost the record of operation {id}: nothing is sent", self.path().display()),
+    ))
   }
 
   /// The heartbeat of the records of this process (`beat`), with `live` its operations that run
@@ -417,9 +525,21 @@ impl ProcessRegistry {
   }
 }
 
+/// Why an admission did not go in (`ProcessRegistry::try_admit`)
+#[derive(Debug)]
+pub enum Refused {
+  /// The record of another process, or a start whose answer was lost, holds what it needs
+  Busy(Box<Record>),
+  /// The registry can't be read, locked or written, or is of another Branch Deck
+  Failed(ApiError),
+}
+
 /// The refusal of an operation that `holder` makes busy, at `now`: "`bd` (pid 4242) has run the Safe Push of auth for
-/// 12 s (operation 01K…), which holds what this one needs; retry when it is done"
-fn busy(holder: &Record, now: u32) -> ApiError {
+/// 12 s (operation 01K…), which holds what this one needs; retry when it is done"; of a start whose answer was lost, how
+/// to let it go
+#[must_use]
+pub fn busy(holder: &Record, now: u32) -> ApiError {
+  let sent = holder.pending_start().map(|start| now.saturating_sub(start.sent_at));
   let holder = holder.holder(now);
   let tool = match holder.tool {
     HolderTool::Bd => "`bd`",
@@ -427,14 +547,19 @@ fn busy(holder: &Record, now: u32) -> ApiError {
   };
   let what = kind_words(holder.kind);
   let what = holder.subject.as_ref().map_or_else(|| what.to_string(), |subject| format!("{what} of {subject}"));
-  ApiError::new(
-    ErrorCode::Busy,
-    format!(
+  let message = match sent {
+    Some(sent) if holder.unknown => format!(
+      "Cannot tell whether the {what} that {tool} (pid {}) sent {sent} s ago started: its answer was lost (operation {}), and it \
+       holds what this one needs until Patronus lists its robot or the start is forgotten (`bd operation forget {}`, Forget \
+       This Start in the app; Patronus may still run it)",
+      holder.pid, holder.op, holder.op
+    ),
+    _ => format!(
       "{tool} (pid {}) has run the {what} for {} s (operation {}), which holds what this one needs; retry when it is done",
       holder.pid, holder.held_for, holder.op
     ),
-  )
-  .with_details(ErrorDetails::Busy { holder: Some(Box::new(holder)) })
+  };
+  ApiError::new(ErrorCode::Busy, message).with_details(ErrorDetails::Busy { holder: Some(Box::new(holder)) })
 }
 
 /// What an operation of `kind` does, in the words of a message
@@ -452,6 +577,7 @@ const fn kind_words(kind: OperationKind) -> &'static str {
     OperationKind::CloseLandedPullRequests => "close of the pull requests a robot landed",
     OperationKind::SubmitReview => "review of a pull request",
     OperationKind::SetIssueState => "change of the state of an issue",
+    OperationKind::ForgetStart => "forget of a start",
   }
 }
 
@@ -473,12 +599,76 @@ impl Entry {
   pub(crate) const fn registry(&self) -> &ProcessRegistry {
     &self.registry
   }
+
+  /// What its run tells of a start it sends (`land_execute`)
+  #[must_use]
+  pub fn handle(&self) -> RecordHandle {
+    RecordHandle {
+      registry: self.registry.clone(),
+      id: self.id.clone(),
+    }
+  }
+}
+
+/// The record of an admitted operation, as its run tells the other processes of a start it sends: what was sent before the
+/// request goes out, so a process that is gone before the answer leaves a start whose answer was lost, never nothing;
+/// each a change of the file under its lock, on the blocking pool
+#[derive(Debug, Clone)]
+pub struct RecordHandle {
+  registry: ProcessRegistry,
+  id: OperationId,
+}
+
+impl RecordHandle {
+  /// The start `start` is about to be sent
+  ///
+  /// # Errors
+  /// The record can't be written: the start is not sent
+  pub fn send_start(&self, start: PendingStart) -> Result<(), ApiError> {
+    self.registry.change_record(&self.id, |record| {
+      record.step = OperationStep::Starting;
+      record.external = Some(External { pending_start: Some(start) });
+    })
+  }
+
+  /// GitHub answered the post of the `/patronus` comment of the start: its id and where it is
+  ///
+  /// # Errors
+  /// The record can't be written
+  pub fn comment_posted(&self, comment_id: u64, url: String) -> Result<(), ApiError> {
+    self.registry.change_record(&self.id, |record| {
+      if let Some(start) = record.external.as_mut().and_then(|external| external.pending_start.as_mut()) {
+        start.comment_id = Some(comment_id);
+        start.url = Some(url);
+      }
+    })
+  }
+
+  /// The start was answered, a robot or a refusal: nothing is pending any more
+  ///
+  /// # Errors
+  /// The record can't be written
+  pub fn answered(&self) -> Result<(), ApiError> {
+    self.registry.change_record(&self.id, |record| record.external = None)
+  }
+
+  /// The answer of the start was lost: the record stays once the operation ends, as a start whose answer was lost, and
+  /// holds what it held for every process until a read of Patronus settles it or the user forgets it
+  ///
+  /// # Errors
+  /// The record can't be written
+  pub fn unknown(&self) -> Result<(), ApiError> {
+    self.registry.change_record(&self.id, |record| record.status = RecordStatus::Unknown)
+  }
 }
 
 impl Drop for Entry {
   fn drop(&mut self) {
     let id = self.id.clone();
-    let removed = self.registry.change(|file| file.operations.retain(|record| record.id != id));
+    // a start whose answer was lost stays: no process runs it, and it holds what it held until it is settled or forgotten
+    let removed = self
+      .registry
+      .change(|file| file.operations.retain(|record| record.id != id || record.status == RecordStatus::Unknown));
     let failed = !matches!(removed, Ok(Some(())));
     if let Err(error) = &removed {
       warn!(op = %self.id, "cannot remove the record of the operation from the registry: {}", error.message);

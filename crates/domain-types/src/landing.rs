@@ -418,6 +418,8 @@ pub enum PlannedEffect {
   SubmitReview { number: u32, verdict: PullRequestReviewEvent, commit: String },
   /// The state field of the YouTrack issue `key` goes to `state` (`Intent::SetIssueState`)
   SetIssueState { key: String, state: String },
+  /// The record of the start `op` whose answer was lost leaves the operations registry (`Intent::ForgetStart`)
+  ForgetStart { op: crate::operation::OperationId },
 }
 
 impl PlannedEffect {

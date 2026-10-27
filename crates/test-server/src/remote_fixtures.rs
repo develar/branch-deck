@@ -10,6 +10,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use domain_types::branch_names::{to_final_branch_name, to_stack_branch_name};
 use domain_types::error::HolderTool;
+use domain_types::landing::StartRoute;
 use domain_types::operation::{Intent, OperationId, OperationStep, Resource};
 use domain_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
 use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
@@ -17,7 +18,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
 use github::fake_repository::{FakePull, RepositoryState, search_data};
-use operations::registry_file::{ProcessRegistry, Record, RecordStatus};
+use operations::registry_file::{External, PendingStart, ProcessRegistry, Record, RecordStatus};
 use operations::registry_watch::touch_stamp;
 use patronus::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, REVIEW_APPROVAL_CHECK_SKIP_OPTION};
 use remote_facts::pull_requests::parse_pull_request_maps;
@@ -648,11 +649,15 @@ impl ForeignOperation {
 
 /// `POST /repositories/{id}/foreign-operation`: the operation `intent` that `bd` of another process runs in the
 /// repository, holding what it lands and pushes (`resources`, by default the branch of a start or a push: what it lands
-/// and its ref); `null` ends the one before
+/// and its ref); `unknown`: a start of it whose answer was lost, sent now on the clock of the sessions of the repository
+/// (`registry_now`) through the API, whose robot Patronus may run (`https://patronus.test/` its place); `null` ends the
+/// one before
 #[derive(Deserialize)]
 pub struct ForeignOperationRequest {
   intent: Option<Intent>,
   resources: Option<Vec<Resource>>,
+  #[serde(default)]
+  unknown: bool,
 }
 
 /// What a start or a push of a branch holds under `prefix`: what it lands and the ref of the branch
@@ -708,6 +713,20 @@ pub async fn set_foreign_operation(
   let process = agent_process().map_err(|error| failed(format!("Cannot start the process of the agent: {error}")))?;
   let pid = process.id();
   let now = unix_now();
+  let external = request.unknown.then(|| External {
+    pending_start: Some(PendingStart {
+      source_ref: intent
+        .subject()
+        .and_then(|subject| to_final_branch_name(&key.prefix, &subject).ok())
+        .map_or_default(|name| format!("refs/heads/{name}")),
+      tip: String::new(),
+      route: StartRoute::Api { profile: None },
+      pr: None,
+      comment_id: None,
+      sent_at: crate::registry_now(&state.session_clocks, &path),
+      url: Some("https://patronus.test/".to_string()),
+    }),
+  });
   let record = Record {
     id: OperationId(sync_utils::operation_id::OperationId::new().to_string()),
     tool: HolderTool::Bd,
@@ -719,9 +738,9 @@ pub async fn set_foreign_operation(
     resources: request.resources.unwrap_or_else(|| held_by(&intent, &key.prefix)),
     session: key,
     intent,
-    step: OperationStep::Checking,
-    status: RecordStatus::Running,
-    external: None,
+    step: if request.unknown { OperationStep::Starting } else { OperationStep::Checking },
+    status: if request.unknown { RecordStatus::Unknown } else { RecordStatus::Running },
+    external,
   };
   let registry = ProcessRegistry::of(&std::path::Path::new(&path).join(".git"));
   let operation = ForeignOperation {

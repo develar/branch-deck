@@ -1,4 +1,4 @@
-use crate::robot_start::{CommentStart, Commented, RobotWait, RobotsSince, start_by_comment};
+use crate::robot_start::{CommentStart, Commented, NoRobot, RobotWait, RobotsSince, start_by_comment};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::robot;
 use domain_types::patronus::{PatronusCommandSubject, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
@@ -125,7 +125,7 @@ async fn comment(github: &GitHubService, clock: &dyn Clock, known: &[&str], robo
     Box::pin(async move { Ok(robots) })
   };
   let listed: RobotsSince<'_> = &listed;
-  start_by_comment(start, clock, listed).await
+  start_by_comment(start, clock, listed).await.map_err(NoRobot::into_error)
 }
 
 /// The bot accepts the comment: its robot is the newest robot of the pull request in the mode of the start that nobody

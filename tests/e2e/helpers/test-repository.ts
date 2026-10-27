@@ -561,10 +561,12 @@ export class TestRepositoryBuilder {
    * `bd` of another process runs `intent` in the repository (an agent's `bd safe-push`): its record in the operations
    * registry of the repository, naming a child of the test server that runs until the next call; the app's sessions show
    * it from the watch of the registry and refuse what needs what it holds (by default what a start or a push of its branch
-   * holds). `null` ends the one before. Answers its operation and pid
+   * holds). `unknown`: a start of it whose answer was lost, sent now on the clock of the sessions of the repository, which
+   * no read of Patronus settles until the test moves that clock past it. `null` ends the one before. Answers its
+   * operation and pid
    */
-  async setForeignOperation(intent: Intent | null, resources?: Resource[]): Promise<{ op: string; pid: number } | null> {
-    const response = await this.postFixture("foreign-operation", { intent, ...(resources !== undefined && { resources }) })
+  async setForeignOperation(intent: Intent | null, resources?: Resource[], unknown = false): Promise<{ op: string; pid: number } | null> {
+    const response = await this.postFixture("foreign-operation", { intent, unknown, ...(resources !== undefined && { resources }) })
     return (await response.json()) as { op: string; pid: number } | null
   }
 

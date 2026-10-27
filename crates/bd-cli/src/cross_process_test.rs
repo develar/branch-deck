@@ -17,8 +17,9 @@ use domain_types::patronus::{LandingAllowances, PatronusPushMode};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, SyncReason, ViewPatch};
 use operations::events::NoEvents;
 use operations::land_execute::Accepted;
+use operations::reconcile::SETTLED_AFTER;
 use operations::registry::{Answer, Registry, RegistryFiles};
-use operations::registry_file::ProcessRegistry;
+use operations::registry_file::{External, PendingStart, ProcessRegistry, Record, RecordStatus};
 use remote_facts::scheduler::{FactsPort, Scheduler};
 use remote_facts::service_sources::ServiceFactSources;
 use repository_model::facts::Needs;
@@ -31,6 +32,7 @@ use std::sync::Arc;
 use sync_core::patronus::SpaceRepository;
 use sync_core::sync::SyncOptions;
 use sync_utils::clock::SystemClock;
+use sync_utils::timestamp::unix_now;
 use tokio::sync::mpsc;
 
 /// The environment variable that makes `bd_of_another_process` run: the JSON of `ChildSpec`
@@ -179,14 +181,18 @@ impl App {
       Arc::clone(&clocks),
     ));
     let events = sessions.events().unwrap();
+    let common_dir = context.git_common_dir.clone();
+    // a start whose answer was lost is settled over the services of the app, as late as a read once it settled
+    let files = RegistryFiles::new(HolderTool::App, move |_key| Some(common_dir.clone()))
+      .settled_with(Arc::new(services(space, &context)))
+      .at(|_key| unix_now() + SETTLED_AFTER);
+    let registry = Registry::new(Arc::clone(&sessions), files);
     let scheduler = Scheduler {
-      port: Arc::clone(&sessions) as Arc<dyn FactsPort>,
+      port: Arc::new(registry.clone()) as Arc<dyn FactsPort>,
       sources: Arc::new(ServiceFactSources::new(services(space, &context))),
       clocks,
     };
     scheduler.start(&runtime, events);
-    let common_dir = context.git_common_dir.clone();
-    let registry = Registry::new(Arc::clone(&sessions), RegistryFiles::new(HolderTool::App, move |_key| Some(common_dir.clone())));
     let (patches, patched) = mpsc::unbounded_channel();
     let (subscription, _view) = registry.subscribe(&key, Box::new(Window(patches))).await.unwrap();
     // the slot of each row shows its step: the session asks what a start of the rows needs
@@ -263,8 +269,17 @@ fn push_of(branch: &str) -> Intent {
   })
 }
 
+/// `bd safe-push <branch>` of another process, held by the fake Patronus at its start: the gate that holds it, the
+/// process, and its record once its request reached Patronus
+fn bd_held_at_its_start(space: &Space, branch: &str) -> (Arc<test_utils::fake_server::FakeGate>, OtherBd, Record) {
+  let start = space.fake.hold("POST", "/app/rest/v1/robots");
+  let bd = OtherBd::start(space, &["safe-push", branch]);
+  space.runtime.block_on(start.arrived());
+  (start, bd, the_record(space))
+}
+
 /// The one record of the registry of the repository of `space`
-fn the_record(space: &Space) -> operations::registry_file::Record {
+fn the_record(space: &Space) -> Record {
   let records = ProcessRegistry::of(&space.repo.path().join(".git")).records().unwrap().unwrap();
   let [record] = records.as_slice() else {
     panic!("one record: {records:?}");
@@ -359,10 +374,7 @@ fn the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd() {
 #[test_log::test]
 fn a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder() {
   let space = Space::new(&["(auth) Add auth", "(docs) Add docs"]);
-  let start = space.fake.hold("POST", "/app/rest/v1/robots");
-  let bd = OtherBd::start(&space, &["safe-push", "auth"]);
-  space.runtime.block_on(start.arrived());
-  let held = the_record(&space);
+  let (start, bd, held) = bd_held_at_its_start(&space, "auth");
   assert_eq!(held.pid, bd.pid());
 
   let (exit_code, output) = space.run(&["auth"]);
@@ -401,4 +413,98 @@ fn bd_moves_the_stamp_of_its_repository_after_a_mutation_only() {
   assert_eq!(exit_code, 0, "{output}");
   let touched = read(&stamp).unwrap();
   assert!(touched.ends_with(&format!(" {}\n", std::process::id())), "{touched}");
+}
+
+/// `bd safe-push auth` killed after its push, while Patronus holds its start: its record stays, with the start it sent
+/// (`pending_start`, on the pushed commit), and the request of the killed process never reaches Patronus. The app's Safe
+/// Push of auth settles it first (a read of Patronus once it settled lists no robot of it: none started), so it is
+/// admitted, plans no push (the remote has the commit) and starts once
+#[test_log::test]
+fn a_bd_killed_between_its_push_and_its_start_leaves_a_lost_start_the_app_settles_and_starts_once() {
+  use domain_types::landing::PlannedEffect;
+  use domain_types::operation::EffectStatus;
+  let space = Space::new(&["(auth) Add auth", "(docs) Add docs"]);
+  space.set_robots(Vec::new());
+  let (_start, bd, held) = bd_held_at_its_start(&space, "auth");
+  let pending = held.pending_start().cloned().unwrap();
+  let pushed = space.repo.git(&["rev-parse", &format!("refs/remotes/origin/{PREFIX}/virtual/auth")]);
+  assert_eq!(
+    (pending.source_ref.as_str(), pending.tip.as_str()),
+    (format!("refs/heads/{PREFIX}/virtual/auth").as_str(), pushed.as_str())
+  );
+  bd.0.kill();
+  space.fake.unhold("POST", "/app/rest/v1/robots");
+
+  space.runtime.block_on(async {
+    let mut app = App::open(&space).await;
+    let outcome = app.spawn_execute(safe_push_of("auth")).await.await.unwrap().unwrap();
+    let effects: Vec<(&PlannedEffect, &EffectStatus)> = outcome.effects.iter().map(|record| (&record.effect, &record.status)).collect();
+    assert!(matches!(effects.as_slice(), [(PlannedEffect::StartRobot { .. }, EffectStatus::Done)]), "{effects:?}");
+  });
+  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).records().unwrap(), Some(Vec::new()));
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 1, "the start of the app alone reached Patronus");
+}
+
+/// A start whose answer was lost, of a process that is gone, holds `bd safe-push auth` (`busy`, exit 3, the holder
+/// `unknown`, the message naming `bd operation forget`) while Patronus can't tell yet; `bd operation forget <op>`
+/// takes it out (and refuses an id the registry lacks), and the Safe Push starts
+#[test_log::test]
+fn a_lost_start_holds_bd_until_bd_operation_forget_lets_it_go() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.set_robots(Vec::new());
+  let now = unix_now();
+  let lost = Record {
+    id: domain_types::operation::OperationId("01LOST".to_string()),
+    tool: HolderTool::Bd,
+    pid: 4_000_000,
+    process_started_at: Some(1),
+    host: sync_utils::process_scan::host_name().to_string(),
+    started_at: now,
+    heartbeat_at: now,
+    session: SessionKey {
+      worktree: space.repo.path_str().to_string(),
+      prefix: PREFIX.to_string(),
+    },
+    intent: safe_push_of("auth"),
+    resources: vec![domain_types::operation::Resource::Lands { branch: "auth".to_string() }],
+    step: domain_types::operation::OperationStep::Starting,
+    status: RecordStatus::Running,
+    external: Some(External {
+      pending_start: Some(PendingStart {
+        source_ref: format!("refs/heads/{PREFIX}/virtual/auth"),
+        tip: String::new(),
+        route: domain_types::landing::StartRoute::Api { profile: None },
+        pr: None,
+        comment_id: None,
+        sent_at: now,
+        url: None,
+      }),
+    }),
+  };
+  let registry = ProcessRegistry::of(&space.repo.path().join(".git"));
+  registry.insert_of_another_process(lost).unwrap();
+
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_error(&output, exit_code, (3, "busy"));
+  assert_eq!(
+    (output["error"]["holder"]["op"].clone(), output["error"]["holder"]["unknown"].clone()),
+    (json!("01LOST"), json!(true)),
+    "{output}"
+  );
+  assert!(output["error"]["message"].as_str().unwrap().contains("`bd operation forget 01LOST`"), "{output}");
+
+  let forget = |id: &str| run_json(&space.environment(), &["--prefix", PREFIX, "operation", "forget", id]);
+  let (exit_code, output) = forget("01LOST");
+  assert_eq!(
+    (exit_code, output["forgotten"].clone(), output["subject"].clone()),
+    (0, json!("01LOST"), json!("auth")),
+    "{output}"
+  );
+  let (exit_code, output) = forget("01LOST");
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 1);
+  assert_eq!(registry.records().unwrap(), Some(Vec::new()));
 }

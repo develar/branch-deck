@@ -679,15 +679,26 @@ function tellOutcome(outcome: Outcome, plan: Plan, repositoryPath: string): bool
     case "stopped":
       showEventToast({ key: subjectKey, render: () => ({ type: "info", title: toast.title, description: toast.description }) })
       return false
+    case "unknown": {
+      // the row shows the start as not known yet, with Forget This Start; the toast opens where its robot would be
+      const url = toast.url
+      showEventToast({
+        key: subjectKey,
+        render: () => ({
+          type: "warning",
+          title: toast.title,
+          description: toast.description,
+          ...(url !== null && { action: { label: "Open Pull Request", onClick: () => openPullRequestUrl(url) } }),
+        }),
+      })
+      return false
+    }
     case "failed": {
       const error: ApiError | string = toast.error === null ? toast.description : { ...toast.error, message: toast.description }
       const canceled = toast.canceled
       const opens = canceled === null ? undefined : { label: "Open in Patronus", onClick: () => openRobot(canceled) }
       if (toast.again) {
         notifyError(toast.title, error, { children: `Start ${formatPushMode(land.mode)}`, onClick: () => void startAgain(key, land, repositoryPath) }, opens)
-      } else if (toast.url !== null) {
-        const url = toast.url
-        notifyError(toast.title, error, { children: "Open Pull Request", onClick: () => openPullRequestUrl(url) })
       } else {
         notifyError(toast.title, error, opens === undefined ? undefined : { children: opens.label, onClick: opens.onClick })
       }

@@ -417,7 +417,10 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   deletes the lock. A window's subscription watches the directory (`operations::registry_watch`, `notify`, no git): the
   operations of other processes show in its session and decide no admission there; `bd` touches
   `$GIT_COMMON_DIR/branch-deck/stamp` after every command that succeeded and is no read, in one place
-  (`bd-cli::execute`), which syncs the watching sessions (`SyncReason::Stamp`)
+  (`bd-cli::execute`), which syncs the watching sessions (`SyncReason::Stamp`). A start records what it sends before
+  its request goes out; an answer lost after it went out is `EffectStatus::Unknown`, never sent again: its record stays
+  `unknown` and holds for every process until a read of Patronus settles it (`operations::reconcile`, at an admission
+  and after a list of the robots) or the user forgets it (Forget This Start, `bd operation forget`)
   ([Operations registry](docs/design/git-operations.md#operations-registry)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).

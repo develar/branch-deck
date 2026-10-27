@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { ShieldCheckIcon } from "lucide-react"
+import { CircleHelpIcon, ShieldCheckIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
@@ -15,6 +15,8 @@ import type { MenuItem } from "@/lib/menu"
 import { formatStackPushing } from "@/lib/stack"
 import { transferLabel } from "@/lib/transfer-progress"
 import { stackReadinessKey } from "@/lib/whole-stack"
+import { useRowPart } from "@/model/store"
+import { getStartActionItems } from "@/presenters/actions"
 import type { Branch } from "@/stores/branch-sync"
 import type { SafePushPlacement } from "@/stores/safe-push"
 import { stopStart, useLandProgress, useLandRun } from "@/stores/safe-push"
@@ -97,22 +99,28 @@ export function SafePushButton({
   const waiting = starting?.waitingFor ?? null
   // another process runs the start (an agent's `bd safe-push`): its words take the place of its step
   const elsewhere = starting?.by ?? null
+  // a start whose answer was lost: its actions beside the slot, as Rust offers them
+  const lost = starting?.lost ?? null
+  const lostOffered = useRowPart(lost === null ? "" : `op:${lost.id}`, "actions")
+  const lostItems = lost === null ? [] : getStartActionItems(lost, lostOffered)
   const label =
     starting === null
       ? (item?.label ?? "Safe Push")
-      : elsewhere !== null
-        ? `${elsewhere.label}…`
-        : pushing !== null
-          ? compact
-            ? progress === null
-              ? null
-              : `${progress.percent}%`
-            : pushing
-          : starting.step === "waiting"
-            ? "Waiting…"
-            : starting.step === "checking"
-              ? "Checking…"
-              : "Starting…"
+      : elsewhere?.unknown === true
+        ? elsewhere.label
+        : elsewhere !== null
+          ? `${elsewhere.label}…`
+          : pushing !== null
+            ? compact
+              ? progress === null
+                ? null
+                : `${progress.percent}%`
+              : pushing
+            : starting.step === "waiting"
+              ? "Waiting…"
+              : starting.step === "checking"
+                ? "Checking…"
+                : "Starting…"
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const restWidth = useRef<number | null>(null)
   const busy = starting !== null
@@ -142,7 +150,7 @@ export function SafePushButton({
             disabled={disabled}
             // the hover says why; Base UI keeps the button focusable, so the dimming is ours
             focusableWhenDisabled
-            aria-busy={starting !== null || undefined}
+            aria-busy={(starting !== null && lost === null) || undefined}
             // the push a compact label says by its percent only, the wait by whom it is for
             aria-label={waiting ?? (compact && pushing !== null && elsewhere === null ? pushing : undefined)}
             className={cn("tabular-nums", compact && "min-w-26 justify-start", disabled && starting === null && "opacity-50", className)}
@@ -165,7 +173,13 @@ export function SafePushButton({
           />
         }
       >
-        {starting !== null ? <Spinner data-icon="inline-start" /> : (hint ?? (icon && <ShieldCheckIcon data-icon="inline-start" />))}
+        {lost !== null ? (
+          <CircleHelpIcon data-icon="inline-start" />
+        ) : starting !== null ? (
+          <Spinner data-icon="inline-start" />
+        ) : (
+          (hint ?? (icon && <ShieldCheckIcon data-icon="inline-start" />))
+        )}
         {label}
       </TooltipTrigger>
       <TooltipContent>
@@ -175,6 +189,16 @@ export function SafePushButton({
       </TooltipContent>
     </Tooltip>
   )
+  if (lostItems.length > 0) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        {button}
+        {lostItems.map(lostItem => (
+          <MenuItemButton key={lostItem.id} item={lostItem} variant="outline" data-testid={lostItem.id} />
+        ))}
+      </span>
+    )
+  }
   if (stopWaiting === null) {
     return button
   }

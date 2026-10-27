@@ -264,12 +264,12 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let run = start_services(context, patronus, space, Some((Arc::clone(&github), repository)), target.clone(), &synced.baseline)?;
   let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
   // busy while another process runs what the request needs; the record leaves once the run ended
-  let _entry = admit(context, &op, &planned)?;
+  let entry = admit(context, &run, &op, &planned)?;
   let accepted = Accepted {
     fingerprint: planned.plan.fingerprint.clone(),
     confirmations: Vec::new(),
   };
-  let steps = Steps::none();
+  let steps = Steps::none().with_record(Some(entry.handle()));
   let started = context
     .runtime()?
     .block_on(run_planned(&start, &run, &steps, op, planned, &accepted, std::time::Instant::now()))

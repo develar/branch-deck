@@ -10,6 +10,7 @@ use domain_types::patronus::{PatronusCommandComment, PatronusCommandReply, Patro
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
 use sync_core::github_repository::GitHubRepository;
+use sync_utils::timestamp::format_utc_timestamp;
 use tracing::instrument;
 
 /// The GitHub repository of the branches (the mirror of the Space repository, or `branchdeck.githubRepository`) is
@@ -92,6 +93,38 @@ pub async fn read_patronus_command_reply(
     })
     .await
     .map_err(GitHubWriteError::from)
+}
+
+/// The `/patronus` command of `mode` that a user (not a bot) commented on pull request `number` since `since` (Unix
+/// seconds), the oldest first: the comment of a start whose post lost its answer. One request of the comments since then
+#[instrument(skip(github))]
+pub async fn find_patronus_command(
+  github: &GitHubService,
+  repository_path: &str,
+  repository: &GitHubRepository,
+  number: u32,
+  mode: PatronusPushMode,
+  subject: PatronusCommandSubject,
+  since: u32,
+) -> Result<Option<PatronusCommandComment>, GitHubWriteError> {
+  let body = patronus_command_body(mode, subject).map_err(GitHubWriteError::Refused)?;
+  let number = number.to_string();
+  let path = ["repos", repository.owner.as_str(), repository.name.as_str(), "issues", number.as_str(), "comments"];
+  let (path, since) = (&path, format_utc_timestamp(since));
+  let since = since.as_str();
+  let comments: Vec<GhComment> = github
+    .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+      client.get(&token, path, &[("since", since), ("per_page", "100")]).await
+    })
+    .await?;
+  let found = comments.into_iter().find(|comment| {
+    let by_user = comment.user.as_ref().is_none_or(|user| user.kind.as_deref() != Some("Bot"));
+    by_user && comment.body.as_deref().is_some_and(|text| text.trim() == body)
+  });
+  Ok(found.map(|comment| PatronusCommandComment {
+    id: comment.id.to_string(),
+    url: comment.html_url,
+  }))
 }
 
 /// The first `⚠️` comment of a bot after the command, without the sign

@@ -68,6 +68,9 @@ pub enum Intent {
   /// The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
   /// is in `expected`); without `expected`, only an open issue changes
   SetIssueState { key: String, state: String, expected: Option<String> },
+  /// The start `op`, whose answer was lost (`OperationStep::StartUnknown`), leaves the operations registry: what it held
+  /// is free, and a start of its subject can be sent again; Patronus may still run the robot it sent
+  ForgetStart { op: OperationId },
 }
 
 impl Intent {
@@ -87,6 +90,7 @@ impl Intent {
       Self::CloseLandedPullRequests { .. } => OperationKind::CloseLandedPullRequests,
       Self::SubmitReview { .. } => OperationKind::SubmitReview,
       Self::SetIssueState { .. } => OperationKind::SetIssueState,
+      Self::ForgetStart { .. } => OperationKind::ForgetStart,
     }
   }
 
@@ -230,6 +234,17 @@ pub enum OperationStep {
   Starting,
   /// Writes to GitHub or YouTrack: a pull request, its reviewers, a review, its close, the state of an issue
   Writing,
+  /// A start whose request went out and whose answer was lost (`operations::registry_file`, `RecordStatus::Unknown`): no
+  /// process runs it any more, and whether its robot started is not known. It holds what it held until a read of
+  /// Patronus tells (`operations::reconcile`) or the user forgets it (`Intent::ForgetStart`). `sent_at`: Unix seconds of
+  /// the request; `url`: where the user looks for what it did (the robots of Patronus, the pull request of a comment);
+  /// `pull_request`: the pull request of a start by a `/patronus` comment
+  #[serde(rename_all = "camelCase")]
+  StartUnknown {
+    sent_at: u32,
+    url: Option<String>,
+    pull_request: Option<u32>,
+  },
 }
 
 /// The move of a row that an operation makes while it runs (docs/design/landing.md): the node of the row leaves the
@@ -454,6 +469,9 @@ pub struct LandResult {
   pub comment: Option<StartComment>,
   /// What the checks before the effects could not do in full
   pub notes: Vec<StartNote>,
+  /// Why whether its robot started is not known (its start is `EffectStatus::Unknown`): the answer of its request was
+  /// lost, or the bot did not answer its comment within the wait
+  pub lost: Option<ApiError>,
 }
 
 /// The `/patronus` comment of a start

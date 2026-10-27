@@ -98,11 +98,12 @@ fn a_busy_error_names_the_operation_of_another_process_that_holds() {
       kind: OperationKind::SafePush,
       subject: Some("auth".to_owned()),
       held_for: 12,
+      unknown: false,
     })),
   });
   assert_eq!(
     serde_json::to_value(&error).unwrap()["details"],
-    json!({"type": "busy", "holder": {"op": "01K", "tool": "bd", "pid": 4242, "kind": "safe_push", "subject": "auth", "held_for": 12}})
+    json!({"type": "busy", "holder": {"op": "01K", "tool": "bd", "pid": 4242, "kind": "safe_push", "subject": "auth", "held_for": 12, "unknown": false}})
   );
   assert_eq!((error.retry, ErrorCode::Busy.exit_code()), (Retry::Same, 3));
 }

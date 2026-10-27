@@ -17,7 +17,7 @@ use crate::land_execute::Accepted;
 use crate::land_session::robots_since;
 use crate::pull_request::{github_of, write_plan};
 use crate::registry::{Answer, OperationRequest, Registry, RunningGuard};
-use crate::robot_start::{CommentStart, RobotWait, github_request_failure, start_by_comment};
+use crate::robot_start::{CommentStart, NoRobot, RobotWait, github_request_failure, start_by_comment};
 use domain_policy::refresh::PATRONUS_REVIEWED_ROBOT_WAIT;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, StartRoute};
@@ -221,7 +221,9 @@ impl Review<'_> {
         };
         EffectStatus::Done
       }
-      Err(error) => EffectStatus::Failed { error },
+      Err(NoRobot::Refused(error)) => EffectStatus::Failed { error },
+      // the post went out and its answer was lost: the comment may be there, never posted again
+      Err(NoRobot::Lost(_)) => EffectStatus::Unknown,
     }
   }
 

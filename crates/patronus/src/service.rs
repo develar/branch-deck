@@ -274,6 +274,11 @@ impl PatronusService {
     self.client.robot_url(robot_id)
   }
 
+  /// The web UI, which lists the robots of the user first: where a start whose answer was lost is looked for
+  pub fn web_url(&self) -> String {
+    self.client.web_url().to_string()
+  }
+
   /// Who asks, for a key of an answer that depends on the user: the server and a hash of the current token (a renewed
   /// token is another key, which costs one more question per branch every 14 days); None without a token. The Space
   /// user is not known locally: the `name` of the token file is the CLI client, which another user's login keeps.

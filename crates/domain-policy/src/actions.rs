@@ -1,7 +1,8 @@
 //! The actions a subject offers and whether each can run now, for every surface of the app (spec/branch/branch-row.spec.md,
 //! "Branch menu"; spec/branch/whole-stack.spec.md; spec/branch/patronus.spec.md, "Restart and cancel";
 //! docs/design/rust-domain-authority.md, s8-policy): `branch_actions`, `stack_actions` and `robot_actions` answer an
-//! `ActionState` by stable id for each action the facts offer, disabled with the reason, never hidden for it.
+//! `ActionState` by stable id for each action the facts offer, disabled with the reason, never hidden for it;
+//! `start_actions` those of a start whose answer was lost (spec/branch/patronus.spec.md, "A start whose answer was lost").
 //!
 //! - The starts take the reasons of the next step of the subject (`NextStep::safe_push`, `dry_run`, `without_review`):
 //!   one rule for the slot, the menu, S and the popover.
@@ -21,6 +22,7 @@ use crate::next_step::{Listing, PatronusAnswer};
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, NothingBeyond};
 use domain_types::landing::Landed;
 use domain_types::next_step::{NextStep, StepBlocker, StepFact, StepKind};
+use domain_types::operation::{OperationStep, RunningOperation};
 use domain_types::patronus::{PatronusRobot, PatronusRobotStatus};
 use domain_types::pull_request::{PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
@@ -477,6 +479,18 @@ pub fn robot_actions(facts: &RobotFacts<'_>) -> Vec<ActionState> {
     actions.push(state(ActionId::OpenRobotPullRequest, None));
   }
   actions
+}
+
+/// The actions of a start whose answer was lost (`OperationStep::StartUnknown`), of any process: Open in Patronus where
+/// its robot would be (the robots of Patronus, the pull request of its comment), and Forget This Start, which frees what
+/// it holds (Patronus may still run it); none for an operation that runs
+#[must_use]
+pub fn start_actions(operation: &RunningOperation) -> Vec<ActionState> {
+  let OperationStep::StartUnknown { url, .. } = &operation.step else {
+    return Vec::new();
+  };
+  let open = url.as_ref().map(|_| state(ActionId::OpenUnknownStart, None));
+  open.into_iter().chain([state(ActionId::ForgetStart, None)]).collect()
 }
 
 /// The next steps that wait for approvals: a restart of a robot that failed for them would fail again

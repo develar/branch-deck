@@ -76,6 +76,26 @@ pub struct FailedBuilds {
 /// A failed action, for the user
 pub type ActionError = String;
 
+/// Why a start answered no robot
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartFailure {
+  /// No robot started: Patronus refused it, or the request never went out (no token, no connection)
+  Refused(ActionError),
+  /// The request went out and its answer was lost (`PatronusError::answer_lost`), or the robot it started can't be read:
+  /// a robot may run, so the start is never sent again by itself
+  Lost(ActionError),
+}
+
+impl StartFailure {
+  /// What failed, for the user
+  #[must_use]
+  pub fn message(&self) -> &str {
+    match self {
+      Self::Refused(message) | Self::Lost(message) => message,
+    }
+  }
+}
+
 impl PatronusService {
   /// The robot with its profile, checks, error problems and whether it will fail; of a running one also the estimate of
   /// the CI for its running checks: with `new_api` in one request to Patronus (`robots/progress`), else one per check
@@ -466,11 +486,11 @@ impl PatronusService {
     mode: PatronusPushMode,
     profile_id: Option<String>,
     merge_request: Option<PatronusMergeRequest>,
-  ) -> Result<PatronusRobot, ActionError> {
+  ) -> Result<PatronusRobot, StartFailure> {
     let mode = match mode {
       PatronusPushMode::DryRun => "DRY_RUN",
       PatronusPushMode::RebaseAutosquash => "REBASE_AUTOSQUASH",
-      other => return Err(format!("Branch Deck starts a Safe Push or a Dry Run, not {other:?}")),
+      other => return Err(StartFailure::Refused(format!("Branch Deck starts a Safe Push or a Dry Run, not {other:?}"))),
     };
     let request = BranchRobotStartRequest {
       kind: "ROBOT_WEB_UI",
@@ -485,11 +505,18 @@ impl PatronusService {
         review_key: merge_request.review_key,
       }),
     };
-    let token = self.action_token()?;
+    let token = self.action_token().map_err(StartFailure::Refused)?;
     let response = self.client().start_robot(&token.value, &request).await;
-    let robot_id = self.settle(response, &token.stamp).map_err(availability_message)?;
+    let lost = matches!(&response, Err(error) if error.answer_lost());
+    let robot_id = self.settle(response, &token.stamp).map_err(|availability| {
+      let message = availability_message(availability);
+      if lost { StartFailure::Lost(message) } else { StartFailure::Refused(message) }
+    })?;
     self.forget_full_lists();
-    let mut robot = self.fetch_robot(branch_prefix, &robot_id).await?;
+    let mut robot = self
+      .fetch_robot(branch_prefix, &robot_id)
+      .await
+      .map_err(|message| StartFailure::Lost(format!("Patronus started robot {robot_id}, which can't be read now: {message}")))?;
     // the robot knows the profile it was started with, also before Patronus has written it into its options
     if robot.profile.as_ref().is_none_or(|profile| profile.id.is_none()) && profile_id.is_some() {
       robot.profile = Some(PatronusRobotProfile {

@@ -127,14 +127,17 @@ impl SessionsState {
     let files = {
       let (app, git) = (app.clone(), git.clone());
       RegistryFiles::new(HolderTool::App, move |key| app.state::<RepositoryStateCache>().git_common_dir(&git, &key.worktree).ok())
-    };
+    }
+    .settled_with(Arc::new(AppServices { app: app.clone() }));
     let host = GitSessionHost::new(git, AppEnvironment { app: app.clone() });
     let runtime = tauri::async_runtime::handle().inner().clone();
     let clocks: Arc<dyn SessionClocks> = Arc::new(OneClock(Arc::new(SystemClock::new())));
     let sessions = Arc::new(Sessions::new(runtime.clone(), Arc::new(host), Arc::clone(&clocks)));
+    let registry = Registry::new(Arc::clone(&sessions), files);
     if let Some(events) = sessions.events() {
       let scheduler = Scheduler {
-        port: Arc::clone(&sessions) as Arc<dyn remote_facts::scheduler::FactsPort>,
+        // the registry applies the facts: a list of the robots settles the starts whose answer was lost
+        port: Arc::new(registry.clone()) as Arc<dyn remote_facts::scheduler::FactsPort>,
         sources: Arc::new(ServiceFactSources::new(AppServices { app: app.clone() })),
         clocks,
       };
@@ -142,7 +145,7 @@ impl SessionsState {
     }
     sessions.sweep_every(SWEEP_INTERVAL);
     Self {
-      registry: Registry::new(Arc::clone(&sessions), files),
+      registry,
       sessions,
       windows: Mutex::new(WindowSubscriptions::default()),
     }

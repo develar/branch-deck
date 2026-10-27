@@ -34,6 +34,7 @@ fn schema_lists_every_output() {
       "lease_return",
       "lease_status",
       "move_hunk",
+      "operation_forget",
       "park",
       "pick",
       "push",

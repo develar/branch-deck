@@ -70,11 +70,16 @@ pub enum ActionId {
   ShowBranch,
   /// A pull request the user added by its link leaves Reviews
   RemoveFromReviews,
+  // a start whose answer was lost
+  /// Opens where its robot would be: Patronus, or the pull request of its comment
+  OpenUnknownStart,
+  /// Its record leaves the operations registry (`Intent::ForgetStart`)
+  ForgetStart,
 }
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 43] = [
+  pub const ALL: [Self; 45] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -118,6 +123,8 @@ impl ActionId {
     Self::RequestChanges,
     Self::ShowBranch,
     Self::RemoveFromReviews,
+    Self::OpenUnknownStart,
+    Self::ForgetStart,
   ];
 }
 

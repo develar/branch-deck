@@ -12,9 +12,10 @@ use domain_policy::refresh::{
   PATRONUS_COMMENT_CLOCK_SLACK, PATRONUS_COMMENT_REPLY_INTERVAL, PATRONUS_COMMENT_REPLY_TIMEOUT, PATRONUS_COMMENT_ROBOT_INTERVAL, PATRONUS_COMMENT_ROBOT_WAIT,
 };
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::patronus::{PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot};
+use domain_types::patronus::{PatronusCommandComment, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusPushMode, PatronusRobot};
 use github::client::GitHubError;
 use github::service::{GitHubFailure, GitHubService};
+use patronus::actions::StartFailure;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::patronus_command::{post_patronus_command, read_patronus_command_reply};
@@ -40,16 +41,39 @@ pub struct ApiStart<'a> {
   pub merge_request: Option<PatronusMergeRequest>,
 }
 
+/// Why a start answered no robot
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoRobot {
+  /// Nothing started: what Patronus or GitHub answered, or why no request went out
+  Refused(ApiError),
+  /// The request went out and its answer was lost: a robot may run (`EffectStatus::Unknown`), and the start is never
+  /// sent again by itself
+  Lost(ApiError),
+}
+
+impl NoRobot {
+  /// What failed, for a caller that tells no lost answer apart (a review's Safe Push)
+  #[must_use]
+  pub fn into_error(self) -> ApiError {
+    match self {
+      Self::Refused(error) | Self::Lost(error) => error,
+    }
+  }
+}
+
 /// Starts the robot of `start` through the API of Patronus: the robot it started
 ///
 /// # Errors
-/// What Patronus answered (`patronus_failure`)
+/// What Patronus answered (`patronus_failure`), or the answer it lost
 #[instrument(skip_all, fields(source = start.source_ref, mode = ?start.mode))]
-pub async fn start_through_api(service: &PatronusService, start: ApiStart<'_>) -> Result<PatronusRobot, ApiError> {
+pub async fn start_through_api(service: &PatronusService, start: ApiStart<'_>) -> Result<PatronusRobot, NoRobot> {
   service
     .start_robot(start.space, start.prefix, start.source_ref, start.target, start.mode, start.profile, start.merge_request)
     .await
-    .map_err(patronus_failure)
+    .map_err(|failure| match failure {
+      StartFailure::Refused(message) => NoRobot::Refused(patronus_failure(message)),
+      StartFailure::Lost(message) => NoRobot::Lost(patronus_failure(message)),
+    })
 }
 
 /// A failed request of Patronus: the expired or missing token of the Safe Push CLI is `not_logged_in`, anything else
@@ -131,20 +155,47 @@ pub struct Commented {
 pub type RobotsSince<'a> = &'a (dyn Fn(u32) -> Read<'a, Result<Vec<PatronusRobot>, ApiError>> + Send + Sync);
 
 /// Posts `/patronus merge --keep-source-branch` (or `dry-run`; `/patronus merge` on a reviewed pull request of someone
-/// else) on the pull request, reads the reply of the bot on `clock` until it accepted or
-/// `PATRONUS_COMMENT_REPLY_TIMEOUT` passed, and looks for the robot it started in what `robots_since` lists, as
-/// `robot_wait` says: once, each tick for a while after the reply, or each tick until the same deadline and every
-/// `PATRONUS_COMMENT_ROBOT_INTERVAL` after it for `PATRONUS_COMMENT_ROBOT_WAIT` more
+/// else) on the pull request, then follows the reply of the bot and the robot it started (`follow_start_comment`)
 ///
 /// # Errors
-/// A comment GitHub refused, a reply it failed to answer, a comment the bot rejected (`patronus_refused`, with its
-/// reason), a list of the robots that failed
+/// As `post_start_comment` and `follow_start_comment`
+pub async fn start_by_comment(start: CommentStart<'_>, clock: &dyn Clock, robots_since: RobotsSince<'_>) -> Result<Commented, NoRobot> {
+  let comment = post_start_comment(&start).await?;
+  follow_start_comment(start, comment, unix_now(), clock, robots_since).await
+}
+
+/// Posts the `/patronus` command of `start` on its pull request: the comment GitHub answered
+///
+/// # Errors
+/// A comment GitHub refused, or one whose post went out and whose answer was lost (`NoRobot::Lost`: the comment may be
+/// there)
 #[instrument(skip_all, fields(number = start.number, mode = ?start.mode))]
-pub async fn start_by_comment(start: CommentStart<'_>, clock: &dyn Clock, robots_since: RobotsSince<'_>) -> Result<Commented, ApiError> {
-  let comment = post_patronus_command(start.github, start.repository_path, start.repository, start.number, start.mode, start.subject)
+pub async fn post_start_comment(start: &CommentStart<'_>) -> Result<PatronusCommandComment, NoRobot> {
+  post_patronus_command(start.github, start.repository_path, start.repository, start.number, start.mode, start.subject)
     .await
-    .map_err(github_failure)?;
-  let posted_at = unix_now();
+    .map_err(|error| {
+      let lost = matches!(&error, GitHubWriteError::GitHub(GitHubFailure::Failed { error, .. }) if error.answer_lost());
+      let error = github_failure(error);
+      if lost { NoRobot::Lost(error) } else { NoRobot::Refused(error) }
+    })
+}
+
+/// Reads the reply of the bot to `comment` (posted at `posted_at`, Unix seconds) on `clock` until it accepted or
+/// `PATRONUS_COMMENT_REPLY_TIMEOUT` passed, and looks for the robot it started in what `robots_since` lists, as
+/// `robot_wait` says: once, each tick for a while after the reply, or each tick until the same deadline and every
+/// `PATRONUS_COMMENT_ROBOT_INTERVAL` after it for `PATRONUS_COMMENT_ROBOT_WAIT` more. The comment is there: a read that
+/// fails ends the wait with what is known so far (a reply not read is no reply, a robot not listed none), never an error
+///
+/// # Errors
+/// A comment the bot rejected (`patronus_refused`, with its reason)
+#[instrument(skip_all, fields(number = start.number, mode = ?start.mode))]
+pub async fn follow_start_comment(
+  start: CommentStart<'_>,
+  comment: PatronusCommandComment,
+  posted_at: u32,
+  clock: &dyn Clock,
+  robots_since: RobotsSince<'_>,
+) -> Result<Commented, NoRobot> {
   let deadline = clock.now() + PATRONUS_COMMENT_REPLY_TIMEOUT;
   // a wait of a while after the reply ends at the reply plus the wait, within the minute
   let mut accepted_until = None;
@@ -158,24 +209,30 @@ pub async fn start_by_comment(start: CommentStart<'_>, clock: &dyn Clock, robots
   let mut rejected_once = false;
   loop {
     if !commented.accepted {
-      match read_patronus_command_reply(start.github, start.repository_path, start.repository, start.number, &comment.id)
-        .await
-        .map_err(github_failure)?
-      {
-        PatronusCommandReply::Accepted => {
+      match read_patronus_command_reply(start.github, start.repository_path, start.repository, start.number, &comment.id).await {
+        Ok(PatronusCommandReply::Accepted) => {
           commented.accepted = true;
           if let RobotWait::For(wait) = start.robot_wait {
             accepted_until = Some((clock.now() + wait).min(deadline));
           }
         }
-        PatronusCommandReply::Rejected { reason } if reason.is_some() || rejected_once => return Err(rejected(start.number, reason)),
-        PatronusCommandReply::Rejected { .. } => rejected_once = true,
-        PatronusCommandReply::Pending => {}
+        Ok(PatronusCommandReply::Rejected { reason }) if reason.is_some() || rejected_once => return Err(NoRobot::Refused(rejected(start.number, reason))),
+        Ok(PatronusCommandReply::Rejected { .. }) => rejected_once = true,
+        Ok(PatronusCommandReply::Pending) => {}
+        Err(error) => {
+          debug!(error = %github_failure(error).message, "the reply of the comment can't be read: the wait ends");
+          return Ok(commented);
+        }
       }
     }
     if commented.accepted {
-      let robots = robots_since(posted_at.saturating_sub(PATRONUS_COMMENT_CLOCK_SLACK)).await?;
-      commented.robot = comment_robot(robots, start.number, start.mode, &start.known);
+      match robots_since(posted_at.saturating_sub(PATRONUS_COMMENT_CLOCK_SLACK)).await {
+        Ok(robots) => commented.robot = comment_robot(robots, start.number, start.mode, &start.known),
+        Err(error) => {
+          debug!(error = %error.message, "the robots can't be listed: the robot of the comment comes with a later list");
+          return Ok(commented);
+        }
+      }
       if commented.robot.is_some() || start.robot_wait == RobotWait::Once {
         return Ok(commented);
       }

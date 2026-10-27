@@ -2864,6 +2864,41 @@ app runs them) `busy` with its id, while the app's window shows it; the app's Sa
 `bd safe-push auth` of a child `busy` with the app's id; a push of docs runs beside either, and the file is empty once
 both ended; a mutation of `bd` touches the stamp, a read, a dry run and a failure don't.
 
+- **A start whose answer was lost** (`external.pendingStart`, `RecordStatus::Unknown`): before the request of a start
+  goes out (the `POST` of Patronus, the `/patronus` comment) its record tells what it sends (`RecordHandle::send_start`,
+  under the lock: the source ref, the commit, the route, the pull request, `sentAt`, where to look), the comment id once
+  GitHub answered its post (`commentId`); a write that fails sends nothing. Answered (a robot, a refusal), the record
+  tells nothing pending. An answer lost after the request went out (`PatronusError::answer_lost`,
+  `GitHubError::answer_lost`: a timeout after the connect, a connection that broke off, a 2xx whose body doesn't read,
+  a 504; for a comment also no reply of the bot within the minute, or a read of the reply that failed) is
+  `EffectStatus::Unknown` and is never sent again: the record becomes `unknown` and stays after its operation, as the
+  record of a process killed between its push and its start does. An `unknown` record is nobody's operation: it holds
+  what it held for every process, its own too (its entry's drop and the heartbeat keep it), and a window shows it as
+  `OperationStep::StartUnknown` with Open in Patronus and Forget This Start (`domain_policy::actions::start_actions`).
+- **Reconcile** (`operations::reconcile`): an admission that an `unknown` record holds settles it first
+  (`admit_settled`, over the services of the app, `RegistryFiles::settled_with`, or of the run of `bd`), and the app
+  after each list of the robots of a session (the registry is the port the scheduler applies the facts through,
+  `FactsPort`, on a task of its own). Its robot is one of the user's robots of its source ref (the virtual branch, the
+  stack branch of a whole stack) in its mode, started since `sentAt` (`PATRONUS_COMMENT_CLOCK_SLACK` for the clocks), on
+  its commit when Patronus names one, or of its pull request for a comment: started, the record leaves (`settle`, a CAS
+  on its id and its start), the robot goes into the facts, and the admission is refused as `plan_changed`, its plan made
+  without that robot. A list of the whole window read `SETTLED_AFTER` (30 s, the answer timeout of a start) after
+  `sentAt` without it proves that none started: the record leaves and the admission goes in. A comment is read by its
+  id (one conditional request of its reactions; a post that lost its answer is found by its text among the comments of
+  its pull request since `sentAt`, a user's): accepted started, rejected failed, none found once settled failed (the
+  post never arrived). Anything else, a read that fails included, stays `unknown`, and the admission is `busy` naming
+  the start (`holder.unknown`, "`bd operation forget <op>`").
+- **Forget** (`operations::forget`, `Intent::ForgetStart`, `bd operation forget <op>`): the record of an `unknown` start
+  leaves under the lock (`ProcessRegistry::forget`; an id the file lacks, or of an operation whose process runs it, is
+  `invalid_arguments`), so what it held is free; Patronus is not asked, and may still run the robot it sent.
+
+`operations/src/reconcile_test.rs` pins the reconcile (a lost answer of the fake Patronus, which drops the connection
+after it took the start: unknown, one `POST`, the record with the pushed commit, `busy` for its own process too, settled
+once the fake lists its robot; a start the fake doesn't list once settled leaves; a comment found by its text and
+settled by the bot's reply; a list of the robots of a session settles its starts), `registry_file_test.rs` and `forget_test.rs` the record and its forget, and
+`bd-cli/src/cross_process_test.rs` a `bd safe-push auth` killed between its push and its start (the app settles it and
+starts once, pushing nothing more) and `bd operation forget`.
+
 #### Push and land
 
 Every push of the virtual branches, the app's and `bd`'s, goes through one core (`operations::push`), in three phases,

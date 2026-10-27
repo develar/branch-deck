@@ -71,6 +71,9 @@ pub struct FakePatronus {
   /// Patronus refuses every start (400) with this description, after logging its body in `starts`; the other requests
   /// are answered as before
   pub start_refusal: Mutex<Option<String>>,
+  /// The connection of each start breaks off after its body was logged in `starts` (and its robot listed, `state_only`),
+  /// before the answer: the client can't tell whether a robot started
+  pub lose_start_answers: std::sync::atomic::AtomicBool,
   /// The ids of the restarted robots, in order
   pub restarts: Mutex<Vec<String>>,
   /// The robots whose status was asked (`GET /robots/{id}/status`), in order
@@ -175,6 +178,12 @@ impl FakePatronus {
     let gate = Arc::new(FakeGate::default());
     self.holds.lock().unwrap().insert(format!("{method} {path}"), Arc::clone(&gate));
     gate
+  }
+
+  /// The requests to `method path` are answered at once again; the ones its gate holds now stay held, so a request of a
+  /// process a test killed never reaches the fake
+  pub fn unhold(&self, method: &str, path: &str) {
+    self.holds.lock().unwrap().remove(&format!("{method} {path}"));
   }
 
   fn gate(&self, method: &axum::http::Method, path: &str) -> Option<Arc<FakeGate>> {
@@ -490,6 +499,17 @@ async fn held(State(fake): State<Arc<FakePatronus>>, request: axum::extract::Req
   next.run(request).await
 }
 
+/// An answer whose body breaks off before its first byte: the connection ends, the client has no answer
+fn lost_answer() -> Response {
+  let broken = tokio_stream::once(Err::<axum::body::Bytes, std::io::Error>(std::io::Error::other("the fake drops the connection")));
+  (
+    StatusCode::CREATED,
+    [(axum::http::header::CONTENT_TYPE, "application/json")],
+    axum::body::Body::from_stream(broken),
+  )
+    .into_response()
+}
+
 /// The routes of Patronus that `fake` answers
 #[expect(clippy::too_many_lines, reason = "one route table, each route a few lines")]
 pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
@@ -529,11 +549,15 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         if let Some(description) = refusal {
           return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "INVALID_INPUT", "description": description}))).into_response();
         }
+        let lost = fake.lose_start_answers.load(Ordering::SeqCst);
         if !fake.is_state_only() {
-          return (StatusCode::CREATED, Json(serde_json::json!({"robotId": "started"}))).into_response();
+          return if lost { lost_answer() } else { (StatusCode::CREATED, Json(serde_json::json!({"robotId": "started"}))).into_response() };
         }
         let id = format!("started-{count}");
         fake.list_started(&id, &body, &body["mode"]).await;
+        if lost {
+          return lost_answer();
+        }
         (StatusCode::CREATED, Json(serde_json::json!({"robotId": id}))).into_response()
       }),
     )

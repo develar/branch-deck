@@ -128,6 +128,16 @@ fn registry_files(git: git_executor::git_command_executor::GitCommandExecutor) -
   })
 }
 
+/// Unix seconds now for the operations registry of the test repository of `worktree`: the start of the server and the
+/// time of the clock of its sessions (`WorktreeClocks`), which stands still until its test moves it, so a start whose
+/// answer was lost settles only when the test moves the clock past it (`POST /repositories/{id}/clock/advance`)
+pub fn registry_now(clocks: &state::WorktreeClocks, worktree: &str) -> u32 {
+  static EPOCH: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+  let epoch = *EPOCH.get_or_init(sync_utils::timestamp::unix_now);
+  let elapsed = u32::try_from(sync_utils::clock::Clock::now(&clocks.of_worktree(worktree)).as_secs()).unwrap_or(u32::MAX);
+  epoch.saturating_add(elapsed)
+}
+
 fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
   // Create a single temp directory for all test repositories
   let test_root_dir = tempfile::tempdir().expect("Failed to create test root directory");
@@ -156,8 +166,13 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       Arc::new(host),
       Arc::clone(&session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
     ));
-    // the operations of the app are recorded in the registry of each test repository, as the app records them
-    let registry = operations::registry::Registry::new(Arc::clone(&sessions), registry_files(git_executor.clone()));
+    // the operations of the app are recorded in the registry of each test repository, as the app records them, and a
+    // start whose answer was lost is settled by the fakes of its repository
+    let clocks = Arc::clone(&session_clocks);
+    let files = registry_files(git_executor.clone())
+      .settled_with(session_routes::settle_host(state, git_executor.clone()))
+      .at(move |key| registry_now(&clocks, &key.worktree));
+    let registry = operations::registry::Registry::new(Arc::clone(&sessions), files);
     AppState {
       repositories: DashMap::new(),
       path_to_id: DashMap::new(),
@@ -174,7 +189,8 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
   // the facts of the sessions, read on the same clocks from the fakes of each test repository
   if let Some(events) = state.sessions.events() {
     let scheduler = remote_facts::scheduler::Scheduler {
-      port: Arc::clone(&state.sessions) as Arc<dyn remote_facts::scheduler::FactsPort>,
+      // the registry applies the facts: a list of the robots settles the starts whose answer was lost
+      port: Arc::new(state.registry.clone()) as Arc<dyn remote_facts::scheduler::FactsPort>,
       sources: Arc::new(session_routes::TestFactSources::new(&state)),
       clocks: Arc::clone(&state.session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
     };

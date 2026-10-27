@@ -15,6 +15,7 @@ describe("presentOtherProcess", () => {
     expect(presentOtherProcess(ofBd(SAFE_PUSH))).toEqual({
       label: "bd: Safe Push of auth",
       description: "`bd` (pid 4242) runs the Safe Push of auth, which holds what it needs until it ends",
+      unknown: false,
     })
     expect(presentOtherProcess(ofBd({ ...SAFE_PUSH, mode: "dryRun", subject: { kind: "wholeStack", root: "air" } }))?.label).toBe("bd: Dry Run of air")
     const push: Intent = { kind: "push", subject: { kind: "branch", name: "auth" }, scope: { kind: "alone" }, force: false, restartRunning: false, expectRemote: null }
@@ -22,6 +23,17 @@ describe("presentOtherProcess", () => {
     expect(presentOtherProcess({ ...ofBd({ kind: "retarget", number: 12 }), origin: { kind: "otherProcess", tool: "app", pid: 7 } })).toEqual({
       label: "Branch Deck: Retargeting #12",
       description: "Branch Deck (pid 7) runs a retarget of #12, which holds what it needs until it ends",
+      unknown: false,
+    })
+  })
+
+  it("words a start whose answer was lost: whether it started is not known, and how it lets go", () => {
+    const lost = { ...ofBd(SAFE_PUSH), step: { kind: "startUnknown" as const, sentAt: 1_800_000_000, url: "https://patronus.example", pullRequest: null } }
+    expect(presentOtherProcess(lost)).toEqual({
+      label: "Start Unknown",
+      description:
+        "Cannot tell whether the Safe Push of auth started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it",
+      unknown: true,
     })
   })
 
@@ -37,6 +49,9 @@ describe("presentOperationHolder", () => {
     )
     expect(presentOperationHolder({ op: "01K", tool: "app", pid: 7, kind: "close_landed_pull_requests", subject: null, held_for: 75 })).toBe(
       "Branch Deck (pid 7) has run the close of the pull requests a robot landed for 1 min 15 s",
+    )
+    expect(presentOperationHolder({ op: "01K", tool: "bd", pid: 4242, kind: "safe_push", subject: "auth", held_for: 90, unknown: true })).toBe(
+      "Cannot tell whether the Safe Push of auth that `bd` (pid 4242) sent started: it holds until Patronus lists its robot, or until Forget This Start",
     )
   })
 })

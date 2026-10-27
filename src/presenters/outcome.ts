@@ -16,21 +16,26 @@ export type LandToast =
   /** Patronus accepted the comment on the pull request and lists no robot of it yet: the toast opens the comment */
   | { readonly kind: "commented"; readonly title: string; readonly description: string; readonly number: number; readonly url: string }
   /**
-   * The robot did not start: an effect failed (`error`), the bot did not answer the comment (`url` opens the pull
-   * request), or the facts changed after the push (`again`: "Start Safe Push", a new plan without the push or the cancel
-   * it made; `canceled` the robot it canceled, which Open in Patronus opens)
+   * The robot did not start: an effect failed (`error`), or the facts changed after the push (`again`: "Start Safe
+   * Push", a new plan without the push or the cancel it made; `canceled` the robot it canceled, which Open in Patronus
+   * opens)
    */
   | {
       readonly kind: "failed"
       readonly title: string
       readonly description: string
       readonly error: ApiError | null
-      readonly url: string | null
       readonly again: boolean
       readonly canceled: PatronusRobot | null
     }
   /** The user stopped it before its next effect: nothing more was done */
   | { readonly kind: "stopped"; readonly title: string; readonly description: string }
+  /**
+   * Its start went out and the answer was lost, or the bot did not answer its comment within the wait: whether its
+   * robot started is not known; it holds its subject until Patronus lists the robot or the user forgets it on the row.
+   * `url` opens where to look (the pull request of its comment), null: Patronus
+   */
+  | { readonly kind: "unknown"; readonly title: string; readonly description: string; readonly url: string | null }
 
 /** What refused a start before its first effect, as its toast says it */
 export type LandRefusal =
@@ -81,7 +86,6 @@ export function presentLandOutcome(outcome: Outcome, plan: Plan, subject: string
     title: refusedTitle(mode, subject),
     description: withNotes(description, notes, outcome.effects, subject),
     error,
-    url: null,
     again: false,
     canceled: result?.canceled ?? null,
     ...more,
@@ -110,12 +114,19 @@ export function presentLandOutcome(outcome: Outcome, plan: Plan, subject: string
     return { kind: "started", title, description: withNotes(describeRobot(result.robot, profile), notes, outcome.effects, subject), robot: result.robot }
   }
   const comment = result?.comment ?? null
+  if (start?.status.kind === "unknown") {
+    const why =
+      comment !== null && !comment.accepted ? `Patronus did not answer the comment on #${comment.number} within a minute` : (result?.lost?.message ?? "Its answer was lost")
+    return {
+      kind: "unknown",
+      title: `Cannot tell whether the ${modeName} of ${subject} started`,
+      description: withNotes(`${why}. It holds ${subject} until Patronus lists its robot, or until Forget This Start on the row`, notes, outcome.effects, subject),
+      url: comment?.url ?? null,
+    }
+  }
   if (comment !== null && comment.accepted) {
     const description = `Patronus accepted the comment on #${comment.number}: the robot shows once Patronus lists it`
     return { kind: "commented", title, description: withNotes(description, notes, outcome.effects, subject), number: comment.number, url: comment.url }
-  }
-  if (comment !== null) {
-    return failed(`Patronus did not answer the comment within a minute: see pull request #${comment.number}`, null, { url: comment.url })
   }
   return failed("Patronus did not start the robot", null)
 }

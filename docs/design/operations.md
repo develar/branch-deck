@@ -232,6 +232,14 @@ start before it asks Rust; they decide no admission of the session, the file doe
 again on a focus and after each admission. `bd` touches the stamp of the repository after each mutation, and the watch
 syncs the sessions a window shows (`SyncReason::Stamp`): what an agent changed shows without a focus.
 
+A start whose answer was lost (its request went out, no answer came, or its process was killed after it went out) is
+no operation of any process any more, but its record stays in the registry and holds what it held for every process,
+the app's own too ([Git Operations](git-operations.md), "A start whose answer was lost"): the row shows "Start Unknown"
+with Open in Patronus and Forget This Start (`getStartActionItems` of the `op:<id>` actions Rust offers), a start of the
+row says why it can't start, and an admission it holds back settles it by a read of Patronus first
+(`operations::reconcile`), as a list of the robots of the session does: its robot started, or none did. Never a second
+start by itself: Forget This Start (`Intent::ForgetStart`) is the user's word that the subject may start again.
+
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
 and back. The other operations pass, as a sync does: the node keeps the state they started from.
 

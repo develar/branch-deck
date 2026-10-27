@@ -1,7 +1,7 @@
 // @spec spec/branch/branch-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { ActionBlocker, ActionId, Reason } from "@/lib/bindings"
-import { ACTION_LOOKS, formatActionBlocker, presentAction, whileSyncing } from "@/presenters/actions"
+import type { ActionBlocker, ActionId, Reason, RunningOperation } from "@/lib/bindings"
+import { ACTION_LOOKS, formatActionBlocker, getStartActionItems, presentAction, whileSyncing } from "@/presenters/actions"
 import { formatStackHold } from "@/presenters/reasons"
 import { disabled, enabled } from "@/test-support/actions"
 
@@ -91,5 +91,29 @@ describe("the actions Rust offers", () => {
     expect(whileSyncing(rename, false)).toBe(rename)
     const failed = presentAction([disabled("rename", { code: "noCommits" })], "rename", { onSelect: () => {} }, { subject: "auth" })!
     expect(whileSyncing(failed, true)).toMatchObject({ disabled: true, description: "The branch has no commits" })
+  })
+})
+
+describe("the actions of a start whose answer was lost", () => {
+  /** A Safe Push of auth whose answer was lost, sent through the API, or as a comment on #7 */
+  function lost(pullRequest: number | null): RunningOperation {
+    return {
+      id: "01LOST",
+      intent: { kind: "land", subject: { kind: "branch", name: "auth" }, mode: "rebaseAutosquash", profile: { kind: "default" } },
+      resources: [],
+      step: { kind: "startUnknown", sentAt: 1_800_000_000, url: "https://patronus.example", pullRequest },
+      origin: { kind: "otherProcess", tool: "bd", pid: 4242 },
+      moves: [],
+    }
+  }
+
+  it("offers Open in Patronus where its robot would be and Forget This Start, which says Patronus may still run it", () => {
+    const offered = [...enabled("open-unknown-start"), ...enabled("forget-start")]
+    expect(getStartActionItems(lost(null), offered).map(item => [item.id, item.label, item.description ?? null])).toEqual([
+      ["open-unknown-start", "Open in Patronus", null],
+      ["forget-start", "Forget This Start", "Lets auth start again. Patronus may still run the start that was sent: its robot shows once Patronus lists it"],
+    ])
+    expect(getStartActionItems(lost(7), offered)[0]?.label).toBe("Open Pull Request #7")
+    expect(getStartActionItems(lost(null), undefined)).toEqual([])
   })
 })

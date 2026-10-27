@@ -456,7 +456,10 @@ impl TableState {
       OperationPatch::Ended(id) => self.operations.retain(|operation| operation.id != id),
       OperationPatch::Foreign(foreign) => {
         self.operations.retain(|operation| operation.origin == Origin::ThisProcess);
-        self.operations.extend(foreign);
+        // a start of this process whose answer was lost is in the file before its run ended here: its run shows it until
+        // then, and the read after its end the record
+        let own: HashSet<OperationId> = self.operations.iter().map(|operation| operation.id.clone()).collect();
+        self.operations.extend(foreign.into_iter().filter(|operation| !own.contains(&operation.id)));
       }
     }
   }

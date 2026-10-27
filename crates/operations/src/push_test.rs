@@ -128,14 +128,16 @@ impl Fixture {
   }
 }
 
-/// A host of the engine off GitHub, on Space with the Patronus of `patronus` (the Space repository `ultimate`) or off it:
-/// what a push of the app needs of it is git and the robots of its checks
-struct Services {
-  patronus: Option<Arc<PatronusService>>,
+/// A host of the engine on Space with the Patronus of `patronus` (the Space repository `ultimate`) or off it, on GitHub
+/// with `github` or off it: what a push of the app needs of it is git and the robots of its checks, a reconcile the
+/// robots and the comments
+pub(crate) struct Services {
+  pub(crate) patronus: Option<Arc<PatronusService>>,
+  pub(crate) github: Option<(Arc<GitHubService>, GitHubRepository)>,
 }
 
 /// Off Space and off GitHub
-const OFFLINE: Services = Services { patronus: None };
+const OFFLINE: Services = Services { patronus: None, github: None };
 
 // jscpd:ignore-start: the test host of the engine, as the one of `remote-facts` (`service_sources_test.rs`): a test
 // module of another crate shares no code
@@ -149,7 +151,7 @@ impl ServiceHost for Services {
   }
 
   fn github(&self, _key: &SessionKey) -> Result<Arc<GitHubService>, ApiError> {
-    Err(ApiError::internal("No GitHub"))
+    self.github.as_ref().map(|(github, _)| Arc::clone(github)).ok_or_else(|| ApiError::internal("No GitHub"))
   }
 
   fn space_repository<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, Result<Option<SpaceRepository>, ApiError>> {
@@ -161,7 +163,8 @@ impl ServiceHost for Services {
   }
 
   fn github_repository<'a>(&'a self, _key: &'a SessionKey) -> Read<'a, Result<Option<GitHubRepository>, ApiError>> {
-    Box::pin(async { Ok(None) })
+    let repository = self.github.as_ref().map(|(_, repository)| repository.clone());
+    Box::pin(async { Ok(repository) })
   }
 
   fn new_api(&self, _key: &SessionKey) -> bool {
@@ -979,6 +982,7 @@ async fn the_push_of_an_unapplied_branch_reads_no_robots() {
   });
   let on_space = Services {
     patronus: Some(Arc::new(service)),
+    github: None,
   };
   let unapplied = Push {
     scope: PushScope::Unapplied,

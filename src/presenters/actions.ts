@@ -17,6 +17,7 @@ import {
   ClipboardListIcon,
   CombineIcon,
   DownloadIcon,
+  EraserIcon,
   ExternalLinkIcon,
   FileDiffIcon,
   FlaskConicalIcon,
@@ -50,7 +51,7 @@ import type { MenuItem } from "@/lib/menu"
 import { formatPushMode, formatRobotRestartLabel, formatRobotSubject, openRobot } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { copyRobotFullPrompt, copyRobotPrompt } from "@/lib/robot-prompt-copy"
-import { cancelRobot, restartRobot } from "@/lib/robot-run"
+import { cancelRobot, forgetStart, openUnknownStart, restartRobot } from "@/lib/robot-run"
 import { formatAskFirst } from "@/lib/stack"
 import { getRowPart } from "@/model/store"
 import { formatPendingFact, formatProblemsFailure, formatStepBlocker } from "@/presenters/next-step"
@@ -109,6 +110,8 @@ export const ACTION_LOOKS = {
   "request-changes": { label: "Request Changes…", icon: MessageSquareDiffIcon },
   "show-branch": { label: "Show Branch", icon: GitBranchIcon },
   "remove-from-reviews": { label: "Remove from Reviews", icon: ListXIcon },
+  "open-unknown-start": { label: "Open in Patronus", icon: ExternalLinkIcon },
+  "forget-start": { label: "Forget This Start", icon: EraserIcon },
 } as const satisfies Record<ActionId, ActionLook>
 
 /** What the words of a blocker read beside it, of the page: the subject it refuses and what the page shows of it */
@@ -360,6 +363,39 @@ export function getRobotActionItems(robot: PatronusRobot, of: RobotItemsOf = {})
     const id = action.id as RobotAction["id"]
     const item = presentAction(actions, id, robotActionItem(robot, id), words)
     return item === null ? [] : [whileRunning(item, robot, id, running) as RobotAction]
+  })
+}
+
+/** An action of a start whose answer was lost (`getStartActionItems`), named by its `id` */
+export interface StartAction extends MenuItem {
+  id: "open-unknown-start" | "forget-start"
+}
+
+/**
+ * The actions of a start whose answer was lost as Rust offers them (`offered`: `op:<id>` of `RepositoryView.actions`,
+ * `domain_policy::actions::start_actions`, which a component subscribed to), beside its row's slot: "Open in Patronus" (of a comment start "Open Pull
+ * Request #7") where its robot would be, and "Forget This Start", which lets the subject start again while Patronus may
+ * still run the robot it sent; none for an operation that runs
+ */
+export function getStartActionItems(operation: RunningOperation, offered: readonly ActionState[] | undefined): StartAction[] {
+  const actions = offered ?? []
+  const subject = operation.intent.kind === "land" ? (operation.intent.subject.kind === "branch" ? operation.intent.subject.name : operation.intent.subject.root) : ""
+  const step = operation.step.kind === "startUnknown" ? operation.step : null
+  return actions.flatMap(action => {
+    const id = action.id as StartAction["id"]
+    const item: ActionItem =
+      id === "open-unknown-start"
+        ? {
+            ...(step?.pullRequest != null && { label: `Open Pull Request #${step.pullRequest}` }),
+            kbds: null,
+            onSelect: () => openUnknownStart(operation),
+          }
+        : {
+            description: `Lets ${subject} start again. Patronus may still run the start that was sent: its robot shows once Patronus lists it`,
+            onSelect: () => void forgetStart(operation),
+          }
+    const presented = presentAction(actions, id, item, { subject })
+    return presented === null ? [] : [presented as StartAction]
   })
 }
 
