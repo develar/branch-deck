@@ -58,8 +58,8 @@ Hard rules in one place; the linked section says why and what to do instead.
    <path> --follow -C <main checkout>`): the commit goes onto `master` as it is then, the lease follows; a conflict
    lands nothing and comes back to you (`conflict.next`). Never `git rebase` or `git merge` for it, never `bd update`
    in the lease.
-6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), give back its
-   lease on the Studio if it ran there (`yonder release studio`), then `bd lease return --workspace <path>`.
+6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), then
+   `bd lease return --workspace <path>`; a run on the Studio keeps nothing there.
 
 ### Worktrees
 Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
@@ -690,7 +690,7 @@ Authority](docs/design/rust-domain-authority.md#индекс-правил).
 - [Agent CLI](docs/guidelines/agent-cli.md) - The `bd` commands, their JSON, error codes and exit codes
 - [Platform Checks](docs/guidelines/platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands
 - [Fast Rust Tests](docs/guidelines/rust-tests.md) - A test costs its git processes: the fixtures of one process per step, no sleeps or wall-clock limits, `pnpm perf:test-processes`
-- [Studio Runs](docs/guidelines/studio-runs.md) - `yonder run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm lease of its own there
+- [Studio Runs](docs/guidelines/studio-runs.md) - `yonder run studio -- <command>`: a heavy check on the Mac Studio, on the exact working tree of a lease, in a warm host slot that the Studio lends to that run
 - [Real App Checks](docs/guidelines/real-app-checks.md) - The release app driven with Peekaboo: windows, input, frames, timings
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
 - [UX Writing](docs/guidelines/ux-writing.md) - Toast titles and actions, "Cannot …" errors, Title Case and sentence case, punctuation

@@ -1,7 +1,7 @@
 # Runs on the Mac Studio (`yonder run studio`)
 
 **Status:** Active  
-**Updated:** 2026-10-24  
+**Updated:** 2026-10-27  
 **Tags:** [tests, e2e, nextest, studio, yonder]
 
 ## Summary
@@ -10,7 +10,7 @@ This Mac runs several agents at once; under that load a full `cargo nextest run 
 and a full `pnpm e2e` fails on timeouts. The heavy checks run on the Mac Studio, the user's second Mac, through
 yonder (the client `~/.local/bin/yonder`, the agent `yonderd` there; its source and the format of `.yonder.toml` are
 in `community/tools/yonder` of the IntelliJ monorepo, and the `mac-studio` skill says how it is reached). A run ships
-the working tree as it is, committed or not, runs the command in a warm lease of the checkout there, streams its
+the working tree as it is, committed or not, runs the command in a warm host slot that the Studio lends to that run, streams its
 output here and exits with the command's exit code.
 
 ```bash
@@ -20,15 +20,14 @@ yonder run studio -- pnpm e2e tests/e2e/branch-row.spec.ts  # one spec
 yonder run studio -- env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts
 yonder run studio --apply -- pnpm lint:backend              # the edits of cargo fmt and clippy --fix come back here
 yonder run studio --apply -- pnpm e2e-up                    # the rewritten snapshots come back here
-yonder release studio                                       # the warm lease of this checkout goes back
 ```
 
 ## Use
 
-- **Where**: in a lease (`bd lease get`), as every edit and build here. The lease there belongs to the path of the
-  checkout, so two leases here never share a checkout there, and the runs of one follow each other in the same warm
-  one; `yonder release studio` before `bd lease return` gives it back (a run of anyone returns the leases idle for
-  8 hours).
+- **Where**: in a lease (`bd lease get`), as every edit and build here. The Studio keeps four warm host slots of the
+  repository (`bd lease host`, "Host slots" of [bd lease](../../spec/cli/lease.spec.md)) and lends one to each run for
+  that run only: the slot this checkout used last, else the one used longest ago; with all four lent, a run waits
+  and says so once a minute. Nothing is kept or given back by hand.
 - **What this repository asks of the host** is `.yonder.toml` in its root: the `outputs` that come back into the same
   paths here (`tests/results`, `playwright-report`, the nextest junit), `E2E_PORT` per slot, and `pnpm install` when
   the lockfile or package.json changed. A step and the command run in the login environment of the user there, with
