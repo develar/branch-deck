@@ -2373,6 +2373,20 @@ rewrites между процессами через файл `s10`; `s12` ждё
   снимок поверх drop-коммита. `RewriteOptions { git_common_dir }` — `lock_repository_in` без процесса;
   повторные `rev-parse`/`symbolic-ref` одной фазы — один `rev-parse --verify` всех ревизий. Lock на worktree плюс CAS
   на общих refs — последний шаг этапа, если замер lock span после остальных шагов показывает ожидание leases.
+- **Уточнения планировщика (2026-10-27, по коду master `86b69795`):** rewrite и apply Update Project держат ресурс
+  `Resource::Head` (HEAD, индекс и store refs worktree): в процессе он даёт FIFO rewrite за rewrite, между процессами
+  `holds_across` его не считает — порядок процессов задаёт repository lock (`WaitingForLock{holder}`), запись rewrite
+  `bd` в реестре нужна виду («bd: Moving…») и журналу, не отказу `Busy`. `TableWitness` читается из `TableHeader.head`
+  и `TableHeader.store_tips` (у вида нет части `head`; sync заполняет их из `RepoFacts.head` и `read_store_head`).
+  Семейство `Rewrite` содержит и `PickRemote`/`UndoPickRemote` (`pick_remote_commits`), `RestoreBranchHead` (undo
+  squash) и `Undo{token}` park с CAS. `SignIn`/`SignOut` идут через `execute` на том же `Channel<OperationEvent>` —
+  вариант `OperationEvent::SignIn(SignInEvent)` (код устройства, URL Hub, ожидание), не второй канал; статус auth —
+  факт `auth` сессии (семейство, оставленное s7). R9: `parseCommitBody` рисует тело коммита в строке
+  (`CommitMessage.tsx`), не в диалоге PR — чтение `commit_body_blocks(message)` с кэшем по id коммита на странице, тем
+  же парсером, что `commit_body_markdown`. `preview_group`, `validate_branch_name`, `commit_body_blocks` — чтения, не
+  `MUTATING`; `cancel_conflict_fix` и `cancel_symbol_search` остаются отменами чтений в `APP_COMMANDS`,
+  `cancel_review_fetch` заменяет `cancel_operation`. Update Project переводится до удаления допуска страницы:
+  `update-project.ts` стоит на `runOperation`.
 - **Удаляется:** допуск `src/stores/operations.ts` (остаются claims как `src/stores/indicators.ts`), `cancel_lock_wait`
   и `lockWaitChannel` (`src-tauri/src/lock_wait.rs`), `src/lib/rewrite.ts`,
   пара park/unpark в `useParkBranch.ts:70-90`; в `commit.ts`: `groupFor`, `parseSubject`, `findIssueKey`,
