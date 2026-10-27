@@ -445,7 +445,7 @@ menu stacks, unstacks and renames branches.
   says that the next sync after the merge builds them on the target. Its slot, "⋯", S, the preview and the review
   window ask the branch's own start, its popover at its own row, never the root's. Landing the branch alone is the second way:
   "Unstack from <parent>" for a branch that builds alone, "Move 1 Commit Here" for one that needs commits it can take.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should offer to land only a stacked branch that applies alone`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from S, the preview and the review window`, `should offer to land only a stacked branch that applies alone`)
   While it runs, the branches it lands say "lands with oauth" in their Status cell and offer no push and no Safe Push of their
   own; the lines of the graph from the root down to it are in the colour of the robot, its node has the ring of the
   robot. Before the start, the same path is highlighted while the pointer is on the Safe Push slot and while the

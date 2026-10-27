@@ -1179,23 +1179,37 @@ test.describe("Stacked branches", () => {
       await expect(option.getByTestId("safe-push-whole-stack-reason")).toHaveText(missing)
     })
 
-    test("should land a stacked branch with what it is built on in one Safe Push, Enter starts it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      // each start reaches Patronus and is refused: no robot holds the start of the next surface
+    /**
+     * The stack of `setupStack` whose starts Patronus refuses, without the trial build of oauth alone (the landing is the
+     * only way): `startWithEnter` is Enter in the popover of oauth, the robot that lands auth and login with it, one more
+     * start Patronus logs; the popover closes, the refusal is told and closed. A surface a test, two at most: each start
+     * of a surface takes seconds under load
+     */
+    async function setupOauthStarts(
+      page: Page,
+      setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+      syncAndWaitForBranches: () => Promise<unknown>,
+    ): Promise<{ repo: TestRepositoryBuilder; startWithEnter: () => Promise<void> }> {
       const { repo } = await setupStack(page, setupRepo, syncAndWaitForBranches, true)
-      // without the trial build of oauth alone, the landing is the only way
       await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
-      const oauthRow = findBranchRow(page, "oauth")
-      /** Enter starts the robot of oauth, which lands auth and login with it; the popover closes, the refusal is told */
-      const startWithEnter = async (count: number) => {
+      let starts = 0
+      const startWithEnter = async () => {
         const popover = await expectPopoverOf(page, "oauth")
         await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
+        starts++
         await expectPatronusStarts(
           repo,
-          Array.from({ length: count }, () => startRequest("oauth")),
+          Array.from({ length: starts }, () => startRequest("oauth")),
         )
         await expect(popover).toHaveCount(0)
         await closeRefusal(page)
       }
+      return { repo, startWithEnter }
+    }
+
+    test("should land a stacked branch with what it is built on in one Safe Push, Enter starts it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const { repo, startWithEnter } = await setupOauthStarts(page, setupRepo, syncAndWaitForBranches)
+      const oauthRow = findBranchRow(page, "oauth")
 
       // the slot of oauth: its own Safe Push, which lands the two branches it is built on with it
       await expect(oauthRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
@@ -1212,33 +1226,41 @@ test.describe("Stacked branches", () => {
       // the path it lands is drawn while the popover is open, the pointer away
       await page.mouse.move(0, 0)
       await expect.poll(() => pathRows(page)).toEqual(["auth", "session", "login", "oauth"])
-      await startWithEnter(1)
+      await startWithEnter()
       // the stack is pushed first, in one push, a step of the start
       expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
 
       // "⋯" of the row
       await oauthRow.getByRole("button", { name: "More actions for oauth" }).click()
       await page.getByRole("menuitem", { name: /^Safe Push · 3/ }).click()
-      await startWithEnter(2)
+      await startWithEnter()
 
       // Safe Push With Profile… of the branch menu: no profile but the default checks
       await openSafePushWithProfile(page, "oauth")
-      await startWithEnter(3)
+      await startWithEnter()
+      // the stack is on the remote now: no start pushed again
+      expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
+    })
 
-      // S on the focused row
+    test("should land a stacked branch with what it is built on from S, the preview and the review window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const { repo, startWithEnter } = await setupOauthStarts(page, setupRepo, syncAndWaitForBranches)
+      const oauthRow = findBranchRow(page, "oauth")
+
+      // S on the focused row: the stack is pushed first, in one push
       await openSafePushWithKey(page, "oauth")
-      await startWithEnter(4)
+      await startWithEnter()
+      expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
 
       // the footer of the preview, which closes for the popover of the row
       let preview = await openBranchPreview(page, "oauth")
       await preview.getByRole("button", { name: /Safe Push · 3/ }).click()
       await expect(preview).toHaveCount(0)
-      await startWithEnter(5)
+      await startWithEnter()
       // S in the preview
       preview = await openBranchPreview(page, "oauth")
       await page.keyboard.press("s")
       await expect(preview).toHaveCount(0)
-      await startWithEnter(6)
+      await startWithEnter()
 
       // the review window of oauth asks the main window, which opens the popover of the row
       const count = (await getOpenedSubWindows(page)).length
@@ -1252,7 +1274,7 @@ test.describe("Stacked branches", () => {
         .click()
       await expect(safePushPopover(page)).toBeVisible()
       await page.bringToFront()
-      await startWithEnter(7)
+      await startWithEnter()
       // the stack is on the remote now: no start pushed again
       expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
     })

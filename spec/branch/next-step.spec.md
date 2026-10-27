@@ -209,7 +209,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   The texts name the branch by `NextStepFacts.subject`, the branch's name.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_0_waits_for_a_fact_no_answer_told_yet_and_a_reason_of_the_subject_outranks_it`, `rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner a stacked branch's own pull request asks, not for its root`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should wait for the Safe Push of an ancestor, which lands its commits`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from S, the preview and the review window`, `should wait for the Safe Push of an ancestor, which lands its commits`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - An operation on the row ([Running Operations](../../docs/design/operations.md)) disables the action of the slot with
   its busy state ("Renaming auth to login…"), never a quiet step: it only opens the pull request, nor a step that
