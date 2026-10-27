@@ -150,14 +150,30 @@ fn runs(dir: &std::path::Path) -> usize {
   std::fs::read_to_string(dir.join("runs")).map_or(0, |runs| runs.lines().count())
 }
 
+/// A shell line that waits until `go` exists, 30 s at most: longer than `TIMEOUT`, so a chain that waited for it fails
+/// on the timeout
+fn wait_for_go(go: &std::path::Path) -> String {
+  format!("i=0; while [ ! -e '{}' ] && [ $i -lt 3000 ]; do sleep 0.01; i=$((i+1)); done", shell_path(go))
+}
+
 #[tokio::test]
 async fn five_first_requests_at_once_run_gh_once() {
   let repo = TestRepo::new();
   let path = repo.path().to_str().unwrap();
   let dir = tempfile::tempdir().unwrap();
-  let chain = counting_gh_chain(&repo, dir.path(), "sleep 0.3\necho from-gh");
+  let go = dir.path().join("go");
+  // gh runs until the test lets it end: the asks meet while it runs
+  let chain = counting_gh_chain(&repo, dir.path(), &format!("{}\necho from-gh", wait_for_go(&go)));
   let ask = || chain.token(path, "acme/monorepo");
-  let tokens = tokio::join!(ask(), ask(), ask(), ask(), ask());
+  let release = async {
+    while runs(dir.path()) == 0 {
+      tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    std::fs::write(&go, "").unwrap();
+  };
+  let (tokens, ()) = tokio::time::timeout(TIMEOUT, async { tokio::join!(async { tokio::join!(ask(), ask(), ask(), ask(), ask()) }, release) })
+    .await
+    .expect("gh never ran");
   let from_gh = Some(token("from-gh", TokenSource::Gh));
   assert_eq!([tokens.0, tokens.1, tokens.2, tokens.3, tokens.4], std::array::from_fn(|_| from_gh.clone()));
   assert_eq!(runs(dir.path()), 1);
@@ -185,8 +201,9 @@ async fn a_signed_out_chain_asks_its_sources_once_a_while_and_again_after_a_sign
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_accepted_repository_answers_while_the_credential_of_another_is_read() {
   let dir = tempfile::tempdir().unwrap();
-  let started = dir.path().join("started");
-  let (repo, _helper_dir) = repo_with_helper(&format!("touch '{}'\nsleep 3\necho username=me\necho password=from-git", shell_path(&started)));
+  let (started, go) = (dir.path().join("started"), dir.path().join("go"));
+  // the credential of the other repository is read until the test lets the helper end
+  let (repo, _helper_dir) = repo_with_helper(&format!("touch '{}'\n{}\necho username=me\necho password=from-git", shell_path(&started), wait_for_go(&go)));
   let path = repo.path().to_str().unwrap().to_string();
   let chain = std::sync::Arc::new(TokenChain::new(
     TokenSources {
@@ -204,8 +221,9 @@ async fn an_accepted_repository_answers_while_the_credential_of_another_is_read(
   while !started.exists() {
     tokio::time::sleep(Duration::from_millis(10)).await;
   }
-  let asked = std::time::Instant::now();
-  assert_eq!(chain.token(&path, "acme/monorepo").await, Some(from_git.clone()));
-  assert!(asked.elapsed() < Duration::from_millis(100), "{:?}", asked.elapsed());
+  // while the helper still runs: a chain that waited for it would answer only after the timeout
+  let accepted = tokio::time::timeout(TIMEOUT, chain.token(&path, "acme/monorepo")).await;
+  assert_eq!(accepted, Ok(Some(from_git.clone())));
+  std::fs::write(&go, "").unwrap();
   assert_eq!(slow.await.unwrap(), Some(from_git));
 }

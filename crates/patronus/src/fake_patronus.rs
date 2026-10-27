@@ -20,6 +20,38 @@ pub type RobotsHook = Arc<dyn Fn(&mut serde_json::Value) + Send + Sync>;
 /// (`FakePatronus::review_hook`); runs on the blocking pool, outside every lock of the fake
 pub type ReviewHook = Arc<dyn Fn(&serde_json::Value) -> Option<(u16, serde_json::Value)> + Send + Sync>;
 
+/// Holds the requests of one route until so many are in flight at once, once: a test of how many requests the client
+/// sends at once sets it (`set`), so they overlap without a pause of the fake. A client that never sends so many is
+/// let through after 10 s, so its test fails on the count instead of hanging
+#[derive(Default)]
+pub struct Overlap {
+  /// The requests at once that let the held ones through; 0 once reached, and unless set
+  count: AtomicU32,
+  reached: tokio::sync::Notify,
+}
+
+impl Overlap {
+  /// The requests of the route from now on wait until `count` of them are in flight at once
+  pub fn set(&self, count: u32) {
+    self.count.store(count, Ordering::SeqCst);
+  }
+
+  /// Waits, with `in_flight` requests of the route in flight counting this one, until the overlap is reached
+  async fn wait(&self, in_flight: u32) {
+    let count = self.count.load(Ordering::SeqCst);
+    if count == 0 {
+      return;
+    }
+    // registered before the count is read again, so a release between the two is not missed
+    let reached = self.reached.notified();
+    if in_flight < count && self.count.load(Ordering::SeqCst) != 0 {
+      let _ = tokio::time::timeout(std::time::Duration::from_secs(10), reached).await;
+    }
+    self.count.store(0, Ordering::SeqCst);
+    self.reached.notify_waiters();
+  }
+}
+
 /// Answers `status` (200 = the robots) and counts the requests
 #[derive(Default)]
 pub struct FakePatronus {
@@ -61,6 +93,8 @@ pub struct FakePatronus {
   /// The checks asked at once now, and the most at once so far
   checks_in_flight: AtomicU32,
   pub max_checks_in_flight: AtomicU32,
+  /// How many checks are asked at once before the fake answers the first (`Overlap::set`)
+  pub checks_overlap: Overlap,
   /// By robot id: its answer of `GET /robots/{id}/changes` instead of the built-in one
   pub changes: Mutex<HashMap<String, serde_json::Value>>,
   /// The robots whose changes were asked, in order
@@ -109,6 +143,8 @@ pub struct FakePatronus {
   /// The test messages asked at once now, and the most at once so far
   test_runs_in_flight: AtomicU32,
   pub max_test_runs_in_flight: AtomicU32,
+  /// How many test messages are asked at once before the fake answers the first (`Overlap::set`)
+  pub test_runs_overlap: Overlap,
   /// Runs on each request of the start options, before the answer: what the client holds meanwhile
   pub on_start_options: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
   /// The answer of `robot-start-supported` instead of the built-in one (supported, three profiles)
@@ -582,8 +618,7 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         fake.checks_calls.lock().unwrap().push(id.clone());
         let in_flight = fake.checks_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         fake.max_checks_in_flight.fetch_max(in_flight, Ordering::SeqCst);
-        // long enough for the requests sent at once to overlap
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        fake.checks_overlap.wait(in_flight).await;
         fake.checks_in_flight.fetch_sub(1, Ordering::SeqCst);
         let checks = fake.checks.lock().unwrap().get(&id).cloned();
         let checks = checks.unwrap_or_else(|| if fake.is_state_only() { serde_json::json!([]) } else { default_checks() });
@@ -620,8 +655,7 @@ pub fn router(fake: Arc<FakePatronus>) -> axum::Router {
         fake.test_run_calls.lock().unwrap().push(format!("{build}/{test}/{run}"));
         let in_flight = fake.test_runs_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         fake.max_test_runs_in_flight.fetch_max(in_flight, Ordering::SeqCst);
-        // long enough for the requests sent at once to overlap
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        fake.test_runs_overlap.wait(in_flight).await;
         fake.test_runs_in_flight.fetch_sub(1, Ordering::SeqCst);
         let message = format!("expected: <true> but was: <false>\n\tat com.intellij.Test{test}.run(Test.kt:1)");
         fake.answer(serde_json::json!({"buildId": build, "testId": test, "testRunId": run, "testFailureMessage": message}))

@@ -139,6 +139,6 @@ async fn a_rate_limit_that_ended_lets_the_listing_ask_again() {
   );
   let path = repo.path().to_str().unwrap();
   service.ask(path, REPOSITORY, RequestKind::Listing, get_repository).await.unwrap_err();
-  tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+  // `retry-after: 0` ends the limit in the second GitHub named it: its `retry_at` is not after now
   assert_eq!(service.ask(path, REPOSITORY, RequestKind::Listing, get_repository).await, Ok(json!({"id": 1})));
 }

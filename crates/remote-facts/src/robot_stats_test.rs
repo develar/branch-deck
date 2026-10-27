@@ -159,6 +159,7 @@ async fn a_read_asks_for_at_most_the_newest_runs_and_the_next_one_for_the_rest()
     .map(|index| robot(&format!("r{index:03}"), "SUCCESS", HOUR + u32::try_from(index).unwrap() * 60, "1"))
     .collect();
   *setup.fake.robots.lock().unwrap() = Some(robots);
+  setup.fake.checks_overlap.set(4);
 
   let (result, _) = read(&setup, NOW, false).await;
   assert_eq!(result.stats.unwrap().coverage.runs_missing, 5);

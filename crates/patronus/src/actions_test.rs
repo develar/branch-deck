@@ -609,6 +609,7 @@ async fn a_build_in_the_chains_of_two_failed_attempts_is_listed_once() {
 #[tokio::test]
 async fn the_full_failure_keeps_to_its_limits_and_tells_what_it_left_out() {
   let (fake, client) = start_fake().await;
+  fake.test_runs_overlap.set(8);
   fake.checks.lock().unwrap().insert("finished-big".to_string(), one_failed_check("big", 50, 0));
   let builds: Vec<serde_json::Value> = (0..7)
     .map(|build| {
@@ -639,8 +640,7 @@ async fn the_full_failure_keeps_to_its_limits_and_tells_what_it_left_out() {
     }
   );
   assert_eq!(fake.test_run_calls.lock().unwrap().len(), 20);
-  let most = fake.max_test_runs_in_flight.load(Ordering::SeqCst);
-  assert!((1..=8).contains(&most), "{most} test messages at once");
+  assert_eq!(fake.max_test_runs_in_flight.load(Ordering::SeqCst), 8, "test messages at once");
 }
 
 #[tokio::test]

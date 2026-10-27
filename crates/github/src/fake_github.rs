@@ -83,6 +83,8 @@ struct FakeHold {
 #[derive(Default)]
 struct DeviceFlow {
   codes: Vec<(String, DeviceCodeState)>,
+  /// The seconds between two polls the codes ask for (`set_device_interval`); 1 unless set
+  interval: Option<u64>,
 }
 
 #[derive(Default, Clone)]
@@ -178,6 +180,12 @@ impl FakeGitHub {
     }
   }
 
+  /// The seconds between two polls that the device codes issued from now on ask for: 1 unless set (GitHub's are 5). 0
+  /// for a test that steps the polls with holds (`hold`), so the wait between them takes no time
+  pub fn set_device_interval(&self, seconds: u64) {
+    self.device_flow.lock().unwrap().interval = Some(seconds);
+  }
+
   /// The user denied the app for every device code issued so far: the next poll of each gets `access_denied`
   pub fn deny_device_codes(&self) {
     for (_, state) in &mut self.device_flow.lock().unwrap().codes {
@@ -204,7 +212,7 @@ impl FakeGitHub {
           "user_code": FAKE_USER_CODE,
           "verification_uri": DEVICE_VERIFICATION_URI,
           "expires_in": 900,
-          "interval": 1,
+          "interval": flow.interval.unwrap_or(1),
         })))
       }
       ("POST", "/login/oauth/access_token") => {

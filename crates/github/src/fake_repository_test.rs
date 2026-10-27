@@ -213,11 +213,17 @@ async fn the_patronus_bot_answers_a_command_comment_with_a_reaction_and_a_reject
 
 /// The runtime has one thread, as a branch tip that ran git on it would stall every other answer of the server. The
 /// repository answers one request at a time under its state lock, the tips included, so the other request is one of
-/// the fake itself (the device flow), which the runtime answers meanwhile
+/// the fake itself (the device flow), which the runtime answers meanwhile. The tip blocks until the device code was
+/// answered, at most 10 s: a fake that read the tip on the runtime would answer the branch first
 #[tokio::test(flavor = "current_thread")]
 async fn a_branch_tip_that_blocks_holds_up_no_other_answer() {
-  let (_fake, _repository, client_of_fake) = setup_with_tip(Box::new(|_| {
-    std::thread::sleep(std::time::Duration::from_millis(400));
+  let reading = Arc::new(tokio::sync::Notify::new());
+  let (answered, release) = std::sync::mpsc::channel::<()>();
+  let release = std::sync::Mutex::new(release);
+  let tip_reading = Arc::clone(&reading);
+  let (_fake, _repository, client_of_fake) = setup_with_tip(Box::new(move |_| {
+    tip_reading.notify_one();
+    let _ = release.lock().unwrap().recv_timeout(std::time::Duration::from_secs(10));
     Some("a".repeat(40))
   }))
   .await;
@@ -230,9 +236,10 @@ async fn a_branch_tip_that_blocks_holds_up_no_other_answer() {
   };
   let branch = noted("branch", client.get(format!("{url}/repos/acme/monorepo/branches/master")).bearer_auth(TOKEN));
   let device_code = async {
-    // after the branch sent its request
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    // while the tip of the branch is read
+    reading.notified().await;
     noted("device code", client.post(format!("{url}/login/device/code")).form(&[("client_id", "c")])).await;
+    answered.send(()).unwrap();
   };
   tokio::join!(branch, device_code);
   assert_eq!(order.into_inner().unwrap(), ["device code", "branch"], "the device code answered while the tip was read");

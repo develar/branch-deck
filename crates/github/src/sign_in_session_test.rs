@@ -13,8 +13,9 @@ use std::sync::Arc;
 
 const TOKEN: &str = "gho_signed_in";
 
-/// A fake GitHub whose repository knows the user `octocat` of `TOKEN`, a service that asks only with the token file of
-/// the temp dir, and a session of that file
+/// A fake GitHub whose repository knows the user `octocat` of `TOKEN` and asks for no pause between two polls of a
+/// device code (the tests step them with holds), a service that asks only with the token file of the temp dir, and a
+/// session of that file
 async fn setup() -> (Arc<FakeGitHub>, GitHubService, GitHubSignInSession, tempfile::TempDir) {
   let repository = Arc::new(FakeGitHubRepository::default());
   repository.set(RepositoryState {
@@ -23,6 +24,7 @@ async fn setup() -> (Arc<FakeGitHub>, GitHubService, GitHubSignInSession, tempfi
     ..RepositoryState::default()
   });
   let fake = Arc::new(FakeGitHub::with_repository(repository));
+  fake.set_device_interval(0);
   let url = serve(Arc::clone(&fake)).await;
   let dir = tempfile::tempdir().unwrap();
   let sources = TokenSources {
@@ -33,6 +35,16 @@ async fn setup() -> (Arc<FakeGitHub>, GitHubService, GitHubSignInSession, tempfi
   let service = GitHubService::new(GitHubClient::with_urls(&url, &url, "Branch Deck test"), TokenChain::new(sources, GitCommandExecutor::new()));
   let session = GitHubSignInSession::new(Some(token_file(dir.path())));
   (fake, service, session, dir)
+}
+
+/// The poll of a device code for its token
+const POLL: &str = "/login/oauth/access_token";
+
+/// `steps` within 10 s: a wait that never got to the poll a test holds fails instead of hanging
+async fn within<T>(steps: impl Future<Output = T>) -> T {
+  tokio::time::timeout(std::time::Duration::from_secs(10), steps)
+    .await
+    .expect("the sign-in never got to its poll")
 }
 
 #[tokio::test]
@@ -52,15 +64,19 @@ async fn a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_u
     }
   );
   assert!(session.is_pending());
+  let first = fake.hold("POST", POLL);
   let wait = session.wait(&service, Some("client-1"));
   let authorize = async {
-    // GitHub says pending until the user entered the code
-    while fake.requests_to("POST", "/login/oauth/access_token").is_empty() {
-      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+    // GitHub says pending until the user entered the code: the first poll is answered before the entry, the second
+    // after it
+    first.arrived().await;
+    let second = fake.hold("POST", POLL);
+    first.open();
+    second.arrived().await;
     fake.authorize_device_codes(TOKEN);
+    second.open();
   };
-  let (login, ()) = tokio::join!(wait, authorize);
+  let (login, ()) = within(async { tokio::join!(wait, authorize) }).await;
   assert_eq!(login.as_deref(), Ok("octocat"));
   assert!(!session.is_pending());
   let stored = read_token(&token_file(dir.path())).unwrap();
@@ -77,12 +93,15 @@ async fn a_sign_in_polls_until_the_code_is_entered_then_keeps_the_token_of_its_u
 async fn a_cancel_ends_the_wait_and_a_build_without_the_oauth_app_signs_in_nowhere() {
   let (fake, service, session, _dir) = setup().await;
   session.start(&service, Some("client-1")).await.unwrap();
+  let poll = fake.hold("POST", POLL);
   let wait = session.wait(&service, Some("client-1"));
   let cancel = async {
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // while GitHub is asked for the token
+    poll.arrived().await;
     session.cancel();
+    poll.open();
   };
-  let (waited, ()) = tokio::join!(wait, cancel);
+  let (waited, ()) = within(async { tokio::join!(wait, cancel) }).await;
   assert_eq!(waited, Err(DeviceFlowError::Canceled));
   assert!(!session.is_pending());
   assert_eq!(
@@ -102,14 +121,14 @@ async fn a_denied_code_ends_the_sign_in_and_is_pending_is_false() {
   let (fake, service, session, dir) = setup().await;
   session.start(&service, Some("client-1")).await.unwrap();
   assert!(session.is_pending());
+  let poll = fake.hold("POST", POLL);
   let wait = session.wait(&service, Some("client-1"));
   let deny = async {
-    while fake.requests_to("POST", "/login/oauth/access_token").is_empty() {
-      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+    poll.arrived().await;
     fake.deny_device_codes();
+    poll.open();
   };
-  let (waited, ()) = tokio::join!(wait, deny);
+  let (waited, ()) = within(async { tokio::join!(wait, deny) }).await;
   assert_eq!(waited, Err(DeviceFlowError::Denied));
   assert!(!session.is_pending(), "a sign-in that ended with its error is no longer pending");
   assert_eq!(

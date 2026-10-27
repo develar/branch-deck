@@ -4,7 +4,7 @@ use crate::fake_patronus::{FakePatronus, router};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 use test_utils::fake_server::FakeServer;
 
@@ -18,7 +18,8 @@ async fn noted(order: &Mutex<Vec<&'static str>>, name: &'static str, request: im
   order.lock().unwrap().push(name);
 }
 
-/// The runtime has one thread, as a hook that ran git on it would stall every other answer of the server
+/// The runtime has one thread, as a hook that ran git on it would stall every other answer of the server. The hooks
+/// block until the start options were answered, at most 10 s: a fake that ran them on the runtime would answer them first
 #[tokio::test(flavor = "current_thread")]
 async fn a_hook_that_blocks_holds_up_no_other_answer() {
   let fake = Arc::new(FakePatronus::default());
@@ -27,12 +28,24 @@ async fn a_hook_that_blocks_holds_up_no_other_answer() {
   *fake.robots.lock().unwrap() = Some(vec![
     json!({"id": "r1", "status": "RUNNING", "sourceBranch": "refs/heads/me/virtual/a", "sourceRevision": ""}),
   ]);
-  *fake.robots_hook.lock().unwrap() = Some(Arc::new(|robot| {
-    std::thread::sleep(Duration::from_millis(400));
+  // a permit per hook that runs; the hooks wait until the options were answered
+  let running = Arc::new(tokio::sync::Semaphore::new(0));
+  let answered = Arc::new((Mutex::new(false), Condvar::new()));
+  let block = {
+    let (running, answered) = (Arc::clone(&running), Arc::clone(&answered));
+    move || {
+      running.add_permits(1);
+      let (lock, changed) = &*answered;
+      let _ = changed.wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(10), |answered| !*answered).unwrap();
+    }
+  };
+  let robots_block = block.clone();
+  *fake.robots_hook.lock().unwrap() = Some(Arc::new(move |robot| {
+    robots_block();
     robot["sourceRevision"] = "resolved".into();
   }));
-  *fake.review_hook.lock().unwrap() = Some(Arc::new(|_| {
-    std::thread::sleep(Duration::from_millis(400));
+  *fake.review_hook.lock().unwrap() = Some(Arc::new(move |_| {
+    block();
     Some((200, json!({"approvalRequired": false, "reviewerGroups": []})))
   }));
   let server = served(&fake).await;
@@ -47,9 +60,12 @@ async fn a_hook_that_blocks_holds_up_no_other_answer() {
     client.post(format!("{base}/pre-merge-approval-required-check")).json(&json!({"commits": []})).send(),
   );
   let options = async {
-    // after the two above sent their requests
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // while both hooks run
+    running.acquire_many(2).await.unwrap().forget();
     noted(&order, "options", client.get(format!("{base}/robot-start-supported")).send()).await;
+    let (lock, changed) = &*answered;
+    *lock.lock().unwrap() = true;
+    changed.notify_all();
   };
   tokio::join!(list, check, options);
   assert_eq!(order.into_inner().unwrap()[0], "options", "the start options answered while the hooks ran");

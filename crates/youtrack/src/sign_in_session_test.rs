@@ -86,7 +86,8 @@ async fn a_canceled_sign_in_ends_its_wait_and_a_pasted_token_is_kept_once_youtra
   let (fake, url, service, session) = set_up(&dir).await;
   session.start(&service, &url).await.unwrap();
   let cancel = async {
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    // once the wait took the sign-in, which it does at its first poll; the wait sees the cancel at its next check
+    tokio::task::yield_now().await;
     session.cancel();
   };
   let (waited, ()) = tokio::join!(session.wait(&service), cancel);

@@ -93,6 +93,7 @@ fn history_robot(id: &str, status: PatronusRobotStatus) -> HistoryRobot {
 #[tokio::test]
 async fn at_most_four_robots_are_read_at_once_and_a_rejected_token_stops_the_reads() {
   let (fake, client) = start_fake().await;
+  fake.checks_overlap.set(4);
   let (service, _) = service(client, token("t"));
   let robots: Vec<HistoryRobot> = (0..10).map(|index| history_robot(&format!("r{index}"), PatronusRobotStatus::Canceled)).collect();
   let counted = std::sync::Mutex::new(0);
