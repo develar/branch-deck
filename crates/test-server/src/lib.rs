@@ -113,6 +113,21 @@ pub fn create_route_test_app_with_state() -> (Router, Arc<AppState>) {
   create_app_and_state(false)
 }
 
+/// Where the app of the E2E server records its operations: the registry of the `$GIT_COMMON_DIR` of each worktree, one
+/// `rev-parse` the first time a worktree asks (`git_ops::revs::git_common_dir`)
+fn registry_files(git: git_executor::git_command_executor::GitCommandExecutor) -> operations::registry::RegistryFiles {
+  let known = std::sync::Mutex::new(std::collections::HashMap::<String, PathBuf>::new());
+  operations::registry::RegistryFiles::new(domain_types::error::HolderTool::App, move |key| {
+    let cached = known.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key.worktree).cloned();
+    if cached.is_some() {
+      return cached;
+    }
+    let dir = PathBuf::from(git_ops::revs::git_common_dir(&git, &key.worktree).ok()?);
+    known.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key.worktree.clone(), dir.clone());
+    Some(dir)
+  })
+}
+
 fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
   // Create a single temp directory for all test repositories
   let test_root_dir = tempfile::tempdir().expect("Failed to create test root directory");
@@ -141,6 +156,8 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       Arc::new(host),
       Arc::clone(&session_clocks) as Arc<dyn repository_model::session::SessionClocks>,
     ));
+    // the operations of the app are recorded in the registry of each test repository, as the app records them
+    let registry = operations::registry::Registry::new(Arc::clone(&sessions), registry_files(git_executor.clone()));
     AppState {
       repositories: DashMap::new(),
       path_to_id: DashMap::new(),
@@ -149,7 +166,7 @@ fn create_app_and_state(all_templates: bool) -> (Router, Arc<AppState>) {
       templates,
       branch_prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
       lock_waits: history_rewrite::lock_wait::LockWaits::default(),
-      registry: operations::registry::Registry::new(Arc::clone(&sessions)),
+      registry,
       sessions,
       session_clocks,
     }

@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 # the random bits of an operation id (`operation_id`)
 getrandom.workspace = true
+# the host of a process (`process_scan::host_name`), which the operations registry of a repository records
+gethostname = "1.1.0"
 jiff.workspace = true
 memchr = "2"
 serde.workspace = true

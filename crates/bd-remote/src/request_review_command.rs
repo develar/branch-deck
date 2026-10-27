@@ -13,7 +13,7 @@
 
 use crate::push_command::unknown_or_unapplied;
 use crate::safe_push_command::{UNKNOWN_GITHUB_REPOSITORY, compared_table, readiness_names};
-use crate::safe_push_run::{BdStart, cli_error, start_services};
+use crate::safe_push_run::{BdStart, admit, start_services};
 use crate::session_facts::SessionFacts;
 use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
@@ -234,7 +234,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
     groups_without_reviewer: review.as_ref().map_or_default(|(_, readiness)| without_reviewer(readiness, &pull_request)),
   };
   if let Some(error) = refusal_of(&planned, facts.session.robots()) {
-    let refused = cli_error(error);
+    let refused = CliError::from(error);
     // the push is the user's to approve: the reviewers see what it pushes
     return Err(if refused.code == ErrorCode::NeedsPush {
       refused.with_next_step(format!("{} request-review {} --push", context.bd, shell_word(name)), true)
@@ -263,6 +263,8 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let space = space.map_or_default(|space| space.name);
   let run = start_services(context, patronus, space, Some((Arc::clone(&github), repository)), target.clone(), &synced.baseline)?;
   let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+  // busy while another process runs what the request needs; the record leaves once the run ended
+  let _entry = admit(context, &op, &planned)?;
   let accepted = Accepted {
     fingerprint: planned.plan.fingerprint.clone(),
     confirmations: Vec::new(),
@@ -271,7 +273,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   let started = context
     .runtime()?
     .block_on(run_planned(&start, &run, &steps, op, planned, &accepted, std::time::Instant::now()))
-    .map_err(cli_error)?;
+    .map_err(CliError::from)?;
   // the request got to its end unless its last effect did not (a retarget GitHub refused of a branch the push takes
   // along stops nothing): then the first failure says why
   let effects = &started.outcome.effects;
@@ -282,7 +284,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
     });
     return Err(stopped.map_or_else(
       || CliError::new(ErrorCode::NetworkError, "GitHub did not answer the request: see the pull request"),
-      cli_error,
+      CliError::from,
     ));
   }
   if let Some(requested) = started.requested {

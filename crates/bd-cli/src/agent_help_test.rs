@@ -219,6 +219,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     ErrorCode::HeadMoved => &["help agent", "group"],
     ErrorCode::GroupsMoved | ErrorCode::StacksMoved => &["group"],
     ErrorCode::Locked
+    | ErrorCode::Busy
     | ErrorCode::PlanChanged
     | ErrorCode::BranchNotBuilt
     | ErrorCode::BranchCheckedOut

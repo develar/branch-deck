@@ -634,8 +634,9 @@ GitHub на POST (для comment-маршрута, пока ответ не по
   никогда поперёк git или HTTP. Это **отдельный** lock от repository lock, который `bd` сегодня держит поперёк sync и push
   (`push_command.rs:218-233`); иначе допуск приложения ждал бы за долгим sync `bd`. Запись атомарна (tmp + rename),
   по образцу `leases.json` (`crates/lease-pool/src/lease.rs`).
-- Живость: heartbeat каждые 30 с. Запись осиротела, если heartbeat старше 5 мин **и** (тот же host: pid мёртв или
-  его start time не совпадает — защита от переиспользования pid; другой host: всегда, живость непроверяема).
+- Живость: heartbeat каждые 30 с. Запись осиротела: того же host — сразу, как только pid мёртв или его start time не
+  совпадает (защита от переиспользования pid; heartbeat здесь не нужен); другого host — когда heartbeat старше 5 мин
+  (pid там непроверяем).
   Осиротевшая без `external.pending_*` отбрасывается при следующем допуске; с ним — становится `Unknown`, блокирует
   те же ресурсы до `reconcile` и **никогда** не отбрасывается автоматически, также с другого host. `reconcile`
   повторяется при каждом допуске этих ресурсов и с каждым опросом роботов. Выход, когда он не может решить (Patronus
@@ -644,9 +645,12 @@ GitHub на POST (для comment-маршрута, пока ответ не по
   запись и пишет в журнал `StartUnknown → Forgotten`. `bd safe-push` на занятых ресурсах получает `busy` с id
   держателя и подсказкой этой команды.
 - Не хранит токенов и секретов; записи уходят по завершении, история — в журнале.
-- Писатель только `operations::registry` (scan-тест по образцу исключений `update-ref` с точным числом); файл, его lock
-  и `fetch.lock` — в clean-правилах `.branchdeck.toml`; раздел «Operations registry» в `git-operations.md` и жёсткое
-  правило в AGENTS.md «Git Operations» (`s10-registry-journal`).
+- Писатель только `operations::registry_file` (scan-тест по образцу исключений `update-ref` с точным числом). Clean-правил
+  нет: lock — `flock`, который система снимает вместе с держателем, так что `operations.lock` и `fetch.lock` не
+  устаревают, а удалённый lock-файл, который ещё держит другой процесс, пустил бы двух держателей; запись ушедшего
+  процесса уходит при следующем допуске, а clean-правила `.branchdeck.toml` чистят рабочее дерево слота, где common dir
+  нет. Раздел «Operations registry» в `git-operations.md` и жёсткое правило в AGENTS.md «Git Operations»
+  (`s10-registry-journal`).
 
 **Частичные эффекты.** Эффекты идут в порядке плана; первый отказ останавливает операцию, `Outcome` перечисляет Done,
 Failed и Skipped. Неявного отката нет. Push без старта говорит так: `Push Done`, `StartRobot Failed(code)`; toast
@@ -2287,8 +2291,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   `reconcile`, `StartUnknown`, `comment_id` в `pending_start`, `ForgetStart` и `bd operation forget`); stamp-файл; `notify` с fallback; сессия
   наблюдает файл, чужие операции в представлении; span через `run_blocking`; `bd` печатает `operation_id`;
   `operations::journal`; Activity из журналов recent projects плюс журнал app data для записей страницы
-  (`record_activity`). `git-operations.md` «Operations registry», правило в AGENTS.md «Git Operations»,
-  `.branchdeck.toml` (`operations.json`, `operations.lock`, `fetch.lock` с мёртвым pid),
+  (`record_activity`). `git-operations.md` «Operations registry», правило в AGENTS.md «Git Operations»
+  (без clean-правил `.branchdeck.toml`: [Конкурентность](#конкурентность)),
   scan-исключение писателя, `activity.spec` (фильтр «Agents», недоступный журнал), `agent-cli.spec` (`operation_id`, `busy` с держателем,
   `bd operation forget`). **Конкурентность:** in-process FIFO перед файловым repository lock (операции процесса ждут
   друг друга в очереди, `locked` называет только другой процесс); ожидание lock между процессами — пока держатель жив,

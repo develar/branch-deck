@@ -9,7 +9,7 @@
 //! session, so every window shows it at once.
 
 use crate::land::planned_of;
-use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices};
+use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices, lock_failure};
 use crate::push::Sent;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{Land, LandingRefusal, Subject};
@@ -19,7 +19,7 @@ use domain_types::session::Version;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{git_common_dir, resolve_commit};
 use github::service::GitHubService;
-use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, LockWaitCanceled, RepositoryLocked, lock_repository_while_held};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, LockWaitCanceled, lock_repository_while_held};
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
@@ -376,10 +376,7 @@ async fn start_of(
       if error.downcast_ref::<LockWaitCanceled>().is_some() {
         return ApiError::new(ErrorCode::Canceled, "The start was stopped while it waited for the repository lock; nothing was done");
       }
-      match error.downcast_ref::<RepositoryLocked>() {
-        Some(locked) => ApiError::new(ErrorCode::Locked, locked.to_string()),
-        None => ApiError::new(ErrorCode::GitError, format!("{error:#}")),
-      }
+      lock_failure(&error)
     })
   });
   let run = StartServices {

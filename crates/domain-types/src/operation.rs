@@ -5,7 +5,7 @@
 //! resources it holds (`Resource`), which `domain_policy::admission` admits a new one by (`Admission`).
 
 use crate::RemoteStatusUpdate;
-use crate::error::{ApiError, HolderTool, LockHolderInfo};
+use crate::error::{ApiError, HolderTool, LockHolderInfo, OperationKind};
 use crate::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandProfiles, PlannedEffect, StartRoute, Subject};
 use crate::patronus::{PatronusPushMode, PatronusRobot};
 use crate::pull_request::{CreatedPullRequest, PullRequestReviewEvent, RequestedReviewers};
@@ -68,6 +68,39 @@ pub enum Intent {
   /// The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
   /// is in `expected`); without `expected`, only an open issue changes
   SetIssueState { key: String, state: String, expected: Option<String> },
+}
+
+impl Intent {
+  /// What it does, by its family: a `Land` a Safe Push or a Dry Run by its mode
+  #[must_use]
+  pub const fn kind(&self) -> OperationKind {
+    match self {
+      Self::Land(land) if matches!(land.mode, PatronusPushMode::DryRun) => OperationKind::DryRun,
+      Self::Land(_) => OperationKind::SafePush,
+      Self::Push(_) => OperationKind::Push,
+      Self::RestartRobot { .. } => OperationKind::RestartRobot,
+      Self::CancelRobot { .. } => OperationKind::CancelRobot,
+      Self::Retarget { .. } => OperationKind::Retarget,
+      Self::CreatePullRequest(_) => OperationKind::CreatePullRequest,
+      Self::RequestReview { .. } => OperationKind::RequestReview,
+      Self::ClosePullRequest { .. } => OperationKind::ClosePullRequest,
+      Self::CloseLandedPullRequests { .. } => OperationKind::CloseLandedPullRequests,
+      Self::SubmitReview { .. } => OperationKind::SubmitReview,
+      Self::SetIssueState { .. } => OperationKind::SetIssueState,
+    }
+  }
+
+  /// The subject it names, as the view keys it (`Subject::key`: the branch, `stack:<root>` a whole stack); `None` for an
+  /// intent of a robot, a pull request or an issue
+  #[must_use]
+  pub fn subject(&self) -> Option<String> {
+    match self {
+      Self::Land(Land { subject, .. }) | Self::Push(Push { subject, .. }) | Self::CreatePullRequest(CreatePullRequest { subject, .. }) | Self::RequestReview { subject, .. } => {
+        Some(subject.key())
+      }
+      _ => None,
+    }
+  }
 }
 
 /// A push of a subject: of a branch, the stack branch of a whole stack, an unapplied branch (`PushScope::Unapplied`)
@@ -162,8 +195,8 @@ pub enum PullRequestField {
 pub enum Origin {
   /// In the process of the session: a request of it joins or waits for the operation
   ThisProcess,
-  /// In another process (the registry file of `s10-registry-journal`): a request of it is busy, it can't wait for a
-  /// process
+  /// In another process (its record in the operations registry of the repository, `operations::registry_file`): a
+  /// request of it is busy, it can't wait for a process
   OtherProcess { tool: HolderTool, pid: u32 },
 }
 

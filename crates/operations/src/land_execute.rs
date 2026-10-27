@@ -239,6 +239,15 @@ pub fn bounded_lock(git_common_dir: std::path::PathBuf, timeout: std::time::Dura
   })
 }
 
+/// A file lock that could not be taken (the repository lock of the app, the lock of the operations registry): `locked`
+/// while another process holds it, its holder named, else `git_error`
+pub(crate) fn lock_failure(error: &anyhow::Error) -> ApiError {
+  match error.downcast_ref::<RepositoryLocked>() {
+    Some(locked) => ApiError::new(ErrorCode::Locked, locked.to_string()),
+    None => ApiError::new(ErrorCode::GitError, format!("{error:#}")),
+  }
+}
+
 /// What a start runs on besides its facts
 #[derive(Clone)]
 pub struct StartServices {

@@ -26,7 +26,7 @@ use crate::landed::LandedBySummary;
 use crate::push_refusals::{Covered, decide};
 use crate::request_review_command::availability_error;
 use crate::safe_push_command::{STACK_REMOTE, youtrack_service};
-use crate::safe_push_run::{BdStart, cli_error, start_services};
+use crate::safe_push_run::{BdStart, admit, start_services};
 use crate::session_facts::SessionFacts;
 use bd_core::bd_command;
 use bd_core::context::{Environment, RepoContext};
@@ -342,7 +342,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   };
   let runtime = context.runtime()?;
   if args.dry_run {
-    let sent = runtime.block_on(dry_run(&services, &planned, facts.session.robots())).map_err(cli_error)?;
+    let sent = runtime.block_on(dry_run(&services, &planned, facts.session.robots())).map_err(CliError::from)?;
     let told = Told {
       retargeted: planned.plan.effects.iter().filter_map(|effect| retarget_of(&facts, effect)).collect(),
       ..Told::default()
@@ -357,13 +357,15 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     text: None,
   };
   let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+  // busy while another process runs what the push needs; the record leaves once the run ended
+  let _entry = admit(context, &op, &planned)?;
   let accepted = Accepted {
     fingerprint: planned.plan.fingerprint.clone(),
     confirmations: planned.plan.confirmations.clone(),
   };
   let started = runtime
     .block_on(run_planned(&start, &services, &Steps::none(), op, planned.clone(), &accepted, std::time::Instant::now()))
-    .map_err(cli_error)?;
+    .map_err(CliError::from)?;
   let told = run.tell(&facts, &services, &planned, &started)?;
   run.output(&facts, Some((&planned, started.pushed.as_ref())), told, decided.covered)
 }
@@ -564,9 +566,9 @@ impl PushRun<'_> {
         }
         (_, EffectStatus::Done | EffectStatus::Unknown | EffectStatus::Skipped { reason: None }) => {}
         (PlannedEffect::Push { .. }, EffectStatus::Failed { error }) => return Err(self.push_error(planned, started.pushed.as_ref(), error)),
-        (_, EffectStatus::Failed { error }) => return Err(cli_error(error.clone())),
+        (_, EffectStatus::Failed { error }) => return Err(CliError::from(error.clone())),
         (_, EffectStatus::Skipped { reason: Some(reason) }) => {
-          let mut error = cli_error(reason.clone());
+          let mut error = CliError::from(reason.clone());
           let pushed: Vec<&str> = started.pushed.iter().flat_map(|sent| sent.prepared.branches()).map(|branch| branch.name.as_str()).collect();
           if !pushed.is_empty() {
             error.message = format!("{}; pushed before it: {}", error.message, pushed.join(", "));
@@ -616,7 +618,7 @@ impl PushRun<'_> {
           names.iter().map(|pushed| pushed.name.as_str()).collect::<Vec<_>>().join(", ")
         ),
       ),
-      LeasedPush::Pushed(_) => cli_error(error.clone()),
+      LeasedPush::Pushed(_) => CliError::from(error.clone()),
     }
   }
 

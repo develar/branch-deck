@@ -20,12 +20,13 @@ tokio = { workspace = true, features = ["rt", "sync", "time"] }
 tracing.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
+# the key of a session in a record of the operations registry (`operations::registry_file`)
+serde.workspace = true
 
 [dev-dependencies]
 domain-types = { path = "../domain-types", features = ["fixtures"] }
 pretty_assertions.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
-serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }

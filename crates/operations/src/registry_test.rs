@@ -1,6 +1,6 @@
 use crate::engine::run;
 use crate::events::EventSink;
-use crate::registry::{Admitted, Answer, Joined, OperationRequest, Registry, RunningGuard};
+use crate::registry::{Admitted, Answer, Joined, OperationRequest, Registry, RegistryFiles, RunningGuard};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::operation::{OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Resource, RunningMove, RunningOperation};
@@ -71,7 +71,7 @@ pub(crate) fn sessions() -> Arc<Sessions> {
 fn fixture() -> Fixture {
   let sessions = sessions();
   Fixture {
-    registry: Arc::new(Registry::new(Arc::clone(&sessions))),
+    registry: Arc::new(Registry::new(Arc::clone(&sessions), RegistryFiles::none())),
     sessions,
     key: SessionKey {
       worktree: "/repo".to_string(),
@@ -197,7 +197,7 @@ async fn an_admitted_operation_is_in_the_view_until_it_ends() {
   guard.step(OperationStep::Pushing);
   guard.progress(40, "Writing objects: 40%".to_string());
   assert_eq!(step_of(&fixture.operations().await, &id), Some(OperationStep::Pushing));
-  guard.finish(Ok(outcome(&id)));
+  guard.finish(Ok(outcome(&id))).await;
   assert_eq!(fixture.operations().await, Vec::new());
   assert_eq!(
     heard.take(),
@@ -228,7 +228,7 @@ async fn a_request_of_the_same_intent_joins_the_running_one() {
   assert_eq!(joined.op(), &id);
   assert_eq!(fixture.operations().await.len(), 1);
 
-  let (answer, ()) = tokio::join!(joined.answer(), async { first.finish(Ok(outcome(&id))) });
+  let (answer, ()) = tokio::join!(joined.answer(), first.finish(Ok(outcome(&id))));
   assert_eq!(answer, Ok(outcome(&id)));
 
   // through the frame of the engine both callers hear the outcome
@@ -281,7 +281,7 @@ async fn an_operation_waits_for_what_it_needs_and_runs_in_the_order_it_came() {
   assert_eq!(step_of(&fixture.operations().await, login.id()), Some(OperationStep::WaitingForSync));
 
   let id = push_auth.id().clone();
-  push_auth.finish(Ok(outcome(&id)));
+  push_auth.finish(Ok(outcome(&id))).await;
   let dry_run = dry_run.await.unwrap();
   let after_push = fixture.until(|operations| operations.len() == 3).await;
   assert_eq!(step_of(&after_push, &dry_run_id), Some(OperationStep::Checking));

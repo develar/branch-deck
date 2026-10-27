@@ -72,7 +72,7 @@ pub fn review_plan(intent: &Intent) -> Result<Plan, ApiError> {
 }
 
 /// What a review asks the registry for: the review of its pull request (a second write of it waits, the same joins)
-fn review_request(intent: &Intent, number: u32) -> OperationRequest {
+pub(crate) fn review_request(intent: &Intent, number: u32) -> OperationRequest {
   OperationRequest {
     intent: intent.clone(),
     resources: vec![Resource::PullRequest {

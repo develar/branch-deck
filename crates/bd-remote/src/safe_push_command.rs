@@ -29,7 +29,7 @@ use crate::push_command::{
 };
 use crate::push_refusals::robot_command;
 use crate::robot_list::keep_listed;
-use crate::safe_push_run::{BdStart, cli_error, start_services};
+use crate::safe_push_run::{BdStart, admit, start_services};
 use crate::session_facts::{SessionFacts, listed_robots};
 use bd_core::bd_command::shell_word;
 use bd_core::check_summary::{CheckConflict, CheckWarning, DanglingReferenceSummary, dangling_reference_message, dangling_references_in, session_of_sync};
@@ -640,6 +640,8 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     let github = plan.github.clone().map(|repository| (Arc::clone(&github), repository));
     let services = start_services(context, Some(Arc::clone(&service)), plan.space.name.clone(), github, plan.target.clone(), &synced.baseline)?;
     let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+    // busy while another process runs what the start needs; the record leaves once the run ended
+    let _entry = admit(context, &op, &plan.planned)?;
     let accepted = Accepted {
       fingerprint: plan.planned.plan.fingerprint.clone(),
       confirmations: plan.planned.plan.confirmations.clone(),
@@ -673,7 +675,7 @@ fn pull_request_text(context: &RepoContext, args: &SafePushArgs, synced: &SyncOu
 /// session rewrote a branch) is run again from a new sync
 fn start_error(context: &RepoContext, args: &SafePushArgs, plan: &Prepared, error: ApiError) -> CliError {
   let code = error.code;
-  let error = cli_error(error);
+  let error = CliError::from(error);
   if code == ErrorCode::PlanChanged {
     return error.with_next_step(start_again(context, args, &plan.name, plan.stack.is_some()), false);
   }
@@ -727,10 +729,10 @@ fn tell(
           .ok_or_else(|| CliError::new(ErrorCode::NetworkError, "The push failed before the remote answered"))?;
         return Err(push_error(context, synced, plan, sent));
       }
-      (_, EffectStatus::Failed { error }) => return Err(cli_error(error.clone())),
+      (_, EffectStatus::Failed { error }) => return Err(CliError::from(error.clone())),
       (_, EffectStatus::Skipped { reason: Some(reason) }) => {
         let what = output.pushed.iter().map(|pushed| pushed.name.as_str()).collect::<Vec<_>>().join(", ");
-        let mut error = cli_error(reason.clone());
+        let mut error = CliError::from(reason.clone());
         if !what.is_empty() {
           error.message = format!("{}; pushed before it: {what}", error.message);
         }
@@ -1997,7 +1999,7 @@ fn github_write_error(error: GitHubWriteError) -> CliError {
 
 /// A failed GitHub request: `not_logged_in` without a token GitHub accepts, else `network_error`
 pub(crate) fn github_error(failure: &GitHubFailure) -> CliError {
-  cli_error(github_request_failure(failure))
+  CliError::from(github_request_failure(failure))
 }
 
 /// The GitHub repository of the branches is not known: a pull request can't be opened, its approvals can't count

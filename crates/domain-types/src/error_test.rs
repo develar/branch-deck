@@ -1,4 +1,4 @@
-use crate::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, Retry};
+use crate::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, OperationHolder, OperationKind, Retry};
 use serde_json::json;
 
 #[test]
@@ -85,6 +85,26 @@ fn a_locked_error_names_its_holder() {
       "operation_id": null,
     })
   );
+}
+
+/// `busy` names the operation of another process that holds what the refused one needs, and retries as it is
+#[test]
+fn a_busy_error_names_the_operation_of_another_process_that_holds() {
+  let error = ApiError::new(ErrorCode::Busy, "`bd` (pid 4242) has run the Safe Push of auth for 12 s").with_details(ErrorDetails::Busy {
+    holder: Some(Box::new(OperationHolder {
+      op: "01K".to_owned(),
+      tool: HolderTool::Bd,
+      pid: 4242,
+      kind: OperationKind::SafePush,
+      subject: Some("auth".to_owned()),
+      held_for: 12,
+    })),
+  });
+  assert_eq!(
+    serde_json::to_value(&error).unwrap()["details"],
+    json!({"type": "busy", "holder": {"op": "01K", "tool": "bd", "pid": 4242, "kind": "safe_push", "subject": "auth", "held_for": 12}})
+  );
+  assert_eq!((error.retry, ErrorCode::Busy.exit_code()), (Retry::Same, 3));
 }
 
 #[test]

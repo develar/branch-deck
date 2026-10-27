@@ -409,6 +409,12 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   another process; `try_lock_repository` waits for nobody, `lock_as_another_process` is for tests and the E2E server. A sync never waits for it:
   neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release; only its drop of
   store lines takes it, while it is free (`drop_store_lines`), and skips the drop when it is held. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
+- **Operations registry** (`$GIT_COMMON_DIR/branch-deck/operations.json` and its `operations.lock`): only
+  `operations::registry_file` reads or writes them (`registry_scan_test.rs`); the lock is held for one
+  read-modify-write, never across git, HTTP, an `await` or the actor of a session; an operation of the remote (the
+  app's, `bd push`, `bd safe-push`, `bd request-review`) is recorded before its session admits it, and an operation of
+  another process that holds what it needs makes it `busy` (exit 3), never one of its own process; no clean rule
+  deletes the lock ([Operations registry](docs/design/git-operations.md#operations-registry)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
   A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done

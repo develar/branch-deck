@@ -24,7 +24,7 @@ use app_api::api_error::{api_error, no_branch_prefix};
 use app_settings::branch_prefixes::BranchPrefixes;
 use app_settings::linked_pull_requests::{forget, linked};
 use app_settings::service::SettingsService;
-use domain_types::error::ApiError;
+use domain_types::error::{ApiError, HolderTool};
 use domain_types::operation::Intent;
 use domain_types::patronus::PatronusRobot;
 use domain_types::review_request::LinkedPullRequest;
@@ -34,7 +34,7 @@ use github::service::GitHubService;
 use object_cache::cache::ObjectCache;
 use operations::events::EventSink;
 use operations::land_execute::Accepted;
-use operations::registry::{Answer, Registry};
+use operations::registry::{Answer, Registry, RegistryFiles};
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::Scheduler;
@@ -121,8 +121,13 @@ impl WindowSubscriptions {
 
 impl SessionsState {
   /// The sessions of the app: their syncs, their Patronus views and their landing needs run with `git`, their facts are
-  /// read by the scheduler of the facts, both on the system clock; swept every `SWEEP_INTERVAL`
+  /// read by the scheduler of the facts, both on the system clock; swept every `SWEEP_INTERVAL`. Their operations are
+  /// recorded in the operations registry of each repository, its `$GIT_COMMON_DIR` the one the app keeps by worktree
   pub fn new(app: &AppHandle, git: GitCommandExecutor) -> Self {
+    let files = {
+      let (app, git) = (app.clone(), git.clone());
+      RegistryFiles::new(HolderTool::App, move |key| app.state::<RepositoryStateCache>().git_common_dir(&git, &key.worktree).ok())
+    };
     let host = GitSessionHost::new(git, AppEnvironment { app: app.clone() });
     let runtime = tauri::async_runtime::handle().inner().clone();
     let clocks: Arc<dyn SessionClocks> = Arc::new(OneClock(Arc::new(SystemClock::new())));
@@ -137,7 +142,7 @@ impl SessionsState {
     }
     sessions.sweep_every(SWEEP_INTERVAL);
     Self {
-      registry: Registry::new(Arc::clone(&sessions)),
+      registry: Registry::new(Arc::clone(&sessions), files),
       sessions,
       windows: Mutex::new(WindowSubscriptions::default()),
     }

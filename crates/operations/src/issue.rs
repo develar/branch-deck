@@ -33,6 +33,17 @@ pub fn issue_plan(intent: &Intent) -> Result<Plan, ApiError> {
   Ok(write_plan(intent.clone(), effects, Vec::new(), None, [], []))
 }
 
+/// What a change of the state of the issue `issue` asks the registry for: the issue (a second change of it waits, the
+/// same joins)
+pub(crate) fn issue_request(intent: &Intent, issue: &str) -> OperationRequest {
+  OperationRequest {
+    intent: intent.clone(),
+    resources: vec![Resource::Issue { key: issue.to_string() }],
+    step: OperationStep::Writing,
+    moves: Vec::new(),
+  }
+}
+
 /// Runs the change of the state of an issue (`intent`) in the session of `key` on the plan its caller accepted, with the
 /// YouTrack `services` names: admitted over the operations of the session (it holds the issue), then the command; one
 /// YouTrack refuses (the issue moved on, it has no state field, the sign-in expired) is the status of its effect
@@ -45,12 +56,7 @@ pub async fn execute_issue(registry: &Registry, key: &SessionKey, intent: Intent
   let Intent::SetIssueState { key: issue, state, expected } = &intent else {
     return Err(ApiError::new(ErrorCode::InvalidArguments, "No change of the state of an issue"));
   };
-  let request = OperationRequest {
-    intent: intent.clone(),
-    resources: vec![Resource::Issue { key: issue.clone() }],
-    step: OperationStep::Writing,
-    moves: Vec::new(),
-  };
+  let request = issue_request(&intent, issue);
   run(registry, key, request, events, async |guard| {
     let began = std::time::Instant::now();
     check_admitted(guard, &accepted, &plan)?;

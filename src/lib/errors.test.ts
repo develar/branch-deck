@@ -2,7 +2,7 @@ import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { describe, expect, it, vi } from "vite-plus/test"
 import { toast } from "@/components/ui/toast"
 import { internalError } from "@/lib/api-error"
-import type { ApiError, LockHolderInfo } from "@/lib/bindings"
+import type { ApiError, LockHolderInfo, OperationHolder } from "@/lib/bindings"
 import { commandFailure, describeError, getErrorCode, getErrorDetails, getErrorOperationId, isApiError, logError, notifyError } from "@/lib/errors"
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: vi.fn(async () => {}) }))
@@ -20,6 +20,17 @@ function lockedBy(holder: LockHolderInfo | null): ApiError {
 }
 
 const BD_PUSH: LockHolderInfo = { tool: "bd", command: "bd push auth", pid: 4242, held_for: 40 }
+
+/** The `busy` error of an operation, as `operations::registry_file` answers it */
+function busyWith(holder: OperationHolder | null): ApiError {
+  return {
+    code: "busy",
+    message: "`bd` (pid 4242) has run the Safe Push of auth for 12 s (operation 01K), which holds what this one needs; retry when it is done",
+    details: { type: "busy", holder },
+    retry: "same",
+    operation_id: null,
+  }
+}
 
 /** The `ApiError` of each case of `app_api::api_error::contract_cases`, as the app and the e2e server answer it */
 const CONTRACT = Object.values(import.meta.glob<Record<string, ApiError>>("/crates/app-api/fixtures/api_errors.json", { eager: true, import: "default" }))[0]
@@ -120,6 +131,15 @@ describe("describeError", () => {
     expect(refLocked?.code).toBe("locked")
     expect(describeError(refLocked)).toBe(refLocked?.message)
     expect(describeError(refLocked)).toContain("/repo/.git/refs/heads/master.lock exists")
+  })
+
+  it("names the operation of another process that makes an operation busy, by what it runs and for how long", () => {
+    const safePush: OperationHolder = { op: "01K", tool: "bd", pid: 4242, kind: "safe_push", subject: "auth", held_for: 12 }
+    expect(describeError(busyWith(safePush))).toBe("`bd` (pid 4242) has run the Safe Push of auth for 12 s")
+    expect(describeError(busyWith({ ...safePush, tool: "app", pid: 7, kind: "restart_robot", subject: null, held_for: 63 }))).toBe(
+      "Branch Deck (pid 7) has run the restart of a robot for 1 min 3 s",
+    )
+    expect(describeError(busyWith(null))).toBe("An operation of another version of Branch Deck runs: retry when it is done")
   })
 
   it("is the message of any other error", () => {

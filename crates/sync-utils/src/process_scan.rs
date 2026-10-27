@@ -270,6 +270,13 @@ pub fn processes_with_open_file(path: &Path) -> Option<Vec<u32>> {
   scan::processes_with_open_file(path)
 }
 
+/// The name of this host, as the system names it (`gethostname`): a record of a process on another host can't tell by
+/// its pid whether it runs. Read once per process; empty when the system names none
+pub fn host_name() -> &'static str {
+  static HOST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+  HOST.get_or_init(|| gethostname::gethostname().to_string_lossy().into_owned())
+}
+
 /// Ask the process `pid` to exit with SIGTERM; false when the signal could not be sent (gone, another user's, no
 /// signals on this platform)
 #[cfg_attr(

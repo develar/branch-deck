@@ -3,19 +3,25 @@
 //! The sync ran under the repository lock and released it; the engine takes it again only for the full witness and the
 //! freeze of the push, so the reads of the remote, the trial and the check against the target kept no other `bd` writer
 //! waiting. A rewrite of another session between the sync and the witness changes the plan: `plan_changed` (exit 3),
-//! nothing done; one after the push and before the start skips the start, and the error says what was pushed.
+//! nothing done; one after the push and before the start skips the start, and the error says what was pushed. A run of
+//! `bd` is recorded in the operations registry of the repository first (`admit`), so it is `busy` while the app or
+//! another `bd` runs what it needs, and the other way round.
 
 use crate::push_command::push_size_limit;
 use crate::safe_push_command::STACK_REMOTE;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
-use domain_types::error::{ApiError, ErrorCode};
+use bd_core::services::session_key;
+use domain_types::error::{ApiError, ErrorCode, HolderTool};
 use domain_types::landing::Land;
+use domain_types::operation::OperationId;
 use domain_types::patronus::{PatronusAvailability, PatronusRobot};
 use github::service::GitHubService;
+use operations::engine::request_of;
 use operations::land::{LandHost, one_shot_planned};
 use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices, bounded_lock};
 use operations::push::Sent;
+use operations::registry_file::{Entry, ProcessRegistry};
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::{FactSources, Read};
 use repository_model::one_shot::OneShot;
@@ -129,7 +135,11 @@ pub(crate) fn locker(context: &RepoContext) -> Locker {
   bounded_lock(context.git_common_dir.clone(), context.lock_timeout)
 }
 
-/// An error of the engine as `bd` fails with it
-pub(crate) fn cli_error(error: ApiError) -> CliError {
-  CliError::new(error.code, error.message)
+/// The record of the run of `planned` as the operation `op` in the operations registry of the repository
+/// (`registry_file`), with what the app's admission of the same plan holds (`engine::request_of`): `busy`, naming the
+/// holder, while another process (the app, another `bd`) runs what it needs. The run holds it; dropped, it leaves the
+/// registry
+pub(crate) fn admit(context: &RepoContext, op: &OperationId, planned: &Planned) -> Result<Entry, CliError> {
+  let request = request_of(&context.prefix, planned);
+  Ok(ProcessRegistry::of(&context.git_common_dir).admit(op, HolderTool::Bd, &session_key(context), &request)?)
 }

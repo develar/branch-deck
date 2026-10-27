@@ -3,8 +3,11 @@
 // and who holds the lock a command was refused by (`ErrorDetails.locked`, `describeError`).
 import type { LockHolderInfo, RunningOperation } from "@/lib/bindings"
 
-/** How long a holder has held the lock, as `LockHolder` of `repository_lock.rs` says it: "40 s", "12 min 3 s" */
-function formatHeldFor(seconds: number): string {
+/**
+ * How long a holder has held the lock, or run an operation, as `LockHolder` of `repository_lock.rs` says it: "40 s",
+ * "12 min 3 s"
+ */
+export function formatHeldFor(seconds: number): string {
   return seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} s` : `${seconds} s`
 }
 

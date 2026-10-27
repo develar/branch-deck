@@ -60,6 +60,8 @@ fixtures = ["dep:test-utils", "patronus/fake", "github/fake"]
 serde_json.workspace = true
 
 [dev-dependencies]
+# the records of the operations registry a test of two processes reads (`cross_process_test`)
+operations = { path = "../operations" }
 patronus = { path = "../patronus", features = ["fake"] }
 github = { path = "../github", features = ["fake"] }
 test-utils = { path = "../test-utils" }

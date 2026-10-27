@@ -134,7 +134,7 @@ fn calls(text: &str, call: &str) -> Vec<usize> {
 /// The production sources of the workspace by their path (`crates/operations/src/push.rs`): the `.rs` files of
 /// `src-tauri` and of every crate but `test-utils`, without test files (`*_test.rs`, `tests/`), the modules a file
 /// declares under `#[cfg(test)]` (`mod push_fixture;`) and its inline test modules
-fn production_sources() -> Vec<(String, String)> {
+pub(crate) fn production_sources() -> Vec<(String, String)> {
   let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("workspace directory");
   let mut files = Vec::new();
   rust_files(&workspace.join("src-tauri/src"), &mut files);

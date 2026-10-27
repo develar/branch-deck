@@ -83,6 +83,10 @@ pub enum ErrorCode {
   LeaseRejected,
   /// Another git process holds a lock; retry
   Locked,
+  /// An operation of another process (the app, another `bd`) runs what this one needs: the same subject, a branch it
+  /// lands or pushes, a robot, a field of a pull request (`holder` names it, from the operations registry of the
+  /// repository). Nothing was done; retry when it is done
+  Busy,
   /// A rebase, merge, cherry-pick or revert is in progress
   OperationInProgress,
   /// HEAD is detached
@@ -281,7 +285,7 @@ impl ErrorCode {
       | Self::NotASlot
       | Self::SlotInPool
       | Self::NotParked => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged | Self::Locked => 3,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged | Self::Locked | Self::Busy => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
@@ -343,12 +347,12 @@ impl ErrorCode {
     }
   }
 
-  /// What may succeed after this error: nothing (`No`), the same request again (`Same`: the holder of the lock finishes,
-  /// the network comes back), or the request built again from a new read of the state (`AfterReread`: HEAD or a store
+  /// What may succeed after this error: nothing (`No`), the same request again (`Same`: the holder of the lock or the
+  /// operation of another process that holds what it needs finishes, the network comes back), or the request built again from a new read of the state (`AfterReread`: HEAD or a store
   /// moved, another round of the resolve session is open)
   pub const fn retry(self) -> Retry {
     match self {
-      Self::Locked | Self::NetworkError => Retry::Same,
+      Self::Locked | Self::Busy | Self::NetworkError => Retry::Same,
       Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::PrefixChanged | Self::RoundMoved | Self::PlanChanged => Retry::AfterReread,
       _ => Retry::No,
     }
@@ -462,6 +466,9 @@ pub enum ErrorDetails {
   Blocks { blocks: Vec<String> },
   /// Who holds the repository lock: `locked`; `None` when the holder wrote no record
   Locked { holder: Option<LockHolderInfo> },
+  /// The operation of another process that runs what this one needs: `busy`; `None` when the registry is of another
+  /// Branch Deck (another schema), whose operations can't be read
+  Busy { holder: Option<Box<OperationHolder>> },
   /// What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference`
   Landing { refusals: Vec<LandingRefusal> },
 }
@@ -479,7 +486,43 @@ pub struct LockHolderInfo {
   pub held_for: u32,
 }
 
-/// Which program holds the lock
+/// An operation of another process as the page and `bd` name it: "`bd` (pid 4242) has run the Safe Push of auth for 40 s"
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct OperationHolder {
+  /// Its id, the `operation_id` of its log lines
+  pub op: String,
+  pub tool: HolderTool,
+  pub pid: u32,
+  pub kind: OperationKind,
+  /// The branch it runs on, `stack:<root>` a whole stack; `None` for an operation of a robot, a pull request or an issue
+  pub subject: Option<String>,
+  /// Seconds since it was admitted
+  pub held_for: u32,
+}
+
+/// What an operation does, by the family of its intent (`Intent`), for the words of its holder
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum OperationKind {
+  SafePush,
+  DryRun,
+  Push,
+  RestartRobot,
+  CancelRobot,
+  Retarget,
+  CreatePullRequest,
+  RequestReview,
+  ClosePullRequest,
+  CloseLandedPullRequests,
+  SubmitReview,
+  SetIssueState,
+}
+
+/// Which program holds the lock, or runs an operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

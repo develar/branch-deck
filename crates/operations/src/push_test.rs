@@ -1,8 +1,8 @@
 use crate::events::{EventSink, NoEvents};
 use crate::land_execute::Accepted;
 use crate::push::{execute_push, prepare_push};
-use crate::registry::Registry;
 use crate::registry::registry_test::{operations_until, view_operations};
+use crate::registry::{Registry, RegistryFiles};
 use domain_types::PushAction;
 use domain_types::error::{ApiError, ErrorCode, HolderTool, LockHolderInfo};
 use domain_types::landing::{Confirmation, PlannedEffect, Subject};
@@ -87,7 +87,8 @@ async fn fixture(synced: bool) -> Fixture {
     sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
   }
   Fixture {
-    registry: Registry::new(sessions),
+    // the registry of the repository of the test, so a push is recorded as the app's
+    registry: Registry::new(sessions, RegistryFiles::new(HolderTool::App, |key| Some(std::path::Path::new(&key.worktree).join(".git")))),
     repo,
     key,
   }

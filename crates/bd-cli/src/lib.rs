@@ -595,6 +595,8 @@ mod architecture_test;
 #[cfg(test)]
 mod context_test;
 #[cfg(test)]
+mod cross_process_test;
+#[cfg(test)]
 mod error_test;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixture_test;

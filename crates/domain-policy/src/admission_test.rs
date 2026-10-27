@@ -1,4 +1,4 @@
-use crate::admission::admit;
+use crate::admission::{admit, holds_across};
 use domain_types::error::HolderTool;
 use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::landing::Subject;
@@ -119,4 +119,46 @@ fn only_an_equal_resource_is_held() {
   // a Safe Push of auth would land what the running one lands: it waits and is decided again after it
   let of_auth = land("auth", PatronusPushMode::RebaseAutosquash);
   assert_eq!(admit(&[start], &of_auth, &[reference("auth"), lands("auth")]), Admission::Queue { op: id("s") });
+}
+
+/// An operation of another process holds what the same intent or a resource of it needs under its own branch prefix;
+/// under another prefix only what all the worktrees of the repository share (a ref by its full name, a robot, a pull
+/// request), never a branch named without its prefix or the intent, which names its subject so
+#[test]
+fn another_process_holds_the_same_intent_and_its_resources_and_under_another_prefix_only_the_shared_ones() {
+  let start = of_bd(running("s", land("auth", PatronusPushMode::RebaseAutosquash), &[reference("auth"), lands("auth")]));
+  let safe_push = land("auth", PatronusPushMode::RebaseAutosquash);
+  assert!(holds_across(&start, "user", "user", &safe_push, &[]));
+  assert!(holds_across(&start, "user", "user", &land("auth", PatronusPushMode::DryRun), &[lands("auth")]));
+  assert!(holds_across(&start, "user", "user", &push("auth"), &[reference("auth")]));
+  assert!(!holds_across(&start, "user", "user", &push("docs"), &[reference("docs")]));
+  // another prefix: its auth is another branch, its ref another name
+  assert!(!holds_across(&start, "user", "other", &safe_push, &[lands("auth")]));
+  assert!(holds_across(&start, "user", "other", &push("auth"), &[reference("auth")]));
+  let restart = of_bd(running(
+    "r",
+    Intent::RestartRobot { robot_id: "r1".to_string() },
+    &[Resource::Robot { id: "r1".to_string() }],
+  ));
+  assert!(holds_across(
+    &restart,
+    "user",
+    "other",
+    &Intent::CancelRobot { robot_id: "r1".to_string() },
+    &[Resource::Robot { id: "r1".to_string() }]
+  ));
+  let review = Intent::RequestReview {
+    subject: Subject::branch("auth"),
+    reviewers: Vec::new(),
+    push_first: false,
+  };
+  let reviewers = of_bd(running("v", review.clone(), &[field(12, PullRequestField::Reviewers)]));
+  assert!(holds_across(&reviewers, "user", "other", &review, &[field(12, PullRequestField::Reviewers)]));
+  assert!(!holds_across(
+    &reviewers,
+    "user",
+    "other",
+    &Intent::Retarget { number: 12 },
+    &[field(12, PullRequestField::Base)]
+  ));
 }

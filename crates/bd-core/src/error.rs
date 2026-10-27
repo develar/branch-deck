@@ -1,7 +1,7 @@
 use crate::output::SchemaVersion;
 use crate::review_summary::ReviewSummary;
 use crate::sync_command::RemoteSummary;
-use domain_types::error::ErrorCode;
+use domain_types::error::{ApiError, ErrorCode, ErrorDetails, OperationHolder};
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::regroup::{FixupRefusal, RegroupError};
 use schemars::JsonSchema;
@@ -40,6 +40,8 @@ pub struct ErrorExtra {
   pub processes: Vec<ProcessOutput>,
   /// The commands that act on the refusal, in `ErrorBody::next_steps`; here, as most errors name none
   pub next_steps: Vec<NextStep>,
+  /// The operation of another process that makes the command `busy`
+  pub holder: Option<OperationHolder>,
 }
 
 impl CliError {
@@ -90,6 +92,7 @@ impl CliError {
         review: self.review.as_deref().cloned(),
         processes: self.extra.as_ref().map_or_default(|extra| extra.processes.clone()),
         next_steps: self.next_steps().to_vec(),
+        holder: self.extra.as_ref().and_then(|extra| extra.holder.clone()),
         retryable: self.code.retryable(),
         ask_user: self.code.asks_user(),
       },
@@ -100,6 +103,18 @@ impl CliError {
 impl fmt::Display for CliError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{:?}: {}", self.code, self.message)
+  }
+}
+
+/// The error of a core of the app's code (the engine of the operations), with its code and message; the holder of `busy`
+/// with it
+impl From<ApiError> for CliError {
+  fn from(error: ApiError) -> Self {
+    let mut cli = Self::new(error.code, error.message);
+    if let Some(ErrorDetails::Busy { holder }) = error.details {
+      cli.extra.get_or_insert_default().holder = holder.map(|holder| *holder);
+    }
+    cli
   }
 }
 
@@ -172,6 +187,11 @@ pub struct ErrorBody {
   /// `message`, with the condition of each
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub next_steps: Vec<NextStep>,
+  /// The operation of another process that runs what the command needs, for `busy`: its `op` (the `operation_id` of
+  /// its log lines), `tool` (`bd` or `app`), `pid`, `kind` (`safe_push`, `push`, …), `subject` and `held_for` seconds;
+  /// omitted when the registry is of another Branch Deck, whose operations can't be read, and for any other code
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub holder: Option<OperationHolder>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
   /// The user decides: show `message` (with `paths`) to the user and ask before you go on (`uncommitted_overlap`,

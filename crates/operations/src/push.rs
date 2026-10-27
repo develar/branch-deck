@@ -717,7 +717,7 @@ impl PushPlan<'_> {
 /// What the push `push` asks the registry for: the refs its plan pushes now (of `planned`, its plan as the session has
 /// it now), in its order, so the view tells which branches it sends; the ref of its subject while it pushes none (a sync
 /// it waits for may give it work); the robot it cancels and restarts and the base of each pull request it retargets
-fn push_request(prefix: &str, push: &Push, planned: Option<&Planned>) -> OperationRequest {
+pub(crate) fn push_request(prefix: &str, push: &Push, planned: Option<&Planned>) -> OperationRequest {
   let pushes = planned.map_or(&[][..], |planned| planned.pushes.as_slice());
   let mut resources: Vec<Resource> = pushes.iter().map(|pushed| Resource::Ref { name: pushed.full_name.clone() }).collect();
   if resources.is_empty() {

@@ -1,4 +1,4 @@
-use crate::process_scan::{ProcessScan, is_running, process_started};
+use crate::process_scan::{ProcessScan, host_name, is_running, process_started};
 
 /// A child that sleeps in a directory in a process group of its own is inside it; this process, the parent of the
 /// child, never is, and neither is a child in its group (the other commands of a pipeline that runs `bd`)
@@ -173,4 +173,11 @@ fn a_kill_signals_only_the_process_that_has_the_start_time() {
   assert!(kill(child.id(), started));
   let status = child.wait().unwrap();
   assert!(!status.success());
+}
+
+/// The host is named, the same on every call: the operations registry tells the records of this host by it
+#[test]
+fn the_host_of_this_process_has_a_name() {
+  assert_ne!(host_name(), "");
+  assert_eq!(host_name(), host_name());
 }

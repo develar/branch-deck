@@ -1,7 +1,7 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-24  
+**Updated:** 2026-10-27  
 **Tags:** [git, safety, performance, rewrite, replay, fast-import, lease]
 
 ## Problem
@@ -2779,12 +2779,58 @@ message-only rewrite and the ref transaction of a move, with its undo token.
 
 Code: `crates/trial-check/src/conflict_fix.rs`, `src-tauri/src/commands/conflict_fix.rs`.
 
+#### Operations registry
+
+The operations of the remote that a process runs (an app's session, `bd push`, `bd safe-push`, `bd request-review`)
+are recorded in `$GIT_COMMON_DIR/branch-deck/operations.json`, so no process runs what another process of the same
+repository runs (`operations::registry_file`, its one writer; `registry_scan_test.rs` fails on the names of its files
+anywhere else):
+
+- **A record** (`schema: 1`): the id of the operation (the `operation_id` of its log lines), `tool` (`bd`, `app`), the
+  pid with the start time of its process and its host, `startedAt` and `heartbeatAt` (Unix seconds), its session (the
+  worktree and the branch prefix), the intent, the resources it holds (`Resource`, as the admission of its family asks
+  for them: `engine::request_of` for a plan of `bd`), its step at the admission, `status` (`running`, `unknown`) and
+  the external effect it has in flight (`external.pendingStart`, which a reconcile of a lost answer reads). No token,
+  no secret; a record leaves once its operation ended, so the file holds what runs now.
+- **The lock**: every change is a read-modify-write under `operations.lock` (the line of the process, then a `flock`
+  waited for at most 2 s, then `locked`), held for that file operation only, never across git, HTTP, an `await` or the
+  actor of a session; the file is written to a temporary file and renamed over, so a read without the lock sees one
+  whole state. It is not the repository lock, which `bd` holds across its sync: an admission never waits for a sync.
+- **Admission**: an operation goes into the file before its session admits it (the app on the blocking pool, before
+  the actor of the session sees it, `Registry::admit`; `bd` after its plan, before its run). A record of another
+  process that runs the same intent or holds one of its resources makes it `busy` (exit 3, `retry: same`), naming that
+  operation (`ErrorDetails::Busy { holder }`, `error.holder` of `bd`: id, tool, pid, kind, subject, how long), and
+  nothing is done. The records of a process never hold its own operations: its session admits those over each other
+  (a join, the queue). A record holds what it needs in every session of the repository: a ref by its full name, a
+  robot, a field of a pull request, an issue; a branch named without its prefix (what a start lands) and the intent
+  only under the same branch prefix (`domain_policy::admission::holds_across`). It leaves the file once its operation
+  ended (the app after the end on the actor, `bd` after its run).
+- **Liveness**: a record of a process that is gone leaves at the next admission: of this host one whose pid runs no
+  more or runs another process (another start time, `process_scan::is_running`), at once; of another host (a common
+  dir on a shared disk), whose pids tell nothing here, once its heartbeat is older than 5 minutes. A record with an
+  external effect in flight stays as `unknown` and holds what it held. One thread of a process gives the records of
+  the process their heartbeat every 30 s while it has any, and takes out a record of it whose removal failed.
+- **Versions**: a file of another schema, or one that does not parse, is the registry of another Branch Deck: every
+  admission is `busy` without a holder, and the file is never written until the operations of that version ended.
+- **No clean rule**: the lock is a `flock`, which the system releases with its holder, so `operations.lock` is never
+  stale, and deleting a lock file another process still holds would let two holders in; the record of a process that
+  is gone leaves at the next admission. The clean rules of `.branchdeck.toml` clean the working tree of a slot, and the
+  common dir is not in it.
+
+`operations/src/registry_file_test.rs` pins the rules (a holder of this host until it is gone, a reused pid, another
+host after five minutes, a start in flight, another prefix, another schema never written, the heartbeat), and
+`bd-cli/src/cross_process_test.rs` two processes: the `bd safe-push auth` of a child, held at its start by the fake
+Patronus, makes a `bd safe-push auth` beside it `busy` with its id, a `bd push docs` runs beside it, and the file is
+empty once both ended.
+
 #### Push and land
 
 Every push of the virtual branches, the app's and `bd`'s, goes through one core (`operations::push`), in three phases,
 and holds the repository lock only in the second (C1, [Rust as the Domain Authority](rust-domain-authority.md)):
 
-1. Before the lock: the app's push is admitted in the registry of the operations of its session per ref it writes
+1. Before the lock: the app's push is recorded in the operations registry of the repository (`busy` while another
+   process writes one of its refs, "Operations registry"), then admitted in the registry of the operations of its
+   session per ref it writes
    (`Resource::Ref`, the full name of each ref its plan pushes, in their order): a push of a ref another push of the
    process writes waits for it (`Queued` behind it in the view), without a bound, and is decided again on what the one
    before left; a second click of the same push joins it; the pushes of other refs run side by side. It waits for a
@@ -2930,9 +2976,10 @@ session of that sync (`operations::needs` of the intent `Push`: the user's robot
 the branches, one search whenever they have a GitHub repository; side by side, no lock: `push_test.rs`,
 `the_robot_list_of_a_push_is_read_outside_the_repository_lock`), plans an intent `Push` per branch it names over that
 session (`operations::push::push_planned`, the plans of the app), merges their plans into one atomic push
-(`push_together`: the retargets, the cancels, one push of every ref parents first, the restarts) and runs it as the
-app runs a push (`land_execute::run_planned`: the cheap witness, the lock again for the full witness and the freeze,
-then the effects); `--dry-run` asks the remote about the frozen commits of the plan (`land_execute::dry_run`: no lock,
+(`push_together`: the retargets, the cancels, one push of every ref parents first, the restarts), records it in the
+operations registry of the repository (`busy` while another process pushes one of its refs, "Operations registry") and
+runs it as the app runs a push (`land_execute::run_planned`: the cheap witness, the lock again for the full witness and
+the freeze, then the effects); `--dry-run` asks the remote about the frozen commits of the plan (`land_execute::dry_run`: no lock,
 no witness, no other effect). A branch another writer moved between the sync and the witness is `plan_changed` (exit
 3), nothing pushed. It reads nothing the sync read again: the stack, the tips the sync left, the remote tips of
 `origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push and the witness it reads only
@@ -2999,7 +3046,9 @@ Code: `crates/bd-remote/src/push_command.rs`, `crates/bd-remote/src/push_refusal
 `bd safe-push` holds the repository lock for its sync only (the named exception of the lock span until s11): the
 reads of the remote, the trial and the check against the target run after it, keeping no other `bd` writer waiting,
 and a start runs through the engine as the app's does ("Push and land": the witness, the lock again only for the full
-witness and the freeze, then the effects, `safe_push_run.rs`). A rewrite of another session between the sync and the
+witness and the freeze, then the effects, `safe_push_run.rs`), recorded first in the operations registry of the
+repository: while the app or another `bd` runs a start or a push of what it lands, it is `busy` (exit 3) with that
+operation's id, and the other way round ("Operations registry"). A rewrite of another session between the sync and the
 witness changes the plan: `plan_changed` (exit 3), nothing done; `--check` stops after the plan. A stacked
 branch lands with its ancestors in one robot ([Landing](landing.md)): the push takes the ancestors with work for the
 remote along, and the robot starts on the branch's virtual branch, which carries their commits (`lands`). A parked

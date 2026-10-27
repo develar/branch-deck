@@ -11,7 +11,7 @@ use crate::source_scan_test::{Exemption, Source, check};
 /// The heads of a spawn call
 const SPAWNS: [&str; 2] = ["spawn_blocking(", "spawn("];
 
-const EXEMPT: [Exemption; 7] = [
+const EXEMPT: [Exemption; 8] = [
   Exemption {
     path: "crates/git-executor/src/git_command_executor.rs",
     hits: 5,
@@ -21,6 +21,11 @@ const EXEMPT: [Exemption; 7] = [
     path: "crates/git-executor/src/interactive_command.rs",
     hits: 2,
     reason: "the pipe threads of a git process log nothing",
+  },
+  Exemption {
+    path: "crates/operations/src/registry_file.rs",
+    hits: 1,
+    reason: "the heartbeat thread of the operations registry serves every operation of the process, no caller's",
   },
   Exemption {
     path: "crates/sync-core/src/sync.rs",

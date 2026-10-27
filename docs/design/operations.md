@@ -1,7 +1,7 @@
 # Running Operations
 
 **Status:** Implemented  
-**Updated:** 2026-10-26  
+**Updated:** 2026-10-27  
 **Tags:** [frontend, actions, ux, concurrency]
 
 ## Problem
@@ -218,6 +218,12 @@ laid over the nodes (`presentOperationMoves`), in every window, from the admissi
   (`RunningMove::RequestingReview`, `operations::pull_request::execute_pull_request`): Waiting.
 
 The page's own operations declare no move.
+
+Between processes, the operations registry of the repository admits an operation of the remote first
+([Git Operations](git-operations.md), "Operations registry"): while an agent's `bd push`, `bd safe-push` or
+`bd request-review` runs what it needs (the same intent, a branch it lands or pushes, a robot, a field of a pull
+request), the app's operation is refused as `busy`, its toast naming the holder ("`bd` (pid 4242) has run the Safe
+Push of auth for 12 s", `describeError`), and the other way round; operations of one process never refuse each other.
 
 A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
 and back. The other operations pass, as a sync does: the node keeps the state they started from.

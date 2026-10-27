@@ -504,6 +504,7 @@ dependencies = [
  "history-rewrite",
  "lease-pool",
  "object-cache",
+ "operations",
  "patronus",
  "pretty_assertions",
  "schemars 1.2.3",
@@ -4115,6 +4116,7 @@ dependencies = [
  "serde_json",
  "sync-core",
  "sync-utils",
+ "tempfile",
  "test-utils",
  "tokio",
  "tracing",
@@ -5876,6 +5878,7 @@ dependencies = [
 name = "sync-utils"
 version = "0.1.0"
 dependencies = [
+ "gethostname",
  "getrandom 0.4.3",
  "jiff",
  "libc",

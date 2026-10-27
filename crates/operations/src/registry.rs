@@ -11,16 +11,24 @@
 //! ends the operation all the same, with an internal error for the requests that joined it, so nothing waits forever.
 //! Besides the session the registry keeps only the channels of the operations it admitted: the answer of each for the
 //! requests that join it, and the wake-up of each one that waits.
+//!
+//! Between processes the operations registry of the repository admits first (`registry_file`, `RegistryFiles`): on the
+//! blocking pool, before the actor sees the operation, its record goes into the file of its repository unless an
+//! operation of another process holds what it needs, which makes it `busy`; once the actor ended it, its record leaves
+//! the file. The file is never read or written on the actor, and its lock is never held across an `await`.
 
 use crate::events::EventSink;
+use crate::registry_file::{Entry, ProcessRegistry};
 use domain_policy::admission::admit;
-use domain_types::error::{ApiError, ErrorCode};
+use domain_types::error::{ApiError, ErrorCode, HolderTool};
 use domain_types::operation::{Admission, Intent, OperationEvent, OperationId, OperationStep, Origin, Outcome, Resource, RunningMove, RunningOperation};
 use repository_model::session::{SessionHold, SessionKey, Sessions};
 use repository_model::table::{OperationPatch, TableState};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use sync_utils::span::in_current_span;
 use tokio::sync::{oneshot, watch};
 
 /// How an operation ended, which the requests that joined it get too
@@ -50,7 +58,55 @@ pub enum Admitted {
 #[derive(Clone)]
 pub struct Registry {
   sessions: Arc<Sessions>,
+  files: RegistryFiles,
   channels: Arc<Mutex<HashMap<OperationId, Channel>>>,
+}
+
+/// Where the operations of the sessions of a registry are recorded for the other processes of their repositories
+/// (`registry_file::ProcessRegistry` of the `$GIT_COMMON_DIR` of each), and as which program
+#[derive(Clone)]
+pub struct RegistryFiles {
+  tool: HolderTool,
+  /// The `$GIT_COMMON_DIR` of the worktree of a session, called on the blocking pool; none: nothing is recorded
+  common_dir: Option<Arc<CommonDir>>,
+}
+
+/// The `$GIT_COMMON_DIR` of the worktree of a session; `None` outside a repository
+type CommonDir = dyn Fn(&SessionKey) -> Option<PathBuf> + Send + Sync;
+
+impl RegistryFiles {
+  /// The operations of `tool` recorded in the registry of the `$GIT_COMMON_DIR` that `common_dir` resolves for a session
+  /// (the app's: the directories it keeps by worktree, no git process after the first)
+  pub fn new(tool: HolderTool, common_dir: impl Fn(&SessionKey) -> Option<PathBuf> + Send + Sync + 'static) -> Self {
+    Self {
+      tool,
+      common_dir: Some(Arc::new(common_dir)),
+    }
+  }
+
+  /// Nothing recorded: no other process sees the operations (the tests of the registry, over sessions without a
+  /// repository)
+  #[must_use]
+  pub const fn none() -> Self {
+    Self {
+      tool: HolderTool::App,
+      common_dir: None,
+    }
+  }
+
+  /// The record of the operation `id` of the session of `key` that asks `request`, in the registry of its repository
+  /// (`ProcessRegistry::admit`), on the blocking pool; none when nothing is recorded
+  async fn enter(&self, key: &SessionKey, id: &OperationId, request: &OperationRequest) -> Result<Option<Entry>, ApiError> {
+    let Some(common_dir) = self.common_dir.clone() else {
+      return Ok(None);
+    };
+    let (tool, key, id, request) = (self.tool, key.clone(), id.clone(), request.clone());
+    tokio::task::spawn_blocking(in_current_span(move || {
+      common_dir(&key).map(|dir| ProcessRegistry::of(&dir).admit(&id, tool, &key, &request)).transpose()
+    }))
+    .await
+    .map_err(|error| ApiError::internal(format!("The admission into the operations registry failed: {error}")))?
+  }
 }
 
 /// What the registry keeps of an operation it admitted, from its admission until its end
@@ -87,10 +143,12 @@ enum Decision {
 }
 
 impl Registry {
+  /// The registry of the operations of `sessions`, recorded for the other processes in `files`
   #[must_use]
-  pub fn new(sessions: Arc<Sessions>) -> Self {
+  pub fn new(sessions: Arc<Sessions>, files: RegistryFiles) -> Self {
     Self {
       sessions,
+      files,
       channels: Arc::new(Mutex::new(HashMap::new())),
     }
   }
@@ -116,9 +174,12 @@ impl Registry {
   /// the same intent
   ///
   /// # Errors
-  /// `locked` when an operation of another process holds what it needs; `internal` when the session closed meanwhile
+  /// `busy` when an operation of another process holds what it needs (`registry_file`), with the errors of its registry
+  /// file; `internal` when the session closed meanwhile
   pub async fn admit(&self, key: &SessionKey, request: OperationRequest, events: Arc<dyn EventSink>) -> Result<Admitted, ApiError> {
     let id = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+    // between processes first, and on the blocking pool: the actor never waits for the file
+    let entry = self.files.enter(key, &id, &request).await?;
     // from here on the guard ends what the actor admits: a caller that stops waiting, for the admission or in the queue,
     // gives the place up, as its end follows the admission on the actor
     let mut guard = RunningGuard {
@@ -129,6 +190,7 @@ impl Registry {
       events,
       ended: false,
       queued: false,
+      entry,
       _hold: self.sessions.hold(key),
     };
     let (wake, woken) = oneshot::channel();
@@ -154,7 +216,7 @@ impl Registry {
       Decision::Busy { holder } => {
         guard.ended = true;
         Err(ApiError::new(
-          ErrorCode::Locked,
+          ErrorCode::Busy,
           format!("The operation {holder} of another process holds what this one needs; retry when it is done"),
         ))
       }
@@ -263,6 +325,8 @@ pub struct RunningGuard {
   ended: bool,
   /// It waited in the queue for the operations before it
   queued: bool,
+  /// Its record in the registry of its repository, which leaves it after its end went to the session
+  entry: Option<Entry>,
   /// Dropped after the end went to the session
   _hold: SessionHold,
 }
@@ -316,14 +380,19 @@ impl RunningGuard {
   }
 
   /// Ends the operation with `answer`: its caller hears an outcome, the requests that joined it get the answer, and the
-  /// ones that waited behind it are admitted again
-  pub fn finish(mut self, answer: Answer) {
+  /// ones that waited behind it are admitted again; done once its record left the registry of its repository, so another
+  /// process admits what it held from then on
+  pub async fn finish(mut self, answer: Answer) {
     if let Ok(outcome) = &answer {
       self.events.send(OperationEvent::Done {
         outcome: Box::new(outcome.clone()),
       });
     }
     self.end(answer);
+    if let Some(entry) = self.entry.take() {
+      // the removal of its record reads and writes the file: on the blocking pool
+      let _ = tokio::task::spawn_blocking(in_current_span(move || drop(entry))).await;
+    }
   }
 
   fn end(&mut self, answer: Answer) {
@@ -340,6 +409,14 @@ impl Drop for RunningGuard {
   fn drop(&mut self) {
     if !self.ended {
       self.end(Err(ApiError::internal(format!("The operation {} ended without an answer", self.id))));
+    }
+    // a request that joined, a session that closed, a dropped future: the record leaves on the blocking pool when there
+    // is a runtime, here else
+    if let Some(entry) = self.entry.take() {
+      match tokio::runtime::Handle::try_current() {
+        Ok(runtime) => drop(runtime.spawn_blocking(in_current_span(move || drop(entry)))),
+        Err(_) => drop(entry),
+      }
     }
   }
 }

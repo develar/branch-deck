@@ -7,10 +7,15 @@
 //!
 //! - `registry`: the in-process registry, the one writer of the `operations` part of each session: the admission of an
 //!   operation and its entry into the session as one change on the actor of the session, its step and moves, its end
-//!   with the admission again of the ones that waited, in the order they came, and the requests that join it
+//!   with the admission again of the ones that waited, in the order they came, and the requests that join it; between
+//!   processes the registry file admits first (`RegistryFiles`)
+//! - `registry_file`: the operations registry of a repository (`operations.json` in `$GIT_COMMON_DIR/branch-deck/`), its
+//!   one writer: a record per operation of each process of the repository, `busy` while another process runs what an
+//!   operation needs, the records of processes that are gone dropped, the heartbeat of the records of this process
 //! - `engine`: the frame of every family: admitted, the body of the family runs and ends the operation with its answer;
 //!   joined, the answer of the operation it joined; `prepare` and `execute` by the family of the intent; the start of
-//!   the app admitted with what its plan reserves (`execute_land`)
+//!   the app admitted with what its plan reserves (`execute_land`); what the run of a plan asks the registry for, the
+//!   app's and `bd`'s alike (`request_of`)
 //! - `needs`: what the plan of an intent reads of the remote before it decides (`needs`), and what the first decision
 //!   of a start waits for (`waits`)
 //! - `facts`: the reads of the needs, side by side, one per fact, into the facts of the session of the operation
@@ -59,6 +64,7 @@ pub mod needs;
 pub mod pull_request;
 pub mod push;
 pub mod registry;
+pub mod registry_file;
 pub mod review;
 pub mod robot;
 pub mod robot_start;
@@ -68,5 +74,7 @@ pub mod witness;
 mod http_budget_test;
 #[cfg(test)]
 mod process_budget_test;
+#[cfg(test)]
+mod registry_scan_test;
 #[cfg(test)]
 mod remote_write_scan_test;

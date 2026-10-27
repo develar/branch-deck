@@ -1713,6 +1713,12 @@ export type ErrorCode =
 "lease_rejected" | 
 /**  Another git process holds a lock; retry */
 "locked" | 
+/**
+ *  An operation of another process (the app, another `bd`) runs what this one needs: the same subject, a branch it
+ *  lands or pushes, a robot, a field of a pull request (`holder` names it, from the operations registry of the
+ *  repository). Nothing was done; retry when it is done
+ */
+"busy" | 
 /**  A rebase, merge, cherry-pick or revert is in progress */
 "operation_in_progress" | 
 /**  HEAD is detached */
@@ -1973,6 +1979,11 @@ export type ErrorDetails =
 { type: "blocks"; blocks: string[] } | 
 /**  Who holds the repository lock: `locked`; `None` when the holder wrote no record */
 { type: "locked"; holder: LockHolderInfo | null } | 
+/**
+ *  The operation of another process that runs what this one needs: `busy`; `None` when the registry is of another
+ *  Branch Deck (another schema), whose operations can't be read
+ */
+{ type: "busy"; holder: OperationHolder | null } | 
 /**  What the landing gate refuses of a start, each with its fix: `missing_declaration`, `dangling_reference` */
 { type: "landing"; refusals: LandingRefusal[] };
 
@@ -2633,7 +2644,7 @@ export type HoldView = {
 	carried: Carried | null,
 };
 
-/**  Which program holds the lock */
+/**  Which program holds the lock, or runs an operation */
 export type HolderTool = 
 /**  The agent CLI */
 "bd" | 
@@ -3441,11 +3452,27 @@ export type OperationEvent =
 /**  It ended, or the operation it joined did */
 { kind: "done"; outcome: Outcome };
 
+/**  An operation of another process as the page and `bd` name it: "`bd` (pid 4242) has run the Safe Push of auth for 40 s" */
+export type OperationHolder = {
+	/**  Its id, the `operation_id` of its log lines */
+	op: string,
+	tool: HolderTool,
+	pid: number,
+	kind: OperationKind,
+	/**  The branch it runs on, `stack:<root>` a whole stack; `None` for an operation of a robot, a pull request or an issue */
+	subject: string | null,
+	/**  Seconds since it was admitted */
+	held_for: number,
+};
+
 /**
  *  The id of an operation: the ULID text of `sync_utils::operation_id::OperationId`, the `operation_id` of its log
  *  lines; a string in TypeScript
  */
 export type OperationId = string;
+
+/**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "close_landed_pull_requests" | "submit_review" | "set_issue_state";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -3519,8 +3546,8 @@ export type Origin =
 /**  In the process of the session: a request of it joins or waits for the operation */
 { kind: "thisProcess" } | 
 /**
- *  In another process (the registry file of `s10-registry-journal`): a request of it is busy, it can't wait for a
- *  process
+ *  In another process (its record in the operations registry of the repository, `operations::registry_file`): a
+ *  request of it is busy, it can't wait for a process
  */
 { kind: "otherProcess"; tool: HolderTool; pid: number };
 

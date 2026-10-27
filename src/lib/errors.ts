@@ -3,6 +3,7 @@ import { toast } from "@/components/ui/toast"
 import type { ApiError, ErrorCode } from "@/lib/bindings"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { presentLockHolder } from "@/presenters/lock-wait"
+import { presentOperationHolder } from "@/presenters/operations"
 
 /** Whether `error` is the `ApiError` a command answers (`code`, `message`, …), not an `Error` of the page */
 export function isApiError(error: unknown): error is ApiError {
@@ -31,12 +32,16 @@ export function getErrorDetails(error: unknown): string {
 
 /**
  * The error in the words of the page, by its code: a held repository lock names its holder from `details`
- * ("`bd push auth` (pid 4242) has held the repository for 40 s"), never the lock file; any other error is its message
- * (`getErrorDetails`)
+ * ("`bd push auth` (pid 4242) has held the repository for 40 s"), never the lock file; an operation of another process
+ * that holds what this one needs names it ("`bd` (pid 4242) has run the Safe Push of auth for 12 s"); any other error is
+ * its message (`getErrorDetails`)
  */
 export function describeError(error: unknown): string {
   if (isApiError(error) && error.code === "locked" && error.details?.type === "locked") {
     return error.details.holder === null ? "Another Branch Deck operation holds the repository" : presentLockHolder(error.details.holder)
+  }
+  if (isApiError(error) && error.code === "busy" && error.details?.type === "busy") {
+    return error.details.holder === null ? "An operation of another version of Branch Deck runs: retry when it is done" : presentOperationHolder(error.details.holder)
   }
   return getErrorDetails(error)
 }

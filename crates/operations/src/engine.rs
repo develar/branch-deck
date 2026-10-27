@@ -34,7 +34,7 @@ pub async fn run(registry: &Registry, key: &SessionKey, request: OperationReques
   match registry.admit(key, request, Arc::clone(&events)).await? {
     Admitted::Run(guard) => {
       let answer = body(&guard).await;
-      guard.finish(answer.clone());
+      guard.finish(answer.clone()).await;
       answer
     }
     Admitted::Joined(joined) => {
@@ -155,21 +155,46 @@ pub async fn execute_land(
   events: Arc<dyn EventSink>,
 ) -> Answer {
   let planned = land::prepare(registry.sessions(), key, land.clone()).await;
-  let request = OperationRequest {
-    intent: Intent::Land(land.clone()),
-    resources: planned.as_ref().map_or_default(|plan| reserved(&key.prefix, &land.subject, plan)),
-    step: OperationStep::Checking,
-    moves: vec![RunningMove::Starting {
-      subject: land.subject.name().to_string(),
-      mode: land.mode,
-    }],
-  };
+  let request = land_request(&key.prefix, &land, planned.as_ref());
   run(registry, key, request, events, async |guard| {
     let steps = steps_of(guard);
     let started = land_execute::execute(host, services, &steps, guard.id().clone(), &land, &accepted, guard.queued()).await?;
     Ok(started.outcome)
   })
   .await
+}
+
+/// What the start `land` of a session of `prefix` asks the registry for: what its plan (as the session has it now)
+/// reserves, the move of its row from the click on
+fn land_request(prefix: &str, land: &Land, plan: Option<&Plan>) -> OperationRequest {
+  OperationRequest {
+    intent: Intent::Land(land.clone()),
+    resources: plan.map_or_default(|plan| reserved(prefix, &land.subject, plan)),
+    step: OperationStep::Checking,
+    moves: vec![RunningMove::Starting {
+      subject: land.subject.name().to_string(),
+      mode: land.mode,
+    }],
+  }
+}
+
+/// What the run of `planned` in a session of `prefix` asks the registry for, by the family of its intent, as the app's
+/// admission of that intent asks it: `bd` records the run of a plan it made with it in the operations registry of the
+/// repository (`registry_file`), so one plan holds the same resources in the app and in `bd`
+#[must_use]
+pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
+  let plan = &planned.plan;
+  match &plan.intent {
+    Intent::Land(land) => land_request(prefix, land, Some(plan)),
+    Intent::Push(push) => push::push_request(prefix, push, Some(planned)),
+    Intent::RestartRobot { robot_id } => robot::restart_request(robot_id, Some(planned)),
+    Intent::CancelRobot { robot_id } => robot::cancel_request(robot_id),
+    Intent::Retarget { number } => pull_request::retarget_request(*number),
+    intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. }) => pull_request::pull_request_request(intent, Some(planned)),
+    intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::close_request(intent, Some(plan)),
+    intent @ Intent::SubmitReview { number, .. } => review::review_request(intent, *number),
+    intent @ Intent::SetIssueState { key, .. } => issue::issue_request(intent, key),
+  }
 }
 
 /// What a start of `subject` reserves: the branches its plan lands, the refs its push writes, the robot it cancels

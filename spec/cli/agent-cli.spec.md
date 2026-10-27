@@ -63,6 +63,7 @@ targets:
   - ../../crates/bd-remote/src/safe_push_run.rs
   - ../../crates/operations/src/land_execute.rs
   - ../../crates/operations/src/robot_start.rs
+  - ../../crates/operations/src/registry_file.rs
   - ../../crates/bd-core/src/review_summary.rs
   - ../../crates/bd-remote/src/push_refusals.rs
   - ../../crates/remote-facts/src/stack_pull_request.rs
@@ -259,6 +260,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   failure of git or IO as `git_error`) with 5.
   [@test] ../../crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
   [@test] ../../crates/domain-types/src/error_test.rs (`an_error_without_a_code_of_its_own_is_internal_and_canceled_is_a_code`, `an_error_carries_the_retry_of_its_code`)
+- A push, a Safe Push or a Dry Run and a review request (`bd push`, `bd safe-push`, `bd request-review`) must be
+  recorded in the operations registry of the repository before its run, and must be `busy` (exit 3, retryable,
+  `retry: same`), nothing pushed or started, while an operation of another process (the app, another `bd`, in any
+  worktree of the repository) runs the same intent or holds what it needs: a branch it lands or pushes, a robot, a
+  field of a pull request. `error.holder` must name that operation (`op`, `tool`, `pid`, `kind`, `subject`,
+  `held_for`), the message who runs what. An operation of another branch must run beside it, and the record of an
+  operation must leave the registry once it ended, or at the next admission once its process is gone.
+  [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder`)
+  [@test] ../../crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`, `a_gone_process_of_this_host_leaves_at_once_and_one_of_another_host_after_five_minutes`, `a_registry_of_another_schema_is_busy_and_never_written`)
 - A typed error of a core must have one code in `bd` and in the app: the type names it (`ParkError::code`,
   `GuardRefusal::code`, `UnapplyRefusal::code`, `ReapplyRefusal::code`), local changes in the way of an unapply, a
   reapply or their undo are `uncommitted_overlap`, and an undo answers the code `in_undo` (`ErrorCode::in_undo`): a

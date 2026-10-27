@@ -35,6 +35,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::NothingToReapply, 4, false),
   (ErrorCode::LeaseRejected, 4, false),
   (ErrorCode::Locked, 3, true),
+  (ErrorCode::Busy, 3, true),
   (ErrorCode::OperationInProgress, 4, false),
   (ErrorCode::DetachedHead, 4, false),
   (ErrorCode::UndoStale, 4, false),
@@ -106,7 +107,7 @@ fn every_error_code_has_the_exit_code_and_the_retry_of_its_class() {
     // `retryable` is the retry class of the app's `ApiError`: a stale read retries after a new read, the rest as it is
     let retry = if !retryable {
       Retry::No
-    } else if exit_code == 3 && code != ErrorCode::Locked {
+    } else if exit_code == 3 && !matches!(code, ErrorCode::Locked | ErrorCode::Busy) {
       Retry::AfterReread
     } else {
       Retry::Same
