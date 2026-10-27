@@ -1,37 +1,14 @@
 // @spec spec/repository/command-palette.spec.md
-import type { Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers"
 import { collapseBranch, findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { openPalette, palette, runByKeyboard, search } from "../helpers/command-palette-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate, waitForTauriListener } from "../helpers/sync-helpers"
+import { runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 
 // `issue_links`: 7 branches, ABC-123 and JIRA-456 among them; `behind_upstream`: master is behind origin/master
-
-function palette(page: Page) {
-  return page.getByTestId("command-palette")
-}
-
-function search(page: Page) {
-  return palette(page).getByRole("combobox", { name: "Command or branch" })
-}
-
-/** ⌘K of the native menu (View → Command Palette…), which sends its command to the main window */
-async function openPalette(page: Page): Promise<void> {
-  await waitForTauriListener(page, "open_command_palette")
-  await emitTauriEvent(page, "open_command_palette")
-  await expect(search(page)).toBeFocused()
-}
-
-/** Types `text` and presses Enter on the first option it keeps, whose label must be `label` (its key hint after it) */
-async function runByKeyboard(page: Page, text: string, label: string): Promise<void> {
-  await search(page).fill(text)
-  await expect(palette(page).getByRole("option").first()).toHaveText(new RegExp(`^${label.replace(/[.*+?^$()[\]{}|\\]/g, "\\$&")}`))
-  await page.keyboard.press("Enter")
-  await expect(palette(page)).toHaveCount(0)
-}
 
 testWithIssueLinks.describe("Command palette", () => {
   testWithIssueLinks("should open from ⌘K of the native menu, list every source and give the focus back on Escape", async ({ page }) => {

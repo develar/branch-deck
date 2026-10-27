@@ -55,7 +55,7 @@ names and reasons.
 
 - The groups, in this order (`paletteCommands`): Views (`MAIN_VIEWS` of `src/stores/main-view.ts`, Branches, Reviews
   and Landing: a view joins the palette by its entry there), Activity (Activity Panel, which toggles the side panel as the header button does, and
-  Activity Window), Commands (Add Pull Request by Link…, which shows Reviews with the focus in its field of a link
+  Activity Window), Commands (Add Pull Request by Link…, which shows Reviews with the focus in its field and its text selected
   ([Reviews](reviews.spec.md#links)), then the items Sync Branches, Update Project, Settings…, Install Agent CLI… and, where the
   build updates itself, Check for Updates… of `mainMenus`, disabled with the reason where the menu disables them), the
   actions of the branch at hand (below) and Branches ("Go to <branch>" for every branch of the table, in its order).

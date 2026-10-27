@@ -20,14 +20,36 @@ export interface SearchFieldProps {
   inputRef?: RefObject<HTMLInputElement | null>
   /** `/` focuses it from anywhere in the window (on by default); off for a second search of a window, which has one `/` */
   slashFocus?: boolean
+  /** Enter in the field (not while composing): what a search that also takes a link does with it */
+  onEnter?: () => void
+  /** What Enter asked runs: the field is read-only and busy, the focus stays in it */
+  busy?: boolean
+  /** What Enter asked was refused, said by the element `describedBy` names */
+  invalid?: boolean
+  describedBy?: string
+  "data-testid"?: string
 }
 
 /**
  * The search of a list, the same wherever a list has one (the branch table, the files of a review): the search icon,
  * `/` focuses it from anywhere in the window (the `Kbd` at its end while empty), X clears a typed text, Escape clears
- * it, then leaves the field, ↓ moves to the first result.
+ * it, then leaves the field, ↓ moves to the first result; Enter is the caller's (the search of Reviews takes a link).
  */
-export function SearchField({ value, onValueChange, label, onLeave, onArrowDown, className, inputRef, slashFocus = true }: SearchFieldProps) {
+export function SearchField({
+  value,
+  onValueChange,
+  label,
+  onLeave,
+  onArrowDown,
+  className,
+  inputRef,
+  slashFocus = true,
+  onEnter,
+  busy = false,
+  invalid = false,
+  describedBy,
+  "data-testid": testId,
+}: SearchFieldProps) {
   const ownRef = useRef<HTMLInputElement>(null)
   const ref = inputRef ?? ownRef
   useSlashFocus(ref, slashFocus)
@@ -42,6 +64,11 @@ export function SearchField({ value, onValueChange, label, onLeave, onArrowDown,
         value={value}
         placeholder={label}
         aria-label={label}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
+        aria-busy={busy || undefined}
+        readOnly={busy}
+        data-testid={testId}
         autoComplete="off"
         spellCheck={false}
         className="h-7"
@@ -57,6 +84,9 @@ export function SearchField({ value, onValueChange, label, onLeave, onArrowDown,
           } else if (event.key === "ArrowDown") {
             event.preventDefault()
             onArrowDown()
+          } else if (event.key === "Enter" && onEnter !== undefined && !event.nativeEvent.isComposing) {
+            event.preventDefault()
+            onEnter()
           }
         }}
       />

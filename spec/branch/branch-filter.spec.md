@@ -65,8 +65,9 @@ that stops matching while the user looks at it (its move made, its robot done) s
 
 ### Search
 
-- `/` must focus the search from anywhere in the window and select its text, except while typing in another input, in
-  a menu or in a dialog. Escape in the search must clear its text, and in an empty search move the focus to the table,
+- `/` must focus the search from anywhere in the window and select its text while the branches show (the Reviews view
+  has its own, [Reviews](../repository/reviews.spec.md#search)), except while typing in another input, in a menu or in
+  a dialog. Escape in the search must clear its text, and in an empty search move the focus to the table,
   whose keys then work. ↓ in the search must move the focus to the first branch row.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
 - A branch must match when every word of the search (split at white space) is in its name, its issue key, its summary,

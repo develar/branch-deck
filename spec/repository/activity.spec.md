@@ -243,7 +243,7 @@ leaves out: the overview tells the present, its line of the last day opens Activ
 - The side panel is an island (`Card`) on the canvas beside the islands of the main window, 8px from them, from the
   window edge and from the bottom, under the header: 24rem until its divider (the 8px gap) is dragged, at least 320 px,
   at most half the area. Its 40px header has "Activity", Open in Window (`AppWindowIcon`, `xs`) and Close; under it the
-  search (`w-full`, without `/`, which stays the branch table's) and the chips, then the log, which scrolls.
+  search (`w-full`, without `/`, which stays the search of the view that shows) and the chips, then the log, which scrolls.
 - The window opens at 560 × 720, at least 440 × 400 (wider above a zoom of 110%: `sub_window_min_size`); "Activity" in
   its title bar. On the canvas the search (`SearchField`, `w-60`, `/` focuses it) and the chips (`FilterChips`, the
   stock `ToggleGroup`, as the filter bar of the branch table), below them the log in one `Card` island, the entries newest first grouped by day

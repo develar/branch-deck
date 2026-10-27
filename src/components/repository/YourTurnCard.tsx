@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { ReturnedPullRequestRow, ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
 import { ReviewStatusLine } from "@/components/repository/ReviewStatusLine"
+import { FilteredOnGitHub } from "@/components/reviews/FilteredOnGitHub"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { HelpList, HelpPopover, HelpSection } from "@/components/shared/HelpPopover"
@@ -24,6 +25,7 @@ import { formatOldestWaiting, hasWaitedWorkingDay, pickVisibleRequests, reposito
 import { handleReviewRowKeys } from "@/lib/review-row-keys"
 import { openSettings } from "@/lib/settings-window"
 import { formatRelativeTime } from "@/lib/time"
+import { typedReference } from "@/presenters/reviews"
 import { showMainView } from "@/stores/main-view"
 import { useSelectedProjectPath } from "@/stores/repository"
 import {
@@ -201,17 +203,24 @@ export interface YourTurnBodyProps {
   requests: readonly ReviewRequest[]
   returned: readonly ReturnedPullRequest[]
   repositoryPath: string
+  /**
+   * The words of the filter of Reviews, which `requests` and `returned` already match: every match shows, and while
+   * GitHub has more than it lists, "First 50 of 63 filtered · Search on GitHub" with them
+   */
+  filterText?: string
 }
 
 /**
  * The rows (3, then "Show N More"; unread ones always), "50 of 63" while GitHub has more than it lists, expanded or
- * not, the returned pull requests, and while GitHub can't be asked the line that says why
+ * not, the returned pull requests, and while GitHub can't be asked the line that says why; filtered, every match
  */
-export function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps) {
+export function YourTurnBody({ requests, returned, repositoryPath, filterText = "" }: YourTurnBodyProps) {
   const unread = useUnreadReviewRequests()
   const totalCount = useReviewRequestsTotalCount()
-  const [expanded, setExpanded] = useState(false)
-  const visible = expanded ? requests : pickVisibleRequests(requests, unread)
+  const [isExpanded, setExpanded] = useState(false)
+  const filtered = filterText.trim() !== ""
+  const expanded = isExpanded && !filtered
+  const visible = expanded || filtered ? requests : pickVisibleRequests(requests, unread)
   const hidden = requests.length - visible.length
   // GitHub lists the 50 oldest: the count of the header is its total
   const moreOnGitHub = totalCount > requests.length
@@ -251,20 +260,33 @@ export function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBod
           ))}
         </ul>
       )}
-      {(hidden > 0 || expanded || moreOnGitHub) && (
-        <div className="flex items-center gap-3 px-2 py-1 sm:px-4">
-          {(hidden > 0 || expanded) && (
-            <Button variant="ghost" size="xs" className="text-muted-foreground" data-testid="review-requests-show-more" onClick={() => setExpanded(!expanded)}>
-              {expanded ? "Show Less" : `Show ${hidden} More`}
-            </Button>
+      {filtered
+        ? moreOnGitHub &&
+          requests.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-1 sm:px-6">
+              <FilteredOnGitHub count={requests.length} totalCount={totalCount} url={filteredSearchUrl(requests, filterText)} />
+            </div>
+          )
+        : (hidden > 0 || expanded || moreOnGitHub) && (
+            <div className="flex items-center gap-3 px-2 py-1 sm:px-4">
+              {(hidden > 0 || expanded) && (
+                <Button variant="ghost" size="xs" className="text-muted-foreground" data-testid="review-requests-show-more" onClick={() => setExpanded(!expanded)}>
+                  {expanded ? "Show Less" : `Show ${hidden} More`}
+                </Button>
+              )}
+              {moreOnGitHub && <MoreOnGitHub requests={requests} totalCount={totalCount} />}
+            </div>
           )}
-          {moreOnGitHub && <MoreOnGitHub requests={requests} totalCount={totalCount} />}
-        </div>
-      )}
       {returned.length > 0 && <ReturnedList returned={returned} />}
       <YourTurnStatusLine />
     </div>
   )
+}
+
+/** The search of the requests on GitHub with the words of the filter; none for a number or a link, which names one pull request */
+function filteredSearchUrl(requests: readonly ReviewRequest[], text: string): string | null {
+  const repository = repositoryOfPullRequestUrl(requests[0]!.url)
+  return repository === null || typedReference(text) !== null ? null : reviewRequestsSearchUrl(repository, text)
 }
 
 /** "50 of 63 · Open All on GitHub": GitHub returns the 50 oldest */

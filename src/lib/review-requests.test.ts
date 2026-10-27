@@ -106,6 +106,9 @@ describe("links", () => {
     expect(reviewRequestsSearchUrl(repository!)).toBe(
       "https://github.com/acme/monorepo/pulls?q=is%3Apr%20is%3Aopen%20archived%3Afalse%20draft%3Afalse%20user-review-requested%3A%40me",
     )
+    expect(reviewRequestsSearchUrl(repository!, " oauth ")).toBe(
+      "https://github.com/acme/monorepo/pulls?q=is%3Apr%20is%3Aopen%20archived%3Afalse%20draft%3Afalse%20user-review-requested%3A%40me%20oauth",
+    )
     expect(repositoryOfPullRequestUrl("https://example.com/x")).toBeNull()
   })
 })

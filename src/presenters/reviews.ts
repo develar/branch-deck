@@ -5,7 +5,9 @@
  */
 import type { ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSectionKind, ReviewerState } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
-import { formatDuration } from "@/lib/review-requests"
+import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
+import { formatReturnedMeta } from "@/lib/outgoing-attention"
+import { formatDuration, formatRequestMeta, withSearchText } from "@/lib/review-requests"
 import { formatRelativeTime } from "@/lib/time"
 
 /** The title of each section after the requests by name */
@@ -101,18 +103,72 @@ const SECTION_SEARCHES: Readonly<Record<Exclude<ReviewSectionKind, "linked">, st
   authored: "is:pr is:open archived:false author:@me",
 }
 
-/** The GitHub search of a section in the repository; null for the links, which no search lists */
-export function reviewSectionSearchUrl(kind: ReviewSectionKind, repository: { owner: string; name: string }): string | null {
-  return kind === "linked" ? null : pullsUrl(repository, SECTION_SEARCHES[kind])
+/**
+ * The GitHub search of a section in the repository, with the words of the filter (`text`) when the filter cut what
+ * GitHub returned; null for the links, which no search lists
+ */
+export function reviewSectionSearchUrl(kind: ReviewSectionKind, repository: { owner: string; name: string }, text = ""): string | null {
+  return kind === "linked" ? null : pullsUrl(repository, withSearchText(SECTION_SEARCHES[kind], text))
 }
 
-/** Every open pull request of the repository the user takes part in, on GitHub: "Open on GitHub" of the view */
-export function reviewsSearchUrl(repository: { owner: string; name: string }): string {
-  return pullsUrl(repository, "is:pr is:open involves:@me")
+/** Every open pull request of the repository the user takes part in, on GitHub: "Open on GitHub" of the view; with the words of the filter */
+export function reviewsSearchUrl(repository: { owner: string; name: string }, text = ""): string {
+  return pullsUrl(repository, withSearchText("is:pr is:open involves:@me", text))
 }
 
 function pullsUrl(repository: { owner: string; name: string }, query: string): string {
   return `https://github.com/${repository.owner}/${repository.name}/pulls?q=${encodeURIComponent(query)}`
+}
+
+/**
+ * The texts the filter of Reviews searches in a row of a section: what the row shows (its title, "#201", the author,
+ * the meta of how the user takes part: the teams, the reviewers, "you approved") and its branches; never the URL,
+ * whose words every row has
+ */
+export function reviewEntryTexts(entry: ReviewEntry): string[] {
+  const { request } = entry
+  return [request.title, `#${request.number}`, request.author ?? "", request.headRefName, request.baseRefName, formatReviewMeta(entry)]
+}
+
+/** The texts the filter of Reviews searches in a request of Your Turn: its title, "#101 · alice · requested by dave" and its branches */
+export function reviewRequestTexts(request: ReviewRequest): string[] {
+  return [request.title, formatRequestMeta(request), request.headRefName, request.baseRefName]
+}
+
+/** The texts the filter of Reviews searches in an own pull request a reviewer handed back: its title, its meta, its branch */
+export function returnedTexts(item: ReturnedPullRequest): string[] {
+  return [item.pullRequest.title, formatReturnedMeta(item.pullRequest), item.branchName, item.pullRequest.headRefName]
+}
+
+/**
+ * What the text of the field of Reviews names when it names a pull request: its number (`#123`, `123`), or a link that
+ * Rust reads (a URL, `owner/name#123`); null for words, which only filter
+ */
+export type TypedReference = { readonly kind: "number"; readonly number: number } | { readonly kind: "link"; readonly text: string }
+
+export function typedReference(text: string): TypedReference | null {
+  const value = text.trim()
+  const number = /^#?(\d+)$/.exec(value)
+  if (number !== null) {
+    return { kind: "number", number: Number(number[1]) }
+  }
+  return value !== "" && !/\s/.test(value) && value.includes("/") ? { kind: "link", text: value } : null
+}
+
+/**
+ * The shown row the reference names: the one of its number, or the one whose URL a pasted link starts with (`/files`
+ * and an anchor after it); undefined when no shown row is it, and Rust is asked for the link
+ */
+export function shownPullRequestOf<T extends { readonly number: number; readonly url: string }>(reference: TypedReference, rows: readonly T[]): T | undefined {
+  if (reference.kind === "number") {
+    return rows.find(row => row.number === reference.number)
+  }
+  return rows.find(row => reference.text === row.url || (reference.text.startsWith(row.url) && "/#?".includes(reference.text.charAt(row.url.length))))
+}
+
+/** The line of Reviews the filter left empty: `No pull requests match “oauth”` */
+export function formatReviewsNoMatch(text: string): string {
+  return `No pull requests match “${text.trim()}”`
 }
 
 /** Who asks in the review window of a pull request of Reviews: "Added by link", "ide-platform asks for a review", "You reviewed carol's pull request" */

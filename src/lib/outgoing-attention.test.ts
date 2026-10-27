@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ChecksSummary, PullRequest } from "@/lib/bindings"
+import type { ChecksSummary } from "@/lib/bindings"
 import { collectReturnedToYou, formatReturnedMeta } from "@/lib/outgoing-attention"
 import type { BranchTableRow } from "@/stores/branch-sync"
+import { openPullRequest } from "@/test-support/pull-request"
 
 function row(name: string): BranchTableRow {
   return {
@@ -13,24 +14,6 @@ function row(name: string): BranchTableRow {
     familyIndent: 0,
     lanes: { lane: 0, forkFrom: null, up: false, down: false, through: [], alone: true },
     dimmed: false,
-  }
-}
-
-function openPullRequest(branchName: string, patch: Partial<PullRequest>): PullRequest {
-  return {
-    number: 7,
-    title: branchName,
-    url: `https://github.com/o/r/pull/7`,
-    state: "open",
-    isDraft: false,
-    reviewDecision: null,
-    headRefName: `user/virtual/${branchName}`,
-    headRefOid: `${branchName}-tip`,
-    checks: null,
-    updatedAt: 0,
-    reviewers: [],
-    author: "me",
-    ...patch,
   }
 }
 

@@ -1,6 +1,6 @@
 ---
 name: Reviews
-description: Requirements for the Reviews view of the main window: every open pull request of the selected repository the user takes part in on GitHub, beyond the requests by name of Your Turn (the requests of the user's teams, the pull requests the user reviewed, the user's own), each once, and a field that adds a pull request by its link when its author forgot to ask the user; read in the request of the review requests only while the view shows, its sections and the actions of each pull request decided in Rust.
+description: Requirements for the Reviews view of the main window: every open pull request of the selected repository the user takes part in on GitHub, beyond the requests by name of Your Turn (the requests of the user's teams, the pull requests the user reviewed, the user's own), each once, and one field that filters every section by the words typed and adds a pull request by its link when its author forgot to ask the user; read in the request of the review requests only while the view shows, its sections and the actions of each pull request decided in Rust.
 style: plain-1
 targets:
   - ../../crates/domain-types/src/review_request.rs
@@ -24,6 +24,11 @@ targets:
   - ../../src-tauri/src/commands/review_requests.rs
   - ../../src-tauri/src/commands/session.rs
   - ../../src/components/reviews/ReviewsView.tsx
+  - ../../src/components/reviews/FilteredOnGitHub.tsx
+  - ../../src/components/shared/SearchField.tsx
+  - ../../src/hooks/useSlashFocus.ts
+  - ../../src/lib/text-search.ts
+  - ../../src/lib/review-requests.ts
   - ../../src/components/repository/ReviewRequestRow.tsx
   - ../../src/components/repository/YourTurnCard.tsx
   - ../../src/hooks/useReturnedToYou.ts
@@ -53,12 +58,13 @@ user takes part in on GitHub was told only by github.com/pulls: the requests of 
 pull requests the user reviewed, the user's own pull requests and their reviewers. And sometimes the author forgets to
 ask the user: the user has only a link. Reviews is the second view of the main window (Branches · Reviews · Landing,
 [Main Views](main-views.spec.md)): every open pull request of the selected repository the user takes part in, Your
-Turn's rows first, then the sections, each pull request once, and a field that adds any pull request of the repository
-by its link and opens it in the review window. Your Turn stays above the branches as it is.
+Turn's rows first, then the sections, each pull request once, and one field that filters them by the words typed and
+adds any pull request of the repository by its link, opening it in the review window. Your Turn stays above the branches as it is.
 
 ## Goals
 
 - See in one place what the user takes part in on GitHub, beyond what waits for the user by name.
+- Find a pull request among them by a few words of it.
 - Review a pull request nobody asked the user for, from its link, in the app.
 - Ask GitHub for it only while the user looks.
 
@@ -102,7 +108,7 @@ by its link and opens it in the review window. Your Turn stays above the branche
   user answered with a comment among them, "you replied"), Your Pull Requests (the latest update first). Your Turn's
   rows (the requests by name and the returned own pull requests) lead it as "Waiting for You". A pull request shows
   once, in the first section that has it; an empty section is left out; a section's count is GitHub's less the pull
-  requests an earlier section has.
+  requests an earlier section has; while the field filters, the count of the matches of it ([Search](#search)).
   [@test] ../../crates/domain-policy/src/reviews_test.rs (`each_pull_request_shows_once_in_the_first_section_after_your_turn_the_empty_ones_left_out`, `reviewed_by_the_user_shows_new_commits_first_and_the_requests_answered_with_a_comment`, `the_own_pull_requests_name_their_branch_and_leave_the_returned_ones_to_your_turn`)
   [@test] ../../crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review`)
   [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should show every pull request the user takes part in once, by section, and read them only while the view shows`)
@@ -140,11 +146,13 @@ by its link and opens it in the review window. Your Turn stays above the branche
 
 ### Links
 
-- The field "Add pull request by link or #number" takes a URL of a pull request (`/files` and an anchor after it too),
-  `owner/name#123`, `#123` or `123`; Enter asks Rust (`link_pull_request`), which reads it from GitHub, keeps an open
-  one and reads Reviews again; the review window opens on it. A link of another repository and a number the repository
-  lacks are refused under the field (`invalid_arguments`, `no_pull_request`), no toast; a merged or closed one opens but
-  is not kept. The palette's "Add Pull Request by Link…" shows the view with the focus in the field.
+- The field of the view ([Search](#search)) takes a link too: a URL of a pull request (`/files` and an anchor after it
+  too), `owner/name#123`, `#123` or `123`. Enter on one that no row of the view is asks Rust (`link_pull_request`),
+  which reads it from GitHub, keeps an open one and reads Reviews again; the field empties and the review window opens
+  on it. A link of another repository and a number the repository lacks are refused under the field
+  (`invalid_arguments`, `no_pull_request`), no toast, the focus kept in the field, read-only while Rust reads it; a
+  merged or closed one opens but is not kept. The palette's "Add Pull Request by Link…" shows the view with the focus in
+  the field and its text selected, so a paste replaces a filter.
   [@test] ../../crates/remote-facts/src/reviews_test.rs (`a_link_names_a_pull_request_of_the_repository`, `reads_a_link_the_user_adds`)
   [@test] ../../crates/test-server/src/review_requests_test.rs (`a_link_joins_reviews_from_the_fake_github`)
   [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should add a pull request by its link from the field the palette focuses, keep it, and remove it from its menu`)
@@ -155,6 +163,36 @@ by its link and opens it in the review window. Your Turn stays above the branche
   [@test] ../../crates/app-settings/src/linked_pull_requests_test.rs (`keeps_the_links_of_each_repository_newest_first_in_the_repository_state`, `a_repository_keeps_the_newest_links`)
   [@test] ../../crates/domain-policy/src/reviews_test.rs (`a_merged_closed_or_missing_link_goes`)
   [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should add a pull request by its link from the field the palette focuses, keep it, and remove it from its menu`)
+
+### Search
+
+- The field "Filter, or paste a link or #number" (`SearchField`, its accessible name the same) stands in the header
+  row while GitHub can be asked or the view has rows; `/` focuses it from anywhere in the window and selects its text
+  (only while the view shows: a hidden view's keys are off), X and Escape clear it and its refusal, Escape in the empty
+  field moves the focus to the heading, ↓ to the first row. Its text is the window's, by repository: a switch of the
+  views keeps it, another repository starts without one.
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should filter every section by the words typed, open the one match on Enter, and add a pull request by its link when nothing matches`)
+- A row matches when every word (split at white space) is, ignoring case, in what it shows or its branches: the title,
+  `#123`, the author, the meta of how the user takes part (the teams asked, the reviewers, "you approved", "requested
+  by dave", "changes requested by alice"), the head and the base branch; never in its URL or its description, whose
+  words every row has. A pasted link of a row of the view shows that row. Filtered, a section shows its matches, its
+  count "1 of 63", and one without a match is left out, Waiting for You too; Waiting for You shows every match, no
+  "Show N More". A section the user collapsed is collapsed again once the filter is cleared; while it filters, a
+  section with a match shows open.
+  [@test] ../../src/presenters/reviews.test.ts (`matches a row by every word of what it shows and its branches, ignoring case, never by its URL`, `matches a request by name by who asked, and a returned pull request by who handed it back and its branch`)
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should filter every section by the words typed, open the one match on Enter, and add a pull request by its link when nothing matches`)
+- Enter: a number (`#123`, `123`) or a link of a row of the view opens it, as Enter on the row does, and of another
+  pull request adds it by its link ([Links](#links)); `#20` is #20, never #201. Words open their one match, or move the
+  focus to the first of their matches; words that match nothing do nothing.
+  [@test] ../../src/presenters/reviews.test.ts (`names a pull request by its number or a link, and words by nothing`, `finds the shown row a number or a pasted link names, never another number that starts the same`)
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should filter every section by the words typed, open the one match on Enter, and add a pull request by its link when nothing matches`)
+- The filter sees what GitHub returned: a section GitHub returned a part of says "First 50 of 63 filtered" with
+  "Search on GitHub", its search with the typed words (none for a number or a link, which names one pull request). A
+  filter that leaves the view empty says `No pull requests match “migrate”` with Clear Filter, Add Pull Request (Enter)
+  when the text names a pull request, and for words Search on GitHub (`involves:@me` with them) when GitHub returned a
+  part of a list.
+  [@test] ../../src/presenters/reviews.test.ts (`searches GitHub with the typed words where it returned only a part, and says what found nothing`)
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should search GitHub with the words typed where it returned only a part of a section`, `should filter every section by the words typed, open the one match on Enter, and add a pull request by its link when nothing matches`)
 
 ### States
 
@@ -169,7 +207,7 @@ by its link and opens it in the review window. Your Turn stays above the branche
 ## User Experience
 
 - The header row of the view: the heading "Reviews" (the focus target of a switch), the GitHub repository muted, the
-  field, then "⋯" at the end. The sections are `CollapsibleCard` islands, open, their counts in the header; the rows
+  field (the search icon, `/` at its end while empty, up to 24rem), then "⋯" at the end. The sections are `CollapsibleCard` islands, open, their counts in the header; the rows
   are the 36 px rows of Your Turn.
 
 ## Testing / Local Run

@@ -3,7 +3,8 @@ import type { Locator, Page } from "@playwright/test"
 import type { ReviewEntry, ReviewRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { availablePullRequests, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
+import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
+import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { NOW, availableReviewRequests, openedReviewWindow, reviewRequest } from "../helpers/review-request-helpers"
 import type { ReviewRequestsFixture } from "../helpers/review-request-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
@@ -118,12 +119,8 @@ test.describe("Reviews view", () => {
 
     // Reviews of the palette
     await emitTauriEvent(page, "show_branches")
-    await emitTauriEvent(page, "open_command_palette")
-    const search = page.getByTestId("command-palette").getByRole("combobox", { name: "Command or branch" })
-    await expect(search).toBeFocused()
-    await search.fill("reviews")
-    await expect(page.getByTestId("command-palette").getByRole("option").first()).toHaveText(/^Reviews/)
-    await page.keyboard.press("Enter")
+    await openPalette(page)
+    await runByKeyboard(page, "reviews", "Reviews")
     await expect(reviewsView(page)).toBeVisible()
   })
 
@@ -149,16 +146,17 @@ test.describe("Reviews view", () => {
 
   test("should add a pull request by its link from the field the palette focuses, keep it, and remove it from its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupReviews(page, setupRepo, syncAndWaitForBranches)
-    // "Add Pull Request by Link…" of the palette: the view, the focus in the field
-    await waitForTauriListener(page, "open_command_palette")
-    await emitTauriEvent(page, "open_command_palette")
-    const search = page.getByTestId("command-palette").getByRole("combobox", { name: "Command or branch" })
-    await expect(search).toBeFocused()
-    await search.fill("add pull request by link")
-    await expect(page.getByTestId("command-palette").getByRole("option").first()).toHaveText(/^Add Pull Request by Link…/)
-    await page.keyboard.press("Enter")
-    const field = reviewsView(page).getByTestId("reviews-link-input")
+    // a filter typed before
+    await showReviews(page)
+    await expect(section(page, "team")).toBeVisible()
+    await reviewsView(page).getByTestId("reviews-filter-input").fill("oauth")
+    await expect(section(page, "reviewed")).toHaveCount(0)
+    // "Add Pull Request by Link…" of the palette: the view, the focus in the field, its text selected for the paste
+    await openPalette(page)
+    await runByKeyboard(page, "add pull request by link", "Add Pull Request by Link…")
+    const field = reviewsView(page).getByTestId("reviews-filter-input")
     await expect(field).toBeFocused()
+    await expect.poll(() => field.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, "oauth".length])
 
     // another repository and a number the repository lacks are refused under the field
     await field.fill("https://github.com/other/repo/pull/305")
@@ -190,6 +188,103 @@ test.describe("Reviews view", () => {
     await entryRow(page, "linked", 305).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Remove from Reviews" }).click()
     await expect(section(page, "linked")).toHaveCount(0)
+  })
+
+  test("should filter every section by the words typed, open the one match on Enter, and add a pull request by its link when nothing matches", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupReviews(page, setupRepo, syncAndWaitForBranches)
+    const linkCalls: unknown[] = []
+    page.on("request", request => {
+      if (request.url().endsWith("/invoke/link_pull_request")) {
+        linkCalls.push(request.postDataJSON())
+      }
+    })
+    await showReviews(page)
+    await expect(section(page, "waiting")).toBeVisible()
+    await expect(section(page, "reviewed")).toBeVisible()
+    // a section the user collapses stays collapsed through a filter
+    await section(page, "authored")
+      .getByRole("button", { name: /Your Pull Requests/ })
+      .click()
+    await expect(section(page, "authored")).toHaveAttribute("data-state", "closed")
+
+    // `/` focuses the field from the view
+    await reviewsView(page).getByRole("heading", { name: "Reviews" }).focus()
+    await page.keyboard.press("/")
+    const field = reviewsView(page).getByTestId("reviews-filter-input")
+    await expect(field).toBeFocused()
+    await page.keyboard.type("oauth")
+    await expect(entryRow(page, "team", 201)).toBeVisible()
+    await expect(section(page, "team").getByTestId("review-request-row")).toHaveCount(1)
+    await expect(section(page, "team")).toContainText("1 of 1")
+    await expect(section(page, "waiting")).toHaveCount(0)
+    await expect(section(page, "reviewed")).toHaveCount(0)
+    await expect(section(page, "authored")).toHaveCount(0)
+    // Enter opens the one match
+    await field.press("Enter")
+    const opened = await openedReviewWindow(page)
+    expect([opened.data.number, opened.data.source]).toEqual([201, "reviews"])
+
+    // Escape clears the filter: every section again, the collapsed one collapsed
+    await field.press("Escape")
+    await expect(field).toHaveValue("")
+    await expect(section(page, "waiting")).toBeVisible()
+    await expect(section(page, "reviewed")).toBeVisible()
+    await expect(section(page, "authored")).toHaveAttribute("data-state", "closed")
+    // Escape in the empty field leaves it for the heading
+    await field.press("Escape")
+    await expect(reviewsView(page).getByRole("heading", { name: "Reviews" })).toBeFocused()
+
+    // ↓ moves to the first match
+    await field.fill("pool")
+    await expect(section(page, "team")).toHaveCount(0)
+    await field.press("ArrowDown")
+    await expect(entryRow(page, "reviewed", 202)).toBeFocused()
+
+    // words that match nothing: said, and Enter neither opens nor adds anything
+    await field.fill("migrate")
+    const empty = reviewsView(page).getByTestId("reviews-filter-empty")
+    await expect(empty).toContainText("No pull requests match “migrate”")
+    await expect(empty.getByRole("button", { name: /Add Pull Request/ })).toHaveCount(0)
+    await field.press("Enter")
+    await expect(reviewsView(page).getByTestId("reviews-link-error")).toHaveCount(0)
+    expect(linkCalls).toEqual([])
+    expect(await getOpenedSubWindows(page)).toHaveLength(1)
+    await empty.getByRole("button", { name: "Clear Filter" }).click()
+    await expect(field).toHaveValue("")
+    await expect(section(page, "team")).toBeVisible()
+
+    // a number Reviews lacks: Add Pull Request, and Enter adds it by its link
+    await field.fill("#305")
+    await expect(empty.getByRole("button", { name: /Add Pull Request/ })).toBeVisible()
+    await field.press("Enter")
+    expect((await openedReviewWindow(page, 2)).data.number).toBe(305)
+    await expect(field).toHaveValue("")
+    await expect(entryRow(page, "linked", 305)).toBeVisible()
+    expect(linkCalls).toHaveLength(1)
+    // a shown one opens without a link
+    await field.fill("#202")
+    await field.press("Enter")
+    expect((await openedReviewWindow(page, 3)).data.number).toBe(202)
+    expect(linkCalls).toHaveLength(1)
+  })
+
+  test("should search GitHub with the words typed where it returned only a part of a section", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const fixture = reviewsFixture()
+    await setupReviews(page, setupRepo, syncAndWaitForBranches, { reviewRequests: { ...fixture, others: { ...fixture.others!, team: { totalCount: 63, entries: [team(TEAM)] } } } })
+    await showReviews(page)
+    await expect(section(page, "team").getByTestId("reviews-more-on-github")).toHaveText("1 of 63Open All on GitHub")
+    await reviewsView(page).getByTestId("reviews-filter-input").fill("oauth")
+    await expect(section(page, "team")).toContainText("1 of 63")
+    const filtered = section(page, "team").getByTestId("reviews-filtered-on-github")
+    await expect(filtered).toHaveText("First 1 of 63 filteredSearch on GitHub")
+    await filtered.getByRole("button", { name: "Search on GitHub" }).click()
+    expect(await getOpenedUrls(page)).toEqual([
+      `https://github.com/acme/monorepo/pulls?q=${encodeURIComponent("is:pr is:open archived:false draft:false review-requested:@me oauth")}`,
+    ])
   })
 
   test("should show the branch of an own pull request of the table", async ({ page, setupRepo, syncAndWaitForBranches }) => {

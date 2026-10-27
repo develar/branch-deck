@@ -143,9 +143,18 @@ export function repositoryOfPullRequestUrl(url: string): { owner: string; name: 
   return match === null ? null : { owner: match[1]!, name: match[2]! }
 }
 
-/** The GitHub search of all pull requests that wait for the user's review in the repository: "Open All on GitHub" */
-export function reviewRequestsSearchUrl(repository: { owner: string; name: string }): string {
-  const query = "is:pr is:open archived:false draft:false user-review-requested:@me"
+/** A GitHub search with the typed words of a filter after it */
+export function withSearchText(query: string, text: string): string {
+  const words = text.trim()
+  return words === "" ? query : `${query} ${words}`
+}
+
+/**
+ * The GitHub search of all pull requests that wait for the user's review in the repository: "Open All on GitHub"; with
+ * the words of a filter, "Search on GitHub"
+ */
+export function reviewRequestsSearchUrl(repository: { owner: string; name: string }, text = ""): string {
+  const query = withSearchText("is:pr is:open archived:false draft:false user-review-requested:@me", text)
   return `https://github.com/${repository.owner}/${repository.name}/pulls?q=${encodeURIComponent(query)}`
 }
 
