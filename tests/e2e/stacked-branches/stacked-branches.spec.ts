@@ -34,6 +34,7 @@ import {
   confirmForcePush,
   expectPushedToast,
   expectPushedToRemote,
+  fixesOfOthersOnRemote,
   holdRemotePushes,
   pushedBranches,
   pushedToast,
@@ -716,15 +717,7 @@ test.describe("Stacked branches", () => {
     const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
     // Ann pushed a fix onto the remote branch of auth and Bob one onto login's, both on master; a fetch brought them
-    const theirs: Record<string, string> = {}
-    for (const [name, author] of [
-      ["auth", "Ann <ann@example.com>"],
-      ["login", "Bob <bob@example.com>"],
-    ] as const) {
-      await repo.pushInTerminal(virtualBranch(name), { revision: "origin/master" })
-      theirs[name] = await repo.commitOnRemote(virtualBranch(name), { subject: `Fix ${name}`, author, timestamp: 1704139200, files: { [`${name}-fix.txt`]: "fix\n" } })
-    }
-    await repo.fetchInTerminal()
+    const theirs = await fixesOfOthersOnRemote(repo, { auth: "Ann <ann@example.com>", login: "Bob <bob@example.com>" })
     await syncFromMenu(page)
     const auth = findBranchRow(page, "auth")
 
@@ -744,6 +737,48 @@ test.describe("Stacked branches", () => {
     await expectPushedToRemote(repo, ["auth", "oauth", "session"])
     expect((await repo.getRemoteBranches())[virtualBranch("login")]).toBe(theirs.login)
     await expect(getPushButton(findBranchRow(page, "login"))).toHaveAccessibleName("Force Push (1)")
+  })
+
+  test("should ask in the row of a stacked branch whose push drops remote commits by the time its button's push of the stack is planned, and push the stack over the remote head the row shows", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    // login is on the remote at master, auth is not: the push button of login pushes the stack, auth first
+    await repo.pushInTerminal(virtualBranch("login"), { revision: "origin/master" })
+    await syncFromMenu(page)
+    const login = findBranchRow(page, "login")
+    const button = getPushButton(login)
+    await expect(button).toHaveAccessibleName(/^Push Stack/)
+
+    // the click's plan waits while Bob pushes a fix onto the remote branch of login, which a fetch and a sync bring
+    const releasePlan = await holdCommand(page, "prepare")
+    await button.click()
+    const bob = await repo.commitOnRemote(virtualBranch("login"), {
+      subject: "Fix login",
+      author: "Bob <bob@example.com>",
+      timestamp: 1704139200,
+      files: { "login-fix.txt": "fix\n" },
+    })
+    await repo.fetchInTerminal()
+    await syncFromMenu(page)
+    await expect(button).toHaveAccessibleName(/^Force Push/)
+    releasePlan()
+
+    // the plan drops Bob's commit: the push button of login asks first, listing it; nothing went
+    await expect(button).toHaveAttribute("aria-expanded", "true")
+    const description = page.getByTestId("push-description").filter({ has: page.getByTestId("push-confirm") })
+    await expect(description.getByTestId("dropped-commits")).toContainText("Fix login")
+    expect(await remotePushes(repo)).toEqual([])
+    expect((await repo.getRemoteBranches())[virtualBranch("login")]).toBe(bob)
+
+    // its Force Push runs the push of the stack again on that drop, over the remote head the row shows now (the one
+    // the lease of the click predates): one push of auth and login
+    await confirmForcePush(page, "Force Push (1)")
+    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
+    await expectPushedToRemote(repo, ["auth", "login"])
   })
 
   test("should offer Push with Children while a sync runs and when the root is pushed", async ({ page, setupRepo, syncAndWaitForBranches }) => {

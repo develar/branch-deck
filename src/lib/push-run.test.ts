@@ -275,20 +275,35 @@ describe("the plan of a push", () => {
     expect(engine.accepted).toEqual([[drops]])
   })
 
-  it("of a stack whose plan asks more after the Force Push than its description showed asks again, nothing pushed", async () => {
+  it("of a stack whose plan asks more after the Force Push than its description showed asks again, then pushes over the remote head the row shows at the click", async () => {
     addBranch("login", "auth")
-    let commits = 0
+    // the remote branch of auth has commits of someone else; Rust counts the drops on the remote head the session has
+    const remote = (remoteTip: string, commitsBehind: number) => {
+      stores.branches.auth = testBranch("auth", null, {
+        remoteStatus: testRemoteStatus({ unpushedCommits: ["c"], commitsAhead: 1, commitsBehind, remoteTip, action: forcePush({ drops: true }) }),
+      })
+    }
+    remote("theirs-1", 1)
     engine.plan = () => ({
       effects: [{ kind: "push", branches: ["auth"], force: true }],
-      confirmations: [{ kind: "forcePushDrops", branch: "auth", commits: ++commits }],
+      confirmations: [{ kind: "forcePushDrops", branch: "auth", commits: stores.branches.auth!.remoteStatus!.commitsBehind }],
     })
     expect(await pushWithChildren("auth")).toBe(false)
     const shown = pushConfirmStore.getState().request!
+    // a fetch brought another commit before the click: the row shows the remote head that has both
+    remote("theirs-2", 2)
     shown.accept!()
-    // the remote got another commit meanwhile: the description asks of both
+    // the plan asks of both, more than the description showed when it opened: it asks again, nothing pushed
     await vi.waitFor(() => expect(pushConfirmStore.getState().request).not.toBe(shown))
     expect(pushConfirmStore.getState().request).toMatchObject({ branchName: "auth", target: "row" })
     expect(engine.calls).toEqual(["prepare auth", "prepare auth"])
+    expect(engine.intents.map(intent => intent.kind === "push" && intent.expectRemote)).toEqual(["theirs-1", "theirs-2"])
+    // its Force Push pushes over the head the row shows, which the drops are counted on: a lease on the head of the
+    // first press would be refused by the remote
+    pushConfirmStore.getState().request!.accept!()
+    await vi.waitFor(() => expect(engine.calls).toEqual(["prepare auth", "prepare auth", "prepare auth", "execute auth"]))
+    expect(engine.intents.at(-1)).toMatchObject({ scope: { kind: "withChildren" }, expectRemote: "theirs-2", force: false })
+    expect(engine.accepted).toEqual([[{ kind: "forcePushDrops", branch: "auth", commits: 2 }]])
   })
 
   it("of a stack that drops remote commits of more than one branch is refused, each drop named", async () => {

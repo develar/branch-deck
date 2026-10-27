@@ -309,7 +309,10 @@ menu stacks, unstacks and renames branches.
   also the item after the push in the branch menu (`push-branch-only`, no key; its "⋯" in the preview and the review
   window too): the second way, never the lead ([Landing](../../docs/design/landing.md)). Preview
   `P` pushes as the button does. The push is the intent `Push` with the scope `withAncestors` (`operations::push`): its
-  plan sends the ancestors above the nearest one whose push drops remote commits, then the branch. While it runs, the
+  plan sends the ancestors above the nearest one whose push drops remote commits, then the branch. A branch whose own
+  push drops remote commits by the time it is planned (a fetch brought a commit of someone else after the row showed
+  it) asks first: its push button opens its description with them, whose Force Push runs the push of the stack again
+  with that drop accepted, never forced, over the remote head the row shows at the click. While it runs, the
   button names it ("Pushing 3 branches 45%", the refs its operation reserves), the rows of the branches it pushes show
   the same progress on their own push buttons, and a second click joins it (the same intent). A push of one of its
   branches meanwhile (its own row's button, the push step of a Safe Push start, a pull request, a review request) waits
@@ -319,7 +322,7 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/presenters/push-button.test.ts (`pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone`, `says what each force push of a stack push replaces, as the push of the branch alone does`, `takes the colour of an ancestor when none of the branch's commits are the user's`)
   [@test] ../../src/lib/remote-status.test.ts (`names it in the line of a stack push in the same words, or the remote commits the push drops`)
   [@test] ../../src/lib/stack.test.ts (`names what a stack push sends while it runs: its one push of several branches, or the one branch`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`, `should push a stacked branch alone from the description of its button`, `should push a stacked branch alone from its menu, the second way after the push of the stack`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`, `should push a stacked branch alone from the description of its button`, `should push a stacked branch alone from its menu, the second way after the push of the stack`, `should ask in the row of a stacked branch whose push drops remote commits by the time its button's push of the stack is planned, and push the stack over the remote head the row shows`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`offers the push of the branch alone after the push of the stack, as the description of the button does`)
   [@test] ../../crates/operations/src/push_test.rs (`a_push_of_a_stack_is_one_push_of_the_branches_it_covers`, `the_pushes_of_one_ref_wait_for_each_other_and_both_push`)
 - The button pushes the branch alone, and its description offers `Push Stack (3 branches)` instead, while the branch's own push drops remote commits (it asks first, Force Push) and while the stack above
@@ -382,8 +385,9 @@ menu stacks, unstacks and renames branches.
   parents first, in the one atomic push of a stack. A descendant whose push drops remote commits is left out: it asks first in its
   own row; so is a branch a running Safe Push holds. The branch's own push that drops remote commits asks first: its
   push button opens its description with them, whose Force Push runs Push with Children again with that drop
-  accepted, never forced, so a descendant whose drop nobody showed stays out; a plan that asks more by then (the remote
-  got another commit) asks again. Nothing is pushed before that, and a plan that asks of more than one branch is
+  accepted, never forced, so a descendant whose drop nobody showed stays out, over the remote head the row shows at the
+  click (the branch leases on it, and its drops are counted on the head the session has); a plan that asks more by then
+  (the remote got another commit) asks again. Nothing is pushed before that, and a plan that asks of more than one branch is
   refused, each drop named (D12). It names what it
   pushes: "Push with Children (4 branches)", "Push with Children (oauth)" for one child. Every branch with branches
   stacked on it offers it, in the branch menu beside
@@ -398,8 +402,8 @@ menu stacks, unstacks and renames branches.
   "Push with Children (session)"). Once it and every branch built on it landed, nothing is left: "Landed in master
   with deploy and side-test: nothing of air and its children is left to push" ([Patronus](patronus.spec.md#merged)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask in the row of the branch before Push with Children drops its remote commits, and leave out a child whose drop nobody showed`)
-  [@test] ../../src/lib/push-run.test.ts (`of a stack asks first in the push button of the branch that drops remote commits, whose Force Push runs it again with that drop accepted`, `of a stack whose plan asks more after the Force Push than its description showed asks again, nothing pushed`, `of a stack that drops remote commits of more than one branch is refused, each drop named`)
-  [@test] ../../crates/operations/src/push_test.rs (`push_with_children_run_on_the_accepted_drop_leaves_a_child_that_drops_remote_commits_out`)
+  [@test] ../../src/lib/push-run.test.ts (`of a stack asks first in the push button of the branch that drops remote commits, whose Force Push runs it again with that drop accepted`, `of a stack whose plan asks more after the Force Push than its description showed asks again, then pushes over the remote head the row shows at the click`, `of a stack that drops remote commits of more than one branch is refused, each drop named`)
+  [@test] ../../crates/operations/src/push_test.rs (`push_with_children_run_on_the_accepted_drop_leaves_a_child_that_drops_remote_commits_out`, `a_push_of_a_stack_on_an_accepted_drop_goes_only_over_the_remote_head_its_drops_are_counted_on`)
 - Push with Children of the root of a stack that forks must also push the stack branch of its whole stack
   (`{prefix}/stack/<root>`, [Whole Stack](whole-stack.spec.md)) in the same atomic push, after the branches, leased
   on the remote head of its remote status, so the pull request of the whole stack follows its branches: only while the

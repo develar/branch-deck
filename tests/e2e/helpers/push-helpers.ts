@@ -114,6 +114,20 @@ export const STACKED_BRANCHES = ["auth", "login", "session", "oauth", "docs"]
 export const STACK_ISLAND_BRANCHES = ["air", "bazel", "bridge", "runtime", "side-fix", "deploy", "side-test", "auth", "login", "docs"]
 
 /**
+ * A fix of someone else on the remote branch of each branch of `authors` (by name, its author: "Ann <ann@example.com>"),
+ * "Fix <name>" pushed behind the app's back onto master, then fetched: the push of each drops it. The commits, by name
+ */
+export async function fixesOfOthersOnRemote(repo: TestRepositoryBuilder, authors: Readonly<Record<string, string>>): Promise<Record<string, string>> {
+  const theirs: Record<string, string> = {}
+  for (const [name, author] of Object.entries(authors)) {
+    await repo.pushInTerminal(virtualBranch(name), { revision: "origin/master" })
+    theirs[name] = await repo.commitOnRemote(virtualBranch(name), { subject: `Fix ${name}`, author, timestamp: 1704139200, files: { [`${name}-fix.txt`]: "fix\n" } })
+  }
+  await repo.fetchInTerminal()
+  return theirs
+}
+
+/**
  * A push that drops remote commits asks first: the click on its button (the toast's action, P in the preview) opens its
  * description with the dropped commits and a destructive Force Push button; this clicks that button, which pushes.
  */

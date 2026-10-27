@@ -2,12 +2,22 @@
 import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCells, getBranchCommitRows, getBranchDetailsRow, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCells, getBranchCommitRows, getBranchDetailsRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { columnLefts, expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, expectPatronusStarts, mergeRunningRobots, robot, startRequest, wholeStackStartRequest } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { branchOf, expectPushedToRemote, holdRemotePushes, pushedBefore, remotePushes, stackBranchOf } from "../helpers/push-helpers"
+import {
+  branchOf,
+  confirmForcePush,
+  expectPushedToRemote,
+  fixesOfOthersOnRemote,
+  holdRemotePushes,
+  pushedBefore,
+  remotePushes,
+  stackBranchOf,
+  virtualBranch,
+} from "../helpers/push-helpers"
 import { closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -236,6 +246,36 @@ test.describe("Stack island", () => {
     await expect(push).toHaveAccessibleName("Push with Children")
     await push.hover()
     await expect(description).toContainText("The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack")
+  })
+
+  test("should ask in the row of the root before the header's push drops its remote commits, and leave out a branch whose drop nobody showed", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("stack_island")
+    await syncAndWaitForBranches()
+    // Ann pushed a fix onto the remote branch of air and Bob one onto side-test's, both on master; a fetch brought them
+    const theirs = await fixesOfOthersOnRemote(repo, { air: "Ann <ann@example.com>", "side-test": "Bob <bob@example.com>" })
+    await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
+
+    // the header's push asks first in the push button of air, which lists Ann's commit; nothing went yet
+    const push = island(page, "air").getByTestId("stack-island-push")
+    await expect(push).toHaveAccessibleName("Push with Children (6 branches)")
+    await push.click()
+    await expect(getPushButton(findBranchRow(page, "air"))).toHaveAttribute("aria-expanded", "true")
+    const description = page.getByTestId("push-description").filter({ has: page.getByTestId("push-confirm") })
+    await expect(description.getByTestId("dropped-commits")).toContainText("Fix air")
+    await expect(description.getByTestId("dropped-commits")).not.toContainText("Fix side-test")
+    expect(await remotePushes(repo)).toEqual([])
+
+    // its Force Push runs the header's push on that drop: one push of air over Ann's commit and of the branches that drop
+    // nothing; side-test, whose drop nobody showed, keeps Bob's commit
+    await confirmForcePush(page, "Force Push (2)")
+    const sent = ["air", "bazel", "bridge", "deploy", "runtime", "side-fix"]
+    await expect.poll(() => remotePushes(repo)).toEqual([sent])
+    await expectPushedToRemote(repo, sent)
+    expect((await repo.getRemoteBranches())[virtualBranch("side-test")]).toBe(theirs["side-test"])
   })
 
   test("should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu", async ({

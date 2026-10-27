@@ -17,7 +17,8 @@ export interface PushConfirmRequest {
   options: PushBranchOptions
   /**
    * What the Force Push runs instead of the push of the branch alone: the push of a stack that asked first (Push with
-   * Children, the button's push of a stack), run again with the drop of this branch accepted
+   * Children, the button's push of a stack), run again with the drop of this branch accepted, over the remote head the
+   * row shows at the click
    */
   accept?: () => void
 }

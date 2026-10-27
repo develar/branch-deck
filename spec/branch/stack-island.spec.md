@@ -145,7 +145,10 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   branch ("Push with Children (8 branches)", "Push with Children (the whole stack branch)" alone), a commit it and the
   branches both send counted once. Its hover names it and lists the pushes ("Pushes 8 branches, parents first:", a
   line per branch, the stack branch last: "user-name/stack/air · the whole stack branch · 2 commits"), and the
-  branches whose push drops remote commits, which ask first in their rows. It is
+  branches whose push drops remote commits, which ask first in their rows. The root's own push that drops remote
+  commits asks first, as Push with Children does ([Stacked Branches](stacked-branches.spec.md#pull-requests)): nothing
+  goes before the push button of the root opened its description with them, whose Force Push runs the header's push
+  again on that drop; a branch whose drop nobody showed stays out. It is
   one atomic push of all of them ([Stacked Branches](stacked-branches.spec.md#pull-requests)): a click pushes and leaves
   the hover as it is ([hover descriptions](../../docs/design/ui-theme.md)), open while the pointer stays, also a
   click well after it opened; while it runs, the spinner
@@ -166,7 +169,7 @@ in it; its rows are the rows of the table, so the stack reads as its branches. T
   (the reason of the hold, "A Safe Push of runtime is running: it lands 2 commits of air with it"). A root a merged Safe Push landed
   holds nothing: the header pushes what is left of the stack without the landed branches, and its slot shows what is
   left to land.
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should say what the stack holds in the header, each state a way to its first branch`, `should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should ask in the row of the root before the header's push drops its remote commits, and leave out a branch whose drop nobody showed`, `should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should say what the stack holds in the header, each state a way to its first branch`, `should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it, the stack landing from the click`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it, the stack waiting from the click`)
 - The Safe Push slot is the Safe Push of the whole stack: one robot lands every branch of it, side branches included
   ([Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app)). Of a stack that forks it is the

@@ -201,6 +201,15 @@ impl Fixture {
     self.execute_on(push, accepted, &OFFLINE, Arc::new(NoEvents)).await
   }
 
+  /// `push` run on its plan now, `accepted` among its confirmations: the remote refuses the lease of its first effect
+  async fn assert_lease_rejected(&self, push: &Push, accepted: Vec<Confirmation>) {
+    let outcome = self.execute(push, accepted).await.unwrap();
+    let EffectStatus::Failed { error } = &outcome.effects[0].status else {
+      panic!("{outcome:?}")
+    };
+    assert_eq!(error.code, ErrorCode::LeaseRejected);
+  }
+
   /// `push` run on its plan now over `services`, its events to `events`
   async fn execute_on(&self, push: &Push, accepted: Vec<Confirmation>, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Result<Outcome, ApiError> {
     let fingerprint = self.plan(push).await.fingerprint;
@@ -471,6 +480,41 @@ async fn push_with_children_run_on_the_accepted_drop_leaves_a_child_that_drops_r
   assert_eq!(fixture.remote_tip("beta"), theirs, "the commit of someone else on the remote of beta stays");
 }
 
+/// A push of a stack leases its branch on the remote head its intent names and counts the drops it asks of on the head
+/// the session has. A fetch brought a second commit of someone else after the first ask: on the head of the first press
+/// the plan asks of both, and run with both accepted the remote refuses the lease, so nothing of the remote is lost; on
+/// the head the session has, which the row shows (what the Force Push of the page runs the push again over), the same
+/// accepted drop goes
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_of_a_stack_on_an_accepted_drop_goes_only_over_the_remote_head_its_drops_are_counted_on() {
+  let fixture = fixture(true).await;
+  assert_done(&fixture.execute(&scoped("beta", PushScope::WithAncestors), Vec::new()).await);
+  let tracking = "refs/remotes/origin/test/virtual/alpha";
+  let drops = |commits: u32| Confirmation::ForcePushDrops {
+    branch: "alpha".to_string(),
+    commits,
+  };
+  fixture.someone_else_on("alpha").await;
+  let pressed = Push {
+    expect_remote: fixture.repo.rev_parse(tracking).ok(),
+    ..scoped("alpha", PushScope::WithChildren)
+  };
+  assert_eq!(fixture.plan(&pressed).await.confirmations, vec![drops(1)]);
+  fixture.someone_else_on("alpha").await;
+  let theirs = fixture.remote_tip("alpha");
+  assert_eq!(fixture.plan(&pressed).await.confirmations, vec![drops(2)], "counted on the head the session has");
+
+  fixture.assert_lease_rejected(&pressed, vec![drops(2)]).await;
+  assert_eq!(fixture.remote_tip("alpha"), theirs, "the lease of the first press drops nothing");
+
+  let shown = Push {
+    expect_remote: Some(theirs),
+    ..pressed
+  };
+  assert_done(&fixture.execute(&shown, vec![drops(2)]).await);
+  assert_eq!(fixture.remote_tip("alpha"), fixture.repo.rev_parse("test/virtual/alpha").unwrap());
+}
+
 /// Push Up to Here pushes the branches the commit is built on that have work, whole, then its branch up to the commit:
 /// the commits after it stay unpushed, and the status the push left counts them as the user's, as a sync does (the
 /// author of the branch's commits). A commit no Push Up to Here is offered of (the remote has it, a sync rebuilt the
@@ -593,11 +637,7 @@ async fn a_push_of_a_stack_branch_counts_the_commits_of_its_members_author_as_th
     ..whole
   };
   let plan = fixture.plan(&refused).await;
-  let outcome = fixture.execute(&refused, plan.confirmations).await.unwrap();
-  let EffectStatus::Failed { error } = &outcome.effects[0].status else {
-    panic!("{outcome:?}")
-  };
-  assert_eq!(error.code, ErrorCode::LeaseRejected);
+  fixture.assert_lease_rejected(&refused, plan.confirmations).await;
   let status = |view: &domain_types::session::RepositoryView| {
     let remote = view.stacks["alpha"].remote.clone().unwrap();
     (remote.unpushed_commits, remote.my_unpushed_count)
@@ -822,11 +862,7 @@ async fn pushes_again_over_a_moved_remote_only_when_the_remote_has_no_commits_th
   fixture.repo.git(&["--git-dir", ".git/origin.git", "update-ref", alpha, &theirs]);
   fixture.repo.create_commit("(alpha) Alpha, part 3", "alpha-3.txt", "alpha 3\n");
   fixture.registry.sessions().sync(&fixture.key, SyncReason::Manual).wait().await.unwrap();
-  let outcome = fixture.execute(&alone("alpha", Some(rebuilt)), Vec::new()).await.unwrap();
-  let EffectStatus::Failed { error } = &outcome.effects[0].status else {
-    panic!("{outcome:?}")
-  };
-  assert_eq!(error.code, ErrorCode::LeaseRejected);
+  fixture.assert_lease_rejected(&alone("alpha", Some(rebuilt)), Vec::new()).await;
   assert_eq!(fixture.remote_tip("alpha"), theirs, "nothing was pushed over it");
 }
 

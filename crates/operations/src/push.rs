@@ -316,7 +316,9 @@ fn covered(rules: &PushRules<'_>, state: &TableState, facts: &FactStore, holds: 
 /// its scope covers (`covered`): first the retarget of each open pull request of a branch it sends that goes into a
 /// virtual branch (D3a), then the push; each branch it sends whose push drops remote commits asks first
 /// (`Confirmation::ForcePushDrops`) unless the intent forces it. Each ref leases on the remote head the session has, the
-/// branch on the one the user saw (`ExpectRemote::OfIntent`) until a wait brought a newer one
+/// branch on the one the user saw (`ExpectRemote::OfIntent`) until a wait brought a newer one. The drops it asks of are
+/// counted on the head the session has: a run of an accepted drop names that head (the page: the one its row shows at
+/// the click of the Force Push), or the remote refuses the lease
 fn stack_planned(state: &TableState, facts: &FactStore, sources: &LandSources<'_>, holds: Holds<'_>, name: &str, push: &Push, expect: ExpectRemote) -> Option<Planned> {
   let full = |branch: &str| to_final_branch_name(sources.prefix, branch).ok();
   let full_name = full(name)?;

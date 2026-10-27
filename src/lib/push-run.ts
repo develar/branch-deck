@@ -6,8 +6,9 @@
 // out of a virtual branch first (D3a), cancels and restarts the Safe Push of the branch when the push restarts it, and
 // asks first for a push that drops remote commits the branch lacks (`ForcePushDrops`): the push button of the surface
 // opens its description with the dropped commits, whose Force Push pushes; of a push of a stack the push button of the
-// branch that drops, whose Force Push runs the push of the stack again, unforced, with that drop accepted (a drop of
-// another branch nobody showed stays out; Push Stack is forced: its description named each drop). The session admits
+// branch that drops, whose Force Push runs the push of the stack again, unforced, with that drop accepted, over the
+// remote head the row shows at the click (a drop of another branch nobody showed stays out; Push Stack is forced: its
+// description named each drop). The session admits
 // it (the same push twice is one, another push of a ref waits), waits for its sync, decides under the repository lock
 // and pushes after it; the view shows it running (`pushOperationIn`, `useStackPush`), the window that runs it how far
 // it is. The page words the plan's refusal and the outcome: the toast of the pushes, the remote that moved, why not.
@@ -470,18 +471,32 @@ async function runStackPush(startedFrom: string, intent: Intent, options: StackP
  * A push of a stack whose plan asks first (`confirmations`): the push button of the branch whose push drops remote
  * commits opens its description with them, whose Force Push runs this push again with that drop accepted: the same
  * intent, unforced, so it sends no other branch that drops remote commits nobody showed (a forced push of a stack sends
- * every one); a plan that asks of more than one branch, or of the stack branch of a whole stack, is refused with each
- * drop named, as the rows' buttons ask them
+ * every one), over the remote head the row shows at the click (`onShownRemote`); a plan that asks of more than one
+ * branch, or of the stack branch of a whole stack, is refused with each drop named, as the rows' buttons ask them
  */
 function askStackPush(startedFrom: string, intent: Intent, options: StackPushOptions, confirmations: readonly Confirmation[]): void {
   const drops = confirmations.flatMap(confirmation => (confirmation.kind === "forcePushDrops" ? [confirmation] : []))
   const only = drops.length === 1 && confirmations.length === 1 ? drops[0]! : null
   if (only !== null && stackRootOfReadinessKey(only.branch) === null && getBranch(only.branch) !== undefined) {
-    requestPushConfirm(only.branch, "row", {}, () => void runStackPush(startedFrom, intent, options, [only]))
+    requestPushConfirm(only.branch, "row", {}, () => void runStackPush(startedFrom, onShownRemote(intent), options, [only]))
     return
   }
   const named = drops.map(drop => `${formatReadinessSubject(drop.branch)} drops ${drop.commits === 1 ? "a commit" : `${drop.commits} commits`} of its remote branch it lacks`)
   notifyError(`Cannot push ${formatReadinessSubject(startedFrom)}`, `${named.join("; ")}: nothing was pushed`)
+}
+
+/**
+ * The push `intent` of a stack again, over the remote head the row of its subject shows now: the one the description
+ * showed at the click of its Force Push. Rust leases the subject on the head its intent names and counts the drops it
+ * asks of on the session's, so a head of an earlier press, which a fetch moved since (another commit of someone else),
+ * would be refused by the remote however often the user accepted the drop
+ */
+function onShownRemote(intent: Intent): Intent {
+  if (intent.kind !== "push" || intent.subject.kind !== "branch") {
+    return intent
+  }
+  const branch = getBranch(intent.subject.name)
+  return branch === undefined ? intent : { ...intent, expectRemote: branch.remoteStatus?.remoteTip ?? null }
 }
 
 /** Whether the user accepted `confirmation`: the drop of as many commits of the same branch, which its description showed */

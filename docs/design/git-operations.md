@@ -2768,8 +2768,11 @@ what goes, root first (the stack branch by its key, `stack:<root>`); each branch
 first (`ForcePushDrops`) unless the intent forces it (Push Stack, whose description named each drop): the page runs
 nothing it asks, the push button of the branch that drops opens its description, whose Force Push runs the same
 intent again with that drop accepted (`Accepted::confirmations`), never forced: a forced push of a stack sends every
-branch that asks first, so a descendant whose drop nobody showed would go too; a plan that asks more by then asks again
-(`askStackPush` of `src/lib/push-run.ts`; a plan that asks of more than one branch is refused, D12). The status a push
+branch that asks first, so a descendant whose drop nobody showed would go too. It runs over the remote head the row
+shows at the click (`onShownRemote`): the subject leases on the head its intent names and its drops are counted on the
+session's, so the head of the first press, which a fetch moved since, would be refused by the remote however often the
+user accepted; a plan that asks more by then asks again (`askStackPush` of `src/lib/push-run.ts`; a plan that asks of
+more than one branch is refused, D12). The status a push
 leaves counts the commits of the branch's author as the user's, as a sync does (`PushedRef::my_email`,
 `LeasedBranch::my_email`); of a stack branch the author the sync found of the commits of all its members
 (`StackBranchUpdate::my_email`), not its root's. Every ref leases on the remote head the session has, the subject on
@@ -2779,6 +2782,7 @@ arrow, the menu item and the popover of a commit read Rust's answer. `operations
 (`a_push_of_a_stack_is_one_push_of_the_branches_it_covers`,
 `a_push_of_a_stack_leaves_an_ancestor_that_asks_first_unless_forced`,
 `push_with_children_run_on_the_accepted_drop_leaves_a_child_that_drops_remote_commits_out`,
+`a_push_of_a_stack_on_an_accepted_drop_goes_only_over_the_remote_head_its_drops_are_counted_on`,
 `push_up_to_here_pushes_the_branch_up_to_the_commit_after_what_it_is_built_on`,
 `the_stack_branch_of_a_whole_stack_is_pushed_alone_and_goes_along_once_on_the_remote`,
 `a_push_of_a_stack_branch_counts_the_commits_of_its_members_author_as_the_sync_does`) pins them.
