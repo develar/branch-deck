@@ -32,6 +32,8 @@
 //! - `baseline`: the remote branch the baseline tracks, its fetch, and the update check every sync runs, without the
 //!   network
 //! - `baseline_fetch`: the fetch of the baseline without an update
+//! - `fetch_lock`: the lock of the fetches of the baseline, `fetch.lock`: a second fetch of a tracking ref, of any
+//!   process, waits for the first one and takes its result
 //!
 //! Rewrites of the checked out branch, each under the repository lock its core takes:
 //! - `stack_operations`: rename a branch, stack it on another one or make it a root, through the regroup
@@ -90,6 +92,7 @@ pub mod commit_owners;
 pub mod config_snapshot;
 pub mod conflict_chain;
 pub mod delete_archived_branch;
+mod fetch_lock;
 pub mod git_setup;
 pub mod github_repository;
 pub mod grouping;

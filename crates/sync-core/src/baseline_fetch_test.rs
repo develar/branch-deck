@@ -3,7 +3,6 @@ use crate::baseline_fetch::{FetchBaselineParams, FetchBaselineResult, fetch_base
 use domain_types::update_project::{UpdateKind, UpdateState};
 use pretty_assertions::assert_eq;
 use std::fs;
-use std::path::PathBuf;
 use test_log::test;
 use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::TestRepo;
@@ -60,37 +59,9 @@ fn upstream_and_clone() -> (TestRepo, TestRepo) {
   (upstream, clone)
 }
 
-/// `bd update` in a lease beside the app's Fetch: both fetch `refs/remotes/origin/master` of one common dir, and the
-/// second one to write it finds its lock taken (`cannot lock ref`). Here the "other fetch" is a lock file that the
-/// upload-pack of the first run leaves in place and the second removes: the fetch runs once more and succeeds.
+/// A failed fetch is an error that names the baseline, and it is not run again
 #[test]
-fn a_fetch_beside_another_fetch_of_the_tracking_ref_succeeds() {
-  let (upstream, clone) = upstream_and_clone();
-  let upstream_head = upstream.create_commit("Upstream change", "shared.txt", "two\n");
-  let repo_path = clone.path().to_str().unwrap();
-  let git = |args: &[&str]| clone.git_executor().execute_command(args, repo_path).unwrap();
-  let lock = PathBuf::from(git(&["rev-parse", "--path-format=absolute", "--git-path", "refs/remotes/origin/master.lock"]));
-  fs::write(&lock, "").unwrap();
-
-  let dir = tempfile::tempdir().unwrap();
-  let runs = dir.path().join("runs");
-  let body = format!(
-    "echo run >> '{runs}'\nif [ \"$(wc -l < '{runs}')\" -ge 2 ]; then rm -f '{lock}'; fi\nexec git upload-pack \"$@\"",
-    runs = shell_path(&runs),
-    lock = shell_path(&lock),
-  );
-  let upload_pack = fake_executable(dir.path(), "upload-pack", &body);
-  git(&["config", "remote.origin.uploadpack", &shell_path(&upload_pack)]);
-
-  let result = fetch(repo_path, &clone).unwrap();
-  assert_eq!(result.upstream, "origin/master");
-  assert_eq!(git(&["rev-parse", "refs/remotes/origin/master"]), upstream_head);
-  assert_eq!(fs::read_to_string(&runs).unwrap().lines().count(), 2, "one fetch, then one more after the lock");
-  assert!(!lock.exists());
-}
-
-#[test]
-fn a_fetch_that_fails_otherwise_is_not_repeated() {
+fn a_failed_fetch_is_not_repeated() {
   let (_upstream, clone) = upstream_and_clone();
   let repo_path = clone.path().to_str().unwrap();
   let dir = tempfile::tempdir().unwrap();

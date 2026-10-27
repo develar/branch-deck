@@ -64,6 +64,11 @@ pub struct LockHolder {
   pub process_started: Option<u64>,
   /// When the lock was taken, in seconds since the epoch
   pub since: u64,
+  /// What the holder works on, for a lock whose waiter may take the holder's result instead of doing the work again
+  /// (`lock_file_while_held_for`): the tracking ref a fetch of the baseline writes (`fetch.lock`,
+  /// `sync_core::fetch_lock`); none for the other locks
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub subject: Option<String>,
 }
 
 impl fmt::Display for LockHolder {
@@ -110,6 +115,7 @@ impl LockHolder {
       pid,
       process_started: process_started(pid),
       since: now_seconds(),
+      subject: None,
     }
   }
 
@@ -234,6 +240,25 @@ pub fn lock_repository_while_held(git_common_dir: &Path, unknown_timeout: Durati
 /// `lock_repository_while_held` of the lock file `path`, created when missing: the lease pool's `clones.lock`, which a
 /// get that adds a slot holds for the whole clone
 pub fn lock_file_while_held(path: PathBuf, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
+  wait_while_held(path, None, unknown_timeout, on_holder, canceled)
+}
+
+/// `lock_file_while_held`, its record naming `subject` (`LockHolder::subject`), what the holder works on: a waiter that
+/// `on_holder` tells of a holder of the same subject may take its result once the lock is its own, instead of doing the
+/// work again (the fetch of a tracking ref, `sync_core::fetch_lock`)
+pub fn lock_file_while_held_for(
+  path: PathBuf,
+  subject: &str,
+  unknown_timeout: Duration,
+  on_holder: &mut dyn FnMut(&LockHolder),
+  canceled: &dyn Fn() -> bool,
+) -> Result<RepositoryLock> {
+  wait_while_held(path, Some(subject), unknown_timeout, on_holder, canceled)
+}
+
+/// The wait of `lock_file_while_held` and `lock_file_while_held_for`: the record of the lock names `subject`, none for a
+/// lock that nobody joins
+fn wait_while_held(path: PathBuf, subject: Option<&str>, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
   let file = open_lock_file(&path)?;
   let started = Instant::now();
   let mut teller = Teller::default();
@@ -250,7 +275,13 @@ pub fn lock_file_while_held(path: PathBuf, unknown_timeout: Duration, on_holder:
   let mut known = Instant::now();
   loop {
     match file.try_lock() {
-      Ok(()) => return Ok(locked(file, &path, &LockHolder::of_this_process(), Some(turn))),
+      Ok(()) => {
+        let holder = LockHolder {
+          subject: subject.map(ToString::to_string),
+          ..LockHolder::of_this_process()
+        };
+        return Ok(locked(file, &path, &holder, Some(turn)));
+      }
       Err(TryLockError::WouldBlock) => {
         if canceled() {
           return Err(anyhow::Error::new(LockWaitCanceled { path }));

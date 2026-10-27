@@ -444,6 +444,11 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
   `--progress` lines). Never pass `-c credential.helper=`.
+- **Fetch lock**: the baseline is fetched only by `sync_core::baseline::fetch_baseline` (the app's Update Project and
+  Fetch, `bd update`), which holds `$GIT_COMMON_DIR/branch-deck/fetch.lock` for its fetch (`fetch_lock.rs`, its one
+  taker: `registry_scan_test.rs`), its record naming the tracking ref: a second fetch of any process waits while the
+  holder lives and takes its result when the ref moved, one transfer; no retry on `cannot lock ref`, no clean rule
+  ([Update project](docs/design/git-operations.md#update-project), Fetch lock).
 - **Git config writes**: only the `branchdeck.*` keys of Settings → Repository, Settings → Diffs & Merge and Settings → Agents
   (`repository_config.rs`: one `--get-regexp --show-scope` read, `--replace-all` or `--unset-all`, refused when the
   worktree config or `git -c` sets the key), `--local` (`.git/config`), or `--global` only where the request names the

@@ -8,6 +8,7 @@ targets:
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/update-core/src/update_project.rs
+  - ../../crates/sync-core/src/fetch_lock.rs
   - ../../crates/update-core/src/resolve_session.rs
   - ../../crates/update-core/src/resolve_copies.rs
   - ../../crates/sync-utils/src/paths.rs
@@ -82,6 +83,12 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - The fetch must run before the lock and through the remote command policy; a failed fetch is `network_error`
   (exit 5, retryable). A held lock is `locked` (exit 3) after the fetch.
   [@test] ../../crates/bd-update/src/update_test.rs (`a_failed_fetch_is_a_network_error`, `the_update_waits_for_the_repository_lock_after_its_fetch`)
+- Beside another fetch of the baseline (the app's Update Project or Fetch, another `bd update`: one common dir), the
+  two fetches must make one transfer: the second one waits while the first one's process lives and takes its result
+  once the tracking ref moved; a first one that failed or was killed leaves the fetch to the second
+  ([Git Operations](../../docs/design/git-operations.md#update-project), Fetch lock).
+  [@test] ../../crates/bd-update/src/update_test.rs (`the_fetch_of_the_app_beside_bd_update_takes_its_transfer`)
+  [@test] ../../crates/sync-core/src/fetch_lock_test.rs (`a_fetch_beside_another_fetch_of_its_tracking_ref_takes_its_result`, `a_fetch_that_waited_for_one_that_failed_fetches_itself`)
 - `--no-fetch` must update onto the last fetched baseline. `--dry-run` must imply `--no-fetch`, take no lock and
   print what the update would do, writing at most git objects. A dry run of a conflict must print `state: "conflict"`
   with the first conflict: the files of its merge, the commit (`commits`) and the upstream commits that change the

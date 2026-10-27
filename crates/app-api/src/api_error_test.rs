@@ -25,6 +25,7 @@ fn locked_by(command: &str, since: u64) -> anyhow::Error {
       pid: 4242,
       process_started: None,
       since,
+      subject: None,
     }),
   }
   .into()

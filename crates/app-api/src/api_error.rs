@@ -303,6 +303,7 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
     pid: 4242,
     process_started: None,
     since: CONTRACT_HOLDER_SINCE,
+    subject: None,
   };
   let locked = |holder: Option<LockHolder>| RepositoryLocked {
     path: PathBuf::from("/repo/.git/branch-deck.lock"),

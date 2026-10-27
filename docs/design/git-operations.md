@@ -867,7 +867,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 |---|---|---|
 | 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD` | error: an operation in progress, a detached HEAD |
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
-| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` and for the app (`UpdateProjectParams.fetch: false`: it fetched with `fetch_baseline` first, the same fetch); once more when git refuses it with `cannot lock ref` (another fetch of the tracking ref, e.g. `bd update` in a lease, held its lock) | error (`FetchFailed`), nothing changed |
+| 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` and for the app (`UpdateProjectParams.fetch: false`: it fetched with `fetch_baseline` first, the same fetch); under the fetch lock, none when another fetch of the tracking ref ran meanwhile ("Fetch lock" below) | error (`FetchFailed`), nothing changed |
 | 2b. Lock | after step 6: `$GIT_COMMON_DIR/branch-deck.lock`, held to the end of step 10; the wait is the step `waiting` | `locked` after 10 s, nothing changed |
 | 2c. Pending files | under the lock: `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below), and steps 3 to 8 run again | `finish_pending`: the branch moved since, nothing changed |
 | 2d. Witness | under the lock (`recheck_update`): step 0 and `rev-parse HEAD^{commit} U^{commit}` again; another branch, H or U: steps 3 to 8 once more, under the lock | as steps 0 and 3 |
@@ -910,6 +910,25 @@ Details:
 - **Fetch without update.** The Fetch of a merged robot's toast (`crates/sync-core/src/baseline_fetch.rs`) is step 2
   alone, then a sync: the check inside it compares HEAD with the fetched tracking ref. A forced update needs no
   record: the next check excludes the old tip by the fork point of the tracking ref's reflog.
+- **Fetch lock.** Every fetch of the baseline (`fetch_baseline`: the app's Update Project and Fetch, `bd update`)
+  holds `$GIT_COMMON_DIR/branch-deck/fetch.lock` for its whole fetch (`crates/sync-core/src/fetch_lock.rs`, its one
+  taker; `registry_scan_test.rs` fails on the name anywhere else), its holder record (`fetch.lock.holder`, as the
+  repository lock's: command, pid, start time, since) naming the tracking ref it writes (`LockHolder::subject`). A
+  second fetch, of any process, waits in the line of its process, then for the file lock, as long as the holder's
+  record names a live process (`lock_file_while_held_for`; only a lock no record names for 10 s refuses), its progress
+  naming the holder about once a second: "Fetching origin/master with `bd update` (pid 4242, for 3 s)…" (percent 0;
+  `bd` shows none). Waiting for a holder of the same tracking ref, it reads the ref when it first sees that holder
+  (`rev-parse --verify`) and once the lock is its own: a ref that moved is the other fetch's result, taken without a
+  transfer (`FetchTurn::Joined`), the old tip returned when it was a forced update (`merge-base --is-ancestor`, one
+  process), as its own fetch would have. A ref that did not move (the remote had nothing new, the holder failed or was
+  killed, which frees the lock with its process; its stale record names nobody) and a holder of another tracking ref
+  (the baseline of another worktree: one lock for all) leave the fetch to it, under the lock. The lock is held across
+  the network, unlike every other lock of Branch Deck, because it serializes nothing but the fetches it joins; it is
+  never the repository lock, so a fetch never blocks a writer. Before it, two fetches of one ref (the app beside the
+  `bd update` of a lease, one common dir) ran two transfers, and the second one to write the ref failed on git's ref
+  lock (`cannot lock ref`). `sync-core/src/fetch_lock_test.rs` pins it in two threads against a remote whose
+  upload-pack holds the first fetch (`test_utils::held_upload_pack`), and
+  `bd-update/src/update_test.rs` (`the_fetch_of_the_app_beside_bd_update_takes_its_transfer`) in two processes.
 - **Transfer progress.** Git has no machine-readable progress: trace2 reports a stage only when it ends. So the fetch
   and the app's push run with `--progress`, as IDEA's do: `execute_remote_command_with_progress` adds it after the
   subcommand, and `GitCommand::progress` passes each stderr line as it arrives (split on `\r`, with which git
@@ -2814,8 +2833,9 @@ anywhere else):
   admission is `busy` without a holder, and the file is never written until the operations of that version ended.
 - **No clean rule**: the lock is a `flock`, which the system releases with its holder, so `operations.lock` is never
   stale, and deleting a lock file another process still holds would let two holders in; the record of a process that
-  is gone leaves at the next admission. The clean rules of `.branchdeck.toml` clean the working tree of a slot, and the
-  common dir is not in it.
+  is gone leaves at the next admission. The same holds for the fetch lock beside it (`fetch.lock`, "Update project"):
+  the record a killed fetch leaves names a process that is gone, which no waiter waits for, and the next fetch replaces
+  it. The clean rules of `.branchdeck.toml` clean the working tree of a slot, and the common dir is not in it.
 - **The watch** (`operations::registry_watch`): while a window subscribes to a session (`Registry::subscribe`, the
   app's and the E2E server's `subscribe_view`; the watch rides in the subscription and ends with it), the directory
   `$GIT_COMMON_DIR/branch-deck` is watched (`notify`: FSEvents, inotify, `ReadDirectoryChangesW`; one watch per

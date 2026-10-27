@@ -6,7 +6,7 @@
 //! while the other one runs. The child is the test binary, not the `bd` binary: `CARGO_BIN_EXE_bd` is set for
 //! integration tests only, and only `Environment` points `bd` at the fakes (GitHub has no variable)
 
-use crate::fixture_test::{PREFIX, assert_error, environment, run_in, run_json};
+use crate::fixture_test::{PREFIX, TestChild, assert_error, environment, print_child_answer, run_in, run_json};
 use crate::remote_fixture_test::Space;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
@@ -27,7 +27,6 @@ use repository_model::session::{OneClock, SessionClocks, SessionKey, Sessions, S
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::sync::Arc;
 use sync_core::patronus::SpaceRepository;
 use sync_core::sync::SyncOptions;
@@ -36,8 +35,6 @@ use tokio::sync::mpsc;
 
 /// The environment variable that makes `bd_of_another_process` run: the JSON of `ChildSpec`
 const CHILD_ENV: &str = "BD_CROSS_PROCESS_CHILD";
-/// The line of the child's stdout that carries its exit code and its output
-const CHILD_ANSWER: &str = "bd of another process: ";
 
 /// What the child runs: `bd <args>` in `repo` with the Space token of `home` and the fake Patronus at `patronus_url`
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -61,11 +58,11 @@ fn bd_of_another_process() {
   };
   let args: Vec<&str> = spec.args.iter().map(String::as_str).collect();
   let (exit_code, output) = run_json(&environment, &args);
-  println!("{CHILD_ANSWER}{}", json!({"exit_code": exit_code, "output": output}));
+  print_child_answer(exit_code, &output);
 }
 
-/// `bd` of another process: killed when the test ends, so a failure never leaves it waiting at its start
-struct OtherBd(Option<Child>);
+/// `bd` of another process
+struct OtherBd(TestChild);
 
 impl OtherBd {
   /// `bd --prefix PREFIX <args>` in the repository of `space`, in a child process
@@ -76,39 +73,20 @@ impl OtherBd {
       patronus_url: space.patronus_url.clone(),
       args: ["--prefix", PREFIX].iter().chain(args).map(ToString::to_string).collect(),
     };
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
-      .args(["--exact", "cross_process_test::bd_of_another_process", "--nocapture"])
-      .env(CHILD_ENV, serde_json::to_string(&spec).unwrap())
-      .stdout(Stdio::piped())
-      .spawn()
-      .unwrap();
-    Self(Some(child))
+    Self(TestChild::spawn(
+      "cross_process_test::bd_of_another_process",
+      CHILD_ENV,
+      &serde_json::to_string(&spec).unwrap(),
+    ))
   }
 
   fn pid(&self) -> u32 {
-    self.0.as_ref().unwrap().id()
+    self.0.pid()
   }
 
   /// Its exit code and its output, once it ended
-  fn answer(mut self) -> (i32, Value) {
-    let output = self.0.take().unwrap().wait_with_output().unwrap();
-    assert!(output.status.success(), "the child failed: {}", String::from_utf8_lossy(&output.stdout));
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let line = stdout
-      .lines()
-      .find_map(|line| line.strip_prefix(CHILD_ANSWER))
-      .unwrap_or_else(|| panic!("no answer: {stdout}"));
-    let answer: Value = serde_json::from_str(line).unwrap();
-    (i32::try_from(answer["exit_code"].as_i64().unwrap()).unwrap(), answer["output"].clone())
-  }
-}
-
-impl Drop for OtherBd {
-  fn drop(&mut self) {
-    if let Some(child) = self.0.as_mut() {
-      let _ = child.kill();
-      let _ = child.wait();
-    }
+  fn answer(self) -> (i32, Value) {
+    self.0.answer()
   }
 }
 

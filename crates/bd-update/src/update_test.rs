@@ -1,11 +1,13 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::{LockSpanGit, hold_the_lock, subcommand};
-use bd_cli::fixture_test::{assert_error, assert_refused_during, environment, git, run_in, run_json, start_cherry_pick, write};
+use bd_cli::fixture_test::{PREFIX, TestChild, assert_error, assert_refused_during, environment, git, print_child_answer, run_in, run_json, start_cherry_pick, write};
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
+use sync_core::baseline_fetch::{FetchBaselineParams, fetch_baseline_core};
 use test_utils::git_test_utils::TestRepo;
+use test_utils::held_upload_pack::{HeldUploadPack, SERVE};
 
 const SHARED: &str = "one\ntwo\nthree\n";
 
@@ -389,6 +391,53 @@ fn a_failed_fetch_is_a_network_error() {
   let (exit_code, output) = run_in(&clone, &["update"]);
   assert_error(&output, exit_code, (5, "network_error"));
   assert_eq!(output["error"]["retryable"], json!(true));
+}
+
+/// The environment variable that makes `bd_update_of_another_process` run: the path of the repository
+const CHILD_ENV: &str = "BD_UPDATE_OF_ANOTHER_PROCESS";
+
+/// The child of `the_fetch_of_the_app_beside_bd_update_takes_its_transfer`: `bd update` of an agent, in another process
+/// (`TestChild`); does nothing in a normal run
+#[test_log::test]
+fn bd_update_of_another_process() {
+  let Ok(repo) = std::env::var(CHILD_ENV) else { return };
+  let (exit_code, output) = run_json(&environment(std::path::Path::new(&repo)), &["--prefix", PREFIX, "update"]);
+  print_child_answer(exit_code, &output);
+}
+
+/// `bd update` of an agent in another process, its fetch held at the remote while it holds the fetch lock of the
+/// repository, and the app's Fetch beside it (`fetch_baseline_core`): the app's fetch waits, naming the process of `bd`,
+/// and takes the result of its fetch. One transfer for both; both succeed, and the update applies onto what it brought
+#[test_log::test]
+fn the_fetch_of_the_app_beside_bd_update_takes_its_transfer() {
+  let (upstream, clone) = clone_of_upstream();
+  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  let upload_pack = HeldUploadPack::install(&clone, "origin", SERVE);
+  let mut agent = TestChild::spawn("update_test::bd_update_of_another_process", CHILD_ENV, clone.path().to_str().unwrap());
+  upload_pack.wait_held(|| agent.is_running());
+
+  let (progress, lines) = std::sync::mpsc::channel();
+  let params = FetchBaselineParams {
+    repository_path: clone.path().to_str().unwrap().to_string(),
+  };
+  let app_git = clone.git_executor();
+  let fetched = std::thread::scope(|scope| {
+    let fetch = scope.spawn(move || fetch_baseline_core(app_git, &params, &mut |line| progress.send(line).unwrap()));
+    let waiting = lines.recv().expect("the app's fetch tells whom it waits for").line;
+    assert!(
+      waiting.starts_with("Fetching origin/master with `") && waiting.contains(&format!("(pid {}, ", agent.pid())),
+      "{waiting}"
+    );
+    upload_pack.release();
+    fetch.join().unwrap()
+  });
+  assert_eq!(fetched.unwrap().upstream, "origin/master");
+
+  let (exit_code, output) = agent.answer();
+  assert_eq!((exit_code, &output["state"]), (0, &json!("fast_forward")), "{output}");
+  assert_eq!(upload_pack.runs(), 1, "one transfer");
+  assert_eq!(git(&clone, &["rev-parse", "origin/master"]), upstream.head());
+  assert_eq!(clone.head(), upstream.head());
 }
 
 #[test_log::test]

@@ -714,7 +714,8 @@ unapplied branch again.
 
 The app's Update Project (`update_core::update_project::update_project_with`, "Update project" in
 [Git Operations](../design/git-operations.md)): it fetches the baseline's remote branch, then takes the repository
-lock, checks again and applies a clean update. The fetch runs before the lock, so a slow fetch blocks no other writer.
+lock, checks again and applies a clean update. The fetch runs before the lock, so a slow fetch blocks no other writer;
+beside another fetch of the baseline (the app's, another agent's) it waits for that one and takes its result.
 
 ```json
 {"schema":2,…,"branch":"master","upstream":"origin/master","state":"rebase","dry_run":false,"fetched_at":1760500000,

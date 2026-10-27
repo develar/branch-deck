@@ -337,6 +337,7 @@ fn the_record_of_a_gone_holder_names_nobody() {
     pid: std::process::id(),
     process_started: Some(1),
     since: 0,
+    subject: None,
   };
   std::fs::write(dir.path().join("branch-deck.lock.holder"), serde_json::to_vec(&gone).unwrap()).unwrap();
   let file = std::fs::OpenOptions::new()

@@ -70,6 +70,75 @@ pub fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
   (exit_code, value)
 }
 
+/// The line of the stdout of a child process of a test that carries the exit code and the output of its `bd`
+const CHILD_ANSWER: &str = "bd of a child process: ";
+
+/// The answer of `bd` in a child process of a test (`TestChild`): its exit code and its output, on a line of its own
+pub fn print_child_answer(exit_code: i32, output: &Value) {
+  println!("{CHILD_ANSWER}{}", json!({"exit_code": exit_code, "output": output}));
+}
+
+/// `bd` of another process: this test binary again, running only the test `test`, a child entry that does nothing
+/// unless the environment variable `variable` is set (`value` says what it runs) and prints its answer with
+/// `print_child_answer`. Killed when dropped, so a failure never leaves it waiting at a barrier of the test
+pub struct TestChild(Option<std::process::Child>);
+
+impl TestChild {
+  /// # Panics
+  /// When the test binary can't be started
+  #[must_use]
+  pub fn spawn(test: &str, variable: &str, value: &str) -> Self {
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+      .args(["--exact", test, "--nocapture"])
+      .env(variable, value)
+      .stdout(std::process::Stdio::piped())
+      .spawn()
+      .unwrap();
+    Self(Some(child))
+  }
+
+  /// # Panics
+  /// After `answer`
+  #[must_use]
+  pub fn pid(&self) -> u32 {
+    self.0.as_ref().unwrap().id()
+  }
+
+  /// Whether it still runs
+  ///
+  /// # Panics
+  /// When its state can't be read
+  pub fn is_running(&mut self) -> bool {
+    self.0.as_mut().unwrap().try_wait().unwrap().is_none()
+  }
+
+  /// The exit code and the output of its `bd`, once it ended
+  ///
+  /// # Panics
+  /// When it failed or printed no answer
+  #[must_use]
+  pub fn answer(mut self) -> (i32, Value) {
+    let output = self.0.take().unwrap().wait_with_output().unwrap();
+    assert!(output.status.success(), "the child failed: {}", String::from_utf8_lossy(&output.stdout));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let line = stdout
+      .lines()
+      .find_map(|line| line.strip_prefix(CHILD_ANSWER))
+      .unwrap_or_else(|| panic!("no answer: {stdout}"));
+    let answer: Value = serde_json::from_str(line).unwrap();
+    (i32::try_from(answer["exit_code"].as_i64().unwrap()).unwrap(), answer["output"].clone())
+  }
+}
+
+impl Drop for TestChild {
+  fn drop(&mut self) {
+    if let Some(child) = self.0.as_mut() {
+      let _ = child.kill();
+      let _ = child.wait();
+    }
+  }
+}
+
 /// The output is the error `expected.1` with the exit code `expected.0`
 pub fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
   assert_eq!((exit_code, &output["error"]["code"]), (expected.0, &serde_json::json!(expected.1)), "{output}");

@@ -11,6 +11,7 @@ targets:
   - ../../crates/update-core/src/update_project.rs
   - ../../crates/app-api/src/api_error.rs
   - ../../crates/sync-core/src/baseline.rs
+  - ../../crates/sync-core/src/fetch_lock.rs
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/sync.rs
@@ -159,10 +160,14 @@ The header shows whether an update would apply cleanly, from a check that every 
   against what the last push saw, then check again and apply a clean result. A failed fetch changes nothing.
   [@test] ../../crates/update-core/src/update_project_test.rs (`parses_the_forced_update_line_of_fetch`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
-- A fetch beside another fetch of the same tracking ref (`bd update` in a lease while the app updates or fetches: one
-  common dir) must not fail on the other's ref lock: a fetch that git refuses with `cannot lock ref` is run once more,
-  any other failure is not.
-  [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`a_fetch_beside_another_fetch_of_the_tracking_ref_succeeds`, `a_fetch_that_fails_otherwise_is_not_repeated`)
+  [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`a_failed_fetch_is_not_repeated`)
+- A fetch beside another fetch of the same tracking ref, of any process (`bd update` in a lease while the app updates
+  or fetches: one common dir), must wait for it while its process lives and take its result once the ref moved: one
+  transfer, both succeed, and a forced update gives both the old tip. A fetch whose holder failed or was killed, or
+  fetched another tracking ref, fetches itself once the other one ended; neither fails on the other's ref lock.
+  [@test] ../../crates/sync-core/src/fetch_lock_test.rs (`a_fetch_beside_another_fetch_of_its_tracking_ref_takes_its_result`, `a_fetch_that_joins_a_forced_update_returns_the_old_tip`)
+  [@test] ../../crates/sync-core/src/fetch_lock_test.rs (`a_fetch_that_waited_for_one_that_failed_fetches_itself`, `a_fetch_of_another_tracking_ref_waits_and_fetches_itself`, `a_fetch_after_a_killed_holder_fetches_at_once`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`the_fetch_of_the_app_beside_bd_update_takes_its_transfer`)
 - After the fetch, the update must check (the replay, the resolution by words, the landed candidates) without the
   repository lock, on the HEAD and the upstream it read once, then take the lock only for the witness, the local
   changes on the paths it writes and the move, so the app, `bd update` and the rewrites of either never interleave
@@ -366,12 +371,14 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
 - While the update runs, its tooltip lists its steps instead of the state of the last check and "fetch and update":
   those done ("Fetched origin/master · 5.79 MiB", "Checked the update onto origin/master"), the running one ("Fetching
-  origin/master…", or git's last progress line once git reports a stage; "Waiting for Branch Deck or bd to finish…",
-  "Checking the update onto origin/master…", "Updating to origin/master…", "Syncing branches…") and those left,
-  muted ("Check the update", "Update to origin/master", "Sync branches"). Every step is listed from the start of the
-  run, the update of the files and the sync too, so one look shows the whole run: a check that finds nothing to apply
-  ends the run before them. A wait that ended is no step of its own.
+  origin/master…", or git's last progress line once git reports a stage, or whom the fetch waits for while another
+  fetch of the baseline runs: "Fetching origin/master with `bd update` (pid 4242, for 3 s)…"; "Waiting for Branch Deck
+  or bd to finish…", "Checking the update onto origin/master…", "Updating to origin/master…", "Syncing branches…") and
+  those left, muted ("Check the update", "Update to origin/master", "Sync branches"). Every step is listed from the
+  start of the run, the update of the files and the sync too, so one look shows the whole run: a check that finds
+  nothing to apply ends the run before them. A wait that ended is no step of its own.
   [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
+  [@test] ../../crates/sync-core/src/fetch_lock_test.rs (`a_fetch_beside_another_fetch_of_its_tracking_ref_takes_its_result`)
   [@test] ../../src/lib/update-state.test.ts (`lists the steps done, the running one and those left, without a wait that ended`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)

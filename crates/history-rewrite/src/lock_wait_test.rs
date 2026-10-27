@@ -9,6 +9,7 @@ fn holder() -> LockHolder {
     pid: 4242,
     process_started: None,
     since: 0,
+    subject: None,
   }
 }
 

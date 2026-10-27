@@ -18,7 +18,9 @@ pub struct TransferProgress {
   pub transferred: Option<String>,
   /// The transfer rate, as git prints it, e.g. "32.57 MiB/s"
   pub speed: Option<String>,
-  /// The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)"
+  /// The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)"; while a
+  /// fetch of the baseline waits for another one (`fetch_lock`), whom for: "Fetching origin/master with `bd update`
+  /// (pid 4242, for 3 s)…", at 0 percent
   pub line: String,
 }
 

@@ -848,7 +848,8 @@ repository». Аудит всех функций в тот же день наш�
   `a_target_that_moves_during_every_check_is_checked_under_the_lock_at_last`). На APFS-копии idea-1 (load average 36–57) lock span
   115 с → 59 и 15 с (два замера), процессов под lock 49 → 30: под lock остались два `read-tree -m -u` (около 7 с CPU
   каждый, 5–37 с wall при этой нагрузке) и около 3 с witness и локальных изменений. Сделано (`fix/remote-perf`):
-  повтор fetch на `cannot lock ref` (`a_fetch_beside_another_fetch_of_the_tracking_ref_succeeds`), до `fetch.lock` s10.
+  повтор fetch на `cannot lock ref`; s10 заменил его ожиданием на `fetch.lock` с результатом держателя
+  (`a_fetch_beside_another_fetch_of_its_tracking_ref_takes_its_result`).
 - **Push и sync (стопгап до s6):** ожидание push — не pushing для статусов sync: push, который ждёт sync, получает его
   remote status и шлёт поверх нового tip один раз (`setBranchPushWaiting`, `fix/sync-lease`; `applies the remote status
   of a sync that a push of the branch waits for: the push sends over it after the wait`; путь `pushBranch` с настоящей
@@ -2298,7 +2299,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
   друг друга в очереди, `locked` называет только другой процесс); ожидание lock между процессами — пока держатель жив,
   step `WaitingForLock{holder}` с отменой (приложение), ограниченное `lock_timeout` (`bd`); `FetchBaseline` —
   объединяемая запись реестра на tracking ref (`fetch.lock` с pid): второй fetch любого процесса ждёт первый и берёт
-  его результат, прогресс «Fetching (bd update)…»; резерв `lands` старта виден между процессами; запись реестра несёт
+  его результат, прогресс называет держателя («Fetching origin/master with `bd update` (pid 4242, for 3 s)…»); резерв `lands` старта виден между процессами; запись реестра несёт
   `SessionKey`, так что запись чужого репозитория того же common dir ресурсов этого не держит.
 - **Удаляется:** ключ Activity в `settings.json`, писатели `recordPush`/`recordRobot`/`recordRetarget`/… в
   `src/stores/activity.ts`, которые заменяет журнал; запись по умолчанию в выбранный репозиторий
