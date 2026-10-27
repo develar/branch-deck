@@ -409,12 +409,18 @@ fn the_skill_description_starts_with_the_first_edit_and_fits_the_limit() {
 }
 
 /// A repository needs no instructions of its own for the isolation: the skill says that a lease is the only worktree
-/// of the agent's own, also when bd fails, and how a sandbox writes the lease
+/// of the agent's own, also when bd fails, how a sandbox writes the lease, and how Claude Code enters it
 #[test]
 fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() {
   let skill = skill_text("bd");
   assert!(skill.contains("never `git worktree add` or a clone for it on your own initiative, also not\n  when a bd command fails"));
   assert!(skill.contains("ask for write\n  access to exactly `path` (`request_permissions`), never the pool or full access. Refused, return the untouched lease."));
+  // `EnterWorktree` asks on every lease, since the pool is outside `.claude/worktrees/`; a `cd` into a working
+  // directory asks nothing, so it comes first
+  let cd = skill.find("In Claude Code, `cd` into\n  `path` once").unwrap();
+  let enter = skill.find("`EnterWorktree` with that\n  `path` moves the session there").unwrap();
+  assert!(cd < enter, "{skill}");
+  assert!(skill.contains("`permissions.additionalDirectories`"), "{skill}");
 }
 
 /// `bd help agent` is what every agent reads before grouping or pushing, so it stays a core of at most 10 KB; the

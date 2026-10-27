@@ -82,7 +82,9 @@ in the session wins over both.
 - The skill's description must start with the first edit ("Use before the first edit or commit in a Git repository:
   `bd workspace` …") and stay within the 1024 characters of the Agent Skills format; its body must say to run
   `bd workspace` first and follow it, the user's words winning: with the lease, work only in its `path` (in Claude Code
-  `EnterWorktree` with that path), land each commit that builds and passes its tests at once with `bd lease pick`,
+  a `cd` into that path first, which stays where the pool is in `permissions.additionalDirectories`, else
+  `EnterWorktree` with that path, which asks the user), land each commit that builds and passes its tests at once
+  with `bd lease pick`,
   never by a `git rebase` or `git merge` into the shared checkout and never with `bd update` in the lease, return only its own
   lease and ask the user when the task needs the `local_changes`; without it, stage only its own paths; with the
   subject branch, `(branch) ` first, a branch of `bd status --brief` reused where it fits, `(parent/leaf)` for a new

@@ -654,8 +654,10 @@ guarded update.
 Before the first edit or commit in a repository, run `bd workspace` and follow it; what the user says in the session
 wins over it:
 - `lease.on`: work in a worktree of your own. Run the first command of `next` (`bd lease get --holder <your name>`, a
-  name of this session) and edit, build and commit only in its `path` (and `subdir` there); in Claude Code,
-  `EnterWorktree` with that `path` moves the session there. Its `next` (and `bd workspace` inside it) names the rest:
+  name of this session) and edit, build and commit only in its `path` (and `subdir` there). In Claude Code, `cd` into
+  `path` once: the shell stays there when the pool is in `permissions.additionalDirectories` of the settings, and
+  Read, Edit and Write take the files by their paths in `path`. When the shell goes back, `EnterWorktree` with that
+  `path` moves the session there; it asks the user. Its `next` (and `bd workspace` inside it) names the rest:
   land each commit that builds and passes its tests at once with `bd -C <path> lease pick`, onto the branch of `home`;
   a conflict comes back to you, `conflict.next` says what to do. Once the task is done and every commit landed,
   `bd lease return --lease-id <lease_id>`. Never `git rebase` or `git merge` into the shared checkout, and never

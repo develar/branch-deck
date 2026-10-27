@@ -1840,9 +1840,10 @@ How an agent learns that bd exists. `bd install`, or Help â†’ Install Agent CLIâ
   or rebase onto the baseline and its conflicts, landing the commits of a worktree onto a shared branch, the lease of a
   worktree, a Safe Push or Dry Run and why it failed, a review request, Branch Deck. The description stays within the
   1024 characters of the Agent Skills format. Its body names bd by its full path, so it works without `PATH`; it starts
-  with `bd workspace` and what each of its rules asks (the lease: work only in its `path`, in Claude Code
-  `EnterWorktree` with that path, land each commit at once, return only its own lease; the subject branch: `(branch) `
-  first, else the subject as the repository writes it) and the isolation rules a repository would otherwise repeat (no
+  with `bd workspace` and what each of its rules asks (the lease: work only in its `path`, in Claude Code a `cd`
+  into that path, else `EnterWorktree` with it, land each commit at once, return only its own lease; the subject
+  branch: `(branch) ` first, else the subject as the repository writes it) and the isolation rules a repository
+  would otherwise repeat (no
   `git worktree add` or clone of the agent's own, also when bd fails; in a Codex sandbox, write access to exactly the
   lease's `path`), then sends the agent to `bd help agent` for grouping, pushing
   and Safe Push, to `bd help update` for an update, to `bd help worktrees` when several sessions or worktrees work
