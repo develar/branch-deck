@@ -1,9 +1,10 @@
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, parse_commit_diffs, read_commit_diffs};
-use file_diffs::service::FileDiffs;
+use file_diffs::service::{DiffLimits, FileDiffs};
 use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
+use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
 
 fn change(status: char, path: &str) -> FileChange {
@@ -20,9 +21,18 @@ fn change(status: char, path: &str) -> FileChange {
   }
 }
 
+/// The diffs without the time limits of the views, which are wall time: a loaded machine runs out of them, and a file
+/// becomes one block (`unhurried` of the tests of file-diffs)
+pub(crate) fn unhurried() -> FileDiffs {
+  FileDiffs::new(DiffLimits {
+    file: Duration::from_secs(60),
+    lines: Duration::from_secs(60),
+  })
+}
+
 /// The changes of one commit, without caches
 pub(crate) fn commit_diffs(repo: &TestRepo, commit: &str) -> Vec<CommitDiff> {
-  read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), &FileDiffs::default(), &[commit.to_string()]).unwrap()
+  read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), &unhurried(), &[commit.to_string()]).unwrap()
 }
 
 fn hunk(old_start: u32, old_lines: u32, new_start: u32, new_lines: u32) -> Hunk {
@@ -157,12 +167,12 @@ fn the_diff_config_of_the_user_changes_neither_the_hunks_nor_the_edges() {
     repo.create_commit("B", "file.txt", &lines(&[5, 10, 15])),
   ];
   let path = repo.path().to_str().unwrap();
-  let plain = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &FileDiffs::default(), &ids).unwrap();
+  let plain = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &unhurried(), &ids).unwrap();
 
   for (key, value) in [("diff.interHunkContext", "10"), ("diff.algorithm", "histogram"), ("diff.indentHeuristic", "false")] {
     repo.set_config(key, value).unwrap();
   }
-  let configured = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &FileDiffs::default(), &ids).unwrap();
+  let configured = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &unhurried(), &ids).unwrap();
 
   assert_eq!(configured, plain);
   assert_eq!(configured[1].files[0].hunks, [hunk(5, 1, 5, 1), hunk(15, 1, 15, 1)]);

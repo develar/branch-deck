@@ -2,7 +2,7 @@
 //! from the texts the diffs read
 
 use crate::accio::{References, SymbolHit, SymbolIndex};
-use crate::fixture_test::{commit_all, process_counts, repo_path, write};
+use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, DeclarationSite, DiffFile, DiffRevisions, DiffSide, DiffSource, FindDeclarationParams, ReviewFileSides};
 use crate::service::FileDiffs;
 use object_cache::cache::ObjectCache;
@@ -27,7 +27,7 @@ pub(crate) fn review() -> (TestRepo, FileDiffs, Vec<DiffFile>) {
   write(&repo, "src/Store.kt", STORE.as_bytes());
   write(&repo, "lib/Queue.kt", OTHER.as_bytes());
   let commit = commit_all(&repo, "Add the files");
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let files = diffs
     .read(
       repo.git_executor(),
@@ -169,7 +169,7 @@ fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
   commit_all(&repo, "Initial");
   write(&repo, "Uses.kt", b"fun run() = outsider() + inner()\n\nfun inner() = 2\n");
   let commit = commit_all(&repo, "Use it");
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let files = diffs
     .read(
       repo.git_executor(),

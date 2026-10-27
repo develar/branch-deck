@@ -1,6 +1,6 @@
 use crate::check::{CheckOutcome, CheckReport, check_plan};
 use crate::dangling_references::{DanglingKind, DanglingReference, DeclaredIn, read_commit_lines};
-use file_diffs::service::FileDiffs;
+use crate::diff_scan_test::unhurried;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
 use pretty_assertions::assert_eq;
@@ -130,7 +130,7 @@ fn a_use_in_a_path_with_a_space_is_fixed_by_its_commit() {
 
 /// The changed lines of one commit, without caches
 fn commit_lines(repo: &TestRepo, commit: &str) -> HashMap<String, Vec<FileLines>> {
-  read_commit_lines(repo.git_executor(), repo.path_str(), &[commit.to_string()], &ObjectCache::disabled(), &FileDiffs::default()).unwrap()
+  read_commit_lines(repo.git_executor(), repo.path_str(), &[commit.to_string()], &ObjectCache::disabled(), &unhurried()).unwrap()
 }
 
 /// The changed lines of a commit by the paths of its `--raw` entries: a name with a space or a quote is read as git

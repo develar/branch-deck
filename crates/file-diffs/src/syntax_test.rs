@@ -1,8 +1,7 @@
 //! The highlighting of blobs for the views: the layout of the answer, where the text comes from, and the git processes
 
-use crate::fixture_test::{commit_all, process_counts, repo_path, write};
+use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, DiffSource, GetBlobSyntaxParams};
-use crate::service::FileDiffs;
 use crate::syntax::{SYNTAX_FORMAT, SyntaxStatus};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
@@ -40,7 +39,7 @@ fn committed() -> (TestRepo, String) {
 #[test]
 fn answers_the_runs_of_the_lines_asked_for_with_the_line_starts_from_zero() {
   let (repo, id) = committed();
-  let answer = words(&FileDiffs::default().blob_syntax(repo.git_executor(), &params(&repo, &id, "A.kt", (1, 3), None)).unwrap());
+  let answer = words(&unhurried().blob_syntax(repo.git_executor(), &params(&repo, &id, "A.kt", (1, 3), None)).unwrap());
   let (header, rest) = answer.split_at(6);
   // the format, the status, 5 lines (the empty one after the final line end), the lines 1 and 2, then their runs
   assert_eq!(header[..5], [SYNTAX_FORMAT, SyntaxStatus::Runs as u32, 5, 1, 3]);
@@ -59,7 +58,7 @@ fn parses_a_blob_once_from_the_blobs_a_diff_read_and_reads_a_cold_one_with_one_c
   let (repo, id) = committed();
   write(&repo, "A.kt", KOTLIN.replace("= 1", "= 2").as_bytes());
   let second = commit_all(&repo, "Change");
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   diffs
     .read(
       repo.git_executor(),
@@ -75,7 +74,7 @@ fn parses_a_blob_once_from_the_blobs_a_diff_read_and_reads_a_cold_one_with_one_c
   // the second time from the highlightings it keeps
   assert_eq!(diffs.blob_syntax(&counting, &params(&repo, &id, "A.kt", (0, 5), None)).unwrap(), first);
 
-  let fresh = FileDiffs::default();
+  let fresh = unhurried();
   let counting = repo.git_executor().with_process_stats("test");
   assert_eq!(fresh.blob_syntax(&counting, &params(&repo, &id, "A.kt", (0, 5), None)).unwrap(), first);
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1)]);
@@ -84,7 +83,7 @@ fn parses_a_blob_once_from_the_blobs_a_diff_read_and_reads_a_cold_one_with_one_c
 #[test]
 fn says_missing_for_a_blob_it_cannot_read_and_highlights_the_text_a_view_sends() {
   let (repo, _) = committed();
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let status = |bytes: Vec<u8>| words(&bytes)[1];
   // a text the view made: no object id, no git
   let counting = repo.git_executor().with_process_stats("test");
@@ -108,10 +107,6 @@ fn says_missing_for_a_blob_it_cannot_read_and_highlights_the_text_a_view_sends()
 fn falls_back_to_the_worker_for_a_file_without_a_grammar() {
   let (repo, _) = committed();
   let id = repo.rev_parse("HEAD:notes.txt").unwrap();
-  let answer = words(
-    &FileDiffs::default()
-      .blob_syntax(repo.git_executor(), &params(&repo, &id, "notes.txt", (0, 1), None))
-      .unwrap(),
-  );
+  let answer = words(&unhurried().blob_syntax(repo.git_executor(), &params(&repo, &id, "notes.txt", (0, 1), None)).unwrap());
   assert_eq!(answer, [SYNTAX_FORMAT, SyntaxStatus::Fallback as u32, 0, 0, 0, 0]);
 }

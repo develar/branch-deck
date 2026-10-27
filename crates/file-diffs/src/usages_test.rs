@@ -3,7 +3,7 @@
 
 use crate::accio::{ReferenceHit, References, SearchCanceled, SymbolHit, SymbolIndex};
 use crate::declarations_test::{params, review, single_file_params};
-use crate::fixture_test::{commit_all, process_counts, repo_path, write};
+use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::FoundUsages;
 use pretty_assertions::assert_eq;
 use std::sync::Mutex;
@@ -82,7 +82,7 @@ fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_th
   commit_all(&repo, "Initial");
   write(&repo, "Uses.kt", b"fun run() = outsider()\n");
   let commit = commit_all(&repo, "Use it");
-  let diffs = crate::service::FileDiffs::default();
+  let diffs = unhurried();
   let files = diffs
     .read(
       repo.git_executor(),

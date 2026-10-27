@@ -1,7 +1,7 @@
 //! The file diffs of a commit, a range and the working tree on fixture repositories: each kind of file, the blob ids,
 //! the caches and the git processes.
 
-use crate::fixture_test::{commit_all, process_counts, repo_path, write};
+use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams};
 use crate::service::{DiffLimits, FileDiffs, priority_order};
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -64,16 +64,6 @@ fn text(file: &DiffFile) -> &TextDiff {
     DiffContent::Text(diff) => diff,
     other => panic!("{}: {other:?}", file.path),
   }
-}
-
-/// The service with time limits no comparison of these tests reaches: on a loaded machine the 1 s of `DIFF_LIMITS` for
-/// the lines of `many.txt` ran out, and the file became one block. A test of the limits gives its own
-/// (`a_diff_out_of_time_is_by_line_and_not_stored`)
-fn unhurried() -> FileDiffs {
-  FileDiffs::new(DiffLimits {
-    file: Duration::from_secs(60),
-    lines: Duration::from_secs(60),
-  })
 }
 
 fn open_cache(dir: &tempfile::TempDir) -> ObjectCache {
@@ -335,7 +325,7 @@ fn a_diff_out_of_time_is_by_line_and_not_stored() {
     .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
     .unwrap();
   assert_eq!(again, files);
-  let files = FileDiffs::default()
+  let files = unhurried()
     .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
     .unwrap();
   assert!(!text(&files[0]).line_level_only);

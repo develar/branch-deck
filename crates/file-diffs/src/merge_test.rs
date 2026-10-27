@@ -1,9 +1,8 @@
 //! The merges of conflicting files on fixture repositories with real `merge-tree` conflicts: each conflict type, the
 //! resolve by words, the caches and the git processes.
 
-use crate::fixture_test::{commit_all, process_counts, repo_path, write};
+use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{FileMerge, FileMergeEvent, GetFileMergesParams, GitConflictKind, MergeContent, MergeSide, MergeSource};
-use crate::service::FileDiffs;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -65,9 +64,7 @@ fn params(repo: &TestRepo, source: &MergeSource) -> GetFileMergesParams {
 
 /// The merges of `source` without the caches of an app
 fn read(repo: &TestRepo, source: &MergeSource) -> Vec<FileMerge> {
-  FileDiffs::default()
-    .read_merges(repo.git_executor(), &ObjectCache::disabled(), &params(repo, source))
-    .unwrap()
+  unhurried().read_merges(repo.git_executor(), &ObjectCache::disabled(), &params(repo, source)).unwrap()
 }
 
 fn file<'a>(merges: &'a [FileMerge], path: &str) -> &'a FileMerge {
@@ -141,7 +138,7 @@ fn a_merge_costs_one_merge_tree_and_one_cat_file_then_nothing() {
   let (repo, source) = conflicts();
   let cache_dir = tempfile::tempdir().unwrap();
   let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let counting = repo.git_executor().with_process_stats("test");
   let first = diffs.read_merges(&counting, &cache, &params(&repo, &source)).unwrap();
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1), ("merge-tree".to_string(), 1)]);
@@ -152,7 +149,7 @@ fn a_merge_costs_one_merge_tree_and_one_cat_file_then_nothing() {
 
   // another app: the stages from git again, the text merges from the store; the binary file reads its blobs again
   let counting = repo.git_executor().with_process_stats("test");
-  assert_eq!(FileDiffs::default().read_merges(&counting, &cache, &params(&repo, &source)).unwrap(), first);
+  assert_eq!(unhurried().read_merges(&counting, &cache, &params(&repo, &source)).unwrap(), first);
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1), ("merge-tree".to_string(), 1)]);
 }
 
@@ -164,7 +161,7 @@ fn the_stream_lists_the_files_then_the_file_in_view_first() {
     priority_paths: vec!["words.kt".to_string()],
     ..params(&repo, &source)
   };
-  FileDiffs::default()
+  unhurried()
     .stream_merges(repo.git_executor(), &ObjectCache::disabled(), &params, |event| events.push(event))
     .unwrap();
   let FileMergeEvent::Files { files } = &events[0] else { panic!("{:?}", events[0]) };

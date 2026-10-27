@@ -1,9 +1,8 @@
 //! The blocks as `bd commits --patch` prints them: the context, the header with the scope label, the ids.
 
 use crate::blocks::BlobPair;
-use crate::fixture_test::{commit_all, process_counts, repo_path, write};
+use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::patch::{BlockPatch, block_patches};
-use crate::service::FileDiffs;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -85,7 +84,7 @@ fn the_ids_of_a_commit_apply() {
     old_id: Some(&old_id),
     new_id: Some(&new_id),
   };
-  let patches: Vec<BlockPatch> = FileDiffs::default()
+  let patches: Vec<BlockPatch> = unhurried()
     .patches_of(&counting, repo_path(&repo), &ObjectCache::disabled(), &[pair])
     .unwrap()
     .remove(0)

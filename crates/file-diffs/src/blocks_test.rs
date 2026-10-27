@@ -1,9 +1,8 @@
 //! The blocks of many pairs for the scans: the same blocks as the views, the binary files, and the caches.
 
 use crate::blocks::{BlobPair, PairDiff};
-use crate::fixture_test::{commit_all, process_counts, repo_path, write};
+use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, unhurried_for_scans, write};
 use crate::model::{DiffContent, DiffSource};
-use crate::service::FileDiffs;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -28,7 +27,7 @@ fn the_blocks_of_a_scan_are_the_blocks_of_the_view() {
   let (repo, commit) = repo();
   let cache_dir = tempfile::tempdir().unwrap();
   let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
-  let view = FileDiffs::default()
+  let view = unhurried()
     .read(
       repo.git_executor(),
       repo_path(&repo),
@@ -48,7 +47,7 @@ fn the_blocks_of_a_scan_are_the_blocks_of_the_view() {
     .collect();
 
   let counting = repo.git_executor().with_process_stats("test");
-  let scan = FileDiffs::default().blocks_of(&counting, repo_path(&repo), &cache, &pairs).unwrap();
+  let scan = unhurried().blocks_of(&counting, repo_path(&repo), &cache, &pairs).unwrap();
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1)]);
   for (file, diff) in view.iter().zip(&scan) {
     match (&file.content, diff) {
@@ -64,7 +63,7 @@ fn a_pair_the_view_showed_costs_no_process() {
   let (repo, commit) = repo();
   let cache_dir = tempfile::tempdir().unwrap();
   let cache = ObjectCache::open_dir(cache_dir.path(), &CacheConfig::default());
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let view = diffs
     .read(repo.git_executor(), repo_path(&repo), &cache, &DiffSource::Commit { id: commit }, WhitespacePolicy::Default)
     .unwrap();
@@ -76,7 +75,7 @@ fn a_pair_the_view_showed_costs_no_process() {
     new_id: kotlin.new_id.as_deref(),
   };
   // from memory, then from the store of another app
-  for diffs in [diffs, FileDiffs::default()] {
+  for diffs in [diffs, unhurried()] {
     let counting = repo.git_executor().with_process_stats("test");
     let scan = diffs.blocks_of(&counting, repo_path(&repo), &cache, &[pair]).unwrap();
     assert_eq!(process_counts(&counting), []);
@@ -98,7 +97,7 @@ fn a_scan_instance_reads_each_blob_once() {
     old_id: Some(&old_id),
     new_id: Some(&new_id),
   };
-  for (diffs, second_pass) in [(FileDiffs::for_scans(), vec![]), (FileDiffs::default(), vec![("cat-file".to_string(), 1)])] {
+  for (diffs, second_pass) in [(unhurried_for_scans(), vec![]), (unhurried(), vec![("cat-file".to_string(), 1)])] {
     let counting = repo.git_executor().with_process_stats("test");
     diffs.blocks_of(&counting, repo_path(&repo), &ObjectCache::disabled(), &[pair]).unwrap();
     assert_eq!(process_counts(&counting), [("cat-file".to_string(), 1)]);

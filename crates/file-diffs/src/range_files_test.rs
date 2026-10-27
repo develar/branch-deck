@@ -1,6 +1,6 @@
+use crate::fixture_test::unhurried;
 use crate::model::{DiffSource, GetFileDiffsParams};
 use crate::range_files::RangeFilesCache;
-use crate::service::FileDiffs;
 use git_ops::commit_files::{DiffSubject, read_diff_files};
 use object_cache::cache::ObjectCache;
 use text_diff::policy::WhitespacePolicy;
@@ -39,7 +39,7 @@ fn the_list_and_the_diffs_of_a_range_run_one_diff_tree() {
   let (repo, base, head) = range_repo();
   let path = repo.path_str().to_string();
   let counting = repo.git_executor().with_process_stats("test");
-  let diffs = FileDiffs::default();
+  let diffs = unhurried();
   let subject = DiffSubject::Range {
     base: base.clone(),
     head: head.clone(),
