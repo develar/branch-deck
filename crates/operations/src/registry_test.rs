@@ -98,7 +98,7 @@ impl Fixture {
   }
 
   async fn admit(&self, request: OperationRequest, heard: &Arc<Heard>) -> Admitted {
-    self.registry.admit(&self.key, request, Arc::clone(heard) as Arc<dyn EventSink>).await.unwrap()
+    self.registry.admit(&self.key, new_id(), request, Arc::clone(heard) as Arc<dyn EventSink>).await.unwrap()
   }
 
   /// A push of auth that runs, and a Dry Run of auth that waits behind it on a task of its own, with its id
@@ -113,8 +113,13 @@ impl Fixture {
   /// Admits `request` on a task of its own, which answers its guard once it runs
   fn spawn_admit(&self, request: OperationRequest) -> tokio::task::JoinHandle<RunningGuard> {
     let (registry, key) = (Arc::clone(&self.registry), self.key.clone());
-    tokio::spawn(async move { running(registry.admit(&key, request, Arc::new(Heard::default())).await.unwrap()) })
+    tokio::spawn(async move { running(registry.admit(&key, new_id(), request, Arc::new(Heard::default())).await.unwrap()) })
   }
+}
+
+/// The id of a new operation
+fn new_id() -> OperationId {
+  OperationId(sync_utils::operation_id::OperationId::new().to_string())
 }
 
 /// The operations of the view of the session of `key` now
@@ -203,7 +208,15 @@ async fn an_admitted_operation_is_in_the_view_until_it_ends() {
   guard.step(OperationStep::Pushing);
   guard.progress(40, "Writing objects: 40%".to_string());
   assert_eq!(step_of(&fixture.operations().await, &id), Some(OperationStep::Pushing));
-  guard.finish(Ok(outcome(&id))).await;
+  // its outcome with what it cost from its admission on
+  let finished = guard.finish(Ok(outcome(&id))).await.unwrap();
+  assert_eq!(
+    Outcome {
+      stats: OperationStats::default(),
+      ..finished.clone()
+    },
+    outcome(&id)
+  );
   assert_eq!(fixture.operations().await, Vec::new());
   assert_eq!(
     heard.take(),
@@ -217,7 +230,7 @@ async fn an_admitted_operation_is_in_the_view_until_it_ends() {
         percent: 40,
         line: "Writing objects: 40%".to_string(),
       },
-      OperationEvent::Done { outcome: Box::new(outcome(&id)) },
+      OperationEvent::Done { outcome: Box::new(finished) },
     ]
   );
 }
@@ -234,8 +247,9 @@ async fn a_request_of_the_same_intent_joins_the_running_one() {
   assert_eq!(joined.op(), &id);
   assert_eq!(fixture.operations().await.len(), 1);
 
-  let (answer, ()) = tokio::join!(joined.answer(), first.finish(Ok(outcome(&id))));
-  assert_eq!(answer, Ok(outcome(&id)));
+  let (answer, finished) = tokio::join!(joined.answer(), first.finish(Ok(outcome(&id))));
+  assert_eq!(answer, finished);
+  assert_eq!(answer.map(|answer| answer.op), Ok(id));
 
   // through the frame of the engine both callers hear the outcome
   let (pushed, again) = (Arc::new(Heard::default()), Arc::new(Heard::default()));
@@ -260,9 +274,9 @@ async fn a_request_of_the_same_intent_joins_the_running_one() {
   );
   let (second, ()) = tokio::join!(second, async { gate.notify_one() });
   assert_eq!(first.await.unwrap(), second.clone());
-  let op = second.unwrap().op;
-  assert_eq!(pushed.take(), vec![OperationEvent::Done { outcome: Box::new(outcome(&op)) }]);
-  assert_eq!(again.take(), vec![OperationEvent::Done { outcome: Box::new(outcome(&op)) }]);
+  let second = Box::new(second.unwrap());
+  assert_eq!(pushed.take(), vec![OperationEvent::Done { outcome: second.clone() }]);
+  assert_eq!(again.take(), vec![OperationEvent::Done { outcome: second }]);
 }
 
 /// An operation that needs what another holds waits in the session behind the newest such one, and runs once the ones
@@ -287,7 +301,7 @@ async fn an_operation_waits_for_what_it_needs_and_runs_in_the_order_it_came() {
   assert_eq!(step_of(&fixture.operations().await, login.id()), Some(OperationStep::WaitingForSync));
 
   let id = push_auth.id().clone();
-  push_auth.finish(Ok(outcome(&id))).await;
+  let _ = push_auth.finish(Ok(outcome(&id))).await;
   let dry_run = dry_run.await.unwrap();
   let after_push = fixture.until(|operations| operations.len() == 3).await;
   assert_eq!(step_of(&after_push, &dry_run_id), Some(OperationStep::Checking));

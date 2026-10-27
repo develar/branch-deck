@@ -372,6 +372,8 @@ impl<'a> GitCommand<'a> {
       .stderr(Stdio::piped())
       .spawn()
       .map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
+    // the cost of the operation it runs for, if any (the journal of the operations of the remote)
+    sync_utils::operation_tally::git_process(crate::process_stats::subcommand(self.args));
     let tree = ProcessTree::of(&child);
     let stdin = if pipe_stdin {
       Some(child.stdin.take().ok_or_else(|| anyhow!("git stdin is not piped"))?)

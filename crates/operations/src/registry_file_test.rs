@@ -3,7 +3,7 @@ use crate::registry_file::{External, GONE_AFTER, PendingStart, ProcessIdentity, 
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, OperationHolder, OperationKind};
 use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::landing::StartRoute;
-use domain_types::operation::{OperationId, OperationStep, Resource};
+use domain_types::operation::{JournalTransition, OperationId, OperationStep, Resource};
 use domain_types::patronus::PatronusPushMode;
 use pretty_assertions::assert_eq;
 use repository_model::session::SessionKey;
@@ -411,7 +411,7 @@ fn a_forget_takes_out_a_start_whose_answer_was_lost_and_refuses_one_that_runs() 
   lost.external = Some(External {
     pending_start: Some(sent("auth", NOW + 1)),
   });
-  assert!(!registry.settle(&lost).unwrap());
+  assert!(!registry.settle(&lost, JournalTransition::NotStarted).unwrap());
   assert_eq!(registry.forget(&id("lost")).unwrap().id, id("lost"));
   let auth = registry.admit(&id("auth"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap();
   drop((auth, running));

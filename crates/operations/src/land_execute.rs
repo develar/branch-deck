@@ -403,13 +403,12 @@ pub struct Started {
 /// Before any effect: a subject the table lacks, a fingerprint or a confirmation the plan no longer has
 /// (`plan_changed`), what refuses it (the code of its first blocker), a fact it still waits for, a lock another holds
 /// (`locked`), git failing. After the first effect a failure is the status of its effect in the outcome
-#[instrument(skip_all, fields(op = %op, subject = %land.subject.name()))]
+#[instrument(skip_all, fields(subject = %land.subject.name()))]
 pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Steps, op: OperationId, land: &Land, accepted: &Accepted, waited: bool) -> Result<Started, ApiError> {
-  let began = std::time::Instant::now();
   steps.step(OperationStep::Checking);
   let planned = host.plan(land).await?.ok_or_else(|| unknown_subject(&land.subject))?;
   let accepted = accepted.decided_again(&planned.plan, waited);
-  run_planned(host, services, steps, op, planned, &accepted, began).await
+  run_planned(host, services, steps, op, planned, &accepted).await
 }
 
 /// Runs `planned`, a plan prepared again just now (a start, or a restart of a robot, `robot::execute_restart`), as `op`
@@ -418,15 +417,7 @@ pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Ste
 ///
 /// # Errors
 /// As `execute`, before any effect
-pub async fn run_planned(
-  host: &dyn StartHost,
-  services: &StartServices,
-  steps: &Steps,
-  op: OperationId,
-  planned: Planned,
-  accepted: &Accepted,
-  began: std::time::Instant,
-) -> Result<Started, ApiError> {
+pub async fn run_planned(host: &dyn StartHost, services: &StartServices, steps: &Steps, op: OperationId, planned: Planned, accepted: &Accepted) -> Result<Started, ApiError> {
   // what refuses it now is told as itself, a refusal the check against the newest target found too
   if let Some(blocker) = planned.plan.blockers.first() {
     return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots));
@@ -457,7 +448,7 @@ pub async fn run_planned(
   let known: HashSet<String> = host.current().await.robots.into_iter().map(|robot| robot.id).collect();
   let mut run = Run::new(host, services, steps, planned, known);
   run.effects(prepared).await;
-  Ok(run.started(op, began))
+  Ok(run.started(op))
 }
 
 /// The full witness and the freeze under the repository lock: the tips of the refs of the plan, one `for-each-ref`, then
@@ -1250,7 +1241,7 @@ impl Run<'_> {
   }
 
   /// The run as its outcome tells it, with what its effects answered
-  fn started(self, op: OperationId, began: std::time::Instant) -> Started {
+  fn started(self, op: OperationId) -> Started {
     let subject = self.planned.plan_subject_name().to_string();
     let mode = self.planned.mode;
     let result = match &self.planned.plan.intent {
@@ -1291,10 +1282,8 @@ impl Run<'_> {
       news_key,
       version_after: self.version,
       result,
-      stats: OperationStats {
-        millis: u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX),
-        ..OperationStats::default()
-      },
+      // what it cost is the registry's to fill: `RunningGuard::finish` of the app, the entry of the run of `bd`
+      stats: OperationStats::default(),
     };
     Started {
       plan: self.planned.plan,

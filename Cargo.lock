@@ -4188,6 +4188,7 @@ dependencies = [
  "git-ops",
  "github",
  "history-rewrite",
+ "lease-pool",
  "notify",
  "object-cache",
  "patronus",
@@ -6696,6 +6697,7 @@ dependencies = [
  "test-log",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -20,7 +20,7 @@ use domain_types::patronus::{PatronusAvailability, PatronusRobot};
 use github::service::GitHubService;
 use operations::engine::request_of;
 use operations::land::{LandHost, one_shot_planned};
-use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices, bounded_lock};
+use operations::land_execute::{Current, Locker, Planned, PullRequestText, PushSettings, StartHost, StartServices, Started, bounded_lock};
 use operations::push::Sent;
 use operations::reconcile::{ReconcileSources, SettleWith, admit_settled};
 use operations::registry_file::{Entry, ProcessRegistry};
@@ -138,21 +138,39 @@ pub(crate) fn locker(context: &RepoContext) -> Locker {
   bounded_lock(context.git_common_dir.clone(), context.lock_timeout)
 }
 
-/// The record of the run of `planned` as the operation `op` in the operations registry of the repository
-/// (`registry_file`), with what the app's admission of the same plan holds (`engine::request_of`): `busy`, naming the
-/// holder, while another process (the app, another `bd`) runs what it needs. A start whose answer was lost in its way is
-/// settled first over the services of the run (`reconcile::admit_settled`): one that started no robot leaves, one that
-/// did refuses the run as `plan_changed`, one not known yet is `busy` with how to forget it. The run holds the record;
-/// dropped, it leaves the registry
+/// The record of the run of `planned` in the operations registry of the repository (`registry_file`), as the operation
+/// of the command (`RepoContext::operation_id`, the `operation_id` of its JSON and of its log lines), with what the
+/// app's admission of the same plan holds (`engine::request_of`): `busy`, naming the holder, while another process (the
+/// app, another `bd`) runs what it needs. A start whose answer was lost in its way is settled first over the services of
+/// the run (`reconcile::admit_settled`): one that started no robot leaves, one that did refuses the run as
+/// `plan_changed`, one not known yet is `busy` with how to forget it. The run holds the record until `run_admitted`
+/// ends it
 ///
 /// # Errors
 /// As `admit_settled`
-pub(crate) fn admit(context: &RepoContext, services: &StartServices, op: &OperationId, planned: &Planned) -> Result<Entry, ApiError> {
+pub(crate) fn admit(context: &RepoContext, services: &StartServices, planned: &Planned) -> Result<Entry, ApiError> {
+  let op = OperationId(context.operation_id.to_string());
   let request = request_of(&context.prefix, planned);
   let key = session_key(context);
   let sources = ReconcileSources::of_start(services, &key, context.patronus_new_api, unix_now());
   let registry = ProcessRegistry::of(&context.git_common_dir);
   let runtime = context.runtime().map_err(|error| ApiError::internal(error.message))?;
-  let admitted = runtime.block_on(admit_settled(&registry, op, HolderTool::Bd, &key, &request, Some(SettleWith::Sources(sources))));
+  let admitted = runtime.block_on(admit_settled(&registry, &op, HolderTool::Bd, &key, &request, Some(SettleWith::Sources(sources))));
   admitted.entry
+}
+
+/// Runs `run`, the run of the operation `entry` admitted, on the runtime of the command, counting what it costs from its
+/// admission on (`OperationTally`); then its record leaves the registry with its entry in the journal of the operations
+/// (`Entry::finish`), as the app's run ends
+///
+/// # Errors
+/// What `run` answers
+pub(crate) fn run_admitted(context: &RepoContext, entry: Entry, run: impl Future<Output = Result<Started, ApiError>>) -> Result<Started, ApiError> {
+  let started = match context.runtime() {
+    Ok(runtime) => runtime.block_on(entry.tally().counting(run)),
+    Err(error) => Err(ApiError::internal(error.message)),
+  };
+  let stats = entry.stats();
+  entry.finish(started.as_ref().map(|started| &started.outcome), stats);
+  started
 }

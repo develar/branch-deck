@@ -152,7 +152,6 @@ pub async fn execute_close(registry: &Registry, key: &SessionKey, intent: Intent
   let sessions = registry.sessions();
   let request = close_request(&intent, prepare_close(sessions, key, &intent).await.as_ref());
   run(registry, key, request, events, async |guard| {
-    let began = std::time::Instant::now();
     let plan = prepare_close(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
     if let Some(Reason::PullRequestMerged { number }) = plan.blockers.first() {
       return Err(ApiError::new(ErrorCode::Landed, format!("Nothing was closed: pull request #{number} is merged")));
@@ -173,7 +172,7 @@ pub async fn execute_close(registry: &Registry, key: &SessionKey, intent: Intent
       };
       records.push(EffectRecord { effect, status });
     }
-    Ok(close_outcome(guard.id().clone(), &intent, records, version, began))
+    Ok(close_outcome(guard.id().clone(), &intent, records, version))
   })
   .await
 }
@@ -197,12 +196,12 @@ async fn close(services: &dyn ServiceHost, key: &SessionKey, number: u32, commen
 }
 
 /// The outcome of closes: the closes of a merged robot are a state of its merge, whose toast says them
-fn close_outcome(op: OperationId, intent: &Intent, effects: Vec<EffectRecord>, version: Option<Version>, began: std::time::Instant) -> Outcome {
+fn close_outcome(op: OperationId, intent: &Intent, effects: Vec<EffectRecord>, version: Option<Version>) -> Outcome {
   let news_key = match intent {
     Intent::CloseLandedPullRequests { robot_id } => Some(NewsKey::Robot { robot_id: robot_id.clone() }),
     _ => None,
   };
-  outcome_of(op, effects, news_key, version, OperationResult::None, began)
+  outcome_of(op, effects, news_key, version, OperationResult::None)
 }
 
 #[cfg(test)]

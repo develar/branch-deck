@@ -135,6 +135,12 @@ of every `bd` process never collide and sort by time). `src-tauri/src/command_sc
   (`an_async_command_opens_the_object_cache_off_the_async_workers`; `get_robot_stats` opened it on the worker).
 - An error leaves with the id: `ApiError.operation_id` (an error that names one keeps it), which the page records
   with its Activity entry (`operationId`) and in its log line of the error. An error raised outside a command has none.
+- An operation of the remote that a session runs (`operations::engine::run`, the `execute` command) opens a root span
+  of its own inside the command's: `operation{op=safe_push operation_id=… tool=app subject=auth}`, the id of its
+  record in the operations registry, its outcome and its entry in the journal ([Journal](git-operations.md#journal)),
+  around its admission, its body and its end; its error leaves with that id, so the error, the journal and the lines
+  of the run name one operation (`operations/src/engine_log_test.rs`). The same `in_current_span` carries the tally of
+  what the operation costs (`sync_utils::operation_tally`) to the threads its git runs on.
 - A thread starts without a span: `spawn_blocking`, a `JoinSet`, a scoped thread and `tokio::spawn` would log their
   lines outside the operation. A closure handed to another thread goes through `sync_utils::span::in_current_span(…)`,
   a future ends with `.in_current_span()` (`tracing::Instrument`); `crates/git-executor/src/thread_span_scan_test.rs`

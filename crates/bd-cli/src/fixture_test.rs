@@ -62,12 +62,26 @@ pub fn context_with_the_config_prefix(repo: &TestRepo) -> RepoContext {
 }
 
 pub fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
+  let (exit_code, value, _) = run_operation(environment, args);
+  (exit_code, value)
+}
+
+/// `run_json`, with the `operation_id` of the run apart: every output carries one, a ULID, which the output this
+/// answers leaves out, so a test compares what the command printed
+pub fn run_operation(environment: &Environment, args: &[&str]) -> (i32, Value, String) {
   let mut out = Vec::new();
   let exit_code = run_with(args.iter().map(OsString::from), environment, &mut out);
   let text = String::from_utf8(out).expect("UTF-8 output");
   assert_eq!(text.lines().count(), 1, "one line of JSON, got: {text}");
-  let value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("invalid JSON ({e}): {text}"));
-  (exit_code, value)
+  let mut value: Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("invalid JSON ({e}): {text}"));
+  let operation_id = value.as_object_mut().and_then(|object| object.remove("operation_id"));
+  let operation_id = operation_id
+    .as_ref()
+    .and_then(Value::as_str)
+    .unwrap_or_else(|| panic!("no operation_id: {text}"))
+    .to_string();
+  assert_eq!(operation_id.len(), 26, "a ULID: {text}");
+  (exit_code, value, operation_id)
 }
 
 /// The line of the stdout of a child process of a test that carries the exit code and the output of its `bd`
@@ -518,8 +532,15 @@ pub fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
   let schema = resolve(root, schema);
   match value {
     Value::Object(object) => {
-      // an output leaves an empty optional field out, so the schema must not require it
-      for key in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+      // an output leaves an empty optional field out, so the schema must not require it; `operation_id` is checked and
+      // left out by `run_operation`
+      for key in schema["required"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|key| *key != "operation_id")
+      {
         assert!(object.contains_key(key), "{path}.{key} is required by the schema but missing");
       }
       for (key, child) in object {

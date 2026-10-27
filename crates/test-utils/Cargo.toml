@@ -27,7 +27,9 @@ domain-types = { path = "../domain-types" }
 # The fake HTTP server of the fakes (`fake_server`), with the `http` feature
 axum = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
-tracing = { workspace = true, optional = true }
+tracing.workspace = true
+# the log lines of a test (`captured_log`)
+tracing-subscriber.workspace = true
 
 # Note: git-ops removed to avoid circular dependency - git-ops has its own test utilities
 
@@ -37,6 +39,6 @@ test-log = { workspace = true }
 [features]
 default = []
 # `fake_server`: a router on a loopback port, for the fakes of the service crates
-http = ["dep:axum", "dep:tokio", "dep:tracing"]
+http = ["dep:axum", "dep:tokio"]
 [lints]
 workspace = true

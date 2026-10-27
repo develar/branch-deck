@@ -173,7 +173,6 @@ pub(crate) fn retarget_request(number: u32) -> OperationRequest {
 pub async fn execute_retarget(registry: &Registry, key: &SessionKey, number: u32, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
   run(registry, key, retarget_request(number), events, async |guard| {
-    let began = std::time::Instant::now();
     let plan = prepare_retarget(sessions, key, number).await.ok_or_else(|| {
       ApiError::new(
         ErrorCode::NoPullRequest,
@@ -206,7 +205,7 @@ pub async fn execute_retarget(registry: &Registry, key: &SessionKey, number: u32
       };
       records.push(EffectRecord { effect, status });
     }
-    Ok(retarget_outcome(guard.id().clone(), records, version, began))
+    Ok(retarget_outcome(guard.id().clone(), records, version))
   })
   .await
 }
@@ -233,8 +232,8 @@ async fn write_retarget(services: &dyn ServiceHost, key: &SessionKey, number: u3
 }
 
 /// The outcome of a retarget: the retarget of the user's own pull request is no event of an object with a toast of its own
-fn retarget_outcome(op: OperationId, effects: Vec<EffectRecord>, version: Option<domain_types::session::Version>, began: std::time::Instant) -> Outcome {
-  outcome_of(op, effects, None, version, OperationResult::None, began)
+fn retarget_outcome(op: OperationId, effects: Vec<EffectRecord>, version: Option<domain_types::session::Version>) -> Outcome {
+  outcome_of(op, effects, None, version, OperationResult::None)
 }
 
 /// What the plan of a pull request or a review request reads: the sources of the session, and the push the branch of
@@ -605,10 +604,9 @@ pub async fn execute_pull_request(registry: &Registry, key: &SessionKey, intent:
   let planned = prepare_planned(sessions, key, &intent).await;
   let request = pull_request_request(&intent, planned.as_ref());
   run(registry, key, request, events, async |guard| {
-    let began = std::time::Instant::now();
     // decided again once admitted: an operation it waited for changed what it decides on
     let planned = prepare_planned(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
-    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, guard.queued(), began).await
+    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, guard.queued()).await
   })
   .await
 }

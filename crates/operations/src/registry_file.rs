@@ -19,22 +19,26 @@
 //! - a file of another schema, or one that does not parse, is the registry of another Branch Deck: every admission is
 //!   busy and the file is never written.
 //!
-//! A record holds no token and no secret; the history of the operations is not kept here.
+//! A record holds no token and no secret; the history of the operations is the journal beside it (`journal`), written
+//! under the same lock in the change that takes a record out: the end of an operation (`Entry::finish`), a settle, a
+//! forget.
 
+use crate::journal;
 use crate::land_execute::lock_failure;
 use crate::registry::OperationRequest;
 use domain_policy::admission::holds_across;
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails, HolderTool, OperationHolder, OperationKind};
 use domain_types::landing::StartRoute;
-use domain_types::operation::{Intent, OperationId, OperationStep, Origin, Resource, RunningOperation};
+use domain_types::operation::{Intent, JournalEntry, JournalTransition, OperationId, OperationStats, OperationStep, Origin, Outcome, Resource, RunningOperation};
 use history_rewrite::repository_lock::lock_file;
 use repository_model::session::SessionKey;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 use sync_utils::atomic_file::{AtomicWrite, write_atomically};
+use sync_utils::operation_tally::OperationTally;
 use sync_utils::process_scan::{host_name, is_running, process_started};
 use sync_utils::timestamp::unix_now;
 use tracing::{debug, warn};
@@ -379,19 +383,34 @@ impl ProcessRegistry {
   /// Runs `change` on the records under the lock and writes what it leaves, when it changed them; the lock is released
   /// at once. `None` for the registry of another Branch Deck, which `change` never sees
   fn change<R>(&self, change: impl FnOnce(&mut RegistryFile) -> R) -> Result<Option<R>, ApiError> {
+    self.change_then(change, |_| None)
+  }
+
+  /// `change`, then, still under the lock, the entry `journal` makes of what the change answered (`None` for the
+  /// registry of another Branch Deck) appended to the journal beside the file (`journal`): a journal that can't be
+  /// written fails no change, it is logged
+  fn change_then<R>(&self, change: impl FnOnce(&mut RegistryFile) -> R, journal: impl FnOnce(Option<&R>) -> Option<JournalEntry>) -> Result<Option<R>, ApiError> {
     let io = |error: std::io::Error, what: &str| ApiError::new(ErrorCode::GitError, format!("Cannot {what} {}: {error}", self.path().display()));
     std::fs::create_dir_all(&self.dir).map_err(|error| io(error, "create the directory of"))?;
     let _lock = lock_file(self.dir.join(LOCK), LOCK_TIMEOUT, &|| debug!("waiting for the lock of the operations registry")).map_err(|error| lock_failure(&error))?;
-    let Content::Known(mut file) = self.read().map_err(|error| io(error, "read"))? else {
-      return Ok(None);
+    let result = match self.read().map_err(|error| io(error, "read"))? {
+      Content::Known(mut file) => {
+        let before = file.clone();
+        let result = change(&mut file);
+        if file != before {
+          let json = serde_json::to_vec_pretty(&file).map_err(|error| ApiError::internal(format!("Cannot write the operations registry: {error}")))?;
+          write_atomically(&self.path(), &json, AtomicWrite::default()).map_err(|error| io(error, "write"))?;
+        }
+        Some(result)
+      }
+      Content::Foreign => None,
     };
-    let before = file.clone();
-    let result = change(&mut file);
-    if file != before {
-      let json = serde_json::to_vec_pretty(&file).map_err(|error| ApiError::internal(format!("Cannot write the operations registry: {error}")))?;
-      write_atomically(&self.path(), &json, AtomicWrite::default()).map_err(|error| io(error, "write"))?;
+    if let Some(entry) = journal(result.as_ref())
+      && let Err(error) = journal::append_locked(&self.dir, &entry, unix_now())
+    {
+      warn!(op = %entry.id, "cannot write the journal of the operations: {error}");
     }
-    Ok(Some(result))
+    Ok(result)
   }
 
   /// Admits the operation `id` of `tool` in the session `session` that asks `request` (`registry::OperationRequest`, the
@@ -432,12 +451,14 @@ impl ProcessRegistry {
     };
     // live before it is in the file, so a heartbeat never takes it for a record whose removal failed
     keeper().enter(self, id);
-    let admitted = self.change(|file| admit_into(file, record, this, now, &is_running));
+    let admitted = self.change(|file| admit_into(file, record.clone(), this, now, &is_running));
     let refusal = match admitted {
       Ok(Some(Ok(()))) => {
         return Ok(Entry {
           registry: self.clone(),
-          id: id.clone(),
+          record: Box::new(record),
+          tally: OperationTally::begin(),
+          left: false,
         });
       }
       Ok(Some(Err(holder))) => Refused::Busy(holder),
@@ -460,19 +481,22 @@ impl ProcessRegistry {
   }
 
   /// Takes `settled` out, a start whose answer was lost that a read of Patronus told about (`operations::reconcile`),
-  /// while the file still has it as it was read (its id and the start it sent): `false` when it left meanwhile, or a
-  /// process sent another start under it
+  /// while the file still has it as it was read (its id and the start it sent), and journals what became of it
+  /// (`transition`): `false` when it left meanwhile, or a process sent another start under it
   ///
   /// # Errors
   /// As `admit`, but never `busy`
-  pub fn settle(&self, settled: &Record) -> Result<bool, ApiError> {
-    let removed = self.change(|file| {
-      let before = file.operations.len();
-      file
-        .operations
-        .retain(|record| record.id != settled.id || record.pending_start() != settled.pending_start());
-      file.operations.len() != before
-    })?;
+  pub fn settle(&self, settled: &Record, transition: JournalTransition) -> Result<bool, ApiError> {
+    let removed = self.change_then(
+      |file| {
+        let before = file.operations.len();
+        file
+          .operations
+          .retain(|record| record.id != settled.id || record.pending_start() != settled.pending_start());
+        file.operations.len() != before
+      },
+      |removed| (removed == Some(&true)).then(|| journal::transition(self, settled, transition)),
+    )?;
     Ok(removed == Some(true))
   }
 
@@ -484,21 +508,28 @@ impl ProcessRegistry {
   /// `admit` else
   pub fn forget(&self, id: &OperationId) -> Result<Record, ApiError> {
     let this = ProcessIdentity::this();
-    let forgotten = self.change(|file| {
-      drop_gone(file, this, unix_now(), &is_running);
-      let index = file.operations.iter().position(|record| record.id == *id);
-      match index.map(|index| (index, file.operations[index].status)) {
-        Some((index, RecordStatus::Unknown)) => Ok(file.operations.remove(index)),
-        Some(_) => Err(ApiError::new(
-          ErrorCode::InvalidArguments,
-          format!("The operation {id} runs: its process ends it, there is nothing to forget"),
-        )),
-        None => Err(ApiError::new(
-          ErrorCode::InvalidArguments,
-          format!("The operations registry has no operation {id}: it ended, or a read of Patronus settled it"),
-        )),
-      }
-    })?;
+    let journaled = |forgotten: Option<&Result<Record, ApiError>>| {
+      let record = forgotten?.as_ref().ok()?;
+      Some(journal::transition(self, record, JournalTransition::Forgotten))
+    };
+    let forgotten = self.change_then(
+      |file| {
+        drop_gone(file, this, unix_now(), &is_running);
+        let index = file.operations.iter().position(|record| record.id == *id);
+        match index.map(|index| (index, file.operations[index].status)) {
+          Some((index, RecordStatus::Unknown)) => Ok(file.operations.remove(index)),
+          Some(_) => Err(ApiError::new(
+            ErrorCode::InvalidArguments,
+            format!("The operation {id} runs: its process ends it, there is nothing to forget"),
+          )),
+          None => Err(ApiError::new(
+            ErrorCode::InvalidArguments,
+            format!("The operations registry has no operation {id}: it ended, or a read of Patronus settled it"),
+          )),
+        }
+      },
+      journaled,
+    )?;
     forgotten.unwrap_or_else(|| {
       Err(ApiError::new(
         ErrorCode::Busy,
@@ -581,18 +612,66 @@ const fn kind_words(kind: OperationKind) -> &'static str {
   }
 }
 
-/// The record of an admitted operation of this process in a registry: dropped, it leaves the registry (a removal that
-/// fails, as in a registry of another Branch Deck meanwhile, is taken out by the heartbeat of the process later)
+/// The record of an admitted operation of this process in a registry, and what the operation costs from its admission
+/// on: it leaves the registry once the operation ended (`finish`, its entry in the journal written under the same lock),
+/// or when it did not run (`discard`); dropped before either, it leaves with the entry of an operation that ended
+/// without an answer. A removal that fails, as in a registry of another Branch Deck meanwhile, is taken out by the
+/// heartbeat of the process later
 #[derive(Debug)]
 pub struct Entry {
   registry: ProcessRegistry,
-  id: OperationId,
+  /// The record as it was admitted
+  record: Box<Record>,
+  tally: Arc<OperationTally>,
+  /// It left the registry
+  left: bool,
 }
 
 impl Entry {
   #[must_use]
-  pub const fn id(&self) -> &OperationId {
-    &self.id
+  pub fn id(&self) -> &OperationId {
+    &self.record.id
+  }
+
+  /// What the operation costs from its admission on: its git processes and HTTP requests count into it while its work
+  /// runs inside it (`OperationTally::counting`, `scope`)
+  #[must_use]
+  pub const fn tally(&self) -> &Arc<OperationTally> {
+    &self.tally
+  }
+
+  /// What the operation cost so far
+  #[must_use]
+  pub fn stats(&self) -> OperationStats {
+    journal::stats_of(&self.tally)
+  }
+
+  /// The operation ended as `ended`, costing `stats`: its record leaves the registry, a start whose answer was lost
+  /// excepted, and its entry goes into the journal, under one lock
+  pub fn finish(mut self, ended: Result<&Outcome, &ApiError>, stats: OperationStats) {
+    let entry = journal::ended(&self.registry, &self.record, ended, stats);
+    self.leave(Some(entry));
+  }
+
+  /// The operation did not run (it joined another, its session closed before): its record leaves, nothing is journaled
+  pub fn discard(mut self) {
+    self.leave(None);
+  }
+
+  /// The record leaves the registry, with `journal` appended to the journal under the same lock
+  fn leave(&mut self, journal: Option<JournalEntry>) {
+    self.left = true;
+    let id = self.record.id.clone();
+    // a start whose answer was lost stays: no process runs it, and it holds what it held until it is settled or forgotten
+    let removed = self.registry.change_then(
+      |file| file.operations.retain(|record| record.id != id || record.status == RecordStatus::Unknown),
+      |_| journal,
+    );
+    let failed = !matches!(removed, Ok(Some(())));
+    if let Err(error) = &removed {
+      warn!(op = %self.record.id, "cannot remove the record of the operation from the registry: {}", error.message);
+    }
+    keeper().leave(&self.registry, &self.record.id, failed);
   }
 
   /// The registry it is in
@@ -605,7 +684,7 @@ impl Entry {
   pub fn handle(&self) -> RecordHandle {
     RecordHandle {
       registry: self.registry.clone(),
-      id: self.id.clone(),
+      id: self.record.id.clone(),
     }
   }
 }
@@ -664,16 +743,13 @@ impl RecordHandle {
 
 impl Drop for Entry {
   fn drop(&mut self) {
-    let id = self.id.clone();
-    // a start whose answer was lost stays: no process runs it, and it holds what it held until it is settled or forgotten
-    let removed = self
-      .registry
-      .change(|file| file.operations.retain(|record| record.id != id || record.status == RecordStatus::Unknown));
-    let failed = !matches!(removed, Ok(Some(())));
-    if let Err(error) = &removed {
-      warn!(op = %self.id, "cannot remove the record of the operation from the registry: {}", error.message);
+    if self.left {
+      return;
     }
-    keeper().leave(&self.registry, &self.id, failed);
+    // a panic, a dropped future: the operation ended without an answer
+    let error = ApiError::internal(format!("The operation {} ended without an answer", self.record.id));
+    let entry = journal::ended(&self.registry, &self.record, Err(&error), journal::stats_of(&self.tally));
+    self.leave(Some(entry));
   }
 }
 

@@ -14,6 +14,9 @@
 //!   operation needs, the records of processes that are gone dropped, the heartbeat of the records of this process
 //! - `registry_watch`: the watch of the registry and of the stamp of a repository while a window shows a session of it:
 //!   the operations of the other processes in the session, a sync after a mutation of `bd` (`touch_stamp`)
+//! - `journal`: the journal of the operations of a repository (`journal.jsonl` beside the registry), one entry per
+//!   operation that ended, of the app and of every `bd`, and per start whose answer was lost once settled or forgotten:
+//!   what it did, how it ended and what it cost; written by the registry file under its lock
 //! - `reconcile`: what a start whose answer was lost did, read of Patronus and GitHub, at an admission it holds back
 //!   (`admit_settled`) and after a list of the robots of a session; settled, its record leaves the registry
 //! - `forget`: a start whose answer was lost forgotten (`Intent::ForgetStart`, `bd operation forget`): its record leaves
@@ -64,6 +67,7 @@ pub mod events;
 pub mod facts;
 pub mod forget;
 pub mod issue;
+pub mod journal;
 pub mod land;
 pub mod land_execute;
 pub mod land_session;

@@ -5,6 +5,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 use std::io::Write;
+use sync_utils::operation_id::OperationId;
 
 /// The version of the output contract
 pub const SCHEMA_VERSION: u32 = 2;
@@ -31,6 +32,15 @@ impl JsonSchema for SchemaVersion {
   fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
     json_schema!({ "type": "integer", "const": SCHEMA_VERSION })
   }
+}
+
+/// An output object as `bd` prints it: its own fields, then the `operation_id` of the run that printed it, the id of the
+/// root span of its log lines and of its entry in the journal of the operations (`bd-cli::print`)
+#[derive(Serialize)]
+pub struct WithOperation<'a, T> {
+  #[serde(flatten)]
+  pub output: &'a T,
+  pub operation_id: OperationId,
 }
 
 /// The conflict of git that the copy of a commit resolved by words (`branchdeck.resolveByWords`): the sync committed the

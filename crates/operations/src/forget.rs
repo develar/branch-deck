@@ -73,7 +73,6 @@ pub async fn execute_forget(registry: &Registry, key: &SessionKey, intent: Inten
     .ok_or_else(|| ApiError::new(ErrorCode::InvalidArguments, "The session records no operations: there is no start to forget"))?;
   let request = forget_request(&intent);
   run(registry, key, request, events, async |guard| {
-    let began = std::time::Instant::now();
     check_admitted(guard, &accepted, &plan)?;
     let (forgetting, forgotten) = (files.clone(), op.clone());
     let answer = tokio::task::spawn_blocking(in_current_span(move || forget_start(&forgetting, &forgotten)))
@@ -85,7 +84,7 @@ pub async fn execute_forget(registry: &Registry, key: &SessionKey, intent: Inten
     };
     registry.reread_registry(&files);
     let effects = plan.effects.into_iter().map(|effect| EffectRecord { effect, status: status.clone() }).collect();
-    Ok(outcome_of(guard.id().clone(), effects, None, None, OperationResult::None, began))
+    Ok(outcome_of(guard.id().clone(), effects, None, None, OperationResult::None))
   })
   .await
 }

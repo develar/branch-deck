@@ -13,7 +13,7 @@
 
 use crate::push_command::unknown_or_unapplied;
 use crate::safe_push_command::{UNKNOWN_GITHUB_REPOSITORY, compared_table, readiness_names};
-use crate::safe_push_run::{BdStart, admit, start_services};
+use crate::safe_push_run::{BdStart, admit, run_admitted, start_services};
 use crate::session_facts::SessionFacts;
 use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
@@ -25,7 +25,7 @@ use bd_core::sync_command::{lock, sync_locked};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{PlannedEffect, Subject};
-use domain_types::operation::{EffectStatus, Intent, OperationId};
+use domain_types::operation::{EffectStatus, Intent};
 use domain_types::patronus::{PatronusReviewRequirement, ReviewReadiness, UnavailableReadinessReason};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
 use domain_types::session::{Fact, SubjectReadiness};
@@ -262,18 +262,15 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   };
   let space = space.map_or_default(|space| space.name);
   let run = start_services(context, patronus, space, Some((Arc::clone(&github), repository)), target.clone(), &synced.baseline)?;
-  let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
   // busy while another process runs what the request needs; the record leaves once the run ended
-  let entry = admit(context, &run, &op, &planned)?;
+  let entry = admit(context, &run, &planned)?;
   let accepted = Accepted {
     fingerprint: planned.plan.fingerprint.clone(),
     confirmations: Vec::new(),
   };
   let steps = Steps::none().with_record(Some(entry.handle()));
-  let started = context
-    .runtime()?
-    .block_on(run_planned(&start, &run, &steps, op, planned, &accepted, std::time::Instant::now()))
-    .map_err(CliError::from)?;
+  let request = run_planned(&start, &run, &steps, entry.id().clone(), planned, &accepted);
+  let started = run_admitted(context, entry, request).map_err(CliError::from)?;
   // the request got to its end unless its last effect did not (a retarget GitHub refused of a branch the push takes
   // along stops nothing): then the first failure says why
   let effects = &started.outcome.effects;

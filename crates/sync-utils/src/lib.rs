@@ -8,6 +8,7 @@ pub mod issue_pattern;
 pub mod known_tools;
 pub mod list_cut;
 pub mod operation_id;
+pub mod operation_tally;
 pub mod paths;
 pub mod private_file;
 pub mod process_scan;
@@ -28,6 +29,8 @@ mod fs_retry_test;
 mod list_cut_test;
 #[cfg(test)]
 mod operation_id_test;
+#[cfg(test)]
+mod operation_tally_test;
 #[cfg(test)]
 mod paths_test;
 #[cfg(test)]

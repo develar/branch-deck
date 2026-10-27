@@ -1,7 +1,10 @@
 //! The frame every family of intents runs in (docs/design/rust-domain-authority.md, "Планирование и исполнение
-//! операций"): `run` admits the operation in its session through the registry, runs the body of its family once it is
-//! admitted and ends it with the body's answer, or answers what the operation of the same intent it joined answered. The
-//! caller hears the outcome either way (`OperationEvent::Done`). `prepare` asks the family of an intent for its plan,
+//! операций", "Наблюдаемость"): `run` admits the operation in its session through the registry, runs the body of its
+//! family once it is admitted and ends it with the body's answer, or answers what the operation of the same intent it
+//! joined answered. The caller hears the outcome either way (`OperationEvent::Done`). The admission, the body and the
+//! end run inside the root span of the operation (`operation{op operation_id tool subject}`, its id the one of its
+//! record, its outcome and its entry in the journal), the body counting what it costs into the tally of the operation,
+//! and an error leaves with the id. `prepare` asks the family of an intent for its plan,
 //! and `execute` runs it on the plan its caller accepted: a start (`execute_land`, `land_execute::execute`), a restart
 //! and a cancel of a robot (`robot`), a retarget of a pull request, the creation of one and a review request
 //! (`pull_request`), the closes (`close`), a review (`review`), the state of an issue (`issue`) and a push (`push`: of a
@@ -13,7 +16,7 @@
 //! push and one start.
 
 use crate::events::EventSink;
-use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Steps};
+use crate::land_execute::{self, Accepted, Planned, StartServices, Steps};
 use crate::land_session::{SessionStart, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::witness::check;
@@ -27,26 +30,46 @@ use remote_facts::service_sources::ServiceHost;
 use repository_model::session::{SessionKey, Sessions};
 use std::sync::Arc;
 use sync_core::transfer_progress::TransferProgress;
+use tracing::Instrument;
 
-/// Runs `request` in the session of `key`: `body` once the registry admitted it (at once, or after the operations it
-/// waits for), or the answer of the operation of the same intent it joined; `events` hears its steps and its outcome
+/// Runs `request` in the session of `key` as a new operation, inside its root span: `body` once the registry admitted
+/// it (at once, or after the operations it waits for), counting what it costs, or the answer of the operation of the
+/// same intent it joined; `events` hears its steps and its outcome. An error of its own names it (`operation_id`)
 pub async fn run(registry: &Registry, key: &SessionKey, request: OperationRequest, events: Arc<dyn EventSink>, body: impl AsyncFnOnce(&RunningGuard) -> Answer) -> Answer {
-  match registry.admit(key, request, Arc::clone(&events)).await? {
-    Admitted::Run(guard) => {
-      let answer = body(&guard).await;
-      guard.finish(answer.clone()).await;
-      answer
-    }
-    Admitted::Joined(joined) => {
-      let answer = joined.answer().await;
-      if let Ok(outcome) = &answer {
-        events.send(OperationEvent::Done {
-          outcome: Box::new(outcome.clone()),
-        });
+  let id = sync_utils::operation_id::OperationId::new();
+  let op = OperationId(id.to_string());
+  let span = id.operation_span(&words(&request.intent.kind()), &words(&registry.tool()), request.intent.subject().as_deref());
+  let named = |answer: Answer| {
+    answer.map_err(|mut error| {
+      error.operation_id.get_or_insert_with(|| op.0.clone());
+      error
+    })
+  };
+  async {
+    match registry.admit(key, op.clone(), request, Arc::clone(&events)).await {
+      Err(error) => named(Err(error)),
+      Ok(Admitted::Run(guard)) => {
+        let answer = named(guard.tally().counting(body(&guard)).await);
+        guard.finish(answer).await
       }
-      answer
+      Ok(Admitted::Joined(joined)) => {
+        let answer = joined.answer().await;
+        if let Ok(outcome) = &answer {
+          events.send(OperationEvent::Done {
+            outcome: Box::new(outcome.clone()),
+          });
+        }
+        answer
+      }
     }
   }
+  .instrument(span)
+  .await
+}
+
+/// The name serde gives `value`, a unit variant: `safe_push`, `app`
+fn words(value: &impl serde::Serialize) -> String {
+  serde_json::to_value(value).ok().and_then(|value| value.as_str().map(str::to_owned)).unwrap_or_default()
 }
 
 /// The plan of `intent` in the open session of `key` (the `prepare` of its family): a read, no lock, no effect; `None`
@@ -80,11 +103,8 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
 /// What refused it before its first effect, a session that is not open, an intent whose family runs elsewhere
 pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   match intent {
-    Intent::Land(land) => {
-      let (host, run) = session_start(services, registry.sessions(), key).await?;
-      // the run of a start is a large future: on the heap
-      Box::pin(execute_land(registry, key, land, accepted, &host, &run, events)).await
-    }
+    // the run of a start is a large future: on the heap
+    Intent::Land(land) => Box::pin(execute_land(registry, key, land, accepted, services, events)).await,
     Intent::RestartRobot { robot_id } => Box::pin(robot::execute_restart(registry, key, &robot_id, accepted, services, events)).await,
     Intent::CancelRobot { robot_id } => robot::execute_cancel(registry, key, &robot_id, accepted, services, events).await,
     Intent::Retarget { number } => pull_request::execute_retarget(registry, key, number, accepted, services, events).await,
@@ -123,45 +143,31 @@ pub(crate) fn steps_of(guard: &RunningGuard) -> Steps {
 /// session, `session_start` or `pull_request_start`) as a start runs (`land_execute::run_planned`), its steps in the view:
 /// on the plan the wait left after it `waited` (in the queue, or for the sync of a push), on the one `accepted` names
 /// else (`Accepted::decided_again`); answers its outcome
-pub(crate) async fn run_planned_in(
-  guard: &RunningGuard,
-  start: (SessionStart, StartServices),
-  planned: Planned,
-  accepted: &Accepted,
-  waited: bool,
-  began: std::time::Instant,
-) -> Answer {
+pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, StartServices), planned: Planned, accepted: &Accepted, waited: bool) -> Answer {
   let (host, services) = start;
   let steps = steps_of(guard);
   let accepted = accepted.decided_again(&planned.plan, waited);
   // the run of a plan is a large future: on the heap
-  let started = Box::pin(land_execute::run_planned(&host, &services, &steps, guard.id().clone(), planned, &accepted, began)).await?;
+  let started = Box::pin(land_execute::run_planned(&host, &services, &steps, guard.id().clone(), planned, &accepted)).await?;
   Ok(started.outcome)
 }
 
 /// Runs the start `land` of the app in the session of `key` on the plan its caller accepted (`accepted`):
 /// admitted over the operations of the session with what the plan as the session has it now reserves, then run
-/// (`land_execute::execute`) with its steps in the view and its progress and outcome to `events`, on what the operations
-/// it queued behind left (the push of its branch pressed just before it: the start pushes nothing more); stopped by
-/// `Registry::cancel`. Answers the outcome
+/// (`land_execute::execute`) over the session and `services` (`session_start`) with its steps in the view and its
+/// progress and outcome to `events`, on what the operations it queued behind left (the push of its branch pressed just
+/// before it: the start pushes nothing more); stopped by `Registry::cancel`. Answers the outcome
 ///
 /// # Errors
 /// What refused the start before its first effect (`land_execute::execute`), a lock another process holds, a session
-/// that closed
-pub async fn execute_land(
-  registry: &Registry,
-  key: &SessionKey,
-  land: Land,
-  accepted: Accepted,
-  host: &dyn StartHost,
-  services: &StartServices,
-  events: Arc<dyn EventSink>,
-) -> Answer {
+/// that closed or has no sync yet
+pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let planned = land::prepare(registry.sessions(), key, land.clone()).await;
   let request = land_request(&key.prefix, &land, planned.as_ref());
   run(registry, key, request, events, async |guard| {
+    let (host, run) = session_start(services, registry.sessions(), key).await?;
     let steps = steps_of(guard);
-    let started = land_execute::execute(host, services, &steps, guard.id().clone(), &land, &accepted, guard.queued()).await?;
+    let started = land_execute::execute(&host, &run, &steps, guard.id().clone(), &land, &accepted, guard.queued()).await?;
     Ok(started.outcome)
   })
   .await
@@ -221,24 +227,19 @@ fn reserved(prefix: &str, subject: &Subject, plan: &Plan) -> Vec<Resource> {
 }
 
 /// The outcome of the operation `op` that ran `effects`, telling the event of `news_key`, with what it answered
-/// (`result`) and the version of the view after what it changed; its time since `began`
-pub(crate) fn outcome_of(
-  op: OperationId,
-  effects: Vec<EffectRecord>,
-  news_key: Option<NewsKey>,
-  version_after: Option<Version>,
-  result: OperationResult,
-  began: std::time::Instant,
-) -> Outcome {
+/// (`result`) and the version of the view after what it changed; what it cost is the registry's to fill
+/// (`RunningGuard::finish`)
+pub(crate) fn outcome_of(op: OperationId, effects: Vec<EffectRecord>, news_key: Option<NewsKey>, version_after: Option<Version>, result: OperationResult) -> Outcome {
   Outcome {
     op,
     effects,
     news_key,
     version_after,
     result,
-    stats: OperationStats {
-      millis: u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX),
-      ..OperationStats::default()
-    },
+    stats: OperationStats::default(),
   }
 }
+
+#[cfg(test)]
+#[path = "engine_log_test.rs"]
+mod engine_log_test;

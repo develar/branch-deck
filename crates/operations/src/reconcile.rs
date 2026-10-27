@@ -25,7 +25,7 @@ use domain_policy::refresh::PATRONUS_COMMENT_CLOCK_SLACK;
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::error::{ApiError, ErrorCode, HolderTool};
 use domain_types::landing::{Land, StartRoute};
-use domain_types::operation::{Intent, OperationId};
+use domain_types::operation::{Intent, JournalTransition, OperationId};
 use domain_types::patronus::{PatronusCommandReply, PatronusCommandSubject, PatronusPushMode, PatronusRobot};
 use github::service::GitHubService;
 use patronus::service::PatronusService;
@@ -265,11 +265,13 @@ pub async fn admit_settled(
       return admitted_with(Err(busy(&holder, unix_now())), None);
     };
     let reconciled = reconcile(&holder, sources, None).await;
-    if reconciled == Reconciled::Unknown {
-      return admitted_with(Err(busy(&holder, sources.now)), None);
-    }
+    let transition = match &reconciled {
+      Reconciled::Unknown => return admitted_with(Err(busy(&holder, sources.now)), None),
+      Reconciled::Started(robot) => JournalTransition::Started { robot: robot.clone() },
+      Reconciled::Failed => JournalTransition::NotStarted,
+    };
     let settling = (registry.clone(), (*holder).clone());
-    let settled = tokio::task::spawn_blocking(in_current_span(move || settling.0.settle(&settling.1))).await;
+    let settled = tokio::task::spawn_blocking(in_current_span(move || settling.0.settle(&settling.1, transition))).await;
     if let Ok(Err(error)) = settled {
       return admitted_with(Err(error), None);
     }

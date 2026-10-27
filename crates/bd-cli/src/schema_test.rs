@@ -59,7 +59,10 @@ fn schema_lists_every_output() {
   );
   for (name, schema) in outputs {
     assert_eq!(schema["properties"]["schema"]["const"], json!(2), "{name}");
-    assert!(schema["required"].as_array().unwrap().contains(&json!("schema")), "{name}");
+    assert_eq!(schema["properties"]["operation_id"]["type"], json!("string"), "{name}");
+    for field in ["schema", "operation_id"] {
+      assert!(schema["required"].as_array().unwrap().contains(&json!(field)), "{name}: {field}");
+    }
   }
 
   let codes = &output["outputs"]["error"]["$defs"]["ErrorCode"];

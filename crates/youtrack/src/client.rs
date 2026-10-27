@@ -107,6 +107,8 @@ impl YouTrackClient {
   }
 
   async fn send(&self, method: Method, url: &Url, token: Option<&str>, body: Option<&serde_json::Value>) -> Result<Vec<u8>, YouTrackError> {
+    // the cost of the operation it is sent for, if any
+    sync_utils::operation_tally::http_request();
     let mut request = self.http.request(method, url.clone()).header(ACCEPT, "application/json").timeout(REQUEST_TIMEOUT);
     if let Some(token) = token {
       request = request.bearer_auth(token);

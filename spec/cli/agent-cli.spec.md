@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - ../../crates/bd-core/src/text_input.rs
   - ../../crates/bd-remote/src/operation_command.rs
+  - ../../crates/operations/src/journal.rs
   - ../../src-tauri/src/main.rs
   - ../../crates/bd-cli/src/main.rs
   - ../../scripts/build-bd.mjs
@@ -171,16 +172,20 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Logs must go to stderr, and only with `-v` (debug) or `-vv` (trace). Every line of a run must name its operation,
   the lines of the threads a sync builds its branches on too: the root span
   `operation{op=<command> operation_id=<ULID>}` (`OperationId::span`), `op` the words of the command (`status`,
-  `lease get`); the JSON output does not carry the id. Every closure or future the cores hand to another thread carries
-  the span of its caller.
-  [@test] ../../crates/bd-cli/src/operation_test.rs (`every_log_line_of_a_command_names_its_operation`, `the_operation_of_a_nested_command_names_both_words`)
+  `lease get`); the JSON output carries the same id (`operation_id`). Every closure or future the cores hand to another
+  thread carries the span of its caller.
+  [@test] ../../crates/bd-cli/src/operation_test.rs (`every_log_line_of_a_command_names_its_operation_whose_id_its_json_carries`, `the_operation_of_a_nested_command_names_both_words`)
   [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`every_closure_or_future_handed_to_another_thread_carries_the_span_of_its_caller`)
 
 ### Output contract
 
-- stdout must hold exactly one JSON object per run, and every object must have `"schema": 2`.
+- stdout must hold exactly one JSON object per run, and every object must have `"schema": 2` and, after its own
+  fields, the `operation_id` of the run (a ULID, new for each run, an error object and `bd --version` included): the
+  id of the root span of its log lines, and of its record in the operations registry and its entry in the journal
+  when it runs an operation of the remote.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
+  [@test] ../../crates/bd-cli/src/operation_test.rs (`every_log_line_of_a_command_names_its_operation_whose_id_its_json_carries`)
 - The JSON must be ASCII: every other character is a `\uXXXX` escape (a UTF-16 pair above the BMP), so a reader that
   decodes stdout with a legacy code page, as Windows PowerShell 5.1 does, still gets every path and subject.
   [@test] ../../crates/bd-rewrite/src/describe_test.rs (`a_body_from_windows_powershell_is_read_and_printed_as_ascii`)
@@ -272,6 +277,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app`, `the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)
   [@test] ../../crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`, `a_gone_process_of_this_host_leaves_at_once_and_one_of_another_host_after_five_minutes`, `a_registry_of_another_schema_is_busy_and_never_written`)
+- The run of such an operation must be journaled once it ended, in the journal of the operations of the repository
+  (`$GIT_COMMON_DIR/branch-deck/journal.jsonl`, the app's operations in the same file) under the `operation_id` of the
+  JSON: `tool: bd`, its pid, worktree and prefix, whether the worktree is a slot of the lease pool, the intent and its
+  subject, each effect with its status, what they answered or the error, and what the run cost from its admission (git
+  processes by subcommand, HTTP requests, milliseconds). A run that ended without an answer is journaled as
+  `internal`; a start whose answer was lost is journaled again, under its id, once a read of Patronus settled it
+  (`started`, `notStarted`) or it was forgotten (`forgotten`). The journal keeps the newest 200 entries of the last
+  30 days.
+  [@test] ../../crates/bd-cli/src/operation_test.rs (`a_safe_push_is_journaled_under_the_operation_id_of_its_json`)
+  [@test] ../../crates/operations/src/journal_test.rs (`an_operation_of_the_app_and_one_of_bd_are_journaled_once_each_with_what_they_cost`, `a_start_whose_answer_was_lost_is_journaled_again_once_settled_or_forgotten`, `a_dropped_operation_is_journaled_as_internal_and_a_discarded_one_not_at_all`)
+  [@test] ../../crates/operations/src/journal_test.rs (`an_operation_in_a_slot_of_the_lease_pool_is_journaled_as_an_agents`, `the_journal_keeps_the_newest_entries_of_the_last_thirty_days`)
 - A start of `bd safe-push` (and of the app) must record what it sends before its request goes out, and an answer
   lost after it went out must leave it unknown, never sent again: the output says so in `start_unknown` (`operation`,
   `reason`), and its record holds what it held for every process. A start of a process that is gone (killed between

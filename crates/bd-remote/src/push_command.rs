@@ -26,7 +26,7 @@ use crate::landed::LandedBySummary;
 use crate::push_refusals::{Covered, decide};
 use crate::request_review_command::availability_error;
 use crate::safe_push_command::{STACK_REMOTE, youtrack_service};
-use crate::safe_push_run::{BdStart, admit, start_services};
+use crate::safe_push_run::{BdStart, admit, run_admitted, start_services};
 use crate::session_facts::SessionFacts;
 use bd_core::bd_command;
 use bd_core::context::{Environment, RepoContext};
@@ -37,7 +37,7 @@ use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
-use domain_types::operation::{EffectStatus, Intent, OperationId, Push, PushScope};
+use domain_types::operation::{EffectStatus, Intent, Push, PushScope};
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, ReviewerState};
 use domain_types::repository_view::HoldKind;
@@ -356,18 +356,16 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     key: session_key(context),
     text: None,
   };
-  let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
   // busy while another process runs what the push needs; the record leaves once the run ended
-  let entry = admit(context, &services, &op, &planned)?;
+  let entry = admit(context, &services, &planned)?;
   let accepted = Accepted {
     fingerprint: planned.plan.fingerprint.clone(),
     confirmations: planned.plan.confirmations.clone(),
   };
   // the record tells the other processes what a restart of its robot sends, before it goes out
   let steps = Steps::none().with_record(Some(entry.handle()));
-  let started = runtime
-    .block_on(run_planned(&start, &services, &steps, op, planned.clone(), &accepted, std::time::Instant::now()))
-    .map_err(CliError::from)?;
+  let push = run_planned(&start, &services, &steps, entry.id().clone(), planned.clone(), &accepted);
+  let started = run_admitted(context, entry, push).map_err(CliError::from)?;
   let told = run.tell(&facts, &services, &planned, &started)?;
   run.output(&facts, Some((&planned, started.pushed.as_ref())), told, decided.covered)
 }

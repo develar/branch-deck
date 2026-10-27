@@ -22,8 +22,8 @@ pub const READ_ONLY: &str = read_only!();
 pub const AGENT_HELP: &str = concat!(
   "bd ",
   env!("BD_VERSION"),
-  ": Branch Deck for agents. JSON on stdout, one object per run (every object has \"schema\": 2); logs on stderr (-v for
-debug). `bd <command> --help` says what a command prints and what each of its refusals asks.
+  ": Branch Deck for agents. JSON on stdout, one object per run (each has \"schema\": 2 and \"operation_id\"); logs on stderr
+(-v for debug). `bd <command> --help` says what a command prints and what each of its refusals asks.
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into branches, one per name: the `(name)`
 prefix of a subject, else the issue group of its issue key, else the issue key (`ABC-123 Fix ...`). A sync rebuilds
@@ -50,7 +50,7 @@ Rules
 - Never reorder, squash or drop commits yourself (`bd fold` folds fixup!, squash! and amend!; `bd update` drops
   landed ones); move a change only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.
-- Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update.
+- Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree (a guarded update).
 - Branch on `error.code` and the exit code, never on the message. 0 ok. 1 a conflict, never an error object: the
   output says what conflicts (`state: \"conflict\"`, a branch not built, `ok: false`). 2 invalid input: fix the
   arguments or the plan. 3 stale (`head_moved`, `locked`, `busy`, `plan_changed`): read again and retry. 4 refused:
@@ -690,7 +690,8 @@ command prints and what each of its refusals asks.
 - Run bd in the repository, or pass `-C <repo>`.
 - Land the commits of your lease with `bd lease pick`, of another worktree with `bd pick`, never with
   `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
-- Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
+- Every command prints one JSON object on stdout, with the `operation_id` of its run (its log lines, its journal
+  entry). Branch on `error.code` and the exit code, never on the message;
   `bd schema <command>` prints the JSON Schema of its output, `bd version` the version of bd and git.
 - Never reorder, squash or split commits, except folding fixup!, squash! and amend! commits with `bd fold`, and never
   drop a commit yourself: `bd update` drops a commit it proves landed, and `--landed` drops one after the user's yes.

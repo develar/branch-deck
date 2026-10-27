@@ -19,6 +19,8 @@ domain-types = { path = "../domain-types" }
 domain-policy = { path = "../domain-policy" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
+# whether the worktree of an operation is a slot of the lease pool, for its entry in the journal (`journal`)
+lease-pool = { path = "../lease-pool" }
 sync-utils = { path = "../sync-utils" }
 anyhow.workspace = true
 # the watch of the operations registry and the stamp of a repository (`registry_watch`)

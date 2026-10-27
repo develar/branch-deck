@@ -893,8 +893,10 @@ async fn read_empty(response: reqwest::Result<reqwest::Response>) -> Result<(), 
   read_body(response).await.map(|_| ())
 }
 
-/// The body of a successful answer; a failure classified
+/// The body of a successful answer; a failure classified. Every request sent ends here: it counts into the cost of the
+/// operation it was sent for, if any
 async fn read_body(response: reqwest::Result<reqwest::Response>) -> Result<Vec<u8>, PatronusError> {
+  sync_utils::operation_tally::http_request();
   let response = response.map_err(|e| request_error(&e))?;
   let status = response.status();
   if status == reqwest::StatusCode::UNAUTHORIZED {

@@ -27,11 +27,12 @@ find them; `help agent`, `help update` and `help worktrees` print the texts an a
 operations (`crates/operations`), its plan prepared over the facts it needs (`needs`, a one-shot session of the sync),
 its effects executed after its witness, with the same plans, refusals and outcomes as the app. `push` plans an intent
 `Push` per branch it names and runs their plans as one atomic push (`operations::push::push_together`); where the
-app's push leaves a covered branch out to its row, `push` refuses (`push_refusals`). The log lines of a start carry the span of its
-operation (`op=<ULID>`, inside the root span below), and a plan whose facts changed before its first effect fails as
-`plan_changed` (exit 3, nothing done). The JSON does not name the operation yet: its id and the `busy` of another
-process's come with the registry file (s10-registry-journal of [Rust as the Domain
-Authority](../design/rust-domain-authority.md)).
+app's push leaves a covered branch out to its row, `push` refuses (`push_refusals`). A plan whose facts changed before
+its first effect fails as `plan_changed` (exit 3, nothing done). The run is the operation of the command: it is
+recorded in the operations registry of the repository under the `operation_id` of the JSON (the id of the root span
+below), `busy` while another process runs what it needs, and once it ended it goes into the journal of the operations
+of the repository under that id, beside the app's (what it did, how it ended, its git processes, its HTTP requests and
+its time from the admission; [Journal](../design/git-operations.md#journal)).
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
@@ -81,6 +82,11 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   PowerShell 5.1 turns other characters into `?` before bd reads them, so pass a file there.
 - Every object starts with `"schema": 2`. The version goes up only when a field changes meaning or disappears. New
   optional fields don't change it.
+- Every object ends with the `operation_id` of the run, an error object and `bd --version` too: a ULID, new for each
+  run, the id of the root span of its log lines (`-v`), and of its record in the operations registry and its entry in
+  the journal of the operations when the command runs an operation of the remote (`push`, `safe-push`,
+  `request-review`). `bd operation forget` prints its own and the one it forgot (`forgotten`). `bd schema` declares it
+  in every output (`schema.rs`, `with_operation_id`).
 - Optional fields are left out when they are empty. `group` is the exception: it is always present and is `null` for
   an unassigned commit. In a `--brief` view a field is also left out when another field says it: `issue_key` when it
   is the `group` (`bd commits --brief`) or the `name` (`bd status --brief`) of an issue branch, and the `(prefix)` of a

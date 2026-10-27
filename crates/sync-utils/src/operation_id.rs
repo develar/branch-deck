@@ -55,6 +55,20 @@ impl OperationId {
   }
 }
 
+impl OperationId {
+  /// The root span of an operation of the remote that a session of the app runs (`operations::engine::run`):
+  /// `operation{op=<what it does> operation_id=<id> tool=<app> subject=<subject>}`, the subject only for one that has
+  /// it (`safe_push` of `auth`); the lines of its admission, its effects and its end, on every thread, carry it
+  #[must_use]
+  pub fn operation_span(self, op: &str, tool: &str, subject: Option<&str>) -> tracing::Span {
+    let span = tracing::info_span!("operation", %op, operation_id = %self, %tool, subject = tracing::field::Empty);
+    if let Some(subject) = subject {
+      span.record("subject", tracing::field::display(subject));
+    }
+    span
+  }
+}
+
 impl Default for OperationId {
   fn default() -> Self {
     Self::new()

@@ -318,17 +318,9 @@ async fn run(fixture: &Fixture, planned: Planned) -> (crate::land_execute::Start
     fingerprint: Fingerprint("planned".to_owned()),
     confirmations: Vec::new(),
   };
-  let started = run_planned(
-    &host,
-    &fixture.services,
-    &Steps::none(),
-    OperationId("op".to_owned()),
-    planned,
-    &accepted,
-    std::time::Instant::now(),
-  )
-  .await
-  .unwrap();
+  let started = run_planned(&host, &fixture.services, &Steps::none(), OperationId("op".to_owned()), planned, &accepted)
+    .await
+    .unwrap();
   (started, host.told())
 }
 

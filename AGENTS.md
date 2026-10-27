@@ -421,7 +421,11 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   its request goes out; an answer lost after it went out is `EffectStatus::Unknown`, never sent again: its record stays
   `unknown` and holds for every process until a read of Patronus settles it (`operations::reconcile`, at an admission
   and after a list of the robots) or the user forgets it (Forget This Start, `bd operation forget`)
-  ([Operations registry](docs/design/git-operations.md#operations-registry)).
+  ([Operations registry](docs/design/git-operations.md#operations-registry)). The journal beside it
+  (`journal.jsonl`) has one writer, `operations::journal`, called by the registry under `operations.lock` as a record
+  leaves: one entry per operation that ended, of the app and of every `bd`, with what it cost from its admission
+  (`sync_utils::operation_tally`), its id the `operation_id` of its log lines and of the JSON of `bd`
+  ([Journal](docs/design/git-operations.md#journal)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
   A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done

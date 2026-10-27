@@ -32,6 +32,7 @@ use bd_update::update_command::{UpdateAbortOutput, UpdateOutput, UpdateStatusOut
 use domain_types::error::ErrorCode;
 use schemars::{Schema, schema_for};
 use serde::Serialize;
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 /// The outputs of each command, by their names in `bd schema --all`: `rewrite` is the output of group, rename, restack,
@@ -157,9 +158,9 @@ pub fn schema(args: &SchemaArgs) -> Result<SchemaAnswer, CliError> {
   Ok(SchemaAnswer::Outputs(SchemaOutput { schema: SchemaVersion, outputs }))
 }
 
-/// The JSON Schema of every output, by output name
+/// The JSON Schema of every output, by output name, each with the `operation_id` that `bd` prints after its fields
 pub fn every_output() -> BTreeMap<String, Schema> {
-  BTreeMap::from([
+  let outputs = BTreeMap::from([
     ("check".to_string(), schema_for!(CheckOutput)),
     ("commits".to_string(), schema_for!(CommitsOutput)),
     ("commits_brief".to_string(), schema_for!(CommitsBrief)),
@@ -203,5 +204,26 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("update_status".to_string(), schema_for!(UpdateStatusOutput)),
     ("version".to_string(), schema_for!(VersionOutput)),
     ("workspace".to_string(), schema_for!(WorkspaceOutput)),
-  ])
+  ]);
+  outputs.into_iter().map(|(name, schema)| (name, with_operation_id(schema))).collect()
+}
+
+/// `schema`, of an output object, with the `operation_id` property every output carries (`bd-cli::print`), required
+fn with_operation_id(mut schema: Schema) -> Schema {
+  if let Some(object) = schema.as_object_mut() {
+    if let Some(Value::Object(properties)) = object.get_mut("properties") {
+      properties.insert(
+        "operation_id".to_string(),
+        json!({
+          "type": "string",
+          "description": "The operation of the run (a ULID): the `operation_id` of its log lines (`bd -v`), of its record in the operations registry and of its entry in the journal of the operations of the repository"
+        }),
+      );
+    }
+    match object.get_mut("required") {
+      Some(Value::Array(required)) => required.push(json!("operation_id")),
+      _ => drop(object.insert("required".to_string(), json!(["operation_id"]))),
+    }
+  }
+  schema
 }

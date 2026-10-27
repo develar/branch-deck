@@ -792,7 +792,6 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
   let planned = prepare_push(sessions, key, &push).await;
   let request = push_request(&key.prefix, &push, planned.as_ref());
   run(registry, key, request, events, async |guard| {
-    let began = std::time::Instant::now();
     let synced = wait_for_running_sync(sessions, key, &guard.stepper()).await;
     let waited = synced || guard.queued();
     let checked = checked_holds(services, sessions, key, &push).await.map(Arc::new);
@@ -807,7 +806,7 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
     if let Some(refusal) = refusal_of(&planned, checked.as_ref().map_or(&[][..], |checked| checked.robots.as_slice())) {
       return Err(refusal);
     }
-    run_planned_in(guard, push_start(services, sessions, key).await?, planned, &accepted, waited, began).await
+    run_planned_in(guard, push_start(services, sessions, key).await?, planned, &accepted, waited).await
   })
   .await
 }

@@ -96,7 +96,6 @@ pub async fn execute_review(registry: &Registry, key: &SessionKey, intent: Inten
   let number = plan.pull_request.unwrap_or_default();
   let sessions = registry.sessions();
   run(registry, key, review_request(&intent, number), events, async |guard| {
-    let began = std::time::Instant::now();
     check_admitted(guard, &accepted, &plan)?;
     let (github, repository) = review_github(sessions, services, key).await?;
     let mut review = Review {
@@ -115,7 +114,7 @@ pub async fn execute_review(registry: &Registry, key: &SessionKey, intent: Inten
     } else {
       OperationResult::Review(Box::new(review.result))
     };
-    Ok(outcome_of(guard.id().clone(), records, Some(NewsKey::Review { number }), review.version, result, began))
+    Ok(outcome_of(guard.id().clone(), records, Some(NewsKey::Review { number }), review.version, result))
   })
   .await
 }

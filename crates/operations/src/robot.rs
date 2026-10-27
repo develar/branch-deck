@@ -297,12 +297,11 @@ pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &s
   let planned = prepare_restart(sessions, key, robot_id).await;
   let request = restart_request(robot_id, planned.as_ref());
   run(registry, key, request, events, async |guard| {
-    let began = std::time::Instant::now();
     // decided again once admitted: an operation it waited for changed what it decides on
     let planned = prepare_restart(sessions, key, robot_id)
       .await
       .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
-    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, guard.queued(), began).await
+    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, guard.queued()).await
   })
   .await
 }
@@ -318,20 +317,19 @@ pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &s
 pub async fn execute_cancel(registry: &Registry, key: &SessionKey, robot_id: &str, accepted: Accepted, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Answer {
   let sessions = registry.sessions();
   run(registry, key, cancel_request(robot_id), events, async |guard| {
-    let began = std::time::Instant::now();
     let (plan, robots) = prepare_cancel(sessions, key, robot_id).await.ok_or_else(|| unknown_robot(robot_id, "canceled", "cancel"))?;
     // after the restart of the robot it waited for, the robot as that left it
     check_admitted(guard, &accepted, &plan)?;
     let patronus = services.patronus(key)?;
     let write = |robot: PatronusRobot| sessions.write_robot(key, robot);
     let canceled = cancel(&patronus, &key.prefix, &robots, robot_id, &write).await;
-    Ok(cancel_outcome(guard.id().clone(), plan, canceled, began))
+    Ok(cancel_outcome(guard.id().clone(), plan, canceled))
   })
   .await
 }
 
 /// The outcome of a cancel: its one effect with how it went, the robot as it is now
-fn cancel_outcome(op: OperationId, plan: Plan, canceled: Result<Canceled, ApiError>, began: std::time::Instant) -> Outcome {
+fn cancel_outcome(op: OperationId, plan: Plan, canceled: Result<Canceled, ApiError>) -> Outcome {
   let robot_id = match &plan.intent {
     Intent::CancelRobot { robot_id } => robot_id.clone(),
     _ => String::new(),
@@ -349,7 +347,7 @@ fn cancel_outcome(op: OperationId, plan: Plan, canceled: Result<Canceled, ApiErr
     Err(error) => (EffectStatus::Failed { error }, RobotResult::default(), None),
   };
   let effects = plan.effects.into_iter().map(|effect| EffectRecord { effect, status: status.clone() }).collect();
-  outcome_of(op, effects, Some(NewsKey::Robot { robot_id }), version, OperationResult::Robot(Box::new(result)), began)
+  outcome_of(op, effects, Some(NewsKey::Robot { robot_id }), version, OperationResult::Robot(Box::new(result)))
 }
 
 #[cfg(test)]

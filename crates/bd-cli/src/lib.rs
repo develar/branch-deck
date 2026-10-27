@@ -14,7 +14,7 @@ use crate::schema::{SchemaArgs, schema};
 use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError};
-use bd_core::output::write_json;
+use bd_core::output::{WithOperation, write_json};
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::host_command::{
@@ -242,21 +242,51 @@ pub fn run(args: impl Iterator<Item = OsString>) -> i32 {
   // the tokens of the app's sign-ins, where the app keeps them (`run_with` of the tests leaves the keychain alone)
   sync_utils::secret_store::enable_keychain();
   let stdout = std::io::stdout();
-  let mut out = stdout.lock();
+  let mut stdout = stdout.lock();
+  let out = &mut Out::of(&mut stdout);
   let environment = Environment::from_process();
-  let invocation = match parse(args, &environment, &mut out) {
+  let invocation = match parse(args, &environment, out) {
     Ok(invocation) => invocation,
     Err(exit_code) => return exit_code,
   };
   init_logging(invocation.cli.verbose);
-  execute_operation(&invocation, &environment, &mut out)
+  execute_operation(&invocation, &environment, out)
 }
 
 /// `run` with an injected environment and output, for tests
 pub fn run_with(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut dyn Write) -> i32 {
+  let out = &mut Out::of(out);
   match parse(args, environment, out) {
     Ok(invocation) => execute_operation(&invocation, environment, out),
     Err(exit_code) => exit_code,
+  }
+}
+
+/// Where a run prints its one JSON object, and the operation of the run: a new id as the run starts, the `operation_id`
+/// of the object (`print`), of the root span of its log lines (`execute_operation`) and of the operation of the remote
+/// its command runs (`RepoContext::operation_id`)
+struct Out<'a> {
+  writer: &'a mut dyn Write,
+  operation_id: OperationId,
+}
+
+impl<'a> Out<'a> {
+  fn of(writer: &'a mut dyn Write) -> Self {
+    Self {
+      writer,
+      operation_id: OperationId::new(),
+    }
+  }
+}
+
+/// The help texts go out as they are
+impl Write for Out<'_> {
+  fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+    self.writer.write(bytes)
+  }
+
+  fn flush(&mut self) -> std::io::Result<()> {
+    self.writer.flush()
   }
 }
 
@@ -266,7 +296,7 @@ struct Invocation {
   op: String,
 }
 
-fn parse(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut dyn Write) -> Result<Invocation, i32> {
+fn parse(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut Out<'_>) -> Result<Invocation, i32> {
   Cli::command()
     .try_get_matches_from(std::iter::once(OsString::from("bd")).chain(args))
     .and_then(|matches| {
@@ -417,9 +447,9 @@ fn lease_pick_in(
 }
 
 /// Runs the command inside its root span `operation{op, operation_id}` (`OperationId::span`), so every log line of it
-/// names the operation (docs/design/async-patterns.md#operation-spans); the JSON output does not carry the id yet
-fn execute_operation(invocation: &Invocation, environment: &Environment, out: &mut dyn Write) -> i32 {
-  let _operation = OperationId::new().span(Some(&invocation.op)).entered();
+/// names the operation (docs/design/async-patterns.md#operation-spans), the id its JSON carries too (`print`)
+fn execute_operation(invocation: &Invocation, environment: &Environment, out: &mut Out<'_>) -> i32 {
+  let _operation = out.operation_id.span(Some(&invocation.op)).entered();
   execute(&invocation.cli, environment, out)
 }
 
@@ -438,7 +468,7 @@ fn init_logging(verbose: u8) {
 
 /// Runs the command and prints its output; after a mutation that succeeded, the stamp of its repository moves
 /// (`operations::registry_watch::touch_stamp`), so the app's windows of the repository sync without a focus
-fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
+fn execute(cli: &Cli, environment: &Environment, out: &mut Out<'_>) -> i32 {
   // the repository the command resolved, whose stamp moves after its mutation
   let common_dir = RefCell::new(None);
   let result = dispatch(cli, environment, out, &common_dir);
@@ -454,14 +484,19 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
 /// Runs the command of `cli` and prints its output, answering its exit code: 0, or the one its output says (a conflict);
 /// the error of a command that failed is the caller's to print. `common_dir` gets the `$GIT_COMMON_DIR` of the
 /// repository it resolved
-fn dispatch(cli: &Cli, environment: &Environment, out: &mut dyn Write, common_dir: &RefCell<Option<PathBuf>>) -> Result<i32, CliError> {
+fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir: &RefCell<Option<PathBuf>>) -> Result<i32, CliError> {
   let options = RepoOptions {
     repo: cli.repo.as_deref(),
     prefix: cli.prefix.as_deref(),
     full_ids: cli.full_ids,
     no_cache: cli.no_cache,
   };
-  let context = || RepoContext::resolve(environment, &options).inspect(|context| *common_dir.borrow_mut() = Some(context.git_common_dir.clone()));
+  let operation_id = out.operation_id;
+  let context = || {
+    RepoContext::resolve(environment, &options)
+      .map(|context| context.with_operation_id(operation_id))
+      .inspect(|context| *common_dir.borrow_mut() = Some(context.git_common_dir.clone()))
+  };
   // a lease needs no branch prefix: git and the worktree of `directory`, else of -C, else of the current directory
   let lease_context = |directory: Option<&std::path::Path>| {
     LeaseContext::resolve(environment, directory.or(options.repo)).inspect(|context| *common_dir.borrow_mut() = Some(PathBuf::from(&context.dirs.git_common_dir)))
@@ -583,12 +618,12 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut dyn Write, common_di
 }
 
 /// Print the output of a command that fails softly, with the exit code `exit_code` gives it, e.g. 1 for a conflict
-fn print_summary<T: Serialize>(out: &mut dyn Write, result: Result<T, CliError>, exit_code: impl Fn(&T) -> i32) -> Result<i32, CliError> {
+fn print_summary<T: Serialize>(out: &mut Out<'_>, result: Result<T, CliError>, exit_code: impl Fn(&T) -> i32) -> Result<i32, CliError> {
   result.and_then(|output| print(out, &output).map(|()| exit_code(&output)))
 }
 
 /// Print the output of a command that succeeded: exit code 0
-fn printed<T: Serialize>(out: &mut dyn Write, value: &T) -> Result<i32, CliError> {
+fn printed<T: Serialize>(out: &mut Out<'_>, value: &T) -> Result<i32, CliError> {
   print(out, value).map(|()| 0)
 }
 
@@ -638,14 +673,19 @@ const fn conflict_if(conflict: bool) -> i32 {
   if conflict { CONFLICT_EXIT } else { 0 }
 }
 
-fn print<T: Serialize>(out: &mut dyn Write, value: &T) -> Result<(), CliError> {
-  write_json(out, value).map_err(io_error)
+/// Prints `value`, an output object, with the `operation_id` of the run after its fields
+fn print<T: Serialize>(out: &mut Out<'_>, value: &T) -> Result<(), CliError> {
+  let output = WithOperation {
+    output: value,
+    operation_id: out.operation_id,
+  };
+  write_json(out.writer, &output).map_err(io_error)
 }
 
 /// Print the error object and return its exit code
-fn print_error(out: &mut dyn Write, error: &CliError) -> i32 {
+fn print_error(out: &mut Out<'_>, error: &CliError) -> i32 {
   tracing::debug!(%error, "command failed");
-  let _ = write_json(out, &error.to_output());
+  let _ = print(out, &error.to_output());
   error.code.exit_code()
 }
 

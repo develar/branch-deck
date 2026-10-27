@@ -23,6 +23,7 @@ use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::GitHubRepository;
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
 use sync_core::remote_url::origin_push_url;
+use sync_utils::operation_id::OperationId;
 use tokio::runtime::Runtime;
 use youtrack::service::EnvironmentToken;
 use youtrack::token_store::token_file;
@@ -153,6 +154,9 @@ pub struct RepoContext {
   /// Settings → Patronus of the app (`patronusNewApi`): the progress of a running robot in one request and the merge
   /// profile from the list, as the app reads them; off without the setting
   pub patronus_new_api: bool,
+  /// The operation of the command (`with_operation_id`): the id of its root span and of its JSON, which its operation of
+  /// the remote is recorded and journaled under; a new one for a context that no command resolved
+  pub operation_id: OperationId,
   /// The object cache, opened by the first that asks: opening reads the database names of every environment
   cache: OnceLock<ObjectCache>,
   /// The blocks and the blobs of the scans of this command (`file_diffs`)
@@ -220,6 +224,7 @@ impl RepoContext {
       use_cache: !options.no_cache,
       lock_timeout: environment.lock_timeout,
       patronus_new_api: environment.settings.patronus_new_api,
+      operation_id: OperationId::new(),
       bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
       repository,
       cache: OnceLock::new(),
@@ -229,6 +234,13 @@ impl RepoContext {
       github_repository: OnceLock::new(),
       runtime: OnceLock::new(),
     })
+  }
+
+  /// The context of the command whose operation is `operation_id` (`bd-cli::execute_operation`)
+  #[must_use]
+  pub const fn with_operation_id(mut self, operation_id: OperationId) -> Self {
+    self.operation_id = operation_id;
+    self
   }
 
   /// The git config of the repository (`ConfigSnapshot`): the branch prefix `resolve` read, the settings and the

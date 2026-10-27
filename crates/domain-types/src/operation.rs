@@ -393,7 +393,7 @@ pub struct Outcome {
 }
 
 /// What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`)
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum OperationResult {
@@ -417,7 +417,7 @@ pub enum OperationResult {
 }
 
 /// What a push answered (`Intent::Push`): the toast of the push and its Activity entry name it
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct PushResult {
@@ -431,7 +431,7 @@ pub struct PushResult {
 }
 
 /// What the Safe Push of a reviewed pull request answered (`Intent::SubmitReview` with `then_land`)
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewResult {
@@ -443,7 +443,7 @@ pub struct ReviewResult {
 }
 
 /// What a restart or a cancel of a robot answered: the toast of the robot and the Activity entry of the page name it
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RobotResult {
@@ -457,7 +457,7 @@ pub struct RobotResult {
 }
 
 /// What a start of a Safe Push or a Dry Run answered: the toast and the Activity entry of the page name it
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct LandResult {
@@ -475,7 +475,7 @@ pub struct LandResult {
 }
 
 /// The `/patronus` comment of a start
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct StartComment {
@@ -487,7 +487,7 @@ pub struct StartComment {
 }
 
 /// What a check before the effects of a start could not do in full: the start went on
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StartNote {
@@ -568,6 +568,57 @@ pub enum NewsKey {
   Review { number: u32 },
   /// A YouTrack issue
   Issue { key: String },
+}
+
+/// One operation of the remote that ended, as the journal of its repository keeps it (`operations::journal`,
+/// `$GIT_COMMON_DIR/branch-deck/journal.jsonl`): of the app and of every `bd`, one line each; or what became of a start
+/// whose answer was lost (`transition`), under the id of that start
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct JournalEntry {
+  /// The id of the operation: the `operation_id` of its log lines, of its record in the operations registry, of the
+  /// JSON of `bd`
+  pub id: OperationId,
+  pub tool: HolderTool,
+  /// The process that ran it
+  pub pid: u32,
+  /// The worktree of its session, its top level
+  pub worktree: String,
+  /// The branch prefix of its session
+  pub prefix: String,
+  /// The worktree is a slot of the lease pool of the repository (`leases.json`): the operation of an agent
+  pub lease_slot: bool,
+  pub intent: Intent,
+  /// What it is about, as the view keys it (`Intent::subject`)
+  pub subject: Option<String>,
+  /// Unix seconds of its admission
+  pub started_at: u32,
+  /// Unix seconds of its end, or of the transition
+  pub ended_at: u32,
+  /// Each effect of its plan with its status, in order; empty when it failed before its first effect
+  pub effects: Vec<EffectRecord>,
+  /// What its effects answered, by its family
+  pub result: OperationResult,
+  /// Why it failed before its first effect, or ended without an answer; `None` once it got to its outcome
+  pub error: Option<ApiError>,
+  /// What it cost from its admission to its end
+  pub stats: OperationStats,
+  /// What became of a start whose answer was lost: `None` for the end of an operation
+  pub transition: Option<JournalTransition>,
+}
+
+/// What became of a start whose answer was lost (`OperationStep::StartUnknown`), long after its operation ended
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum JournalTransition {
+  /// A read of Patronus found its robot, or the bot accepted its comment (no robot listed yet)
+  Started { robot: Option<Box<PatronusRobot>> },
+  /// A read of Patronus proved that it started no robot
+  NotStarted,
+  /// The user forgot it (Forget This Start, `bd operation forget`): Patronus may still run the robot it sent
+  Forgotten,
 }
 
 #[cfg(test)]

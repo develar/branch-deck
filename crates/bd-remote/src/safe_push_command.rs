@@ -29,7 +29,7 @@ use crate::push_command::{
 };
 use crate::push_refusals::robot_command;
 use crate::robot_list::keep_listed;
-use crate::safe_push_run::{BdStart, admit, start_services};
+use crate::safe_push_run::{BdStart, admit, run_admitted, start_services};
 use crate::session_facts::{SessionFacts, listed_robots};
 use bd_core::bd_command::shell_word;
 use bd_core::check_summary::{CheckConflict, CheckWarning, DanglingReferenceSummary, dangling_reference_message, dangling_references_in, session_of_sync};
@@ -54,7 +54,7 @@ use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ApiError;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{ApprovalsSkip, Confirmation, Land, LandingFix, LandingRefusal, PlannedEffect, ProfileChoice, StackCommit, StartRoute, Subject};
-use domain_types::operation::{EffectStatus, Intent, OperationId, OperationResult, Plan};
+use domain_types::operation::{EffectStatus, Intent, OperationResult, Plan};
 use domain_types::patronus::{
   LandingAllowances, MissingApprovalsReason, MissingReviewGroup, PatronusMergeRequest, PatronusProfile, PatronusPushMode, PatronusReviewRequirement, PatronusRobot,
   PatronusRobotStatus, PatronusStartOptions, Person, ReviewReadiness, ReviewerApprovalState, UnavailableReadinessReason, UnknownReadinessReason,
@@ -577,7 +577,6 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let service = Arc::new(patronus_service(environment).map_err(|error| refuse_an_unapplied_name(context, &args.branch, UNAPPLIED_SAFE_PUSH).err().unwrap_or(error))?);
   let github = Arc::new(github_service(context, environment));
   let youtrack = youtrack_service(environment);
-  let runtime = context.runtime()?;
 
   // the target moves every minute: its remote branch is fetched for the target conflict check, before the lock, which
   // no fetch runs under; a pull request starts no robot and needs no check
@@ -645,17 +644,16 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     };
     let github = plan.github.clone().map(|repository| (Arc::clone(&github), repository));
     let services = start_services(context, Some(Arc::clone(&service)), plan.space.name.clone(), github, plan.target.clone(), &synced.baseline)?;
-    let op = OperationId(sync_utils::operation_id::OperationId::new().to_string());
     // busy while another process runs what the start needs; the record leaves once the run ended
-    let entry = admit(context, &services, &op, &plan.planned).map_err(|error| start_error(context, args, &plan, error))?;
+    let entry = admit(context, &services, &plan.planned).map_err(|error| start_error(context, args, &plan, error))?;
     let accepted = Accepted {
       fingerprint: plan.planned.plan.fingerprint.clone(),
       confirmations: plan.planned.plan.confirmations.clone(),
     };
     // the record tells the other processes what the start sends, before it goes out
     let steps = Steps::none().with_record(Some(entry.handle()));
-    let execute = execute(&start, &services, &steps, op, &plan.land, &accepted, false);
-    runtime.block_on(execute).map_err(|error| start_error(context, args, &plan, error))?
+    let execute = execute(&start, &services, &steps, entry.id().clone(), &plan.land, &accepted, false);
+    run_admitted(context, entry, execute).map_err(|error| start_error(context, args, &plan, error))?
   };
   tell(context, args, &synced, &plan, started, &mut output, &youtrack)?;
   Ok(output)

@@ -279,7 +279,9 @@ impl GitHubClient {
     serde_json::from_slice(&response.body).map_err(|e| GitHubError::InvalidResponse(e.to_string()))
   }
 
+  /// The one builder of a request, called once per request sent: the cost of the operation it is sent for, if any
   fn request(&self, method: Method, url: &str, token: &str) -> reqwest::RequestBuilder {
+    sync_utils::operation_tally::http_request();
     self
       .http
       .request(method, url)

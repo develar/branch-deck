@@ -15,7 +15,8 @@
 //! Between processes the operations registry of the repository admits first (`registry_file`, `RegistryFiles`): on the
 //! blocking pool, before the actor sees the operation, its record goes into the file of its repository unless an
 //! operation of another process holds what it needs, which makes it `busy`; once the actor ended it, its record leaves
-//! the file. The file is never read or written on the actor, and its lock is never held across an `await`. A window
+//! the file, with its entry in the journal of the repository (`journal`: what it did and what it cost, its tally from
+//! the admission on). The file is never read or written on the actor, and its lock is never held across an `await`. A window
 //! that subscribes through the registry (`subscribe`) watches the file while it shows the session
 //! (`registry_watch`): the operations of other processes are in its view, and a stamp of `bd` syncs it.
 //!
@@ -24,12 +25,13 @@
 //! after each list of the robots of a session the registry applies as the port of the facts (`FactsPort`).
 
 use crate::events::EventSink;
+use crate::journal::stats_of;
 use crate::reconcile::{ReconcileSources, Reconciled, SettleWith, admit_settled, reconcile};
 use crate::registry_file::{Entry, ProcessRegistry, RecordHandle, RecordStatus};
 use crate::registry_watch::{SessionWatch, Watches};
 use domain_policy::admission::admit;
 use domain_types::error::{ApiError, HolderTool};
-use domain_types::operation::{Admission, Intent, OperationEvent, OperationId, OperationStep, Origin, Outcome, Resource, RunningMove, RunningOperation};
+use domain_types::operation::{Admission, Intent, JournalTransition, OperationEvent, OperationId, OperationStep, Origin, Outcome, Resource, RunningMove, RunningOperation};
 use domain_types::session::{RepositoryView, ViewPatch};
 use remote_facts::fact_sources::Read;
 use remote_facts::scheduler::FactsPort;
@@ -41,6 +43,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use sync_utils::operation_tally::OperationTally;
 use sync_utils::span::in_current_span;
 use sync_utils::timestamp::unix_now;
 use tokio::sync::{oneshot, watch};
@@ -244,6 +247,11 @@ impl Registry {
     &self.sessions
   }
 
+  /// The program its operations are of
+  pub(crate) const fn tool(&self) -> HolderTool {
+    self.files.tool
+  }
+
   /// The operations registry of the repository of the session of `key`; none when nothing is recorded
   pub(crate) async fn process_registry(&self, key: &SessionKey) -> Option<ProcessRegistry> {
     self.files.registry_of(key).await
@@ -274,11 +282,13 @@ impl Registry {
     let sources = ReconcileSources::of(host, key, (self.files.now)(key)).await;
     let mut settled = false;
     for record in unknown {
-      if reconcile(&record, &sources, Some((robots, complete))).await == Reconciled::Unknown {
-        continue;
-      }
+      let transition = match reconcile(&record, &sources, Some((robots, complete))).await {
+        Reconciled::Unknown => continue,
+        Reconciled::Started(robot) => JournalTransition::Started { robot },
+        Reconciled::Failed => JournalTransition::NotStarted,
+      };
       let settling = registry.clone();
-      let removed = tokio::task::spawn_blocking(in_current_span(move || settling.settle(&record))).await;
+      let removed = tokio::task::spawn_blocking(in_current_span(move || settling.settle(&record, transition))).await;
       settled |= matches!(removed, Ok(Ok(true)));
     }
     if settled {
@@ -297,17 +307,18 @@ impl Registry {
     })
   }
 
-  /// Admits `request` in the session of `key` (opened when it is not), with `events` for its caller: it runs at once,
-  /// runs after the operations it waits for (this future waits with it, and dropping it gives its place up), or joins
-  /// the same intent
+  /// Admits `request` as the operation `id` in the session of `key` (opened when it is not), with `events` for its
+  /// caller: it runs at once, runs after the operations it waits for (this future waits with it, and dropping it gives
+  /// its place up), or joins the same intent
   ///
   /// # Errors
   /// `busy` when an operation of another process holds what it needs (`registry_file`, the only place that decides it),
   /// with the errors of its registry file; `internal` when the session closed meanwhile
-  pub async fn admit(&self, key: &SessionKey, request: OperationRequest, events: Arc<dyn EventSink>) -> Result<Admitted, ApiError> {
-    let id = OperationId(sync_utils::operation_id::OperationId::new().to_string());
+  pub async fn admit(&self, key: &SessionKey, id: OperationId, request: OperationRequest, events: Arc<dyn EventSink>) -> Result<Admitted, ApiError> {
     // between processes first, and on the blocking pool: the actor never waits for the file
     let entry = self.files.enter(&self.sessions, key, &id, &request).await?;
+    // what it costs from here on: its record's when it has one
+    let tally = entry.as_ref().map_or_else(OperationTally::begin, |entry| Arc::clone(entry.tally()));
     // the admission read the file: what the windows show of the other processes is read again too, without a watch
     if let Some(entry) = &entry {
       self.watches.reread(entry.registry());
@@ -323,6 +334,7 @@ impl Registry {
       ended: false,
       queued: false,
       entry,
+      tally,
       watches: self.watches.clone(),
       _hold: self.sessions.hold(key),
     };
@@ -337,13 +349,13 @@ impl Registry {
         guard.queued = true;
         Ok(Admitted::Run(guard))
       }
-      // nothing of it entered the session
+      // nothing of it entered the session: it did not run
       Decision::Join { op, answer } => {
-        guard.ended = true;
+        guard.discard();
         Ok(Admitted::Joined(Joined { op, answer }))
       }
       Decision::Closed => {
-        guard.ended = true;
+        guard.discard();
         Err(closed())
       }
     }
@@ -483,6 +495,8 @@ pub struct RunningGuard {
   queued: bool,
   /// Its record in the registry of its repository, which leaves it after its end went to the session
   entry: Option<Entry>,
+  /// What it costs from its admission on (`OperationStats` of its outcome and its entry in the journal)
+  tally: Arc<OperationTally>,
   /// Read again once the record left: a start whose answer was lost stays in the file, as the windows show it then
   watches: Watches,
   /// Dropped after the end went to the session
@@ -544,22 +558,43 @@ impl RunningGuard {
     drop(self.sessions.apply(&self.key, move |state| state.apply_operation(OperationPatch::Moves { id, moves })));
   }
 
-  /// Ends the operation with `answer`: its caller hears an outcome, the requests that joined it get the answer, and the
-  /// ones that waited behind it are admitted again; done once its record left the registry of its repository, so another
-  /// process admits what it held from then on
-  pub async fn finish(mut self, answer: Answer) {
+  /// What the operation costs from its admission on: its work counts into it while it runs inside it
+  /// (`OperationTally::counting`, as `engine::run` runs the body of a family)
+  #[must_use]
+  pub fn tally(&self) -> Arc<OperationTally> {
+    Arc::clone(&self.tally)
+  }
+
+  /// Ends the operation with `answer`, its outcome with what it cost (`OperationStats`): its caller hears the outcome,
+  /// the requests that joined it get the answer, and the ones that waited behind it are admitted again; done once its
+  /// record left the registry of its repository with its entry in the journal, so another process admits what it held
+  /// from then on. The answer as it ended
+  pub async fn finish(mut self, answer: Answer) -> Answer {
+    let stats = stats_of(&self.tally);
+    let answer = answer.map(|outcome| Outcome { stats: stats.clone(), ..outcome });
     if let Ok(outcome) = &answer {
       self.events.send(OperationEvent::Done {
         outcome: Box::new(outcome.clone()),
       });
     }
-    self.end(answer);
+    self.end(answer.clone());
     if let Some(entry) = self.entry.take() {
       let registry = entry.registry().clone();
-      // the removal of its record reads and writes the file: on the blocking pool
-      let _ = tokio::task::spawn_blocking(in_current_span(move || drop(entry))).await;
+      let ended = answer.clone();
+      // the removal of its record and its entry in the journal read and write the files: on the blocking pool
+      let _ = tokio::task::spawn_blocking(in_current_span(move || entry.finish(ended.as_ref(), stats))).await;
       // a start whose answer was lost stays in the file, which its removal left as it was: the windows show it now
       self.watches.reread(&registry);
+    }
+    answer
+  }
+
+  /// The operation did not run: it joined another, or its session closed before; its record leaves, nothing is
+  /// journaled
+  fn discard(&mut self) {
+    self.ended = true;
+    if let Some(entry) = self.entry.take() {
+      leave_on_blocking_pool(move || entry.discard());
     }
   }
 
@@ -578,14 +613,18 @@ impl Drop for RunningGuard {
     if !self.ended {
       self.end(Err(ApiError::internal(format!("The operation {} ended without an answer", self.id))));
     }
-    // a request that joined, a session that closed, a dropped future: the record leaves on the blocking pool when there
-    // is a runtime, here else
+    // a dropped future, a panic: the record leaves with the entry of an operation that ended without an answer
     if let Some(entry) = self.entry.take() {
-      match tokio::runtime::Handle::try_current() {
-        Ok(runtime) => drop(runtime.spawn_blocking(in_current_span(move || drop(entry)))),
-        Err(_) => drop(entry),
-      }
+      leave_on_blocking_pool(move || drop(entry));
     }
+  }
+}
+
+/// `leave`, the removal of a record, on the blocking pool when there is a runtime, here else
+fn leave_on_blocking_pool(leave: impl FnOnce() + Send + 'static) {
+  match tokio::runtime::Handle::try_current() {
+    Ok(runtime) => drop(runtime.spawn_blocking(in_current_span(leave))),
+    Err(_) => leave(),
   }
 }
 

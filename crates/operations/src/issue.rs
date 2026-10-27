@@ -58,7 +58,6 @@ pub async fn execute_issue(registry: &Registry, key: &SessionKey, intent: Intent
   };
   let request = issue_request(&intent, issue);
   run(registry, key, request, events, async |guard| {
-    let began = std::time::Instant::now();
     check_admitted(guard, &accepted, &plan)?;
     let youtrack = services.youtrack(key)?;
     let (status, result) = match youtrack.set_state(issue, state, expected.as_deref()).await {
@@ -71,7 +70,7 @@ pub async fn execute_issue(registry: &Registry, key: &SessionKey, intent: Intent
       ),
     };
     let effects = plan.effects.into_iter().map(|effect| EffectRecord { effect, status: status.clone() }).collect();
-    Ok(outcome_of(guard.id().clone(), effects, Some(NewsKey::Issue { key: issue.clone() }), None, result, began))
+    Ok(outcome_of(guard.id().clone(), effects, Some(NewsKey::Issue { key: issue.clone() }), None, result))
   })
   .await
 }

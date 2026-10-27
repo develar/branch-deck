@@ -2899,6 +2899,43 @@ settled by the bot's reply; a list of the robots of a session settles its starts
 `bd-cli/src/cross_process_test.rs` a `bd safe-push auth` killed between its push and its start (the app settles it and
 starts once, pushing nothing more) and `bd operation forget`.
 
+#### Journal
+
+Every operation of the remote that ended, of the app and of every `bd`, is one line of JSON in
+`$GIT_COMMON_DIR/branch-deck/journal.jsonl`, beside the registry (`operations::journal`, its one writer;
+`registry_scan_test.rs` fails on the name of the file anywhere else); the Activity of the app is to read it:
+
+- **An entry** (`domain_types::operation::JournalEntry`): the id of the operation (the id of its record, of its outcome,
+  of the root span of its log lines, the `operation_id` of the JSON of `bd`), `tool` and pid, the worktree and the
+  branch prefix of its session, `leaseSlot` (the worktree is a slot of the lease pool, by `leases.json`: an agent's),
+  the intent and its subject, `startedAt` (its admission) and `endedAt` (Unix seconds), each effect with its status,
+  what its effects answered (`OperationResult`) or the error it ended with (`internal` for a run dropped without an
+  answer), and what it cost from its admission (`OperationStats`: its git processes by subcommand, its HTTP requests,
+  its milliseconds). No token, no secret.
+- **When**: in the change that takes its record out of `operations.json`, under `operations.lock` (`Entry::finish`):
+  the app's `RunningGuard::finish` on the blocking pool after its end went to the session, a `bd` run after its run
+  (`safe_push_run::run_admitted`); a dropped run as `internal`; an operation that did not run (it joined another, its
+  session closed first) is not journaled. A start whose answer was lost gets a second entry under its id once a read
+  of Patronus settles it (`transition: started`, with the robot, or `notStarted`, `ProcessRegistry::settle`) or the
+  user forgets it (`forgotten`, `ProcessRegistry::forget`), in that change too. A journal that can't be written fails
+  no change: it is logged.
+- **Bounds**: each write keeps the newest 200 entries of the last 30 days (by `endedAt`) and replaces the file by a
+  rename (`write_atomically`), so a read without the lock (`journal::read`) sees whole lines. A line this version can't
+  read stays while it is new enough, and the reader skips it.
+- **The cost** (`sync_utils::operation_tally`): the tally of an operation begins at its admission; its git processes
+  (`GitCommandExecutor`, at the spawn) and its HTTP requests (the clients of Patronus, GitHub and YouTrack, one per
+  request sent) count into the tally current on the thread that runs them: during each poll of the future of its run
+  (`OperationTally::counting`, `engine::run` and `run_admitted`) and in every closure it hands to another thread
+  (`sync_utils::span::in_current_span` carries it with the span). What the operation leaves to another task (the actor
+  of its session, the scheduler of the facts) is not its cost. No git process and no request of its own: the journal
+  is a file.
+
+`operations/src/journal_test.rs` pins the rules (one entry each for the app and `bd` in one file with what they cost,
+a lost start settled and forgotten, a dropped run, a slot of the pool, the bounds), `operations/src/engine_log_test.rs`
+the root span (the lines of a run, its git on the blocking pool too, name the id of its error and its entry), and
+`bd-cli/src/operation_test.rs` the run of `bd` (the JSON, the root span and the entry of a `bd safe-push` share the
+id).
+
 #### Push and land
 
 Every push of the virtual branches, the app's and `bd`'s, goes through one core (`operations::push`), in three phases,
