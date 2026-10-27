@@ -88,11 +88,20 @@ test.describe("Reviews view", () => {
       "reviews-section-authored",
     ])
     await expect(section(page, "waiting").getByTestId("review-request-title")).toHaveText(["Rework the session store"])
-    await expect(entryRow(page, "team", 201).getByTestId("review-request-meta")).toContainText("#201 · carol · requested from ide-platform")
+    // a team's request is nobody's move in particular: no mark, its size in the tooltip of its meta
+    await expect(entryRow(page, "team", 201).getByTestId("review-request-meta")).toHaveText("#201 · carol · requested from ide-platform")
+    await expect(entryRow(page, "team", 201).getByTestId("review-entry-mark")).toHaveCount(0)
     await expect(entryRow(page, "team", 201).getByTestId("review-request-age")).toHaveText("waiting 2 days")
-    await expect(entryRow(page, "reviewed", 202).getByTestId("review-request-meta")).toContainText("you approved 11111111")
+    await expect(entryRow(page, "team", 201).getByTestId("review-request-age")).not.toHaveAttribute("data-move")
+    await entryRow(page, "team", 201).getByTestId("review-request-meta").hover()
+    await expect(page.getByRole("tooltip")).toHaveText("2 files · +12 −3")
+    // the approval of an earlier commit that GitHub no longer counts: the user's move, the only row that stands out
+    await expect(entryRow(page, "reviewed", 202).getByTestId("review-entry-mark")).toHaveAttribute("data-mark", "move")
+    await expect(entryRow(page, "reviewed", 202).getByRole("img", { name: "Your move: new commits since your review" })).toBeVisible()
+    await expect(entryRow(page, "reviewed", 202).getByTestId("review-request-meta")).toHaveText("#202 · carol · 2 files · +12 −3")
     await expect(entryRow(page, "reviewed", 202).getByTestId("review-request-age")).toHaveText("new commits since your review")
-    await expect(entryRow(page, "authored", 203).getByTestId("review-request-meta")).toContainText("#203")
+    await expect(entryRow(page, "reviewed", 202).getByTestId("review-request-age")).toHaveAttribute("data-move", "true")
+    await expect(entryRow(page, "authored", 203).getByTestId("review-request-meta")).toHaveText("#203 · review required")
     // GitHub's own pull request takes no review of its author: its menu says why
     await entryRow(page, "authored", 203).click({ button: "right" })
     const approve = page.getByRole("menuitem", { name: /Approve/ }).first()
@@ -174,7 +183,8 @@ test.describe("Reviews view", () => {
     const opened = await openedReviewWindow(page)
     expect([opened.data.number, opened.data.source]).toEqual([305, "reviews"])
     await expect(field).toHaveValue("")
-    await expect(entryRow(page, "linked", 305).getByTestId("review-request-meta")).toContainText("#305 · carol · not reviewed")
+    await expect(entryRow(page, "linked", 305).getByTestId("review-request-meta")).toContainText("#305 · carol")
+    await expect(entryRow(page, "linked", 305).getByRole("img", { name: "Your move: not reviewed yet" })).toBeVisible()
     // a merged one opens, but is not kept
     await field.fill("#306")
     await field.press("Enter")
@@ -287,17 +297,85 @@ test.describe("Reviews view", () => {
     ])
   })
 
-  test("should show the branch of an own pull request of the table", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show the node of the branch of an own pull request of the table, where the branch stands, and the branch on a click", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const own = reviewRequest("feature-docs", 203, 5, { title: "Document the CLI", author: "user-name", headRefName: "user-name/virtual/feature-docs" })
     await setupReviews(page, setupRepo, syncAndWaitForBranches, {
       reviewRequests: reviewsFixture(own),
       pullRequests: availablePullRequests(pullRequest("feature-docs", 203)),
     })
     await showReviews(page)
+    const node = entryRow(page, "authored", 203).getByTestId("review-entry-node")
+    await expect(node).toBeVisible()
+    const kind = await node.getAttribute("data-kind")
+    expect(kind).not.toBeNull()
+    // the meta says where the branch stands, as its node in the branch row
+    await expect(entryRow(page, "authored", 203).getByTestId("review-request-meta")).toHaveText(/^#203 · \S/)
+    await expect(entryRow(page, "authored", 203).getByTestId("review-request-meta")).not.toContainText("review required")
+    await node.hover()
+    await expect(page.getByTestId("lane-node-details")).toHaveAttribute("data-kind", kind!)
+    await page.mouse.move(0, 0)
     await entryRow(page, "authored", 203).getByTestId("review-request-title").click()
     await expect(page.getByTestId("main-view-branches")).toHaveAttribute("aria-pressed", "true")
     await expect(findBranchRow(page, "feature-docs")).toBeVisible()
     expect(await getOpenedSubWindows(page)).toEqual([])
+  })
+
+  test("should mark the user's moves alone, keep the other rows behind Show N More, and give the title the room before the meta", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const approved = (number: number, hoursAgo: number): ReviewEntry => ({
+      request: reviewRequest("JIRA-456", number, hoursAgo, { title: `Approved ${number}`, reviewedState: "approved", reviewedCommit: "1111111111111111111111111111111111111111" }),
+      involvement: { kind: "reviewed", state: "approved", repliedAt: null, newCommits: false },
+    })
+    // the author answered the changes the user asked for: the user's move, though the oldest
+    const answered: ReviewEntry = {
+      request: reviewRequest("JIRA-456", 210, 900, {
+        title: "IJAI-4125 a session diff tab shows the requested file or reports it as unavailable, and never another file of the session",
+        reviewedState: "changesRequested",
+        reviewedCommit: "2222222222222222222222222222222222222222",
+        reviewDecision: "changesRequested",
+      }),
+      involvement: { kind: "reviewed", state: "changesRequested", repliedAt: null, newCommits: true },
+    }
+    const fixture = reviewsFixture()
+    await setupReviews(page, setupRepo, syncAndWaitForBranches, {
+      reviewRequests: {
+        ...fixture,
+        others: { ...fixture.others!, reviewed: { totalCount: 6, entries: [approved(211, 1), approved(212, 2), approved(213, 3), approved(214, 4), answered] } },
+      },
+    })
+    await showReviews(page)
+    const reviewed = section(page, "reviewed")
+    // the move leads the section, then three more rows
+    await expect(reviewed.getByTestId("review-request-row")).toHaveCount(4)
+    expect(await reviewed.getByTestId("review-request-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-review-number")))).toEqual(["210", "211", "212", "213"])
+    await expect(reviewed.getByTestId("review-entry-mark").first()).toHaveAttribute("data-mark", "move")
+    await expect(entryRow(page, "reviewed", 211).getByRole("img", { name: "You approved 11111111" })).toBeVisible()
+    // the issue key of the title muted, the rest the words
+    await expect(entryRow(page, "reviewed", 210).getByTestId("review-request-title")).toHaveText(/^IJAI-4125 a session diff tab/)
+    // the title is what the row is: the meta gives way first, the title only once the meta has no room left
+    const widths = (width: number) =>
+      page.setViewportSize({ width, height: 800 }).then(() =>
+        entryRow(page, "reviewed", 210).evaluate(row => {
+          const title = row.querySelector<HTMLElement>("[data-testid=review-request-title]")!
+          const meta = row.querySelector<HTMLElement>("[data-testid=review-request-meta]")!
+          return { titleCut: title.scrollWidth > title.clientWidth, metaCut: meta.scrollWidth > meta.clientWidth, meta: meta.clientWidth }
+        }),
+      )
+    // narrow, the meta is gone before the title is cut; wider, the title whole and the meta cut
+    expect(await widths(900)).toMatchObject({ titleCut: true, metaCut: true, meta: 0 })
+    expect(await widths(1100)).toMatchObject({ titleCut: false, metaCut: true })
+    // Show 1 More: every row GitHub returned
+    await expect(reviewed.getByTestId("reviews-show-more")).toHaveText("Show 1 More")
+    await reviewed.getByTestId("reviews-show-more").click()
+    await expect(reviewed.getByTestId("review-request-row")).toHaveCount(5)
+    await expect(reviewed.getByTestId("reviews-show-more")).toHaveText("Show Less")
   })
 
   test("should say off GitHub why there are no reviews", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -503,6 +503,8 @@ pub struct ReviewSection {
   pub entries: Vec<ReviewEntry>,
   /// How many match the search of the section, also beyond the 50 GitHub returns; the entries of a linked section
   pub total_count: u32,
+  /// The pull requests of the section whose move is the user's, in its order (`domain_policy::reviews::is_users_move`)
+  pub moves: Vec<u32>,
 }
 
 /// The review readiness of a subject as Patronus answered it, with what it was asked for: the tip, the start and the

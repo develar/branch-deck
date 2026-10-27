@@ -25,6 +25,8 @@ targets:
   - ../../src-tauri/src/commands/session.rs
   - ../../src/components/reviews/ReviewsView.tsx
   - ../../src/components/reviews/FilteredOnGitHub.tsx
+  - ../../src/components/reviews/ReviewEntryRow.tsx
+  - ../../crates/domain-policy/src/landing_node.rs
   - ../../src/components/shared/SearchField.tsx
   - ../../src/hooks/useSlashFocus.ts
   - ../../src/lib/text-search.ts
@@ -104,23 +106,46 @@ adds any pull request of the repository by its link, opening it in the review wi
 
 - The view derives the sections (`domain_policy::reviews::sections`, `RepositoryView.reviews`) in their order: Added
   by Link (the newest link first), Requested from Your Teams (waiting the longest first, since the pull request was
-  opened), Reviewed by You (those with commits since the user's review first, then the latest update; a request the
-  user answered with a comment among them, "you replied"), Your Pull Requests (the latest update first). Your Turn's
+  opened), Reviewed by You (the user's moves first, then those with commits since the user's review, then the latest
+  update; a request the user answered with a comment among them, "you replied"), Your Pull Requests (the user's moves
+  first, then the latest update). Your Turn's
   rows (the requests by name and the returned own pull requests) lead it as "Waiting for You". A pull request shows
   once, in the first section that has it; an empty section is left out; a section's count is GitHub's less the pull
   requests an earlier section has; while the field filters, the count of the matches of it ([Search](#search)).
   [@test] ../../crates/domain-policy/src/reviews_test.rs (`each_pull_request_shows_once_in_the_first_section_after_your_turn_the_empty_ones_left_out`, `reviewed_by_the_user_shows_new_commits_first_and_the_requests_answered_with_a_comment`, `the_own_pull_requests_name_their_branch_and_leave_the_returned_ones_to_your_turn`)
   [@test] ../../crates/repository-model/src/review_view_test.rs (`the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_review`)
   [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should show every pull request the user takes part in once, by section, and read them only while the view shows`)
-- A row is the row of a request ([Review Requests](review-requests.spec.md#card)) with the meta and the age of how the
-  user takes part: "#201 · carol · requested from ide-platform" "waiting 2 days"; "you approved 11111111" "new
-  commits since your review"; "#305 · carol · not reviewed" "updated 3 hours ago"; of an own pull request its reviewers
-  ("approved by alice · waiting for bob"). The ages are muted: only Your Turn's say "your turn".
-  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should show every pull request the user takes part in once, by section, and read them only while the view shows`)
+- Each section names the pull requests whose move is the user's (`ReviewSection.moves`, `domain_policy::reviews::is_users_move`):
+  a link the user hasn't reviewed, or not since its head moved; a pull request the user reviewed whose head moved
+  since, unless GitHub still counts the user's approval (`reviewDecision` approved); an own pull request whose branch
+  of the table is the user's move (its node `ready`, `yourStep` or `needsFix`, `landing_node::is_users_move`), or,
+  of no branch, with changes requested. A team's request is nobody's move in particular. A section shows its moves and
+  three more rows, then "Show N More" (Show Less), as Your Turn shows its rows (`pickVisibleEntries`); filtered, every
+  match.
+  [@test] ../../crates/domain-policy/src/reviews_test.rs (`the_users_moves_are_a_link_to_review_a_review_its_commits_outdated_and_an_own_pull_request_to_land_or_fix`)
+  [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_filled_node_is_the_users_move`)
+  [@test] ../../src/presenters/reviews.test.ts (`shows the user's moves and three more before Show N More`)
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should mark the user's moves alone, keep the other rows behind Show N More, and give the title the room before the meta`)
+- A row is the row of a request ([Review Requests](review-requests.spec.md#card)) by how the user takes part, so that
+  only the user's moves stand out:
+  - its mark: the filled `primary` dot of the user's move ("Your move: new commits since your review"); else the
+    user's review muted, `CheckIcon` approved (of an own pull request, GitHub's approval), `MessageSquareXIcon` changes
+    requested, `MessageSquareIcon` commented or replied; nothing for a team request; of an own pull request of a
+    branch of the table the node of the branch, its hover the branch row's;
+  - its meta in short, what the mark doesn't say: "#201 · carol · requested from ide-platform", "#202 · carol",
+    "#202 · carol · you replied"; of an own pull request where it stands ("changes requested by alice", "waiting for
+    bob", "review required"), of one of a branch of the table the first line of its node ("#1239 · Lands through
+    #1239");
+  - the size ("2 files · +12 −3") only of a move; of the rest it is in the tooltip of the meta, with what the meta
+    leaves out ("you approved 11111111", "approved by alice · waiting for bob");
+  - its age: "waiting 2 days", "new commits since your review", "updated 3 hours ago", muted, `text-foreground` of a
+    move.
+  [@test] ../../src/presenters/reviews.test.ts (`says in its meta only what its mark doesn't, the rest in the hint`, `marks the user's move alone, and the user's review muted`)
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should show every pull request the user takes part in once, by section, and read them only while the view shows`, `should show the node of the branch of an own pull request of the table, where the branch stands, and the branch on a click`)
 - A click and Enter review the pull request in the review window, D its changes, ⌘-click and O open it on GitHub,
   ↑/↓ move between the rows of a section; the menu is the actions of the pull request. An own pull request of a branch
   of the table shows the branch row on a click and Enter, as Your Turn's returned rows do.
-  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should review a pull request of a team in the window of Reviews and approve it there`, `should show the branch of an own pull request of the table`)
+  [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should review a pull request of a team in the window of Reviews and approve it there`, `should show the node of the branch of an own pull request of the table, where the branch stands, and the branch on a click`)
 - With more than GitHub returns, a section says "50 of 63" with "Open All on GitHub", its search.
 
 ### The actions of a pull request
@@ -149,7 +174,7 @@ adds any pull request of the repository by its link, opening it in the review wi
 - The field of the view ([Search](#search)) takes a link too: a URL of a pull request (`/files` and an anchor after it
   too), `owner/name#123`, `#123` or `123`. Enter on one that no row of the view is asks Rust (`link_pull_request`),
   which reads it from GitHub, keeps an open one and reads Reviews again; the field empties and the review window opens
-  on it. A link of another repository and a number the repository lacks are refused under the field
+  on it. A link of another repository and a number the repository lacks are refused under the header
   (`invalid_arguments`, `no_pull_request`), no toast, the focus kept in the field, read-only while Rust reads it; a
   merged or closed one opens but is not kept. The palette's "Add Pull Request by Link…" shows the view with the focus in
   the field and its text selected, so a paste replaces a filter.
@@ -207,8 +232,10 @@ adds any pull request of the repository by its link, opening it in the review wi
 ## User Experience
 
 - The header row of the view: the heading "Reviews" (the focus target of a switch), the GitHub repository muted, the
-  field (the search icon, `/` at its end while empty, up to 24rem), then "⋯" at the end. The sections are `CollapsibleCard` islands, open, their counts in the header; the rows
-  are the 36 px rows of Your Turn.
+  field (the search icon, `/` at its end while empty, up to 24rem), its help (what each section holds and in which
+  order, what the marks say, what the filter sees), then "⋯" at the end; a refusal of a link is a line under the row,
+  which keeps its height. The sections are `CollapsibleCard` islands, open, their counts in the header; the rows are
+  the 36 px rows of Your Turn.
 
 ## Testing / Local Run
 

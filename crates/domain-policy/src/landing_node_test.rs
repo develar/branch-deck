@@ -1,4 +1,4 @@
-use crate::landing_node::{NodeFacts, landing_node};
+use crate::landing_node::{NodeFacts, is_users_move, landing_node};
 use crate::next_step_test::{Fixture, failed, failure, fresh, group, missing, open, readiness, reviewer, robot_on_tip, signed_out};
 use domain_types::fixtures::{robot_of, whole_stack_robot_of};
 use domain_types::landing::{Landed, LandedBy};
@@ -225,4 +225,21 @@ fn off_space_a_branch_lands_through_its_pull_request() {
   let waits = off_space(|it| open(PullRequestBase::Target, |pr| pr.reviewers = vec![reviewer("ikorennoy", ReviewerState::Requested, true)])(it));
   assert_eq!(label(waits), NodeLabel::WaitsFor { number: 7, reviewers: by });
   assert_eq!(label(off_space(|it| open(PullRequestBase::Target, |_| {})(it))), NodeLabel::LandsThrough { number: 7 });
+}
+
+#[test]
+fn a_filled_node_is_the_users_move() {
+  let moves: Vec<LandingNodeKind> = [
+    LandingNodeKind::Ready,
+    LandingNodeKind::YourStep,
+    LandingNodeKind::NeedsFix,
+    LandingNodeKind::Landing,
+    LandingNodeKind::Waiting,
+    LandingNodeKind::Parked,
+    LandingNodeKind::InMaster,
+  ]
+  .into_iter()
+  .filter(|kind| is_users_move(*kind))
+  .collect();
+  assert_eq!(moves, vec![LandingNodeKind::Ready, LandingNodeKind::YourStep, LandingNodeKind::NeedsFix]);
 }

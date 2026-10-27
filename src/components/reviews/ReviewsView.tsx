@@ -5,16 +5,16 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
-import { ReviewRequestRow } from "@/components/repository/ReviewRequestRow"
 import { YourTurnBody } from "@/components/repository/YourTurnCard"
 import { FilteredOnGitHub } from "@/components/reviews/FilteredOnGitHub"
+import { ReviewEntryRow } from "@/components/reviews/ReviewEntryRow"
 import { Callout } from "@/components/shared/Callout"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { HelpList, HelpPopover, HelpSection } from "@/components/shared/HelpPopover"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { SearchField } from "@/components/shared/SearchField"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
-import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import { useReturnedToYou } from "@/hooks/useReturnedToYou"
 import type { PullRequestAvailability, ReviewEntry, ReviewRequest, ReviewSection } from "@/lib/bindings"
 import { describeError } from "@/lib/errors"
@@ -27,9 +27,8 @@ import { formatRelativeTime } from "@/lib/time"
 import { showReviews } from "@/model/demand"
 import {
   REVIEW_SECTION_TITLES,
-  formatReviewAge,
-  formatReviewMeta,
   formatReviewsNoMatch,
+  pickVisibleEntries,
   returnedTexts,
   reviewEntryTexts,
   reviewRequestTexts,
@@ -41,7 +40,7 @@ import {
 import { requestReveal } from "@/stores/commit-move"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { openRequestOnGitHub, openReviewRequest, useReviewRequests, useReviewRequestsAvailability, useReviewRequestsTotalCount } from "@/stores/review-requests"
-import { linkPullRequest, onLinkFieldFocus, refreshReviews, reviewRows, unlinkPullRequest, useIsRefreshingReviews, useReviews } from "@/stores/reviews"
+import { linkPullRequest, onLinkFieldFocus, refreshReviews, reviewRows, useIsRefreshingReviews, useReviews } from "@/stores/reviews"
 
 /**
  * The Reviews view of the main window (spec/repository/reviews.spec.md): every open pull request of the repository the
@@ -188,11 +187,18 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
             error={linkError}
           />
         )}
+        <ReviewsHelpPopover />
         <div className="ml-auto flex items-center gap-2">
           {loading && <Spinner className="size-3 text-muted-foreground" />}
           {repositoryPath !== undefined && <MoreActionsMenu name="Reviews" menu={<ReviewsMenu repositoryPath={repositoryPath} repository={repository} />} />}
         </div>
       </div>
+      {/* under the header, not under the field: the header keeps its height */}
+      {linkError !== null && (
+        <p id="reviews-link-error" className="px-1 text-xs text-destructive" data-testid="reviews-link-error">
+          {linkError}
+        </p>
+      )}
       <ReviewsState availability={availability} empty={empty && !loading && !filtering} repository={repository} />
       {filtering && shown.length === 0 && (
         <NoMatch
@@ -287,7 +293,7 @@ function SectionHeader({ icon, title, count }: { icon: ReactNode; title: string;
 
 /**
  * "Filter, or paste a link or #number": the search of the view (`/` focuses it), which also takes a link; while Rust
- * reads one, read-only with the focus kept, and its refusal under it. The palette's "Add Pull Request by Link…" focuses
+ * reads one, read-only with the focus kept, and its refusal under the header (`reviews-link-error`). The palette's "Add Pull Request by Link…" focuses
  * it with its text selected, so a paste replaces the filter
  */
 function ReviewsFilterField({
@@ -320,7 +326,7 @@ function ReviewsFilterField({
     [],
   )
   return (
-    <div className="flex min-w-48 flex-1 flex-col gap-1 sm:max-w-96">
+    <div className="flex min-w-48 flex-1 sm:max-w-96">
       <SearchField
         inputRef={inputRef}
         value={value}
@@ -335,12 +341,35 @@ function ReviewsFilterField({
         className="w-full"
         data-testid="reviews-filter-input"
       />
-      {error !== null && (
-        <p id="reviews-link-error" className="px-2.5 text-xs text-destructive" data-testid="reviews-link-error">
-          {error}
-        </p>
-      )}
     </div>
+  )
+}
+
+/** What each section holds and in which order, what the marks say, what the filter sees */
+function ReviewsHelpPopover() {
+  return (
+    <HelpPopover title="Reviews" data-testid="reviews-help">
+      <p>Every open pull request of this repository you take part in on GitHub, each once, in the first section that has it.</p>
+      <HelpSection title="Sections">
+        <HelpList>
+          <li>Waiting for You: the requests by name and your pull requests a reviewer handed back, as Your Turn has them.</li>
+          <li>Added by Link: the pull requests you added, the newest first.</li>
+          <li>Requested from Your Teams: the longest waiting first.</li>
+          <li>Reviewed by You and Your Pull Requests: your moves first, then the latest update.</li>
+        </HelpList>
+      </HelpSection>
+      <HelpSection title="Marks">
+        <HelpList>
+          <li>
+            <span className="text-primary">●</span> Your move: new commits since a review GitHub no longer counts, a link not reviewed yet, your pull request with changes
+            requested.
+          </li>
+          <li>Your pull request of a branch: the node of its row, where the branch is on its way into master.</li>
+          <li>Muted: your approval, your request for changes, your comment. Its size and the reviewers by name are in the tooltip of the meta.</li>
+        </HelpList>
+      </HelpSection>
+      <p>A section shows your moves and three more rows; the filter looks at every row GitHub returned, the first 50 of each section.</p>
+    </HelpPopover>
   )
 }
 
@@ -434,8 +463,9 @@ function ReviewsState({ availability, empty, repository }: { availability: PullR
 }
 
 /**
- * A section of Reviews: its rows, every one, and "50 of 63 · Open All on GitHub" when GitHub has more; filtered, the
- * matches (`entries`) and "First 50 of 63 filtered · Search on GitHub" with the typed words
+ * A section of Reviews: the user's moves and three more rows, then "Show N More", and "50 of 63 · Open All on GitHub"
+ * when GitHub has more; filtered, every match (`entries`) and "First 50 of 63 filtered · Search on GitHub" with the
+ * typed words
  */
 function ReviewSectionCard({
   section,
@@ -455,8 +485,13 @@ function ReviewSectionCard({
   repository: { owner: string; name: string } | null
 }) {
   const [focused, setFocused] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState(false)
   const filtering = filterText !== ""
-  const tabStop = entries.some(entry => entry.request.number === focused) ? focused : entries[0]?.request.number
+  // the user's moves and three more, as Your Turn shows its rows; filtered, every match
+  const moves = new Set(section.moves)
+  const visible = expanded || filtering ? entries : pickVisibleEntries(entries, moves)
+  const hidden = entries.length - visible.length
+  const tabStop = visible.some(entry => entry.request.number === focused) ? focused : visible[0]?.request.number
   const allOnGitHub = repository === null ? null : reviewSectionSearchUrl(section.kind, repository)
   // the words of the filter search GitHub; a number or a link names one pull request, which Enter adds
   const search = repository === null || typedReference(filterText) !== null ? null : reviewSectionSearchUrl(section.kind, repository, filterText)
@@ -465,7 +500,7 @@ function ReviewSectionCard({
   const handleKeyDown = (event: KeyboardEvent<HTMLUListElement>) =>
     handleReviewRowKeys(
       event,
-      entries.map(entry => entry.request.number),
+      visible.map(entry => entry.request.number),
       {
         onEnter: number => {
           const entry = entryOf(number)
@@ -498,48 +533,39 @@ function ReviewSectionCard({
     >
       <div className="flex flex-col divide-y divide-border">
         <ul aria-label={REVIEW_SECTION_TITLES[section.kind]} className="flex flex-col divide-y divide-border" onKeyDown={handleKeyDown}>
-          {entries.map(entry => (
-            <ReviewEntryRow key={entry.request.number} entry={entry} repositoryPath={repositoryPath} tabStop={entry.request.number === tabStop} />
+          {visible.map(entry => (
+            <ReviewEntryRow
+              key={entry.request.number}
+              entry={entry}
+              move={moves.has(entry.request.number)}
+              repositoryPath={repositoryPath}
+              tabStop={entry.request.number === tabStop}
+            />
           ))}
         </ul>
-        {isCut &&
-          (filtering ? (
-            <FilteredOnGitHub count={section.entries.length} totalCount={section.totalCount} url={search} className="px-4 py-1 sm:px-6" />
-          ) : (
-            allOnGitHub !== null && (
-              <span className="flex items-center gap-2 px-4 py-1 text-xs text-muted-foreground sm:px-6" data-testid="reviews-more-on-github">
-                {`${entries.length} of ${section.totalCount}`}
-                <Button variant="link" size="xs" className="h-auto px-0" onClick={() => openPullRequestUrl(allOnGitHub)}>
-                  Open All on GitHub
-                </Button>
-              </span>
-            )
-          ))}
+        {(hidden > 0 || expanded || isCut) && (
+          <div className="flex items-center gap-3 px-2 py-1 sm:px-4">
+            {!filtering && (hidden > 0 || expanded) && (
+              <Button variant="ghost" size="xs" className="text-muted-foreground" data-testid="reviews-show-more" onClick={() => setExpanded(!expanded)}>
+                {expanded ? "Show Less" : `Show ${hidden} More`}
+              </Button>
+            )}
+            {isCut &&
+              (filtering ? (
+                <FilteredOnGitHub count={section.entries.length} totalCount={section.totalCount} url={search} />
+              ) : (
+                allOnGitHub !== null && (
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="reviews-more-on-github">
+                    {`${entries.length} of ${section.totalCount}`}
+                    <Button variant="link" size="xs" className="h-auto px-0" onClick={() => openPullRequestUrl(allOnGitHub)}>
+                      Open All on GitHub
+                    </Button>
+                  </span>
+                )
+              ))}
+          </div>
+        )}
       </div>
     </CollapsibleCard>
-  )
-}
-
-/** A pull request of Reviews in the row of a request: its meta and age by how the user takes part */
-function ReviewEntryRow({ entry, repositoryPath, tabStop }: { entry: ReviewEntry; repositoryPath: string; tabStop: boolean }) {
-  const now = useNow(RELATIVE_TIME_TICK_MS)
-  const { request, involvement } = entry
-  const branch = involvement.kind === "authored" ? involvement.branch : null
-  return (
-    <ReviewRequestRow
-      request={request}
-      repositoryPath={repositoryPath}
-      unread={false}
-      tabStop={tabStop}
-      source="reviews"
-      meta={formatReviewMeta(entry)}
-      age={
-        <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums" data-testid="review-request-age">
-          {formatReviewAge(entry, now)}
-        </span>
-      }
-      {...(branch !== null && { onShowBranch: () => requestReveal({ branchName: branch, commitIds: [] }) })}
-      {...(involvement.kind === "linked" && { onRemoveFromReviews: () => void unlinkPullRequest(repositoryPath, request.number) })}
-    />
   )
 }

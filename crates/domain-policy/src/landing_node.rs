@@ -31,6 +31,13 @@ pub struct NodeFacts<'a> {
   pub push_pending: bool,
 }
 
+/// The node is filled: the next step is the user's, a fix first (`NeedsFix`, `YourStep`, `Ready`); the others wait for
+/// others, land, are parked or in master
+#[must_use]
+pub const fn is_users_move(kind: LandingNodeKind) -> bool {
+  matches!(kind, LandingNodeKind::NeedsFix | LandingNodeKind::YourStep | LandingNodeKind::Ready)
+}
+
 const fn node(kind: LandingNodeKind, label: NodeLabel) -> LandingNode {
   LandingNode {
     kind,

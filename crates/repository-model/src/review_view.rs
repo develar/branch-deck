@@ -7,8 +7,10 @@
 use crate::facts::FactStore;
 use crate::table::TableState;
 use domain_policy::actions::{PullRequestFacts, Target, review_actions};
+use domain_policy::landing_node::is_users_move;
 use domain_policy::reviews::{ReviewsFacts, is_returned, sections};
 use domain_types::actions::ActionState;
+use domain_types::next_step::NextStepView;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::pull_request::PullRequestState;
 use domain_types::review_request::{ReviewInvolvement, ReviewRequest};
@@ -21,19 +23,26 @@ pub fn pull_key(number: u32) -> String {
   format!("pull:{number}")
 }
 
-/// Reviews as the session holds it: how its rest stands, and its sections over the table
+/// Reviews as the session holds it: how its rest stands, and its sections over the table and the next steps of its
+/// rows (`steps`, by branch name), which tell the own pull requests that are the user's move
 #[must_use]
-pub fn reviews_view(state: &TableState, facts: &FactStore) -> ReviewsView {
+pub fn reviews_view(state: &TableState, facts: &FactStore, steps: &BTreeMap<String, NextStepView>) -> ReviewsView {
   let fact = &facts.review_requests;
   let (head, answer, checked_at) = fact.reviews();
   let sections = answer.map_or_default(|answer| {
     let (returned, branches) = own_pull_requests(state, facts);
+    let own_moves = branches
+      .iter()
+      .filter(|(_, name)| steps.get(*name).is_some_and(|step| is_users_move(step.node.kind)))
+      .map(|(number, _)| *number)
+      .collect();
     sections(&ReviewsFacts {
       requests: &fact.view().requests,
       answered: fact.answered(),
       answer,
       returned: &returned,
       branches: &branches,
+      own_moves: &own_moves,
     })
   });
   ReviewsView { head, sections, checked_at }

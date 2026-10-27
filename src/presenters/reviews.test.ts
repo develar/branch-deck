@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ReviewEntry } from "@/lib/bindings"
+import type { ReviewDecision, ReviewEntry, Reviewer } from "@/lib/bindings"
 import { searchWords, matchesAllWords } from "@/lib/text-search"
 import {
+  formatReviewHint,
+  formatReviewMeta,
   formatReviewsNoMatch,
+  pickVisibleEntries,
   returnedTexts,
   reviewEntryTexts,
+  reviewMark,
   reviewRequestTexts,
   reviewSectionSearchUrl,
   reviewsSearchUrl,
@@ -93,5 +97,51 @@ describe("the filter of Reviews", () => {
     expect(reviewSectionSearchUrl("linked", REPOSITORY, "oauth")).toBeNull()
     expect(reviewsSearchUrl(REPOSITORY, "oauth")).toBe(`https://github.com/acme/monorepo/pulls?q=${encodeURIComponent("is:pr is:open involves:@me oauth")}`)
     expect(formatReviewsNoMatch(" migrate ")).toBe("No pull requests match “migrate”")
+  })
+})
+
+describe("a row of Reviews", () => {
+  const reviewed = (state: "approved" | "changesRequested" | "commented" | null): ReviewEntry => ({
+    request: reviewRequest(202, { author: "carol", reviewedState: state, reviewedCommit: state === null ? null : "6330a0a2ffffffffffffffffffffffffffffffff" }),
+    involvement: { kind: "reviewed", state, repliedAt: state === null ? 1_000 : null, newCommits: false },
+  })
+
+  it("says in its meta only what its mark doesn't, the rest in the hint", () => {
+    expect(formatReviewMeta(TEAM)).toBe("#201 · carol · requested from ide-platform")
+    expect(formatReviewMeta(reviewed("approved"))).toBe("#202 · carol")
+    expect(formatReviewHint(reviewed("approved"))).toBe("you approved 6330a0a2")
+    expect(formatReviewMeta(reviewed(null))).toBe("#202 · carol · you replied")
+    // an own pull request: where it stands in short, whoever approved in the hint
+    const own = (reviewers: Reviewer[], reviewDecision: ReviewDecision): ReviewEntry => ({
+      request: reviewRequest(1250, { reviewDecision }),
+      involvement: { kind: "authored", reviewers, isDraft: false, branch: null },
+    })
+    const reviewers: Reviewer[] = [
+      { login: "dave", state: "approved", requested: false },
+      { login: "erin", state: "requested", requested: true },
+    ]
+    expect(formatReviewMeta(own(reviewers, "reviewRequired"))).toBe("#1250 · waiting for erin")
+    expect(formatReviewHint(own(reviewers, "reviewRequired"))).toBe("approved by dave · waiting for erin")
+    // an approval is the mark of the row, not a word of its meta
+    expect(formatReviewMeta(own([], "approved"))).toBe("#1250")
+    expect(reviewMark(own([], "approved"), false)).toEqual({ kind: "approved", label: "Approved" })
+    expect(formatReviewMeta(own([], "reviewRequired"))).toBe("#1250 · review required")
+  })
+
+  it("marks the user's move alone, and the user's review muted", () => {
+    expect(reviewMark(reviewed("approved"), true)).toEqual({ kind: "move", label: "Your move: new commits since your review" })
+    expect(reviewMark(reviewed("approved"), false)).toEqual({ kind: "approved", label: "You approved 6330a0a2" })
+    expect(reviewMark(reviewed("changesRequested"), false).kind).toBe("changesRequested")
+    expect(reviewMark(reviewed(null), false)).toEqual({ kind: "commented", label: "You replied" })
+    expect(reviewMark(TEAM, false).kind).toBe("none")
+  })
+
+  it("shows the user's moves and three more before Show N More", () => {
+    const entries = [1, 2, 3, 4, 5, 6].map(number => ({ ...TEAM, request: reviewRequest(number) }))
+    expect(pickVisibleEntries(entries, new Set([5])).map(entry => entry.request.number)).toEqual([1, 2, 3, 5])
+    expect(pickVisibleEntries(entries, new Set()).map(entry => entry.request.number)).toEqual([1, 2, 3])
+    // all of a short section show: the same list
+    const three = entries.slice(0, 3)
+    expect(pickVisibleEntries(three, new Set())).toBe(three)
   })
 })

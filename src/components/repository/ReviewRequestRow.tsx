@@ -5,14 +5,18 @@ import { ExternalLinkIcon, FileDiffIcon, GitPullRequestIcon, LinkIcon } from "lu
 import { Button } from "@/components/ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { LandingNodeHover } from "@/components/branch/LandingNodeHover"
+import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
+import { useLandingNode } from "@/hooks/useLandingNode"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ActionState, ReviewRequest } from "@/lib/bindings"
 import { reviewBlockerOf } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
+import { findIssueKey, stripLeadingIssueKey } from "@/lib/commit"
 import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItemGroups } from "@/lib/menu"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
@@ -38,6 +42,15 @@ export interface ReviewRequestRowProps {
   source?: ReviewSource
   /** The meta after the title, by how the user takes part (Reviews); the request's ("#101 · carol · requested by dave") otherwise */
   meta?: string
+  /** What the meta leaves out, in its tooltip (Reviews: "you approved 6330a0a2", the reviewers by name) */
+  metaHint?: string
+  /**
+   * The mark at the start (Reviews: the node of an own branch, the user's review, the dot of the user's move); the
+   * unread dot otherwise
+   */
+  lead?: ReactNode
+  /** Nothing of it is the user's move (Reviews): its size goes into the tooltip of the meta */
+  quiet?: boolean
   /** What the age at the end says (Reviews); how long the request waits otherwise */
   age?: ReactNode
   /** An own pull request of the table: its branch row shows */
@@ -83,10 +96,12 @@ function requestMenu(
 }
 
 /**
- * A pull request that waits for the user's review, one 36 px line: the unread dot, the title, the muted meta ("#123 ·
- * alice · 8 files · +120 −30", the base when it is not the default branch), a dot for failing or running checks and how
- * long it waits. A click reviews it in the review window; ⌘-click and O open it on GitHub, as the button on hover does.
- * Reviews shows its pull requests in the same row, with the meta and the age of how the user takes part.
+ * A pull request that waits for the user's review, one 36 px line: the unread dot, the title (its issue key muted), the
+ * muted meta ("#123 · alice · 8 files · +120 −30", the base when it is not the default branch), which gives way before
+ * the title does, a dot for failing or running checks and how long it waits. A click reviews it in the review window;
+ * ⌘-click and O open it on GitHub, as the button on hover does. Reviews shows its pull requests in the same row, with
+ * the mark, the meta and the age of how the user takes part, and the size of a row that is not the user's move in the
+ * tooltip of its meta.
  */
 export const ReviewRequestRow = memo(function ReviewRequestRow({
   request,
@@ -95,6 +110,9 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
   tabStop,
   source = "yourTurn",
   meta,
+  metaHint,
+  lead,
+  quiet = false,
   age,
   onShowBranch,
   onRemoveFromReviews,
@@ -111,6 +129,21 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
     }
   }
   const files = formatFileCount(request.changedFiles)
+  const size = `${files} · +${request.additions} −${request.deletions}`
+  const hint = [metaHint, quiet ? size : undefined].filter(it => it !== undefined && it !== "").join(" · ")
+  const metaLine = (
+    // the title is what the row is: the meta gives way first, the title only once the meta is gone
+    <span className="hidden min-w-0 shrink-[1000] truncate text-xs text-muted-foreground sm:inline" data-testid="review-request-meta">
+      {meta ?? formatRequestMeta(request)}
+      {!quiet && (
+        <>
+          {` · ${files} · `}
+          <LineCounts additions={request.additions} deletions={request.deletions} colored={false} />
+        </>
+      )}
+      {!request.baseIsDefault && ` · → ${request.baseRefName}`}
+    </span>
+  )
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -126,16 +159,19 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
           />
         }
       >
-        {/* the dot keeps its place on a read row: the titles line up */}
-        <span aria-hidden data-testid={unread ? "review-request-unread" : undefined} className={cn("size-1.5 shrink-0 rounded-full", unread && "bg-primary")} />
+        {/* the mark keeps its place on a row without one: the titles line up */}
+        <span className="flex size-4 shrink-0 items-center justify-center">{lead ?? <UnreadDot unread={unread} />}</span>
         <span className="min-w-0 truncate font-medium" data-testid="review-request-title">
-          {request.title}
+          <PullRequestTitle title={request.title} />
         </span>
-        <span className="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:flex" data-testid="review-request-meta">
-          {`${meta ?? formatRequestMeta(request)} · ${files} · `}
-          <LineCounts additions={request.additions} deletions={request.deletions} colored={false} />
-          {!request.baseIsDefault && ` · → ${request.baseRefName}`}
-        </span>
+        {hint === "" ? (
+          metaLine
+        ) : (
+          <Tooltip>
+            <TooltipTrigger render={metaLine} />
+            <TooltipContent>{hint}</TooltipContent>
+          </Tooltip>
+        )}
         {request.checksState === "failing" && <StatusChipDot color="error" testId="review-request-checks-failing" />}
         {request.checksState === "pending" && <StatusChipDot color="warning" testId="review-request-checks-pending" />}
         <span className="ml-auto flex shrink-0 items-center gap-2">
@@ -169,6 +205,41 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
     </ContextMenu>
   )
 })
+
+/**
+ * The node of a branch of the table, as its row has it, its hover the row's: where the branch is on its way into
+ * master; nothing while the view has no node of it
+ */
+export function BranchNodeMark({ branch }: { branch: string }) {
+  const node = useLandingNode(branch)
+  if (node === null) {
+    return null
+  }
+  return (
+    <LandingNodeHover node={node} subject={{ kind: "branch", name: branch }} trigger={<span className="flex" data-testid="review-entry-node" data-kind={node.kind} />}>
+      <LaneNodeDot kind={node.kind} />
+    </LandingNodeHover>
+  )
+}
+
+/** The dot of an unread request; its place kept on a read one */
+function UnreadDot({ unread }: { unread: boolean }) {
+  return <span aria-hidden data-testid={unread ? "review-request-unread" : undefined} className={cn("size-1.5 rounded-full", unread && "bg-primary")} />
+}
+
+/** The title with the issue key it starts with muted, as a branch row has its key: the words are what the eye reads */
+function PullRequestTitle({ title }: { title: string }) {
+  const key = findIssueKey(title)
+  const rest = key === null ? title : stripLeadingIssueKey(title, key)
+  if (key === null || rest === title) {
+    return title
+  }
+  return (
+    <>
+      <span className="font-normal text-muted-foreground">{key}</span> {rest}
+    </>
+  )
+}
 
 /**
  * "waiting 2 days", "alice replied 10 minutes ago", "re-requested 3 hours ago": muted, `warning` after a working day;
@@ -267,12 +338,14 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
           />
         }
       >
-        {/* the place of the unread dot of a request: the titles line up */}
-        <span aria-hidden className="size-1.5 shrink-0" />
-        <span className="min-w-0 truncate font-medium" data-testid="returned-pull-request-title">
-          {pullRequest.title}
+        {/* in the place of the unread dot of a request: the titles line up */}
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <BranchNodeMark branch={branchName} />
         </span>
-        <span className="hidden shrink-0 text-xs text-muted-foreground sm:flex" data-testid="returned-pull-request-meta">
+        <span className="min-w-0 truncate font-medium" data-testid="returned-pull-request-title">
+          <PullRequestTitle title={pullRequest.title} />
+        </span>
+        <span className="hidden min-w-0 shrink-[1000] truncate text-xs text-muted-foreground sm:inline" data-testid="returned-pull-request-meta">
           {formatReturnedMeta(pullRequest)}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-2">

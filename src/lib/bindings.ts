@@ -5143,6 +5143,8 @@ export type ReviewSection = {
 	entries: ReviewEntry[],
 	/**  How many match the search of the section, also beyond the 50 GitHub returns; the entries of a linked section */
 	totalCount: number,
+	/**  The pull requests of the section whose move is the user's, in its order (`domain_policy::reviews::is_users_move`) */
+	moves: number[],
 };
 
 /**  A section of Reviews after the requests by name (Your Turn's rows lead it) */

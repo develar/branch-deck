@@ -274,7 +274,9 @@ Safe Push it allows.
   "Refresh" (when GitHub was asked on its hover: "Checked 2 minutes ago"), "Open All on GitHub" (the search of the
   repository, while requests wait), "Show All Reviews" (⌘2, [Reviews](reviews.spec.md)) and "Notification Settings…".
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`, `should say 50 of 63 when GitHub has more than it returns, expanded or not, and keep the count in the collapsed header`, `should show the island for a returned pull request alone`)
-- A row, 36 px: the unread dot, the title (`font-medium`), the meta "#101 · carol · 2 files · +12 −3" (muted line
+- A row, 36 px: the unread dot, the title (`font-medium`, the issue key it starts with muted and regular), the meta
+  "#101 · carol · 2 files · +12 −3", which gives way before the title: the title is cut only once the meta has no room
+  left (muted line
   counts, as in every row; "#830 · agent-bot · requested by dave · …" when someone else than the author asked, as for a pull request a
   bot opened: that one waits for the user; "· → release/253" when the base is not the default branch; hidden below `sm`), a `destructive` dot for failing
   and a `warning` dot for running checks, and "waiting 2 days", "re-requested 3 hours ago", or, back to the user after
@@ -306,14 +308,16 @@ Safe Push it allows.
   Look elsewhere, and a pull request has none.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open a pull request on GitHub from its button, a ⌘-click and its menu`, `should move with the arrows, review with Enter and open the menu from the keyboard`, `should review the changes of a row with D`, `should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`, `should not Safe Push a pull request that got commits since the user reviewed it`)
 - The user's own open pull requests with changes requested (`collectReturnedToYou`, in the table order; failing checks
-  are the chip's and the landing overview's) are rows after the requests, 36 px as theirs: the title, the meta "#760 ·
-  changes requested by alice" (the reviewers whose latest review asked for changes) and the branch, muted. A click and
+  are the chip's and the landing overview's) are rows after the requests, 36 px as theirs: the node of the branch in
+  the place of the unread dot (its hover the branch row's), the title (its issue key muted), the meta "#760 · changes
+  requested by alice" (the reviewers whose latest review asked for changes; it gives way before the title) and the
+  branch, muted. A click and
   Enter show the branch row, where the changes are made; `D` reviews its branch in the review window of the branch
   ([Branch Review](../branch/branch-review.spec.md)); ⌘-click, `O` and the button on hover open the pull request;
   the menu has Review Changes (D, disabled with the reason of a branch it can't review), Open Pull Request (O) and Copy
   Pull Request Link. ↑/↓ move between them.
   [@test] ../../src/lib/outgoing-attention.test.ts (`names only the open pull requests a reviewer handed back, in the table order`, `names the reviewers who asked for changes`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the own pull requests a reviewer handed back after the requests, show the branch and review it`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the own pull requests a reviewer handed back after the requests, show the branch and review it`, `should show the island for a returned pull request alone`)
 - No footer while GitHub answers: the island is its rows, Refresh and when it was checked are in "⋯". A failed refresh
   keeps the rows, and a footer says why and how old the rows are, with Refresh (`ReviewStatusLine`): "GitHub: offline
   · checked 5 minutes ago". The card never turns into an error.

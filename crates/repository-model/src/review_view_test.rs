@@ -11,6 +11,7 @@ use domain_types::pull_request::PullRequestAvailability;
 use domain_types::review_request::{LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewSearch, ReviewsAnswer};
 use domain_types::session::{Demand, ReviewSectionKind};
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 
 /// A table synced on `origin/master`, which Patronus pushes into `master`
 fn synced() -> TableState {
@@ -110,7 +111,7 @@ fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_
   };
   facts.apply(at(2), FactResult::ReviewRequests(result));
 
-  let reviews = reviews_view(&state, &facts);
+  let reviews = reviews_view(&state, &facts, &BTreeMap::new());
   let kinds: Vec<(ReviewSectionKind, Vec<u32>)> = reviews
     .sections
     .iter()
@@ -124,6 +125,9 @@ fn the_view_has_the_sections_of_reviews_and_the_actions_of_each_pull_request_to_
       (ReviewSectionKind::Authored, vec![3])
     ]
   );
+  // the link the user hasn't reviewed is the user's move
+  let moves: Vec<Vec<u32>> = reviews.sections.iter().map(|section| section.moves.clone()).collect();
+  assert_eq!(moves, vec![vec![4], vec![], vec![]]);
 
   let actions = review_actions_of(&state, &facts, &reviews);
   assert_eq!(actions.keys().cloned().collect::<Vec<_>>(), [1, 2, 3, 4].map(pull_key).to_vec());

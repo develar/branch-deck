@@ -232,6 +232,12 @@ test.describe("Your Turn card", () => {
     const card = getYourTurnCard(page)
     await expect(card.getByTestId("returned-pull-request-row")).toHaveCount(1)
     await expect(card.getByTestId("review-request-row")).toHaveCount(0)
+    // the node of its branch, as the branch row has it: changes requested need a fix
+    const node = card.getByTestId("returned-pull-request-row").getByTestId("review-entry-node")
+    await expect(node).toHaveAttribute("data-kind", "needsFix")
+    await node.hover()
+    await expect(page.getByTestId("lane-node-details")).toHaveAttribute("data-kind", "needsFix")
+    await page.mouse.move(0, 0)
     await card.getByTestId("your-turn-header").click()
     await expect(card.getByTestId("your-turn-summary")).toHaveText("1 returned")
     await expect(card.getByTestId("your-turn-count")).toHaveText("1")

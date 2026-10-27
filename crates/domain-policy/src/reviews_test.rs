@@ -1,6 +1,6 @@
 use crate::reviews::{ReviewsFacts, gone_links, sections};
 use domain_types::fixtures::review_request;
-use domain_types::pull_request::ReviewerState;
+use domain_types::pull_request::{ReviewDecision, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSearch, ReviewsAnswer};
 use domain_types::session::{ReviewSection, ReviewSectionKind};
 use pretty_assertions::assert_eq;
@@ -79,6 +79,7 @@ fn each_pull_request_shows_once_in_the_first_section_after_your_turn_the_empty_o
     answer: &answer,
     returned: &BTreeSet::new(),
     branches: &BTreeMap::new(),
+    own_moves: &BTreeSet::new(),
   };
   assert_eq!(
     shape(&sections(&facts)),
@@ -113,10 +114,13 @@ fn reviewed_by_the_user_shows_new_commits_first_and_the_requests_answered_with_a
     answer: &answer,
     returned: &BTreeSet::new(),
     branches: &BTreeMap::new(),
+    own_moves: &BTreeSet::new(),
   };
   let derived = sections(&facts);
   // 60 match beyond the 50 GitHub returns, and one more was answered with a comment
   assert_eq!(shape(&derived), vec![(ReviewSectionKind::Reviewed, vec![4, 9, 5, 3], 61)]);
+  // the approval of an earlier commit that GitHub no longer counts: the user's move
+  assert_eq!(derived[0].moves, vec![4]);
   assert_eq!(
     derived[0].entries[1].involvement,
     ReviewInvolvement::Reviewed {
@@ -139,6 +143,7 @@ fn the_own_pull_requests_name_their_branch_and_leave_the_returned_ones_to_your_t
     answer: &answer,
     returned: &BTreeSet::from([7]),
     branches: &BTreeMap::from([(6, "auth".to_owned())]),
+    own_moves: &BTreeSet::new(),
   };
   let derived = sections(&facts);
   assert_eq!(shape(&derived), vec![(ReviewSectionKind::Authored, vec![8, 6], 2)]);
@@ -147,6 +152,79 @@ fn the_own_pull_requests_name_their_branch_and_leave_the_returned_ones_to_your_t
     other => panic!("not authored: {other:?}"),
   };
   assert_eq!((branch(0), branch(1)), (None, Some("auth".to_owned())));
+}
+
+#[test]
+fn the_users_moves_are_a_link_to_review_a_review_its_commits_outdated_and_an_own_pull_request_to_land_or_fix() {
+  let with = |mut entry: ReviewEntry, state: Option<ReviewerState>, decision: Option<ReviewDecision>| {
+    entry.request.reviewed_state = state;
+    entry.request.review_decision = decision;
+    if let ReviewInvolvement::Reviewed { state: reviewed, .. } = &mut entry.involvement {
+      *reviewed = state;
+    }
+    entry
+  };
+  let mut reviewed_link = linked(11, 2);
+  if let LinkedAnswer::Open { entry } = &mut reviewed_link {
+    entry.request.reviewed_state = Some(ReviewerState::Approved);
+  }
+  let answer = ReviewsAnswer {
+    // a link the user hasn't reviewed is the user's; one the user approved, with no commit since, is not
+    linked: vec![linked(10, 1), reviewed_link],
+    // anyone of the team may take it
+    team: search(1, vec![team(20, 5)]),
+    reviewed: search(
+      4,
+      vec![
+        // GitHub still counts the approval of an earlier commit: no review again
+        with(reviewed(30, 400, true), Some(ReviewerState::Approved), Some(ReviewDecision::Approved)),
+        // the approval GitHub no longer counts, and changes the author answered with commits
+        with(reviewed(31, 100, true), Some(ReviewerState::Approved), Some(ReviewDecision::ReviewRequired)),
+        with(reviewed(32, 200, true), Some(ReviewerState::ChangesRequested), Some(ReviewDecision::ChangesRequested)),
+        // nothing new since the review
+        with(reviewed(33, 500, false), Some(ReviewerState::ChangesRequested), Some(ReviewDecision::ChangesRequested)),
+      ],
+    ),
+    authored: search(
+      4,
+      vec![
+        authored(40, 400),
+        authored(41, 100),
+        with(authored(42, 300), None, Some(ReviewDecision::ChangesRequested)),
+        with(authored(43, 200), None, Some(ReviewDecision::Approved)),
+      ],
+    ),
+  };
+  let facts = ReviewsFacts {
+    requests: &[],
+    answered: &[],
+    answer: &answer,
+    returned: &BTreeSet::new(),
+    // 40 and 41 are branches of the table, 41 the user's move (its node); 42 and 43 are of no branch
+    branches: &BTreeMap::from([(40, "auth".to_owned()), (41, "ui".to_owned())]),
+    own_moves: &BTreeSet::from([41]),
+  };
+  let derived = sections(&facts);
+  // the moves lead the reviewed and the own ones; the links keep the newest first
+  assert_eq!(
+    shape(&derived),
+    vec![
+      (ReviewSectionKind::Linked, vec![11, 10], 2),
+      (ReviewSectionKind::Team, vec![20], 1),
+      (ReviewSectionKind::Reviewed, vec![32, 31, 30, 33], 4),
+      (ReviewSectionKind::Authored, vec![42, 41, 40, 43], 4),
+    ]
+  );
+  let moves: Vec<(ReviewSectionKind, Vec<u32>)> = derived.iter().map(|section| (section.kind, section.moves.clone())).collect();
+  assert_eq!(
+    moves,
+    vec![
+      (ReviewSectionKind::Linked, vec![10]),
+      (ReviewSectionKind::Team, vec![]),
+      (ReviewSectionKind::Reviewed, vec![32, 31]),
+      (ReviewSectionKind::Authored, vec![42, 41]),
+    ]
+  );
 }
 
 #[test]

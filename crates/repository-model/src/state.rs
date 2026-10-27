@@ -91,7 +91,7 @@ impl View {
       open_pull_requests: &open,
       landed: &landed,
     };
-    let reviews = reviews_view(state, facts);
+    let reviews = reviews_view(state, facts, &steps);
     let mut actions_now = actions_of(state, facts, &sources);
     actions_now.extend(review_actions_of(state, facts, &reviews));
     let (actions, removed_actions) = diff_keyed(&last.actions, &actions_now);
