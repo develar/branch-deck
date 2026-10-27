@@ -1142,11 +1142,11 @@ test.describe("Stacked branches", () => {
       await repo.holdRemoteAnswers({ hold: ["readiness"] })
       await repo.setReviewAnswers({ answers: { "stack:auth": AWAITING_CODE_OWNER } })
       const missing = "Code owners must approve in a pull request: IJPL Code Platform"
-      // the row of the root asks Patronus for the whole stack, before any surface of it opens
       await syncAndWaitForBranches()
-      await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.branches.includes("stack:auth"))).toBe(true)
 
-      // before the answer the menu says what the whole stack waits for: no Safe Push a later answer refuses
+      // before the answer the menu says what the whole stack waits for: no Safe Push a later answer refuses. Its ask may
+      // still be in the queue behind the held asks of the branches (4 at a time): the rows of the branches can send the
+      // demand before the row of the root shows the whole stack
       await findBranchRow(page, "auth").click({ button: "right" })
       await openSubmenu(page, "Whole Stack")
       const waiting = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
@@ -1157,6 +1157,8 @@ test.describe("Stacked branches", () => {
       await page.keyboard.press("Escape")
       await expect(page.getByRole("menu")).toHaveCount(0)
       await repo.holdRemoteAnswers({ release: ["readiness"] })
+      // the row of the root asks Patronus for the whole stack, before any surface of it asks (the menu asks nothing)
+      await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.branches.includes("stack:auth"))).toBe(true)
 
       // now the menu knows: its Safe Push disabled with the reason, its pull request offered
       await findBranchRow(page, "auth").click({ button: "right" })
